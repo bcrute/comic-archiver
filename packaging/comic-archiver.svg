@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Comic Archiver</title>
+  <rect width="256" height="256" rx="48" fill="#1f5f7a"/>
+  <path d="M44 100c30-9 60-4 84 14 24-18 54-23 84-14v100c-30-9-60-4-84 14-24-18-54-23-84-14z" fill="#ffffff"/>
+  <path d="M128 114v100" stroke="#1f5f7a" stroke-width="6" fill="none"/>
+  <path d="M128 36v78M100 88l28 28 28-28" stroke="#f4b942" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

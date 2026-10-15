@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-10-02",
+  "fixture_kind": "sanitized_live_observation",
+  "source": "tapas",
+  "scope": "subscribed",
+  "selector": "nav.section-sort ul.sort-wrap li.sort-item a.item-title",
+  "selected_parent_class": "on",
+  "provided_fragments": {
+    "all": "!/reading-list?type=",
+    "comics": "!/reading-list?type=COMICS",
+    "novels": "!/reading-list?type=BOOKS"
+  },
+  "content_type": "comics",
+  "filter_clicked": true,
+  "membership_verified": true,
+  "initial_list_count": 15,
+  "final_list_count": 15,
+  "public_series_candidate_count": 15,
+  "original_selection": "all",
+  "filter_restore_succeeded": true,
+  "complete": false,
+  "reader_or_comic_pages_requested": false,
+  "purchase_or_unlock_action": false,
+  "credentials_omitted": true
+}

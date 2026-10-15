@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comic Archiver</title>
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/archive.css">
+  <script src="/assets/archive.js" defer></script>
+</head>
+<body data-desktop-only="true">
+  <!-- shared-header -->
+  <main class="wrap">
+    <p id="notice" role="status" aria-live="polite">Loading your library…</p>
+    <section id="local-setup" class="setup-help" hidden aria-labelledby="local-title">
+      <h2 id="local-title">Connect your Tapas account</h2>
+      <p id="local-login" hidden>In your library folder, run <code>comic-archive desktop</code> and sign in to your own account in the browser that opens. Return here when sign-in finishes.</p>
+      <p id="local-worker" hidden>The downloader is offline. In your library folder, run <code>comic-archive desktop</code> to restart it. Your saved episodes and unfinished downloads are retained.</p>
+    </section>
+    <section id="library-picker" class="toolbar" aria-label="Library selection">
+      <label>Library <select id="workspace" disabled><option>Loading…</option></select></label>
+      <button id="create" type="button" disabled>New library</button>
+    </section>
+    <div id="dashboard-heading" class="page-heading"><div><p class="eyebrow">Your archive</p><h2>Dashboard</h2></div><p id="dashboard-updated" class="muted" role="timer" aria-live="off">Checking current status…</p></div>
+    <div id="dashboard-grid" class="dashboard-grid">
+    <section id="account-download" aria-labelledby="account-save-title">
+      <div class="dashboard-card-heading"><p class="eyebrow">Current status</p><span id="dashboard-state" class="status-pill" data-tone="neutral">Loading</span></div>
+      <h2 id="account-save-title">Loading your status…</h2>
+      <div class="connection-badges" aria-label="Account and downloader status"><span id="dashboard-session" class="connection-badge">Tapas · Checking…</span><span id="dashboard-worker" class="connection-badge">Downloader · Checking…</span></div>
+      <p id="dashboard-intro" class="dashboard-intro">Sign in to Tapas, then hit Go to save the episodes your account can read.</p>
+      <p id="save-location" hidden><span class="muted">Saving to</span> <strong id="save-folder"></strong> <button id="open-folder" class="secondary compact" type="button">Open folder</button><button id="change-folder" class="secondary compact" type="button">Change…</button></p>
+      <p id="account-status" role="status" aria-live="polite">Connecting to your library…</p>
+      <div class="account-actions"><button id="tapas-signin" class="secondary" type="button" disabled>Sign in to Tapas</button><button id="account-go" type="button" disabled>Go</button><button id="account-pause" class="secondary" type="button" hidden disabled>Pause</button></div>
+      <p id="account-speed-row" class="muted" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select> <span id="account-speed-help"></span></p>
+      <div id="account-network" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Allow mobile data</label><p id="account-network-help" class="muted"></p></div>
+      <div id="cloud-entry" class="account-storage" hidden><button id="setup-b2" class="secondary" type="button" aria-controls="cloud-options">Set up B2 storage</button><p class="muted">Save episodes to your own Backblaze B2 account.</p></div>
+      <p id="tapas-signin-status" role="status" aria-live="polite"></p>
+      <div id="account-live-progress" hidden>
+        <p id="account-list-count"></p>
+        <progress id="account-list-meter" max="4" value="0" aria-label="Account lists checked"></progress>
+        <p id="account-list-help" class="muted" hidden>Sites supply lists in separate pages. We read each page and check the account between pages; large lists can take several minutes.</p>
+        <p id="account-clock" class="muted" role="timer" aria-live="off"></p>
+        <p id="account-activity" role="status" aria-live="polite"></p>
+      </div>
+      <p id="account-detail" class="muted"></p>
+      <p id="account-estimate" class="muted" hidden></p>
+      <p id="account-space" class="muted" hidden></p>
+      <p class="muted dashboard-footnote">Saved episodes stay safe. You can close this page and return later.</p>
+    </section>
+    <section id="library-overview" aria-labelledby="library-title">
+      <div class="section-heading"><h2 id="library-title">Your saved library</h2></div>
+      <div id="metrics" class="metrics"><div class="metric"><strong>—</strong>Saved episodes</div><div class="metric"><strong>—</strong>Saved files</div></div>
+      <p id="library-summary" role="status">Counting your saved files…</p>
+      <div id="library-locations" class="locations" aria-label="Storage locations"></div>
+
+      <button id="downloads" class="secondary" type="button" disabled>View saved files <span aria-hidden="true">→</span></button>
+      <p class="muted">Comics in CBZ. Novels in EPUB.</p>
+    </section>
+    </div>
+        <details id="cloud-options" hidden>
+          <summary>Save to your Backblaze B2 account</summary>
+          <div class="details-content">
+            <h3 id="cloud-title">Cloud storage</h3>
+            <p>Upload each CBZ as it is built to your own cloud account. One temporary episode is kept for recovery. Local episode files are removed only after the cloud copies are verified. Failed uploads keep your files here.</p>
+            <label hidden>Provider <select id="cloud-provider"><option value="b2">Backblaze B2</option><option value="google" hidden>Google Drive</option><option value="dropbox" hidden>Dropbox</option><option value="proton" hidden>Proton Drive (experimental)</option></select></label>
+            <p id="cloud-status" role="status">Checking cloud connections…</p>
+            <p id="cloud-action-status" role="status" aria-live="polite"></p>
+            <p id="cloud-repair" role="status"></p>
+            <ol class="cloud-steps"><li><strong>Connect your account.</strong><p id="cloud-setup" class="muted">Choose a provider, then sign in.</p><button id="connect-cloud" type="button" disabled>Sign in to Google Drive</button>
+              <div id="b2-setup" hidden>
+                <details id="b2-costs" class="cloud-costs">
+                  <summary><span class="cloud-costs-title">Estimated Backblaze cost: <span id="b2-cost-short">free up to 10 GB, then about 2 cents a day, about 70 cents a month, for each 100 GB more</span></span><span class="cloud-costs-more"><span class="cloud-costs-mark" aria-hidden="true">?</span>Cost details</span></summary>
+                  <p>Backblaze bills you itself, not through Comic Archiver. Comic Archiver never sees your payment details and is paid nothing.</p>
+                  <ul>
+                    <li><b>Signing up is free</b> and needs no card. The first 10 GB you store is always free.</li>
+                    <li><b>Past 10 GB</b>, Backblaze charges $6.95 a month for each 1,000 GB (1 TB) stored, and only for what is stored. Backblaze’s own pages count it <b>by the day</b>: 100 GB costs about 2 cents a day, about 63 cents a month. A large library of 12,000 episodes, about 240 GB, costs about 5 cents a day, about $1.60 a month.</li>
+                    <li><b>Uploading is free.</b> So is opening your episodes again, up to three times what you store, each month.</li>
+                    <li><b>For more than 10 GB, add a card</b> on Backblaze’s Billing page. Backblaze charges it once a month, for the month before.</li>
+                    <li><b>You can set a limit.</b> On Backblaze’s Caps &amp; Alerts page, set the most you want to spend <b>a day</b>, a little above your library’s daily cost. Backblaze emails you as you near it and stops uploads when it is reached.</li>
+                    <li>If Backblaze stops an upload, Comic Archiver tells you why and keeps the episodes on this computer.</li>
+                  </ul>
+                  <p id="b2-cost-estimate" hidden></p>
+                  <p class="muted">Prices as of October 2026. <a href="https://www.backblaze.com/cloud-storage/pricing" target="_blank" rel="noopener noreferrer">Backblaze’s current prices</a></p>
+                </details>
+                <p>One-time setup in four steps. Already have an account? Start at step 2.</p>
+                <ol class="cloud-steps">
+                  <li><strong>Create your account.</strong><p>Sign up and verify your email. No card is needed. If your library is larger than 10 GB, add a card on the Billing page once you are signed in.</p><a class="button secondary" href="https://www.backblaze.com/sign-up/s3" target="_blank" rel="noopener noreferrer">Create B2 account</a> <a class="button secondary" href="https://secure.backblaze.com/user_signin.htm" target="_blank" rel="noopener noreferrer">Sign in to Backblaze</a> <a class="button secondary" href="https://secure.backblaze.com/billing.htm" target="_blank" rel="noopener noreferrer">Open Billing</a> <a class="button secondary" href="https://secure.backblaze.com/b2_caps_alerts.htm" target="_blank" rel="noopener noreferrer">Open Caps &amp; Alerts</a></li>
+                  <li><strong>Create a private library folder.</strong><p>In Backblaze, click <b>Create a Bucket</b>. A bucket is your cloud library folder. For <b>Bucket Name</b>, use the suggested name below.</p><ul><li><b>Files in Bucket:</b> Choose <b>Private</b>. Your files can only be opened by you and apps you give access to.</li><li><b>Object Lock:</b> Choose <b>Disable</b>. This lets the archiver remove temporary uploads after testing the connection.</li></ul><p>Leave the other settings at their defaults, then click <b>Create a Bucket</b>.</p><label>Suggested bucket name <input id="b2-bucket-name" readonly autocomplete="off"></label><p class="muted">A random name is fine. The app saves it when you connect, so you don’t need to remember it afterward.</p><a class="button secondary" href="https://secure.backblaze.com/b2_buckets.htm" target="_blank" rel="noopener noreferrer">Open Buckets</a></li>
+                  <li><strong>Create your library access key.</strong><p>In Backblaze’s left menu, under <b>B2 Cloud Storage</b>, click <b>Application Keys</b>. Then click <b>Add a New Application Key</b>, name it <b>Comic Archiver</b>, select only your library bucket and choose <b>Read and Write</b>. Leave the file prefix and duration blank, then click <b>Create New Key</b>.</p><p><b>Backblaze shows the applicationKey only once.</b> Keep that page open until step 4 is done. If it is closed too soon, create another key the same way; the old one can be deleted.</p><a class="button secondary" href="https://secure.backblaze.com/app_keys.htm" target="_blank" rel="noopener noreferrer">Open Application Keys</a></li>
+                  <li><strong>Paste the key and connect.</strong><p>Copy the two values Backblaze just displayed. They stay on this device. You won’t need to enter them again.</p><form id="b2-login"><label>keyID <input id="b2-key-id" autocomplete="off" spellcheck="false" minlength="8" maxlength="256" pattern="[A-Za-z0-9]+" required></label><label>applicationKey <input id="b2-application-key" type="password" autocomplete="off" minlength="8" maxlength="256" required></label><button id="connect-b2" type="submit" disabled>Connect B2</button></form></li>
+                </ol>
+                <div id="b2-pages">
+                  <strong>Your Backblaze pages</strong>
+                  <p class="muted">Each opens in your browser, after Backblaze’s sign-in if needed.</p>
+                  <ul>
+                    <li><a href="https://secure.backblaze.com/b2_browse_files2.htm" target="_blank" rel="noopener noreferrer">Browse Files</a>: see your saved episodes and download any of them. They are ordinary CBZ files that any comic reader opens, with or without Comic Archiver.</li>
+                    <li><a href="https://secure.backblaze.com/b2_reports.htm" target="_blank" rel="noopener noreferrer">Reports</a>: how much you store and what it costs, day by day.</li>
+                    <li><a href="https://secure.backblaze.com/billing.htm" target="_blank" rel="noopener noreferrer">Billing</a>: your card and your monthly bills.</li>
+                    <li><a href="https://secure.backblaze.com/b2_caps_alerts.htm" target="_blank" rel="noopener noreferrer">Caps &amp; Alerts</a>: the most you allow a day, and Backblaze’s emails as you near it.</li>
+                    <li><a href="https://secure.backblaze.com/app_keys.htm" target="_blank" rel="noopener noreferrer">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li>
+                  </ul>
+                </div>
+              </div>
+              <div id="proton-signin" hidden><form id="cloud-login">
+                <label>Proton email or username <input id="cloud-username" autocomplete="username" maxlength="1024" required></label>
+                <label>Password <input id="cloud-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+                <label>Verification code (if enabled) <input id="cloud-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label>
+                <details><summary>I use a separate Proton mailbox password</summary><label>Mailbox password <input id="cloud-mailbox-password" type="password" autocomplete="off" maxlength="1024"></label></details>
+                <button id="submit-cloud-login" type="submit">Sign in</button>
+              </form></div>
+              <p id="cloud-auth-status" role="status"></p><a id="cloud-auth-link" target="_blank" rel="noopener noreferrer" hidden>Open cloud sign-in</a><button id="cancel-cloud-signin" class="secondary" type="button" hidden>Cancel sign-in</button></li><li><strong>Check the connection.</strong><p class="muted">The test uploads two saved episodes, verifies them and deletes its cloud copies. Your local originals stay here.</p><button id="test-cloud" type="button" disabled>Test cloud connection</button><div id="cloud-cleanup"></div></li><li><label class="checkbox"><input id="cloud-enabled" type="checkbox"> Save future episodes here and free local space</label><button id="save-cloud" type="button" disabled>Apply cloud choice</button></li></ol>
+        <div id="mobile-options" hidden><label class="checkbox"><input id="allow-mobile-data" type="checkbox"> Allow mobile data</label>
+        <p id="network-status" role="status">Checking connection…</p>
+        <p class="muted">Off by default. Downloads use Wi-Fi or an unmetered wired connection. Turning this on may use your data allowance.</p></div>
+<span id="network-options" hidden><button id="save-network" type="button" disabled>Apply data choice</button><button id="refresh-network" type="button" disabled>Check connection</button></span>
+            <button id="retry-cloud" type="button" disabled>Retry unfinished uploads</button>
+          </div>
+        </details>
+    <div id="download-options" hidden><div class="download-flow" aria-labelledby="import-title">
+      <section class="choose-series" aria-labelledby="import-title">
+        <p class="step-label">Step 1</p><h2 id="import-title">What would you like to save?</h2>
+        <p>Copy a comic or novel's series link from Tapas and paste it below.</p>
+        <form id="import-series">
+          <label class="series-link">Tapas series link <input id="series-url" type="url" maxlength="500" placeholder="https://tapas.io/series/your-series/info" required autocomplete="url" aria-describedby="series-help"></label>
+          <label>How much? <select id="series-amount"><option value="one">One episode to try it</option><option value="batch">Available episodes in this series</option></select></label>
+        </form>
+        <p id="series-help" class="muted">Only free and already unlocked episodes can be saved. Start with one episode, then continue when you're happy with the result.</p>
+      </section>
+      <section aria-labelledby="storage-title">
+        <p class="step-label">Step 2</p><h2 id="storage-title">Save on this computer</h2>
+        <p id="save-destination" class="destination">Completed episodes stay on this computer.</p>
+        <p id="storage-space" role="status">Checking available space…</p>
+        <label>Comic image quality <select id="image-profile"><option value="original">Original quality</option><option value="balanced">Smaller — up to 1600 pixels wide</option><option value="small">Smallest — up to 1080 pixels wide</option></select></label>
+        <p class="muted">Smaller images save space but may soften text. This choice applies to new comic downloads. Novels and existing files keep their quality.</p>
+
+
+      </section>
+      <section class="review-download" aria-labelledby="download-title">
+        <p class="step-label">Step 3</p><h2 id="download-title">Review and download</h2>
+        <p id="next-step" role="status">Paste a series link to get started.</p>
+        <div class="actions"><button id="preview-series" type="button" disabled>Review download</button><button id="import-link" type="submit" form="import-series" disabled>Download episodes</button></div>
+        <p id="series-storage" role="status">We'll check which episodes you can save and estimate the space they need.</p>
+        <p class="muted">Reviewing saves your image quality choice, then checks access and space on this computer. It does not download episodes. Access and free space are checked again during downloading.</p>
+        <p class="muted">Large series save in batches. Completed episodes are reused when you continue.</p>
+      </section>
+    </div>
+    </div>
+    <section id="batch-progress" hidden aria-labelledby="overview-title">
+      <div class="section-heading"><h2 id="overview-title">Download progress</h2><div class="connection-check"><button id="check" class="secondary" type="button" aria-describedby="connection-check-status" disabled>Check Tapas connection</button><p id="connection-check-status" role="status" aria-live="polite"></p></div></div>
+      <p id="connection"></p><p id="progress" role="status"></p>
+      <div class="actions"><button id="stop" class="secondary" type="button" disabled>Pause download</button><button id="stop-queued" class="secondary" type="button" disabled>Cancel waiting download</button></div>
+      <p id="batch-timing" class="muted"></p>
+    </section>
+    <details id="advanced" class="advanced" hidden><summary>Advanced: daily checks, account scans and maintenance</summary><div class="details-content">
+      <section aria-label="Known series">
+      <details id="series-options"><summary>Find a series you've already checked</summary><div class="details-content">
+        <h3 id="series-title">Known series</h3>
+        <label>Find a series <input id="search" type="search" maxlength="200" placeholder="Search titles"></label>
+        <label class="checkbox"><input id="unlocked-only" type="checkbox"> Show series with recorded unlocked episodes</label>
+        <p class="muted">These counts come from earlier checks. Access is checked again before saving an episode.</p><p id="series-count" class="muted"></p>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Series</th><th scope="col">Free</th><th scope="col">Unlocked</th><th scope="col">Saved</th><th scope="col">Waiting</th><th scope="col">Unsupported</th><th scope="col">Action</th></tr></thead><tbody id="series"></tbody></table></div>
+      </div></details>
+      </section>
+      <section aria-labelledby="schedule-title">
+        <h2 id="schedule-title">Save new free episodes each day</h2>
+        <p>Check known series for newly free and already unlocked episodes. Episodes with expiring access are saved first. A large library can need several runs to finish its scan.</p>
+        <form id="schedule"><label>Time <input id="at" type="time" value="08:00" required></label><label>Timezone <input id="zone" type="text" value="America/Chicago" maxlength="80" required></label><label class="checkbox"><input id="enabled" type="checkbox"> Enable daily checks</label><button id="save-schedule" type="submit" disabled>Save schedule</button></form>
+        <p id="daily-status" class="muted"></p><p id="scan-freshness" class="muted"></p>
+      </section>
+      <section aria-labelledby="account-title">
+        <h2 id="account-title">Account scans and download options</h2>
+        <p id="coverage">Account coverage has not been established.</p>
+        <div class="actions"><button id="watch" type="button" disabled>Check known series</button><button id="discover" type="button" disabled>Find series from my account lists</button><button id="archive" type="button" disabled>Download waiting episodes</button></div>
+        <p id="account-progress" role="status" aria-live="polite">No account scan is running.</p>
+        <p class="muted">Checking known series reads episode lists first, then saves newly available episodes. A large library can take several minutes. Progress updates every five seconds.</p>
+        <label>Download speed <select id="speed"><option value="normal">Normal</option><option value="fast">Fast</option></select></label>
+        <label>Download order <select id="priority"><option value="expiring_first">Expiring access first</option><option value="owned_first">Owned episodes first</option></select></label><button id="save-priority" type="button" disabled>Save download order</button>
+        <p class="muted">Fast downloads several pages at once. Current access is checked before every episode.</p><p id="budget" class="muted"></p>
+      </section>
+      <section aria-labelledby="maintenance-title">
+        <h2 id="maintenance-title">Storage options</h2>
+        <p id="storage-estimate"></p><p id="storage-per-episode" class="muted"></p><p id="storage-advice"></p>
+        <div class="actions"><button id="save-storage" type="button" disabled>Apply image quality</button><button id="refresh-storage" type="button" disabled>Check space again</button><button id="purge-cache" type="button" disabled>Clean verified temporary images</button></div>
+        <p class="muted">Temporary images from completed downloads are cleaned automatically after verification. Unfinished downloads and indexes are retained.</p>
+      </section>
+      <section aria-labelledby="audit-title">
+        <h2 id="audit-title">Check saved files</h2><p>Verify saved files against their metadata and report missing accessible episodes. This checks local files and does not refresh Tapas access.</p>
+        <button id="audit" type="button" disabled>Verify library &amp; create report</button><p id="audit-status" role="status"></p><a id="audit-download" download="comic-archive-audit.json" hidden>Download JSON report</a>
+      </section>
+    </div></details>
+  </main>
+  <footer class="wrap">Only free and already unlocked episodes are saved. Account-list scans cannot establish a complete purchase history.</footer>
+</body>
+</html>

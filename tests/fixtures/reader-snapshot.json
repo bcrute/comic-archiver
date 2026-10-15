@@ -1,0 +1,7 @@
+{
+  "fixture_kind": "synthetic; not a captured Tapas response",
+  "loaded": [
+    {"tag": "IMG", "url": "https://cdn.tapas.io/page-a.jpg?signature=TEST_ONLY", "loaded": true},
+    {"tag": "IMG", "url": "https://cdn.tapas.io/page-b.jpg?signature=TEST_ONLY", "loaded": true}
+  ]
+}
