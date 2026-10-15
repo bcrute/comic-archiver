@@ -24,7 +24,10 @@ The code is in the app already, from the browser version, but the window hides i
 - Bring in the later fix from the browser version: the way to Application Keys in Backblaze's menu. The key step
   links straight to Application Keys, since the person is signed in from creating the bucket.
 - The trial before anything is uploaded for real: two saved episodes are uploaded, read back and compared, and
-  the test copies deleted. Uploads start only after a passed trial and the person's own choice.
+  the test copies deleted. Uploads start only after a passed trial and the person's own choice, made on the
+  dashboard beside the save folder: where episodes go is chosen in that one place, not on the B2 page.
+- Typed keys stay in their fields while the B2 page is open, so a refused one can be corrected; they are cleared
+  once connected or when the page is left, and never kept.
 - Each new CBZ is uploaded as it is made; the copy on this computer is removed only once the upload is checked.
   Unfinished uploads can be retried and leftovers of interrupted ones cleaned up, with buttons.
 - The library page shows episodes kept only in the cloud, with its filters.
