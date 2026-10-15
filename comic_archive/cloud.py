@@ -320,6 +320,18 @@ def enable(root, provider, enabled):
     return status(root)
 
 
+def _bucket(target):
+    """The B2 bucket a connection saves to, for the person to see; None when unreadable."""
+    from .b2_auth import BUCKET
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(target['config'])
+        name = parser[target['remote']]['archive_bucket']
+    except (configparser.Error, KeyError, OSError):
+        return None
+    return name if BUCKET.fullmatch(name) else None
+
+
 def status(root):
     root = safe_root(root)
     value = settings(root)
@@ -341,6 +353,7 @@ def status(root):
                     failures[code] = failures.get(code, 0) + 1
         targets.append({'provider':provider, 'connected':bool(target), 'enabled':bool(target and target['enabled']),
                         'tested':bool(target and target['tested']), 'experimental':provider=='proton',
+                        'bucket':_bucket(target) if target and provider == 'b2' else None,
                         'failure_reasons':failures, **counts})
     cleanup = []
     folder = safe_root(root / '.archive-state/cloud/tests')

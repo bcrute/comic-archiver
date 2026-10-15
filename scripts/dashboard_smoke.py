@@ -95,7 +95,8 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
     assert page.evaluate("localStorage.getItem('comic-archive-theme')") == 'dark'
     for selector in ('#download-options','#advanced','#advanced-nav','#batch-progress','#mobile-options'):
         expect(page.locator(selector)).to_be_hidden()
-    (expect(page.locator('#cloud-options')).to_be_visible() if local else expect(page.locator('#cloud-options')).to_be_hidden())
+    (expect(page.locator('#setup-b2')).to_be_visible() if local else expect(page.locator('#setup-b2')).to_be_hidden())
+    expect(page.locator('#cloud-options')).to_be_hidden()
     expect(page.locator('#series-url')).to_have_count(1)
     # The one choice beside Go is the speed, and only the app on this computer offers it.
     assert page.locator('#account-download select').evaluate_all('nodes => nodes.map(node => node.id)') == ['account-speed']
@@ -109,17 +110,31 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         # A tall saved-library card must not bury the only cloud setup entry.
         expect(page.locator('#setup-b2')).to_be_in_viewport()
         page.locator('#library-locations').evaluate("node => node.style.minHeight = '1400px'")
-        assert page.locator('#cloud-options').bounding_box()['y'] > page.viewport_size['height']
         with patch.object(registry.cloud_signin, 'start') as connect:
+            # B2 setup is a page of its own, opened from its top, with the dashboard set aside.
             page.locator('#setup-b2').click()
-            expect(page.locator('#cloud-options')).to_have_attribute('open', '')
-            expect(page.locator('#cloud-options > summary')).to_be_in_viewport()
-            expect(page.locator('#b2-setup')).to_be_visible()
-            expect(page.locator('#b2-setup ol > li')).to_have_count(4)
+            expect(page.locator('#cloud-options')).to_be_visible()
+            expect(page.locator('#cloud-title')).to_be_in_viewport()
+            for selector in ('#account-download', '#library-overview', '#dashboard-heading'):
+                expect(page.locator(selector)).to_be_hidden()
+            expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
             expect(page.locator('#b2-login')).to_be_visible()
             expect(page.locator('#b2-application-key')).to_have_value('')
+            # Each step reads in the order it is done: the page to open, then what to do there.
+            steps = page.locator('#cloud-options .cloud-steps > li')
+            for index, href in ((0, 'sign-up/s3'), (1, 'b2_buckets.htm'), (2, 'app_keys.htm')):
+                step = steps.nth(index)
+                assert (step.locator(f'a[href$="{href}"]').bounding_box()['y']
+                        < step.locator('p:not(.step-links)').first.bounding_box()['y']), href
             connect.assert_not_called()
-        page.locator('#cloud-options > summary').click()
+            page.locator('#cloud-back').click()
+            expect(page.locator('#cloud-options')).to_be_hidden()
+            expect(page.locator('#account-download')).to_be_visible()
+            # The browser's own Back and Forward move between the two pages too.
+            page.go_back()
+            expect(page.locator('#cloud-options')).to_be_visible()
+            page.go_forward()
+            expect(page.locator('#account-download')).to_be_visible()
         page.locator('#library-locations').evaluate("node => node.style.minHeight = ''")
         page.evaluate('scrollTo(0,0)')
         expect(page.locator('#account-go')).to_be_enabled()
@@ -478,15 +493,15 @@ def own_window_controls(context, site, registry, workspace):
                 wait_for_ui_idle(page)
                 # Cloud saving runs on the person's own computer, so the window offers it as the local browser version does.
                 page.locator('#setup-b2').click()
-                expect(page.locator('#cloud-options')).to_have_attribute('open', '')
-                expect(page.locator('#b2-setup ol > li')).to_have_count(4)
+                expect(page.locator('#cloud-options')).to_be_visible()
+                expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
                 expect(page.locator('#b2-login')).to_be_visible()
                 # The person is signed in from creating the bucket, so the link opens the keys page itself.
-                expect(page.locator('#b2-setup ol a[href*="app_keys"]')).to_have_attribute(
+                expect(page.locator('#cloud-options .cloud-steps a[href*="app_keys"]')).to_have_attribute(
                     'href', 'https://secure.backblaze.com/app_keys.htm')
-                # The window's mobile data choice is beside Go, not a second one in this panel.
+                # The window's mobile data choice is beside Go, not a second one on this page.
                 expect(page.locator('#allow-mobile-data')).to_be_hidden()
-                page.locator('#cloud-options > summary').click()
+                page.locator('#cloud-back').click()
                 with page.expect_response(lambda response: response.url.endswith('/api/v1/location')) as sent:
                     page.locator('#open-folder').click()
                 assert sent.value.status == 200 and asked == ['open']
@@ -580,25 +595,24 @@ def mobile_data_controls(page, registry, workspace):
 def b2_setup_controls(page, registry):
     """Four-step default setup, private key clearing, nearby feedback and reload."""
     from playwright.sync_api import expect
-    page.reload(); page.locator('#cloud-options > summary').click()
+    page.reload(); open_b2(page)
     expect(page.locator('#cloud-provider')).to_have_value('b2')
     expect(page.locator('#cloud-provider')).to_be_hidden()
-    expect(page.locator('#b2-setup')).to_be_visible()
-    expect(page.locator('#b2-setup ol > li')).to_have_count(4)
+    expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
     expect(page.locator('#connect-cloud')).to_be_hidden()
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     # What Backblaze charges is offered before the first step, closed, with the estimate as its heading.
     expect(page.locator('#b2-costs > summary')).to_be_visible()
     expect(page.locator('#b2-costs > summary')).to_contain_text('Estimated Backblaze cost:')
     expect(page.locator('#b2-costs > summary')).to_contain_text('Cost details')
-    assert page.locator('#b2-costs').bounding_box()['y'] < page.locator('#b2-setup ol').bounding_box()['y']
+    assert page.locator('#b2-costs').bounding_box()['y'] < page.locator('#cloud-options .cloud-steps').bounding_box()['y']
     expect(page.locator('#b2-costs')).not_to_have_attribute('open', '')
     expect(page.locator('#b2-costs ul')).to_be_hidden()
     page.locator('#b2-costs > summary').click()
     expect(page.locator('#b2-costs ul')).to_be_visible()
     expect(page.locator('#b2-costs ul')).to_contain_text('first 10 GB you store is always free')
     for href in ('https://secure.backblaze.com/billing.htm', 'https://secure.backblaze.com/b2_caps_alerts.htm'):
-        expect(page.locator(f'#b2-setup ol > li:first-child a[href="{href}"]')).to_have_count(1)
+        expect(page.locator(f'#cloud-options .cloud-steps > li:first-child a[href="{href}"]')).to_have_count(1)
     # The person's own library, priced: free up to 10 GB, then only for what is past it.
     cost = lambda saved, left, unchecked=0: page.evaluate(
         'e => b2Cost(e)', {'saved_bytes': saved, 'left_bytes': left, 'unchecked_series': unchecked})
@@ -638,15 +652,30 @@ def b2_setup_controls(page, registry):
         # Keys are pasted as copied, with the space a copy often brings, which the fields' patterns would refuse.
         page.locator('#b2-key-id').fill(' fixtureKeyID12 ')
         page.locator('#b2-application-key').fill(' ' + fixture_key + ' ')
+        # The bucket name is the person's to choose; one Backblaze would refuse is caught here first.
+        page.locator('#b2-bucket-name').fill('lib')
+        page.locator('#connect-b2').click()
+        assert not started and not page.locator('#b2-bucket-name').evaluate('node => node.validity.valid')
+        page.locator('#b2-bucket-name').fill(' My-Comics-2026 ')
+        expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+        # A status refresh leaves what was typed alone.
+        page.evaluate('cloud()')
+        expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
         page.locator('#connect-b2').click()
         expect(page.locator('#cloud-auth-status')).to_contain_text('Checking your B2 key')
         expect(page.locator('#b2-key-id')).to_have_value('')
         expect(page.locator('#b2-application-key')).to_have_value('')
         expect(page.locator('#connect-b2')).to_be_disabled()
         expect(page.locator('#cloud-auth-link')).to_be_hidden()
-        assert started == [('b2', {'key_id':'fixtureKeyID12', 'application_key':fixture_key})]
+        assert started == [('b2', {'key_id':'fixtureKeyID12', 'application_key':fixture_key, 'bucket':'My-Comics-2026'})]
         assert fixture_key not in page.content()
-        page.reload(); page.locator('#cloud-options > summary').click()
+        # A key for another bucket says so, and the typed name stays to be corrected.
+        signin._state = {'status':'error', 'provider':'b2', 'code':'b2_bucket_mismatch'}
+        page.evaluate('poll()')
+        expect(page.locator('#cloud-auth-status')).to_contain_text('different bucket than the bucket name in step 2')
+        expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+        signin._state = {'status':'running', 'provider':'b2', 'stage':'checking_b2'}
+        page.reload(); open_b2(page)
         expect(page.locator('#cloud-auth-status')).to_contain_text('Checking your B2 key')
         expect(page.locator('#b2-application-key')).to_have_value('')
         signin._state = {'status':'error', 'provider':'b2', 'code':'b2_private_bucket'}
@@ -654,7 +683,28 @@ def b2_setup_controls(page, registry):
         expect(page.locator('#cloud-auth-status')).to_contain_text('Choose Private')
         expect(page.locator('#connect-b2')).to_be_enabled()
     signin._state = {'status':'idle'}
-    page.reload(); page.locator('#cloud-options > summary').click()
+    page.reload(); open_b2(page)
+    expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
+    # Once connected, the page names the bucket the connection saved, and the dashboard's button opens it.
+    page.evaluate('''state.cloud.targets = state.cloud.targets.map(t => t.provider === 'b2'
+        ? {...t, connected: true, bucket: 'My-Comics-2026'} : t); renderCloud()''')
+    expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+    expect(page.locator('#cloud-status')).to_contain_text('Your bucket: My-Comics-2026.')
+    expect(page.locator('#setup-b2')).to_have_text('Open B2 storage')
+    page.reload(); open_b2(page)
+
+
+def open_b2(page):
+    """B2 setup is a page of its own, at #b2, in place of the dashboard."""
+    from playwright.sync_api import expect
+    page.evaluate("location.hash = 'b2'")
+    expect(page.locator('#cloud-options')).to_be_visible()
+    expect(page.locator('#account-download')).to_be_hidden()
+
+
+def leave_b2(page):
+    """A fresh dashboard, as the app starts."""
+    page.goto(page.url.split('#')[0])
 
 
 def select_hidden_provider(page, provider):
@@ -689,7 +739,7 @@ def cloud_signin_controls(page, registry):
         expect(page.locator('#cloud-auth-link')).to_be_visible()
         expect(page.locator('#connect-cloud')).to_be_disabled()
         expect(page.locator('#cloud-provider')).to_be_disabled()
-        page.reload();page.locator('#cloud-options > summary').click()
+        page.reload();open_b2(page)
         expect(page.locator('#cloud-auth-status')).to_contain_text('Complete Google Drive sign-in')
         page.locator('#cancel-cloud-signin').click()
         expect(page.locator('#cloud-auth-status')).to_contain_text('cancelled')
@@ -732,7 +782,7 @@ def cloud_signin_controls(page, registry):
         expect(page.locator('#cloud-code')).to_have_value('')
         assert started[-1] == ('proton', {'username':'user@example.test','password':'PRIVATE_PROVIDER_PASSWORD','code':'123456','mailbox_password':''})
         assert 'PRIVATE_PROVIDER_PASSWORD' not in page.content()
-        page.reload();page.locator('#cloud-options > summary').click()
+        page.reload();open_b2(page)
         expect(page.locator('#cloud-provider')).to_have_value('proton')
         expect(page.locator('#cloud-auth-status')).to_contain_text('Signing in to Proton')
         expect(page.locator('#cloud-provider')).to_be_disabled()
@@ -742,9 +792,8 @@ def cloud_signin_controls(page, registry):
         expect(page.locator('#cloud-auth-status')).to_contain_text('try again')
         select_hidden_provider(page, 'google')
     signin._state = {'status':'idle'}
-    page.reload()
+    leave_b2(page)
     page.locator('#advanced > summary').click()
-    page.locator('#cloud-options > summary').click()
     page.locator('#series-options > summary').click()
 
 
@@ -786,7 +835,7 @@ def cloud_controls(page, registry, workspace):
         return request['args']
     with patch.object(registry, 'cloud_status', side_effect=status):
         page.reload()
-        page.locator('#cloud-options > summary').click()
+        open_b2(page)
         select_hidden_provider(page, 'google')
         expect(page.locator('#test-cloud')).to_be_enabled()
         page.locator('#test-cloud').click()
@@ -843,7 +892,7 @@ def cloud_controls(page, registry, workspace):
         failure_reasons = {}
         page.evaluate('cloud()')
         expect(page.locator('#cloud-repair')).to_have_text('')
-    page.reload()
+    leave_b2(page)
     expect(page.locator('#notice')).to_have_text('Library loaded. Choose a series to get started.')
 
 
@@ -883,8 +932,9 @@ def first_download_controls(page, registry, workspace):
     expect(page.locator('#import-link')).to_be_disabled()
     page.locator('#image-profile').select_option('small')
     expect(page.locator('#mobile-options')).to_be_hidden()
-    expect(page.locator('#cloud-options')).to_be_visible()
-    expect(page.locator('#cloud-options')).not_to_have_attribute('open', '')
+    # The fuller view's way to B2 is beside its local saving step.
+    expect(page.locator('#open-b2')).to_be_visible()
+    expect(page.locator('#cloud-options')).to_be_hidden()
     # Enter also reviews rather than bypassing the first check.
     wait_for_ui_idle(page)
     expect(page.locator('#preview-series')).to_be_enabled()
@@ -1134,7 +1184,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                 if local:
                     first_download_controls(page,registry,alice)
                 expect(page.locator('#mobile-options')).to_be_hidden()
-                (expect(page.locator('#cloud-options')).to_be_visible() if local else expect(page.locator('#cloud-options')).to_be_hidden())
+                (expect(page.locator('#open-b2')).to_be_visible() if local else expect(page.locator('#open-b2')).to_be_hidden())
                 expect(page.locator('#library-locations .location-card')).to_have_count(5 if local else 1)
                 if not local:
                     assert 'Cloud episode copies' not in page.locator('#metrics').inner_text()
@@ -1144,8 +1194,9 @@ def smoke(screenshot=None,mobile=False,local=False):
                 expect(page.locator('#notice')).to_have_text('Library loaded. Choose a series to get started.')
                 # The first download above never needed these secondary controls.
                 page.locator('#advanced > summary').click()
-                page.locator('#cloud-options > summary').click()
                 page.locator('#series-options > summary').click()
+                page.locator('#open-b2').click()
+                expect(page.locator('#cloud-options')).to_be_visible()
                 if local:
                     page.locator('#allow-mobile-data').check()
                     page.locator('#save-network').click()
@@ -1179,7 +1230,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                 expect(page.locator('#notice')).to_have_text('Library loaded. Choose a series to get started.')
                 page.locator('#advanced > summary').click()
                 page.locator('#series-options > summary').click()
-                (expect(page.locator('#cloud-options')).to_be_visible() if local else expect(page.locator('#cloud-options')).to_be_hidden())
+                (expect(page.locator('#open-b2')).to_be_visible() if local else expect(page.locator('#open-b2')).to_be_hidden())
                 expect(page.locator('#network-options')).to_be_hidden()
                 page.locator('#image-profile').select_option('small')
                 page.locator('#save-storage').click()
@@ -1421,7 +1472,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                     page.locator('#series-options').evaluate('node => node.open = true')
                     page.locator('#search').fill('')
                     page.locator('#advanced').evaluate('node => node.open = false')
-                    page.locator('#cloud-options').evaluate('node => node.open = false')
+                    page.evaluate("history.replaceState(null, '', location.pathname + location.search); showPage()")
                     page.locator('#series-options').evaluate('node => node.open = false')
                     page.screenshot(path=str(screenshot),full_page=True)
                 saved_library_controls(context, site, registry, alice, local, screenshot)

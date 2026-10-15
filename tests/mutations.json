@@ -2566,5 +2566,53 @@
   "new": "r'\\bstoragequotaexceeded\\b|\\binsufficient_space\\b|\\bstorage_cap_exceeded\\b'",
   "test_file": "test_cloud_errors.py",
   "test": "test_known_provider_reasons_are_fixed_hints_without_private_diagnostics"
+ },
+ {
+  "id": "b2-bucket-mismatch",
+  "source": "comic_archive/b2_auth.py",
+  "old": "            if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():\n                raise CloudTransferError('b2_bucket_mismatch')\n",
+  "new": "",
+  "test_file": "test_b2_auth.py",
+  "test": "test_key_must_be_for_the_bucket_named_in_setup"
+ },
+ {
+  "id": "b2-bucket-case",
+  "source": "comic_archive/b2_auth.py",
+  "old": "credentials['bucket'].lower() != bucket['name'].lower()",
+  "new": "credentials['bucket'] != bucket['name']",
+  "test_file": "test_b2_auth.py",
+  "test": "test_key_must_be_for_the_bucket_named_in_setup"
+ },
+ {
+  "id": "b2-bucket-name-validated",
+  "source": "comic_archive/b2_auth.py",
+  "old": "    if 'bucket' in credentials and (",
+  "new": "    if False and (",
+  "test_file": "test_b2_auth.py",
+  "test": "test_keys_are_validated_before_starting_helper_or_network"
+ },
+ {
+  "id": "b2-bucket-not-a-key",
+  "source": "comic_archive/b2_auth.py",
+  "old": "keys = {k: v for k, v in credentials.items() if k != 'bucket'}",
+  "new": "keys = dict(credentials)",
+  "test_file": "test_b2_auth.py",
+  "test": "test_keys_are_validated_before_starting_helper_or_network"
+ },
+ {
+  "id": "b2-status-bucket",
+  "source": "comic_archive/cloud.py",
+  "old": "'bucket':_bucket(target) if target and provider == 'b2' else None,",
+  "new": "'bucket':None,",
+  "test_file": "test_b2_auth.py",
+  "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
+ },
+ {
+  "id": "b2-status-bucket-unreadable",
+  "source": "comic_archive/cloud.py",
+  "old": "    except (configparser.Error, KeyError, OSError):\n        return None",
+  "new": "    except (configparser.Error, OSError):\n        return None",
+  "test_file": "test_b2_auth.py",
+  "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
  }
 ]
