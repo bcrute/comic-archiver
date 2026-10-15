@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Comic Archiver
+Comment=Save the comics and novels your account can read
+Exec=comic-archiver
+Icon=comic-archiver
+Terminal=false
+Categories=Utility;

@@ -1,0 +1,75 @@
+#!/bin/sh
+# Comic Archiver launcher: runs the Python bundled in this folder.
+self=$(readlink -f -- "$0" 2>/dev/null) || self=$0
+here=$(cd -- "$(dirname -- "$self")" && pwd -P) || exit 1
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1
+# Never import code from the folder the app was started in (the downloader inherits this too).
+export PYTHONSAFEPATH=1
+
+register_entry() {
+    # Keep the application-menu entry pointing at this folder; skipped for paths the format cannot quote.
+    case $here in *[\"\`\$\\%]*) return 0;; esac
+    apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    entry="$apps/comic-archiver.desktop"
+    icon="$here/share/icons/hicolor/scalable/apps/comic-archiver.svg"
+    mkdir -p -- "$apps" 2>/dev/null || return 0
+    tmp="$entry.$$"
+    while IFS= read -r line; do
+        case $line in
+            Exec=*) printf 'Exec="%s/comic-archiver"\n' "$here";;
+            Icon=*) printf 'Icon=%s\n' "$icon";;
+            *) printf '%s\n' "$line";;
+        esac
+    done < "$here/share/applications/comic-archiver.desktop" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 0; }
+    if [ -f "$entry" ] && cmp -s -- "$tmp" "$entry"; then rm -f -- "$tmp"; else mv -f -- "$tmp" "$entry" 2>/dev/null || rm -f -- "$tmp"; fi
+}
+
+xcb_cursor_missing() {
+    # True only when the system library list was readable and lacks the one Qt needs on X11 sessions.
+    lister=$(command -v ldconfig 2>/dev/null) || lister=/sbin/ldconfig
+    [ -x "$lister" ] || return 1
+    listing=$("$lister" -p 2>/dev/null) || return 1
+    case $listing in *libxcb-cursor.so.0*) return 1;; esac
+    return 0
+}
+
+notify() {
+    # Qt can abort before it is able to show its own dialog.
+    log="${XDG_STATE_HOME:-$HOME/.local/state}/comic-archiver/desktop.log"
+    title='Comic Archiver could not open its window'
+    text="Comic Archiver stopped before its window could open. Your computer may be missing a graphics component.
+
+Please restart your computer and try again. If this keeps happening, ask someone to help you.
+
+More details may be in: $log"
+    if xcb_cursor_missing; then
+        text="$text
+
+Technical details: the library libxcb-cursor.so.0 was not found. On Ubuntu, Debian or Mint it is installed with: sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0"
+    fi
+    if command -v zenity >/dev/null 2>&1; then zenity --error --no-markup --title="$title" --text="$text"
+    elif command -v kdialog >/dev/null 2>&1; then kdialog --title "$title" --error "$text"
+    elif command -v xmessage >/dev/null 2>&1; then xmessage -center "$title
+
+$text"
+    fi
+}
+
+register=1
+for arg in "$@"; do
+    case $arg in --self-test|--version) register=0;; esac
+done
+if [ "$register" = 1 ]; then register_entry; fi
+
+# Not exec: the status and the run time are needed afterwards to explain a crash on start.
+began=$(date +%s)
+"$here/python/bin/python3" -m comic_archive.desktop_app "$@"
+status=$?
+# 129, 130 and 143 are the user hanging up, interrupting or terminating the app. A crash long after
+# the start (or while quitting) is not a missing library, so only an early one is explained.
+if [ "$status" -ge 128 ] && [ "$status" != 129 ] && [ "$status" != 130 ] && [ "$status" != 143 ] \
+        && [ $(( $(date +%s) - began )) -lt "${COMIC_ARCHIVER_START_GRACE:-10}" ]; then
+    notify >/dev/null 2>&1 || true
+fi
+exit "$status"

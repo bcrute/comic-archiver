@@ -1,0 +1,4 @@
+# Windows reads these as they are: its line endings and the icon must reach it unchanged.
+*.cmd -text
+*.iss -text
+*.ico binary

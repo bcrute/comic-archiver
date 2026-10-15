@@ -1,0 +1,37 @@
+{
+  "fixture_kind": "sanitized partial observation from public rendered reader; not an import manifest",
+  "observed_at": "2026-10-01",
+  "source_url": "https://tapas.io/episode/1000001",
+  "series_slug": "example-series",
+  "series_title": "Example Series",
+  "episode_title": "Episode 1",
+  "published_at": "2023-07-19",
+  "reader_image_link_count": 88,
+  "authenticated": false,
+  "image_bytes_retrieved": false,
+  "asset_host": "us-a.tapas.io",
+  "asset_query_parameter_names": [
+    "__token__",
+    "version"
+  ],
+  "observed_token_field_names": [
+    "exp",
+    "acl",
+    "hmac"
+  ],
+  "cached_sample_expires_at": "2026-09-28T11:51:57Z",
+  "sampled_asset_paths": [
+    {
+      "reader_position": 1,
+      "path": "/pc/93/655355e8-0f9e-4c1b-8a08-486e5c4eaab8.jpg"
+    },
+    {
+      "reader_position": 44,
+      "path": "/pc/a0/4295cbb8-4797-475e-abb9-5a0eb385dab3-1.jpg"
+    },
+    {
+      "reader_position": 88,
+      "path": "/pc/f1/e27b353f-793d-46b4-9997-e7be32c27807.jpg"
+    }
+  ]
+}

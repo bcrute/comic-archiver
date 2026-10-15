@@ -1,0 +1,105 @@
+{
+  "fixture_kind": "sanitized live observation; no cookies, account IDs, signed asset URLs or comic bytes",
+  "observed_at": "2026-10-01",
+  "source_url": "https://tapas.io/episode/1000001",
+  "session": {
+    "authenticated": true
+  },
+  "series": {
+    "id": 100000,
+    "title": "Example Series",
+    "url": "example-series",
+    "comic": true,
+    "book": false,
+    "premium": true
+  },
+  "episode": {
+    "id": 1000001,
+    "title": "Episode 1",
+    "scene": 1,
+    "publish_date": "2023-07-19T18:00:00Z",
+    "free": true,
+    "unlocked": false,
+    "must_pay": false,
+    "scheduled": false,
+    "book": false,
+    "free_access": false,
+    "closing_date": null
+  },
+  "initial_html": {
+    "image_count": 88,
+    "current": {
+      "comic_asset_count": 0,
+      "schemes": {
+        "data": 88
+      }
+    },
+    "src": {
+      "comic_asset_count": 0,
+      "schemes": {
+        "data": 88
+      }
+    },
+    "data-src": {
+      "comic_asset_count": 88,
+      "schemes": {
+        "https": 88
+      }
+    }
+  },
+  "dom_before_scroll": {
+    "image_count": 88,
+    "current": {
+      "comic_asset_count": 2,
+      "schemes": {
+        "https": 2,
+        "data": 86
+      }
+    },
+    "src": {
+      "comic_asset_count": 2,
+      "schemes": {
+        "https": 2,
+        "data": 86
+      }
+    },
+    "data-src": {
+      "comic_asset_count": 88,
+      "schemes": {
+        "https": 88
+      }
+    }
+  },
+  "pagination": {
+    "page": 2,
+    "since": 1790900887000,
+    "has_next": true,
+    "sort": "OLDEST",
+    "total": 331,
+    "limit": 20,
+    "web": false,
+    "to_prev": false,
+    "index": 0
+  },
+  "known_locked_episode": {
+    "id": 1000004,
+    "scene": 4,
+    "title": "Episode 4",
+    "free": false,
+    "unlocked": false,
+    "must_pay": false,
+    "scheduled": false,
+    "book": false,
+    "free_access": false
+  },
+  "live_import": {
+    "series_episode_count": 331,
+    "accessible_episode_count": 3,
+    "archived_page_counts": [
+      88,
+      71,
+      75
+    ],
+    "headless_archive_verified": true
+  }
+}

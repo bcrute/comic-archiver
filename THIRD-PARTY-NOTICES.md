@@ -1,0 +1,64 @@
+# Third-party notices
+
+Comic Archiver itself is released under the MIT licence (see `LICENSE`). The
+app folders for Linux and Windows also contain the software below, each under
+its own licence.
+The licence texts that each package supplies are copied into the `licenses/`
+folder of the app (one subfolder per package, including the Qt LGPL text and
+Python's own `LICENSE.txt`).
+`requirements-frozen.txt` in the app folder lists the exact Python package
+versions that were installed.
+
+Comic Archiver is an independent personal-archiving tool. It is not affiliated
+with, endorsed by or supported by Tapas Media, Inc. or any other company named
+here.
+
+## CPython
+
+The Python interpreter is CPython, under the Python Software Foundation
+Licence, packaged by the python-build-standalone project
+(https://github.com/astral-sh/python-build-standalone). That distribution also
+contains other open-source libraries (for example OpenSSL, SQLite, zlib, xz,
+libffi, ncurses and readline); their licences are listed in the upstream
+release and in the interpreter's own `LICENSE` text.
+Source: https://www.python.org/downloads/ and the python-build-standalone
+release page.
+
+## Qt and PySide6 (LGPL-3.0)
+
+The application window uses Qt 6, including Qt WebEngine, through PySide6 and
+Shiboken6 (the `PySide6`, `PySide6_Essentials`, `PySide6_Addons` and `shiboken6`
+packages from The Qt Company). These are used under the GNU Lesser General
+Public Licence version 3 (https://www.gnu.org/licenses/lgpl-3.0.html), with
+the GNU General Public Licence version 3 where a component requires it. Qt and
+PySide6 are copyright The Qt Company Ltd. and other contributors.
+
+Qt is linked dynamically: its libraries are separate files inside
+`python/lib/python*/site-packages/PySide6/` (Linux) or
+`python\Lib\site-packages\PySide6\` (Windows). You may replace them with a
+modified or different build of the same version of those libraries. On Linux,
+for example, install another PySide6 build into this folder's Python with
+`python/bin/python3 -m pip install`. The Windows app holds only the Qt
+libraries it loads, and no pip: copy the files of another PySide6 build of the
+same version over them (a PySide6 package from PyPI is a zip file).
+
+Corresponding source code:
+
+- Qt: https://download.qt.io/official_releases/qt/ and https://code.qt.io/
+- PySide6 and Shiboken6: https://code.qt.io/cgit/pyside/pyside-setup.git and
+  the source distribution of `PySide6` on https://pypi.org/project/PySide6/
+
+Qt WebEngine is based on the Chromium project (https://www.chromium.org/),
+which is made of many components under BSD-style, MIT, MPL and other licences;
+the full list and the source are at
+https://code.qt.io/cgit/qt/qtwebengine-chromium.git.
+
+## Other Python packages
+
+- httpx (BSD-3-Clause) and its dependencies httpcore (BSD-3-Clause), h11 (MIT),
+  anyio (MIT), idna (BSD-3-Clause) and certifi (MPL-2.0).
+- zstandard (BSD-3-Clause), which bundles the Zstandard library (BSD-3-Clause).
+- Pillow (MIT-CMU, the Historical Permission Notice and Disclaimer), which
+  bundles libjpeg-turbo, libpng, libtiff, libwebp, FreeType, zlib and other
+  libraries under their own permissive licences.
+- typing_extensions (PSF).

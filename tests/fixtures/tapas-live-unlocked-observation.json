@@ -1,0 +1,31 @@
+{
+  "observation_date": "2026-10-01",
+  "kind": "live observation with the series, episode and library details replaced",
+  "unlocked_episode": {
+    "authenticated": true,
+    "access_verified": true,
+    "access_state": "tapas_unlocked",
+    "source_url": "https://tapas.io/episode/1000004",
+    "authorization": {
+      "id": 1000004,
+      "free": false,
+      "unlocked": true,
+      "must_pay": false,
+      "scheduled": false,
+      "book": false,
+      "closing_date": null
+    },
+    "source_series_id": "100000",
+    "series_title": "Example Series",
+    "source_episode_id": "1000004",
+    "title": "Example Episode 4",
+    "episode_order": 4,
+    "published_at": "2020-01-01T00:00:00Z",
+    "page_count": 47,
+    "page_manifest_available": true,
+    "scrolling_required": false
+  },
+  "discovery": {
+    "complete": false
+  }
+}

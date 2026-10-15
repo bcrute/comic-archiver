@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-archive"
+version = "0.1.0"
+description = "Personal comic and novel preservation: CBZ, EPUB, and source-neutral JSON"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+dependencies = ["httpx>=0.27,<1", "zstandard>=0.25,<1", "tzdata>=2025.1; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.45,<2"]
+validation = ["Pillow>=10"]
+desktop = ["PySide6>=6.11.2,<6.12"]
+test = ["Pillow>=10", "playwright>=1.45,<2", "coverage>=7,<8", "build>=1.5,<2"]
+
+[project.scripts]
+comic-archive = "comic_archive.cli:main"
+tapas-archive = "comic_archive.cli:main"
+
+[project.gui-scripts]
+comic-archiver = "comic_archive.desktop_app:main"
+
+[tool.setuptools.packages.find]
+include = ["comic_archive*", "tapas_archive*"]
+
+[tool.setuptools.package-data]
+comic_archive = ["static/*.html", "static/*.css", "static/*.js", "oauth-clients.json"]

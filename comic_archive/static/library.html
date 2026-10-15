@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saved library — Comic Archiver</title>
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/archive.css"><script src="/assets/library.js" defer></script>
+</head>
+<body>
+  <!-- shared-header -->
+  <main class="wrap">
+    <p id="notice" role="status" aria-live="polite">Loading your saved files…</p>
+    <section aria-labelledby="library-title">
+      <div class="section-heading"><h2 id="library-title">Your saved library</h2><button id="refresh-files" class="secondary" type="button">Refresh files</button></div>
+      <div id="library-picker" class="toolbar"><label>Library <select id="workspace" disabled></select></label></div>
+      <p id="library-summary"></p>
+      <div id="library-locations" class="locations" aria-label="Storage locations"></div>
+      <form id="file-filters" class="toolbar">
+        <label>Find saved files <input id="file-search" type="search" maxlength="200" placeholder="Series, title or filename"></label>
+        <label>File types <select id="file-kind"><option value="all">All files</option><option value="episodes">Comics and novels</option><option value="metadata">Metadata (JSON)</option><option value="covers">Covers</option></select></label>
+        <label>Sort by <select id="file-sort"><option value="saved_desc">Newest saved first</option><option value="saved_asc">Oldest saved first</option><option value="series">Series and title</option></select></label>
+        <button id="search-files" type="submit">Search</button><button id="clear-search" class="secondary" type="button">Clear</button>
+      </form>
+      <p id="file-range" role="status"></p>
+      <p class="muted table-help">Scroll across the table to see all file details on a small screen.</p>
+      <div class="table-wrap" tabindex="0" aria-label="Saved file details"><table id="saved-files"><caption class="visually-hidden">Saved files in the selected storage location</caption><thead><tr><th scope="col">Series</th><th scope="col">Title</th><th scope="col">Filename</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Date/time saved</th><th scope="col">Storage</th><th scope="col">File</th></tr></thead><tbody id="files"></tbody></table></div>
+      <div class="pagination" aria-label="Saved file pages">
+        <button id="previous-page" class="secondary" type="button" disabled>Previous</button>
+        <form id="page-jump"><label>Page <input id="file-page" type="number" min="1" value="1" required></label><span id="page-count"></span><button id="go-page" class="secondary" type="submit">Go</button></form>
+        <button id="next-page" class="secondary" type="button" disabled>Next</button>
+        <label>Files per page <select id="page-size"><option value="50">50</option><option value="100">100</option><option value="200">200</option></select></label>
+      </div>
+      <p id="catalog-note" class="muted">Dates use your computer's timezone. “File time” means the original save date is unavailable.</p>
+    </section>
+  </main>
+</body>
+</html>
