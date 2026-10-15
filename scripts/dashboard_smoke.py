@@ -29,7 +29,7 @@ from comic_archive.hosted import WorkspaceRegistry
 from comic_archive.inventory import Inventory
 from comic_archive.locking import LibraryLock
 from comic_archive.local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry
-from comic_archive.models import Episode, Manifest, Page, Series
+from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.web import HostedApplication
 from comic_archive.worker import private_json
 
@@ -101,9 +101,11 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
     # The one choice beside Go is the speed, and only the app on this computer offers it.
     assert page.locator('#account-download select').evaluate_all('nodes => nodes.map(node => node.id)') == ['account-speed']
     (expect(page.locator('#account-speed')).to_be_visible() if local else expect(page.locator('#account-speed')).to_be_hidden())
-    # The mobile data choice appears only when the connection holds saving (mobile_data_controls).
-    assert page.locator('#account-download input').evaluate_all('nodes => nodes.map(node => node.id)') == ['account-mobile-data']
+    # The mobile data choice appears only when the connection holds saving (mobile_data_controls); the B2 choice
+    # sits beside the save folder, once a B2 connection has passed its check (b2_setup_controls).
+    assert page.locator('#account-download input').evaluate_all('nodes => nodes.map(node => node.id)') == ['cloud-enabled', 'account-mobile-data']
     expect(page.locator('#account-network')).to_be_hidden()
+    expect(page.locator('#cloud-choice')).to_be_hidden()
     if not local:
         expect(page.locator('#setup-b2')).to_be_hidden()
     if local:
@@ -502,6 +504,8 @@ def own_window_controls(context, site, registry, workspace):
                 # The window's mobile data choice is beside Go, not a second one on this page.
                 expect(page.locator('#allow-mobile-data')).to_be_hidden()
                 page.locator('#cloud-back').click()
+                # The window keeps where episodes go in one place: beside the save folder.
+                assert page.evaluate("document.getElementById('save-location').nextElementSibling.id") == 'cloud-choice'
                 with page.expect_response(lambda response: response.url.endswith('/api/v1/location')) as sent:
                     page.locator('#open-folder').click()
                 assert sent.value.status == 200 and asked == ['open']
@@ -601,6 +605,9 @@ def b2_setup_controls(page, registry):
     expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
     expect(page.locator('#connect-cloud')).to_be_hidden()
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
+    expect(page.locator('#b2-key-bucket')).to_have_text(page.locator('#b2-bucket-name').input_value())
+    # Backblaze refuses a key name with anything but letters, numbers and hyphens.
+    assert re.fullmatch(r'[A-Za-z0-9-]{1,100}', page.locator('#b2-key-name').inner_text())
     # What Backblaze charges is offered before the first step, closed, with the estimate as its heading.
     expect(page.locator('#b2-costs > summary')).to_be_visible()
     expect(page.locator('#b2-costs > summary')).to_contain_text('Estimated Backblaze cost:')
@@ -658,22 +665,43 @@ def b2_setup_controls(page, registry):
         assert not started and not page.locator('#b2-bucket-name').evaluate('node => node.validity.valid')
         page.locator('#b2-bucket-name').fill(' My-Comics-2026 ')
         expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+        # The key step names the same bucket to choose.
+        expect(page.locator('#b2-key-bucket')).to_have_text('My-Comics-2026')
         # A status refresh leaves what was typed alone.
         page.evaluate('cloud()')
         expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
         page.locator('#connect-b2').click()
         expect(page.locator('#cloud-auth-status')).to_contain_text('Checking your B2 key')
-        expect(page.locator('#b2-key-id')).to_have_value('')
-        expect(page.locator('#b2-application-key')).to_have_value('')
+        expect(page.locator('#b2-key-id')).to_have_value('fixtureKeyID12')
+        expect(page.locator('#b2-application-key')).to_have_value(fixture_key)
         expect(page.locator('#connect-b2')).to_be_disabled()
         expect(page.locator('#cloud-auth-link')).to_be_hidden()
         assert started == [('b2', {'key_id':'fixtureKeyID12', 'application_key':fixture_key, 'bucket':'My-Comics-2026'})]
         assert fixture_key not in page.content()
         # A key for another bucket says so, and the typed name stays to be corrected.
+        wait_for_ui_idle(page)
         signin._state = {'status':'error', 'provider':'b2', 'code':'b2_bucket_mismatch'}
         page.evaluate('poll()')
         expect(page.locator('#cloud-auth-status')).to_contain_text('different bucket than the bucket name in step 2')
         expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+        # The keys stay to try again with, not to be pasted again.
+        expect(page.locator('#b2-key-id')).to_have_value('fixtureKeyID12')
+        expect(page.locator('#b2-application-key')).to_have_value(fixture_key)
+        expect(page.locator('#connect-b2')).to_be_enabled()
+        # Leaving the page lets them go.
+        page.locator('#cloud-back').click(); open_b2(page)
+        expect(page.locator('#b2-key-id')).to_have_value('')
+        expect(page.locator('#b2-application-key')).to_have_value('')
+        # So does a connection that works.
+        page.locator('#b2-key-id').fill('fixtureKeyID12'); page.locator('#b2-application-key').fill(fixture_key)
+        page.locator('#connect-b2').click()
+        expect(page.locator('#connect-b2')).to_be_disabled()
+        expect(page.locator('#cloud-auth-status')).to_contain_text('Checking your B2 key')
+        wait_for_ui_idle(page)
+        signin._state = {'status':'connected', 'provider':'b2'}
+        page.evaluate('poll()')
+        expect(page.locator('#b2-application-key')).to_have_value('')
+        expect(page.locator('#b2-key-id')).to_have_value('')
         signin._state = {'status':'running', 'provider':'b2', 'stage':'checking_b2'}
         page.reload(); open_b2(page)
         expect(page.locator('#cloud-auth-status')).to_contain_text('Checking your B2 key')
@@ -686,11 +714,35 @@ def b2_setup_controls(page, registry):
     page.reload(); open_b2(page)
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     # Once connected, the page names the bucket the connection saved, and the dashboard's button opens it.
-    page.evaluate('''state.cloud.targets = state.cloud.targets.map(t => t.provider === 'b2'
-        ? {...t, connected: true, bucket: 'My-Comics-2026'} : t); renderCloud()''')
-    expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
-    expect(page.locator('#cloud-status')).to_contain_text('Your bucket: My-Comics-2026.')
-    expect(page.locator('#setup-b2')).to_have_text('Open B2 storage')
+    original_status, tested = registry.cloud_status, []
+    def status(owner, workspace_id):
+        value = original_status(owner, workspace_id)
+        for target in value['targets']:
+            if target['provider'] == 'b2': target.update(connected=True, tested=bool(tested), bucket='My-Comics-2026')
+        return value
+    with patch.object(registry, 'cloud_status', side_effect=status):
+        page.evaluate('cloud()')
+        expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
+        expect(page.locator('#cloud-status')).to_contain_text('Your bucket: My-Comics-2026.')
+        expect(page.locator('#setup-b2')).to_have_text('Open B2 storage')
+        # Where episodes go is chosen beside the save folder, once the check has passed; the page leads there.
+        page.locator('#cloud-done').click()
+        expect(page.locator('#cloud-options')).to_be_hidden()
+        expect(page.locator('#cloud-choice')).to_be_hidden()
+        tested.append(True); page.evaluate('cloud()')
+        expect(page.locator('#cloud-choice')).to_be_visible()
+        expect(page.locator('#cloud-choice')).to_contain_text('Upload new episodes to Backblaze B2, bucket My-Comics-2026,')
+        # In this fuller view, it is in the saving step, after where episodes are saved now.
+        assert page.evaluate("document.getElementById('save-destination').nextElementSibling.id") == 'cloud-choice'
+        # A refused choice says why and shows what is saved.
+        with patch.object(registry, 'configure_cloud', side_effect=ArchiveError('Fixture refusal.')):
+            page.locator('#cloud-enabled').click()
+            expect(page.locator('#cloud-choice-status')).to_have_text(re.compile(r'.+'))
+            expect(page.locator('#cloud-enabled')).not_to_be_checked()
+        with patch.object(registry, 'configure_cloud', return_value={}) as configure:
+            page.locator('#cloud-enabled').click()
+            expect(page.locator('#cloud-choice-status')).to_have_text('')
+            assert configure.call_args.args[2:] == ('b2', True)
     page.reload(); open_b2(page)
 
 
@@ -931,7 +983,8 @@ def first_download_controls(page, registry, workspace):
     expect(page.locator('#preview-series')).to_be_enabled()
     expect(page.locator('#import-link')).to_be_disabled()
     page.locator('#image-profile').select_option('small')
-    expect(page.locator('#mobile-options')).to_be_hidden()
+    # The fuller view's mobile data choice is with its other saving choices, not inside the B2 page.
+    expect(page.locator('#mobile-options')).to_be_visible()
     # The fuller view's way to B2 is beside its local saving step.
     expect(page.locator('#open-b2')).to_be_visible()
     expect(page.locator('#cloud-options')).to_be_hidden()
@@ -1178,12 +1231,12 @@ def smoke(screenshot=None,mobile=False,local=False):
                 expect(page.locator('#storage-space')).to_contain_text('free on this device' if local else 'free on the library server')
                 expect(page.locator('#storage-per-episode')).to_contain_text('per episode')
                 expect(page.locator('#image-profile')).to_have_value('original')
-                expect(page.locator('#save-cloud')).to_be_disabled()
+                expect(page.locator('#cloud-choice')).to_be_hidden()
                 expect(page.locator('#retry-cloud')).to_be_disabled()
                 expect(page.locator('#test-cloud')).to_be_disabled()
                 if local:
                     first_download_controls(page,registry,alice)
-                expect(page.locator('#mobile-options')).to_be_hidden()
+                (expect(page.locator('#mobile-options')).to_be_visible() if local else expect(page.locator('#mobile-options')).to_be_hidden())
                 (expect(page.locator('#open-b2')).to_be_visible() if local else expect(page.locator('#open-b2')).to_be_hidden())
                 expect(page.locator('#library-locations .location-card')).to_have_count(5 if local else 1)
                 if not local:
@@ -1195,8 +1248,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                 # The first download above never needed these secondary controls.
                 page.locator('#advanced > summary').click()
                 page.locator('#series-options > summary').click()
-                page.locator('#open-b2').click()
-                expect(page.locator('#cloud-options')).to_be_visible()
+                # The mobile data choice is with the other saving choices, not on the B2 page.
                 if local:
                     page.locator('#allow-mobile-data').check()
                     page.locator('#save-network').click()
@@ -1204,6 +1256,14 @@ def smoke(screenshot=None,mobile=False,local=False):
                     page.locator('#allow-mobile-data').uncheck()
                     page.locator('#save-network').click()
                     expect(page.locator('#allow-mobile-data')).not_to_be_checked()
+                else:
+                    expect(page.locator('#save-network')).to_be_disabled()
+                    expect(page.locator('#allow-mobile-data')).to_be_disabled()
+                    expect(page.locator('#network-status')).to_contain_text('local archiver')
+                page.locator('#open-b2').click()
+                expect(page.locator('#cloud-options')).to_be_visible()
+                expect(page.locator('#cloud-options input[type=checkbox]')).to_have_count(0)
+                if local:
                     expect(page.locator('#cloud-status')).to_contain_text('No connection configured')
                     select_hidden_provider(page, 'proton')
                     expect(page.locator('#cloud-setup')).to_contain_text('not officially supported by Proton')
@@ -1212,9 +1272,6 @@ def smoke(screenshot=None,mobile=False,local=False):
                     expect(page.locator('#connect-cloud')).to_have_text('Sign in to Google Drive')
                     assert 'cloud-connect' not in page.locator('#cloud-options').inner_text()
                 else:
-                    expect(page.locator('#save-network')).to_be_disabled()
-                    expect(page.locator('#allow-mobile-data')).to_be_disabled()
-                    expect(page.locator('#network-status')).to_contain_text('local archiver')
                     expect(page.locator('#cloud-status')).to_contain_text('hosted dashboard cannot connect your device')
                 if local:
                     b2_setup_controls(page, registry)
@@ -1231,7 +1288,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                 page.locator('#advanced > summary').click()
                 page.locator('#series-options > summary').click()
                 (expect(page.locator('#open-b2')).to_be_visible() if local else expect(page.locator('#open-b2')).to_be_hidden())
-                expect(page.locator('#network-options')).to_be_hidden()
+                (expect(page.locator('#network-options')).to_be_visible() if local else expect(page.locator('#network-options')).to_be_hidden())
                 page.locator('#image-profile').select_option('small')
                 page.locator('#save-storage').click()
                 expect(page.locator('#notice')).to_contain_text('Quality choice saved')

@@ -171,7 +171,7 @@ function buttons() {
   $('cancel-cloud-signin').hidden = !signingIn;
   $('cancel-cloud-signin').disabled = state.busy;
   const cloudTarget = state.cloud?.targets?.find(t => t.provider === $('cloud-provider').value);
-  $('save-cloud').disabled = state.busy || signingIn || Boolean(state.task) || state.account?.status === 'running' || !state.cloud?.supported_on_this_interface || !cloudTarget?.tested;
+  $('cloud-enabled').disabled = state.busy || signingIn || Boolean(state.task) || state.account?.status === 'running' || !state.cloud?.supported_on_this_interface || !cloudTarget?.tested;
   $('retry-cloud').disabled = !canImport() || !state.cloud?.supported_on_this_interface || !state.cloud?.targets?.some(t => t.enabled);
   $('preview-series').disabled = !canImport() || !validSeriesLink() || state.context?.interface_mode !== 'local';
   $('test-cloud').disabled = !canImport() || !state.cloud?.supported_on_this_interface || !cloudTarget?.connected || state.cloud?.pending_test_cleanup?.some(t => t.provider === $('cloud-provider').value);
@@ -309,6 +309,8 @@ async function load(preferred = state.workspace) {
   state.context = await api('/api/v1/context');
   showSites(state.context.sites);
   $('save-location').hidden = !ownWindow();
+  // Where episodes go is one choice in one place: beside the save folder, or the fuller view's saving step.
+  (simpleMode() ? $('save-location') : $('save-destination')).after($('cloud-choice'));
   $('save-folder').textContent = state.context.library_folder || '';
   for (const id of ['download-options','advanced','advanced-nav','batch-progress']) $(id).hidden = simpleMode();
   $('dashboard-heading').hidden = !simpleMode();
@@ -402,6 +404,7 @@ function renderCloud() {
   const value = state.cloud;
   $('cloud-cleanup').replaceChildren();
   $('cloud-repair').textContent = '';
+  $('cloud-choice').hidden = true;
   if (!value?.supported_on_this_interface) {
     $('cloud-status').textContent = 'Cloud uploads run in the archiver on your device. This hosted dashboard cannot connect your device to cloud storage.';
     $('cloud-setup').textContent = 'Open the local archiver to sign in and upload directly from your device.';
@@ -409,6 +412,9 @@ function renderCloud() {
   }
   const target = value.targets?.find(t => t.provider === $('cloud-provider').value);
   $('cloud-enabled').checked = target?.enabled === true;
+  // Offered beside the save folder once the connection check has passed.
+  $('cloud-choice').hidden = !target?.tested;
+  $('cloud-choice-label').textContent = `Upload new episodes to ${cloudLabel(target?.provider)}${target?.bucket ? `, bucket ${target.bucket},` : ''} and free space on this computer`;
   const bucket = target?.bucket ? `Your bucket: ${target.bucket}. ` : '';
   $('cloud-status').textContent = bucket + (target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.');
   const provider = $('cloud-provider').value;
@@ -421,6 +427,7 @@ function renderCloud() {
   // What the person typed wins until a connection saves it; then the saved name; first, a suggestion.
   const name = state.bucketDrafts[state.workspace] ?? b2Target()?.bucket ?? 'comic-library-' + state.workspace.slice(0, 12);
   if ($('b2-bucket-name').value !== name) $('b2-bucket-name').value = name;
+  $('b2-key-bucket').textContent = name;
   $('setup-b2').textContent = b2Target()?.connected ? 'Open B2 storage' : 'Set up B2 storage';
   $('connect-b2').textContent = target?.connected ? 'Replace B2 connection' : 'Connect B2';
   const hints = Object.entries(cloudErrors).filter(([code]) => number(target?.failure_reasons?.[code]) > 0)
@@ -447,12 +454,14 @@ function showPage() {
   const page = location.hash === '#b2' && cloudAvailable() ? 'b2' : 'dashboard';
   if (document.body.dataset.page === page) return;
   document.body.dataset.page = page;
+  // Typed keys last only while the page is open.
+  if (page !== 'b2') $('b2-login').reset();
   scrollTo(0, 0);
 }
 window.addEventListener('hashchange', showPage);
 window.addEventListener('popstate', showPage);
 $('setup-b2').addEventListener('click', () => {location.hash = 'b2';});
-$('cloud-back').addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
+for (const id of ['cloud-back', 'cloud-done']) $(id).addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
 function clearCloudLogin() {
   $('cloud-login').reset(); $('proton-signin').hidden = true;
   $('b2-login').reset();
@@ -480,7 +489,7 @@ async function cloudAuth() {
   $('cloud-auth-link').hidden = value.status !== 'running' || !value.auth_url;
   if (value.auth_url) $('cloud-auth-link').href = value.auth_url;
   else $('cloud-auth-link').removeAttribute('href');
-  if (previous !== 'connected' && value.status === 'connected') {delete state.bucketDrafts[workspace]; await cloud(); await librarySummary(true);}
+  if (previous !== 'connected' && value.status === 'connected') {delete state.bucketDrafts[workspace]; $('b2-login').reset(); await cloud(); await librarySummary(true);}
   buttons();
 }
 async function connectCloud(credentials = {}) {
@@ -493,7 +502,7 @@ async function connectCloud(credentials = {}) {
     cloudNotice(provider === 'b2' ? 'Connecting B2. Your key is being checked; no episodes are uploaded during setup.' : 'Cloud sign-in started. Follow the instructions beside the sign-in button.');
     await cloudAuth();
     if (state.auth?.status === 'connected') await cloud();
-  } finally { clearCloudLogin(); }
+  } finally { if (provider !== 'b2') clearCloudLogin(); }
 }
 $('connect-cloud').addEventListener('click', () => {
   if ($('cloud-provider').value === 'proton') {
@@ -510,14 +519,16 @@ $('cloud-login').addEventListener('submit', event => {
 // A copied key often carries a space or line break at its ends, which the fields' patterns would refuse.
 for (const id of ['b2-key-id', 'b2-application-key', 'b2-bucket-name']) $(id).addEventListener('input', () => {
   const value = $(id).value.replace(/\s+/g, ''); if (value !== $(id).value) $(id).value = value; });
-$('b2-bucket-name').addEventListener('input', () => {state.bucketDrafts[state.workspace] = $('b2-bucket-name').value;});
+$('b2-bucket-name').addEventListener('input', () => {
+  state.bucketDrafts[state.workspace] = $('b2-key-bucket').textContent = $('b2-bucket-name').value;});
 $('b2-login').addEventListener('submit', event => {
   event.preventDefault();
   if (!$('b2-bucket-name').reportValidity() || !$('b2-login').reportValidity() || $('connect-b2').disabled) return;
   // The name is kept as typed, so a refused key leaves it there to correct.
   const bucket = state.bucketDrafts[state.workspace] = $('b2-bucket-name').value.trim();
   const credentials = {key_id:$('b2-key-id').value.trim(), application_key:$('b2-application-key').value.trim(), bucket};
-  clearCloudLogin(); cloudAction(() => connectCloud(credentials));
+  // The keys stay in their fields until they connect, so a refused one can be corrected rather than pasted again.
+  cloudAction(() => connectCloud(credentials));
 });
 $('cancel-cloud-signin').addEventListener('click', () => action(async () => {
   await api(base()+'/cloud/cancel-signin', {}); await cloudAuth();
@@ -527,10 +538,16 @@ $('test-cloud').addEventListener('click', () => cloudAction(async () => {
   state.task = value.task_id; state.taskKind = 'cloud-test'; state.taskInfo = null;
   cloudNotice('Testing two completed episodes: upload, read back and verify, then delete test copies. Local originals are retained.');
 }));
-$('save-cloud').addEventListener('click', () => cloudAction(async () => {
-  await api(base()+'/cloud', {provider:$('cloud-provider').value, enabled:$('cloud-enabled').checked});
-  await cloud(); cloudNotice('Cloud upload choice saved. Local archives are removed only after their uploaded bytes pass verification.');
-}));
+$('cloud-enabled').addEventListener('change', event => {
+  const enabled = event.target.checked;
+  if (state.busy) { renderCloud(); return; }  // Another action is running; show the saved choice again.
+  action(async () => {
+    try {
+      await api(base()+'/cloud', {provider:$('cloud-provider').value, enabled});
+      await cloud(); $('cloud-choice-status').textContent = '';
+    } catch (error) { $('cloud-choice-status').textContent = error.message; renderCloud(); }
+  });
+});
 $('retry-cloud').addEventListener('click', () => cloudAction(async () => {
   const value = await api(base()+'/cloud/upload', {});
   state.task = value.task_id; state.taskKind = 'cloud'; state.taskInfo = null;
