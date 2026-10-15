@@ -12,10 +12,14 @@ BUCKET = re.compile(r'[A-Za-z0-9-]{6,63}')
 
 
 def validate(credentials):
-    if (set(credentials) != {'key_id', 'application_key'}
+    keys = {k: v for k, v in credentials.items() if k != 'bucket'}
+    if (set(keys) != {'key_id', 'application_key'}
             or any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9_+/=-]+', v)
-                   or not 8 <= len(v) <= 256 for v in credentials.values())):
+                   or not 8 <= len(v) <= 256 for v in keys.values())):
         raise ArchiveError('Paste the keyID and applicationKey shown by Backblaze.')
+    # The bucket the person named in setup, when given; the key must be for that bucket.
+    if 'bucket' in credentials and (not isinstance(credentials['bucket'], str) or not BUCKET.fullmatch(credentials['bucket'])):
+        raise ArchiveError('Enter your bucket name: 6 to 63 letters, numbers or hyphens.')
 
 
 def _request(client, method, url, guard, cancel, **options):
@@ -67,6 +71,8 @@ def connection(root, credentials, cancel):
             bucket = buckets[0]
             if not isinstance(bucket.get('name'), str) or not BUCKET.fullmatch(bucket['name']):
                 raise CloudTransferError('b2_key_permissions')
+            if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():
+                raise CloudTransferError('b2_bucket_mismatch')
             if (not isinstance(api['apiUrl'], str)
                     or not re.fullmatch(r'https://api[0-9]+\.backblazeb2\.com', api['apiUrl'])
                     or not isinstance(account['accountId'], str)

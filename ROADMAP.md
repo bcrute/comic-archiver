@@ -12,8 +12,10 @@ brought into the app where it helps the people who use the app.
 
 The code is in the app already, from the browser version, but the window hides it. To do:
 
-- Show the B2 entry and its four-step setup in the window: create the account, create a private bucket, create
-  a key limited to that bucket, paste the key. Links open in the person's own browser.
+- Show the B2 entry and its setup in the window, on a page of its own: create the account, create a private
+  bucket, create a key limited to that bucket, paste the key. Each step gives the page to open first, then what
+  to do there. Links open in the person's own browser. The bucket name is suggested and can be changed; the key
+  must be for that bucket, and connecting saves the name.
 - Before the first step, what Backblaze costs, by the day as its pages show it and by the month: free up to 10 GB,
   the price past that, the card and the daily spending limit, with the person's own library priced as the heading
   of those details. An upload Backblaze stops at a limit says which of its pages lifts it. After the steps, links

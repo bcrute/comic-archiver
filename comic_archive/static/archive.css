@@ -45,6 +45,14 @@ summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .cloud-costs-mark { display: inline-grid; place-items: center; width: 1.4em; height: 1.4em; border-radius: 50%; background: var(--accent); color: var(--button-text); text-decoration: none; font-size: .85rem; }
 .cloud-costs li { margin-bottom: 6px; }
 .cloud-steps { padding-left: 24px; }
+/* B2 setup is its own page: the dashboard steps aside while it is open. */
+body:not([data-page="b2"]) #cloud-options { display: none !important; }
+body[data-page="b2"] main > :not(#cloud-options) { display: none !important; }
+.cloud-page { margin-top: 8px; }
+.cloud-page > .page-heading { align-items: start; }
+.cloud-steps .step-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+#b2-bucket-name { max-width: 28rem; }
+#b2-pages { margin-top: 24px; }
 #b2-pages ul { padding-left: 20px; }
 #b2-pages li { margin-bottom: 6px; }
 .cloud-steps li { margin-bottom: 20px; }

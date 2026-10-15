@@ -102,9 +102,23 @@ class B2ConnectionTests(unittest.TestCase):
                 self.assertEqual(error.exception.cloud_code, code)
                 self.assertNotIn('Private', str(error.exception))
 
+    def test_key_must_be_for_the_bucket_named_in_setup(self):
+        # Backblaze keeps the name as typed at creation; a different case is the same bucket.
+        self.credentials['bucket'] = 'COMIC-library-fixture'
+        self.assertEqual(self.connect()['archive_bucket'], 'comic-library-fixture')
+        self.requests.clear()
+        self.credentials['bucket'] = 'comic-library-another'
+        with self.assertRaises(CloudTransferError) as error:self.connect()
+        self.assertEqual(error.exception.cloud_code, 'b2_bucket_mismatch')
+        # Refused before the bucket is looked at, let alone used.
+        self.assertEqual(len(self.requests), 1)
+
     def test_keys_are_validated_before_starting_helper_or_network(self):
         validate('b2', self.credentials | {'application_key':'K005Fixture_A+Key/123='})
+        validate('b2', self.credentials | {'bucket':'My-Comics-2026'})
         for credentials in ({}, {'key_id':'fixtureKeyID12'}, self.credentials | {'bucket':'other'},
+                            self.credentials | {'bucket':'../comic-library'}, self.credentials | {'bucket':123},
+                            {'application_key':'PrivateFixtureKey123', 'bucket':'My-Comics-2026'},
                             self.credentials | {'application_key':'secret\nnew=setting'},
                             self.credentials | {'key_id':123}):
             with self.assertRaises(ArchiveError):validate('b2', credentials)
@@ -125,10 +139,16 @@ class B2ConnectionTests(unittest.TestCase):
         self.assertFalse(target['enabled']); self.assertFalse(target['tested'])
         self.assertNotIn('Private', json.dumps(signin.status()))
         self.assertNotIn('Private', json.dumps(cloud.status(self.root)))
+        # The page names the bucket the connection saves to, read from the connection itself.
+        b2 = lambda: next(t for t in cloud.status(self.root)['targets'] if t['provider'] == 'b2')
+        self.assertEqual(b2()['bucket'], self.bucket['name'])
         # A fresh process can use the durable target without a new browser login.
         with patch('comic_archive.cloud.Transfer') as transfer:
             cloud.transfer_for(self.root, 'b2', target)
             self.assertEqual(transfer.call_args.args, ('b2', target))
+        # A connection without a readable bucket still reports its state, with no name.
+        config.write_text('[b2]\ntype = b2\n')
+        self.assertIsNone(b2()['bucket']); self.assertTrue(b2()['connected'])
 
     def test_failed_or_cancelled_repair_preserves_existing_connection(self):
         with patch('comic_archive.cloud.Transfer'):

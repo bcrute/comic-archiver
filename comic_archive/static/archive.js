@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null };
+const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {} };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
   local_session_required: 'Your local dashboard session expired. Reload this page.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
@@ -15,6 +15,7 @@ const errors = { website_login_required: 'Sign in to this website to open your l
   task_failed: 'The task stopped. Completed archives and cached images are retained.' };
 const cloudErrors = {
   b2_key_permissions: 'Create a Read and Write key restricted to your library bucket. Leave the file prefix and duration blank, then copy keyID and applicationKey again.',
+  b2_bucket_mismatch: 'This key is for a different bucket than the bucket name in step 2. Type the name exactly as Backblaze’s Buckets page shows it, or create the key again for that bucket.',
   b2_private_bucket: 'Choose Private for your B2 library bucket in Backblaze, then connect again.',
   cloud_login_required: 'Cloud sign-in needs repair. Click Sign in again for this provider, then retry.',
   cloud_space: 'The provider reported insufficient cloud storage. Free space through your provider or choose another destination, then retry.',
@@ -230,6 +231,7 @@ function renderStatus() {
   $('local-login').hidden = !local || s.session_configured;
   $('local-worker').hidden = !local || !s.session_configured || ['ready','busy'].includes(worker);
   $('cloud-options').hidden = !cloudAvailable();
+  showPage();
   $('local-setup').hidden = simpleMode() || !local || (s.session_configured && ['ready','busy'].includes(worker));
   $('connection').textContent = !s.session_configured ? 'Your Tapas account needs connecting.' : !['ready','busy'].includes(worker) ? 'The downloader is offline. Your saved files remain available.' : 'Your Tapas session is saved and the downloader is online. Each episode is checked before downloading.';
   const p = s.progress;
@@ -312,13 +314,15 @@ async function load(preferred = state.workspace) {
   $('dashboard-heading').hidden = !simpleMode();
   $('dashboard-grid').classList.toggle('dashboard-grid', simpleMode());
   $('account-download').hidden = !simpleMode();
-  $('cloud-entry').hidden = !simpleMode() || state.context.interface_mode !== 'local' || !cloudOffered();
+  $('cloud-entry').hidden = state.context.interface_mode !== 'local' || !cloudOffered();
+  $('cloud-entry-steps').hidden = simpleMode() || !cloudAvailable();
   $('library-locations').hidden = simpleMode() && !cloudAvailable();
   $('notice').hidden = simpleMode();
   document.body.dataset.desktopOnly = String(desktopOnly());
   // The simple dashboard has its own mobile data choice beside Go (see renderAccount).
   for (const id of ['mobile-options','network-options']) $(id).hidden = !cloudAvailable() || simpleMode();
   $('cloud-options').hidden = !cloudAvailable();
+  showPage();
   $('local-setup').hidden = simpleMode() || state.context.interface_mode !== 'local';
   $('speed').value = state.context.interface_mode === 'local' ? 'fast' : 'normal';
   $('create').hidden = state.context.interface_mode === 'local';
@@ -405,14 +409,19 @@ function renderCloud() {
   }
   const target = value.targets?.find(t => t.provider === $('cloud-provider').value);
   $('cloud-enabled').checked = target?.enabled === true;
-  $('cloud-status').textContent = target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.';
+  const bucket = target?.bucket ? `Your bucket: ${target.bucket}. ` : '';
+  $('cloud-status').textContent = bucket + (target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.');
   const provider = $('cloud-provider').value;
   const b2 = provider === 'b2';
-  $('b2-setup').hidden = !b2;
+  for (const node of document.querySelectorAll('.b2-only')) node.hidden = !b2;
+  $('cloud-connect-title').textContent = b2 ? 'Paste the key and connect.' : 'Connect your account.';
   renderCost();
   $('connect-cloud').hidden = b2;
   $('cloud-setup').hidden = b2;
-  $('b2-bucket-name').value = 'comic-library-' + state.workspace.slice(0, 12);
+  // What the person typed wins until a connection saves it; then the saved name; first, a suggestion.
+  const name = state.bucketDrafts[state.workspace] ?? b2Target()?.bucket ?? 'comic-library-' + state.workspace.slice(0, 12);
+  if ($('b2-bucket-name').value !== name) $('b2-bucket-name').value = name;
+  $('setup-b2').textContent = b2Target()?.connected ? 'Open B2 storage' : 'Set up B2 storage';
   $('connect-b2').textContent = target?.connected ? 'Replace B2 connection' : 'Connect B2';
   const hints = Object.entries(cloudErrors).filter(([code]) => number(target?.failure_reasons?.[code]) > 0)
     .map(([code, message]) => `${display(target.failure_reasons[code])} failed uploads: ${message}`);
@@ -432,12 +441,18 @@ function renderCloud() {
   $('cloud-setup').textContent = provider !== 'proton' ? `Click Sign in, choose your ${cloudLabel(provider)} account and allow access. Your sign-in is saved for future runs.` : 'Click Sign in and enter your Proton account details on this device. This connection is experimental and is not officially supported by Proton.';
 }
 $('cloud-provider').addEventListener('change', () => {clearCloudLogin(); renderCloud(); buttons();});
-$('setup-b2').addEventListener('click', () => {
-  const panel = $('cloud-options');
-  panel.open = true;
-  panel.querySelector('summary').focus({preventScroll:true});
-  panel.scrollIntoView({block:'start'});
-});
+const b2Target = () => state.cloud?.targets?.find(t => t.provider === 'b2');
+// B2 setup is a page of its own, at #b2; the browser's Back returns to the dashboard.
+function showPage() {
+  const page = location.hash === '#b2' && cloudAvailable() ? 'b2' : 'dashboard';
+  if (document.body.dataset.page === page) return;
+  document.body.dataset.page = page;
+  scrollTo(0, 0);
+}
+window.addEventListener('hashchange', showPage);
+window.addEventListener('popstate', showPage);
+$('setup-b2').addEventListener('click', () => {location.hash = 'b2';});
+$('cloud-back').addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
 function clearCloudLogin() {
   $('cloud-login').reset(); $('proton-signin').hidden = true;
   $('b2-login').reset();
@@ -465,7 +480,7 @@ async function cloudAuth() {
   $('cloud-auth-link').hidden = value.status !== 'running' || !value.auth_url;
   if (value.auth_url) $('cloud-auth-link').href = value.auth_url;
   else $('cloud-auth-link').removeAttribute('href');
-  if (previous !== 'connected' && value.status === 'connected') {await cloud(); await librarySummary(true);}
+  if (previous !== 'connected' && value.status === 'connected') {delete state.bucketDrafts[workspace]; await cloud(); await librarySummary(true);}
   buttons();
 }
 async function connectCloud(credentials = {}) {
@@ -493,12 +508,15 @@ $('cloud-login').addEventListener('submit', event => {
   clearCloudLogin(); action(() => connectCloud(credentials));
 });
 // A copied key often carries a space or line break at its ends, which the fields' patterns would refuse.
-for (const id of ['b2-key-id', 'b2-application-key']) $(id).addEventListener('input', () => {
+for (const id of ['b2-key-id', 'b2-application-key', 'b2-bucket-name']) $(id).addEventListener('input', () => {
   const value = $(id).value.replace(/\s+/g, ''); if (value !== $(id).value) $(id).value = value; });
+$('b2-bucket-name').addEventListener('input', () => {state.bucketDrafts[state.workspace] = $('b2-bucket-name').value;});
 $('b2-login').addEventListener('submit', event => {
   event.preventDefault();
-  if (!$('b2-login').reportValidity() || $('connect-b2').disabled) return;
-  const credentials = {key_id:$('b2-key-id').value.trim(), application_key:$('b2-application-key').value.trim()};
+  if (!$('b2-bucket-name').reportValidity() || !$('b2-login').reportValidity() || $('connect-b2').disabled) return;
+  // The name is kept as typed, so a refused key leaves it there to correct.
+  const bucket = state.bucketDrafts[state.workspace] = $('b2-bucket-name').value.trim();
+  const credentials = {key_id:$('b2-key-id').value.trim(), application_key:$('b2-application-key').value.trim(), bucket};
   clearCloudLogin(); cloudAction(() => connectCloud(credentials));
 });
 $('cancel-cloud-signin').addEventListener('click', () => action(async () => {

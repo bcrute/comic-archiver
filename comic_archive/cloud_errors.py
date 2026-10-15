@@ -5,6 +5,7 @@ from .models import ArchiveError
 
 MESSAGES = {
     'b2_key_permissions': 'Create a Read and Write application key restricted to your library bucket, with the file prefix and duration left blank. Copy its keyID and applicationKey again.',
+    'b2_bucket_mismatch': 'This key is for a different bucket than the bucket name in step 2. Type the name exactly as Backblaze’s Buckets page shows it, or create the key again for that bucket.',
     'b2_private_bucket': 'Your B2 library bucket must be Private. Change its privacy setting in Backblaze, then connect again.',
     'cloud_client_required': 'Cloud sign-in needs the archiver’s app registration. Contact the app maintainer to finish setup. Your saved connection and local episodes are retained.',
     'cloud_login_required': 'Cloud sign-in needs repair. Run cloud-connect for this provider, then retry. Local episodes are retained.',
