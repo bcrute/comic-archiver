@@ -415,8 +415,7 @@ function renderCloud() {
   // Offered beside the save folder once the connection check has passed.
   $('cloud-choice').hidden = !target?.tested;
   $('cloud-choice-label').textContent = `Upload new episodes to ${cloudLabel(target?.provider)}${target?.bucket ? `, bucket ${target.bucket},` : ''} and free space on this computer`;
-  const bucket = target?.bucket ? `Your bucket: ${target.bucket}. ` : '';
-  $('cloud-status').textContent = bucket + (target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.');
+  $('cloud-status').textContent = target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.';
   const provider = $('cloud-provider').value;
   const b2 = provider === 'b2';
   for (const node of document.querySelectorAll('.b2-only')) node.hidden = !b2;
@@ -429,6 +428,7 @@ function renderCloud() {
   if ($('b2-bucket-name').value !== name) $('b2-bucket-name').value = name;
   $('b2-key-bucket').textContent = name;
   $('setup-b2').textContent = b2Target()?.connected ? 'Open B2 storage' : 'Set up B2 storage';
+  renderB2State();
   $('connect-b2').textContent = target?.connected ? 'Replace B2 connection' : 'Connect B2';
   const hints = Object.entries(cloudErrors).filter(([code]) => number(target?.failure_reasons?.[code]) > 0)
     .map(([code, message]) => `${display(target.failure_reasons[code])} failed uploads: ${message}`);
@@ -449,6 +449,21 @@ function renderCloud() {
 }
 $('cloud-provider').addEventListener('change', () => {clearCloudLogin(); renderCloud(); buttons();});
 const b2Target = () => state.cloud?.targets?.find(t => t.provider === 'b2');
+// The top of the B2 page says at a glance whether B2 is set up, and what is left to do.
+function renderB2State() {
+  const target = b2Target(), bucket = target?.bucket ? `your bucket ${target.bucket}` : 'your bucket';
+  const failed = number(target?.failed);
+  const [label, tone, text] = state.auth?.status === 'running' && state.auth.provider === 'b2'
+    ? ['Checking your key', 'working', 'Checking your key and bucket with Backblaze. Nothing is uploaded yet.']
+    : !target?.connected ? ['Not set up', 'neutral', 'Follow the steps below to connect your own Backblaze account.']
+    : !target.tested ? ['Connected, not checked yet', 'warning', `Connected to ${bucket}. Check the connection (step 5) before uploads can start.`]
+    : !target.enabled ? ['Set up', 'success', `Set up and checked: ${bucket}. Uploads are off; turn them on from the dashboard, beside the save folder.`]
+    : [failed ? 'Uploads need attention' : 'Uploading to B2', failed ? 'warning' : 'success',
+       `Set up and checked: ${bucket}. New episodes are uploaded to it as they are saved.${failed ? ` ${display(failed)} ${failed === 1 ? 'upload needs' : 'uploads need'} retrying: click Retry unfinished uploads below.` : ''}`];
+  $('b2-state-pill').textContent = label;
+  $('b2-state-pill').dataset.tone = $('b2-state').dataset.tone = tone;
+  $('b2-state-text').textContent = text;
+}
 // B2 setup is a page of its own, at #b2; the browser's Back returns to the dashboard.
 function showPage() {
   const page = location.hash === '#b2' && cloudAvailable() ? 'b2' : 'dashboard';
@@ -479,6 +494,7 @@ async function cloudAuth() {
     clearCloudLogin(); renderCloud();
   }
   state.auth = value;
+  renderB2State();
   $('cloud-auth-status').textContent = value.status === 'running' ? (value.stage === 'preparing' ? 'Preparing cloud sign-in. This may take a moment the first time.' : value.provider === 'b2' ? 'Checking your B2 key and private library bucket…' : value.stage === 'checking_saved_session' ? `Checking your saved ${cloudLabel(value.provider)} sign-in…` : value.provider !== 'proton' ? `Complete ${cloudLabel(value.provider)} sign-in in your browser. Your files stay on this device while connecting.` : 'Signing in to Proton…')
     : value.status === 'connected' ? (value.reused_session ? 'Your saved sign-in is ready. You don’t need to sign in again.' : 'Signed in. Next, click Test cloud connection.')
     : value.status === 'cancelled' ? 'Sign-in cancelled. Your saved files are safe.'

@@ -60,6 +60,7 @@
     </div>
     <section id="cloud-options" class="cloud-page" hidden aria-labelledby="cloud-title">
       <div class="page-heading"><div><p class="eyebrow">Cloud storage</p><h2 id="cloud-title">Save to your Backblaze B2 account</h2></div><button id="cloud-back" class="secondary" type="button">← Back to dashboard</button></div>
+      <div id="b2-state" class="cloud-state b2-only" data-tone="neutral" role="status"><span id="b2-state-pill" class="status-pill" data-tone="neutral">Not set up</span><p id="b2-state-text">Follow the steps below to connect your own Backblaze account.</p></div>
       <p>Upload each CBZ as it is built to your own cloud account. One temporary episode is kept for recovery. Local episode files are removed only after the cloud copies are verified. Failed uploads keep your files here.</p>
       <label hidden>Provider <select id="cloud-provider"><option value="b2">Backblaze B2</option><option value="google" hidden>Google Drive</option><option value="dropbox" hidden>Dropbox</option><option value="proton" hidden>Proton Drive (experimental)</option></select></label>
       <p id="cloud-status" role="status">Checking cloud connections…</p>

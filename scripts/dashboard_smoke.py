@@ -603,6 +603,8 @@ def b2_setup_controls(page, registry):
     expect(page.locator('#cloud-provider')).to_have_value('b2')
     expect(page.locator('#cloud-provider')).to_be_hidden()
     expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
+    # The top of the page says whether B2 is set up.
+    expect(page.locator('#b2-state-pill')).to_have_text('Not set up')
     expect(page.locator('#connect-cloud')).to_be_hidden()
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     expect(page.locator('#b2-key-bucket')).to_have_text(page.locator('#b2-bucket-name').input_value())
@@ -675,6 +677,7 @@ def b2_setup_controls(page, registry):
         expect(page.locator('#b2-key-id')).to_have_value('fixtureKeyID12')
         expect(page.locator('#b2-application-key')).to_have_value(fixture_key)
         expect(page.locator('#connect-b2')).to_be_disabled()
+        expect(page.locator('#b2-state-pill')).to_have_text('Checking your key')
         expect(page.locator('#cloud-auth-link')).to_be_hidden()
         assert started == [('b2', {'key_id':'fixtureKeyID12', 'application_key':fixture_key, 'bucket':'My-Comics-2026'})]
         assert fixture_key not in page.content()
@@ -714,22 +717,29 @@ def b2_setup_controls(page, registry):
     page.reload(); open_b2(page)
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     # Once connected, the page names the bucket the connection saved, and the dashboard's button opens it.
-    original_status, tested = registry.cloud_status, []
+    original_status, tested, enabled, failed = registry.cloud_status, [], [], []
     def status(owner, workspace_id):
         value = original_status(owner, workspace_id)
         for target in value['targets']:
-            if target['provider'] == 'b2': target.update(connected=True, tested=bool(tested), bucket='My-Comics-2026')
+            if target['provider'] == 'b2':
+                target.update(connected=True, tested=bool(tested), enabled=bool(enabled), failed=len(failed), bucket='My-Comics-2026')
         return value
+    state = lambda: (page.locator('#b2-state-pill'), page.locator('#b2-state-text'))
     with patch.object(registry, 'cloud_status', side_effect=status):
         page.evaluate('cloud()')
         expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
-        expect(page.locator('#cloud-status')).to_contain_text('Your bucket: My-Comics-2026.')
+        expect(state()[0]).to_have_text('Connected, not checked yet')
+        expect(state()[1]).to_contain_text('Connected to your bucket My-Comics-2026. Check the connection (step 5)')
         expect(page.locator('#setup-b2')).to_have_text('Open B2 storage')
         # Where episodes go is chosen beside the save folder, once the check has passed; the page leads there.
         page.locator('#cloud-done').click()
         expect(page.locator('#cloud-options')).to_be_hidden()
         expect(page.locator('#cloud-choice')).to_be_hidden()
         tested.append(True); page.evaluate('cloud()')
+        open_b2(page)
+        expect(state()[0]).to_have_text('Set up')
+        expect(state()[1]).to_contain_text('Uploads are off; turn them on from the dashboard')
+        page.locator('#cloud-back').click()
         expect(page.locator('#cloud-choice')).to_be_visible()
         expect(page.locator('#cloud-choice')).to_contain_text('Upload new episodes to Backblaze B2, bucket My-Comics-2026,')
         # In this fuller view, it is in the saving step, after where episodes are saved now.
@@ -743,6 +753,11 @@ def b2_setup_controls(page, registry):
             page.locator('#cloud-enabled').click()
             expect(page.locator('#cloud-choice-status')).to_have_text('')
             assert configure.call_args.args[2:] == ('b2', True)
+        enabled.append(True); open_b2(page); page.evaluate('cloud()')
+        expect(state()[0]).to_have_text('Uploading to B2')
+        failed.append(1); page.evaluate('cloud()')
+        expect(state()[0]).to_have_text('Uploads need attention')
+        expect(state()[1]).to_contain_text('1 upload needs retrying: click Retry unfinished uploads below.')
     page.reload(); open_b2(page)
 
 
