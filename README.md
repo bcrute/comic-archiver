@@ -18,6 +18,17 @@ extensions do not run in the app's window). Webtoon is listed in the app as "com
 | Windows (x86_64) | In progress. The package and its installer build; on Windows 11 the tests pass and the installer installs, starts and uninstalls the app without an administrator. Nothing in it is signed yet: Windows stops the downloaded installer with "Windows protected your PC" (choose More info, then Run anyway), and the installer's window and the app's first start can each take up to a minute while Windows checks the files. |
 | macOS | Not planned yet. |
 
+## Why the history here is short
+
+This GitHub repository is a public mirror. Comic Archiver is developed in a private, self-hosted Gitea server,
+where it went through more than 200 commits before this copy was published. That history held personal details,
+such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
+one clean commit (October 2026), and new work arrives here as it is committed there.
+
+Every change is checked before it is committed. About 1,800 automated tests run, and the app's pages are driven
+in a real browser in four layouts. A mutation check then puts more than 300 deliberate faults into the code, one
+at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
+
 ## Run it from this folder
 
 ```sh
