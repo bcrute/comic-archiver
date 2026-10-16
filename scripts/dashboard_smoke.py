@@ -496,6 +496,9 @@ def own_window_controls(context, site, registry, workspace):
                 # Cloud saving runs on the person's own computer, so the window offers it as the local browser version does.
                 page.locator('#setup-b2').click()
                 expect(page.locator('#cloud-options')).to_be_visible()
+                # B2 was connected earlier in this run, so its setup steps are folded until asked for.
+                expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(2)
+                page.locator('#b2-steps-toggle').click()
                 expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
                 expect(page.locator('#b2-login')).to_be_visible()
                 # The person is signed in from creating the bucket, so the link opens the keys page itself.
@@ -605,6 +608,7 @@ def b2_setup_controls(page, registry):
     expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
     # The top of the page says whether B2 is set up.
     expect(page.locator('#b2-state-pill')).to_have_text('Not set up')
+    expect(page.locator('#b2-steps-fold')).to_be_hidden()
     expect(page.locator('#connect-cloud')).to_be_hidden()
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     expect(page.locator('#b2-key-bucket')).to_have_text(page.locator('#b2-bucket-name').input_value())
@@ -730,6 +734,19 @@ def b2_setup_controls(page, registry):
         expect(page.locator('#b2-bucket-name')).to_have_value('My-Comics-2026')
         expect(state()[0]).to_have_text('Connected, not checked yet')
         expect(state()[1]).to_contain_text('Connected to your bucket My-Comics-2026. Check the connection (step 5)')
+        # Once connected, the steps that did it fold away; what is left keeps its numbers.
+        steps = page.locator('#cloud-options .cloud-steps > li:visible')
+        expect(steps).to_have_count(2)
+        expect(steps.first).to_contain_text('Check the connection')
+        assert page.locator('#cloud-steps').evaluate('node => node.start') == 5
+        toggle = page.locator('#b2-steps-toggle')
+        expect(toggle).to_have_text('Show the setup steps')
+        toggle.click()
+        expect(steps).to_have_count(6)
+        expect(toggle).to_have_text('Hide the setup steps')
+        assert page.locator('#cloud-steps').evaluate('node => node.start') == 1
+        toggle.click()
+        expect(steps).to_have_count(2)
         expect(page.locator('#setup-b2')).to_have_text('Open B2 storage')
         # Where episodes go is chosen beside the save folder, once the check has passed; the page leads there.
         page.locator('#cloud-done').click()
