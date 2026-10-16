@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false };
+const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false, locations: [] };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
   local_session_required: 'Your local dashboard session expired. Reload this page.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
@@ -171,7 +171,8 @@ function buttons() {
   $('cancel-cloud-signin').hidden = !signingIn;
   $('cancel-cloud-signin').disabled = state.busy;
   const cloudTarget = state.cloud?.targets?.find(t => t.provider === $('cloud-provider').value);
-  $('cloud-enabled').disabled = state.busy || signingIn || Boolean(state.task) || state.account?.status === 'running' || !state.cloud?.supported_on_this_interface || !cloudTarget?.tested;
+  const choiceLocked = state.busy || signingIn || Boolean(state.task) || state.account?.status === 'running' || !state.cloud?.supported_on_this_interface;
+  for (const input of $('storage-options').querySelectorAll('input')) input.disabled = choiceLocked || input.dataset.ready !== 'true';
   $('retry-cloud').disabled = !canImport() || !state.cloud?.supported_on_this_interface || !state.cloud?.targets?.some(t => t.enabled);
   $('preview-series').disabled = !canImport() || !validSeriesLink() || state.context?.interface_mode !== 'local';
   $('test-cloud').disabled = !canImport() || !state.cloud?.supported_on_this_interface || !cloudTarget?.connected || state.cloud?.pending_test_cleanup?.some(t => t.provider === $('cloud-provider').value);
@@ -230,7 +231,7 @@ function renderStatus() {
   const local = state.context.interface_mode === 'local';
   $('local-login').hidden = !local || s.session_configured;
   $('local-worker').hidden = !local || !s.session_configured || ['ready','busy'].includes(worker);
-  $('cloud-options').hidden = !cloudAvailable();
+  for (const id of ['cloud-options', 'storage-page']) $(id).hidden = !cloudAvailable();
   showPage();
   $('local-setup').hidden = simpleMode() || !local || (s.session_configured && ['ready','busy'].includes(worker));
   $('connection').textContent = !s.session_configured ? 'Your Tapas account needs connecting.' : !['ready','busy'].includes(worker) ? 'The downloader is offline. Your saved files remain available.' : 'Your Tapas session is saved and the downloader is online. Each episode is checked before downloading.';
@@ -311,19 +312,20 @@ async function load(preferred = state.workspace) {
   $('save-location').hidden = !ownWindow();
   // Where episodes go is one choice in one place: beside the save folder, or the fuller view's saving step.
   (simpleMode() ? $('save-location') : $('save-destination')).after($('cloud-choice'));
+  if (!simpleMode()) $('notice').after($('site-choice'));
   $('save-folder').textContent = state.context.library_folder || '';
   for (const id of ['download-options','advanced','advanced-nav','batch-progress']) $(id).hidden = simpleMode();
   $('dashboard-heading').hidden = !simpleMode();
   $('dashboard-grid').classList.toggle('dashboard-grid', simpleMode());
   $('account-download').hidden = !simpleMode();
-  $('cloud-entry').hidden = state.context.interface_mode !== 'local' || !cloudOffered();
+  $('cloud-entry').hidden = true;  // Until the cloud connections are read (renderStorageChoice).
   $('cloud-entry-steps').hidden = simpleMode() || !cloudAvailable();
   $('library-locations').hidden = simpleMode() && !cloudAvailable();
   $('notice').hidden = simpleMode();
   document.body.dataset.desktopOnly = String(desktopOnly());
   // The simple dashboard has its own mobile data choice beside Go (see renderAccount).
   for (const id of ['mobile-options','network-options']) $(id).hidden = !cloudAvailable() || simpleMode();
-  $('cloud-options').hidden = !cloudAvailable();
+  for (const id of ['cloud-options', 'storage-page']) $(id).hidden = !cloudAvailable();
   showPage();
   $('local-setup').hidden = simpleMode() || state.context.interface_mode !== 'local';
   $('speed').value = state.context.interface_mode === 'local' ? 'fast' : 'normal';
@@ -404,17 +406,13 @@ function renderCloud() {
   const value = state.cloud;
   $('cloud-cleanup').replaceChildren();
   $('cloud-repair').textContent = '';
-  $('cloud-choice').hidden = true;
+  renderStorageChoice(); renderStorage();
   if (!value?.supported_on_this_interface) {
     $('cloud-status').textContent = 'Cloud uploads run in the archiver on your device. This hosted dashboard cannot connect your device to cloud storage.';
     $('cloud-setup').textContent = 'Open the local archiver to sign in and upload directly from your device.';
     return;
   }
   const target = value.targets?.find(t => t.provider === $('cloud-provider').value);
-  $('cloud-enabled').checked = target?.enabled === true;
-  // Offered beside the save folder once the connection check has passed.
-  $('cloud-choice').hidden = !target?.tested;
-  $('cloud-choice-label').textContent = `Upload new episodes to ${cloudLabel(target?.provider)}${target?.bucket ? `, bucket ${target.bucket},` : ''} and free space on this computer`;
   $('cloud-status').textContent = target?.tested ? `${target.enabled ? 'Automatic uploads enabled' : 'Uploads disabled'}. ${display(target.verified)} verified upload receipts; ${display(target.pending)} pending; ${display(target.failed)} need retry. Cloud availability has not been rechecked.` : target?.connected ? 'Connection configured. Complete the small upload-and-delete test before enabling uploads.' : 'No connection configured for this provider.';
   const provider = $('cloud-provider').value;
   const b2 = provider === 'b2';
@@ -427,7 +425,6 @@ function renderCloud() {
   const name = state.bucketDrafts[state.workspace] ?? b2Target()?.bucket ?? 'comic-library-' + state.workspace.slice(0, 12);
   if ($('b2-bucket-name').value !== name) $('b2-bucket-name').value = name;
   $('b2-key-bucket').textContent = name;
-  $('setup-b2').textContent = b2Target()?.connected ? 'Open B2 storage' : 'Set up B2 storage';
   renderB2State();
   // A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
   const folded = b2 && target?.connected === true && !state.b2StepsOpen;
@@ -456,24 +453,66 @@ function renderCloud() {
 }
 $('cloud-provider').addEventListener('change', () => {clearCloudLogin(); renderCloud(); buttons();});
 const b2Target = () => state.cloud?.targets?.find(t => t.provider === 'b2');
+// Where new episodes go: this device, or one storage that is set up, each named and nothing more.
+function renderStorageChoice() {
+  const configured = cloudAvailable() && state.cloud?.supported_on_this_interface ? (state.cloud.targets || []).filter(t => t.connected) : [];
+  $('cloud-choice').hidden = !configured.length;
+  $('cloud-entry').hidden = Boolean(configured.length) || !cloudAvailable() || !state.cloud?.supported_on_this_interface;
+  const chosen = configured.find(t => t.enabled)?.provider || 'device';
+  const options = !configured.length ? [] : [{key:'device', label:'This device', ready:true}, ...configured.map(t => ({key:t.provider, label:cloudLabel(t.provider), ready:t.tested === true}))];
+  $('storage-options').replaceChildren(...options.map(option => {
+    const label = document.createElement('label'), input = document.createElement('input');
+    input.type = 'radio'; input.name = 'storage-choice'; input.value = option.key;
+    input.checked = option.key === chosen; input.dataset.ready = String(option.ready); input.disabled = !option.ready;
+    label.append(input, option.label);
+    return label;
+  }));
+  const unchecked = configured.filter(t => !t.tested).map(t => cloudLabel(t.provider));
+  $('cloud-choice-help').textContent = chosen !== 'device'
+    ? `Each new episode is uploaded to ${cloudLabel(chosen)} as it is saved. The copy on this device is removed once the upload is checked.`
+    : unchecked.length ? `${unchecked.join(' and ')} can be chosen once its connection check passes, under Storage.` : 'New episodes stay in the save folder.';
+}
+// The Storage page: each place episodes can be kept, what it holds and the way to it.
+function renderStorage() {
+  const held = id => state.locations.find(group => group.id === id);
+  const stored = group => group ? `${display(group.episodes)} ${group.episodes === 1 ? 'episode' : 'episodes'} stored · ${room(number(group.bytes))}` : '';
+  const device = held('device');
+  $('storage-device-stored').textContent = device ? stored(device) : 'Counting…';
+  $('storage-device-files').href = '/library#'+state.workspace+'/device';
+  const target = b2Target(), [label, tone] = b2Summary(), b2 = held('b2');
+  $('storage-b2-pill').textContent = label; $('storage-b2-pill').dataset.tone = tone;
+  $('storage-b2-text').textContent = target?.connected
+    ? `Your own Backblaze account${target.bucket ? `, bucket ${target.bucket}` : ''}.`
+    : 'Your own Backblaze account. Backblaze bills you itself; the first 10 GB is free.';
+  $('storage-b2-stored').textContent = stored(b2);
+  $('storage-b2-stored').hidden = !b2;
+  for (const id of ['storage-b2-files', 'storage-b2-open']) $(id).hidden = !target?.connected;
+  $('storage-b2-files').href = '/library#'+state.workspace+'/b2';
+  $('storage-b2-setup').textContent = target?.connected ? 'B2 settings' : 'Set up';
+}
 // The top of the B2 page says at a glance whether B2 is set up, and what is left to do.
-function renderB2State() {
+function b2Summary() {
   const target = b2Target(), bucket = target?.bucket ? `your bucket ${target.bucket}` : 'your bucket';
   const failed = number(target?.failed);
-  const [label, tone, text] = state.auth?.status === 'running' && state.auth.provider === 'b2'
+  return state.auth?.status === 'running' && state.auth.provider === 'b2'
     ? ['Checking your key', 'working', 'Checking your key and bucket with Backblaze. Nothing is uploaded yet.']
     : !target?.connected ? ['Not set up', 'neutral', 'Follow the steps below to connect your own Backblaze account.']
     : !target.tested ? ['Connected, not checked yet', 'warning', `Connected to ${bucket}. Check the connection (step 5) before uploads can start.`]
-    : !target.enabled ? ['Set up', 'success', `Set up and checked: ${bucket}. Uploads are off; turn them on from the dashboard, beside the save folder.`]
+    : !target.enabled ? ['Set up', 'success', `Set up and checked: ${bucket}. Uploads are off; choose Backblaze B2 on the dashboard, beside the save folder.`]
     : [failed ? 'Uploads need attention' : 'Uploading to B2', failed ? 'warning' : 'success',
        `Set up and checked: ${bucket}. New episodes are uploaded to it as they are saved.${failed ? ` ${display(failed)} ${failed === 1 ? 'upload needs' : 'uploads need'} retrying: click Retry unfinished uploads below.` : ''}`];
+}
+function renderB2State() {
+  const [label, tone, text] = b2Summary();
   $('b2-state-pill').textContent = label;
   $('b2-state-pill').dataset.tone = $('b2-state').dataset.tone = tone;
   $('b2-state-text').textContent = text;
 }
-// B2 setup is a page of its own, at #b2; the browser's Back returns to the dashboard.
+// Storage (#storage) and B2 setup (#b2) are pages of their own; the browser's Back returns from them.
 function showPage() {
-  const page = location.hash === '#b2' && cloudAvailable() ? 'b2' : 'dashboard';
+  const page = !cloudAvailable() ? 'dashboard' : location.hash === '#b2' ? 'b2' : location.hash === '#storage' ? 'storage' : 'dashboard';
+  const nav = page === 'dashboard' ? 'save-nav' : 'storage-nav';
+  for (const id of ['save-nav', 'storage-nav']) if (id === nav) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
   if (document.body.dataset.page === page) return;
   document.body.dataset.page = page;
   // Typed keys last only while the page is open.
@@ -482,9 +521,9 @@ function showPage() {
 }
 window.addEventListener('hashchange', showPage);
 window.addEventListener('popstate', showPage);
-$('setup-b2').addEventListener('click', () => {location.hash = 'b2';});
 $('b2-steps-toggle').addEventListener('click', () => {state.b2StepsOpen = !state.b2StepsOpen; renderCloud();});
-for (const id of ['cloud-back', 'cloud-done']) $(id).addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
+for (const id of ['storage-back', 'cloud-done']) $(id).addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
+$('cloud-back').addEventListener('click', () => {location.hash = 'storage';});
 function clearCloudLogin() {
   $('cloud-login').reset(); $('proton-signin').hidden = true;
   $('b2-login').reset();
@@ -562,14 +601,17 @@ $('test-cloud').addEventListener('click', () => cloudAction(async () => {
   state.task = value.task_id; state.taskKind = 'cloud-test'; state.taskInfo = null;
   cloudNotice('Testing two completed episodes: upload, read back and verify, then delete test copies. Local originals are retained.');
 }));
-$('cloud-enabled').addEventListener('change', event => {
-  const enabled = event.target.checked;
+$('storage-options').addEventListener('change', event => {
+  const chosen = event.target.value;
   if (state.busy) { renderCloud(); return; }  // Another action is running; show the saved choice again.
   action(async () => {
     try {
-      await api(base()+'/cloud', {provider:$('cloud-provider').value, enabled});
+      // One place at a time: whatever was chosen before is turned off first.
+      for (const target of (state.cloud?.targets || []).filter(t => t.enabled && t.provider !== chosen))
+        await api(base()+'/cloud', {provider:target.provider, enabled:false});
+      if (chosen !== 'device') await api(base()+'/cloud', {provider:chosen, enabled:true});
       await cloud(); $('cloud-choice-status').textContent = '';
-    } catch (error) { $('cloud-choice-status').textContent = error.message; renderCloud(); }
+    } catch (error) { $('cloud-choice-status').textContent = error.message; await cloud().catch(renderCloud); }
   });
 });
 $('retry-cloud').addEventListener('click', () => cloudAction(async () => {
@@ -974,6 +1016,7 @@ async function librarySummary(refresh = false) {
     const value = await api(base()+'/saved-files?summary=1'+(refresh ? '&refresh=1' : ''));
     if (workspace !== state.workspace) return;
     $('metrics').replaceChildren(); $('library-locations').replaceChildren();
+    state.locations = value.locations; renderStorage();
     const device = value.locations.find(g => g.id === 'device');
     const cloudCopies = value.locations.filter(g => g.id !== 'device').reduce((n,g) => n+number(g.episodes), 0);
     $('metrics').classList.toggle('desktop-metrics', !cloudAvailable());

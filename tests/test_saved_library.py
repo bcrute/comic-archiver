@@ -199,11 +199,11 @@ class SavedLibraryTests(unittest.TestCase):
         for local, location in ((True, 'google-0123456789abcdef'), (False, 'google'), (False, 'proton')):
             with self.subTest(local=local, location=location), self.assertRaises(ArchiveError):
                 self.catalog.page(self.workspace, local, location=location, refresh=True)
-        self.assertEqual(self.catalog.page(self.workspace, True, location='b2', refresh=True)['total'], 0)
-        # Storage that is not offered is not listed unless a connection to it remains.
-        self.assertEqual([g['id'] for g in self.catalog.page(self.workspace, True, summary=True)['locations']], ['device', 'b2'])
-        with self.assertRaises(ArchiveError):
-            self.catalog.page(self.workspace, True, location='proton', refresh=True)
+        # Cloud storage that is not set up is not listed.
+        self.assertEqual([g['id'] for g in self.catalog.page(self.workspace, True, summary=True, refresh=True)['locations']], ['device'])
+        for location in ('b2', 'proton'):
+            with self.subTest(location=location), self.assertRaises(ArchiveError):
+                self.catalog.page(self.workspace, True, location=location, refresh=True)
 
     def test_series_sort_groups_by_series_name_then_episode_title_ignoring_case(self):
         self.episode(1)
