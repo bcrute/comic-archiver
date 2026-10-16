@@ -445,7 +445,9 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
                 'verified_at':'2026-10-11T12:00:00+00:00','eviction_requested':True,'token':'PRIVATE_TOKEN'})
             original.unlink();page.locator('#refresh-files').click()
             expect(page.locator('#file-range')).to_have_text('Showing 1–100 of 150 files.')
-            expect(page.locator('#library-locations button')).to_have_count(6)
+            # All, this device and B2: storage the app does not offer is not listed.
+            expect(page.locator('#library-locations button')).to_have_count(3)
+            expect(page.locator('#library-locations [data-location=proton]')).to_have_count(0)
             expect(page.locator('#library-summary')).to_contain_text('153 files and cloud copies')
             page.goto(site+'/library#'+workspace.id+'/b2'); page.reload()
             expect(page.locator('#files tr')).to_have_count(3)
@@ -460,10 +462,8 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
             page.reload()
             expect(page.locator('#library-locations [data-location=b2]')).to_have_attribute('aria-pressed','true')
             expect(page.locator('#files tr')).to_have_count(3)
-            page.locator('#library-locations [data-location=proton]').click()
-            expect(page.locator('#file-range')).to_have_text('No saved files match these filters.')
             page.reload()
-            expect(page.locator('#library-locations button')).to_have_count(6)
+            expect(page.locator('#library-locations button')).to_have_count(3)
         else:
             expect(page.locator('#library-locations button')).to_have_count(1)
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -1270,7 +1270,8 @@ def smoke(screenshot=None,mobile=False,local=False):
                     first_download_controls(page,registry,alice)
                 (expect(page.locator('#mobile-options')).to_be_visible() if local else expect(page.locator('#mobile-options')).to_be_hidden())
                 (expect(page.locator('#open-b2')).to_be_visible() if local else expect(page.locator('#open-b2')).to_be_hidden())
-                expect(page.locator('#library-locations .location-card')).to_have_count(5 if local else 1)
+                # This device and B2 only: storage the app does not offer gets no card.
+                expect(page.locator('#library-locations .location-card')).to_have_count(2 if local else 1)
                 if not local:
                     assert 'Cloud episode copies' not in page.locator('#metrics').inner_text()
                     assert not any('/cloud' in path or path.endswith('/network') for _,path in calls)

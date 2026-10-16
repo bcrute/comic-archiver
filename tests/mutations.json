@@ -2614,5 +2614,13 @@
   "new": "    except (configparser.Error, OSError):\n        return None",
   "test_file": "test_b2_auth.py",
   "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
+ },
+ {
+  "id": "saved-library lists storage the app does not offer",
+  "source": "comic_archive/saved_library.py",
+  "old": "                if provider != 'b2' and provider not in targets:\n",
+  "new": "                if False:\n",
+  "test_file": "test_saved_library.py",
+  "test": "test_unknown_storage_location_is_refused_and_server_libraries_offer_no_cloud_locations"
  }
 ]

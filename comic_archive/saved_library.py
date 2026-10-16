@@ -115,7 +115,10 @@ class Catalog:
         settings = cloud.settings(root) if local else None
         targets = settings['targets'] if settings else {}
         if local:
+            # B2 is the cloud storage offered; the others are listed only where a connection to one remains.
             for provider, label in cloud.LABELS.items():
+                if provider != 'b2' and provider not in targets:
+                    continue
                 groups[provider] = {'id':provider, 'label':label, 'connected':provider in targets,
                                     'files':0, 'episodes':0, 'bytes':0}
 

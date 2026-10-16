@@ -237,7 +237,7 @@ class LocalWebTests(unittest.TestCase):
         route='/api/v1/workspaces/'+self.workspace.id+'/saved-files'
         self.assertEqual(self.call(route)[0], '401 Unauthorized')
         status, _, body = self.call(route, cookie=cookie, headers={'QUERY_STRING':'summary=1'})
-        self.assertEqual(status,'200 OK'); self.assertEqual(len(json.loads(body)['locations']),5)
+        self.assertEqual(status,'200 OK'); self.assertEqual([g['id'] for g in json.loads(body)['locations']],['device','b2'])
         self.assertEqual(self.call('/api/v1/workspaces/'+'0'*32+'/saved-files',cookie=cookie)[0], '404 Not Found')
 
     def test_button_signin_is_local_owner_csrf_scoped_and_credentials_never_enter_worker_queue(self):
