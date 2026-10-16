@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {} };
+const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
   local_session_required: 'Your local dashboard session expired. Reload this page.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
@@ -429,6 +429,13 @@ function renderCloud() {
   $('b2-key-bucket').textContent = name;
   $('setup-b2').textContent = b2Target()?.connected ? 'Open B2 storage' : 'Set up B2 storage';
   renderB2State();
+  // A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
+  const folded = b2 && target?.connected === true && !state.b2StepsOpen;
+  $('cloud-options').classList.toggle('b2-folded', folded);
+  $('cloud-steps').start = folded ? 5 : 1;
+  $('b2-steps-fold').hidden = !b2 || !target?.connected;
+  $('b2-steps-toggle').textContent = state.b2StepsOpen ? 'Hide the setup steps' : 'Show the setup steps';
+  $('b2-steps-toggle').setAttribute('aria-expanded', String(!folded));
   $('connect-b2').textContent = target?.connected ? 'Replace B2 connection' : 'Connect B2';
   const hints = Object.entries(cloudErrors).filter(([code]) => number(target?.failure_reasons?.[code]) > 0)
     .map(([code, message]) => `${display(target.failure_reasons[code])} failed uploads: ${message}`);
@@ -476,6 +483,7 @@ function showPage() {
 window.addEventListener('hashchange', showPage);
 window.addEventListener('popstate', showPage);
 $('setup-b2').addEventListener('click', () => {location.hash = 'b2';});
+$('b2-steps-toggle').addEventListener('click', () => {state.b2StepsOpen = !state.b2StepsOpen; renderCloud();});
 for (const id of ['cloud-back', 'cloud-done']) $(id).addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
 function clearCloudLogin() {
   $('cloud-login').reset(); $('proton-signin').hidden = true;

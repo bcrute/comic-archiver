@@ -55,6 +55,8 @@ body[data-page="b2"] main > :not(#cloud-options) { display: none !important; }
 .cloud-state .status-pill[data-tone] { background: var(--surface); font-size: .9rem; }
 .cloud-state[data-tone=success] { border-left-color: var(--accent); background: var(--notice); }
 .cloud-state[data-tone=warning] { border-left-color: var(--warning); background: var(--warning-bg); }
+/* Once B2 is connected, its setup steps fold away until asked for. */
+#cloud-options.b2-folded .b2-setup-step { display: none; }
 .cloud-steps .step-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 #b2-bucket-name { max-width: 28rem; }
 #b2-pages { margin-top: 24px; }

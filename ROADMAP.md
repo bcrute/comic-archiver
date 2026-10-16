@@ -28,6 +28,8 @@ The code is in the app already, from the browser version, but the window hides i
   dashboard beside the save folder: where episodes go is chosen in that one place, not on the B2 page.
 - Typed keys stay in their fields while the B2 page is open, so a refused one can be corrected; they are cleared
   once connected or when the page is left, and never kept.
+- Once B2 is set up, the page says so at the top and folds the account, bucket, key and connect steps away
+  behind "Show the setup steps", leaving the check and the way back to the dashboard.
 - Each new CBZ is uploaded as it is made; the copy on this computer is removed only once the upload is checked.
   Unfinished uploads can be retried and leftovers of interrupted ones cleaned up, with buttons.
 - The library page shows episodes kept only in the cloud, with its filters.
