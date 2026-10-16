@@ -25,7 +25,14 @@ The code is in the app already, from the browser version, but the window hides i
   links straight to Application Keys, since the person is signed in from creating the bucket.
 - The trial before anything is uploaded for real: two saved episodes are uploaded, read back and compared, and
   the test copies deleted. Uploads start only after a passed trial and the person's own choice, made on the
-  dashboard beside the save folder: where episodes go is chosen in that one place, not on the B2 page.
+  dashboard beside the save folder: where episodes go is chosen in that one place, not on the B2 page. The
+  choice is a radio button for each storage that is set up, named and nothing more: "This device" or
+  "Backblaze B2".
+- A Storage item in the menu opens a page with a card for each place episodes can be kept, so others can be
+  added later. B2's card says whether it is set up and how much it holds, and leads to the stored episodes,
+  to Backblaze's Browse Files page, and to B2's own page for setup. Cloud storage appears in the library's
+  storage list only once it is set up.
+- The site (Tapas, Webtoon, Tappytoon) is chosen at the top of the dashboard, not in the menu bar.
 - Typed keys stay in their fields while the B2 page is open, so a refused one can be corrected; they are cleared
   once connected or when the page is left, and never kept.
 - Once B2 is set up, the page says so at the top and folds the account, bucket, key and connect steps away

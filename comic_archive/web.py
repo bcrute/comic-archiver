@@ -128,7 +128,10 @@ class HostedApplication:
                         save_current=' aria-current="page"' if filename == 'index.html' else '',
                         save_href='/' if simple else '/#import-title',
                         save_label='Dashboard' if simple else 'Save episodes',
-                        advanced_hidden=' hidden' if simple else '')
+                        advanced_hidden=' hidden' if simple else '',
+                        # Cloud storage is set up on the person's own computer, where its helper is offered.
+                        storage_hidden='' if cloud_tools.offered() and (
+                            not self.registry.desktop_only or self.registry.interface_mode == 'local') else ' hidden')
                     data = data.replace(b'<!-- shared-header -->', header.encode('utf-8'))
                 headers=[(key,value) for key,value in self._headers(media) if key!='Content-Security-Policy']
                 headers += [('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),

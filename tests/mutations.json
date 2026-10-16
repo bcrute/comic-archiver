@@ -2616,11 +2616,19 @@
   "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
  },
  {
-  "id": "saved-library lists storage the app does not offer",
+  "id": "saved-library lists cloud storage that is not set up",
   "source": "comic_archive/saved_library.py",
-  "old": "                if provider != 'b2' and provider not in targets:\n",
+  "old": "                if provider not in targets:\n",
   "new": "                if False:\n",
   "test_file": "test_saved_library.py",
   "test": "test_unknown_storage_location_is_refused_and_server_libraries_offer_no_cloud_locations"
+ },
+ {
+  "id": "menu offers Storage where the cloud helper is not offered",
+  "source": "comic_archive/web.py",
+  "old": "                        storage_hidden='' if cloud_tools.offered() and (\n",
+  "new": "                        storage_hidden='' if (\n",
+  "test_file": "test_local_web.py",
+  "test": "test_both_pages_share_the_menu_with_storage_and_only_the_dashboard_lists_sites"
  }
 ]

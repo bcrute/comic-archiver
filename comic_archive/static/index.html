@@ -25,16 +25,17 @@
     <div id="dashboard-grid" class="dashboard-grid">
     <section id="account-download" aria-labelledby="account-save-title">
       <div class="dashboard-card-heading"><p class="eyebrow">Current status</p><span id="dashboard-state" class="status-pill" data-tone="neutral">Loading</span></div>
+      <p id="site-choice" class="site-choice" hidden><label for="site">Site</label> <select id="site"></select></p>
       <h2 id="account-save-title">Loading your status…</h2>
       <div class="connection-badges" aria-label="Account and downloader status"><span id="dashboard-session" class="connection-badge">Tapas · Checking…</span><span id="dashboard-worker" class="connection-badge">Downloader · Checking…</span></div>
       <p id="dashboard-intro" class="dashboard-intro">Sign in to Tapas, then hit Go to save the episodes your account can read.</p>
       <p id="save-location" hidden><span class="muted">Saving to</span> <strong id="save-folder"></strong> <button id="open-folder" class="secondary compact" type="button">Open folder</button><button id="change-folder" class="secondary compact" type="button">Change…</button></p>
-      <div id="cloud-choice" hidden><label class="checkbox"><input id="cloud-enabled" type="checkbox"> <span id="cloud-choice-label">Upload new episodes to Backblaze B2 and free space on this computer</span></label><p class="muted">Each new episode is uploaded as it is saved. The copy on this computer is removed only after the upload is checked.</p><p id="cloud-choice-status" role="status" aria-live="polite"></p></div>
+      <fieldset id="cloud-choice" class="storage-choice" hidden><legend>Store new episodes on</legend><div id="storage-options" class="storage-options"></div><p id="cloud-choice-help" class="muted"></p><p id="cloud-choice-status" role="status" aria-live="polite"></p></fieldset>
       <p id="account-status" role="status" aria-live="polite">Connecting to your library…</p>
       <div class="account-actions"><button id="tapas-signin" class="secondary" type="button" disabled>Sign in to Tapas</button><button id="account-go" type="button" disabled>Go</button><button id="account-pause" class="secondary" type="button" hidden disabled>Pause</button></div>
       <p id="account-speed-row" class="muted" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select> <span id="account-speed-help"></span></p>
       <div id="account-network" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Allow mobile data</label><p id="account-network-help" class="muted"></p></div>
-      <div id="cloud-entry" class="account-storage" hidden><button id="setup-b2" class="secondary" type="button">Set up B2 storage</button><p class="muted">Save episodes to your own Backblaze B2 account.</p></div>
+      <p id="cloud-entry" class="account-storage muted" hidden>Keep episodes in your own cloud storage too: <a href="#storage">set it up under Storage</a>.</p>
       <p id="tapas-signin-status" role="status" aria-live="polite"></p>
       <div id="account-live-progress" hidden>
         <p id="account-list-count"></p>
@@ -58,8 +59,16 @@
       <p class="muted">Comics in CBZ. Novels in EPUB.</p>
     </section>
     </div>
+    <section id="storage-page" class="cloud-page" hidden aria-labelledby="storage-title">
+      <div class="page-heading"><div><p class="eyebrow">Storage</p><h2 id="storage-title">Where your episodes are kept</h2></div><button id="storage-back" class="secondary" type="button">← Back to dashboard</button></div>
+      <p class="muted">Choose where new episodes go on the dashboard, beside the save folder. Here you can see what each place holds and set up cloud storage.</p>
+      <div class="storage-cards">
+        <article id="storage-device" class="storage-card"><h3>This device</h3><p id="storage-device-stored">Counting…</p><p class="step-links"><a id="storage-device-files" class="button secondary" href="/library">View stored episodes</a></p></article>
+        <article id="storage-b2" class="storage-card"><div class="storage-card-heading"><h3>Backblaze B2</h3><span id="storage-b2-pill" class="status-pill" data-tone="neutral">Not set up</span></div><p id="storage-b2-text">Your own Backblaze account. Backblaze bills you itself; the first 10 GB is free.</p><p id="storage-b2-stored" hidden></p><p class="step-links"><a id="storage-b2-files" class="button secondary" href="/library" hidden>View stored episodes</a><a id="storage-b2-open" class="button secondary" href="https://secure.backblaze.com/b2_browse_files2.htm" target="_blank" rel="noopener noreferrer" hidden>Open in Backblaze</a><a id="storage-b2-setup" class="button" href="#b2">Set up</a></p></article>
+      </div>
+    </section>
     <section id="cloud-options" class="cloud-page" hidden aria-labelledby="cloud-title">
-      <div class="page-heading"><div><p class="eyebrow">Cloud storage</p><h2 id="cloud-title">Save to your Backblaze B2 account</h2></div><button id="cloud-back" class="secondary" type="button">← Back to dashboard</button></div>
+      <div class="page-heading"><div><p class="eyebrow">Storage</p><h2 id="cloud-title">Save to your Backblaze B2 account</h2></div><button id="cloud-back" class="secondary" type="button">← Back to storage</button></div>
       <div id="b2-state" class="cloud-state b2-only" data-tone="neutral" role="status"><span id="b2-state-pill" class="status-pill" data-tone="neutral">Not set up</span><p id="b2-state-text">Follow the steps below to connect your own Backblaze account.</p></div>
       <p>Upload each CBZ as it is built to your own cloud account. One temporary episode is kept for recovery. Local episode files are removed only after the cloud copies are verified. Failed uploads keep your files here.</p>
       <label hidden>Provider <select id="cloud-provider"><option value="b2">Backblaze B2</option><option value="google" hidden>Google Drive</option><option value="dropbox" hidden>Dropbox</option><option value="proton" hidden>Proton Drive (experimental)</option></select></label>

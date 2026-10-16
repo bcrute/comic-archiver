@@ -151,11 +151,15 @@ class LocalWebTests(unittest.TestCase):
         self.assertEqual([(site['key'],site['available'],site['current']) for site in sites],
                          [('tapas',True,True),('webtoon',False,False),('tappytoon',True,False)])
 
-    def test_both_pages_carry_the_site_choice_in_the_shared_header_before_the_theme_button(self):
+    def test_both_pages_share_the_menu_with_storage_and_only_the_dashboard_lists_sites(self):
         for route,title in (('/','<title>Comic Archiver</title>'),('/library','<title>Saved library — Comic Archiver</title>')):
             page=self.call(route)[2].decode()
             self.assertIn(title,page); self.assertNotIn('Tapas Archive',page)
-            self.assertLess(page.index('<select id="site"></select>'),page.index('id="theme-toggle"'))
+            self.assertIn('<a id="storage-nav" href="/#storage">Storage</a>',page)
+            self.assertEqual(page.count('<select id="site">'),int(route=='/'))
+        # Where the cloud helper is not offered, there is no storage to set up.
+        with patch('comic_archive.cloud_tools.offered',return_value=False):
+            self.assertIn('<a id="storage-nav" href="/#storage" hidden>Storage</a>',self.call('/')[2].decode())
 
     def test_open_existing_file_requires_local_cookie_origin_csrf_and_fixed_action(self):
         archive,identifier=self.file_to_open()
@@ -237,7 +241,7 @@ class LocalWebTests(unittest.TestCase):
         route='/api/v1/workspaces/'+self.workspace.id+'/saved-files'
         self.assertEqual(self.call(route)[0], '401 Unauthorized')
         status, _, body = self.call(route, cookie=cookie, headers={'QUERY_STRING':'summary=1'})
-        self.assertEqual(status,'200 OK'); self.assertEqual([g['id'] for g in json.loads(body)['locations']],['device','b2'])
+        self.assertEqual(status,'200 OK'); self.assertEqual([g['id'] for g in json.loads(body)['locations']],['device'])
         self.assertEqual(self.call('/api/v1/workspaces/'+'0'*32+'/saved-files',cookie=cookie)[0], '404 Not Found')
 
     def test_button_signin_is_local_owner_csrf_scoped_and_credentials_never_enter_worker_queue(self):

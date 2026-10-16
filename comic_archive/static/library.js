@@ -129,31 +129,7 @@ $('previous-page').addEventListener('click', () => {state.offset -= Number($('pa
 $('next-page').addEventListener('click', () => {state.offset += Number($('page-size').value); loadFiles();});
 $('page-jump').addEventListener('submit', event => {event.preventDefault(); if (!$('page-jump').reportValidity()) return; state.offset = (Number($('file-page').value)-1)*Number($('page-size').value); loadFiles();});
 $('refresh-files').addEventListener('click', () => loadFiles(true));
-$('site').addEventListener('change', async () => {
-  // The window opens the other site's library behind this page; the page then lists its files, without reloading.
-  $('site').disabled = true;
-  try {
-    await api('/api/v1/site', {site:$('site').value});
-    notice(`Switching to ${$('site').selectedOptions[0]?.textContent || 'the site'}…`);
-    while ((await api('/api/v1/context')).site_switching === true) await new Promise(done => setTimeout(done, 300));
-    await openLibrary();
-  } catch (error) {notice(error.message, true);}
-  finally {$('site').disabled = false;}
-});
 $('workspace').addEventListener('change', () => {state.workspace = $('workspace').value; state.location = state.desktopOnly ? 'device' : 'all'; state.offset = 0; hash(); loadFiles();});
-function showSites(sites) {
-  // Only the desktop app lists sites. Choosing one asks the window to open that site's own library.
-  const list = Array.isArray(sites) ? sites : [];
-  $('site-choice').hidden = !list.length;
-  $('site').replaceChildren(...list.map(site => {
-    const option = document.createElement('option');
-    option.value = site.key;
-    option.textContent = site.available ? site.name : site.name + ' — coming later';
-    option.disabled = !site.available;
-    option.selected = site.current === true;
-    return option;
-  }));
-}
 let keepsTheme = false;
 document.addEventListener('comic-archive-theme', async event => {
   // Only the desktop app keeps the choice; in a browser the page's own storage does.
@@ -163,7 +139,6 @@ document.addEventListener('comic-archive-theme', async event => {
 async function openLibrary() {
   try {
     const context = await api('/api/v1/context');
-    showSites(context.sites);
     keepsTheme = typeof context.theme === 'string';
     state.interfaceMode = context.interface_mode;
     // Only this computer's files where cloud saving is not offered: the hosted version, or a computer without the helper.
