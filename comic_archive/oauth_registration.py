@@ -10,7 +10,7 @@ from pathlib import Path
 
 def load(provider):
     from .cloud import _json, _config
-    supplied = os.environ.get('COMIC_ARCHIVE_OAUTH_CLIENTS') or os.environ.get('TAPAS_ARCHIVE_OAUTH_CLIENTS')
+    supplied = os.environ.get('COMIC_ARCHIVE_OAUTH_CLIENTS')
     path = Path(supplied) if supplied else Path(__file__).with_name('oauth-clients.json')
     if not path.exists():
         return None

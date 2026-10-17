@@ -434,7 +434,7 @@ class LocalWebTests(unittest.TestCase):
                 self.assertEqual(self.call('/api/v1/context', cookie=cookie)[0], '401 Unauthorized')
         forged = cookie[:-1] + ('1' if cookie[-1] != '1' else '2')
         for value in (forged, 'bad=1', COOKIE_NAME + '=not-signed', 'x' * 4097):
-            self.assertEqual(self.call('/api/v1/context', cookie=value, headers={'tapas.local.principal': LOCAL_OWNER})[0], '401 Unauthorized')
+            self.assertEqual(self.call('/api/v1/context', cookie=value, headers={'comic.local.principal': LOCAL_OWNER})[0], '401 Unauthorized')
 
     def test_remote_cross_site_and_dns_rebinding_requests_never_bootstrap_or_authenticate(self):
         cookie = self.session()
@@ -549,12 +549,12 @@ class LocalWebTests(unittest.TestCase):
         headers = {'HTTP_ORIGIN': self.app.origin, 'HTTP_X_CSRF_TOKEN': json.loads(self.call('/api/v1/context', cookie=cookie)[2])['csrf_token']}
         worker = self.workspace.session / 'worker'; worker.mkdir(parents=True)
         (worker / 'status.json').write_text('{"state":"busy"}')
-        with patch.object(self.registry.tapas_signin, 'start') as start:
+        with patch.object(self.registry.site_signin, 'start') as start:
             status, values, body = self.call('/api/v1/workspaces/' + self.workspace.id + '/session/signin', method='POST', body={}, headers=headers, cookie=cookie)
         self.assertEqual((status, json.loads(body)), ('409 Conflict', {'code': 'library_busy'}))
         start.assert_not_called()
         self.assertEqual(values['Retry-After'], '2')
-        self.assertEqual(self.registry.tapas_signin.status(), {'status': 'idle'})
+        self.assertEqual(self.registry.site_signin.status(), {'status': 'idle'})
 
     def test_cloud_signin_status_is_readable_and_cancel_accepts_neither_a_body_nor_a_read(self):
         cookie = self.session()

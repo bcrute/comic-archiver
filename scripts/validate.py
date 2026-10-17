@@ -116,7 +116,7 @@ def main():
     if (OUT / 'dist').exists():
         shutil.rmtree(OUT / 'dist')
     summary = suites(args.prepare)
-    command([sys.executable, '-m', 'compileall', '-q', 'comic_archive', 'tapas_archive'])
+    command([sys.executable, '-m', 'compileall', '-q', 'comic_archive'])
     # The browser checks keep their scratch files in memory where they can: on a busy fleet host one write
     # to disk can stall for longer than the pages are given to react (measured 2026-10-13: 3 of 8 runs
     # failed on disk, at a different step each time, and none of 8 in memory).

@@ -141,9 +141,9 @@ class FailureReceiptTests(unittest.TestCase):
         for name,candidate in (('interrupted run',receipt('interrupted')),('server error',receipt(http=500)),
                                ('boolean status',receipt(http=True)),('no status',receipt(http=None))):
             with self.subTest(name):
-                error._tapas_failure_receipt=candidate
+                error._comic_failure_receipt=candidate
                 self.assertIsNone(failure_result(error))
-        error._tapas_failure_receipt=receipt(http=429)
+        error._comic_failure_receipt=receipt(http=429)
         result=failure_result(error)
         self.assertEqual((result['pause_reason'],result['source_http_status']),('source_refused',429))
         self.assertEqual((result['downloaded_pages'],result['archived_episode_ids']),(2,['81']))
@@ -154,9 +154,9 @@ class FailureReceiptTests(unittest.TestCase):
         error=RuntimeError('PRIVATE')
         for delay in (0,30,MAX_RETRY_AFTER):
             with self.subTest(delay=delay):
-                error._tapas_failure_receipt=FailureReceipt('a'*24,'paused',2,3,4,('81',),0,'source_refused',429,delay)
+                error._comic_failure_receipt=FailureReceipt('a'*24,'paused',2,3,4,('81',),0,'source_refused',429,delay)
                 self.assertEqual(failure_result(error)['retry_after_seconds'],delay)
         for delay in (-1,MAX_RETRY_AFTER+1,True,'30',30.5,None):
             with self.subTest(delay=delay):
-                error._tapas_failure_receipt=FailureReceipt('a'*24,'paused',2,3,4,('81',),0,'source_refused',429,delay)
+                error._comic_failure_receipt=FailureReceipt('a'*24,'paused',2,3,4,('81',),0,'source_refused',429,delay)
                 self.assertNotIn('retry_after_seconds',failure_result(error))

@@ -89,7 +89,7 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
     expect(page.locator('html')).to_have_attribute('data-theme','dark')
     expect(page.locator('#account-download')).to_be_visible()
     # Keep an existing user's saved theme when the browser setting key changes.
-    page.evaluate("() => {localStorage.removeItem('comic-archive-theme'); localStorage.setItem('tapas-archive-theme', 'dark');}")
+    page.evaluate("() => {localStorage.removeItem('comic-archive-theme'); localStorage.setItem('comic-archive-theme', 'dark');}")
     page.reload()
     expect(page.locator('html')).to_have_attribute('data-theme','dark')
     assert page.evaluate("localStorage.getItem('comic-archive-theme')") == 'dark'
@@ -187,14 +187,14 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         private_json(worker_status,{'state':'stopped'})
         page.evaluate('poll()')
         expect(page.locator('#dashboard-state')).to_have_text('Offline')
-        expect(page.locator('#tapas-signin')).to_be_visible()
+        expect(page.locator('#site-signin')).to_be_visible()
         # A downloader that is still starting is said to be starting, without offering to sign in again.
         private_json(worker_status,{'state':'starting'})
         page.evaluate('poll()')
         expect(page.locator('#dashboard-state')).to_have_text('Starting')
         expect(page.locator('#dashboard-worker')).to_have_text('Downloader · Starting')
         expect(page.locator('#account-status')).to_contain_text('Starting the downloader')
-        expect(page.locator('#tapas-signin')).to_be_hidden()
+        expect(page.locator('#site-signin')).to_be_hidden()
         expect(page.locator('#account-go')).to_be_disabled()
         worker_status.write_bytes(worker_original)
         page.evaluate('poll()')
@@ -336,13 +336,13 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         value.update(code='login_required')
         private_json(checkpoint,value)
         page.evaluate('poll()')
-        expect(page.locator('#tapas-signin')).to_be_visible()
+        expect(page.locator('#site-signin')).to_be_visible()
         expect(page.locator('#account-go')).to_be_disabled()
-        signin=registry.tapas_signin
+        signin=registry.site_signin
         with patch.object(signin,'start',return_value={'status':'running'}):
             signin._state={'status':'running'}
-            page.locator('#tapas-signin').click()
-            expect(page.locator('#tapas-signin-status')).to_contain_text('detect it automatically')
+            page.locator('#site-signin').click()
+            expect(page.locator('#site-signin-status')).to_contain_text('detect it automatically')
             expect(page.locator('#account-save-title')).to_have_text('Finish signing in')
             expect(page.locator('#account-go')).to_be_disabled()
             signin._state={'status':'connected'}
@@ -357,10 +357,10 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
             route.fulfill(status=503,content_type='application/json',body='{"code":"request_unavailable"}')
         page.route('**'+base,unavailable)
         page.evaluate('poll()')
-        expect(page.locator('#tapas-signin-status')).to_contain_text('retry automatically')
+        expect(page.locator('#site-signin-status')).to_contain_text('retry automatically')
         page.unroute('**'+base,unavailable)
         page.evaluate('poll()')
-        expect(page.locator('#tapas-signin-status')).to_have_text('')
+        expect(page.locator('#site-signin-status')).to_have_text('')
     else:
         expect(page.locator('#account-go')).to_be_disabled()
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -588,7 +588,7 @@ def own_window_controls(context, site, registry, workspace):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
         listed, registry.site_choice = registry.sites, app_runtime.SiteChoice()
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)):
-            for address, said in ((site+'/', '#tapas-signin-status'),):
+            for address, said in ((site+'/', '#site-signin-status'),):
                 registry.sites = sites.choices()
                 page.goto(address)
                 expect(page.locator('#site')).to_have_value('tapas')
@@ -610,7 +610,7 @@ def own_window_controls(context, site, registry, workspace):
                 if address.endswith('/'):
                     # With another site open, the account card and its badge name that site.
                     expect(page.locator('#dashboard-session')).to_have_text(re.compile(r'^Example · '))
-                    expect(page.locator('#tapas-signin')).to_have_text('Sign in to Example')
+                    expect(page.locator('#site-signin')).to_have_text('Sign in to Example')
         registry.sites = listed
     finally:
         page.close()
@@ -1669,7 +1669,7 @@ def smoke(screenshot=None,mobile=False,local=False):
                 'account_list_live_counts_and_stall_feedback':True,
                 'theme_device_default_toggle_reload_and_saved_files':True,
                 'shared_navigation_both_views_simple_and_advanced':True,
-                'browser_only_tapas_signin':local,
+                'browser_only_site_signin':local,
                 'hidden_options_retained':True,
                 'desktop_local_destination':True,
                 'cloud_transfer_experiment_available':local,

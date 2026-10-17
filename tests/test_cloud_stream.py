@@ -210,25 +210,6 @@ class CloudStreamTests(unittest.TestCase):
             with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'])
         with self.assertRaises(ArchiveError): _stage(self.root,'../../keep')
 
-    def test_legacy_interrupted_stream_cleans_its_original_stage_only(self):
-        with closing(PublicationStore(self.root)) as store:
-            folder = store.series_folder(self.series)
-            stream = StreamingEpisode.create(store, self.series, self.episode,
-                                             store.episode_path(self.series, self.episode, folder))
-            stream.close()
-            record = json.loads(stream.receipt.read_text())
-            self.assertTrue(record['remote_path'].startswith('Comic-Archive/'))
-            record['remote_path'] = record['remote_path'].replace('Comic-Archive/', 'Tapas-Archive/', 1)
-            cloud._write(stream.receipt, record)
-            StreamingTransfer.files[('google', record['remote_path'])] = b'partial'
-            keep = ('google', record['remote_path'] + '.keep')
-            StreamingTransfer.files[keep] = b'keep'
-            self.assertEqual(_stage(self.root, record['episode_id'])[1], record)
-            cleanup_stage(self.root, stream.transfer, record['episode_id'])
-            self.assertNotIn(('google', record['remote_path']), StreamingTransfer.files)
-            self.assertEqual(StreamingTransfer.files[keep], b'keep')
-            self.assertFalse(stream.receipt.exists())
-
     def test_google_metadata_checksum_and_fallback_readback_require_exact_hash(self):
         transfer = object.__new__(RealTransfer); transfer.provider='google'; transfer.target={'remote':'google'}
         expected = 'a'*64
@@ -369,7 +350,7 @@ class CloudStreamTests(unittest.TestCase):
         value = cloud.settings(self.root); target = value['targets']['google']
         episode_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
         sha = hashlib.sha256(b'episode').hexdigest()
-        remote = f"Tapas-Archive/{value['library_id']}/.staging/{run_id}/episode.cbz"
+        remote = f"Comic-Archive/{value['library_id']}/.staging/{run_id}/episode.cbz"
         receipt = self.root/'.archive-state/cloud/streams'/(episode_id+'.json')
         cloud._write(receipt,{'schema_version':1,'library_id':value['library_id'],'target_id':target['target_id'],
             'episode_id':episode_id,'run_id':run_id,'archive':'Synthetic/episode.cbz','remote_path':remote,

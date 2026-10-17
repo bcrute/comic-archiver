@@ -172,7 +172,7 @@ class MonitoringTests(unittest.TestCase):
             project=Path(work);root=project/'Library'
             with Inventory(root):
                 pass
-            for name in ('.tapas-session','session'):
+            for name in ('.comic-session','session'):
                 with self.subTest(session=name):
                     worker=project/name/'worker'
                     for folder in ('requests','responses'):(worker/folder).mkdir(parents=True,exist_ok=True)

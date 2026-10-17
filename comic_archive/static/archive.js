@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { context: null, account: null, tapasAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false, locations: [] };
+const state = { context: null, account: null, siteAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false, locations: [] };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
   local_session_required: 'Your local dashboard session expired. Reload this page.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
@@ -263,14 +263,14 @@ async function daily() {
 async function select(workspace) {
   if (state.auditUrl) URL.revokeObjectURL(state.auditUrl);
   state.auditUrl = null; $('audit-download').hidden = true; $('audit-download').removeAttribute('href'); $('audit-status').textContent = '';
-  state.workspace = workspace; state.account = null; state.tapasAuth = null; state.accountMessage = null; state.task = null; state.taskKind = null; state.taskInfo = null; state.taskLabel = null; state.status = null; state.series = []; state.storage = null; state.cloud = null; state.network = null; state.auth = null; state.preview = null;
+  state.workspace = workspace; state.account = null; state.siteAuth = null; state.accountMessage = null; state.task = null; state.taskKind = null; state.taskInfo = null; state.taskLabel = null; state.status = null; state.series = []; state.storage = null; state.cloud = null; state.network = null; state.auth = null; state.preview = null;
   state.accountReceivedAt = 0; state.lastAccountRefreshAt = 0; state.accountOffline = false;
   state.connectionCheck = null; renderConnectionCheck();
   $('batch-timing').textContent = '';
   state.previewUrl = null;
   $('series-storage').textContent = "We'll check which episodes you can save and estimate the space they need.";
   $('library-locations').replaceChildren(); $('metrics').replaceChildren(); $('search').value = '';
-  await Promise.all(simpleMode() ? [refresh(), account(), tapasAuth(), cloud(), network(), cloudAuth(), librarySummary()] : [refresh(), daily(), storage(), cloud(), network(), cloudAuth(), librarySummary()]); notice(state.status?.worker?.reported_state === 'busy' || state.status?.progress?.status === 'running' ? 'Your batch is still running. Progress appears below and beside the account scan buttons.' : 'Library loaded. Choose a series to get started.');
+  await Promise.all(simpleMode() ? [refresh(), account(), siteAuth(), cloud(), network(), cloudAuth(), librarySummary()] : [refresh(), daily(), storage(), cloud(), network(), cloudAuth(), librarySummary()]); notice(state.status?.worker?.reported_state === 'busy' || state.status?.progress?.status === 'running' ? 'Your batch is still running. Progress appears below and beside the account scan buttons.' : 'Library loaded. Choose a series to get started.');
   $('priority').value = state.status?.queue_priority || 'expiring_first';
 }
 // The open site's name, for the words the page shows; pages without a list of sites are Tapas's.
@@ -726,7 +726,7 @@ async function poll() {
   const workspace = state.workspace, task = state.task, kind = state.taskKind;
   try {
     if (simpleMode() && !state.task) {
-      await Promise.all([refresh(), account(), tapasAuth(), cloud(), cloudAuth()]);
+      await Promise.all([refresh(), account(), siteAuth(), cloud(), cloudAuth()]);
       // The connection can change under a running download; check it now and then, not every poll.
       if (Date.now() - (state.networkCheckedAt || 0) > 15000) await network(false);
       state.lastAccountRefreshAt = Date.now(); state.accountOffline = false;
@@ -800,15 +800,15 @@ function renderAccount() {
   if (!simpleMode()) return;
   const local = state.context?.interface_mode === 'local';
   const accountRunning = state.account?.status === 'running';
-  const signingIn = state.tapasAuth?.status === 'running';
+  const signingIn = state.siteAuth?.status === 'running';
   const worker = state.status?.worker?.reported_state;
   const batchRunning = worker === 'busy' || state.status?.progress?.status === 'running';
-  const needsLogin = !state.status?.session_configured || (state.account?.code === 'login_required' && state.tapasAuth?.status !== 'connected');
+  const needsLogin = !state.status?.session_configured || (state.account?.code === 'login_required' && state.siteAuth?.status !== 'connected');
   // A downloader that is still starting is not offline: signing in again would not help it.
-  $('tapas-signin').hidden = !local || (!needsLogin && ['starting','ready','busy'].includes(worker) && !signingIn && !state.accountMessage);
-  $('tapas-signin').disabled = state.busy || accountRunning || batchRunning || signingIn || !state.workspace;
+  $('site-signin').hidden = !local || (!needsLogin && ['starting','ready','busy'].includes(worker) && !signingIn && !state.accountMessage);
+  $('site-signin').disabled = state.busy || accountRunning || batchRunning || signingIn || !state.workspace;
   const site = siteName();
-  $('tapas-signin').textContent = signingIn ? 'Signing in…' : `Sign in to ${site}`;
+  $('site-signin').textContent = signingIn ? 'Signing in…' : `Sign in to ${site}`;
   $('dashboard-intro').textContent = `Sign in to ${site}, then hit Go to save the episodes your account can read.`;
   $('account-go').disabled = !local || state.busy || Boolean(state.task) || state.auth?.status === 'running' || !state.account || needsLogin || signingIn || accountRunning || worker !== 'ready';
   $('account-go').textContent = accountRunning ? 'Working…' : state.account?.status === 'stopped' || state.account?.status === 'held' ? 'Go — continue' : 'Go';
@@ -838,8 +838,8 @@ function renderAccount() {
     account_mismatch:`That ${site} account does not match this saved library. Sign in to the original account.`,
     signin_failed:`Sign-in did not finish. Try Sign in to ${site} again.`,
     signin_incomplete:`Sign-in was not completed. Click Sign in to ${site} to try again.`};
-  $('tapas-signin-status').textContent = state.accountMessage?.message || (signingIn ? `Finish signing in to ${site}. We’ll detect it automatically; then return here and hit Go.` : state.tapasAuth?.status === 'error' ? authMessages[state.tapasAuth.code] || authMessages.signin_failed : '');
-  $('tapas-signin-status').classList.toggle('error', Boolean(state.accountMessage?.error || state.tapasAuth?.status === 'error'));
+  $('site-signin-status').textContent = state.accountMessage?.message || (signingIn ? `Finish signing in to ${site}. We’ll detect it automatically; then return here and hit Go.` : state.siteAuth?.status === 'error' ? authMessages[state.siteAuth.code] || authMessages.signin_failed : '');
+  $('site-signin-status').classList.toggle('error', Boolean(state.accountMessage?.error || state.siteAuth?.status === 'error'));
   const phases = {existing_backlog:'Finishing saved downloads…', lists:`Finding series in your ${site} account…`,
     series:'Checking your series and downloading accessible episodes…', archive:'Downloading your episodes…', verify:'Checking the completed library…'};
   let message = !state.workspace ? 'Connecting to your library…' : !local ? `Use the local archiver to connect your ${site} account.`
@@ -933,7 +933,7 @@ function renderDashboard({local,accountRunning,signingIn,worker,batchRunning,nee
   const site = siteName();
   $('dashboard-session').textContent=`${site} · ` + (!state.status ? 'Checking…' : !local ? 'Local sign-in needed'
     : signingIn ? 'Signing in' : needsLogin ? 'Sign-in needed'
-    : state.tapasAuth?.status === 'connected' ? 'Connected' : 'Session saved');
+    : state.siteAuth?.status === 'connected' ? 'Connected' : 'Session saved');
   $('dashboard-session').dataset.tone=needsLogin && state.status ? 'warning' : 'neutral';
   $('dashboard-worker').textContent=!state.status ? 'Downloader · Checking…' : disconnected ? 'Downloader · Status unknown'
     : worker === 'busy' ? 'Downloader · Working' : worker === 'ready' ? 'Downloader · Ready' : worker === 'starting' ? 'Downloader · Starting' : 'Downloader · Offline';
@@ -952,12 +952,12 @@ async function account() {
   if (previous !== value.status && value.status === 'finished') await librarySummary(true);
   renderAccount();
 }
-async function tapasAuth() {
+async function siteAuth() {
   if (!simpleMode() || !state.workspace || state.context?.interface_mode !== 'local') return;
   const workspace = state.workspace;
   const value = await api(base()+'/session/signin');
   if (workspace !== state.workspace) return;
-  state.tapasAuth = value; renderAccount();
+  state.siteAuth = value; renderAccount();
 }
 async function accountAction(callback) {
   if (state.busy) return;
@@ -967,8 +967,8 @@ async function accountAction(callback) {
     catch (error) {state.accountMessage = {message:error.message, error:true};}
   });
 }
-$('tapas-signin').addEventListener('click', () => accountAction(async () => {
-  state.tapasAuth = await api(base()+'/session/signin', {}); renderAccount();
+$('site-signin').addEventListener('click', () => accountAction(async () => {
+  state.siteAuth = await api(base()+'/session/signin', {}); renderAccount();
 }));
 $('account-go').addEventListener('click', () => accountAction(async () => {
   state.account = await api(base()+'/account', {}); state.accountReceivedAt = Date.now(); state.lastAccountRefreshAt = Date.now(); state.accountOffline = false; renderAccount();

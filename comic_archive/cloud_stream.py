@@ -117,7 +117,7 @@ def _stage(root, episode_id, provider='google'):
     from .cloud import _json
     from .publication import valid_export_id
     from .storage import safe_root
-    from .cloud import STREAM_PROVIDERS, CLOUD_ROOTS
+    from .cloud import STREAM_PROVIDERS, CLOUD_ROOT
     if not valid_export_id(episode_id) or provider not in STREAM_PROVIDERS:
         raise ArchiveError('Invalid streaming episode identity.')
     folder = Path(root) / '.archive-state/cloud/streams'
@@ -133,7 +133,7 @@ def _stage(root, episode_id, provider='google'):
             or type(record['schema_version']) is not int or record['schema_version'] != 1
             or any(not valid_export_id(record[k]) for k in ('library_id', 'target_id', 'episode_id', 'run_id'))
             or record['episode_id'] != episode_id or record['state'] not in {'streaming', 'uploaded'}
-            or record['remote_path'] not in {f"{name}/{record['library_id']}/.staging/{record['run_id']}/episode.cbz" for name in CLOUD_ROOTS}
+            or record['remote_path'] != f"{CLOUD_ROOT}/{record['library_id']}/.staging/{record['run_id']}/episode.cbz"
             or not isinstance(record['archive'], str) or anchored(record['archive'])
             or len(Path(record['archive']).parts) != 2 or '..' in Path(record['archive']).parts
             or Path(record['archive']).parts[0].startswith('.')

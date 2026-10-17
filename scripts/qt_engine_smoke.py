@@ -48,7 +48,7 @@ window.pageGlobal = 1;</script>
 document.addEventListener('click', e => sessionStorage.setItem('click', JSON.stringify([e.isTrusted, e.target.id])), true);
 document.addEventListener('wheel', e => { document.documentElement.dataset.wheel = String(e.isTrusted); }, true);
 document.getElementById('probe').addEventListener('click', () => {
-  document.documentElement.dataset.ours = typeof window.tapasArchive; });
+  document.documentElement.dataset.ours = typeof window.comicArchive; });
 fetch('/json'); fetch('/missing.json');
 </script></body></html>'''
 PAGE2 = (b'<!doctype html><html><head><title>two</title><script>document.documentElement.dataset.click ='

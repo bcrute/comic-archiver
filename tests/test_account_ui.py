@@ -46,7 +46,7 @@ class AccountUITests(unittest.TestCase):
 
     def test_account_and_signin_routes_require_local_owner_cookie_csrf_and_empty_payload(self):
         headers=self.browser_headers();base='/api/v1/workspaces/'+self.workspace.id
-        for path,method_name in [(base+'/account','start_account'),(base+'/session/signin','start_tapas_signin'),
+        for path,method_name in [(base+'/account','start_account'),(base+'/session/signin','start_site_signin'),
                                  (base+'/account/pause','pause_account')]:
             with patch.object(self.registry,method_name,return_value={'status':'running'}) as action:
                 self.assertEqual(self.call(path,'POST',{})[0],'401 Unauthorized')
@@ -148,8 +148,8 @@ class AccountUITests(unittest.TestCase):
 
     def test_first_signin_and_go_work_before_any_worker_has_reported(self):
         (self.queue/'status.json').unlink();(self.workspace.session/'state.json').unlink()
-        with patch.object(self.registry.tapas_signin,'start',return_value={'status':'running'}) as start:
-            self.assertEqual(self.registry.start_tapas_signin(LOCAL_OWNER,self.workspace.id),{'status':'running'})
+        with patch.object(self.registry.site_signin,'start',return_value={'status':'running'}) as start:
+            self.assertEqual(self.registry.start_site_signin(LOCAL_OWNER,self.workspace.id),{'status':'running'})
         start.assert_called_once_with()
         private_json(self.workspace.session/'state.json',{})
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
@@ -161,9 +161,9 @@ class AccountUITests(unittest.TestCase):
         private_json(self.queue/'status.json',{'state':'busy'})
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         private_json(self.queue/'status.json',{'state':'ready'})
-        self.registry.tapas_signin._state={'status':'running'}
+        self.registry.site_signin._state={'status':'running'}
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.registry.tapas_signin._state={'status':'idle'}
+        self.registry.site_signin._state={'status':'idle'}
         self.registry.cloud_signin._state={'status':'running'}
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.assertFalse((self.queue/'account-export.json').exists())

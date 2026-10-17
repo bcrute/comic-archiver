@@ -94,7 +94,6 @@ rather than on a development PC.
 |---|---|
 | `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `static/` holds the pages. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
 | `comic_archive/adapters/` | What is specific to one site. |
-| `tapas_archive/` | The package's old name, kept so existing installs keep working. |
 | `packaging/`, `scripts/build_linux_app.py` | The Linux package. |
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
 | `scripts/` | The checks above and the helpers they use. |

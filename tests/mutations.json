@@ -2662,5 +2662,21 @@
   "new": "if uses[page['sha256']] else direct.pages.get(page['sha256'])",
   "test_file": "test_cloud_stream.py",
   "test": "test_each_page_is_let_go_once_its_last_use_is_in_the_cbz"
+ },
+ {
+  "id": "outbox retry accepts any cloud folder",
+  "source": "comic_archive/cloud.py",
+  "old": "                    if remote_root != CLOUD_ROOT:\n",
+  "new": "                    if False:\n",
+  "test_file": "test_cloud.py",
+  "test": "test_an_outbox_record_without_the_apps_folder_is_not_retried"
+ },
+ {
+  "id": "B2 cleanup deletes outside the app's folder",
+  "source": "comic_archive/b2_cleanup.py",
+  "old": "parts[0] != CLOUD_ROOT",
+  "new": "False",
+  "test_file": "test_b2_cleanup.py",
+  "test": "test_a_file_outside_the_apps_own_folder_is_never_deleted"
  }
 ]

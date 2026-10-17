@@ -6,7 +6,7 @@
   try {
     preference = localStorage.getItem(key);
     if (preference === null) {
-      preference = localStorage.getItem('tapas-archive-theme');
+      preference = localStorage.getItem('comic-archive-theme');
       if (['light', 'dark'].includes(preference)) localStorage.setItem(key, preference);
     }
   } catch {}

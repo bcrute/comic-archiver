@@ -32,11 +32,11 @@ STREAM_PROVIDERS = ('google', 'dropbox', 'b2')
 OAUTH_PROVIDERS = ('google', 'dropbox')
 LABELS = {'google': 'Google Drive', 'dropbox': 'Dropbox', 'proton': 'Proton Drive', 'b2': 'Backblaze B2'}
 REMOTE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}')
-CLOUD_ROOTS = ('Comic-Archive', 'Tapas-Archive')  # Legacy receipts keep their exact object names.
+CLOUD_ROOT = 'Comic-Archive'
 
 
 def test_prefixes(library_id, test_id):
-    return {f'{name}/{library_id}/tests/{test_id}' for name in CLOUD_ROOTS}
+    return {f'{CLOUD_ROOT}/{library_id}/tests/{test_id}'}
 
 
 def _json(path, maximum=1024*1024):
@@ -476,7 +476,7 @@ def queue_episode(root, archive, *, provider=None):
                     and previous.get('target_id') == target['target_id']):
                 continue
         _write(receipt, bundle | {'state':'pending', 'library_id':value['library_id'], 'target_id':target['target_id'],
-                                 'remote_root':CLOUD_ROOTS[0]})
+                                 'remote_root':CLOUD_ROOT})
 
 
 def upload_pending(root, *, limit=None, provider=None):
@@ -515,10 +515,8 @@ def upload_pending(root, *, limit=None, provider=None):
                     if any(bundle[k] != record.get(k) for k in ('episode_id','version')):
                         raise ArchiveError('Cloud retry no longer matches the completed episode.')
                     if transfer is None:transfer = transfer_for(root, name, target)
-                    # Older outbox records predate the root field. Continue in
-                    # their original namespace rather than orphaning a partial upload.
-                    remote_root = record.get('remote_root', CLOUD_ROOTS[1])
-                    if remote_root not in CLOUD_ROOTS:
+                    remote_root = record.get('remote_root')
+                    if remote_root != CLOUD_ROOT:
                         raise ArchiveError('Cloud retry namespace is invalid.')
                     prefix = f"{remote_root}/{value['library_id']}/{bundle['series_id']}/{bundle['episode_id']}/{bundle['version']}"
                     for item in bundle['files']:
@@ -604,7 +602,7 @@ class DirectUpload:
         if self.target is None:
             raise ArchiveError('Direct uploads need B2 to be the only cloud storage in use.')
         self.bundle = _bundle(self.root, self.archive, data)
-        self.prefix = (f"{CLOUD_ROOTS[0]}/{self.value['library_id']}/{self.bundle['series_id']}"
+        self.prefix = (f"{CLOUD_ROOT}/{self.value['library_id']}/{self.bundle['series_id']}"
                        f"/{self.bundle['episode_id']}/{self.bundle['version']}")
         self.intent = self.root / '.archive-state/cloud/direct/b2' / (self.bundle['episode_id'] + '.json')
         self.error = None
@@ -660,7 +658,7 @@ class DirectUpload:
         queued = {'episode_id':self.bundle['episode_id'], 'archive':self.archive.relative_to(self.root).as_posix(),
                   'version':self.bundle['version'], 'required_targets':['b2'], 'state':'pending',
                   'library_id':self.value['library_id'], 'target_id':self.target['target_id'],
-                  'remote_root':CLOUD_ROOTS[0]}
+                  'remote_root':CLOUD_ROOT}
         _write(self.root / '.archive-state/cloud/outbox/b2' / (self.bundle['episode_id'] + '.json'),
                queued | self.bundle | {'state':'verified', 'target_id':self.target['target_id'],
                                        'verified_at':datetime.now(timezone.utc).isoformat(),

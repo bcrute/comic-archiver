@@ -65,25 +65,7 @@ class FakeTransfer:
 
 
 class CloudTests(unittest.TestCase):
-    def test_old_test_namespace_cleanup_removes_only_its_journaled_files(self):
-        self.publish(); self.configured(); FakeTransfer.fail_delete = True
-        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1)
-        receipt = next((self.root / '.archive-state/cloud/tests').glob('*.json'))
-        record = json.loads(receipt.read_text())
-        self.assertTrue(record['prefix'].startswith('Comic-Archive/'))
-        record['prefix'] = record['prefix'].replace('Comic-Archive/', 'Tapas-Archive/', 1)
-        record['files'] = [p.replace('Comic-Archive/', 'Tapas-Archive/', 1) for p in record['files']]
-        FakeTransfer.files = {(provider, path.replace('Comic-Archive/', 'Tapas-Archive/', 1)): data
-                              for (provider, path), data in FakeTransfer.files.items()}
-        keep = ('google', 'Tapas-Archive/unrelated/keep'); FakeTransfer.files[keep] = b'keep'
-        cloud._write(receipt, record)
-        FakeTransfer.fail_delete = False
-        self.assertTrue(cloud.cleanup_test(self.root, receipt.stem)['test_files_deleted'])
-        self.assertEqual(FakeTransfer.files, {keep: b'keep'})
-        self.assertEqual(json.loads(receipt.read_text())['state'], 'cleaned')
-        self.assertTrue(list(self.root.glob('*/*.cbz')))
-
-    def test_legacy_outbox_retry_stays_in_its_original_namespace(self):
+    def test_an_outbox_record_without_the_apps_folder_is_not_retried(self):
         self.publish(); self.ready(); FakeTransfer.fail_upload = True
         with self.assertRaises(ArchiveError): self.publish('82')
         receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
@@ -91,9 +73,10 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(record.pop('remote_root'), 'Comic-Archive')
         cloud._write(receipt, record)
         FakeTransfer.fail_upload = False
-        cloud.upload_pending(self.root)
-        self.assertTrue(any(path.startswith('Tapas-Archive/') for _, path in FakeTransfer.files))
-        self.assertFalse(any(path.startswith('Comic-Archive/') for _, path in FakeTransfer.files))
+        before = dict(FakeTransfer.files)
+        with self.assertRaises(CloudTransferError): cloud.upload_pending(self.root)
+        self.assertEqual(FakeTransfer.files, before)
+        self.assertEqual(json.loads(receipt.read_text())['state'], 'failed')
 
     def test_cleanup_keeps_original_connection_after_account_or_client_changes(self):
         self.publish(); self.configured(); FakeTransfer.fail_delete = True
@@ -116,8 +99,6 @@ class CloudTests(unittest.TestCase):
         with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'))
         record = json.loads(receipt.read_text()); record.pop('connection')
-        record['prefix'] = record['prefix'].replace('Comic-Archive/', 'Tapas-Archive/', 1)
-        record['files'] = [p.replace('Comic-Archive/', 'Tapas-Archive/', 1) for p in record['files']]
         cloud._write(receipt, record)
         old = cloud.settings(self.root)['targets']['google']
         self.configured()

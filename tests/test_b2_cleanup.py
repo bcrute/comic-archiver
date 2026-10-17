@@ -64,13 +64,12 @@ class B2CleanupTests(unittest.TestCase):
         self.transfer.delete_test_file(self.path)
         self.assertEqual(len(self.removed),4)
 
-    def test_legacy_namespace_cleanup_keeps_the_same_exact_file_boundary(self):
-        self.path = self.path.replace('Comic-Archive/', 'Tapas-Archive/', 1)
+    def test_a_file_outside_the_apps_own_folder_is_never_deleted(self):
+        self.path = self.path.replace('Comic-Archive/', 'Other-Archive/', 1)
         for item in self.files:
-            item['fileName'] = item['fileName'].replace('Comic-Archive/', 'Tapas-Archive/', 1)
-        self.transfer.delete_test_file(self.path)
-        self.assertEqual(set(self.removed), {'partial1', 'older1', 'current1', 'hidden1'})
-        self.assertEqual([item['fileId'] for item in self.files], ['unrelated'])
+            item['fileName'] = item['fileName'].replace('Comic-Archive/', 'Other-Archive/', 1)
+        with self.assertRaises(ArchiveError): self.transfer.delete_test_file(self.path)
+        self.assertEqual(self.removed, [])
 
     def test_interrupted_upload_files_are_deleted_only_at_their_recorded_library_path(self):
         version = 'a'*64
