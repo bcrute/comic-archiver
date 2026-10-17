@@ -415,6 +415,7 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual((window['status'],window['code']),('paused','login_required'))
 
     def test_closing_interrupts_whatever_the_downloader_is_on_and_leaves_the_saved_download_running(self):
+        library=self.workspace.library
         account_ui.interrupt(self.workspace)  # Nothing is running and nothing is configured.
         _,run=self.running_batch()
         before=[(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')]
