@@ -39,11 +39,15 @@ SELF_TEST_SECONDS = 60
 SELF_TEST_SCRIPT = "document.querySelector('#account-download') !== null"
 SELF_TEST_COOKIE = 'comic_archive_self_test'
 SIGNIN_POLL_MS = 250
+# How often the window checks whether a download is running, to keep the computer awake for it.
+AWAKE_CHECK_MS = 5000
 SIGNIN_PROBE_MS = 500
 SIGNIN_OPEN_SECONDS = 20
 SIGNIN_BACK = 'Cancel sign-in'
 # {site} is filled in by site_text, so the window learns the site's name from sites.py alone.
-SIGNIN_HINT = 'Sign in to {site} below. Comic Archiver carries on by itself once you are signed in.'
+SIGNIN_HINT = ('Sign in to {site} below. Comic Archiver carries on by itself once you are signed in.\n'
+               'Use your email and password: Google and Facebook buttons may not work here. '
+               'If you use one of those, set a password on {site} first.')
 SIGNIN_RETRY = 'Try again'
 SIGNIN_BAR_WIDTH = 1100  # .wrap in static/archive.css: the header's contents stay in a centred column.
 # The dashboard's own colours (static/archive.css), light then dark.
@@ -117,15 +121,19 @@ TAPPYTOON_ASK = SIGNIN_ASK.replace(
 IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}
 ASKS = {'tapas': SIGNIN_ASK, 'tappytoon': TAPPYTOON_ASK}
 SIGNIN_FORGET = "(() => { try { window.localStorage.clear(); window.sessionStorage.clear(); } catch (error) {} })()"
-STARTING = 'Starting Comic Archiver…'
+STARTING = 'Starting Comic Archiver…\n\nThe first start can take up to a minute.'
 FINISHING = 'Finishing up. Everything saved so far is kept.\n\nThis window closes by itself in a moment.'
 MOVING = 'Switching to the other folder…'
 LOCATION_TITLE = 'Choose where Comic Archiver saves'
 LOCATION_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then change the folder.'
 LOCATION_CONFIRM = ('Save to this folder from now on?\n\n{new}\n\n'
-                    'Nothing is moved: episodes already saved stay where they are, in\n{old}')
+                    'Nothing is moved: episodes already saved stay where they are, in\n{old}\n\n'
+                    'Go then saves everything again in the new folder, and your library page shows only what is there. '
+                    'To keep what is saved instead, choose No, close Comic Archiver, move the whole folder\n{root}\n'
+                    'to the new place, then open Comic Archiver and choose the folder you moved.')
 LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it from now on?\n\n{new}\n\n'
-                     'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}')
+                     'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}\n\n'
+                     'Your library page then shows only what is saved in this folder.')
 LOCATION_FAILED = 'The folder was not changed.\n\n{reason}'
 SITE_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then switch to {site}.'
 SITE_FAILED = 'Comic Archiver stays on {site}.\n\n{reason}'
@@ -138,7 +146,8 @@ CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and sto
                   'Saving stops right away. Everything saved so far is kept. The next time you open '
                   'Comic Archiver, press Go to continue.')
 CLOSE_SIGNIN = 'Signing in to {site} is not finished. Close anyway?\n\nYou will need to sign in again.'
-ALREADY_RUNNING = 'Comic Archiver is already open. Look for its window, or wait a moment and try again.'
+ALREADY_RUNNING = ('Comic Archiver is already open or still starting. The first start can take up to a minute; '
+                   'its window then appears by itself.')
 # The raw import error is for the terminal and the log only; people get TOOLKIT_BROKEN.
 MISSING_QT = ('Comic Archiver needs the PySide6 window toolkit, which is missing or cannot load.\n'
               'When installed with pip: pip install "comic-archive[desktop]"')
@@ -406,6 +415,7 @@ class Shell:
         self.signin_waiting = None
         self.signin_since = 0
         self.signin_heard = None
+        self.awake = False
         self.cookies = CookieRecords()
 
     def listen(self, name):
@@ -481,6 +491,10 @@ class Shell:
         self.signin_clock = q.QtCore.QTimer(self.window)
         self.signin_clock.setInterval(SIGNIN_POLL_MS)
         self.signin_clock.timeout.connect(self.signin_tick)
+        self.awake_clock = q.QtCore.QTimer(self.window)
+        self.awake_clock.setInterval(AWAKE_CHECK_MS)
+        self.awake_clock.timeout.connect(self.awake_check)
+        self.awake_clock.start()
         self.app.styleHints().colorSchemeChanged.connect(self.theme_paint)
         self.theme_apply()
         self.window.show()
@@ -675,7 +689,7 @@ class Shell:
         self.retry = widgets.QPushButton(SIGNIN_RETRY)
         self.retry.clicked.connect(self.signin_retry)
         self.where = widgets.QLabel('')
-        self.hint = widgets.QLabel(site_text(SIGNIN_HINT, self.runtime.site))
+        self.hint = widgets.QLabel('')  # Named for the site each time sign-in opens: the panel outlives a switch.
         self.signin_message = widgets.QLabel('')
         self.signin_message.setAlignment(q.QtCore.Qt.AlignmentFlag.AlignCenter)
         self.signin_message.setWordWrap(True)
@@ -778,6 +792,7 @@ class Shell:
             self.forget_cookies()
             self.signin_page.history().clear()
             self.signin_heard = None
+            self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))
             self.signin_show('page', opening=True)
             self.stack.setCurrentWidget(self.signin_panel)
             self.signin_probe.start()
@@ -985,6 +1000,8 @@ class Shell:
             self.phase = 'stopping'
             self.clock.stop()
             self.signin_clock.stop()
+            self.awake_clock.stop()
+            self.stay_awake(False)
             # Nothing is saved unless the last step of a sign-in had already begun.
             self.runtime.signin.cancel()
             if self.signin_stage:
@@ -1018,7 +1035,7 @@ class Shell:
             return
         wording = LOCATION_EXISTING if app_runtime.is_library(root) else LOCATION_CONFIRM
         site = self.runtime.site
-        text = wording.format(new=sites.folder(root, site) / 'Library', old=sites.folder(current, site) / 'Library')
+        text = wording.format(new=sites.folder(root, site) / 'Library', old=sites.folder(current, site) / 'Library', root=current)
         if box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
             return
         # The dialogs above let time pass.
@@ -1075,8 +1092,19 @@ class Shell:
                 self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, LOCATION_FAILED.format(reason=problem))
         self.background(lambda: moved.append(app_runtime.move(previous, root)), done)
 
+    def awake_check(self):
+        """Keep the computer from sleeping while a download runs, and let it sleep again once it has ended or paused."""
+        self.stay_awake(self.phase == 'open' and self.runtime.busy() == 'download')
+
+    def stay_awake(self, running):
+        if running != self.awake:
+            LOG.info('the computer is %s', 'kept awake for the download' if running else 'free to sleep again')
+            osdep.keep_awake(running)
+            self.awake = running
+
     def quit(self):
         self.phase = 'done'
+        self.stay_awake(False)
         self.app.quit()
 
 

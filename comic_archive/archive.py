@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from .models import ArchiveError, canonical_url, identifier
 from .transport import ExpiredAsset
 from .archive_paths import directory
-from .osdep import anchored, replace_file, sync_file
+from .osdep import anchored, hide, replace_file, sync_file
 from .locking import LibraryLock
 from .errors import RunLimit
 ARCHIVE_VERSION = 15
@@ -95,6 +95,7 @@ class Store:
         try:
             self.cache = directory(self.root / ".archive-cache")
             self.cache.chmod(0o700)
+            hide(self.cache)
             db = self.cache / "index.sqlite3"
             if any(path.is_symlink() for path in (db, *(Path(str(db) + suffix)
                                                        for suffix in ('-wal', '-shm', '-journal')))):
