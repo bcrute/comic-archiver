@@ -2,11 +2,11 @@
 const $ = id => document.getElementById(id);
 const state = { context: null, account: null, siteAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false, locations: [] };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
-  local_session_required: 'Your local dashboard session expired. Reload this page.',
+  local_session_required: 'This page’s session expired. Close and reopen the app, or reload this page in a browser.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
   loopback_required: 'Use the displayed 127.0.0.1 address on this computer.',
   origin_required: 'Open this page at the configured website address.',
-  csrf_required: 'Your website session changed. Reload this page.',
+  csrf_required: 'This page’s session changed. Close and reopen the app, or reload this page in a browser.',
   library_busy: 'An import is active. Try again after this batch finishes.',
   service_unavailable: 'The service is temporarily unavailable. Try again shortly.',
   request_unavailable: 'This action is unavailable. Check the connection and selected library.',
