@@ -151,15 +151,18 @@ class LocalWebTests(unittest.TestCase):
         self.assertEqual([(site['key'],site['available'],site['current']) for site in sites],
                          [('tapas',True,True),('webtoon',False,False),('tappytoon',True,False)])
 
-    def test_both_pages_share_the_menu_with_storage_and_only_the_dashboard_lists_sites(self):
+    def test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites(self):
         for route,title in (('/','<title>Comic Archiver</title>'),('/library','<title>Saved library — Comic Archiver</title>')):
             page=self.call(route)[2].decode()
             self.assertIn(title,page); self.assertNotIn('Tapas Archive',page)
-            self.assertIn('<a id="storage-nav" href="/#storage">Storage</a>',page)
+            self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',page)
             self.assertEqual(page.count('<select id="site">'),int(route=='/'))
-        # Where the cloud helper is not offered, there is no storage to set up.
+        # Where the cloud helper is not offered, the app on this computer still has its download settings; the
+        # fuller view, which keeps its choices on the page itself, then has nothing to set.
         with patch('comic_archive.cloud_tools.offered',return_value=False):
-            self.assertIn('<a id="storage-nav" href="/#storage" hidden>Storage</a>',self.call('/')[2].decode())
+            self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',self.call('/')[2].decode())
+            with patch.object(self.registry,'simple_mode',False):
+                self.assertIn('<a id="settings-nav" href="/#settings" hidden>Settings</a>',self.call('/')[2].decode())
 
     def test_open_existing_file_requires_local_cookie_origin_csrf_and_fixed_action(self):
         archive,identifier=self.file_to_open()

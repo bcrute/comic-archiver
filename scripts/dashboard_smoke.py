@@ -95,40 +95,33 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
     assert page.evaluate("localStorage.getItem('comic-archive-theme')") == 'dark'
     for selector in ('#download-options','#advanced','#advanced-nav','#batch-progress','#mobile-options'):
         expect(page.locator(selector)).to_be_hidden()
-    # Cloud storage is set up under Storage, offered in the menu where it can run: on the person's own computer.
-    for selector in ('#storage-nav', '#cloud-entry'):
+    # Settings is offered in the menu where its choices can run: on the person's own computer. Cloud storage is set up
+    # there, and the card offers the way to it.
+    for selector in ('#settings-nav', '#cloud-entry'):
         (expect(page.locator(selector)).to_be_visible() if local else expect(page.locator(selector)).to_be_hidden())
     expect(page.locator('#cloud-options')).to_be_hidden()
     expect(page.locator('#series-url')).to_have_count(1)
-    # The card's choices are the site, at its top, and beside Go the speed; only the app on this computer offers them.
-    assert page.locator('#account-download select').evaluate_all('nodes => nodes.map(node => node.id)') == ['site', 'account-speed']
-    (expect(page.locator('#account-speed')).to_be_visible() if local else expect(page.locator('#account-speed')).to_be_hidden())
-    # The mobile data choice appears only when the connection holds saving (mobile_data_controls); the choice of
-    # storage sits beside the save folder, once a cloud storage is set up (b2_setup_controls).
-    assert page.locator('#account-download input').evaluate_all('nodes => nodes.map(node => node.id)') == ['account-mobile-data']
-    expect(page.locator('#account-network')).to_be_hidden()
-    expect(page.locator('#cloud-choice')).to_be_hidden()
+    # The card's only choice is the site, at its top. The speed and mobile data (mobile_data_controls) are on the
+    # Downloads tab of Settings, and where episodes go on its Storage tab (b2_setup_controls).
+    assert page.locator('#account-download select').evaluate_all('nodes => nodes.map(node => node.id)') == ['site']
+    assert page.locator('#account-download input').evaluate_all('nodes => nodes.map(node => node.id)') == []
+    for selector in ('#account-speed', '#account-network', '#cloud-choice', '#account-settings-link'):
+        expect(page.locator(selector)).to_be_hidden()
     if local:
         # A tall saved-library card must not bury the only cloud setup entry.
         expect(page.locator('#cloud-entry')).to_be_in_viewport()
         page.locator('#library-locations').evaluate("node => node.style.minHeight = '1400px'")
         with patch.object(registry.cloud_signin, 'start') as connect:
-            # Storage is a page of its own, with the dashboard set aside; B2 is set up from its card there.
+            # Settings is a page of its own, with the dashboard set aside; the card's way to cloud storage opens its
+            # B2 tab.
             page.locator('#cloud-entry a').click()
-            expect(page.locator('#storage-page')).to_be_visible()
-            expect(page.locator('#storage-nav')).to_have_attribute('aria-current', 'page')
-            expect(page.locator('nav [aria-current=page]')).to_have_count(1)
-            for selector in ('#account-download', '#library-overview', '#dashboard-heading', '#cloud-options'):
-                expect(page.locator(selector)).to_be_hidden()
-            expect(page.locator('#storage-b2-pill')).to_have_text('Not set up')
-            for selector in ('#storage-b2-files', '#storage-b2-open', '#storage-b2-stored'):
-                expect(page.locator(selector)).to_be_hidden()
-            expect(page.locator('#storage-b2-setup')).to_have_text('Set up')
-            page.locator('#storage-b2-setup').click()
             expect(page.locator('#cloud-options')).to_be_visible()
-            expect(page.locator('#storage-page')).to_be_hidden()
+            expect(page.locator('#settings-nav')).to_have_attribute('aria-current', 'page')
+            expect(page.locator('header nav [aria-current=page]')).to_have_count(1)
+            expect(page.locator('.settings-tabs a:visible')).to_have_text(['Downloads', 'Storage', 'Backblaze B2'])
+            expect(page.locator('.settings-tabs [aria-current=page]')).to_have_text('Backblaze B2')
             expect(page.locator('#cloud-title')).to_be_in_viewport()
-            for selector in ('#account-download', '#library-overview', '#dashboard-heading'):
+            for selector in ('#account-download', '#library-overview', '#dashboard-heading', '#storage-page', '#downloads-settings'):
                 expect(page.locator(selector)).to_be_hidden()
             expect(page.locator('#cloud-options .cloud-steps > li:visible')).to_have_count(6)
             expect(page.locator('#b2-login')).to_be_visible()
@@ -140,18 +133,41 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
                 assert (step.locator(f'a[href$="{href}"]').bounding_box()['y']
                         < step.locator('p:not(.step-links)').first.bounding_box()['y']), href
             connect.assert_not_called()
-            # Back from B2 leads to Storage, and from Storage to the dashboard.
-            page.locator('#cloud-back').click()
-            expect(page.locator('#cloud-options')).to_be_hidden()
+            # Each tab shows in place of the others. Storage's B2 card leads back to B2's tab.
+            page.locator('#settings-tab-storage').click()
             expect(page.locator('#storage-page')).to_be_visible()
-            page.locator('#storage-back').click()
+            expect(page.locator('#cloud-options')).to_be_hidden()
+            expect(page.locator('.settings-tabs [aria-current=page]')).to_have_text('Storage')
+            expect(page.locator('#storage-b2-pill')).to_have_text('Not set up')
+            for selector in ('#storage-b2-files', '#storage-b2-open', '#storage-b2-stored'):
+                expect(page.locator(selector)).to_be_hidden()
+            expect(page.locator('#storage-b2-setup')).to_have_text('Set up')
+            page.locator('#storage-b2-setup').click()
+            expect(page.locator('#cloud-options')).to_be_visible()
             expect(page.locator('#storage-page')).to_be_hidden()
+            page.locator('#settings-tab-downloads').click()
+            expect(page.locator('#downloads-settings')).to_be_visible()
+            expect(page.locator('#account-speed')).to_be_visible()
+            for selector in ('#storage-page', '#cloud-options'):
+                expect(page.locator(selector)).to_be_hidden()
+            # Back from Settings leads to the dashboard.
+            page.locator('#settings-back').click()
+            expect(page.locator('#settings-page')).to_be_hidden()
             expect(page.locator('#account-download')).to_be_visible()
             expect(page.locator('#save-nav')).to_have_attribute('aria-current', 'page')
-            # The browser's own Back and Forward move between the pages too.
+            # The browser's own Back and Forward move between the dashboard and the tabs too.
             page.go_back()
-            expect(page.locator('#storage-page')).to_be_visible()
-            page.go_forward()
+            expect(page.locator('#downloads-settings')).to_be_visible()
+            page.go_back()
+            expect(page.locator('#cloud-options')).to_be_visible()
+            page.go_forward(); page.go_forward()
+            expect(page.locator('#account-download')).to_be_visible()
+            # The earlier addresses of the Storage and B2 pages open their tabs.
+            for old, panel in (('storage', '#storage-page'), ('b2', '#cloud-options')):
+                page.evaluate(f"location.hash = '{old}'")
+                expect(page.locator(panel)).to_be_visible()
+                assert page.evaluate('location.hash') == '#settings/' + old
+            page.locator('#settings-back').click()
             expect(page.locator('#account-download')).to_be_visible()
         page.locator('#library-locations').evaluate("node => node.style.minHeight = ''")
         page.evaluate('scrollTo(0,0)')
@@ -295,9 +311,11 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         page.locator('#account-pause').click()
         expect(page.locator('#account-status')).to_contain_text('Paused. Hit Go')
         expect(page.locator('#dashboard-state')).to_have_text('Paused')
-        # A speed chosen while paused is kept, and Go continues the saved download at it.
+        # A speed chosen in Settings while paused is kept, and Go continues the saved download at it.
+        page.evaluate("location.hash = 'settings/downloads'")
         page.locator('#account-speed').select_option('slow')
         expect(page.locator('#account-speed-help')).to_contain_text('About one image a second')
+        page.locator('#settings-back').click()
         page.locator('#account-go').click()
         expect(page.locator('#account-status')).to_contain_text('Finding series')
         expect(page.locator('#account-speed')).to_have_value('slow')
@@ -505,13 +523,21 @@ def own_window_controls(context, site, registry, workspace):
         for address in (site+'/', site+'/library#'+workspace.id+'/all'):
             page.goto(address)
             if address.endswith('/'):
-                expect(page.locator('#save-location')).to_be_visible()
-                expect(page.locator('#save-folder')).to_have_text('/home/user/Comic Archiver/Library')
+                # The dashboard says where new episodes go, and leads to Settings to change it.
+                expect(page.locator('#save-summary')).to_be_visible()
+                expect(page.locator('#save-summary a')).to_have_attribute('href', '#settings/storage')
                 wait_for_ui_idle(page)
+                expect(page.locator('#save-summary-place')).to_have_text(re.compile(r'^(/home/user/Comic Archiver/Library|Backblaze B2)$'))
+                # Settings opens at its first tab. The folder is on the Storage tab, in the card for this device.
+                page.locator('#settings-nav').click()
+                expect(page.locator('#downloads-settings')).to_be_visible()
+                page.locator('#settings-tab-storage').click()
+                expect(page.locator('#storage-page')).to_be_visible()
+                expect(page.locator('#storage-device #save-location')).to_be_visible()
+                expect(page.locator('#save-folder')).to_have_text('/home/user/Comic Archiver/Library')
+                expect(page.locator('#change-folder')).to_be_visible()
                 # Cloud saving runs on the person's own computer, so the window offers it as the local browser version does.
                 # B2 was connected earlier in this run: its card leads to what it holds, and to Backblaze itself.
-                page.locator('#storage-nav').click()
-                expect(page.locator('#storage-page')).to_be_visible()
                 expect(page.locator('#storage-b2-files')).to_have_attribute('href', '/library#'+workspace.id+'/b2')
                 expect(page.locator('#storage-b2-open')).to_have_attribute('href', 'https://secure.backblaze.com/b2_browse_files2.htm')
                 expect(page.locator('#storage-b2-setup')).to_have_text('B2 settings')
@@ -527,9 +553,9 @@ def own_window_controls(context, site, registry, workspace):
                     'href', 'https://secure.backblaze.com/app_keys.htm')
                 # The window's mobile data choice is beside Go, not a second one on this page.
                 expect(page.locator('#allow-mobile-data')).to_be_hidden()
-                page.locator('#cloud-back').click(); page.locator('#storage-back').click()
-                # The window keeps where episodes go in one place: beside the save folder.
-                assert page.evaluate("document.getElementById('save-location').nextElementSibling.id") == 'cloud-choice'
+                page.locator('#settings-tab-storage').click()
+                # The window keeps where episodes go in one place: the Storage tab, with the save folder.
+                assert page.evaluate("document.getElementById('cloud-choice').parentElement.id") == 'storage-page'
                 with page.expect_response(lambda response: response.url.endswith('/api/v1/location')) as sent:
                     page.locator('#open-folder').click()
                 assert sent.value.status == 200 and asked == ['open']
@@ -544,11 +570,16 @@ def own_window_controls(context, site, registry, workspace):
         # Where the cloud helper is not offered (a device it has no pinned build for) neither page shows cloud saving.
         with patch('comic_archive.cloud_tools.platform.machine', return_value='riscv64'):
             page.goto(site+'/')
-            expect(page.locator('#save-location')).to_be_visible()
+            wait_for_ui_idle(page)
+            expect(page.locator('#save-summary-place')).to_have_text('/home/user/Comic Archiver/Library')
             expect(page.locator('#cloud-entry')).to_be_hidden()
-            expect(page.locator('#storage-nav')).to_be_hidden()
+            # Settings keeps its other tabs; B2's is not offered, and its address opens the first tab instead.
+            page.evaluate("location.hash = 'settings/b2'")
+            expect(page.locator('#downloads-settings')).to_be_visible()
+            expect(page.locator('.settings-tabs a:visible')).to_have_text(['Downloads', 'Storage'])
+            expect(page.locator('#cloud-options')).to_be_hidden()
             page.goto(site+'/library#'+workspace.id+'/all')
-            expect(page.locator('#storage-nav')).to_be_hidden()
+            expect(page.locator('#settings-nav')).to_be_visible()
             expect(page.locator('#library-locations [data-location=device]')).to_be_visible()
             expect(page.locator('#library-locations [data-location=all]')).to_have_count(0)
         # Choosing another site on the dashboard leaves the window a request to open it. The window switches
@@ -587,7 +618,8 @@ def own_window_controls(context, site, registry, workspace):
 
 
 def mobile_data_controls(page, registry, workspace):
-    """Beside Go, the mobile data choice appears when the connection holds saving, and applies when ticked."""
+    """On the Downloads tab of Settings, the mobile data choice says what the connection allows, and applies when
+    ticked; when the connection holds saving, the dashboard says so and leads there."""
     from playwright.sync_api import expect
     def wifi_only(): return registry.network_status(LOCAL_OWNER, workspace.id)['wifi_only']
     def held_message():
@@ -598,31 +630,37 @@ def mobile_data_controls(page, registry, workspace):
             state.status = {...status, session_configured:true, worker:{reported_state:'ready'}};
             renderAccount(); const text = $('account-status').textContent;
             state.account = account; state.status = status; renderAccount(); return text;}""")
-    expect(page.locator('#account-network')).to_be_hidden()
-    assert 'mobile data' not in held_message()
+    settings_link = lambda: page.evaluate("!document.getElementById('account-settings-link').hidden")
+    assert 'mobile data' not in held_message() and not settings_link()
+    page.evaluate("location.hash = 'settings/downloads'")
+    expect(page.locator('#account-network')).to_be_visible()
+    expect(page.locator('#account-mobile-data')).not_to_be_checked()
+    expect(page.locator('#account-network-help')).to_contain_text('Off: saving uses Wi-Fi or a wired connection')
     for probe, reason in (({'connection':'cellular', 'metered':True}, 'This connection is metered'),
                           ({'connection':'unknown', 'metered':None}, 'cannot tell')):
         with patch('comic_archive.network.probe', return_value=probe):
             page.evaluate('network(false)')
-            expect(page.locator('#account-network')).to_be_visible()
-            expect(page.locator('#account-mobile-data')).not_to_be_checked()
             expect(page.locator('#account-network-help')).to_contain_text(reason)
-            assert 'allow mobile data, then hit Go' in held_message()
+            expect(page.locator('#account-mobile-data')).not_to_be_checked()
+            assert 'allow mobile data in Settings, then hit Go' in held_message()
+            assert settings_link()
+    expect(page.locator('#account-settings-link a')).to_have_attribute('href', '#settings/downloads')
     with patch('comic_archive.network.probe', return_value={'connection':'cellular', 'metered':True}):
         page.evaluate('network(false)')
         with page.expect_response(lambda response: response.url.endswith('/network') and response.request.method == 'POST'):
             page.locator('#account-mobile-data').check()
         expect(page.locator('#account-network-help')).to_contain_text('any connection')
         assert wifi_only() is False
-        # Still shown once allowed, so it can be switched off again.
-        expect(page.locator('#account-network')).to_be_visible()
-        assert 'mobile data' not in held_message()
+        assert 'mobile data' not in held_message() and not settings_link()
         with page.expect_response(lambda response: response.url.endswith('/network') and response.request.method == 'POST'):
             page.locator('#account-mobile-data').uncheck()
         assert wifi_only() is True
         expect(page.locator('#account-network-help')).to_contain_text('This connection is metered')
     page.evaluate('network(false)')
-    expect(page.locator('#account-network')).to_be_hidden()
+    expect(page.locator('#account-network-help')).to_contain_text('Off: saving uses Wi-Fi or a wired connection')
+    assert not settings_link()
+    page.locator('#settings-back').click()
+    expect(page.locator('#account-download')).to_be_visible()
 
 
 def b2_setup_controls(page, registry):
@@ -721,8 +759,8 @@ def b2_setup_controls(page, registry):
         expect(page.locator('#b2-key-id')).to_have_value('fixtureKeyID12')
         expect(page.locator('#b2-application-key')).to_have_value(fixture_key)
         expect(page.locator('#connect-b2')).to_be_enabled()
-        # Leaving the page lets them go.
-        page.locator('#cloud-back').click(); open_b2(page)
+        # Leaving the tab lets them go.
+        page.locator('#settings-tab-storage').click(); open_b2(page)
         expect(page.locator('#b2-key-id')).to_have_value('')
         expect(page.locator('#b2-application-key')).to_have_value('')
         # So does a connection that works.
@@ -773,10 +811,11 @@ def b2_setup_controls(page, registry):
         assert page.locator('#cloud-steps').evaluate('node => node.start') == 1
         toggle.click()
         expect(steps).to_have_count(2)
-        # Where episodes go is chosen beside the save folder: each storage that is set up, by its name alone. One not
-        # yet checked is listed but cannot be chosen.
+        # Where episodes go is chosen on the Storage tab: each storage that is set up, by its name alone. One not yet
+        # checked is listed but cannot be chosen.
         page.locator('#cloud-done').click()
         expect(page.locator('#cloud-options')).to_be_hidden()
+        expect(page.locator('#storage-page')).to_be_visible()
         choice = page.locator('#storage-options input')
         expect(page.locator('#cloud-choice')).to_be_visible()
         expect(page.locator('#storage-options label')).to_have_text(['This device', 'Backblaze B2'])
@@ -787,12 +826,13 @@ def b2_setup_controls(page, registry):
         tested.append(True); page.evaluate('cloud()')
         open_b2(page)
         expect(state()[0]).to_have_text('Set up')
-        expect(state()[1]).to_contain_text('Uploads are off; choose Backblaze B2 on the dashboard')
+        expect(state()[1]).to_contain_text('Uploads are off; choose Backblaze B2 on the Storage tab')
         page.locator('#cloud-done').click()
         expect(choice.nth(1)).to_be_enabled()
         expect(page.locator('#cloud-choice')).not_to_contain_text('My-Comics-2026')
-        # In this fuller view, it is in the saving step, after where episodes are saved now.
-        assert page.evaluate("document.getElementById('save-destination').nextElementSibling.id") == 'cloud-choice'
+        # In this fuller view too, it is at the top of the Storage tab, before what each place holds.
+        assert page.evaluate("document.getElementById('cloud-choice').parentElement.id") == 'storage-page'
+        assert page.locator('#cloud-choice').bounding_box()['y'] < page.locator('.storage-cards').bounding_box()['y']
         # A refused choice says why and shows what is saved.
         with patch.object(registry, 'configure_cloud', side_effect=ArchiveError('Fixture refusal.')):
             choice.nth(1).click()
@@ -804,14 +844,14 @@ def b2_setup_controls(page, registry):
             assert configure.call_args.args[2:] == ('b2', True)
         enabled.append(True); page.evaluate('cloud()')
         expect(choice.nth(1)).to_be_checked()
-        expect(page.locator('#cloud-choice-help')).to_contain_text('uploaded to Backblaze B2 as it is saved')
+        expect(page.locator('#cloud-choice-help')).to_contain_text('uploaded to Backblaze B2 as it downloads')
         # Choosing this device again turns the uploads off.
         with patch.object(registry, 'configure_cloud', return_value={}) as configure, page.expect_response(
                 lambda response: response.url.endswith('/cloud') and response.request.method == 'POST'):
             choice.nth(0).click()
         assert configure.call_args.args[2:] == ('b2', False)
-        # The Storage page's B2 card names the bucket and leads to what it holds and to Backblaze itself.
-        page.evaluate("location.hash = 'storage'")
+        # The Storage tab's B2 card names the bucket and leads to what it holds and to Backblaze itself.
+        page.evaluate("location.hash = 'settings/storage'")
         expect(page.locator('#storage-b2-pill')).to_have_text('Uploading to B2')
         expect(page.locator('#storage-b2-text')).to_contain_text('bucket My-Comics-2026')
         for selector in ('#storage-b2-files', '#storage-b2-open'):
@@ -826,9 +866,9 @@ def b2_setup_controls(page, registry):
 
 
 def open_b2(page):
-    """B2 setup is a page of its own, at #b2, in place of the dashboard."""
+    """B2 setup is a tab of Settings, at #settings/b2, in place of the dashboard."""
     from playwright.sync_api import expect
-    page.evaluate("location.hash = 'b2'")
+    page.evaluate("location.hash = 'settings/b2'")
     expect(page.locator('#cloud-options')).to_be_visible()
     expect(page.locator('#account-download')).to_be_hidden()
 

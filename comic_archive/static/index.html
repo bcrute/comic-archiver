@@ -29,13 +29,11 @@
       <h2 id="account-save-title">Loading your status…</h2>
       <div class="connection-badges" aria-label="Account and downloader status"><span id="dashboard-session" class="connection-badge">Tapas · Checking…</span><span id="dashboard-worker" class="connection-badge">Downloader · Checking…</span></div>
       <p id="dashboard-intro" class="dashboard-intro">Sign in to Tapas, then hit Go to save the episodes your account can read.</p>
-      <p id="save-location" hidden><span class="muted">Saving to</span> <strong id="save-folder"></strong> <button id="open-folder" class="secondary compact" type="button">Open folder</button><button id="change-folder" class="secondary compact" type="button">Change…</button></p>
-      <fieldset id="cloud-choice" class="storage-choice" hidden><legend>Store new episodes on</legend><div id="storage-options" class="storage-options"></div><p id="cloud-choice-help" class="muted"></p><p id="cloud-choice-status" role="status" aria-live="polite"></p></fieldset>
+      <p id="save-summary" hidden><span class="muted">Saving to</span> <strong id="save-summary-place"></strong> <a href="#settings/storage">Change in Settings</a></p>
       <p id="account-status" role="status" aria-live="polite">Connecting to your library…</p>
       <div class="account-actions"><button id="tapas-signin" class="secondary" type="button" disabled>Sign in to Tapas</button><button id="account-go" type="button" disabled>Go</button><button id="account-pause" class="secondary" type="button" hidden disabled>Pause</button></div>
-      <p id="account-speed-row" class="muted" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select> <span id="account-speed-help"></span></p>
-      <div id="account-network" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Allow mobile data</label><p id="account-network-help" class="muted"></p></div>
-      <p id="cloud-entry" class="account-storage muted" hidden>Keep episodes in your own cloud storage too: <a href="#storage">set it up under Storage</a>.</p>
+      <p id="account-settings-link" hidden><a href="#settings/downloads">Open download settings</a></p>
+      <p id="cloud-entry" class="account-storage muted" hidden>Keep episodes in your own cloud storage too: <a href="#settings/b2">set it up in Settings</a>.</p>
       <p id="tapas-signin-status" role="status" aria-live="polite"></p>
       <div id="account-live-progress" hidden>
         <p id="account-list-count"></p>
@@ -59,18 +57,29 @@
       <p class="muted">Comics in CBZ. Novels in EPUB.</p>
     </section>
     </div>
-    <section id="storage-page" class="cloud-page" hidden aria-labelledby="storage-title">
-      <div class="page-heading"><div><p class="eyebrow">Storage</p><h2 id="storage-title">Where your episodes are kept</h2></div><button id="storage-back" class="secondary" type="button">← Back to dashboard</button></div>
-      <p class="muted">Choose where new episodes go on the dashboard, beside the save folder. Here you can see what each place holds and set up cloud storage.</p>
+    <div id="settings-page">
+      <div class="page-heading"><div><p class="eyebrow">Your archive</p><h2 id="settings-title">Settings</h2></div><button id="settings-back" class="secondary" type="button">← Back to dashboard</button></div>
+      <div class="settings-layout">
+      <nav class="settings-tabs" aria-label="Settings"><a id="settings-tab-downloads" href="#settings/downloads">Downloads</a><a id="settings-tab-storage" href="#settings/storage">Storage</a><a id="settings-tab-b2" href="#settings/b2">Backblaze B2</a></nav>
+      <div class="settings-panels">
+    <section id="downloads-settings" class="settings-panel" aria-labelledby="downloads-title">
+      <h3 id="downloads-title">Downloads</h3>
+      <div id="account-speed-row" class="setting" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select><p id="account-speed-help" class="muted"></p></div>
+      <div id="account-network" class="setting" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Allow mobile data</label><p id="account-network-help" class="muted"></p></div>
+    </section>
+    <section id="storage-page" class="settings-panel" aria-labelledby="storage-page-title">
+      <h3 id="storage-page-title">Where your episodes are kept</h3>
+      <fieldset id="cloud-choice" class="storage-choice" hidden><legend>Store new episodes on</legend><div id="storage-options" class="storage-options"></div><p id="cloud-choice-help" class="muted"></p><p id="cloud-choice-status" role="status" aria-live="polite"></p></fieldset>
+      <p id="storage-intro" class="muted">Each place shows what it holds. Cloud storage is set up on its own tab.</p>
       <div class="storage-cards">
-        <article id="storage-device" class="storage-card"><h3>This device</h3><p id="storage-device-stored">Counting…</p><p class="step-links"><a id="storage-device-files" class="button secondary" href="/library">View stored episodes</a></p></article>
-        <article id="storage-b2" class="storage-card"><div class="storage-card-heading"><h3>Backblaze B2</h3><span id="storage-b2-pill" class="status-pill" data-tone="neutral">Not set up</span></div><p id="storage-b2-text">Your own Backblaze account. Backblaze bills you itself; the first 10 GB is free.</p><p id="storage-b2-stored" hidden></p><p class="step-links"><a id="storage-b2-files" class="button secondary" href="/library" hidden>View stored episodes</a><a id="storage-b2-open" class="button secondary" href="https://secure.backblaze.com/b2_browse_files2.htm" target="_blank" rel="noopener noreferrer" hidden>Open in Backblaze</a><a id="storage-b2-setup" class="button" href="#b2">Set up</a></p></article>
+        <article id="storage-device" class="storage-card"><h4>This device</h4><p id="save-location" hidden><span class="muted">Folder</span> <strong id="save-folder"></strong></p><p id="storage-device-stored">Counting…</p><p class="step-links"><a id="storage-device-files" class="button secondary" href="/library">View stored episodes</a><button id="open-folder" class="secondary" type="button" hidden>Open folder</button><button id="change-folder" class="secondary" type="button" hidden>Change folder…</button></p></article>
+        <article id="storage-b2" class="storage-card"><div class="storage-card-heading"><h4>Backblaze B2</h4><span id="storage-b2-pill" class="status-pill" data-tone="neutral">Not set up</span></div><p id="storage-b2-text">Your own Backblaze account. Backblaze bills you itself; the first 10 GB is free.</p><p id="storage-b2-stored" hidden></p><p class="step-links"><a id="storage-b2-files" class="button secondary" href="/library" hidden>View stored episodes</a><a id="storage-b2-open" class="button secondary" href="https://secure.backblaze.com/b2_browse_files2.htm" target="_blank" rel="noopener noreferrer" hidden>Open in Backblaze</a><a id="storage-b2-setup" class="button" href="#settings/b2">Set up</a></p></article>
       </div>
     </section>
-    <section id="cloud-options" class="cloud-page" hidden aria-labelledby="cloud-title">
-      <div class="page-heading"><div><p class="eyebrow">Storage</p><h2 id="cloud-title">Save to your Backblaze B2 account</h2></div><button id="cloud-back" class="secondary" type="button">← Back to storage</button></div>
+    <section id="cloud-options" class="settings-panel" aria-labelledby="cloud-title">
+      <h3 id="cloud-title">Save to your Backblaze B2 account</h3>
       <div id="b2-state" class="cloud-state b2-only" data-tone="neutral" role="status"><span id="b2-state-pill" class="status-pill" data-tone="neutral">Not set up</span><p id="b2-state-text">Follow the steps below to connect your own Backblaze account.</p></div>
-      <p>Upload each CBZ as it is built to your own cloud account. One temporary episode is kept for recovery. Local episode files are removed only after the cloud copies are verified. Failed uploads keep your files here.</p>
+      <p>Each new episode goes straight to your own Backblaze account as it downloads, with no copy kept on this computer, and is checked against Backblaze’s own record of it. An upload that fails keeps the episode here, to retry.</p>
       <label hidden>Provider <select id="cloud-provider"><option value="b2">Backblaze B2</option><option value="google" hidden>Google Drive</option><option value="dropbox" hidden>Dropbox</option><option value="proton" hidden>Proton Drive (experimental)</option></select></label>
       <p id="cloud-status" role="status">Checking cloud connections…</p>
       <p id="cloud-action-status" role="status" aria-live="polite"></p>
@@ -107,7 +116,7 @@
           </form></div>
           <p id="cloud-auth-status" role="status"></p><a id="cloud-auth-link" target="_blank" rel="noopener noreferrer" hidden>Open cloud sign-in</a><button id="cancel-cloud-signin" class="secondary" type="button" hidden>Cancel sign-in</button></li>
         <li><strong>Check the connection.</strong><p class="muted">The test uploads two saved episodes, verifies them and deletes its cloud copies. Your local originals stay here.</p><button id="test-cloud" type="button" disabled>Test cloud connection</button><div id="cloud-cleanup"></div></li>
-        <li><strong>Choose where to save.</strong><p>Where episodes are saved is chosen in one place: on the dashboard, beside the folder they are saved to. Once the check passes, Backblaze is offered there.</p><button id="cloud-done" class="secondary" type="button">Go to the dashboard</button></li>
+        <li><strong>Choose where to save.</strong><p>Where new episodes go is chosen in one place: the Storage tab of these settings. Once the check passes, Backblaze is offered there.</p><button id="cloud-done" class="secondary" type="button">Go to Storage</button></li>
       </ol>
       <button id="retry-cloud" type="button" disabled>Retry unfinished uploads</button>
       <div id="b2-pages" class="b2-only">
@@ -122,6 +131,9 @@
         </ul>
       </div>
     </section>
+      </div>
+      </div>
+    </div>
     <div id="download-options" hidden><div class="download-flow" aria-labelledby="import-title">
       <section class="choose-series" aria-labelledby="import-title">
         <p class="step-label">Step 1</p><h2 id="import-title">What would you like to save?</h2>
@@ -142,7 +154,7 @@
         <p id="network-status" role="status">Checking connection…</p>
         <p class="muted">Off by default. Downloads use Wi-Fi or an unmetered wired connection. Turning this on may use your data allowance.</p></div>
         <span id="network-options" hidden><button id="save-network" type="button" disabled>Apply data choice</button><button id="refresh-network" type="button" disabled>Check connection</button></span>
-        <p id="cloud-entry-steps" hidden><a id="open-b2" class="button secondary" href="#b2">Set up Backblaze B2 storage</a></p>
+        <p id="cloud-entry-steps" hidden><a id="open-b2" class="button secondary" href="#settings/b2">Set up Backblaze B2 storage</a></p>
 
 
       </section>
