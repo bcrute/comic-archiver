@@ -47,7 +47,8 @@ SIGNIN_BACK = 'Cancel sign-in'
 # {site} is filled in by site_text, so the window learns the site's name from sites.py alone.
 SIGNIN_HINT = ('Sign in to {site} below. Comic Archiver carries on by itself once you are signed in.\n'
                'Use your email and password: Google and Facebook buttons may not work here. '
-               'If you use one of those, set a password on {site} first.')
+               'If that is how you sign in, first add a password to your {site} account: sign in to {site} in your '
+               'usual web browser the way you always do, and set a password in its account settings.')
 SIGNIN_RETRY = 'Try again'
 SIGNIN_BAR_WIDTH = 1100  # .wrap in static/archive.css: the header's contents stay in a centred column.
 # The dashboard's own colours (static/archive.css), light then dark.

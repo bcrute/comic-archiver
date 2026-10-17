@@ -1475,14 +1475,15 @@ class DesktopAppTests(unittest.TestCase):
         self.assertIn('Sign in to Tapas below', hint)
         # Google refuses a sign-in inside an app's window, and Facebook may: the site's own password always works.
         self.assertIn('Use your email and password: Google and Facebook buttons may not work here.', hint)
-        self.assertIn('If you use one of those, set a password on Tapas first.', hint)
+        # Which site gets the password is said plainly: the comic site, not Google, Facebook or this app.
+        self.assertIn('first add a password to your Tapas account: sign in to Tapas in your usual web browser', hint)
         shell.signin_back()
         # Switched to another site in the dashboard: the panel built for Tapas is used again, and says so.
         self.runtime.site = replace(sites.DEFAULT, key='example', name='Example', available=True)
         self.request_signin(shell)
         self.assertEqual(len(self.q.QtWebEngineCore.QWebEngineProfile.made), 2)
         hint = shell.hint.setText.call_args.args[0]
-        self.assertIn('Sign in to Example below', hint); self.assertIn('set a password on Example first', hint)
+        self.assertIn('Sign in to Example below', hint); self.assertIn('add a password to your Example account', hint)
         self.assertNotIn('Tapas', hint)
 
     def test_the_computer_stays_awake_only_while_a_download_runs_and_may_sleep_once_it_ends_or_the_window_closes(self):
