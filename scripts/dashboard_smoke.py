@@ -122,6 +122,16 @@ def held_card_messages(page):
     assert value['worker'] == 'Downloader · Starts after sign-in', value
     value = card({'status':'held', 'code':'login_required'}, {'session_configured':True, 'worker':{'reported_state':'ready'}})
     assert value['status'].startswith('Paused: Tapas signed you out.'), value
+    # Just after a sign-in is kept, a downloader that has not reported yet is starting, not offline; later it is offline.
+    starting = lambda since: page.evaluate("""([since]) => {
+        const saved = [state.siteAuth, state.connectedAt, state.status, state.account];
+        state.account = {...state.account, status:'stopped', code:null}; state.siteAuth = {status:'connected'}; state.connectedAt = Date.now() - since;
+        state.status = {...state.status, session_configured:true, worker:{reported_state:'stopped'}}; renderAccount();
+        const result = [$('account-status').textContent, $('dashboard-worker').textContent, $('site-signin').hidden];
+        [state.siteAuth, state.connectedAt, state.status, state.account] = saved; renderAccount(); return result;}""", [since])
+    assert starting(5000) == ['Starting the downloader…', 'Downloader · Starting', True], starting(5000)
+    late = starting(130000)
+    assert late[0].startswith('The downloader is offline.') and late[1] == 'Downloader · Offline' and late[2] is False, late
     # A failure the hidden notice bar would have shown reaches the card and Settings, and clears after a while.
     page.evaluate("notice('PLAIN FAILURE', true)")
     for selector in ('#site-signin-status', '#settings-status'):
