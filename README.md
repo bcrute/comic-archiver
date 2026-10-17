@@ -10,6 +10,13 @@ read ones, and saves the free chapters and the ones you bought or rent; a rented
 of its rental. Sign in with your email and password (a password manager's copy and paste works; browser
 extensions do not run in the app's window). Webtoon is listed in the app as "coming later".
 
+## Download
+
+Get the newest version from the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest):
+the setup file for Windows 10 or 11, or the `.tar.gz` for Linux. Nothing else needs installing, and nothing has
+to be built. The release notes say what to do the first time, including the warning Windows shows because the
+app is not signed yet.
+
 ## Status
 
 | | |
