@@ -231,7 +231,6 @@ function renderStatus() {
   const local = state.context.interface_mode === 'local';
   $('local-login').hidden = !local || s.session_configured;
   $('local-worker').hidden = !local || !s.session_configured || ['ready','busy'].includes(worker);
-  for (const id of ['cloud-options', 'storage-page']) $(id).hidden = !cloudAvailable();
   showPage();
   $('local-setup').hidden = simpleMode() || !local || (s.session_configured && ['ready','busy'].includes(worker));
   $('connection').textContent = !s.session_configured ? 'Your Tapas account needs connecting.' : !['ready','busy'].includes(worker) ? 'The downloader is offline. Your saved files remain available.' : 'Your Tapas session is saved and the downloader is online. Each episode is checked before downloading.';
@@ -309,11 +308,11 @@ document.addEventListener('comic-archive-theme', async event => {
 async function load(preferred = state.workspace) {
   state.context = await api('/api/v1/context');
   showSites(state.context.sites);
-  $('save-location').hidden = !ownWindow();
-  // Where episodes go is one choice in one place: beside the save folder, or the fuller view's saving step.
-  (simpleMode() ? $('save-location') : $('save-destination')).after($('cloud-choice'));
+  // The window's folder is on the Storage tab of Settings, with the ways to open and change it.
+  for (const id of ['save-location', 'open-folder', 'change-folder']) $(id).hidden = !ownWindow();
   if (!simpleMode()) $('notice').after($('site-choice'));
   $('save-folder').textContent = state.context.library_folder || '';
+  renderSaveSummary();
   for (const id of ['download-options','advanced','advanced-nav','batch-progress']) $(id).hidden = simpleMode();
   $('dashboard-heading').hidden = !simpleMode();
   $('dashboard-grid').classList.toggle('dashboard-grid', simpleMode());
@@ -325,7 +324,6 @@ async function load(preferred = state.workspace) {
   document.body.dataset.desktopOnly = String(desktopOnly());
   // The simple dashboard has its own mobile data choice beside Go (see renderAccount).
   for (const id of ['mobile-options','network-options']) $(id).hidden = !cloudAvailable() || simpleMode();
-  for (const id of ['cloud-options', 'storage-page']) $(id).hidden = !cloudAvailable();
   showPage();
   $('local-setup').hidden = simpleMode() || state.context.interface_mode !== 'local';
   $('speed').value = state.context.interface_mode === 'local' ? 'fast' : 'normal';
@@ -469,8 +467,16 @@ function renderStorageChoice() {
   }));
   const unchecked = configured.filter(t => !t.tested).map(t => cloudLabel(t.provider));
   $('cloud-choice-help').textContent = chosen !== 'device'
-    ? `Each new episode is uploaded to ${cloudLabel(chosen)} as it is saved. The copy on this device is removed once the upload is checked.`
-    : unchecked.length ? `${unchecked.join(' and ')} can be chosen once its connection check passes, under Storage.` : 'New episodes stay in the save folder.';
+    ? `Each new episode is uploaded to ${cloudLabel(chosen)} as it downloads. None is kept on this device once its upload is checked.`
+    : unchecked.length ? `${unchecked.join(' and ')} can be chosen once its connection check passes, on its own tab.` : 'New episodes stay in the save folder.';
+  renderSaveSummary();
+}
+// The dashboard says in one line where new episodes go; they are chosen in Settings.
+function renderSaveSummary() {
+  const chosen = cloudAvailable() && state.cloud?.supported_on_this_interface ? (state.cloud.targets || []).find(t => t.connected && t.enabled) : null;
+  const place = chosen ? cloudLabel(chosen.provider) : ownWindow() ? state.context.library_folder : '';
+  $('save-summary-place').textContent = place;
+  $('save-summary').hidden = !simpleMode() || !place;
 }
 // The Storage page: each place episodes can be kept, what it holds and the way to it.
 function renderStorage() {
@@ -498,7 +504,7 @@ function b2Summary() {
     ? ['Checking your key', 'working', 'Checking your key and bucket with Backblaze. Nothing is uploaded yet.']
     : !target?.connected ? ['Not set up', 'neutral', 'Follow the steps below to connect your own Backblaze account.']
     : !target.tested ? ['Connected, not checked yet', 'warning', `Connected to ${bucket}. Check the connection (step 5) before uploads can start.`]
-    : !target.enabled ? ['Set up', 'success', `Set up and checked: ${bucket}. Uploads are off; choose Backblaze B2 on the dashboard, beside the save folder.`]
+    : !target.enabled ? ['Set up', 'success', `Set up and checked: ${bucket}. Uploads are off; choose Backblaze B2 on the Storage tab.`]
     : [failed ? 'Uploads need attention' : 'Uploading to B2', failed ? 'warning' : 'success',
        `Set up and checked: ${bucket}. New episodes are uploaded to it as they are saved.${failed ? ` ${display(failed)} ${failed === 1 ? 'upload needs' : 'uploads need'} retrying: click Retry unfinished uploads below.` : ''}`];
 }
@@ -508,22 +514,38 @@ function renderB2State() {
   $('b2-state-pill').dataset.tone = $('b2-state').dataset.tone = tone;
   $('b2-state-text').textContent = text;
 }
-// Storage (#storage) and B2 setup (#b2) are pages of their own; the browser's Back returns from them.
+// The tabs Settings has here: how the app on this computer downloads, where episodes are kept, and B2's setup.
+function settingsTabs() {
+  return [['downloads', simpleMode() && state.context?.interface_mode === 'local'], ['storage', ownWindow() || cloudAvailable()],
+    ['b2', cloudAvailable()]].filter(([, shown]) => shown).map(([tab]) => tab);
+}
+// Settings (#settings/<tab>) is a page of its own, its tabs down the side; the browser's Back returns from it.
 function showPage() {
-  const page = !cloudAvailable() ? 'dashboard' : location.hash === '#b2' ? 'b2' : location.hash === '#storage' ? 'storage' : 'dashboard';
-  const nav = page === 'dashboard' ? 'save-nav' : 'storage-nav';
-  for (const id of ['save-nav', 'storage-nav']) if (id === nav) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
-  if (document.body.dataset.page === page) return;
-  document.body.dataset.page = page;
-  // Typed keys last only while the page is open.
-  if (page !== 'b2') $('b2-login').reset();
-  scrollTo(0, 0);
+  // Earlier addresses of the Storage and B2 pages lead to their tabs.
+  const moved = {'#storage': '#settings/storage', '#b2': '#settings/b2'}[location.hash];
+  if (moved) history.replaceState(null, '', location.pathname + location.search + moved);
+  const tabs = settingsTabs(), [route, wanted] = location.hash.slice(1).split('/');
+  const tab = route === 'settings' && tabs.length ? (tabs.includes(wanted) ? wanted : tabs[0]) : '';
+  const page = tab ? 'settings' : 'dashboard';
+  for (const [id, current] of [['save-nav', !tab], ['settings-nav', Boolean(tab)]])
+    if (current) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
+  for (const key of ['downloads', 'storage', 'b2']) {
+    const link = $('settings-tab-' + key);
+    link.hidden = !tabs.includes(key);
+    if (key === tab) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+  }
+  if (document.body.dataset.page === page && document.body.dataset.settingsTab === tab) return;
+  const opened = document.body.dataset.page !== page;
+  document.body.dataset.page = page; document.body.dataset.settingsTab = tab;
+  // Typed keys last only while the B2 tab is open.
+  if (tab !== 'b2') $('b2-login').reset();
+  if (opened) scrollTo(0, 0);
 }
 window.addEventListener('hashchange', showPage);
 window.addEventListener('popstate', showPage);
 $('b2-steps-toggle').addEventListener('click', () => {state.b2StepsOpen = !state.b2StepsOpen; renderCloud();});
-for (const id of ['storage-back', 'cloud-done']) $(id).addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
-$('cloud-back').addEventListener('click', () => {location.hash = 'storage';});
+$('settings-back').addEventListener('click', () => {history.pushState(null, '', location.pathname + location.search); showPage();});
+$('cloud-done').addEventListener('click', () => {location.hash = 'settings/storage';});
 function clearCloudLogin() {
   $('cloud-login').reset(); $('proton-signin').hidden = true;
   $('b2-login').reset();
@@ -797,22 +819,22 @@ function renderAccount() {
   $('account-pause').disabled = state.busy;
   const speeds = {fast:`The quickest. If ${site} keeps pausing the download, choose a slower speed.`, medium:'About four images a second.', slow:'About one image a second. A large library can take months at this speed.'};
   const speed = speeds[state.account?.speed] ? state.account.speed : 'fast';
-  $('account-speed-row').hidden = !local || !state.account;
+  $('account-speed-row').hidden = !local;
   if ($('account-speed').value !== speed) $('account-speed').value = speed;
   $('account-speed').disabled = !local || state.busy || accountRunning || signingIn || !state.account;
   $('account-speed-help').textContent = accountRunning ? 'Pause to change the speed.' : speeds[speed];
   $('account-download').setAttribute('aria-busy', String(accountRunning || signingIn));
-  // Shown only when it matters: the connection holds saving, or mobile data is already allowed.
   const net = state.network;
   const networkHeld = Boolean(local && net?.supported_on_this_interface && net.wifi_only && !net.allowed);
-  $('account-network').hidden = !local || !net?.supported_on_this_interface || (net.wifi_only && net.allowed);
+  $('account-network').hidden = !local || !net?.supported_on_this_interface;
   // A tick being saved stays as the person left it until the saved choice comes back.
   if (!state.networkSaving) $('account-mobile-data').checked = net?.wifi_only === false;
   $('account-mobile-data').disabled = state.busy || !net?.supported_on_this_interface;
   $('account-network-help').textContent = net?.wifi_only === false ? 'Saving uses any connection, including mobile data. This may use your data allowance.'
+    : net?.allowed ? 'Off: saving uses Wi-Fi or a wired connection, and waits on a metered one. Allow mobile data to save on any connection; this may use your data allowance.'
     : net?.reason === 'metered_connection' ? 'This connection is metered, so saving waits for Wi-Fi or a wired connection. Allow mobile data to save on it anyway; this may use your data allowance.'
     : 'This computer cannot tell whether its connection is metered, so saving waits. Allow mobile data to save on it anyway; this may use your data allowance.';
-  const authMessages = {network_held:'Connect to Wi-Fi or an unmetered wired connection, or allow mobile data, then sign in again.',
+  const authMessages = {network_held:'Connect to Wi-Fi or an unmetered wired connection, or allow mobile data in Settings, then sign in again.',
     account_mismatch:`That ${site} account does not match this saved library. Sign in to the original account.`,
     signin_failed:`Sign-in did not finish. Try Sign in to ${site} again.`,
     signin_incomplete:`Sign-in was not completed. Click Sign in to ${site} to try again.`};
@@ -823,14 +845,14 @@ function renderAccount() {
   let message = !state.workspace ? 'Connecting to your library…' : !local ? `Use the local archiver to connect your ${site} account.`
     : signingIn ? 'Waiting for your browser sign-in.' : needsLogin ? `Sign in to ${site} to get started.`
     : accountRunning ? phases[state.account.phase] || 'Downloading your library…'
-    : state.account?.status === 'held' ? (state.account.code === 'source_refused' ? `${site} paused this download. Saved files are safe. Wait before hitting Go again. If this keeps happening, choose a slower speed.`
+    : state.account?.status === 'held' ? (state.account.code === 'source_refused' ? `${site} paused this download. Saved files are safe. Wait before hitting Go again. If this keeps happening, choose a slower speed in Settings.`
       : state.account.code === 'network_unavailable' ? `Download paused: ${site} could not be reached several times in a row. Saved files are safe. Check your internet connection, then hit Go to continue.`
-      : networkHeld ? 'Download paused: mobile data is off and this connection is metered or could not be checked. Saved files are safe. Connect to Wi-Fi or a wired connection, or allow mobile data, then hit Go to continue.'
+      : networkHeld ? 'Download paused: mobile data is off and this connection is metered or could not be checked. Saved files are safe. Connect to Wi-Fi or a wired connection, or allow mobile data in Settings, then hit Go to continue.'
       : 'Download paused. Saved files are safe. Fix the connection or free disk space, then hit Go to continue.')
     : batchRunning ? (state.status?.progress?.cancellation_requested ? 'Pausing after the image being saved. Your saved files are safe.' : 'Finishing the current batch. Your saved files are safe.')
     : worker === 'starting' ? 'Starting the downloader…'
     : worker !== 'ready' ? `The downloader is offline. Click Sign in to ${site} to reconnect.`
-    : networkHeld ? 'Saving would wait: mobile data is off and this connection is metered or could not be checked. Connect to Wi-Fi or a wired connection, or allow mobile data.'
+    : networkHeld ? 'Saving would wait: mobile data is off and this connection is metered or could not be checked. Connect to Wi-Fi or a wired connection, or allow mobile data in Settings.'
     : state.account?.status === 'stopped' ? 'Paused. Hit Go to continue from saved progress.'
     : state.account?.status === 'finished' ? 'Finished. Accessible episodes found in your account are saved. Hit Go to check for anything new.'
     : `Ready. Hit Go to save your ${site} library.`;
@@ -840,6 +862,8 @@ function renderAccount() {
   const activeList = listNames[lists?.current];
   if (listPhase && activeList) message = `Finding series — ${activeList} list (${display(number(lists.checked)+1)} of ${display(lists.total)}).`;
   $('account-status').textContent = message;
+  // The choices a held download needs are in Settings: the card leads straight to them.
+  $('account-settings-link').hidden = !(local && (networkHeld || (state.account?.status === 'held' && state.account.code === 'source_refused')));
   const counts = state.status?.episodes_by_status || {};
   const saved = display(counts.archived);
   const p = state.status?.progress;

@@ -2624,12 +2624,20 @@
   "test": "test_unknown_storage_location_is_refused_and_server_libraries_offer_no_cloud_locations"
  },
  {
-  "id": "menu offers Storage where the cloud helper is not offered",
+  "id": "menu offers Settings for cloud storage where the cloud helper is not offered",
   "source": "comic_archive/web.py",
-  "old": "                        storage_hidden='' if cloud_tools.offered() and (\n",
-  "new": "                        storage_hidden='' if (\n",
+  "old": "                            or (cloud_tools.offered() and (not self.registry.desktop_only or self.registry.interface_mode == 'local'))\n",
+  "new": "                            or ((not self.registry.desktop_only or self.registry.interface_mode == 'local'))\n",
   "test_file": "test_local_web.py",
-  "test": "test_both_pages_share_the_menu_with_storage_and_only_the_dashboard_lists_sites"
+  "test": "test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites"
+ },
+ {
+  "id": "menu hides Settings from the app on this computer without cloud storage",
+  "source": "comic_archive/web.py",
+  "old": "                        settings_hidden='' if (simple and self.registry.interface_mode == 'local') or self.registry.location\n",
+  "new": "                        settings_hidden='' if self.registry.location\n",
+  "test_file": "test_local_web.py",
+  "test": "test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites"
  },
  {
   "id": "stopped direct episode drops its pages",

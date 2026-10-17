@@ -45,17 +45,31 @@ summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .cloud-costs-mark { display: inline-grid; place-items: center; width: 1.4em; height: 1.4em; border-radius: 50%; background: var(--accent); color: var(--button-text); text-decoration: none; font-size: .85rem; }
 .cloud-costs li { margin-bottom: 6px; }
 .cloud-steps { padding-left: 24px; }
-/* Storage and B2 setup are pages of their own: the dashboard steps aside while one is open. */
-body:not([data-page="b2"]) #cloud-options, body:not([data-page="storage"]) #storage-page { display: none !important; }
-body[data-page="b2"] main > :not(#cloud-options), body[data-page="storage"] main > :not(#storage-page) { display: none !important; }
+/* Settings is a page of its own: the dashboard steps aside while it is open, and only its open tab shows. */
+body:not([data-page="settings"]) #settings-page { display: none !important; }
+body[data-page="settings"] main > :not(#settings-page) { display: none !important; }
+body:not([data-settings-tab="downloads"]) #downloads-settings, body:not([data-settings-tab="storage"]) #storage-page,
+body:not([data-settings-tab="b2"]) #cloud-options { display: none !important; }
+#settings-page { margin-top: 8px; }
+#settings-page > .page-heading { align-items: start; }
+.settings-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-tabs { flex-direction: column; position: sticky; top: 16px; }
+.settings-tabs a { color: var(--text); }
+.settings-tabs a[aria-current=page] { box-shadow: inset 3px 0 0 var(--accent); }
+.settings-panel { margin: 0; min-width: 0; }
+.setting + .setting { margin-top: 20px; }
+.setting > p { margin: 6px 0 0; font-size: .85rem; }
+@media (max-width: 700px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settings-tabs { flex-direction: row; position: static; }
+  .settings-tabs a[aria-current=page] { box-shadow: inset 0 -3px 0 var(--accent); }
+}
 .storage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
 .storage-card { border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); }
-.storage-card h3 { margin: 0; font-size: 1.05rem; }
+.storage-card h4 { margin: 0; font-size: 1.05rem; }
 .storage-card > p { margin: 8px 0 0; }
 .storage-card-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .storage-card .step-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.cloud-page { margin-top: 8px; }
-.cloud-page > .page-heading { align-items: start; }
 .cloud-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; padding: 12px 16px; border-left: 4px solid var(--border); border-radius: 4px; background: var(--surface-soft); }
 .cloud-state p { margin: 0; }
 .cloud-state .status-pill[data-tone] { background: var(--surface); font-size: .9rem; }
@@ -171,13 +185,13 @@ a { color: var(--accent); }
 .site-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 8px; }
 .site-choice label { font-weight: 600; }
 #site { width: auto; min-width: 10em; min-height: 36px; padding: 4px 8px; }
-.storage-choice { margin: 12px 0 0; padding: 0; border: 0; }
+.storage-choice { margin: 0 0 16px; padding: 0; border: 0; }
 .storage-choice legend { padding: 0; font-weight: 600; }
 .storage-options { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .storage-options label { display: flex; align-items: center; gap: 8px; min-height: 40px; }
 .storage-choice p { margin: 4px 0 0; font-size: .85rem; }
-#save-location { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-#account-speed-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#save-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.setting > label:not(.checkbox) { margin-bottom: 6px; }
 #account-speed { min-width: 0; min-height: 36px; padding: 4px 8px; }
-#save-folder { overflow-wrap: anywhere; }
+#save-folder, #save-summary-place { overflow-wrap: anywhere; }
 button.compact { min-height: 32px; padding: 4px 10px; font-size: .9rem; }

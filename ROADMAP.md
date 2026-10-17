@@ -25,17 +25,20 @@ The code is in the app already, from the browser version, but the window hides i
   links straight to Application Keys, since the person is signed in from creating the bucket.
 - The trial before anything is uploaded for real: two saved episodes are uploaded, read back and compared, and
   the test copies deleted. Uploads start only after a passed trial and the person's own choice, made on the
-  dashboard beside the save folder: where episodes go is chosen in that one place, not on the B2 page. The
-  choice is a radio button for each storage that is set up, named and nothing more: "This device" or
-  "Backblaze B2".
-- A Storage item in the menu opens a page with a card for each place episodes can be kept, so others can be
-  added later. B2's card says whether it is set up and how much it holds, and leads to the stored episodes,
-  to Backblaze's Browse Files page, and to B2's own page for setup. Cloud storage appears in the library's
-  storage list only once it is set up.
+  Storage tab of Settings: where episodes go is chosen in that one place, not on the B2 tab. The choice is a
+  radio button for each storage that is set up, named and nothing more: "This device" or "Backblaze B2".
+- A Settings item in the menu opens a page with its tabs down the side, so the dashboard keeps only saving
+  itself: Downloads (the speed and mobile data), Storage, and Backblaze B2 (its setup). The dashboard says in
+  one line where new episodes go, with the way to change it, and leads to the Downloads tab when the
+  connection or the site holds a download. The earlier addresses of the Storage and B2 pages open their tabs.
+- The Storage tab has a card for each place episodes can be kept, so others can be added later. This device's
+  card names the save folder, with the ways to open and change it. B2's card says whether it is set up and how
+  much it holds, and leads to the stored episodes, to Backblaze's Browse Files page, and to B2's tab. Cloud
+  storage appears in the library's storage list only once it is set up.
 - The site (Tapas, Webtoon, Tappytoon) is chosen at the top of the dashboard, not in the menu bar.
-- Typed keys stay in their fields while the B2 page is open, so a refused one can be corrected; they are cleared
-  once connected or when the page is left, and never kept.
-- Once B2 is set up, the page says so at the top and folds the account, bucket, key and connect steps away
+- Typed keys stay in their fields while the B2 tab is open, so a refused one can be corrected; they are cleared
+  once connected or when the tab is left, and never kept.
+- Once B2 is set up, its tab says so at the top and folds the account, bucket, key and connect steps away
   behind "Show the setup steps", leaving the check and the way back to the dashboard.
 - When B2 alone takes new episodes, each one is held in memory and goes straight to B2 while the next one
   downloads; nothing of it is written to this computer's disk. The upload is checked against the SHA-1 B2
