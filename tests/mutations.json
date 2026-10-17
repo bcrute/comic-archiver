@@ -1058,8 +1058,8 @@
  {
   "id": "window-signin-hint-ignores-the-site",
   "source": "comic_archive/desktop_app.py",
-  "old": "QLabel(site_text(SIGNIN_HINT, self.runtime.site))",
-  "new": "QLabel(site_text(SIGNIN_HINT))",
+  "old": "self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))",
+  "new": "self.hint.setText(site_text(SIGNIN_HINT))",
   "test_file": "test_desktop_app.py",
   "test": "test_the_sign_in_texts_name_the_site_that_is_open"
  },
