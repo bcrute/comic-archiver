@@ -809,7 +809,10 @@ function renderAccount() {
   const local = state.context?.interface_mode === 'local';
   const accountRunning = state.account?.status === 'running';
   const signingIn = state.siteAuth?.status === 'running';
-  const worker = state.status?.worker?.reported_state;
+  const reported = state.status?.worker?.reported_state;
+  // Right after a sign-in is kept, the downloader can take a minute to say it is there: it is starting, not offline.
+  const worker = !['starting','ready','busy'].includes(reported) && state.siteAuth?.status === 'connected'
+    && Date.now() - (state.connectedAt || 0) < 120000 ? 'starting' : reported;
   const batchRunning = worker === 'busy' || state.status?.progress?.status === 'running';
   const needsLogin = !state.status?.session_configured || (state.account?.code === 'login_required' && state.siteAuth?.status !== 'connected');
   // A downloader that is still starting is not offline: signing in again would not help it.
@@ -1009,6 +1012,7 @@ async function siteAuth() {
   const workspace = state.workspace;
   const value = await api(base()+'/session/signin');
   if (workspace !== state.workspace) return;
+  if (value.status === 'connected' && state.siteAuth?.status !== 'connected') state.connectedAt = Date.now();
   state.siteAuth = value; renderAccount();
 }
 async function accountAction(callback) {
