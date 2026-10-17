@@ -24,8 +24,11 @@ blocks it with no **Run anyway**, Comic Archiver can't be installed on that PC y
 The first time:
 
 1. Choose your site in the Site list.
-2. Choose **Sign in**, and sign in on the site's own page in the window with your email and password. If you
-   normally use Google or Facebook there, set a password on the site first.
+2. Choose **Sign in**, and sign in on the site's own page in the window with your email and password.
+   Google and Facebook sign-in buttons may not work in that window. If that is how you normally sign in, first add
+   a password to your account on the comic site itself (Tapas or Tappytoon, not Google or Facebook): sign in to the
+   comic site in your usual web browser the way you always do, open your account settings, and set a password
+   there. Then sign in to Comic Archiver with your account's email and that password.
 3. Press **Go**.
 
 Episodes are saved in the folder `Comic Archiver` in your user folder: Tapas in `Library`, Tappytoon in

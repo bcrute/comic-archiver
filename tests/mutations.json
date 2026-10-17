@@ -3166,5 +3166,13 @@
   "new": "",
   "test_file": "test_shared.py",
   "test": "test_a_site_opened_before_but_never_set_up_uses_the_shared_setup_and_keeps_its_folder_name"
+ },
+ {
+  "id": "the sign-in bar does not say which account gets the password",
+  "source": "comic_archive/desktop_app.py",
+  "old": "first add a password to your {site} account: sign in to {site} in your ",
+  "new": "first add a password: sign in in your ",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
  }
 ]
