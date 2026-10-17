@@ -40,7 +40,7 @@ const span = seconds => { const hours = seconds/3600, days = hours/24;
 function timeLeft(estimate) {
   const waiting = number(estimate?.waiting_episodes), unchecked = number(estimate?.unchecked_series);
   if (!estimate || !(waiting || unchecked)) return '';
-  if (!Number.isInteger(estimate.seconds)) return 'Saving a large library takes days or weeks. An estimate of the time left appears after about five minutes of downloading.';
+  if (!Number.isInteger(estimate.seconds)) return 'Working out how long this will take. An estimate appears after about five minutes of downloading.';
   const left = `${display(waiting)} ${waiting === 1 ? 'episode is' : 'episodes are'} waiting`+(unchecked ? ` and ${display(unchecked)} series ${unchecked === 1 ? 'has' : 'have'} not been checked yet, so this is a rough guess.` : '.');
   return `About ${span(estimate.seconds)} of downloading left at the pace of the last five minutes. ${left} It only continues while this app is open.`;
 }
@@ -82,7 +82,12 @@ function renderCost() {
   $('b2-cost-short').textContent = b2CostShort(estimate);
   $('b2-cost-estimate').textContent = text; $('b2-cost-estimate').hidden = !text;
 }
-function notice(message, error = false) { $('notice').hidden = simpleMode(); $('notice').textContent = message; $('notice').classList.toggle('error', error); }
+function notice(message, error = false) {
+  $('notice').hidden = simpleMode(); $('notice').textContent = message; $('notice').classList.toggle('error', error);
+  // The simple page hides the notice bar, so a failure is shown on the card and in Settings instead.
+  // It stays for half a minute of good updates, long enough to read.
+  if (error && simpleMode()) { state.accountMessage = {message, error:true, until:Date.now()+30000}; renderAccount(); }
+}
 function renderConnectionCheck() {
   $('connection-check-status').textContent = state.connectionCheck?.message || '';
   $('connection-check-status').classList.toggle('error', state.connectionCheck?.error === true);
@@ -294,6 +299,9 @@ function showSites(sites) {
 $('site').addEventListener('change', () => accountAction(async () => {
   // The window opens the other site's library behind this page; the page then reads it, without reloading.
   const chosen = $('site').selectedOptions[0]?.textContent || 'the site';
+  if (!confirm(`Switch to ${chosen}? Your ${siteName()} episodes stay saved, and you can switch back any time.`)) {
+    showSites(state.context?.sites); return;
+  }
   await api('/api/v1/site', {site:$('site').value});
   state.accountMessage = {message:`Switching to ${chosen}…`}; renderAccount();
   while ((await api('/api/v1/context')).site_switching === true) await new Promise(done => setTimeout(done, 300));
@@ -731,7 +739,7 @@ async function poll() {
       if (Date.now() - (state.networkCheckedAt || 0) > 15000) await network(false);
       state.lastAccountRefreshAt = Date.now(); state.accountOffline = false;
       if (Date.now() - (state.libraryRefreshedAt || 0) > 30000) await librarySummary(true);
-      if (state.accountMessage?.polling) state.accountMessage = null;
+      if (state.accountMessage?.polling || state.accountMessage?.until < Date.now()) state.accountMessage = null;
       return;
     }
     if (state.task) {
@@ -810,12 +818,14 @@ function renderAccount() {
   const site = siteName();
   $('site-signin').textContent = signingIn ? 'Signing in…' : `Sign in to ${site}`;
   $('dashboard-intro').textContent = `Sign in to ${site}, then hit Go to save the episodes your account can read.`;
-  $('account-go').disabled = !local || state.busy || Boolean(state.task) || state.auth?.status === 'running' || !state.account || needsLogin || signingIn || accountRunning || worker !== 'ready';
+  const goWait = accountRunning ? 0 : Math.max(0, number(state.account?.go_after_seconds) - sinceAccount());
+  $('account-go').disabled = !local || state.busy || Boolean(state.task) || state.auth?.status === 'running' || !state.account || needsLogin || signingIn || accountRunning || worker !== 'ready' || goWait > 0;
   $('account-go').textContent = accountRunning ? 'Working…' : state.account?.status === 'stopped' || state.account?.status === 'held' ? 'Go — continue' : 'Go';
   $('account-pause').hidden = !accountRunning;
   $('change-folder').disabled = state.busy || accountRunning || batchRunning || signingIn;
   $('change-folder').title = accountRunning || batchRunning ? 'Pause saving before you change the folder.' : '';
   $('site').disabled = state.busy || accountRunning || batchRunning || signingIn;
+  $('site').title = accountRunning || batchRunning ? 'Pause saving to change the site.' : '';
   $('account-pause').disabled = state.busy;
   const speeds = {fast:`The quickest. If ${site} keeps pausing the download, choose a slower speed.`, medium:'About four images a second.', slow:'About one image a second. A large library can take months at this speed.'};
   const speed = speeds[state.account?.speed] ? state.account.speed : 'fast';
@@ -830,31 +840,40 @@ function renderAccount() {
   // A tick being saved stays as the person left it until the saved choice comes back.
   if (!state.networkSaving) $('account-mobile-data').checked = net?.wifi_only === false;
   $('account-mobile-data').disabled = state.busy || !net?.supported_on_this_interface;
-  $('account-network-help').textContent = net?.wifi_only === false ? 'Saving uses any connection, including mobile data. This may use your data allowance.'
-    : net?.allowed ? 'Off: saving uses Wi-Fi or a wired connection, and waits on a metered one. Allow mobile data to save on any connection; this may use your data allowance.'
-    : net?.reason === 'metered_connection' ? 'This connection is metered, so saving waits for Wi-Fi or a wired connection. Allow mobile data to save on it anyway; this may use your data allowance.'
-    : 'This computer cannot tell whether its connection is metered, so saving waits. Allow mobile data to save on it anyway; this may use your data allowance.';
-  const authMessages = {network_held:'Connect to Wi-Fi or an unmetered wired connection, or allow mobile data in Settings, then sign in again.',
+  $('account-network-help').textContent = net?.wifi_only === false ? 'Saving uses any connection, including metered and mobile ones. This may use your data allowance.'
+    : net?.allowed ? 'Off: saving uses Wi-Fi or a wired connection, and waits on a metered or mobile one.'
+    : net?.reason === 'metered_connection' ? 'This connection is metered, so saving waits for Wi-Fi or a wired connection. Tick this to save on it anyway; this may use your data allowance.'
+    : 'This computer cannot tell whether its connection is metered (a VPN can cause this), so saving waits. Tick this to save on it anyway.';
+  const connectionHeld = net?.reason === 'metered_connection' ? 'this connection is metered' : 'this computer cannot tell whether its connection is metered (a VPN can cause this)';
+  $('account-allow-network').hidden = !networkHeld;
+  $('account-allow-network').disabled = state.busy;
+  const authMessages = {network_held:'Connect to Wi-Fi or a wired connection, or press Allow this connection, then sign in again.',
     account_mismatch:`That ${site} account does not match this saved library. Sign in to the original account.`,
     signin_failed:`Sign-in did not finish. Try Sign in to ${site} again.`,
     signin_incomplete:`Sign-in was not completed. Click Sign in to ${site} to try again.`};
   $('site-signin-status').textContent = state.accountMessage?.message || (signingIn ? `Finish signing in to ${site}. We’ll detect it automatically; then return here and hit Go.` : state.siteAuth?.status === 'error' ? authMessages[state.siteAuth.code] || authMessages.signin_failed : '');
   $('site-signin-status').classList.toggle('error', Boolean(state.accountMessage?.error || state.siteAuth?.status === 'error'));
+  $('settings-status').textContent = state.accountMessage?.message || '';
+  $('settings-status').classList.toggle('error', Boolean(state.accountMessage?.error));
+  $('dashboard-footnote').textContent = ownWindow() ? 'Saving runs only while this window is open. Closing it pauses, and Go carries on later.'
+    : 'Saved episodes stay safe. You can close this page and return later.';
   const phases = {existing_backlog:'Finishing saved downloads…', lists:`Finding series in your ${site} account…`,
     series:'Checking your series and downloading accessible episodes…', archive:'Downloading your episodes…', verify:'Checking the completed library…'};
+  const finished = state.account?.status === 'finished' || (state.account?.status === 'held' && state.account.code === 'archive_incomplete');
+  const missing = number(state.account?.audit?.missing_recorded_accessible_episode_count);
   let message = !state.workspace ? 'Connecting to your library…' : !local ? `Use the local archiver to connect your ${site} account.`
-    : signingIn ? 'Waiting for your browser sign-in.' : needsLogin ? `Sign in to ${site} to get started.`
+    : signingIn ? `Finish signing in to ${site} in the window that opened.`
+    : needsLogin ? (state.account?.code === 'login_required' ? `Paused: ${site} signed you out. Saved files are safe. Sign in to ${site} again, then hit Go to continue.` : `Sign in to ${site} to get started.`)
     : accountRunning ? phases[state.account.phase] || 'Downloading your library…'
-    : state.account?.status === 'held' ? (state.account.code === 'source_refused' ? `${site} paused this download. Saved files are safe. Wait before hitting Go again. If this keeps happening, choose a slower speed in Settings.`
-      : state.account.code === 'network_unavailable' ? `Download paused: ${site} could not be reached several times in a row. Saved files are safe. Check your internet connection, then hit Go to continue.`
-      : networkHeld ? 'Download paused: mobile data is off and this connection is metered or could not be checked. Saved files are safe. Connect to Wi-Fi or a wired connection, or allow mobile data in Settings, then hit Go to continue.'
-      : 'Download paused. Saved files are safe. Fix the connection or free disk space, then hit Go to continue.')
-    : batchRunning ? (state.status?.progress?.cancellation_requested ? 'Pausing after the image being saved. Your saved files are safe.' : 'Finishing the current batch. Your saved files are safe.')
+    : state.account?.status === 'held' && networkHeld ? `Paused: ${connectionHeld}, and the app saves only on Wi-Fi or a wired connection. Saved files are safe. Connect to Wi-Fi, or press Allow this connection, then hit Go to continue.`
+    : state.account?.status === 'held' ? heldMessage(state.account.code, site, goWait, missing)
+    : batchRunning ? (state.status?.progress?.cancellation_requested ? 'Pausing after the image being saved. Your saved files are safe.' : 'Finishing the current step. Your saved files are safe.')
     : worker === 'starting' ? 'Starting the downloader…'
     : worker !== 'ready' ? `The downloader is offline. Click Sign in to ${site} to reconnect.`
-    : networkHeld ? 'Saving would wait: mobile data is off and this connection is metered or could not be checked. Connect to Wi-Fi or a wired connection, or allow mobile data in Settings.'
-    : state.account?.status === 'stopped' ? 'Paused. Hit Go to continue from saved progress.'
-    : state.account?.status === 'finished' ? 'Finished. Accessible episodes found in your account are saved. Hit Go to check for anything new.'
+    : networkHeld ? `Saving would wait: ${connectionHeld}, and the app saves only on Wi-Fi or a wired connection. Connect to Wi-Fi, or press Allow this connection.`
+    : state.account?.status === 'stopped' ? (goWait ? `Paused. ${site} asked the app to wait: Go works again in ${waitText(goWait)}.` : 'Paused. Hit Go to continue from saved progress.')
+    : state.account?.status === 'finished' ? (number(state.status?.episodes_by_status?.archived) ? 'Finished. Every episode your account can read is saved. Hit Go any time to check for new ones.'
+      : `Finished. No episodes your ${site} account can save were found. Episodes you have bought, or can read for free, are saved when there are any. Hit Go to check again.`)
     : `Ready. Hit Go to save your ${site} library.`;
   const lists = state.account?.lists;
   const listNames = {unlocked:'Bought',subscribed:'Subscribed',updated:'Updated',recent:'Recent',free_episodes:'Free episodes'};
@@ -863,12 +882,13 @@ function renderAccount() {
   if (listPhase && activeList) message = `Finding series — ${activeList} list (${display(number(lists.checked)+1)} of ${display(lists.total)}).`;
   $('account-status').textContent = message;
   // The choices a held download needs are in Settings: the card leads straight to them.
-  $('account-settings-link').hidden = !(local && (networkHeld || (state.account?.status === 'held' && state.account.code === 'source_refused')));
+  $('account-settings-link').hidden = !(local && !networkHeld && state.account?.status === 'held' && ['source_refused','source_recovery_limit'].includes(state.account.code));
   const counts = state.status?.episodes_by_status || {};
   const saved = display(counts.archived);
   const p = state.status?.progress;
-  $('account-detail').textContent = !state.status ? 'Loading saved-episode count…' : `${saved} ${number(counts.archived) === 1 ? 'episode' : 'episodes'} saved.${p?.status === 'running' && !listPhase ? ' '+$('progress').textContent : ''}${state.account?.status === 'finished' && site === 'Tapas' ? ' Tapas’s account lists may not include every older purchase.' : ''}`;
-  const left = local && state.account?.configured && state.account.status !== 'finished' ? timeLeft(state.status?.estimate) : '';
+  const step = !listPhase ? stepProgress(p) : '';
+  $('account-detail').textContent = !state.status ? 'Loading saved-episode count…' : `${saved} ${number(counts.archived) === 1 ? 'episode' : 'episodes'} saved.${step ? ' '+step : ''}${finished && site === 'Tapas' ? ' Tapas’s account lists may not include every older purchase.' : ''}`;
+  const left = local && state.account?.configured && !finished ? timeLeft(state.status?.estimate) : '';
   $('account-estimate').textContent = left; $('account-estimate').hidden = !left;
   const space = left ? spaceNeeded(state.status?.estimate) : '';
   $('account-space').textContent = space; $('account-space').hidden = !space;
@@ -884,7 +904,7 @@ function renderAccount() {
       : p?.status === 'running' && p.phase === 'scan' ? 'Checking series details before moving to the next list.' : `Opening the ${activeList || 'next'} list and waiting for ${site}.`);
   } else $('account-list-count').textContent = accountRunning && state.account.phase === 'series'
     ? `${display(state.status?.scan_remaining_series_count)} known series still awaiting checks.` : '';
-  const sinceSample = state.accountReceivedAt ? Math.max(0, Math.floor((Date.now()-state.accountReceivedAt)/1000)) : 0;
+  const sinceSample = sinceAccount();
   const age = Number.isInteger(state.account?.progress_age_seconds) ? state.account.progress_age_seconds + sinceSample : null;
   const elapsed = Number.isInteger(state.account?.elapsed_seconds) ? state.account.elapsed_seconds + sinceSample : null;
   const sinceRefresh = state.lastAccountRefreshAt ? Math.max(0, Math.floor((Date.now()-state.lastAccountRefreshAt)/1000)) : null;
@@ -894,24 +914,51 @@ function renderAccount() {
   const between = Number.isInteger(state.account?.between_steps_seconds) ? state.account.between_steps_seconds + sinceSample : null;
   const retry = accountRunning && Number.isInteger(state.account?.retry?.seconds) ? state.account.retry : null;
   const retryLeft = retry ? Math.max(0, retry.seconds - sinceSample) : 0;
-  const retryIn = retryLeft >= 90 ? `about ${Math.round(retryLeft/60)} minutes` : retryLeft > 45 ? 'about a minute' : 'a few seconds';
+  const retryIn = waitText(retryLeft);
   const waiting = !retry && (age !== null ? age >= 60 : between !== null ? between >= 60 : elapsed !== null && elapsed >= 60);
   $('account-live-progress').classList.toggle('waiting', waiting || disconnected);
   $('account-activity').textContent = !accountRunning ? '' : disconnected
-    ? 'Progress updates are delayed. We’re trying to reconnect to the archiver; its current activity is unknown.'
+    ? 'Progress updates are delayed. The app is trying to reach its downloader again; what it is doing right now is unknown.'
     : retry ? (retry.reason === 'source' ? `${site} asked the app to wait. The download continues by itself in ${retryIn}.`
+      : retry.reason === 'images' ? `Some images did not arrive. The download tries them again by itself in ${retryIn}.`
+      : networkHeld ? `Waiting: ${connectionHeld}, and the app saves only on Wi-Fi or a wired connection. The download carries on by itself on Wi-Fi, or press Allow this connection.`
       : `The connection to ${site} was interrupted. The download tries again by itself in ${retryIn}.`)
-    : waiting ? `No new progress has been recorded for over a minute. The last reported task is still pending; ${site} may be slow. You can wait or pause after this batch.`
-    : state.status?.worker?.reported_state === 'ready' ? 'The archiver is connected and preparing the next step.'
-    : 'The archiver is connected. Progress updates every five seconds; the time above shows the last recorded activity.';
+    : waiting ? `No new progress for over a minute; ${site} may be slow. You can wait, or press Pause.`
+    : state.status?.worker?.reported_state === 'ready' ? 'Working. Getting the next step ready.'
+    : 'Working. Progress updates every five seconds.';
   renderDashboard({local,accountRunning,signingIn,worker,batchRunning,needsLogin,disconnected,waiting,sinceRefresh});
+}
+// Why a held download stopped, and what the person can do about it, in one sentence each.
+function heldMessage(code, site, goWait, missing) {
+  const safe = 'Saved files are safe.';
+  if (code === 'archive_incomplete') return missing
+    ? `Finished, but ${display(missing)} ${missing === 1 ? 'episode' : 'episodes'} could not be saved. ${safe} Hit Go to check again.`
+    : `Finished, but some saved files need another check. ${safe} Hit Go to check again.`;
+  if (['source_refused','source_recovery_limit'].includes(code)) return `Paused: ${site} asked the app to slow down. ${safe} `
+    + (goWait ? `Go works again in ${waitText(goWait)}.` : 'Hit Go to try again. If this keeps happening, choose a slower speed in Settings.');
+  if (code === 'source_access_changed') return `Paused: ${site} still would not send an episode after waiting. ${safe} Check that you can read it on ${site}, then hit Go to continue.`;
+  if (['network_unavailable','network_recovery_limit'].includes(code)) return `Paused: ${site} could not be reached several times in a row. ${safe} Check your internet connection, then hit Go to continue.`;
+  if (['no_progress','scan_no_progress'].includes(code)) return `Paused: the last few tries saved nothing new. ${safe} Hit Go to try again; if it pauses again, ${site} may be having trouble, so try later.`;
+  if (code === 'cancelled') return 'Paused. Hit Go to continue from saved progress.';
+  return `Paused: the download stopped unexpectedly. ${safe} Check that this disk has free space, then hit Go to try again.`;
+}
+const waitText = seconds => seconds >= 90 ? `about ${Math.round(seconds/60)} minutes` : seconds > 45 ? 'about a minute' : 'a few seconds';
+const sinceAccount = () => state.accountReceivedAt ? Math.max(0, Math.floor((Date.now()-state.accountReceivedAt)/1000)) : 0;
+// The step being worked on, as plainly as the card puts it; the full detail is on the advanced page.
+function stepProgress(p) {
+  if (p?.status !== 'running' || p.cancellation_requested) return '';
+  if (p.phase === 'scan' && Number.isInteger(p.series_check_target_count))
+    return `Checked ${display(p.series_checks_completed)} of ${display(p.series_check_target_count)} series in this step.`;
+  if (p.phase !== 'archive') return '';
+  const chapters = number(p.downloaded_chapters), images = number(p.downloaded_pages) - chapters;
+  return `${display(p.completed)} saved in this step · ${display(images)} ${images === 1 ? 'image' : 'images'}${chapters ? ` · ${display(chapters)} novel ${chapters === 1 ? 'chapter' : 'chapters'}` : ''}.`;
 }
 function renderDashboard({local,accountRunning,signingIn,worker,batchRunning,needsLogin,disconnected,waiting,sinceRefresh}) {
   let title = 'Loading your status…', label = 'Loading', tone = 'neutral';
   if (state.workspace && state.status && (!local || state.account)) {
     if (disconnected) {title='Status updates unavailable';label='Reconnecting';tone='warning';}
     else if (!local) {title='Your saved library';label='Local archiver needed';}
-    else if (signingIn) {title='Finish signing in';label='Browser open';tone='working';}
+    else if (signingIn) {title='Finish signing in';label='Signing in';tone='working';}
     else if (needsLogin) {title='Sign in to get started';label='Sign-in needed';tone='warning';}
     else if (accountRunning) {
       const phases = {lists:['Finding your series','Finding series'],series:['Checking your library','Checking series'],
@@ -919,13 +966,15 @@ function renderDashboard({local,accountRunning,signingIn,worker,batchRunning,nee
         existing_backlog:['Finishing saved downloads','Downloading']};
       [title,label] = phases[state.account.phase] || ['Saving your library','Working'];tone='working';
       if (waiting) {title='Waiting for a progress update';label='Waiting';tone='warning';}
+    } else if (state.account?.status === 'held' && state.account.code === 'archive_incomplete') {
+      title='Finished, with episodes missing';label='Finished';tone='warning';
     } else if (state.account?.status === 'held' || state.account?.status === 'stopped') {
       title='Your download is paused';label='Paused';tone='warning';
-    } else if (batchRunning) {title='Finishing the current batch';label='Working';tone='working';}
+    } else if (batchRunning) {title='Finishing the current step';label='Working';tone='working';}
     else if (worker === 'starting') {title='Starting the downloader';label='Starting';tone='working';}
     else if (worker !== 'ready') {title='The downloader is offline';label='Offline';tone='warning';}
     else if (state.account?.status === 'finished') {title='This run is finished';label='Finished';tone='success';}
-    else {title='Ready to archive';label='Ready';tone='success';}
+    else {title='Ready to save';label='Ready';tone='success';}
   }
   $('account-save-title').textContent=title;
   $('dashboard-state').textContent=label; $('dashboard-state').dataset.tone=tone;
@@ -935,9 +984,12 @@ function renderDashboard({local,accountRunning,signingIn,worker,batchRunning,nee
     : signingIn ? 'Signing in' : needsLogin ? 'Sign-in needed'
     : state.siteAuth?.status === 'connected' ? 'Connected' : 'Session saved');
   $('dashboard-session').dataset.tone=needsLogin && state.status ? 'warning' : 'neutral';
+  // Before the first sign-in the downloader has nothing to start with: that is not a fault to warn about.
+  const notYet = needsLogin && !['starting','ready','busy'].includes(worker);
   $('dashboard-worker').textContent=!state.status ? 'Downloader · Checking…' : disconnected ? 'Downloader · Status unknown'
-    : worker === 'busy' ? 'Downloader · Working' : worker === 'ready' ? 'Downloader · Ready' : worker === 'starting' ? 'Downloader · Starting' : 'Downloader · Offline';
-  $('dashboard-worker').dataset.tone=disconnected || (state.status && !['starting','ready','busy'].includes(worker)) ? 'warning' : 'neutral';
+    : worker === 'busy' ? 'Downloader · Working' : worker === 'ready' ? 'Downloader · Ready' : worker === 'starting' ? 'Downloader · Starting'
+    : notYet ? 'Downloader · Starts after sign-in' : 'Downloader · Offline';
+  $('dashboard-worker').dataset.tone=disconnected || (state.status && !notYet && !['starting','ready','busy'].includes(worker)) ? 'warning' : 'neutral';
   $('dashboard-updated').textContent=disconnected ? 'Updates delayed · trying to reconnect'
     : sinceRefresh === null ? 'Checking current status…' : sinceRefresh < 2 ? 'Updated just now' : `Updated ${sinceRefresh}s ago`;
 }
@@ -989,6 +1041,9 @@ $('account-mobile-data').addEventListener('change', event => {
     finally { state.networkSaving = false; renderAccount(); }
   });
 });
+$('account-allow-network').addEventListener('click', () => accountAction(async () => {
+  await api(base()+'/network', {wifi_only:false}); await network(); renderAccount();
+}));
 $('account-pause').addEventListener('click', () => accountAction(async () => {
   state.account = await api(base()+'/account/pause', {}); await refresh(); renderAccount();
 }));

@@ -67,6 +67,71 @@ def navigation_controls(page, site, simple):
         other.close()
 
 
+def held_card_messages(page):
+    """Each reason a download stopped is said plainly, with what to do; Go waits out a wait the site asked for."""
+    card = lambda account, status=None: page.evaluate("""([account, status]) => {
+        const saved = [state.account, state.status, state.accountReceivedAt, state.lastAccountRefreshAt];
+        state.account = {...state.account, ...account}; state.status = {...state.status, ...(status || {})};
+        state.accountReceivedAt = state.lastAccountRefreshAt = Date.now(); renderAccount();
+        const read = id => $(id).textContent, result = {status:read('account-status'), title:read('account-save-title'),
+            pill:read('dashboard-state'), detail:read('account-detail'), activity:read('account-activity'),
+            worker:read('dashboard-worker'), go:$('account-go').disabled, settings:!$('account-settings-link').hidden};
+        [state.account, state.status, state.accountReceivedAt, state.lastAccountRefreshAt] = saved; renderAccount(); return result;}""", [account, status])
+    held = lambda code, **extra: card({'status':'held', 'code':code, **extra})
+    value = held('source_refused', go_after_seconds=600)
+    assert 'Tapas asked the app to slow down' in value['status'] and 'Go works again in about 10 minutes' in value['status'], value
+    assert value['go'] and value['settings'], value
+    for code in ('source_refused', 'source_recovery_limit'):
+        value = held(code)
+        assert 'choose a slower speed in Settings' in value['status'] and not value['go'] and value['settings'], value
+    for code, text in (('no_progress', 'the last few tries saved nothing new'), ('scan_no_progress', 'saved nothing new'),
+                       ('network_recovery_limit', 'Tapas could not be reached several times'),
+                       ('source_access_changed', 'still would not send an episode'),
+                       ('cancelled', 'Paused. Hit Go to continue'),
+                       ('window_changed', 'the download stopped unexpectedly'), ('controller_failed', 'stopped unexpectedly')):
+        value = held(code)
+        assert text in value['status'] and not value['go'] and not value['settings'], (code, value)
+        assert value['pill'] == 'Paused', value
+    value = held('archive_incomplete', audit={'missing_recorded_accessible_episode_count':3})
+    assert value['status'].startswith('Finished, but 3 episodes could not be saved.'), value
+    assert (value['title'], value['pill']) == ('Finished, with episodes missing', 'Finished'), value
+    assert 'rough guess' not in value['status']
+    value = held('archive_incomplete', audit={'missing_recorded_accessible_episode_count':1})
+    assert value['status'].startswith('Finished, but 1 episode could not be saved.'), value
+    assert held('archive_incomplete')['status'].startswith('Finished, but some saved files need another check.')
+    value = card({'status':'stopped', 'code':None, 'go_after_seconds':40})
+    assert 'Go works again in a few seconds' in value['status'] and value['go'], value
+    assert card({'status':'stopped', 'code':None, 'go_after_seconds':0})['go'] is False
+    value = card({'status':'finished', 'code':None}, {'episodes_by_status':{'archived':0}})
+    assert 'No episodes your Tapas account can save were found' in value['status'], value
+    value = card({'status':'finished', 'code':None}, {'episodes_by_status':{'archived':12}})
+    assert value['status'].startswith('Finished. Every episode your account can read is saved.'), value
+    # A running step, said plainly; the waits the download sets itself are not stalls.
+    running = {'status':'running', 'code':None, 'phase':'archive'}
+    value = card(running, {'progress':{'status':'running', 'phase':'archive', 'completed':2, 'downloaded_pages':31, 'downloaded_chapters':1}})
+    assert value['detail'].endswith('2 saved in this step · 30 images · 1 novel chapter.'), value
+    value = card(running, {'progress':{'status':'running', 'phase':'scan', 'series_checks_completed':4, 'series_check_target_count':10}})
+    assert value['detail'].endswith('Checked 4 of 10 series in this step.'), value
+    value = card(running, {'progress':{'status':'running', 'phase':'archive', 'completed':1, 'downloaded_pages':1, 'downloaded_chapters':0}})
+    assert value['detail'].endswith('1 saved in this step · 1 image.'), value
+    assert 'cooldown' not in card(running, {'progress':{'status':'running', 'phase':'metadata'}, 'source_recovery':{'automatic':True}})['detail']
+    value = card(running | {'retry':{'reason':'images', 'seconds':240}})
+    assert value['activity'] == 'Some images did not arrive. The download tries them again by itself in about 4 minutes.', value
+    # Before the first sign-in the stopped downloader is not a fault.
+    value = card({'status':None, 'code':None}, {'session_configured':False, 'worker':{'reported_state':'stopped'}})
+    assert value['worker'] == 'Downloader · Starts after sign-in', value
+    value = card({'status':'held', 'code':'login_required'}, {'session_configured':True, 'worker':{'reported_state':'ready'}})
+    assert value['status'].startswith('Paused: Tapas signed you out.'), value
+    # A failure the hidden notice bar would have shown reaches the card and Settings, and clears after a while.
+    page.evaluate("notice('PLAIN FAILURE', true)")
+    for selector in ('#site-signin-status', '#settings-status'):
+        assert page.locator(selector).text_content() == 'PLAIN FAILURE'
+    page.evaluate("state.accountMessage.until = Date.now() - 1; poll()")
+    page.wait_for_function("document.getElementById('settings-status').textContent === ''")
+    expected = ('Saving runs only while this window is open.' if page.evaluate('ownWindow()') else 'You can close this page')
+    assert expected in page.locator('#dashboard-footnote').text_content()
+
+
 def simple_account_controls(page, registry, workspace, local, screenshot):
     """The default surface has one account action; old controls stay in the DOM."""
     from playwright.sync_api import expect
@@ -173,7 +238,7 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         page.evaluate('scrollTo(0,0)')
         expect(page.locator('#account-go')).to_be_enabled()
         expect(page.locator('#account-status')).to_contain_text('Ready. Hit Go')
-        expect(page.locator('#account-save-title')).to_have_text('Ready to archive')
+        expect(page.locator('#account-save-title')).to_have_text('Ready to save')
         expect(page.locator('#dashboard-state')).to_have_text('Ready')
         expect(page.locator('#dashboard-session')).to_have_text('Tapas · Session saved')
         expect(page.locator('#dashboard-worker')).to_have_text('Downloader · Ready')
@@ -241,7 +306,7 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         expect(page.locator('#account-list-help')).to_contain_text('several minutes')
         # How long is left: honest before a pace is known, then a rough length; nothing once nothing is waiting.
         known=registry.status(LOCAL_OWNER,workspace.id)
-        for estimate,text in (({'waiting_episodes':426,'unchecked_series':610,'seconds':None},'takes days or weeks'),
+        for estimate,text in (({'waiting_episodes':426,'unchecked_series':610,'seconds':None},'Working out how long this will take'),
                               ({'waiting_episodes':426,'unchecked_series':610,'seconds':1814400},
                                'About 3 weeks of downloading left at the pace of the last five minutes. 426 episodes are waiting and 610 series have not been checked yet, so this is a rough guess. It only continues while this app is open.'),
                               ({'waiting_episodes':1,'unchecked_series':0,'seconds':5400},'About 2 hours of downloading left at the pace of the last five minutes. 1 episode is waiting.')):
@@ -274,7 +339,7 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         quiet={key:value for key,value in registry.account_status(LOCAL_OWNER,workspace.id).items() if key!='progress_age_seconds'}
         for extra,text in (({'retry':{'reason':'connection','seconds':70}},'The connection to Tapas was interrupted. The download tries again by itself in about a minute.'),
                            ({'retry':{'reason':'source','seconds':600}},'Tapas asked the app to wait. The download continues by itself in about 10 minutes.'),
-                           ({'between_steps_seconds':4},'archiver is connected')):
+                           ({'between_steps_seconds':4},'Working.')):
             with patch.object(registry,'account_status',return_value=quiet|extra):
                 page.evaluate('poll()')
                 expect(page.locator('#account-activity')).to_contain_text(text)
@@ -288,19 +353,19 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
             'reading_list_page_count':4,'observed_library_series_count':160})
         page.evaluate('poll()')
         expect(page.locator('#account-list-count')).to_contain_text('4 pages read · 160 series listed')
-        expect(page.locator('#account-activity')).to_contain_text('archiver is connected')
+        expect(page.locator('#account-activity')).to_contain_text('Working.')
         route_pattern='**/api/v1/workspaces/'+workspace.id+'/account'
         def unavailable(route):
             route.fulfill(status=503,content_type='application/json',body='{"code":"request_unavailable"}')
         page.route(route_pattern,unavailable)
         page.evaluate('poll()')
-        expect(page.locator('#account-activity')).to_contain_text('current activity is unknown')
+        expect(page.locator('#account-activity')).to_contain_text('what it is doing right now is unknown')
         expect(page.locator('#dashboard-state')).to_have_text('Reconnecting')
         expect(page.locator('#dashboard-worker')).to_have_text('Downloader · Status unknown')
         expect(page.locator('#account-list-count')).to_contain_text('4 pages read')
         page.unroute(route_pattern,unavailable)
         page.evaluate('poll()')
-        expect(page.locator('#account-activity')).to_contain_text('archiver is connected')
+        expect(page.locator('#account-activity')).to_contain_text('Working.')
         assert 'PRIVATE_COOKIE' not in page.locator('#account-download').inner_text()
         page.reload()
         expect(page.locator('#account-status')).to_contain_text('Finding series')
@@ -333,6 +398,7 @@ def simple_account_controls(page, registry, workspace, local, screenshot):
         page.evaluate('poll()')
         expect(page.locator('#account-status')).to_contain_text('Tapas could not be reached')
         expect(page.locator('#account-status')).not_to_contain_text('disk space')
+        held_card_messages(page)
         value.update(code='login_required')
         private_json(checkpoint,value)
         page.evaluate('poll()')
@@ -599,6 +665,13 @@ def own_window_controls(context, site, registry, workspace):
                     wait_for_ui_idle(page)
                     expect(page.locator('#site')).to_be_enabled()
                 page.evaluate('window.notReloaded = true')
+                # Switching asks first, and says the open site's episodes stay; saying no keeps that site.
+                asked=[]
+                page.once('dialog', lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+                page.locator('#site').select_option('example')
+                expect(page.locator('#site')).to_have_value('tapas')
+                assert asked == ['Switch to Example? Your Tapas episodes stay saved, and you can switch back any time.'], asked
+                page.once('dialog', lambda dialog: dialog.accept())
                 with page.expect_response(lambda response: response.url.endswith('/api/v1/site')) as sent:
                     page.locator('#site').select_option('example')
                 assert sent.value.status == 200 and registry.site_choice.take() == example
@@ -642,8 +715,9 @@ def mobile_data_controls(page, registry, workspace):
             page.evaluate('network(false)')
             expect(page.locator('#account-network-help')).to_contain_text(reason)
             expect(page.locator('#account-mobile-data')).not_to_be_checked()
-            assert 'allow mobile data in Settings, then hit Go' in held_message()
-            assert settings_link()
+            assert 'press Allow this connection, then hit Go' in held_message()
+            # The way out is beside the message, not in Settings.
+            assert not settings_link()
     expect(page.locator('#account-settings-link a')).to_have_attribute('href', '#settings/downloads')
     with patch('comic_archive.network.probe', return_value={'connection':'cellular', 'metered':True}):
         page.evaluate('network(false)')
@@ -661,6 +735,21 @@ def mobile_data_controls(page, registry, workspace):
     assert not settings_link()
     page.locator('#settings-back').click()
     expect(page.locator('#account-download')).to_be_visible()
+    expect(page.locator('#account-allow-network')).to_be_hidden()
+    # On a connection that holds saving, Allow this connection is beside the message and lets it through.
+    with patch('comic_archive.network.probe', return_value={'connection':'unknown', 'metered':None}):
+        page.evaluate('network(false)')
+        expect(page.locator('#account-allow-network')).to_be_visible()
+        assert 'a VPN can cause this' in held_message()
+        with page.expect_response(lambda response: response.url.endswith('/network') and response.request.method == 'POST'):
+            page.locator('#account-allow-network').click()
+        expect(page.locator('#account-allow-network')).to_be_hidden()
+        assert wifi_only() is False
+        page.evaluate("api(base()+'/network', {wifi_only:true}).then(() => network(false))")
+        expect(page.locator('#account-allow-network')).to_be_visible()
+    page.evaluate('network(false)')
+    expect(page.locator('#account-allow-network')).to_be_hidden()
+    assert wifi_only() is True
 
 
 def b2_setup_controls(page, registry):

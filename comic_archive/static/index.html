@@ -27,13 +27,13 @@
       <div class="dashboard-card-heading"><p class="eyebrow">Current status</p><span id="dashboard-state" class="status-pill" data-tone="neutral">Loading</span></div>
       <p id="site-choice" class="site-choice" hidden><label for="site">Site</label> <select id="site"></select></p>
       <h2 id="account-save-title">Loading your status…</h2>
-      <div class="connection-badges" aria-label="Account and downloader status"><span id="dashboard-session" class="connection-badge">Tapas · Checking…</span><span id="dashboard-worker" class="connection-badge">Downloader · Checking…</span></div>
-      <p id="dashboard-intro" class="dashboard-intro">Sign in to Tapas, then hit Go to save the episodes your account can read.</p>
+      <div class="connection-badges" aria-label="Account and downloader status"><span id="dashboard-session" class="connection-badge">Account · Checking…</span><span id="dashboard-worker" class="connection-badge">Downloader · Checking…</span></div>
+      <p id="dashboard-intro" class="dashboard-intro">Sign in, then hit Go to save the episodes your account can read.</p>
       <p id="save-summary" hidden><span class="muted">Saving to</span> <strong id="save-summary-place"></strong> <a href="#settings/storage">Change in Settings</a></p>
       <p id="account-status" role="status" aria-live="polite">Connecting to your library…</p>
-      <div class="account-actions"><button id="site-signin" class="secondary" type="button" disabled>Sign in to Tapas</button><button id="account-go" type="button" disabled>Go</button><button id="account-pause" class="secondary" type="button" hidden disabled>Pause</button></div>
+      <div class="account-actions"><button id="site-signin" class="secondary" type="button" disabled>Sign in</button><button id="account-go" type="button" disabled>Go</button><button id="account-allow-network" class="secondary" type="button" hidden>Allow this connection</button><button id="account-pause" class="secondary" type="button" hidden disabled>Pause</button></div>
       <p id="account-settings-link" hidden><a href="#settings/downloads">Open download settings</a></p>
-      <p id="cloud-entry" class="account-storage muted" hidden>Keep episodes in your own cloud storage too: <a href="#settings/b2">set it up in Settings</a>.</p>
+      <p id="cloud-entry" class="account-storage muted" hidden>Optional: keep a copy in your own cloud storage. <a href="#settings/b2">Set it up in Settings</a>.</p>
       <p id="site-signin-status" role="status" aria-live="polite"></p>
       <div id="account-live-progress" hidden>
         <p id="account-list-count"></p>
@@ -45,7 +45,7 @@
       <p id="account-detail" class="muted"></p>
       <p id="account-estimate" class="muted" hidden></p>
       <p id="account-space" class="muted" hidden></p>
-      <p class="muted dashboard-footnote">Saved episodes stay safe. You can close this page and return later.</p>
+      <p id="dashboard-footnote" class="muted dashboard-footnote">Saved episodes stay safe. You can close this page and return later.</p>
     </section>
     <section id="library-overview" aria-labelledby="library-title">
       <div class="section-heading"><h2 id="library-title">Your saved library</h2></div>
@@ -62,10 +62,11 @@
       <div class="settings-layout">
       <nav class="settings-tabs" aria-label="Settings"><a id="settings-tab-downloads" href="#settings/downloads">Downloads</a><a id="settings-tab-storage" href="#settings/storage">Storage</a><a id="settings-tab-b2" href="#settings/b2">Backblaze B2</a></nav>
       <div class="settings-panels">
+      <p id="settings-status" role="status" aria-live="polite"></p>
     <section id="downloads-settings" class="settings-panel" aria-labelledby="downloads-title">
       <h3 id="downloads-title">Downloads</h3>
       <div id="account-speed-row" class="setting" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select><p id="account-speed-help" class="muted"></p></div>
-      <div id="account-network" class="setting" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Allow mobile data</label><p id="account-network-help" class="muted"></p></div>
+      <div id="account-network" class="setting" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Also save on metered and mobile connections</label><p id="account-network-help" class="muted"></p></div>
     </section>
     <section id="storage-page" class="settings-panel" aria-labelledby="storage-page-title">
       <h3 id="storage-page-title">Where your episodes are kept</h3>
@@ -212,6 +213,6 @@
       </section>
     </div></details>
   </main>
-  <footer class="wrap">Only free and already unlocked episodes are saved. Account-list scans cannot establish a complete purchase history.</footer>
+  <footer class="wrap">Only episodes your account can already read, free or bought, are saved. Nothing is bought for you.</footer>
 </body>
 </html>

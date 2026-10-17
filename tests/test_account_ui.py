@@ -178,6 +178,11 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(result['audit'],{'verified_inventory_episode_count':7,'missing_recorded_accessible_episode_count':0})
         self.assertFalse(result['coverage_verified'])
 
+    def test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do(self):
+        for code in ('source_recovery_limit','network_recovery_limit','window_changed','accounting_changed','archive_incomplete'):
+            with patch.object(account_export,'status',return_value={'configured':True,'status':'held','code':code}):
+                self.assertEqual(account_ui.status(self.workspace)['code'],code)
+
     def test_list_progress_and_activity_come_from_existing_checkpoints_without_dispatch(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         checkpoint=self.queue/'account-export.json'
@@ -246,6 +251,8 @@ class AccountUITests(unittest.TestCase):
             self.assertNotIn('progress_age_seconds',result);self.assertNotIn('retry',result)
             for window,retry in (({'network_retry_after':at(79.5)},{'reason':'connection','seconds':60}),
                                  ({'network_retry_after':None,'source_recovery_wait':at(320)},{'reason':'source','seconds':300}),
+                                 # The wait before images that did not arrive are tried again is not a stall either.
+                                 ({'asset_retry_after':at(50)},{'reason':'images','seconds':30}),
                                  # A wait that is over, one that cannot be read, and no window at all.
                                  ({'network_retry_after':at(20)},None),({'network_retry_after':'PRIVATE'},None),
                                  ({'network_retry_after':7},None),(None,None)):
@@ -255,9 +262,14 @@ class AccountUITests(unittest.TestCase):
                 self.assertNotIn('retry',status())
             # A download the person paused is not about to try anything.
             self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-            with patch('comic_archive.account_ui.batches._load',return_value={'network_retry_after':at(79.5)}) as load:
+            with patch('comic_archive.account_ui.batches._load',return_value={'network_retry_after':at(79.5)}):
                 self.assertNotIn('retry',status())
-            load.assert_not_called()
+            # The wait the site asked for, which Go cannot cut short: the page says how long instead of Go failing.
+            for window,wait in (({'source_retry_after':at(619.5)},600),({'source_retry_after':at(20)},None),
+                                ({'source_retry_after':None},None),({'source_retry_after':'PRIVATE'},None),({},None)):
+                with patch('comic_archive.account_ui.batches._load',return_value=window):
+                    self.assertEqual(status().get('go_after_seconds'),wait,window)
+                    self.assertNotIn('retry',status())
 
     def test_activity_rejects_future_malformed_and_finished_progress(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)

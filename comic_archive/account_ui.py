@@ -179,7 +179,7 @@ def status(workspace, since=None):
     result = {'supported':True, 'configured':state.get('configured') is True,
               'coverage_verified':False, 'speed':speed(workspace)}
     for key, choices in [('status', account_export.STATES), ('phase', account_export.PHASES),
-                         ('code', batches.CODES | {'backlog_held', 'controller_failed',
+                         ('code', batches.CODES | completion.REASONS | {'backlog_held', 'controller_failed',
                            'archive_incomplete', 'list_checkpoint_incomplete', 'scan_no_progress', 'task_result_invalid'})]:
         if state.get(key) in choices:
             result[key] = state.get(key)
@@ -210,14 +210,21 @@ def status(workspace, since=None):
                     result[key] = int(now - changed)
     except (ArchiveError, OSError, TypeError, ValueError, AttributeError):
         pass
-    if result.get('status') == 'running':
-        # A wait the download has set itself before it tries again, so the page need not call it a stall.
+    if result.get('configured'):
         try:
             window = batches._load(batches._root(workspace.session, workspace.library, require_queue=False)) or {}
-            for key, reason in (('network_retry_after', 'connection'), ('source_recovery_wait', 'source')):
-                left = batches._instant(window[key]).timestamp() - now if window.get(key) else 0
+            if result.get('status') == 'running':
+                # A wait the download has set itself before it tries again, so the page need not call it a stall.
+                for key, reason in (('network_retry_after', 'connection'), ('source_recovery_wait', 'source'),
+                                    ('asset_retry_after', 'images')):
+                    left = batches._instant(window[key]).timestamp() - now if window.get(key) else 0
+                    if left > 0:
+                        result['retry'] = {'reason': reason, 'seconds': math.ceil(left)}
+            elif window.get('source_retry_after'):
+                # The site asked for a wait that Go cannot cut short: the page says how long, not that Go failed.
+                left = batches._instant(window['source_retry_after']).timestamp() - now
                 if left > 0:
-                    result['retry'] = {'reason': reason, 'seconds': math.ceil(left)}
+                    result['go_after_seconds'] = math.ceil(left)
         except (ArchiveError, OSError, TypeError, ValueError, AttributeError):
             pass
     # Raw audit/controller receipts can contain source identities and paths.
