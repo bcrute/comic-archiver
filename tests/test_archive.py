@@ -265,6 +265,12 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(ArchiveError):
                 image_extension(data)
 
+    def test_the_librarys_private_cache_folder_is_hidden_from_the_file_manager(self):
+        with patch('comic_archive.archive.hide') as hide:
+            store = Store(self.root / "Other")
+            store.close()
+        hide.assert_called_once_with((self.root / "Other").absolute() / ".archive-cache")
+
     def test_output_symlink_rejected(self):
         folder = self.store.root / "escape"
         folder.symlink_to(self.root, target_is_directory=True)

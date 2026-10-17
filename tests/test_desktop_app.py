@@ -214,11 +214,15 @@ class DesktopAppTests(unittest.TestCase):
                 self.assertEqual(self.box.question.call_count, asked)
             dialog.assert_called_with(shell.window, desktop_app.LOCATION_TITLE, str(self.home))
             first, second, third = (call.args for call in self.box.question.call_args_list)
-            self.assertEqual(third[2], desktop_app.LOCATION_CONFIRM.format(new=self.home / 'Photos/Comic Archiver/Library', old=root / 'Library'))
+            self.assertEqual(third[2], desktop_app.LOCATION_CONFIRM.format(new=self.home / 'Photos/Comic Archiver/Library', old=root / 'Library', root=root))
             self.assertEqual(first, (shell.window, 'Comic Archiver', desktop_app.LOCATION_CONFIRM.format(
-                new=self.home / 'Other/Library', old=root / 'Library'), 3, 1))
-            self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Library', old=root / 'Library'))
+                new=self.home / 'Other/Library', old=root / 'Library', root=root), 3, 1))
+            self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Library', old=root / 'Library', root=root))
             self.assertIn('Nothing is moved', first[2]); self.assertIn('already holds', second[2])
+            # A new folder starts empty: Go saves everything again there, unless the whole library folder is moved first.
+            self.assertIn('Go then saves everything again in the new folder, and your library page shows only what is there.', first[2])
+            self.assertIn(f'move the whole folder\n{root}\nto the new place', first[2])
+            self.assertIn('library page then shows only what is saved in this folder', second[2])
             move.assert_not_called()
             self.assertEqual(shell.phase, 'open')
             # Yes: the window waits on a plain notice and cannot be closed half-way.
@@ -940,7 +944,8 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(self.loads(shell.signin_view), [SIGNIN])
         self.assertEqual(self.loads(shell.view), [URL])
         self.assertEqual((shell.back.args, shell.retry.args, shell.where.args), (('Cancel sign-in',), ('Try again',), ('',)))
-        self.assertEqual(shell.hint.args, ('Sign in to Tapas below. Comic Archiver carries on by itself once you are signed in.',))
+        shell.hint.setText.assert_called_once_with(desktop_app.site_text(desktop_app.SIGNIN_HINT))
+        self.assertTrue(shell.hint.setText.call_args.args[0].startswith('Sign in to Tapas below. Comic Archiver carries on by itself once you are signed in.\n'))
         centred, bar = self.widgets.QHBoxLayout.made
         column, = self.widgets.QVBoxLayout.made
         # The same bar as the dashboard's header: the app's name on the left, what can be done on the right.
@@ -1456,12 +1461,66 @@ class DesktopAppTests(unittest.TestCase):
     def test_the_sign_in_texts_name_the_site_that_is_open(self):
         self.runtime.site = replace(sites.DEFAULT, key='example', name='Example', available=True)
         shell = self.signing_in()
-        self.assertIn('Example', shell.hint.args[0]); self.assertNotIn('Tapas', shell.hint.args[0])
+        hint = shell.hint.setText.call_args.args[0]
+        self.assertIn('Example', hint); self.assertNotIn('Tapas', hint)
         self.assertIn('Example', shell.signin_message.setText.call_args.args[0])
         self.runtime.busy.return_value = 'signin'
         self.box.question.return_value = self.box.StandardButton.No
         shell.window.closeEvent(Mock())
         self.assertIn('Signing in to Example', self.box.question.call_args.args[2])
+
+    def test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password(self):
+        shell = self.signing_in()
+        hint = shell.hint.setText.call_args.args[0]
+        self.assertIn('Sign in to Tapas below', hint)
+        # Google refuses a sign-in inside an app's window, and Facebook may: the site's own password always works.
+        self.assertIn('Use your email and password: Google and Facebook buttons may not work here.', hint)
+        self.assertIn('If you use one of those, set a password on Tapas first.', hint)
+        shell.signin_back()
+        # Switched to another site in the dashboard: the panel built for Tapas is used again, and says so.
+        self.runtime.site = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        self.request_signin(shell)
+        self.assertEqual(len(self.q.QtWebEngineCore.QWebEngineProfile.made), 2)
+        hint = shell.hint.setText.call_args.args[0]
+        self.assertIn('Sign in to Example below', hint); self.assertIn('set a password on Example first', hint)
+        self.assertNotIn('Tapas', hint)
+
+    def test_the_computer_stays_awake_only_while_a_download_runs_and_may_sleep_once_it_ends_or_the_window_closes(self):
+        with patch('comic_archive.desktop_app.osdep.keep_awake') as awake:
+            shell = self.opened()
+            shell.awake_clock.setInterval.assert_called_once_with(5000); shell.awake_clock.start.assert_called_once_with()
+            self.runtime.busy.return_value = 'download'
+            emit(shell.awake_clock.timeout)  # The dashboard is not open yet.
+            awake.assert_not_called(); self.runtime.busy.assert_not_called()
+            shell.load()
+            emit(shell.awake_clock.timeout); emit(shell.awake_clock.timeout)
+            self.assertEqual([call.args for call in awake.call_args_list], [(True,)])  # Asked once, not every time.
+            for busy in ('signin', None, None):  # Paused, finished or failed: nothing is being saved.
+                self.runtime.busy.return_value = busy
+                emit(shell.awake_clock.timeout)
+            self.assertEqual([call.args for call in awake.call_args_list], [(True,), (False,)])
+            self.runtime.busy.return_value = 'download'
+            emit(shell.awake_clock.timeout)
+            # Closing lets the computer sleep at once, while the download is still being stopped.
+            self.box.question.return_value = self.box.StandardButton.Yes
+            self.threads.Thread.alive = True
+            shell.window.closeEvent(Mock())
+            self.assertEqual([call.args for call in awake.call_args_list], [(True,), (False,), (True,), (False,)])
+            shell.awake_clock.stop.assert_called_once_with(); shell.app.quit.assert_not_called()
+            self.threads.Thread.alive = False
+            emit(self.core.QTimer.made[-1].timeout)
+            shell.app.quit.assert_called_once_with()
+            self.assertEqual(awake.call_count, 4)
+            # Whatever ends the window lets the computer sleep again.
+            other = self.opened(); other.load()
+            emit(other.awake_clock.timeout)
+            other.quit()
+            self.assertEqual([call.args for call in awake.call_args_list[4:]], [(True,), (False,)])
+
+    def test_a_slow_first_start_says_that_it_can_take_a_minute(self):
+        self.assertEqual(desktop_app.STARTING, 'Starting Comic Archiver…\n\nThe first start can take up to a minute.')
+        self.assertIn('already open or still starting. The first start can take up to a minute; its window then appears by itself.',
+                      desktop_app.ALREADY_RUNNING)
 
     def test_closing_during_a_window_sign_in_cancels_it_and_hands_nothing_to_the_downloader(self):
         shell = self.signing_in()
