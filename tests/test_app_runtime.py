@@ -248,6 +248,62 @@ class AppRuntimeTests(unittest.TestCase):
                              (app_runtime.UNWRITABLE, sites.DEFAULT, drive, False, stops))
             self.assertEqual(self.fetch(moved.url)[0], 200)
 
+    def test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened(self):
+        from comic_archive import shared
+        example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        store = self.root / '.comic-shared'
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)), patch('comic_archive.osdep.hide') as hide:
+            self.runtime.start()
+            settings = self.runtime.server.get_app().registry.site_settings
+            self.assertEqual((settings.root, settings.site), (self.root, sites.DEFAULT))
+            self.assertIsNone(self.runtime.change_site(example))
+            self.assertEqual(self.runtime.server.get_app().registry.site_settings.site, example)
+        self.assertEqual([shared.folder(place / 'Library') for place in (self.root, self.root / 'Example')], [store, store])
+        self.assertIn(store, {call.args[0] for call in hide.call_args_list})
+        self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
+
+    def test_a_library_that_cannot_be_linked_still_opens_with_its_own_settings_and_the_log_names_no_private_text(self):
+        for error in (ArchiveError('PRIVATE /home/someone'), PermissionError('PRIVATE /home/someone')):
+            with self.subTest(error=type(error).__name__):
+                runtime = app_runtime.Runtime(self.root); self.addCleanup(runtime.stop, 0)
+                with patch('comic_archive.shared.link', side_effect=error), self.assertLogs('comic_archive.desktop', 'WARNING') as logged:
+                    runtime.start()
+                self.assertEqual(self.fetch(runtime.url)[0], 200)
+                self.assertNotIn('PRIVATE', '\n'.join(logged.output))
+                runtime.stop(0)
+
+    def test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others(self):
+        example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        later = replace(sites.DEFAULT, key='later', name='Later', available=False)
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, later)):
+            settings = app_runtime.SiteSettings(self.root, example)
+            self.assertEqual(settings.list(), [])
+            self.sign_in()
+            for name in ('Example', 'Later'):
+                session = self.root / name / '.comic-session'; session.mkdir(parents=True)
+                (session / 'state.json').write_text('{}')
+            (self.root / 'Example/.comic-session/download-speed').write_text('slow\n')
+            self.assertEqual(settings.list(), [{'key': 'example', 'name': 'Example', 'current': True, 'speed': 'slow'},
+                                               {'key': 'tapas', 'name': 'Tapas', 'current': False, 'speed': 'fast'}])
+            self.assertEqual(settings.choose_speed('tapas', 'medium')[1]['speed'], 'medium')
+            self.assertEqual((self.root / '.comic-session/download-speed').read_text(), 'medium\n')
+            # The open site's speed goes through its account; a site that cannot be chosen, or a speed that is not one, never.
+            for key, speed in (('example', 'fast'), ('later', 'fast'), ('nowhere', 'fast'), ('tapas', 'warp')):
+                with self.assertRaises(ArchiveError):
+                    settings.choose_speed(key, speed)
+            self.assertEqual((self.root / '.comic-session/download-speed').read_text(), 'medium\n')
+            # A site without a sign-in has no settings to show or change.
+            (self.root / '.comic-session/state.json').unlink()
+            with self.assertRaises(ArchiveError):
+                settings.choose_speed('tapas', 'slow')
+            self.assertEqual([item['key'] for item in settings.list()], ['example'])
+            # A folder that cannot be looked at is left out.
+            (self.root / 'Example').rename(self.root / 'Example-real'); (self.root / 'Example').symlink_to(self.root / 'Example-real')
+            self.assertEqual(settings.list(), [])
+            (self.root / 'Example').unlink(); (self.root / 'Example-real').rename(self.root / 'Example')
+            with patch.object(Path, 'is_file', side_effect=PermissionError('PRIVATE')):
+                self.assertEqual(settings.list(), [])
+
     def test_a_switch_settles_only_the_latest_request(self):
         choice, example = app_runtime.SiteChoice(), replace(sites.DEFAULT, key='example')
         self.assertFalse(choice.waiting())

@@ -148,6 +148,7 @@ class HostedApplication:
                          'simple_mode':self.registry.simple_mode,
                          'theme':self.registry.theme.get() if self.registry.theme else None,
                          'sites':self.registry.sites,
+                         'site_settings':self.registry.site_settings.list() if self.registry.site_settings else None,
                          'site_switching':self.registry.site_choice.waiting() if self.registry.site_choice else False,
                          'library_folder':self.registry.location.get() if self.registry.location else None,
                          'workspace_ids':self.registry.ids(owner),'max_workspaces':self.max_workspaces,
@@ -167,6 +168,12 @@ class HostedApplication:
                 # The app's own window switches; it asks first if a download or sign-in would be cut short.
                 self.registry.site_choice.ask(site)
                 value = {'site':site.key}
+            elif path == '/api/v1/site-speed' and method == 'POST' and self.registry.site_settings:
+                options = self._mutation(environ,owner)
+                if set(options) != {'site','speed'} or not all(isinstance(options[k],str) for k in options):
+                    raise HTTPError('400 Bad Request','unknown_options')
+                # Another site's speed; the open site's goes through its account, which may be downloading.
+                value = {'site_settings':self.registry.site_settings.choose_speed(options['site'],options['speed'])}
             elif path == '/api/v1/theme' and method == 'POST' and self.registry.theme:
                 options = self._mutation(environ,owner)
                 if set(options) != {'theme'} or options['theme'] not in THEMES:
@@ -259,6 +266,11 @@ class HostedApplication:
                             value = self.registry.start_cloud_signin(owner, workspace_id, body['provider'], credentials)
                     else:
                         raise HTTPError('405 Method Not Allowed', 'method_not_allowed')
+                elif action == 'cloud' and key == 'storage' and method == 'POST':
+                    body = self._mutation(environ, owner)
+                    if set(body) != {'storage'} or body['storage'] not in ('shared', 'separate'):
+                        raise HTTPError('400 Bad Request', 'unknown_options')
+                    value = self.registry.choose_cloud_storage(owner, workspace_id, body['storage'])
                 elif action == 'cloud' and key == 'upload' and method == 'POST':
                     if self._mutation(environ,owner):
                         raise HTTPError('400 Bad Request','unknown_options')

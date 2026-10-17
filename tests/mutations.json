@@ -2894,5 +2894,277 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "shared-link-mode-unchecked",
+  "source": "comic_archive/shared.py",
+  "old": "\n                or value['cloud'] not in MODES):",
+  "new": "):",
+  "test_file": "test_shared.py",
+  "test": "test_unreadable_or_symlinked_shared_settings_are_refused_and_nothing_is_guessed"
+ },
+ {
+  "id": "shared-separate-uses-shared-cloud",
+  "source": "comic_archive/shared.py",
+  "old": "if value and value['cloud'] == 'shared' else None",
+  "new": "if value else None",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_can_keep_its_own_backblaze_setup_and_go_back_to_the_shared_one_with_nothing_lost"
+ },
+ {
+  "id": "shared-moved-folder-not-followed",
+  "source": "comic_archive/shared.py",
+  "old": "if value['folder'] != str(shared):",
+  "new": "if False:",
+  "test_file": "test_shared.py",
+  "test": "test_a_library_folder_moved_by_hand_uses_the_shared_settings_beside_it_now"
+ },
+ {
+  "id": "shared-any-mode-accepted",
+  "source": "comic_archive/shared.py",
+  "old": "    if mode not in MODES:\n",
+  "new": "    if False:\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_can_keep_its_own_backblaze_setup_and_go_back_to_the_shared_one_with_nothing_lost"
+ },
+ {
+  "id": "shared-own-setup-overwritten",
+  "source": "comic_archive/shared.py",
+  "old": "'folder': str(shared), 'cloud': mode})",
+  "new": "'folder': str(shared), 'cloud': 'shared'})",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_with_its_own_setup_keeps_it_when_the_shared_one_is_another"
+ },
+ {
+  "id": "shared-connection-rule-not-brought",
+  "source": "comic_archive/shared.py",
+  "old": "        network.join(library, shared)\n",
+  "new": "",
+  "test_file": "test_shared.py",
+  "test": "test_the_connection_rule_is_one_for_every_site_and_a_site_brings_its_own_choice_when_first_linked"
+ },
+ {
+  "id": "cloud-shared-targets-ignored",
+  "source": "comic_archive/cloud.py",
+  "old": "    return own | {'targets': _shared(store)}",
+  "new": "    return own",
+  "test_file": "test_shared.py",
+  "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"
+ },
+ {
+  "id": "cloud-lost-record-not-renamed",
+  "source": "comic_archive/cloud.py",
+  "old": "    if not path.exists():\n        _write(path, value | {'targets': {}})\n",
+  "new": "",
+  "test_file": "test_shared.py",
+  "test": "test_a_linked_library_that_lost_its_cloud_record_gets_a_new_name_when_set_up_again"
+ },
+ {
+  "id": "cloud-shared-change-kept-in-library",
+  "source": "comic_archive/cloud.py",
+  "old": "        _write(store / 'targets.json', {'schema_version': 1, 'targets': value['targets']})",
+  "new": "        _write(path, value)",
+  "test_file": "test_shared.py",
+  "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"
+ },
+ {
+  "id": "cloud-sign-in-file-in-library",
+  "source": "comic_archive/cloud.py",
+  "old": "    return cloud_folder(root) or safe_root(root) / '.archive-state/cloud'",
+  "new": "    return safe_root(root) / '.archive-state/cloud'",
+  "test_file": "test_shared.py",
+  "test": "test_a_new_sign_in_keeps_its_connection_file_with_the_shared_settings_unless_the_library_keeps_its_own"
+ },
+ {
+  "id": "cloud-join-cut-short-kept-separate",
+  "source": "comic_archive/cloud.py",
+  "old": "    if shared and ({n: t['target_id'] for n, t in shared.items()} != {n: t['target_id'] for n, t in own['targets'].items()}):",
+  "new": "    if shared:",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_cut_short_finishes_with_the_connections_it_had_already_moved"
+ },
+ {
+  "id": "cloud-join-other-setup-replaced",
+  "source": "comic_archive/cloud.py",
+  "old": "        return 'separate'\n    folder = directory(store)",
+  "new": "        return 'shared'\n    folder = directory(store)",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_with_its_own_setup_keeps_it_when_the_shared_one_is_another"
+ },
+ {
+  "id": "cloud-join-cut-short-copies-again",
+  "source": "comic_archive/cloud.py",
+  "old": "        if name in shared:\n",
+  "new": "        if False:\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_cut_short_finishes_with_the_connections_it_had_already_moved"
+ },
+ {
+  "id": "cloud-join-moves-named-file",
+  "source": "comic_archive/cloud.py",
+  "old": "        elif config.parent == root / '.archive-state/cloud':",
+  "new": "        elif True:",
+  "test_file": "test_shared.py",
+  "test": "test_a_connection_file_named_on_the_command_line_stays_where_it_is"
+ },
+ {
+  "id": "cloud-join-deletes-waiting-file",
+  "source": "comic_archive/cloud.py",
+  "old": "        if str(config) not in waiting:",
+  "new": "        if True:",
+  "test_file": "test_shared.py",
+  "test": "test_a_test_still_to_be_cleaned_up_keeps_the_connection_file_it_names"
+ },
+ {
+  "id": "cloud-join-cleaned-test-keeps-file",
+  "source": "comic_archive/cloud.py",
+  "old": "        if record.get('state') != 'cleaned' and isinstance(record.get('connection'), dict):",
+  "new": "        if isinstance(record.get('connection'), dict):",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_set_up_before_sharing_gives_its_setup_to_every_site_and_its_uploads_stay_done"
+ },
+ {
+  "id": "cloud-join-library-keeps-connections",
+  "source": "comic_archive/cloud.py",
+  "old": "    _write(path, own | {'targets': {}})\n",
+  "new": "",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_set_up_before_sharing_gives_its_setup_to_every_site_and_its_uploads_stay_done"
+ },
+ {
+  "id": "cloud-join-no-name-in-cloud",
+  "source": "comic_archive/cloud.py",
+  "old": "        _write(path, {'schema_version': 1, 'library_id': str(uuid.uuid4()), 'targets': {}})\n",
+  "new": "",
+  "test_file": "test_shared.py",
+  "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"
+ },
+ {
+  "id": "cloud-status-storage-unsaid",
+  "source": "comic_archive/cloud.py",
+  "old": "            'storage':cloud_mode(root),",
+  "new": "            'storage':None,",
+  "test_file": "test_shared.py",
+  "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"
+ },
+ {
+  "id": "network-rule-per-site",
+  "source": "comic_archive/network.py",
+  "old": "    return shared / 'network-policy.json' if shared else",
+  "new": "    return",
+  "test_file": "test_shared.py",
+  "test": "test_the_connection_rule_is_one_for_every_site_and_a_site_brings_its_own_choice_when_first_linked"
+ },
+ {
+  "id": "network-join-replaces-rule",
+  "source": "comic_archive/network.py",
+  "old": "    if own.is_file() and not path.exists():",
+  "new": "    if own.is_file():",
+  "test_file": "test_shared.py",
+  "test": "test_the_connection_rule_is_one_for_every_site_and_a_site_brings_its_own_choice_when_first_linked"
+ },
+ {
+  "id": "runtime-site-not-linked",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            share(place, private_folder(root, 'shared'))\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened"
+ },
+ {
+  "id": "runtime-link-os-error-stops-app",
+  "source": "comic_archive/app_runtime.py",
+  "old": "    except (ArchiveError, OSError) as error:\n        LOG.warning('the shared settings",
+  "new": "    except ArchiveError as error:\n        LOG.warning('the shared settings",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_that_cannot_be_linked_still_opens_with_its_own_settings_and_the_log_names_no_private_text"
+ },
+ {
+  "id": "site-settings-open-site-not-first",
+  "source": "comic_archive/app_runtime.py",
+  "old": "sorted((s for s in sites.SITES if s.available), key=lambda s: s.key != self.site.key)",
+  "new": "(s for s in sites.SITES if s.available)",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-unavailable-listed",
+  "source": "comic_archive/app_runtime.py",
+  "old": "(s for s in sites.SITES if s.available)",
+  "new": "(s for s in sites.SITES)",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-open-site-changed",
+  "source": "comic_archive/app_runtime.py",
+  "old": "if site is None or site.key == self.site.key or not",
+  "new": "if site is None or not",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-without-sign-in-changed",
+  "source": "comic_archive/app_runtime.py",
+  "old": " or not (self._session(site) / 'state.json').is_file():",
+  "new": ":",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-symlink-breaks-list",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            except (ArchiveError, OSError):\n                pass  # A folder",
+  "new": "            except OSError:\n                pass  # A folder",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-speed-any-value-type",
+  "source": "comic_archive/web.py",
+  "old": " or not all(isinstance(options[k],str) for k in options):",
+  "new": ":",
+  "test_file": "test_local_web.py",
+  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
+ },
+ {
+  "id": "site-speed-route-in-browser-tab",
+  "source": "comic_archive/web.py",
+  "old": "elif path == '/api/v1/site-speed' and method == 'POST' and self.registry.site_settings:",
+  "new": "elif path == '/api/v1/site-speed' and method == 'POST':",
+  "test_file": "test_local_web.py",
+  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
+ },
+ {
+  "id": "context-site-settings-missing",
+  "source": "comic_archive/web.py",
+  "old": "'site_settings':self.registry.site_settings.list() if self.registry.site_settings else None,",
+  "new": "'site_settings':None,",
+  "test_file": "test_local_web.py",
+  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
+ },
+ {
+  "id": "hosted-chooses-shared-storage",
+  "source": "comic_archive/hosted.py",
+  "old": "        if self.interface_mode != 'local':\n            raise ArchiveError('Cloud uploads run on the user device through the local archiver.')\n        from .shared import choose_cloud\n",
+  "new": "        from .shared import choose_cloud\n",
+  "test_file": "test_web.py",
+  "test": "test_storage_and_cloud_routes_reject_cross_owner_credentials_and_hosted_uploads"
+ },
+ {
+  "id": "b2-sign-in-file-beside-library",
+  "source": "comic_archive/cloud_auth.py",
+  "old": "folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)",
+  "new": "folder = directory(root / '.archive-state/cloud'); folder.chmod(0o700)",
+  "test_file": "test_cloud_auth.py",
+  "test": "test_a_backblaze_sign_in_for_a_site_that_shares_its_storage_keeps_the_connection_with_the_shared_settings"
+ },
+ {
+  "id": "cloud-join-empty-record-kept-separate",
+  "source": "comic_archive/cloud.py",
+  "old": "    if not own['targets']:\n        return 'shared'\n",
+  "new": "",
+  "test_file": "test_shared.py",
+  "test": "test_a_site_opened_before_but_never_set_up_uses_the_shared_setup_and_keeps_its_folder_name"
  }
 ]

@@ -60,8 +60,8 @@ def _write(path, value):
     _directory_sync(path.parent)
 
 
-def settings(root):
-    root = safe_root(root)
+def _own(root):
+    """The library's own cloud record: its name in the cloud, and the connections it keeps itself."""
     path = root / '.archive-state/cloud/targets.json'
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ArchiveError('Cloud settings must not be symlinked.')
@@ -69,17 +69,110 @@ def settings(root):
         return None
     value = _json(path)
     if (set(value) != {'schema_version', 'library_id', 'targets'} or type(value['schema_version']) is not int or value['schema_version'] != 1
-            or not valid_export_id(value['library_id']) or not isinstance(value['targets'], dict)
-            or set(value['targets']) - set(PROVIDERS)):
+            or not valid_export_id(value['library_id'])):
         raise ArchiveError('Cloud settings are invalid; local episodes are retained.')
-    for target in value['targets'].values():
+    _check_targets(value['targets'])
+    return value
+
+
+def _check_targets(targets):
+    if not isinstance(targets, dict) or set(targets) - set(PROVIDERS):
+        raise ArchiveError('Cloud settings are invalid; local episodes are retained.')
+    for target in targets.values():
         if (not isinstance(target, dict) or set(target) != {'remote','config','enabled','tested','target_id'}
                 or not isinstance(target['remote'], str) or not REMOTE.fullmatch(target['remote'])
                 or not isinstance(target['config'], str) or not Path(target['config']).is_absolute()
                 or type(target['enabled']) is not bool or type(target['tested']) is not bool
                 or not valid_export_id(target['target_id'])):
             raise ArchiveError('Cloud target is invalid; local episodes are retained.')
-    return value
+
+
+def _shared(store):
+    """The connections every site in the library folder shares, kept in its shared settings folder."""
+    path = store / 'targets.json'
+    if not path.exists() and not path.is_symlink():
+        return {}
+    value = _json(path)
+    if set(value) != {'schema_version', 'targets'} or type(value['schema_version']) is not int or value['schema_version'] != 1:
+        raise ArchiveError('Cloud settings are invalid; local episodes are retained.')
+    _check_targets(value['targets'])
+    return value['targets']
+
+
+def settings(root):
+    """The library's name in the cloud and the connections it uses: the shared ones, unless it keeps its own."""
+    from .shared import cloud_folder
+    root = safe_root(root)
+    own, store = _own(root), cloud_folder(root)
+    if store is None or own is None:
+        return own
+    return own | {'targets': _shared(store)}
+
+
+def _save(root, value):
+    """Keep changed connections where settings reads them from."""
+    from .shared import cloud_folder
+    path, store = root / '.archive-state/cloud/targets.json', cloud_folder(root)
+    if store is None:
+        _write(path, value)
+        return
+    if not path.exists():
+        _write(path, value | {'targets': {}})
+    with LibraryLock(store.parent):
+        _write(store / 'targets.json', {'schema_version': 1, 'targets': value['targets']})
+
+
+def connection_folder(root):
+    """Where a new sign-in's private connection file goes: beside the connections it will be one of."""
+    from .shared import cloud_folder
+    return cloud_folder(root) or safe_root(root) / '.archive-state/cloud'
+
+
+def join(root, store):
+    """Bring a library's connections into the shared ones as it is first linked; 'shared', or 'separate' to keep its own.
+
+    Run by shared.link with both folders locked. A library that set up cloud storage before it was linked
+    gives its connections to the shared settings if they have none; if they already have others, it keeps
+    its own, so neither set is lost. The private connection files move with them.
+    """
+    root = safe_root(root)
+    own, shared = _own(root), _shared(store)
+    path = root / '.archive-state/cloud/targets.json'
+    if own is None:
+        _write(path, {'schema_version': 1, 'library_id': str(uuid.uuid4()), 'targets': {}})
+        return 'shared'
+    if not own['targets']:
+        return 'shared'
+    if shared and ({n: t['target_id'] for n, t in shared.items()} != {n: t['target_id'] for n, t in own['targets'].items()}):
+        return 'separate'
+    folder = directory(store); folder.chmod(0o700)
+    moved, left = {}, []
+    for name, target in own['targets'].items():
+        config = Path(target['config'])
+        if name in shared:
+            # An earlier link moved these and stopped before it finished; what it wrote is used.
+            moved[name] = shared[name]
+        elif config.parent == root / '.archive-state/cloud':
+            destination = folder / ('connection-' + uuid.uuid4().hex + '.conf')
+            shutil.copyfile(_config(config), destination)
+            destination.chmod(0o600)
+            moved[name] = target | {'config': str(destination)}
+        else:
+            moved[name] = target  # A connection file the person named on the command line stays where it is.
+        if moved[name]['config'] != str(config):
+            left.append(config)
+    _write(store / 'targets.json', {'schema_version': 1, 'targets': moved})
+    _write(path, own | {'targets': {}})
+    # A test still waiting to be cleaned up names its connection file, so that file stays until it is.
+    waiting = set()
+    for receipt in (root / '.archive-state/cloud/tests').glob('*.json'):
+        record = _json(receipt)
+        if record.get('state') != 'cleaned' and isinstance(record.get('connection'), dict):
+            waiting.add(record['connection'].get('config'))
+    for config in left:
+        if str(config) not in waiting:
+            config.unlink(missing_ok=True)
+    return 'shared'
 
 
 def _environment():
@@ -289,7 +382,7 @@ def configure_target(root, provider, *, remote=None, config=None):
                     record['connection'] = _test_connection(previous)
                     _write(receipt, record)
         value['targets'][provider] = target
-        _write(root / '.archive-state/cloud/targets.json', value)
+        _save(root, value)
     return status(root)
 
 
@@ -359,7 +452,7 @@ def enable(root, provider, enabled):
         if enabled and not target['tested']:
             raise ArchiveError('Run the small cloud test and cleanup before enabling automatic uploads.')
         target['enabled'] = enabled
-        _write(root / '.archive-state/cloud/targets.json', value)
+        _save(root, value)
     return status(root)
 
 
@@ -407,7 +500,10 @@ def status(root):
             code = code if isinstance(code, str) and code in MESSAGES else None
             cleanup.append({'test_id':path.stem, 'provider':record['provider'],
                             **({'error_code':code} if code else {})})
+    from .shared import cloud_mode
     return {'targets':targets, 'pending_test_cleanup':cleanup, 'delete_local_after_upload':True,
+            # 'shared': every site uses the library folder's cloud storage; 'separate': this site has its own.
+            'storage':cloud_mode(root),
             'cloud_availability_checked':False}
 
 
@@ -779,7 +875,7 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
             # Only exact files journaled under this fresh test UUID are deleted.
             cleanup_test(root, run_id, transfer=transfer)
         value['targets'][provider]['tested'] = True
-        _write(root / '.archive-state/cloud/targets.json', value)
+        _save(root, value)
         result = {'provider':provider, 'verified_episodes':record['verified_episodes'],
                 'test_files_deleted':True, 'local_archives_retained':True, 'test_id':run_id}
         if stream:

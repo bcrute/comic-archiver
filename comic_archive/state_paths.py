@@ -10,7 +10,7 @@ SESSION_NAME = '.comic-session'
 
 
 def private_path(root, kind):
-    if kind not in {'session', 'web', 'hosted', 'automation'}:
+    if kind not in {'session', 'web', 'hosted', 'automation', 'shared'}:
         raise ArchiveError('Unknown private app storage.')
     return safe_root(Path(root) / ('.comic-' + kind))
 

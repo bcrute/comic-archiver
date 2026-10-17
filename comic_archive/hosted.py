@@ -80,6 +80,7 @@ class WorkspaceRegistry:
     theme = None  # The desktop app's light/dark choice; a hosted site follows each visitor's own browser.
     sites = None  # The desktop app's list of sites; a hosted site has none.
     site_choice = None  # The site the dashboard has asked the desktop app's window to switch to.
+    site_settings = None  # The desktop app's settings of each site it is signed in to.
 
     def __init__(self,root,limits=None):
         self.limits=HostedJobLimits() if limits is None else limits
@@ -240,6 +241,14 @@ class WorkspaceRegistry:
             raise ArchiveError('Cloud uploads run on the user device through the local archiver.')
         from .cloud import enable
         return enable(workspace.library,provider,enabled)
+
+    def choose_cloud_storage(self, owner, workspace_id, mode):
+        workspace = self.resolve(owner,workspace_id)
+        if self.interface_mode != 'local':
+            raise ArchiveError('Cloud uploads run on the user device through the local archiver.')
+        from .shared import choose_cloud
+        choose_cloud(workspace.library, mode)
+        return self.cloud_status(owner, workspace_id)
 
     def upload_cloud(self, owner, workspace_id):
         workspace = self.resolve(owner,workspace_id)
