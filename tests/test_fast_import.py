@@ -187,7 +187,7 @@ class FastWorkerPoolTests(unittest.TestCase):
     def setUp(self):
         self.work = tempfile.TemporaryDirectory()
         self.addCleanup(self.work.cleanup)
-        self.session = Path(self.work.name) / '.tapas-session'
+        self.session = Path(self.work.name) / '.comic-session'
         self.session.mkdir()
         self.state = self.session / 'state.json'
         self.state.write_text('{"fixture":1}')

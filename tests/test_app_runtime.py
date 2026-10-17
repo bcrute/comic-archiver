@@ -158,13 +158,6 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual((problem, fourth.root, (empty / '.comic-session/state.json').exists()), (None, empty, False))
         self.assertNotIn('PRIVATE', ''.join(logs.output))
 
-    def test_a_library_made_before_the_rename_keeps_its_sign_in_and_gets_no_second_private_folder(self):
-        old = self.root / '.tapas-session'; old.mkdir(parents=True)
-        (old / 'state.json').write_text('{}')
-        self.runtime.start(); self.runtime.start_worker()
-        self.assertEqual((self.runtime.session, (self.root / '.comic-session').exists()), (old, False))
-        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [old])
-
     def test_a_folder_that_cannot_be_used_leaves_the_app_on_the_old_one_with_the_reason(self):
         self.runtime.start()
         self.sign_in()
@@ -284,7 +277,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('id="account-download"', body)
         self.assertIn('comic_archive_local=', headers['Set-Cookie'])
-        signin = self.runtime.server.get_app().registry.tapas_signin
+        signin = self.runtime.server.get_app().registry.site_signin
         self.assertIsInstance(signin, WindowSignIn)  # No separate browser window: the app's own window signs in.
         self.assertIs(signin, self.runtime.signin)
         self.assertEqual((signin.browser, signin.workspace.session), (DESKTOP_BROWSER, self.root / '.comic-session'))
@@ -326,7 +319,7 @@ class AppRuntimeTests(unittest.TestCase):
         session = self.sign_in(); self.runtime.start()
         registry, signin = self.runtime.server.get_app().registry, self.runtime.signin
         self.assertEqual(signin.start(), {'status': 'running'})
-        self.assertEqual(registry.tapas_signin_status(LOCAL_OWNER, registry.workspace_id), {'status': 'running'})
+        self.assertEqual(registry.site_signin_status(LOCAL_OWNER, registry.workspace_id), {'status': 'running'})
         self.assertEqual(self.runtime.busy(), 'signin')
         self.assertTrue(signin.take())
         cookies = [{'name': 'session', 'value': 'PRIVATE_COOKIE', 'domain': '.tapas.io', 'path': '/', 'expires': None,
@@ -352,7 +345,7 @@ class AppRuntimeTests(unittest.TestCase):
     def test_draining_or_launching_downloader_defers_then_starts_once_after_it_and_sign_in_have_gone(self):
         self.sign_in(); self.runtime.start()
         self.background['status'].reset_mock()  # Starting looks once, for a batch that closing interrupted.
-        signin = self.runtime.server.get_app().registry.tapas_signin
+        signin = self.runtime.server.get_app().registry.site_signin
         draining = {'running': True, 'worker_version': WORKER_VERSION, 'stop_requested': True}
         gone = {'running': False}
         for first in ({'running': True, 'start_deferred': True, 'reason': 'worker_draining'}, LibraryBusy('PRIVATE')):
@@ -432,7 +425,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.runtime.start()
         registry = self.runtime.server.get_app().registry
         self.assertIsNone(self.runtime.busy())
-        with patch.object(registry.tapas_signin, 'status', return_value={'status': 'running'}):
+        with patch.object(registry.site_signin, 'status', return_value={'status': 'running'}):
             self.assertEqual(self.runtime.busy(), 'signin')
         with patch.object(registry, 'account_status', return_value={'status': 'running'}) as account:
             self.assertEqual(self.runtime.busy(), 'download')
@@ -492,7 +485,7 @@ class AppRuntimeTests(unittest.TestCase):
             seen.append(('look', session))
             return {'running': len(seen) < 4}
         self.background['stop'].side_effect = drain; self.background['status'].side_effect = look
-        with patch('comic_archive.account_export.request_stop') as pause, patch.object(registry.tapas_signin, 'close') as close, \
+        with patch('comic_archive.account_export.request_stop') as pause, patch.object(registry.site_signin, 'close') as close, \
                 patch('comic_archive.account_ui.interrupt', side_effect=lambda workspace: seen.append(workspace.library)), \
                 patch('comic_archive.app_runtime.end_downloader') as end:
             self.assertEqual(self.runtime.stop(), 'stopped')

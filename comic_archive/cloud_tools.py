@@ -38,9 +38,8 @@ def location():
         base = Path(os.environ.get('LOCALAPPDATA') or '')
         folder = (base if base.is_absolute() else Path.home()/'AppData/Local')/'comic-archiver/tools'
     else:
-        from .state_paths import compatible_path
-        folder = compatible_path(Path.home()/'.local/share/comic-archive/tools',
-                                 Path.home()/'.local/share/tapas-archive/tools')
+        from .storage import safe_root
+        folder = safe_root(Path.home()/'.local/share/comic-archive/tools')
     return folder/VERSION/'-'.join(build), build
 
 

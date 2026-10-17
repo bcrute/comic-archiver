@@ -91,7 +91,7 @@ RESTORE = """(() => {
 # Calls a script as Playwright does: a function is called with the arguments, anything else is the value.
 # A promise is parked under a number and collected by TAKE once it settles. Only an error's name leaves the page.
 CALL = """(() => {
-  const box = Object.hasOwn(globalThis, 'tapasArchive') ? globalThis.tapasArchive : (globalThis.tapasArchive = {next: 0, done: {}});
+  const box = Object.hasOwn(globalThis, 'comicArchive') ? globalThis.comicArchive : (globalThis.comicArchive = {next: 0, done: {}});
   const pack = value => JSON.stringify({value: value === undefined ? null : value});
   const fail = error => JSON.stringify({error: String((error && error.name) || 'Error')});
   const keep = (id, make) => { try { box.done[id] = make(); } catch (error) { box.done[id] = fail(error); } };
@@ -109,7 +109,7 @@ CALL = """(() => {
 })()"""
 # 'gone' when the document that was asked has been replaced: its promise will never be heard from.
 TAKE = """(() => {
-  const box = Object.hasOwn(globalThis, 'tapasArchive') ? globalThis.tapasArchive : null, id = %d;
+  const box = Object.hasOwn(globalThis, 'comicArchive') ? globalThis.comicArchive : null, id = %d;
   if (!box) return 'gone';
   if (!(id in box.done)) return '';
   const text = box.done[id];

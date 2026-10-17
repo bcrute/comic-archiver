@@ -37,10 +37,6 @@ def main():
         raise RuntimeError('Install probe imported the source checkout instead of the wheel')
     if metadata.distribution('comic-archive').metadata['Name'] != 'comic-archive':
         raise RuntimeError('Installed distribution still uses the old project name')
-    import tapas_archive.models as legacy_models
-    import comic_archive.models as models
-    if legacy_models is not models:
-        raise RuntimeError('Legacy imports created duplicate module identities')
     for name in ('index.html', 'archive.css', 'archive.js', 'library.html', 'library.js'):
         if not resources.files('comic_archive').joinpath('static', name).read_bytes():
             raise RuntimeError('Installed dashboard resource missing')
@@ -50,10 +46,6 @@ def main():
         raise RuntimeError('Installed button sign-in modules are unavailable')
     entry = Path(sys.executable).parent / 'comic-archive'
     help_text = subprocess.check_output([str(entry), '--help'], text=True, timeout=30)
-    legacy_entry = entry.with_name('tapas-archive')
-    for legacy in ([str(legacy_entry), '--help'], [sys.executable, '-I', '-m', 'tapas_archive', '--help']):
-        if subprocess.check_output(legacy, text=True, timeout=30) != help_text:
-            raise RuntimeError('Legacy entry point diverged from Comic Archiver')
     for command in ('cloud-connect','cloud-test','cloud-upload','cloud-cleanup','storage-plan','preview-series','purge','network-policy','convert-comics','desktop'):
         if command not in help_text:raise RuntimeError('Installed CLI is missing storage/cloud commands')
     space = json.loads(subprocess.check_output([str(entry),'storage-plan','--episodes','2'],text=True,timeout=30))
@@ -113,9 +105,9 @@ def main():
         server.shutdown()
         thread.join(timeout=10)
         server.server_close()
-    if not Path('.comic-session').is_dir() or Path('.tapas-session').exists():
-        raise RuntimeError('Fresh installed app created a legacy session directory')
-    print(json.dumps({'wheel_import': True, 'cli': True, 'legacy_entry_points':True,
+    if not Path('.comic-session').is_dir():
+        raise RuntimeError('Fresh installed app did not create its session directory')
+    print(json.dumps({'wheel_import': True, 'cli': True,
                       'fresh_state': True, 'firefox_startup': True,
                       'comic_and_illustrated_epub': True, 'real_loopback_dashboard': True,
                       'saved_file_table': True,

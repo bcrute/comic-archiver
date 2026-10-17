@@ -313,7 +313,7 @@ class Runtime:
         registry.site_choice = self.site_choice
         self.location = registry.location = Location(registry.resolve(LOCAL_OWNER, registry.workspace_id).library)
         self._reopen(registry, session)
-        self.signin = registry.tapas_signin = WindowSignIn(registry.resolve(LOCAL_OWNER, registry.workspace_id),
+        self.signin = registry.site_signin = WindowSignIn(registry.resolve(LOCAL_OWNER, registry.workspace_id),
                                                            self._launch, self._closing, site=self.site)
         self.session, self.state = session, state
         self.server.set_app(app)
@@ -354,7 +354,7 @@ class Runtime:
                 self._launch.release()
         registry = self.server.get_app().registry
         registry.cloud_signin.close()
-        registry.tapas_signin.close()
+        registry.site_signin.close()
 
     def _reopen(self, registry, session):
         """A download waits for Go at every start; one that was running when the app closed does not go on by itself."""
@@ -401,7 +401,7 @@ class Runtime:
         return outcome
 
     def _signing_in(self):
-        return self.server.get_app().registry.tapas_signin.status().get('status') == 'running'
+        return self.server.get_app().registry.site_signin.status().get('status') == 'running'
 
     def _start_when_free(self):
         """An earlier downloader is finishing its task; start ours once it has gone."""

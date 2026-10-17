@@ -113,7 +113,7 @@ class BackgroundTests(unittest.TestCase):
 
     def test_the_built_in_engine_can_be_chosen_for_the_detached_worker(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / ".tapas-session"
+            session = Path(work) / ".comic-session"
             process = Mock(pid=456)
             process.poll.return_value = None
             runtime = None
@@ -428,10 +428,10 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
             with self.assertRaises(ArchiveError):
                 background.status(project / 'other-name')
             (project / 'linked').mkdir()
-            (project / 'linked/.tapas-session').symlink_to(elsewhere)
+            (project / 'linked/.comic-session').symlink_to(elsewhere)
             with self.assertRaises(ArchiveError):
-                background.status(project / 'linked/.tapas-session')
-            session = project / 'real/.tapas-session'
+                background.status(project / 'linked/.comic-session')
+            session = project / 'real/.comic-session'
             session.mkdir(parents=True)
             (session / 'worker').symlink_to(elsewhere)
             for action in (background.status, background.stop, background.start):
@@ -441,7 +441,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_unreadable_worker_state_is_refused_and_no_stop_marker_is_written(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             status = root / 'status.json'
             outside = Path(work) / 'outside.json'
@@ -465,7 +465,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_symlinked_runtime_folder_is_not_followed_to_decide_whether_a_worker_runs(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             outside = Path(work) / 'elsewhere'
             (root / '.runtime').symlink_to(outside)
@@ -477,7 +477,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
         from comic_archive.task_cancellation import admission_lock
         for event in ('worker exits', 'older worker replaces it'):
             with self.subTest(event), tempfile.TemporaryDirectory() as work:
-                session = Path(work) / '.tapas-session'
+                session = Path(work) / '.comic-session'
                 root = self.record(session)
                 runtime = LibraryLock(root / '.runtime')
                 runtime.__enter__()
@@ -502,7 +502,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_resume_needs_a_saved_backlog_and_starts_nothing_without_one(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             (root / 'requests').mkdir()
             (root / 'responses').mkdir()
@@ -513,7 +513,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_restart_that_cannot_see_the_old_worker_leave_reports_it_as_draining(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             with LibraryLock(root / '.runtime'), patch.object(background, 'time', JumpingClock()), \
                     patch.object(background.subprocess, 'Popen') as launch:
@@ -526,7 +526,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_start_never_writes_through_a_symlinked_log(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session, state='stopped')
             outside = Path(work) / 'outside.log'
             outside.write_text('KEEP')
@@ -540,7 +540,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_start_reports_a_worker_that_cannot_launch_or_exits_during_startup(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             self.record(session, state='stopped')
             with patch('comic_archive.session.load_session'):
                 with patch.object(background.subprocess, 'Popen', side_effect=OSError('PRIVATE')):
@@ -556,7 +556,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_start_that_never_sees_the_worker_ready_reports_startup_pending(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             self.record(session, state='stopped')
             slow = Mock(pid=456)
             slow.poll.return_value = None
@@ -569,7 +569,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_backlog_resume_is_only_attempted_for_a_running_worker_and_never_through_a_symlinked_log(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             stopped = {'running': False, 'state': 'stopped'}
             with patch.object(background.subprocess, 'Popen') as launch:
@@ -584,7 +584,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
 
     def test_backlog_controller_that_cannot_launch_or_stays_silent_is_reported_honestly(self):
         with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.tapas-session'
+            session = Path(work) / '.comic-session'
             root = self.record(session)
             with patch.object(background.subprocess, 'Popen', side_effect=OSError('PRIVATE')):
                 with self.assertRaises(ArchiveError) as caught:

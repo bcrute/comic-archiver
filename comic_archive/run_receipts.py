@@ -30,7 +30,7 @@ def retain_failure_receipt(error, summary):
 
 
 def failure_result(error):
-    receipt = getattr(error, '_comic_failure_receipt', getattr(error, '_tapas_failure_receipt', None))
+    receipt = getattr(error, '_comic_failure_receipt', None)
     if not isinstance(receipt, FailureReceipt):
         return None
     if (not isinstance(receipt.run_id, str) or not re.fullmatch(r'[a-f0-9]{24}', receipt.run_id)
@@ -65,6 +65,6 @@ def failure_result(error):
 
 
 def carry_failure_receipt(source, target):
-    receipt = getattr(source, '_comic_failure_receipt', getattr(source, '_tapas_failure_receipt', None))
+    receipt = getattr(source, '_comic_failure_receipt', None)
     if isinstance(receipt, FailureReceipt):
         target._comic_failure_receipt = receipt

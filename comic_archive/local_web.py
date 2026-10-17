@@ -59,7 +59,7 @@ class LocalWorkspaceRegistry(WorkspaceRegistry):
         with Inventory(workspace.library, read_only=inventory_path.is_file()):
             pass
         from .tapas_auth import SignIn as TapasSignIn
-        self.tapas_signin = TapasSignIn(workspace)
+        self.site_signin = TapasSignIn(workspace)
         # A run lasts for days and through closing the program. The page's clock counts the present stretch
         # of work: since this program opened, or since Go if that was later.
         self.working_since = int(time.time())
@@ -67,18 +67,18 @@ class LocalWorkspaceRegistry(WorkspaceRegistry):
     def ids(self, owner):
         return [self.workspace_id] if owner == LOCAL_OWNER else []
 
-    def tapas_signin_status(self, owner, workspace_id):
+    def site_signin_status(self, owner, workspace_id):
         self.resolve(owner, workspace_id)
-        return self.tapas_signin.status()
+        return self.site_signin.status()
 
-    def start_tapas_signin(self, owner, workspace_id):
+    def start_site_signin(self, owner, workspace_id):
         from .errors import LibraryBusy
         workspace = self.resolve(owner, workspace_id)
         with LibraryLock(workspace.session / '.account-ui'):
             info = self.status(owner, workspace_id)
             if self.account_status(owner, workspace_id).get('status') == 'running' or (info['worker'] or {}).get('reported_state') == 'busy':
                 raise LibraryBusy('Pause the download before reconnecting Tapas.')
-            return self.tapas_signin.start()
+            return self.site_signin.start()
 
     def account_status(self, owner, workspace_id):
         from .account_ui import status
@@ -89,7 +89,7 @@ class LocalWorkspaceRegistry(WorkspaceRegistry):
         from .account_ui import start
         workspace = self.resolve(owner, workspace_id)
         with LibraryLock(workspace.session / '.account-ui'):
-            if self.tapas_signin.status()['status'] == 'running' or self.cloud_signin.status()['status'] == 'running':
+            if self.site_signin.status()['status'] == 'running' or self.cloud_signin.status()['status'] == 'running':
                 raise LibraryBusy('Complete browser sign-in before downloading.')
             if self.account_status(owner, workspace_id).get('status') == 'running':
                 return self.account_status(owner, workspace_id)
@@ -217,7 +217,7 @@ class LocalApplication:
         self._dispatch_lock = threading.RLock()
         self.host = f'127.0.0.1:{port}'
         self.origin = f'http://{self.host}'
-        self.app = HostedApplication(registry, lambda env: env.get('tapas.local.principal'), self.origin, max_workspaces=1)
+        self.app = HostedApplication(registry, lambda env: env.get('comic.local.principal'), self.origin, max_workspaces=1)
 
     def _sign(self, payload):
         return hmac.new(self.cookie_key, b'local-browser-session\0' + payload.encode('ascii'), hashlib.sha256).hexdigest()
@@ -269,7 +269,7 @@ class LocalApplication:
         if not bootstrap and not authenticated:
             return self.app._json(start_response, '401 Unauthorized', {'code': 'local_session_required'}, environ.get('REQUEST_METHOD') == 'HEAD')
         trusted = dict(environ)
-        trusted['tapas.local.principal'] = LOCAL_OWNER
+        trusted['comic.local.principal'] = LOCAL_OWNER
 
         def respond(status, headers, exc_info=None):
             if bootstrap and status.startswith('200 '):
@@ -289,7 +289,7 @@ class LocalServer(ThreadingMixIn, WSGIServer):
         app = getattr(self, 'application', None)
         if app is not None:
             app.registry.cloud_signin.close()
-            app.registry.tapas_signin.close()
+            app.registry.site_signin.close()
         super().server_close()
 
 

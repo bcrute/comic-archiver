@@ -12,9 +12,3 @@ parked/android/build/
 .validation/
 /build/
 /dist/
-
-# Legacy private state remains supported during upgrades.
-.tapas-session/
-.tapas-web/
-.tapas-hosted/
-.tapas-automation/

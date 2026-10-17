@@ -76,9 +76,9 @@ def _instant(value):
 
 
 def _root(session,library,*,require_queue=True):
-    from .state_paths import SESSION_NAMES
+    from .state_paths import SESSION_NAME
     session=Path(session).absolute();library=Path(library).absolute()
-    if (session.name not in SESSION_NAMES or library.name!='Library' or session.parent!=library.parent
+    if (session.name!=SESSION_NAME or library.name!='Library' or session.parent!=library.parent
             or any(p.is_symlink() for path in (session,library) for p in (path,*path.parents))):
         raise ArchiveError('Run consecutive imports from the project containing Library and .comic-session.')
     root=session/'worker'

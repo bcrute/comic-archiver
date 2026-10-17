@@ -19,13 +19,12 @@ test = ["Pillow>=10", "playwright>=1.45,<2", "coverage>=7,<8", "build>=1.5,<2"]
 
 [project.scripts]
 comic-archive = "comic_archive.cli:main"
-tapas-archive = "comic_archive.cli:main"
 
 [project.gui-scripts]
 comic-archiver = "comic_archive.desktop_app:main"
 
 [tool.setuptools.packages.find]
-include = ["comic_archive*", "tapas_archive*"]
+include = ["comic_archive*"]
 
 [tool.setuptools.package-data]
 comic_archive = ["static/*.html", "static/*.css", "static/*.js", "oauth-clients.json"]

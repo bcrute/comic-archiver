@@ -75,7 +75,7 @@ SIGNIN_FINISHING = 'Finishing sign-in…\n\nThis can take a minute. Comic Archiv
 # Both run in an isolated world, where the page's own scripts can neither see nor replace the answer.
 # A new page is asked at once, so a finished sign-in is noticed within a second; after that, every three seconds.
 SIGNIN_ASK = """(() => {
-  const box = window.tapasArchive = window.tapasArchive || {};
+  const box = window.comicArchive = window.comicArchive || {};
   const now = Date.now();
   if (box.busy || now - (box.asked || 0) < 3000) return;
   box.busy = true;
@@ -85,7 +85,7 @@ SIGNIN_ASK = """(() => {
     .then(text => { box.answer = text; box.busy = false; }, () => { box.answer = null; box.busy = false; });
 })()"""
 SIGNIN_READ = """(() => {
-  const box = window.tapasArchive;
+  const box = window.comicArchive;
   if (!box || typeof box.answer !== 'string' || box.answer.length > 2097152) return null;
   const answer = box.answer, storage = [];
   box.answer = null;

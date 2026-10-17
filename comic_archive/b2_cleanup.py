@@ -13,7 +13,7 @@ from .publication import valid_export_id
 
 def cleanup_file(transfer, path, *, upload=False):
     """upload: a file an interrupted direct upload recorded at its library path, not a test or staging file."""
-    from .cloud import CLOUD_ROOTS
+    from .cloud import CLOUD_ROOT
     parts = path.split('/') if isinstance(path, str) else []
     names = {'episode.cbz','episode.epub','episode.tar.zst','episode.json','series.json',
              'cover.jpg','cover.png','cover.webp','cover.gif'}
@@ -22,7 +22,7 @@ def cleanup_file(transfer, path, *, upload=False):
     stage = not upload and len(parts) == 5 and parts[2] == '.staging' and parts[4] == 'episode.cbz'
     sent = (upload and len(parts) == 6 and valid_export_id(parts[2])
             and re.fullmatch(r'[0-9a-f]{64}', parts[4]) is not None and parts[5] in names)
-    if (not (pilot or stage or sent) or parts[0] not in CLOUD_ROOTS
+    if (not (pilot or stage or sent) or parts[0] != CLOUD_ROOT
             or not valid_export_id(parts[1]) or not valid_export_id(parts[3])):
         raise ArchiveError('B2 cleanup accepts only exact recorded test, staging or interrupted upload files.')
     parser = configparser.ConfigParser(interpolation=None)

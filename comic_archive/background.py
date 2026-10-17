@@ -14,12 +14,12 @@ from .archive import atomic_json
 from .archive_paths import directory
 from .locking import LibraryLock
 from .models import ArchiveError
-from .state_paths import SESSION_NAMES
+from .state_paths import SESSION_NAME
 
 
 def root(session, create=False):
     session = Path(session).absolute()
-    if session.name not in SESSION_NAMES or any(p.is_symlink() for p in (session, *session.parents)):
+    if session.name != SESSION_NAME or any(p.is_symlink() for p in (session, *session.parents)):
         raise ArchiveError("Background mode uses the project's ordinary .comic-session directory.")
     result = session / "worker"
     if any(p.is_symlink() for p in (result, *result.parents)):

@@ -195,7 +195,7 @@ class HostedApplication:
                     if self.registry.interface_mode != 'local':
                         raise HTTPError('400 Bad Request', 'request_unavailable')
                     if method in {'GET','HEAD'} and (action == 'session' or key is None):
-                        value = self.registry.tapas_signin_status(owner, workspace_id) if action == 'session' else self.registry.account_status(owner, workspace_id)
+                        value = self.registry.site_signin_status(owner, workspace_id) if action == 'session' else self.registry.account_status(owner, workspace_id)
                     elif method == 'POST' and action == 'account' and key == 'speed':
                         options = self._mutation(environ, owner)
                         if set(options) != {'speed'} or not isinstance(options['speed'], str):
@@ -204,7 +204,7 @@ class HostedApplication:
                     elif method == 'POST' and ((action == 'account' and key in {None,'pause'}) or action == 'session'):
                         if self._mutation(environ, owner):
                             raise HTTPError('400 Bad Request', 'unknown_options')
-                        value = (self.registry.start_tapas_signin(owner, workspace_id) if action == 'session'
+                        value = (self.registry.start_site_signin(owner, workspace_id) if action == 'session'
                             else self.registry.pause_account(owner, workspace_id) if key == 'pause'
                             else self.registry.start_account(owner, workspace_id))
                     else:
