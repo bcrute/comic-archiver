@@ -1,14 +1,15 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {workspace:null, interfaceMode:null, desktopOnly:true, location:'device', offset:0, total:0, busy:false, request:0, locations:[]};
+const state = {workspace:null, interfaceMode:null, desktopOnly:true, location:'device', offset:0, total:0, busy:false, request:0, locations:[], cloud:false};
 const count = n => Number.isInteger(n) && n >= 0 ? n.toLocaleString() : '0';
 const sizes = n => {
   if (!Number.isFinite(n) || n < 0) return '—';
-  const units = ['B','KiB','MiB','GiB','TiB']; let index = 0;
+  // Counted in 1024s, as Windows shows file sizes.
+  const units = ['B','KB','MB','GB','TB']; let index = 0;
   while (n >= 1024 && index < units.length-1) {n /= 1024; index++;}
   return `${index ? n.toFixed(1) : n} ${units[index]}`;
 };
-async function api(path, body) {
+async function api(path, body, failed='This file could not be opened. Refresh files and try again.') {
   const options = {credentials:'same-origin', cache:'no-store'};
   if (body !== undefined) {
     const context = await api('/api/v1/context');
@@ -23,7 +24,7 @@ async function api(path, body) {
     throw new Error(response.status === 401 ? 'Your session expired. Reload this page.'
       : body !== undefined ? result.code === 'device_file_open_unavailable'
         ? 'No app could open this file. Choose a default app for this file type on your device, then try again.'
-        : 'This file could not be opened. Refresh files and try again.'
+        : failed
       : 'Saved files could not be loaded. Try Refresh files.');
   }
   return result;
@@ -67,11 +68,14 @@ function locations(value) {
     $('library-locations').append(button);
   }
   const device = value.locations.find(g => g.id === 'device');
-  $('library-summary').textContent = state.desktopOnly ? `${count(device?.episodes)} saved episodes across ${count(device?.files)} files on this computer.` : `${count(value.episode_count)} saved episodes across ${count(value.file_count)} files and cloud copies.`;
+  // Where nothing is in cloud storage, every file is on this computer: there is nothing to tell apart.
+  state.cloud = !state.desktopOnly && value.locations.some(g => g.id !== 'device' && g.files > 0);
+  $('storage-heading').hidden = !state.cloud;
+  $('library-summary').textContent = state.desktopOnly ? `${count(device?.episodes)} saved episodes across ${count(device?.files)} files on this computer.` : `${count(value.episode_count)} saved episodes across ${count(value.file_count)} files${state.cloud ? ' and cloud copies' : ''}.`;
 }
 function rows(value) {
   $('files').replaceChildren();
-  const types = {cbz:'CBZ', epub:'EPUB', 'tar.zst':'TAR.ZST', episode_metadata:'Episode JSON', series_metadata:'Series JSON', cover:'Cover'};
+  const types = {cbz:'Comic', epub:'Novel', 'tar.zst':'Compressed comic', episode_metadata:'Data file', series_metadata:'Data file', cover:'Cover'};
   for (const file of value.files) {
     const row = document.createElement('tr');
     const storage = state.locations.find(g => g.id === file.location)?.label || 'Unknown storage';
@@ -86,9 +90,11 @@ function rows(value) {
       if (file.date_source === 'file_modified') {const note = document.createElement('small'); note.textContent = 'File time'; cell.append(note);}
     } else cell.textContent = '—';
     row.append(cell);
-    const destination = document.createElement('td'); destination.textContent = storage; row.append(destination);
+    const destination = document.createElement('td'); destination.textContent = storage; destination.hidden = !state.cloud; row.append(destination);
     const action = document.createElement('td');
-    if (file.location === 'device' && typeof file.id === 'string' && /^[a-f0-9]{64}$/.test(file.id)) {
+    // On this computer only comics and novels are offered to open: those are what a reading app opens.
+    const opens = state.interfaceMode !== 'local' || ['cbz','epub'].includes(file.kind);
+    if (file.location === 'device' && opens && typeof file.id === 'string' && /^[a-f0-9]{64}$/.test(file.id)) {
       const url = '/api/v1/workspaces/'+state.workspace+'/exports/'+file.id;
       const label = state.interfaceMode === 'local' ? 'Open' : 'Download';
       const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary file-action';
@@ -99,7 +105,7 @@ function rows(value) {
       } else {
         button.addEventListener('click', () => {window.location.href = url;}); action.append(button);
       }
-    } else action.textContent = file.location === 'device' ? 'Local metadata' : 'Cloud copy';
+    } else if (file.location !== 'device') action.textContent = 'Cloud copy';
     row.append(action); $('files').append(row);
   }
 }
@@ -116,7 +122,8 @@ async function loadFiles(refresh=false) {
     const pages = Math.max(1, Math.ceil(value.total / value.limit));
     $('file-page').value = String(Math.floor(value.offset / value.limit)+1); $('file-page').max = String(pages);
     $('page-count').textContent = 'of '+count(pages);
-    $('file-range').textContent = value.total ? `Showing ${count(value.offset+1)}–${count(value.offset+value.files.length)} of ${count(value.total)} files.` : 'No saved files match these filters.';
+    // With nothing saved yet the notice says so; that no file matches would say it twice.
+    $('file-range').textContent = value.total ? `Showing ${count(value.offset+1)}–${count(value.offset+value.files.length)} of ${count(value.total)} files.` : value.file_count ? 'No saved files match these filters.' : '';
     notice(value.total ? 'Saved files loaded.' : value.file_count ? 'Try another location or clear the search.' : `No files have been saved yet. Use ${$('save-nav').textContent} to start.`);
   } catch (error) {
     if (request === state.request) {state.total = 0; $('files').replaceChildren(); $('file-range').textContent = ''; notice(error.message, true);}
@@ -124,11 +131,20 @@ async function loadFiles(refresh=false) {
 }
 $('file-filters').addEventListener('submit', event => {event.preventDefault(); state.offset = 0; loadFiles();});
 for (const id of ['file-kind','file-sort','page-size']) $(id).addEventListener('change', () => {state.offset = 0; loadFiles();});
-$('clear-search').addEventListener('click', () => {$('file-search').value = ''; $('file-kind').value = 'all'; state.offset = 0; loadFiles();});
+$('clear-search').addEventListener('click', () => {$('file-search').value = ''; $('file-kind').value = 'episodes'; state.offset = 0; loadFiles();});
 $('previous-page').addEventListener('click', () => {state.offset -= Number($('page-size').value); loadFiles();});
 $('next-page').addEventListener('click', () => {state.offset += Number($('page-size').value); loadFiles();});
 $('page-jump').addEventListener('submit', event => {event.preventDefault(); if (!$('page-jump').reportValidity()) return; state.offset = (Number($('file-page').value)-1)*Number($('page-size').value); loadFiles();});
 $('refresh-files').addEventListener('click', () => loadFiles(true));
+$('open-folder').addEventListener('click', async () => {
+  // The app's own window opens its save folder; no path comes from this page.
+  $('open-folder').disabled = true;
+  try {
+    await api('/api/v1/location', {action:'open'}, 'The folder could not be opened. Try again.');
+    notice('Your save folder opens in its own window.');
+  } catch (error) {notice(error.message, true);}
+  finally {$('open-folder').disabled = false;}
+});
 $('workspace').addEventListener('change', () => {state.workspace = $('workspace').value; state.location = state.desktopOnly ? 'device' : 'all'; state.offset = 0; hash(); loadFiles();});
 let keepsTheme = false;
 document.addEventListener('comic-archive-theme', async event => {
@@ -141,6 +157,10 @@ async function openLibrary() {
     const context = await api('/api/v1/context');
     keepsTheme = typeof context.theme === 'string';
     state.interfaceMode = context.interface_mode;
+    // Each site has a library of its own; pages without a list of sites are Tapas's.
+    const site = (Array.isArray(context.sites) ? context.sites : []).find(item => item.current === true)?.name || 'Tapas';
+    $('library-title').textContent = `Your saved ${site} library`;
+    $('open-folder').hidden = typeof context.library_folder !== 'string';
     // Only this computer's files where cloud saving is not offered: the hosted version, or a computer without the helper.
     state.desktopOnly = context.cloud_offered === false || (context.desktop_only !== false && context.interface_mode !== 'local');
     const [workspace, location, filters] = locationHash();
@@ -148,7 +168,7 @@ async function openLibrary() {
     if (!state.workspace) {notice(`No library is available. Use ${$('save-nav').textContent} to create one.`); buttons(); return;}
     state.location = state.desktopOnly ? 'device' : /^(all|device|google|dropbox|proton|b2|(?:google|dropbox|proton|b2)-[a-f0-9]{16})$/.test(location || '') ? location : 'all';
     $('file-search').value = (filters.get('q') || '').slice(0,200);
-    $('file-kind').value = ['all','episodes','metadata','covers'].includes(filters.get('kind')) ? filters.get('kind') : 'all';
+    $('file-kind').value = ['all','episodes','metadata','covers'].includes(filters.get('kind')) ? filters.get('kind') : 'episodes';
     $('file-sort').value = ['saved_desc','saved_asc','series'].includes(filters.get('sort')) ? filters.get('sort') : 'saved_desc';
     $('page-size').value = ['50','100','200'].includes(filters.get('limit')) ? filters.get('limit') : '50';
     const offset = filters.get('offset') || '0';

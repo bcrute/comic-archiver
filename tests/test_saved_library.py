@@ -215,6 +215,25 @@ class SavedLibraryTests(unittest.TestCase):
         self.assertEqual([(r['series'], r['title']) for r in files], [('alpha story', 'First'), (self.series['title'], 'Chapter 1')])
         self.assertEqual([r['title'] for r in self.rows(kind='episodes', sort='saved_desc')], ['Chapter 1', 'First'])
 
+    def test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles(self):
+        # Saved as the app names them: the order number, then the title. Episode 10 comes after Episode 2.
+        # The saved number counts first; one file here was renamed without it.
+        for number, stored in ((10, True), (2, True), (1, True), (3, False)):
+            archive = self.folder/((f'{number:03} - ' if number != 10 else '')+f'Episode {number} [{number}].cbz')
+            archive.write_bytes(b'SAVED_ARCHIVE_FIXTURE')
+            value = {'title':f'Episode {number}', 'format':'cbz', 'imported_at':'2025-01-01T00:00:00+00:00'}
+            if stored: value['episode_number'] = number  # Without it, the number the file name starts with.
+            archive.with_suffix('.json').write_text(json.dumps(value))
+        unnumbered = self.folder/'Bonus.cbz'; unnumbered.write_bytes(b'SAVED_ARCHIVE_FIXTURE')
+        unnumbered.with_suffix('.json').write_text(json.dumps({'title':'A bonus', 'format':'cbz', 'episode_number':True}))
+        files = self.rows(kind='episodes', sort='series')
+        self.assertEqual([r['title'] for r in files], ['Episode 1', 'Episode 2', 'Episode 3', 'Episode 10', 'A bonus'])
+        # The series' own files come first, and the order itself is not sent to the page.
+        everything = self.rows(sort='series')
+        self.assertEqual(everything[0]['kind'], 'series_metadata')
+        self.assertEqual([r['title'] for r in everything[1:3]], ['Episode 1', 'Episode 1'])
+        self.assertTrue(all('order' not in r for r in everything))
+
     def test_episodes_without_a_usable_export_id_or_receipt_are_listed_locally_and_never_matched_to_a_cloud_copy(self):
         archive, value = self.episode(1); receipt = self.cloud_copy(archive, value)
         sidecar = archive.with_suffix('.json')
