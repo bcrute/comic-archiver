@@ -11,16 +11,20 @@ from .models import ArchiveError
 from .publication import valid_export_id
 
 
-def cleanup_file(transfer, path):
+def cleanup_file(transfer, path, *, upload=False):
+    """upload: a file an interrupted direct upload recorded at its library path, not a test or staging file."""
     from .cloud import CLOUD_ROOTS
     parts = path.split('/') if isinstance(path, str) else []
-    pilot = (len(parts) == 6 and parts[2] == 'tests' and valid_export_id(parts[4])
-             and parts[5] in {'episode.cbz','episode.epub','episode.tar.zst','episode.json','series.json',
-                              'cover.jpg','cover.png','cover.webp','cover.gif'})
-    stage = len(parts) == 5 and parts[2] == '.staging' and parts[4] == 'episode.cbz'
-    if (not (pilot or stage) or parts[0] not in CLOUD_ROOTS
+    names = {'episode.cbz','episode.epub','episode.tar.zst','episode.json','series.json',
+             'cover.jpg','cover.png','cover.webp','cover.gif'}
+    pilot = (not upload and len(parts) == 6 and parts[2] == 'tests' and valid_export_id(parts[4])
+             and parts[5] in names)
+    stage = not upload and len(parts) == 5 and parts[2] == '.staging' and parts[4] == 'episode.cbz'
+    sent = (upload and len(parts) == 6 and valid_export_id(parts[2])
+            and re.fullmatch(r'[0-9a-f]{64}', parts[4]) is not None and parts[5] in names)
+    if (not (pilot or stage or sent) or parts[0] not in CLOUD_ROOTS
             or not valid_export_id(parts[1]) or not valid_export_id(parts[3])):
-        raise ArchiveError('B2 cleanup accepts only exact recorded test or staging files.')
+        raise ArchiveError('B2 cleanup accepts only exact recorded test, staging or interrupted upload files.')
     parser = configparser.ConfigParser(interpolation=None)
     parser.read(transfer.config)
     try:

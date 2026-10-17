@@ -20,8 +20,12 @@ from .network import NetworkPolicyHold, wait_process
 
 
 class PipeUpload:
-    """A bounded pipe, a small provider buffer, and a monitored owned child."""
-    def __init__(self, transfer, remote_path):
+    """A bounded pipe, a small provider buffer, and a monitored owned child.
+
+    Given the size, rclone holds the whole file before sending it, so it knows
+    the SHA-1 up front: B2 checks it on arrival and keeps it in its listing.
+    """
+    def __init__(self, transfer, remote_path, size=None):
         from .cloud import _environment
         self.transfer = transfer
         self.error = None
@@ -34,7 +38,7 @@ class PipeUpload:
                 '--log-level', 'ERROR', '--stats', '0', '--retries', '1',
                 '--low-level-retries', '2', '--contimeout', '30s', '--timeout', '60s',
                 '--drive-chunk-size', '4Mi', '--dropbox-chunk-size', '4Mi',
-                '--dropbox-batch-mode', 'off', '--streaming-upload-cutoff', '256Ki',
+                '--dropbox-batch-mode', 'off', '--streaming-upload-cutoff', '256Ki' if size is None else f'{size + 1}B',
                 *(['--b2-chunk-size', '5Mi', '--b2-upload-concurrency', '1', '--b2-hard-delete']
                   if transfer.provider == 'b2' else []),
                 'rcat', transfer.remote(remote_path)], stdin=subprocess.PIPE,

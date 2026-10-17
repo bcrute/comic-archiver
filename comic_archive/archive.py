@@ -412,6 +412,10 @@ class Store:
     def completed_episode(self, path, metadata):
         pass
 
+    def publishes_here(self):
+        """Whether the next archive is saved on this computer, needing its room on disk."""
+        return True
+
     def episode_is_offloaded(self, series, episode, path):
         return False
 
@@ -597,7 +601,7 @@ class Store:
                         continue
                 except (ValueError, OSError):
                     pass
-            if shutil.disk_usage(self.root).free < sum(size for _, _, size in entries) + self.min_free_bytes + 1024 * 1024:
+            if self.publishes_here() and shutil.disk_usage(self.root).free < sum(size for _, _, size in entries) + self.min_free_bytes + 1024 * 1024:
                 raise RunLimit("Insufficient free disk space to publish the archive; original pages remain cached.")
             self.publish_comic(cbz, entries, metadata, check)
             self.publish_metadata(sidecar, metadata)

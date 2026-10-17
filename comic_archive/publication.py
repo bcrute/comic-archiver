@@ -6,6 +6,7 @@ import re
 import tarfile
 import zipfile
 import shutil
+import sqlite3
 import uuid
 from dataclasses import replace
 
@@ -185,6 +186,27 @@ def write_compressed_comic(path, metadata, open_page, check=None):
         if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
 
 
+def _zip_pages(output, pages, open_page, check):
+    with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_STORED) as archive:
+        for page in pages:
+            if callable(check): check()
+            info = zipfile.ZipInfo(page['file'], date_time=(1980,1,1,0,0,0))
+            info.external_attr = 0o644 << 16
+            with open_page(page) as source, archive.open(info,'w',force_zip64=True) as target:
+                shutil.copyfileobj(source, target, 65536)
+
+
+def cbz_bytes(metadata, open_page, check=None):
+    """The CBZ write_cbz saves, held in memory instead."""
+    import io
+    from .archive import verify_episode_contents
+    output = io.BytesIO()
+    _zip_pages(output, comic_pages(metadata), open_page, check)
+    if verify_episode_contents(output, metadata):
+        raise ArchiveError('New CBZ failed verification; the episode is downloaded again next time.')
+    return output.getvalue()
+
+
 def write_cbz(path, metadata, open_page, check=None):
     """Standard ZIP comic with original page bytes and deterministic ordering."""
     from .archive import verify_episode_contents
@@ -194,13 +216,7 @@ def write_cbz(path, metadata, open_page, check=None):
         raise ArchiveError('Refusing unsafe CBZ output.')
     try:
         with temporary.open('wb') as output:
-            with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_STORED) as archive:
-                for page in pages:
-                    if callable(check): check()
-                    info = zipfile.ZipInfo(page['file'], date_time=(1980,1,1,0,0,0))
-                    info.external_attr = 0o644 << 16
-                    with open_page(page) as source, archive.open(info,'w',force_zip64=True) as target:
-                        shutil.copyfileobj(source, target, 65536)
+            _zip_pages(output, pages, open_page, check)
             output.flush(); os.fsync(output.fileno())
         with temporary.open('rb') as source:
             if verify_episode_contents(source, metadata):
@@ -208,6 +224,31 @@ def write_cbz(path, metadata, open_page, check=None):
         replace_file(temporary, path)
     finally:
         if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
+
+
+# An episode bigger than this, held in memory for a direct upload, is saved here instead.
+DIRECT_MEMORY = 256 * 1024**2
+
+
+class DirectEpisode:
+    """One episode's pages, held in memory while they download, for an upload straight to B2.
+
+    Nothing of it is saved here, so after a crash the episode is downloaded again.
+    """
+    def __init__(self, archive):
+        self.archive = archive
+        self.pages = {}
+        self.rows = []  # Cache index rows, written only if the pages are saved here after all.
+        self.size = 0
+        self.data = None
+
+    def keep(self, data):
+        image_extension(data)
+        h = digest(data)
+        if h not in self.pages:
+            self.pages[h] = data
+            self.size += len(data)
+        return h
 
 
 class PublicationStore(Store):
@@ -225,6 +266,9 @@ class PublicationStore(Store):
             self._episode_formats = {}
             self._cloud_pending = set()
             self._streaming_episode = None
+            self._direct = None
+            self._direct_ready = []
+            self._uploading = None
             self.db.execute('''CREATE TABLE IF NOT EXISTS export_ids
                 (source TEXT,series_id TEXT,episode_id TEXT,id TEXT UNIQUE NOT NULL,
                  PRIMARY KEY(source,series_id,episode_id))''')
@@ -341,13 +385,35 @@ class PublicationStore(Store):
     def write_series_metadata(self,series,cover=None,enriched=False):
         key=self.series_export_key(series.source,series.id,series.platform_id)
         result = super().write_series_metadata(replace(series,id=key),cover=cover,enriched=enriched)
+        try:
+            # One episode uploads at a time, and it is done before anything else touches the cloud.
+            self._finish_upload()
+        except BaseException:
+            from .cloud import keep_here
+            for archive, data in self._direct_ready:
+                try:
+                    keep_here(self.root, archive, data)
+                except (ArchiveError, OSError):
+                    pass  # Not saved anywhere: the episode is downloaded again next time.
+            self._direct_ready.clear()
+            raise
         if self._cloud_pending:
             from .cloud import queue_episode, upload_pending
             for path in sorted(self._cloud_pending):
                 queue_episode(self.root, path)
             self._cloud_pending.clear()
             upload_pending(self.root)
+        if self._direct_ready:
+            # The series files exist now, so the episode held in memory goes up with them while the next one downloads.
+            from .cloud import DirectUpload
+            archive, data = self._direct_ready.pop()
+            self._uploading = DirectUpload(self.root, archive, data)
         return result
+
+    def _finish_upload(self):
+        uploading, self._uploading = self._uploading, None
+        if uploading is not None:
+            uploading.finish()
 
     def comparable_metadata(self, metadata):
         value = super().comparable_metadata(metadata)
@@ -371,6 +437,49 @@ class PublicationStore(Store):
                            'original_content_hashes': self._originals.get((series.source, episode.series_id, episode.id), []),
                            'cache_series_id': series.id}
 
+    def cache_image(self, data):
+        if self._direct is None or self._direct.data is not None:
+            return super().cache_image(data)
+        h = self._direct.keep(data)
+        if self._direct.size > DIRECT_MEMORY:
+            self._save_direct_pages()
+        return h
+
+    def remember_page(self, source, episode, page, data):
+        if self._direct is None or self._direct.data is not None:
+            return super().remember_page(source, episode, page, data)
+        direct = self._direct
+        h = direct.keep(data)
+        direct.rows.append((self.key(source, episode, page), h, source, episode.series_id, episode.id))
+        if direct.size > DIRECT_MEMORY:
+            self._save_direct_pages()
+        return data
+
+    def _save_direct_pages(self):
+        """Too big to hold: save the pages kept so far, and the rest of the episode, here."""
+        direct, self._direct = self._direct, None
+        for data in direct.pages.values():
+            super().cache_image(data)
+        for key, h, source, series_id, episode_id in direct.rows:
+            self.db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?)", (key, h))
+            self.db.execute('INSERT OR IGNORE INTO cache_owners VALUES (?,?,?,?)', (h, source, series_id, episode_id))
+        if not self._batching_pages:
+            self.db.commit()
+
+    def _keep_direct_pages(self):
+        """An episode stopped partway (paused, held or failed) keeps the pages it has: saved here, they are read
+        from here when it continues instead of being downloaded again. Only a crash loses them."""
+        if self._direct is None or self._direct.data is not None:
+            return
+        try:
+            self._save_direct_pages()
+            self.db.commit()
+        except (ArchiveError, OSError, sqlite3.Error):
+            pass  # The pages are downloaded again; the error that stopped the episode is the one to report.
+
+    def publishes_here(self):
+        return self._direct is None
+
     def transform_page(self, source, episode, page, data):
         from .image_profiles import compress_image
         key = (source, episode.series_id, episode.id)
@@ -389,21 +498,44 @@ class PublicationStore(Store):
         from .cloud import settings
         from .models import Manifest
         from .cloud_stream import StreamingEpisode
+        from .cloud import direct_target
         cloud = settings(self.root)
         if not manifest.episodes or not cloud or not any(t['enabled'] for t in cloud['targets'].values()):
             return super().archive(manifest, adapter, refresh, progress, download_workers)
         folder = self.series_folder(manifest.series)
+        direct = direct_target(self.root) is not None
         # Publish series metadata and finish/offload each episode before the
         # next one, bounding cloud staging by an episode rather than a series.
         for episode in sorted(manifest.episodes, key=lambda e: e.order):
             path = self.episode_path(manifest.series, episode, folder)
-            stream = StreamingEpisode.create(self, manifest.series, episode, path)
+            key = (manifest.series.source, episode.series_id, episode.id)
+            stream = None
+            if direct and episode.access_expires_at is not None:
+                # Access that runs out may not let a lost episode be downloaded again: it is saved here first, as
+                # a too-big one is, uploaded, and removed once the upload is checked.
+                pass
+            elif (direct and episode.content_type == 'comic' and self._episode_formats.get(key, 'cbz') == 'cbz'
+                    and not path.exists() and not self.episode_is_offloaded(manifest.series, episode, path)):
+                # B2 alone takes new episodes: hold this one in memory and send it straight there.
+                self._direct = DirectEpisode(path)
+            else:
+                stream = StreamingEpisode.create(self, manifest.series, episode, path)
             self._streaming_episode = stream
             try:
                 super().archive(Manifest(manifest.series, (episode,)), adapter, refresh, progress, download_workers)
+            except BaseException:
+                self._keep_direct_pages()
+                try:
+                    self._finish_upload()
+                except (ArchiveError, OSError):
+                    pass  # Recorded as failed, for the retry button; the first error is the one to report.
+                raise
             finally:
                 self._streaming_episode = None
+                self._direct = None
+                self._direct_ready.clear()
                 if stream is not None: stream.close()
+        self._finish_upload()
         return folder
 
     def completed_episode(self, path, metadata):
@@ -438,6 +570,10 @@ class PublicationStore(Store):
         private.chmod(0o600)
         atomic_json(path, value)
         if not series: names.add(path.name)
+        if not series and self._direct is not None and self._direct.data is not None:
+            # Held in memory, not saved here: it uploads once the series files are written.
+            self._direct_ready.append((self._direct.archive, self._direct.data))
+            return
         if not series and self.storage_policy['purge_completed_cache']:
             from .purge import evict_episode
             evict_episode(self, archive_from_sidecar(path, metadata), metadata)
@@ -448,7 +584,22 @@ class PublicationStore(Store):
 
     def publish_comic(self, path, entries, metadata, check=None):
         if callable(check): check()
-        if self._streaming_episode is not None:
+        if self._direct is not None:
+            import io
+            from collections import Counter
+            direct = self._direct
+            # Each page is let go once its last use is in the CBZ, so the episode is held once while it is built.
+            uses = Counter(page['sha256'] for page in comic_pages(metadata))
+            def open_page(page):
+                # A page already cached here from an earlier attempt is read from the cache.
+                uses[page['sha256']] -= 1
+                data = direct.pages.get(page['sha256']) if uses[page['sha256']] else direct.pages.pop(page['sha256'], None)
+                return io.BytesIO(data) if data is not None else (self.cache / page['sha256']).open('rb')
+            # Built from memory in a moment, after the check above: a pause is taken before it, while the pages
+            # can still be kept (_keep_direct_pages), not partway through, once some are let go.
+            direct.data = cbz_bytes(metadata, open_page)
+            direct.pages.clear()
+        elif self._streaming_episode is not None:
             self._streaming_episode.finish(metadata, check)
         else:
             writer = write_compressed_comic if metadata['format'] == 'tar.zst' else write_cbz

@@ -39,6 +39,19 @@ class FakeTransfer:
             raise ArchiveError('synthetic authentication/space failure')
         self.files[(self.provider,destination)] = data
 
+    def upload_bytes(self, data, destination):
+        if self.provider == self.fail_provider or self.fail_upload:
+            raise ArchiveError('synthetic authentication/space failure')
+        self.files[(self.provider,destination)] = bytes(data)
+
+    def sha1s(self, path):
+        return {(key[len(path)+1:] if key != path else key.rsplit('/',1)[-1]): hashlib.sha1(data).hexdigest()
+                for (provider,key),data in self.files.items()
+                if provider == self.provider and (key == path or key.startswith(path + '/'))}
+
+    def delete_upload(self, path):
+        self.files.pop((self.provider,path),None)
+
     def remote(self, path):return path
 
     def delete_test_file(self, path):

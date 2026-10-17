@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -187,6 +188,19 @@ class Transfer:
                     raise CloudTransferError('cloud_verification')
                 return
             actual = None
+        if self.provider == 'b2' and source is not None and not getattr(self, 'full_readback', False):
+            # B2 keeps the SHA-1 it checked on arrival; compare it instead of downloading the file again.
+            whole, sha1 = hashlib.sha256(), hashlib.sha1()
+            with Path(source).open('rb') as data:
+                while block := data.read(4 * 1024**2):
+                    whole.update(block); sha1.update(block)
+            if whole.hexdigest() != expected:
+                raise CloudTransferError('cloud_verification')
+            listed = self.sha1s(remote_path)
+            if len(listed) == 1:
+                if next(iter(listed.values())) != sha1.hexdigest():
+                    raise CloudTransferError('cloud_verification')
+                return
         if self.provider == 'google' and not getattr(self, 'full_readback', False):
             try:
                 actual = self.run('hashsum', 'SHA256', destination).split()
@@ -204,6 +218,35 @@ class Transfer:
     def start_stream(self, remote_path):
         from .cloud_stream import PipeUpload
         return PipeUpload(self, remote_path)
+
+    def upload_bytes(self, data, remote_path):
+        """Send a file held in memory, whole, so B2 checks and keeps its SHA-1."""
+        from .cloud_stream import PipeUpload
+        pipe = PipeUpload(self, remote_path, size=len(data))
+        try:
+            view = memoryview(data)
+            for start in range(0, len(view), 1024**2):
+                pipe.write(view[start:start + 1024**2])
+            pipe.finish()
+        finally:
+            pipe.close()
+
+    def delete_upload(self, remote_path):
+        """Delete every version of one file an interrupted direct upload recorded."""
+        from .b2_cleanup import cleanup_file
+        cleanup_file(self, remote_path, upload=True)
+
+    def sha1s(self, remote_path):
+        """The SHA-1 B2 lists for each file at or under a path, read without downloading.
+
+        A file B2 has no whole SHA-1 for (one sent in parts without it) is left out.
+        """
+        listed = {}
+        for line in self.run('hashsum', 'SHA1', self.remote(remote_path)).decode('utf-8', 'replace').splitlines():
+            value, _, name = line.partition('  ')
+            if re.fullmatch(r'[0-9a-f]{40}', value) and name:
+                listed[name] = value
+        return listed
 
     def delete_test_file(self, remote_path):
         if self.provider == 'b2':
@@ -368,10 +411,17 @@ def status(root):
             'cloud_availability_checked':False}
 
 
-def _bundle(root, archive):
+def _bundle(root, archive, data=None):
+    """The files an episode uploads with; data is its archive when held in memory, not saved here."""
     root, archive = safe_root(root), safe_root(archive)
+    if data is None:
+        problems = verify_episode(archive)
+    else:
+        from .archive import verify_episode_contents
+        import io
+        problems = verify_episode_contents(io.BytesIO(data), _json(sidecar_path(archive), 16*1024**2))
     if (len(archive.relative_to(root).parts) != 2 or archive.parent.name.startswith('.')
-            or verify_episode(archive) or verify_series(archive.parent / 'series.json')):
+            or problems or verify_series(archive.parent / 'series.json')):
         raise ArchiveError('Only verified completed public episodes can be uploaded.')
     metadata = _json(sidecar_path(archive), 16*1024**2)
     series = _json(archive.parent / 'series.json', 16*1024**2)
@@ -387,8 +437,11 @@ def _bundle(root, archive):
     items = []
     for name, path in files:
         safe_root(path)
-        with path.open('rb') as stream:
-            sha = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if data is not None and path == archive:
+            sha = hashlib.sha256(data).hexdigest()
+        else:
+            with path.open('rb') as stream:
+                sha = hashlib.file_digest(stream, 'sha256').hexdigest()
         items.append({'name':name, 'path':path.relative_to(root).as_posix(), 'sha256':sha})
     # Series descriptions/counts may change while an existing episode stays
     # identical. Do not repeatedly upload completed episodes for those changes.
@@ -437,6 +490,14 @@ def upload_pending(root, *, limit=None, provider=None):
     with LibraryLock(root):
         value = settings(root)
         if not value:return report
+        if 'b2' in value['targets']:
+            try:
+                cleanup_direct(root)
+            except ArchiveError as error:
+                from .network import NetworkPolicyHold
+                if isinstance(error, NetworkPolicyHold):
+                    raise
+                # Leftovers wait for the next upload; they never hold up a retry.
         for name, target in value['targets'].items():
             if not target['enabled'] or provider not in (None, name):continue
             transfer = None
@@ -481,6 +542,151 @@ def upload_pending(root, *, limit=None, provider=None):
         deleted = evict_uploaded(root)
         report.update(deleted)
     return report
+
+
+def direct_target(root):
+    """B2's target when it alone takes new episodes, so they can go to it without being saved here."""
+    value = settings(root)
+    enabled = [name for name, target in value['targets'].items() if target['enabled']] if value else []
+    return value['targets']['b2'] if enabled == ['b2'] else None
+
+
+def cleanup_direct(root, transfer=None):
+    """Delete what an interrupted direct upload left in B2, by the paths it recorded first.
+
+    An upload later recorded as verified at the same paths is kept. Records made
+    for an earlier connection are kept too, since that account may not be this one.
+    """
+    root = safe_root(root)
+    folder = root / '.archive-state/cloud/direct/b2'
+    if not folder.is_dir():
+        return transfer
+    value = settings(root)
+    target = value and value['targets'].get('b2')
+    for path in sorted(folder.glob('*.json'))[:20]:
+        record = _json(path)
+        if (set(record) != {'schema_version', 'library_id', 'target_id', 'episode_id', 'prefix', 'names'}
+                or record['schema_version'] != 1 or not valid_export_id(record['episode_id'])
+                or path.stem != record['episode_id'] or not isinstance(record['prefix'], str)
+                or not isinstance(record['names'], list) or not all(isinstance(n, str) for n in record['names'])):
+            raise ArchiveError('Direct upload recovery state is invalid; no cloud files were changed.')
+        if not target or record['library_id'] != value['library_id'] or record['target_id'] != target['target_id']:
+            continue
+        receipt = root / '.archive-state/cloud/outbox/b2' / (record['episode_id'] + '.json')
+        kept = _json(receipt) if receipt.is_file() else {}
+        finished = (kept.get('state') == 'verified' and kept.get('target_id') == target['target_id']
+                    and record['prefix'].endswith('/' + str(kept.get('version'))))
+        if not finished:
+            if transfer is None:
+                transfer = transfer_for(root, 'b2', target)
+            for name in record['names']:
+                transfer.delete_upload(record['prefix'] + '/' + name)
+        path.unlink()
+        _directory_sync(folder)
+    return transfer
+
+
+class DirectUpload:
+    """A finished episode held in memory, going to B2 while the next one downloads; no copy is saved here.
+
+    Started with the library locked, it records the paths it will use, then a
+    thread sends the episode and copies of its sidecar and series files as they
+    were, and compares B2's own SHA-1 of each. The thread only uses the network.
+    finish, on the thread that started it, records the episode as uploaded and
+    removed from this computer, the same as one saved here, uploaded, then
+    removed. If the upload failed, finish saves the episode here, queued for the
+    retry button, and raises the error an upload from this computer would raise.
+    """
+    def __init__(self, root, archive, data):
+        self.root, self.archive, self.data = safe_root(root), safe_root(archive), data
+        self.value = settings(self.root)
+        self.target = direct_target(self.root)
+        if self.target is None:
+            raise ArchiveError('Direct uploads need B2 to be the only cloud storage in use.')
+        self.bundle = _bundle(self.root, self.archive, data)
+        self.prefix = (f"{CLOUD_ROOTS[0]}/{self.value['library_id']}/{self.bundle['series_id']}"
+                       f"/{self.bundle['episode_id']}/{self.bundle['version']}")
+        self.intent = self.root / '.archive-state/cloud/direct/b2' / (self.bundle['episode_id'] + '.json')
+        self.error = None
+        self.thread = None
+        try:
+            files = [data] + [(self.root / item['path']).read_bytes() for item in self.bundle['files'][1:]]
+            if [hashlib.sha256(f).hexdigest() for f in files] != [item['sha256'] for item in self.bundle['files']]:
+                raise ArchiveError('Episode files changed while their upload was prepared.')
+            self.files = [(item['name'], f) for item, f in zip(self.bundle['files'], files)]
+            transfer = cleanup_direct(self.root)
+            from .cloud_stream import _stage, cleanup_stage
+            if _stage(self.root, self.bundle['episode_id'], 'b2')[1] is not None:
+                # Left by an interrupted upload before episodes went to B2 from memory.
+                transfer = transfer or transfer_for(self.root, 'b2', self.target)
+                cleanup_stage(self.root, transfer, self.bundle['episode_id'])
+            # The paths go on record before any bytes, so an interruption can be cleaned up exactly.
+            # After a failure the record stays: the cleanup it allows is harmless once the retry is verified.
+            _write(self.intent, {'schema_version':1, 'library_id':self.value['library_id'],
+                                 'target_id':self.target['target_id'], 'episode_id':self.bundle['episode_id'],
+                                 'prefix':self.prefix, 'names':[name for name, _ in self.files]})
+            self.transfer = transfer or transfer_for(self.root, 'b2', self.target)
+        except (ArchiveError, OSError, ValueError, KeyError, TypeError) as error:
+            self.error = error
+            return
+        self.thread = threading.Thread(target=self._send, name='cloud-direct', daemon=True)
+        self.thread.start()
+
+    def _send(self):
+        try:
+            for name, data in self.files:
+                self.transfer.upload_bytes(data, self.prefix + '/' + name)
+            if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data).hexdigest() for name, data in self.files}:
+                raise CloudTransferError('cloud_verification')
+        except BaseException as error:
+            self.error = error
+
+    def finish(self):
+        if self.thread is not None:
+            self.thread.join()
+        error, self.files = self.error, None
+        if error is not None and not isinstance(error, (ArchiveError, OSError, ValueError, KeyError, TypeError)):
+            raise error
+        if error is not None:
+            code = safe_code(error)
+            try:
+                keep_here(self.root, self.archive, self.data, code)
+            except (ArchiveError, OSError):
+                pass  # Not saved anywhere: the episode is downloaded again next time.
+            from .network import NetworkPolicyHold
+            if isinstance(error, NetworkPolicyHold):
+                raise error
+            raise CloudTransferError(code) from None
+        queued = {'episode_id':self.bundle['episode_id'], 'archive':self.archive.relative_to(self.root).as_posix(),
+                  'version':self.bundle['version'], 'required_targets':['b2'], 'state':'pending',
+                  'library_id':self.value['library_id'], 'target_id':self.target['target_id'],
+                  'remote_root':CLOUD_ROOTS[0]}
+        _write(self.root / '.archive-state/cloud/outbox/b2' / (self.bundle['episode_id'] + '.json'),
+               queued | self.bundle | {'state':'verified', 'target_id':self.target['target_id'],
+                                       'verified_at':datetime.now(timezone.utc).isoformat(),
+                                       'eviction_requested':True})
+        self.intent.unlink()
+        _directory_sync(self.intent.parent)
+        _prepare_cache_for_offload(self.root, self.archive, saved=False)
+
+
+def keep_here(root, archive, data, code=None):
+    """Save an episode held in memory for B2, queued for upload; code marks it failed, for the retry button."""
+    temporary = archive.with_name(archive.name + '.tmp')
+    if any(p.is_symlink() for p in (archive, temporary)):
+        raise ArchiveError('Refusing unsafe archive output.')
+    if shutil.disk_usage(root).free < len(data) + 256 * 1024**2:
+        raise ArchiveError('Not enough free space to keep the episode here.')
+    try:
+        with temporary.open('wb') as output:
+            output.write(data); output.flush(); os.fsync(output.fileno())
+        osdep.replace_file(temporary, archive)
+    finally:
+        if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
+    queue_episode(root, archive)
+    if code is not None:
+        receipt = root / '.archive-state/cloud/outbox/b2' / (_json(sidecar_path(archive), 16*1024**2)['export_id'] + '.json')
+        _write(receipt, _json(receipt) | {'state':'failed', 'error_code':code})
 
 
 def upload_existing(root, *, limit, provider=None):
@@ -541,7 +747,15 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
                         record['files'].append(remote_path)
                         _write(receipt, record)
                         source = root / item['path']
-                        if stream and item == bundle['files'][0]:
+                        if stream and item == bundle['files'][0] and provider == 'b2':
+                            # New episodes go to B2 whole from memory: B2's own SHA-1 is
+                            # checked as for them, then the bytes are read back as well.
+                            data = source.read_bytes()
+                            transfer.upload_bytes(data, remote_path)
+                            if transfer.sha1s(remote_path) != {item['name']: hashlib.sha1(data).hexdigest()}:
+                                raise CloudTransferError('cloud_verification')
+                            transfer.verify(remote_path, item['sha256'])
+                        elif stream and item == bundle['files'][0]:
                             # Exercise the same bounded pipe used during CBZ
                             # assembly, without deleting the saved original.
                             pipe = transfer.start_stream(remote_path)
@@ -714,9 +928,12 @@ def evict_uploaded(root):
     return report
 
 
-def _prepare_cache_for_offload(root, archive):
+def _prepare_cache_for_offload(root, archive, *, saved=True):
     """Retain pages needed by another unfinished import before their last
     local recovery archive disappears. Remove this completed episode's blobs.
+
+    An episode never saved here has no archive to recover pages from: another
+    import keeps only the pages it cached itself.
     """
     from contextlib import closing
     from .archive import Store
@@ -733,7 +950,7 @@ def _prepare_cache_for_offload(root, archive):
             blob = store.cache / sha
             if shared:
                 page = pages.get(sha)
-                if page and metadata['content_type'] == 'comic' and not blob.is_file():
+                if saved and page and metadata['content_type'] == 'comic' and not blob.is_file():
                     data = archive_page(root,(archive.relative_to(root).as_posix(),page['file'],page['size']),sha)
                     if data is None:raise ArchiveError('Shared resume page cannot be retained; cloud deletion held.')
                     store.cache_image(data)
