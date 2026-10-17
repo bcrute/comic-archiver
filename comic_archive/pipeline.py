@@ -152,6 +152,6 @@ class MetadataPipeline:
         if (len(updated.pages) != len(episode.pages) or any(
                 (urlsplit(a.location).hostname, urlsplit(a.location).path) !=
                 (urlsplit(b.location).hostname, urlsplit(b.location).path)
-                for a, b in zip(updated.pages, episode.pages))):
+                for a, b in zip(updated.pages, episode.pages, strict=True))):
             raise ArchiveError('Reader page manifest changed; restart capture to preserve ordering.')
         return updated

@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from support import helper_program, posix_signals
 from comic_archive import cloud
 from comic_archive.cloud import Transfer as RealTransfer
-from comic_archive.archive import episode_archives, sidecar_path, digest
+from comic_archive.archive import episode_archives, digest
 from comic_archive.cloud_errors import CloudTransferError, safe_code
 from comic_archive.cloud_stream import PipeUpload, StreamingEpisode, _stage, cleanup_stage, promote_stream
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series

@@ -1,8 +1,6 @@
 """Remove only media with verified replacements; retain indexes and partials."""
-import json
 from pathlib import Path
 import re
-import sqlite3
 import tarfile
 import zipfile
 import zstandard

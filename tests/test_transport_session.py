@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import sqlite3
 import time
@@ -113,7 +112,7 @@ class TransportTests(unittest.TestCase):
             self.assertNotIn('HTTP Request',output.getvalue())
         finally:
             client.close()
-            for logger,(level,filters) in zip(loggers,original):
+            for logger,(level,filters) in zip(loggers,original,strict=True):
                 logger.removeHandler(handler)
                 logger.setLevel(level)
                 logger.filters[:] = filters

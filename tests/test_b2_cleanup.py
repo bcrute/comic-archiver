@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import httpx
 
-from comic_archive import b2_cleanup, cloud
+from comic_archive import cloud
 from comic_archive.cloud_errors import CloudTransferError
 from comic_archive.models import ArchiveError
 

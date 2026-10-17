@@ -352,7 +352,7 @@ def smoke_archive(archive, release):
     """Smoke what people receive: unpacked in a path with a space, apart from the build tree."""
     with tempfile.TemporaryDirectory(prefix='comic archiver smoke ') as temporary:
         with zipfile.ZipFile(archive) as package:
-            package.extractall(temporary)
+            package.extractall(temporary)  # noqa: S202 - the release archive this build has just made
         smoke(Path(temporary) / f'{APP}-{release}', release)
 
 

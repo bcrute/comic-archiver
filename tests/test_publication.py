@@ -27,7 +27,7 @@ from comic_archive.locking import LibraryLock
 from comic_archive.migration import migrate_exports
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import (PublicationStore, StrictZstdReader, comic_pages, import_metadata,
-                                       metadata_hash, public_metadata, validate_public_metadata,
+                                       validate_public_metadata,
                                        verify_compressed_comic, write_cbz, write_compressed_comic)
 from comic_archive.storage import configure
 from test_archive import MemoryAdapter, png

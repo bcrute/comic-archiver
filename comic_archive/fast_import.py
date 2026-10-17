@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import contextmanager
 import hashlib
 
-from .adapters.tapas import BrowserReadTransport, TapasAdapter, read_only_source_request
+from .adapters.tapas import BrowserReadTransport, TapasAdapter
 from .adapters.tapas_http import TapasHTTPAdapter
 from .models import ArchiveError
 from .pipeline import MetadataPipeline

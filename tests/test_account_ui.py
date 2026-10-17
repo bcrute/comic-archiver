@@ -120,7 +120,7 @@ class AccountUITests(unittest.TestCase):
 
     def test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands(self):
         self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
-        with patch.object(account_ui.os,'replace',side_effect=OSError):
+        with patch('os.replace',side_effect=OSError):
             with self.assertRaisesRegex(ArchiveError,'could not save that speed'):
                 self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'medium')
@@ -289,7 +289,7 @@ class AccountUITests(unittest.TestCase):
             inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':'tapas_free'}],'fixture')
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         completion.continue_discovered(self.workspace.session,self.workspace.library)
-        root=batches._root(self.workspace.session,self.workspace.library)
+        batches._root(self.workspace.session,self.workspace.library)
         for _ in range(2):completion.worker_tick(self.workspace.session,self.workspace.library)
         original=batches.status(self.workspace.session,self.workspace.library)
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
@@ -415,7 +415,6 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual((window['status'],window['code']),('paused','login_required'))
 
     def test_closing_interrupts_whatever_the_downloader_is_on_and_leaves_the_saved_download_running(self):
-        session,library=self.workspace.session,self.workspace.library
         account_ui.interrupt(self.workspace)  # Nothing is running and nothing is configured.
         _,run=self.running_batch()
         before=[(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')]
@@ -499,7 +498,6 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
 
     def test_a_start_of_the_app_leaves_a_paused_download_as_it_is_and_still_ends_its_unrun_task(self):
-        session,library=self.workspace.session,self.workspace.library
         task,run=self.running_batch()
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
         saved=[(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')]

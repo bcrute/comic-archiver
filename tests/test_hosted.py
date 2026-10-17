@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER, replaces_open_files
 from comic_archive.archive import Store, digest
-from comic_archive.errors import LibraryBusy
 from comic_archive.hosted import WorkspaceRegistry
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered
@@ -191,7 +190,7 @@ class HostedTests(unittest.TestCase):
         self.seed(self.a);self.seed(self.b)
         adapters=[ConcurrentAccount(),ConcurrentAccount()];adapters[1].identity='22'
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            futures=[pool.submit(archive_discovered,adapter,workspace.library) for adapter,workspace in zip(adapters,[self.a,self.b])]
+            futures=[pool.submit(archive_discovered,adapter,workspace.library) for adapter,workspace in zip(adapters,[self.a,self.b],strict=True)]
             results=[f.result(timeout=10) for f in futures]
         self.assertEqual([r['archived_episode_ids'] for r in results],[['81'],['81']])
         self.assertEqual(self.registry.status('website-user-a',self.a.id)['episodes_by_status'],{'archived':1})

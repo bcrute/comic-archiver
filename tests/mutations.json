@@ -1538,32 +1538,32 @@
  {
   "id": "retry-wait-not-reported",
   "source": "comic_archive/account_ui.py",
-  "old": "                if left > 0:\n                    result['retry']",
-  "new": "                if False:\n                    result['retry']",
+  "old": "                    if left > 0:\n                        result['retry']",
+  "new": "                    if False:\n                        result['retry']",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "finished-wait-reported",
   "source": "comic_archive/account_ui.py",
-  "old": "                if left > 0:\n                    result['retry']",
-  "new": "                if True:\n                    result['retry']",
+  "old": "                    if left > 0:\n                        result['retry']",
+  "new": "                    if True:\n                        result['retry']",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "retry-wait-reported-for-a-paused-download",
   "source": "comic_archive/account_ui.py",
-  "old": "    if result.get('status') == 'running':\n        # A wait the download",
-  "new": "    if True:\n        # A wait the download",
+  "old": "            if result.get('status') == 'running':\n                # A wait the download",
+  "new": "            if True:\n                # A wait the download",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "unreadable-window-breaks-the-status",
   "source": "comic_archive/account_ui.py",
-  "old": "                    result['retry'] = {'reason': reason, 'seconds': math.ceil(left)}\n        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):",
-  "new": "                    result['retry'] = {'reason': reason, 'seconds': math.ceil(left)}\n        except (OSError,):",
+  "old": "                    result['go_after_seconds'] = math.ceil(left)\n        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):",
+  "new": "                    result['go_after_seconds'] = math.ceil(left)\n        except (OSError,):",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },

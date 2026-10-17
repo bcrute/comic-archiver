@@ -172,7 +172,7 @@ class Store:
             raise ArchiveError('Refusing a symlink in archive output.')
         try:
             with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_STORED) as z:
-                for name, h, size in entries:
+                for name, h, _size in entries:
                     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                     info.compress_type = zipfile.ZIP_STORED
                     info.external_attr = 0o644 << 16
@@ -396,8 +396,8 @@ class Store:
                     if (updated.id != current.id or updated.series_id != current.series_id
                             or len(updated.pages) != len(current.pages)
                             or any(self.key(source, current, a) != self.key(source, updated, b)
-                                   for a, b in zip(current.pages, updated.pages))):
-                        raise ArchiveError('Reader page manifest changed; restart capture to preserve ordering.')
+                                   for a, b in zip(current.pages, updated.pages, strict=True))):
+                        raise ArchiveError('Reader page manifest changed; restart capture to preserve ordering.') from None
                     current, refreshed = updated, True
                 finally:
                     for _, request in futures.values():
@@ -610,7 +610,7 @@ class Store:
         return folder
 
     def archive_novel(self, series, episode, adapter, folder, progress):
-        from .novels import epub_entries, validate_fragment
+        from .novels import validate_fragment
         text = episode.text_html.encode('utf-8')
         character_count = len(''.join(validate_fragment(episode.text_html, episode.illustrations).itertext()))
         path = self.episode_path(series, episode, folder)

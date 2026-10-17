@@ -11,7 +11,7 @@ from support import PRIVATE_FILE
 from comic_archive import daily
 from comic_archive.daily import (configure, next_occurrence, start_scheduler, status, stop_scheduler, tick,
                                  validate_configuration)
-from comic_archive.errors import AuthenticationError, LibraryBusy
+from comic_archive.errors import LibraryBusy
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import sync
 from comic_archive.models import ArchiveError

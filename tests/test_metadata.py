@@ -192,7 +192,7 @@ class MetadataJobTests(unittest.TestCase):
 
     @patch('builtins.print')
     def test_completed_series_new_cover_obeys_byte_budget_and_is_accounted(self,output):
-        folder=self.saved_series()
+        self.saved_series()
         self.adapter.series_metadata=lambda key:replace(self.adapter.series,
             cover_url='https://us-a.tapas.io/cover/new.png')
         limited=archive_watched_series(self.adapter,'42',self.root,max_bytes=len(png(3))-1)

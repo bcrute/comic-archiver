@@ -128,7 +128,7 @@ class PurgeTests(unittest.TestCase):
         cbz.unlink()
         with closing(PublicationStore(self.root)) as store: store.publish_metadata(sidecar_path(compressed), metadata)
         relative = compressed.relative_to(self.root).as_posix()
-        for item, expected in zip(metadata['content_hashes'], (png(1), png(2))):
+        for item, expected in zip(metadata['content_hashes'], (png(1), png(2)), strict=True):
             with self.subTest(page=item['file']):
                 self.assertEqual(archive_page(self.root, (relative, item['file'], item['size']), item['sha256']), expected)
         first, second = metadata['content_hashes']

@@ -406,7 +406,7 @@ class TapasHTTPAdapter:
         if len(new.pages) != len(episode.pages) or any(
             (urlsplit(a.location).hostname, urlsplit(a.location).path) !=
             (urlsplit(b.location).hostname, urlsplit(b.location).path)
-            for a, b in zip(new.pages, episode.pages)
+            for a, b in zip(new.pages, episode.pages, strict=True)
         ):
             raise ArchiveError("Reader page manifest changed; restart capture to preserve ordering.")
         return new

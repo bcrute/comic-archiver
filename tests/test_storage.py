@@ -147,7 +147,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(outside.read_bytes(), b'keep')
 
     def test_converted_legacy_is_deleted_only_when_equivalent_export_is_verified(self):
-        original = self.publish(cls=Store)
+        self.publish(cls=Store)
         migrate_exports(self.root)
         retired = next((self.root / '.archive-state/legacy-exports').glob('*/*.cbz'))
         self.assertTrue(retired.is_file())
@@ -171,7 +171,7 @@ class StorageTests(unittest.TestCase):
 
     def test_evicted_shared_page_remains_recoverable_for_another_incomplete_import(self):
         configure(self.root, purge_completed_cache=False)
-        archive = self.publish()
+        self.publish()
         second = replace(self.episode, id='82')
         store = PublicationStore(self.root)
         try:
@@ -187,7 +187,7 @@ class StorageTests(unittest.TestCase):
 
     def test_damaged_recovery_archive_cannot_return_corrupt_cached_bytes(self):
         archive = self.publish()
-        metadata = import_metadata(sidecar_path(archive))
+        import_metadata(sidecar_path(archive))
         record = (str(archive.relative_to(self.root)), '0001.png', len(png(1)))
         archive.write_bytes(b'corrupt')
         self.assertIsNone(archive_page(self.root, record, digest(png(1))))
@@ -195,7 +195,7 @@ class StorageTests(unittest.TestCase):
 
     def test_single_location_cache_index_migrates_without_losing_verified_recovery(self):
         import sqlite3
-        archive = self.publish()
+        self.publish()
         database = self.root/'.archive-cache/index.sqlite3'
         with closing(sqlite3.connect(database)) as db, db:  # Closed, not only committed: Windows keeps an open file in place.
             record = db.execute('SELECT hash,path,member,size FROM archived_pages').fetchone()

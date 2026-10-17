@@ -176,8 +176,8 @@ def restore(source, destination, decode=False):
                         elif item['file'] != 'mimetype':
                             if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
                                 raise ValueError('Unsupported restored EPUB XML.')
-                            ET.fromstring(data)
-                    chapter = ET.fromstring(archive.read('EPUB/chapter.xhtml')).find(
+                            ET.fromstring(data)  # noqa: S314 - DOCTYPE and ENTITY are refused just above
+                    chapter = ET.fromstring(archive.read('EPUB/chapter.xhtml')).find(  # noqa: S314 - checked in the loop above
                         '{http://www.w3.org/1999/xhtml}body/{http://www.w3.org/1999/xhtml}div')
                     if chapter is None or not ''.join(chapter.itertext()).strip() and not images:
                         raise ValueError('Restored EPUB chapter is empty.')
@@ -202,7 +202,7 @@ def restore(source, destination, decode=False):
                     raise ValueError('Restored CBZ page membership/order differs from JSON.')
                 if len({m.filename for m in members}) != len(members):
                     raise ValueError('Duplicate CBZ pages.')
-                for position,(member,page) in enumerate(zip(members,hashes),1):
+                for position,(member,page) in enumerate(zip(members,hashes,strict=True),1):
                     if (Path(member.filename).name != member.filename
                             or Path(member.filename).stem != f'{position:04d}'
                             or not 0 < member.file_size <= 100*1024**2

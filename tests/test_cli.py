@@ -7,7 +7,7 @@ import unittest
 import zlib
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from comic_archive.archive import verify
 from comic_archive.cli import main, parser, run
 from comic_archive.errors import LibraryBusy

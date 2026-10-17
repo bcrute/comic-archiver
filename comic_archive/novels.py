@@ -282,7 +282,7 @@ def epub_entries(series, episode, modified, *, export_id=None):
         'EPUB/chapter.xhtml': (head + f'<html xmlns="{XHTML}" xml:lang="und"><head><title>{chapter_title}</title></head><body><h1>{chapter_title}</h1><div id="chapter">{episode.text_html}</div></body></html>').encode(),
         'EPUB/nav.xhtml': (head + f'<html xmlns="{XHTML}" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="und"><head><title>Contents</title></head><body><nav epub:type="toc"><h1>Contents</h1><ol><li><a href="chapter.xhtml">{chapter_title}</a></li></ol></nav></body></html>').encode(),
     }
-    entries.update({'EPUB/' + name: data for name, data in zip(names, episode.illustrations)})
+    entries.update({'EPUB/' + name: data for name, data in zip(names, episode.illustrations, strict=True)})
     return entries
 
 

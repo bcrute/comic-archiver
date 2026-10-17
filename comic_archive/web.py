@@ -54,7 +54,7 @@ class HostedApplication:
                     or origin.fragment or origin.scheme not in {'https','http'}
                     or (origin.scheme=='http' and origin.hostname not in {'localhost','127.0.0.1','::1'})):
                 raise ValueError
-            origin.port
+            _ = origin.port  # An invalid port raises ValueError here.
         except (ValueError, TypeError, AttributeError):
             raise ArchiveError('Use an HTTPS website origin, or a loopback HTTP origin for local tests.') from None
         if type(max_workspaces) is not int or not 1<=max_workspaces<=100:

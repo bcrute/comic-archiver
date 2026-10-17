@@ -1791,4 +1791,4 @@ if __name__=='__main__':
         print(json.dumps({'frames': [{'function':frame.name, 'line':frame.lineno}
             for frame in traceback.extract_tb(error.__traceback__)
             if Path(frame.filename).name == 'dashboard_smoke.py']}))
-        raise SystemExit(1)
+        raise SystemExit(1) from None

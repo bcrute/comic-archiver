@@ -899,11 +899,11 @@ def differences(ours, theirs, where=''):
         for key in sorted(set(ours) | set(theirs)):
             yield from differences(ours.get(key, '<absent>'), theirs.get(key, '<absent>'), f'{where}.{key}')
     elif isinstance(ours, list) and isinstance(theirs, list) and len(ours) == len(theirs):
-        for index, pair in enumerate(zip(ours, theirs)):
+        for index, pair in enumerate(zip(ours, theirs, strict=True)):
             yield from differences(*pair, f'{where}[{index}]')
     elif isinstance(ours, list) and isinstance(theirs, list):
         # Lists of unequal length: where they part, and what follows there.
-        index = next((index for index, pair in enumerate(zip(ours, theirs)) if pair[0] != pair[1]), min(len(ours), len(theirs)))
+        index = next((index for index, pair in enumerate(zip(ours, theirs, strict=False)) if pair[0] != pair[1]), min(len(ours), len(theirs)))
         yield f'{where}[{index}:] of {len(ours)} and {len(theirs)}', ours[index:index + 4], theirs[index:index + 4]
     elif ours != theirs:
         yield where or '.', ours, theirs

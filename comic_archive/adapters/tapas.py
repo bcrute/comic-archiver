@@ -1431,7 +1431,7 @@ class TapasAdapter:
                 state['ready'] = True
             if state['finished']:
                 return result('A rendered history boundary was observed; server totals and full purchase-inventory semantics remain unverified.')
-            for step in range(max_pages):
+            for _ in range(max_pages):
                 if state['needs_advance'] and not self._advance_history(state):
                     if state.get('navigation_error'):
                         return result('Normal history navigation could not advance within its wait budget; partial discoveries are retained and a fresh scan is required.')
@@ -2079,7 +2079,7 @@ class TapasAdapter:
         from urllib.parse import urlsplit
         if len(new.pages) != len(episode.pages) or any(
             urlsplit(a.location).path != urlsplit(b.location).path
-            for a, b in zip(new.pages, episode.pages)
+            for a, b in zip(new.pages, episode.pages, strict=True)
         ):
             raise ArchiveError("Reader page manifest changed; restart capture to preserve ordering.")
         return new
