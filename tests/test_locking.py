@@ -58,6 +58,11 @@ class LockingTests(unittest.TestCase):
             self.assertIsInstance(in_another_thread(lambda: enter_and_leave(self.root)), LibraryBusy)
         self.assertIsNone(in_another_thread(lambda: enter_and_leave(self.root)))
 
+    def test_the_librarys_private_state_folder_is_hidden_from_the_file_manager(self):
+        with patch.object(locking.osdep, 'hide') as hide:
+            enter_and_leave(self.root)
+        hide.assert_called_once_with(self.root.absolute() / '.archive-state')
+
     def test_a_failure_while_taking_the_lock_leaves_nothing_held(self):
         seen = []
         def failing(descriptor):

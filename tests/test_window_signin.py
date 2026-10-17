@@ -194,6 +194,16 @@ class WindowSignInTests(unittest.TestCase):
             self.assertFalse(self.launch.locked())
         self.assertEqual(self.start.call_count, 5)
 
+    def test_a_downloader_still_starting_after_the_wait_keeps_the_saved_sign_in_and_reports_no_failure(self):
+        # The first start after installing, while Windows checks the new files: the process lives but is not up yet.
+        self.start.return_value = {'running': False, 'state': 'stopped', 'startup_pending': True}
+        self.signin.start(); self.signin.take()
+        self.assertEqual(self.finish(), {'status': 'connected'})
+        self.assertEqual(self.signin.status(), {'status': 'connected'})
+        self.assertEqual(load_session(self.session)['cookies'][0]['value'], 'PRIVATE_COOKIE')
+        self.start.assert_called_once_with(self.session, 'qt', DESKTOP_REQUEST_INTERVAL)
+        self.assertFalse(self.launch.locked())
+
     def test_unusable_cookies_fail_before_the_old_downloader_is_touched(self):
         for cookies in ([], [cookie(domain='.google.com')], [cookie(expires='PRIVATE')], [None]):
             self.cookies = cookies

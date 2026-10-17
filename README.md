@@ -14,8 +14,23 @@ extensions do not run in the app's window). Webtoon is listed in the app as "com
 
 Get the newest version from the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest):
 the setup file for Windows 10 or 11, or the `.tar.gz` for Linux. Nothing else needs installing, and nothing has
-to be built. The release notes say what to do the first time, including the warning Windows shows because the
-app is not signed yet.
+to be built.
+
+On Windows the app is not signed yet, so two warnings are expected. If Edge says the file "isn't commonly
+downloaded", point at the download, choose **…**, then **Keep** (and **Show more**, then **Keep anyway**, if it asks
+again). If Windows says "Windows protected your PC", choose **More info**, then **Run anyway**. If Smart App Control
+blocks it with no **Run anyway**, Comic Archiver can't be installed on that PC yet.
+
+The first time:
+
+1. Choose your site in the Site list.
+2. Choose **Sign in**, and sign in on the site's own page in the window with your email and password. If you
+   normally use Google or Facebook there, set a password on the site first.
+3. Press **Go**.
+
+Episodes are saved in the folder `Comic Archiver` in your user folder: Tapas in `Library`, Tappytoon in
+`Tappytoon/Library`. Comics are CBZ files and novels EPUB files, which open in comic and e-book reader apps.
+Uninstalling removes only the app: your saved episodes and your sign-in are kept.
 
 ## Status
 
