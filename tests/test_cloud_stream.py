@@ -595,4 +595,230 @@ class DropboxStreamTests(unittest.TestCase):
 
 
 class B2StreamTests(DropboxStreamTests):
+    """B2's trial and its staging cleanup. New episodes go to B2 from memory instead (B2DirectTests)."""
     provider = 'b2'
+    test_unknown_size_cbz_overlaps_retrieval_and_promotes_without_second_upload = None
+    test_failed_pipe_falls_back_to_one_completed_episode = None
+    test_source_retry_reuses_pages_and_deletes_only_its_provider_stage = None
+
+
+class Crash(BaseException):
+    """The app closing in the middle of an upload."""
+
+
+class B2DirectTests(unittest.TestCase):
+    provider = 'b2'
+    publish = CloudStreamTests.publish
+    setUp = DropboxStreamTests.setUp
+    target = DropboxStreamTests.target
+
+    def b2(self):
+        return {path: data for (provider, path), data in StreamingTransfer.files.items() if provider == 'b2'}
+
+    def intents(self):
+        return list((self.root/'.archive-state/cloud/direct/b2').glob('*.json'))
+
+    def test_new_episode_goes_to_b2_from_memory_and_is_never_saved_here(self):
+        from comic_archive.archive import verify_episode_contents
+        import io
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=lambda page: png(page.order + 2))
+        folder = self.publish((self.episode,), adapter)
+        self.assertEqual(len(episode_archives(folder)), 1)  # Only the seed is here.
+        self.assertFalse(list(folder.glob('*.tmp')))
+        for order in (3, 4):
+            self.assertFalse((self.root/'.archive-cache'/hashlib.sha256(png(order)).hexdigest()).exists())
+        self.assertFalse(StreamingTransfer.started.is_set())
+        self.assertNotIn('.cbz', StreamingTransfer.copies)
+        files = self.b2()
+        cbz = [path for path in files if path.endswith('/episode.cbz')]
+        self.assertEqual(len(cbz), 1)
+        prefix = cbz[0].rsplit('/', 1)[0]
+        self.assertEqual({path.rsplit('/', 1)[1] for path in files if path.startswith(prefix + '/')},
+                         {'episode.cbz', 'episode.json', 'series.json'})
+        metadata = json.loads(files[prefix + '/episode.json'])
+        self.assertEqual(verify_episode_contents(io.BytesIO(files[cbz[0]]), metadata), [])
+        self.assertEqual(self.target()['verified'], 1)
+        sidecar = next(path for path in folder.glob('*.json') if path.name != 'series.json'
+                       and json.loads(path.read_text())['export_id'] == metadata['export_id'])
+        self.assertTrue(cloud.offloaded(self.root, sidecar.with_suffix('.cbz')))
+        self.assertFalse(self.intents())
+        # Kept in B2, it is not downloaded again.
+        again = MemoryAdapter(); again.retrieve = Mock()
+        self.publish((self.episode,), again)
+        again.retrieve.assert_not_called()
+
+    def test_each_page_is_let_go_once_its_last_use_is_in_the_cbz(self):
+        from comic_archive import publication
+        from comic_archive.archive import verify_episode_contents
+        import io
+        pages = tuple(Page(order, f'https://cdn.test/repeat{order}', False) for order in (1, 2, 3))
+        repeat = Episode('83', '42', 'Repeat', 4, pages, 'tapas_free')  # Its first and last pages are the same image.
+        held, episodes, real = [], [], publication.cbz_bytes
+        class Held(publication.DirectEpisode):
+            def __init__(self, archive):
+                super().__init__(archive); episodes.append(self)
+        def build(metadata, open_page, check=None):
+            def counted(page):
+                source = open_page(page); held.append(len(episodes[-1].pages)); return source
+            return real(metadata, counted, check)
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=lambda page: png(1 if page.order == 3 else page.order))
+        with patch.object(publication, 'DirectEpisode', Held), patch.object(publication, 'cbz_bytes', build):
+            self.publish((repeat,), adapter)
+        self.assertEqual(held, [2, 1, 0])
+        files = self.b2()
+        cbz = next(path for path in files if path.endswith('/episode.cbz'))
+        metadata = json.loads(files[cbz.rsplit('/', 1)[0] + '/episode.json'])
+        self.assertEqual(metadata['page_count'], 3)
+        self.assertEqual(verify_episode_contents(io.BytesIO(files[cbz]), metadata), [])
+
+    def test_failed_upload_keeps_the_episode_here_for_the_retry_button(self):
+        StreamingTransfer.fail_upload = True
+        with self.assertRaises(ArchiveError): self.publish((self.episode,), MemoryAdapter())
+        folder = next(self.root.glob('Synthetic*'))
+        self.assertEqual(len(episode_archives(folder)), 2)
+        self.assertEqual(self.target()['failed'], 1)
+        StreamingTransfer.fail_upload = False
+        cloud.upload_pending(self.root)
+        self.assertIn('.cbz', StreamingTransfer.copies)
+        self.assertEqual(len(episode_archives(folder)), 1)
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertFalse(self.intents())
+
+    def crash_after_the_cbz(self):
+        real = StreamingTransfer.upload_bytes
+        def upload(transfer, data, destination):
+            if not destination.endswith('/episode.cbz'): raise Crash()
+            real(transfer, data, destination)
+        with patch.object(StreamingTransfer, 'upload_bytes', upload), self.assertRaises(Crash):
+            self.publish((self.episode,), MemoryAdapter())
+
+    def test_next_episode_downloads_while_the_previous_one_uploads(self):
+        following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')
+        downloading = threading.Event()
+        real = StreamingTransfer.upload_bytes
+        def upload(transfer, data, destination):
+            if destination.endswith('/episode.cbz') and not downloading.is_set():
+                self.assertTrue(downloading.wait(5))  # The first upload is still going.
+            real(transfer, data, destination)
+        def retrieve(page):
+            if page.location.endswith('/next'): downloading.set()
+            return png(page.order)
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
+        with patch.object(StreamingTransfer, 'upload_bytes', upload):
+            folder = self.publish((self.episode, following), adapter)
+        self.assertEqual(self.target()['verified'], 2)
+        self.assertEqual(len(episode_archives(folder)), 1)
+        self.assertFalse(self.intents())
+
+    def test_failed_upload_saves_the_episode_waiting_behind_it_too(self):
+        following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')
+        real = StreamingTransfer.upload_bytes
+        sent = []
+        def upload(transfer, data, destination):
+            if destination.endswith('/episode.cbz') and not sent:
+                sent.append(destination); raise CloudTransferError('cloud_cap')
+            real(transfer, data, destination)
+        with patch.object(StreamingTransfer, 'upload_bytes', upload), self.assertRaises(CloudTransferError) as caught:
+            self.publish((self.episode, following), MemoryAdapter())
+        self.assertEqual(safe_code(caught.exception), 'cloud_cap')
+        folder = next(self.root.glob('Synthetic*'))
+        self.assertEqual(len(episode_archives(folder)), 3)
+        self.assertEqual((self.target()['failed'], self.target()['pending']), (1, 1))
+        cloud.upload_pending(self.root)
+        self.assertEqual(self.target()['verified'], 2)
+        self.assertEqual(len(episode_archives(folder)), 1)
+
+    def test_interrupted_upload_is_downloaded_again_and_its_leftovers_deleted(self):
+        self.crash_after_the_cbz()
+        left = self.b2()
+        self.assertTrue(any(path.endswith('/episode.cbz') for path in left))
+        self.assertEqual(len(self.intents()), 1)
+        StreamingTransfer.files[('b2', 'unrelated/keep')] = b'keep'
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=lambda page: png(page.order))
+        self.publish((self.episode,), adapter)
+        self.assertEqual(adapter.retrieve.call_count, 2)  # Nothing of it was saved here.
+        files = self.b2()
+        self.assertFalse(set(left) & set(files))
+        self.assertEqual(files['unrelated/keep'], b'keep')
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertFalse(self.intents())
+
+    def test_leftovers_recorded_for_an_earlier_connection_are_kept(self):
+        self.crash_after_the_cbz()
+        left = self.b2()
+        replacement = self.base/'replacement.conf'; replacement.write_text('[b2]\ntype=b2\n'); replacement.chmod(0o600)
+        cloud.configure_target(self.root, 'b2', config=replacement)
+        cloud.upload_pending(self.root)
+        self.assertEqual(self.b2(), left)
+        self.assertEqual(len(self.intents()), 1)
+
+    def test_paused_episode_keeps_its_pages_and_continues_without_downloading_them_again(self):
+        from comic_archive.cancellation import RunCancelled
+        def pause_at_the_second_page(page):
+            if page.order == 2: raise RunCancelled('Paused.')
+            return png(page.order + 2)  # Images no other episode here has.
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=pause_at_the_second_page)
+        with self.assertRaises(RunCancelled): self.publish((self.episode,), adapter)
+        first = self.root/'.archive-cache'/hashlib.sha256(png(3)).hexdigest()
+        self.assertTrue(first.is_file())  # Kept here only because the episode stopped partway.
+        self.assertFalse([path for path in self.b2() if path.endswith('/episode.cbz')])
+        again = MemoryAdapter(); again.retrieve = Mock(side_effect=lambda page: png(page.order + 2))
+        folder = self.publish((self.episode,), again)
+        self.assertEqual([call.args[0].order for call in again.retrieve.call_args_list], [2])
+        self.assertEqual(len([path for path in self.b2() if path.endswith('/episode.cbz')]), 1)
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertEqual(len(episode_archives(folder)), 1)  # Only the seed is here.
+        self.assertFalse(first.exists())  # Let go once the episode is in B2.
+
+    def test_rented_episode_is_saved_here_before_it_goes_to_b2(self):
+        rented = replace(self.episode, access_expires_at='2026-12-31T00:00:00Z')
+        saved = []
+        real = cloud.queue_episode
+        def queued(root, archive):
+            saved.append(archive.is_file()); return real(root, archive)
+        with patch.object(cloud, 'queue_episode', queued):
+            folder = self.publish((rented,), MemoryAdapter())
+        self.assertTrue(saved and all(saved))
+        self.assertIn('.cbz', StreamingTransfer.copies)  # Uploaded from the saved file, not from memory.
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertEqual(len(episode_archives(folder)), 1)  # Removed once the upload is checked.
+        self.assertFalse(self.intents())
+
+    def test_episode_too_big_to_hold_in_memory_is_saved_here_then_uploaded(self):
+        with patch('comic_archive.publication.DIRECT_MEMORY', 1):
+            folder = self.publish((self.episode,), MemoryAdapter())
+        self.assertIn('.cbz', StreamingTransfer.copies)
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertEqual(len(episode_archives(folder)), 1)
+        self.assertFalse(self.intents())
+
+    def test_b2_compares_its_own_sha1_and_downloads_only_when_it_has_none(self):
+        source = self.base/'episode.cbz'; source.write_bytes(b'episode bytes')
+        sha256 = hashlib.sha256(b'episode bytes').hexdigest(); sha1 = hashlib.sha1(b'episode bytes').hexdigest()
+        transfer = object.__new__(RealTransfer); transfer.provider = 'b2'
+        transfer.target = {'remote': 'b2'}; transfer.bucket = 'bucket'
+        transfer.run = Mock(return_value=sha1.encode() + b'  episode.cbz\n')
+        transfer.verify('own/episode.cbz', sha256, source=source)
+        transfer.run.assert_called_once()
+        self.assertNotIn('--download', transfer.run.call_args.args)
+        transfer.run = Mock(return_value=b'b'*40 + b'  episode.cbz\n')
+        with self.assertRaises(ArchiveError): transfer.verify('own/episode.cbz', sha256, source=source)
+        # A file sent in parts may have no SHA-1 at B2: its bytes are read back instead.
+        transfer.run = Mock(side_effect=[b' '*40 + b'  episode.cbz\n', sha256.encode() + b'  episode.cbz'])
+        transfer.verify('own/episode.cbz', sha256, source=source)
+        self.assertIn('--download', transfer.run.call_args.args)
+        transfer.full_readback = True; transfer.run = Mock(return_value=sha256.encode())
+        transfer.verify('own/episode.cbz', sha256, source=source)
+        self.assertIn('--download', transfer.run.call_args.args)
+
+    def test_known_size_pipe_lets_rclone_hold_the_whole_file_for_its_sha1(self):
+        self.transfer_patch.stop()
+        script = helper_program(self.base/'rclone-fixture', 'import sys,pathlib,json\np=pathlib.Path(sys.argv[sys.argv.index("--config")+1]).parent/"received"\np.write_bytes(sys.stdin.buffer.read())\np.with_suffix(".args").write_text(json.dumps(sys.argv))\n')
+        transfer = Mock(binary=str(script), config=self.config, provider='b2'); transfer.guard = Mock()
+        transfer.remote = lambda path: 'b2:' + path
+        data = b'content' * 400000
+        RealTransfer.upload_bytes(transfer, data, 'Comic-Archive/test/episode.cbz')
+        self.assertEqual((self.base/'received').read_bytes(), data)
+        arguments = json.loads((self.base/'received.args').read_text())
+        self.assertEqual(arguments[arguments.index('--streaming-upload-cutoff') + 1], f'{len(data) + 1}B')
+        self.assertEqual(arguments[-2:], ['rcat', 'b2:Comic-Archive/test/episode.cbz'])

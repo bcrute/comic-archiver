@@ -37,8 +37,14 @@ The code is in the app already, from the browser version, but the window hides i
   once connected or when the page is left, and never kept.
 - Once B2 is set up, the page says so at the top and folds the account, bucket, key and connect steps away
   behind "Show the setup steps", leaving the check and the way back to the dashboard.
-- Each new CBZ is uploaded as it is made; the copy on this computer is removed only once the upload is checked.
-  Unfinished uploads can be retried and leftovers of interrupted ones cleaned up, with buttons.
+- When B2 alone takes new episodes, each one is held in memory and goes straight to B2 while the next one
+  downloads; nothing of it is written to this computer's disk. The upload is checked against the SHA-1 B2
+  keeps, with nothing downloaded back. An upload that fails saves the episode here, for the retry button; one
+  interrupted by a crash or by closing the app is downloaded again, and what it left in B2 is deleted. An
+  episode paused, held or stopped partway keeps the pages it has here, so it continues without downloading
+  them again. An episode too big to hold in memory (over 256 MB), or one whose access runs out (a rental), is
+  saved here, uploaded, then removed once the upload is checked. Unfinished uploads can be retried and
+  leftovers of interrupted ones cleaned up, with buttons.
 - The library page shows episodes kept only in the cloud, with its filters.
 - The key stays on this computer, readable only by its owner.
 - Tests: the page in the window, the app's routes, and uploading against a stand-in for B2. No real account is

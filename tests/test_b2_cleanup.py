@@ -72,6 +72,23 @@ class B2CleanupTests(unittest.TestCase):
         self.assertEqual(set(self.removed), {'partial1', 'older1', 'current1', 'hidden1'})
         self.assertEqual([item['fileId'] for item in self.files], ['unrelated'])
 
+    def test_interrupted_upload_files_are_deleted_only_at_their_recorded_library_path(self):
+        version = 'a'*64
+        tests = self.path
+        self.path = ('Comic-Archive/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000004/'
+                     '00000000-0000-0000-0000-000000000003/' + version + '/episode.cbz')
+        for item in self.files:
+            item['fileName'] = item['fileName'].replace(tests, self.path)
+        self.transfer.delete_upload(self.path)
+        self.assertEqual(set(self.removed), {'partial1', 'older1', 'current1', 'hidden1'})
+        self.assertEqual([item['fileId'] for item in self.files], ['unrelated'])
+        asked = len(self.requests)
+        for path in (self.path.replace(version, 'b'*63), self.path.replace('episode.cbz', 'other.cbz'),
+                     self.path.replace('/00000000-0000-0000-0000-000000000004/', '/series/'), tests):
+            with self.assertRaises(ArchiveError): self.transfer.delete_upload(path)
+        with self.assertRaises(ArchiveError): self.transfer.delete_test_file(self.path)
+        self.assertEqual(len(self.requests), asked)
+
     def test_invalid_or_general_archive_paths_are_rejected_before_network(self):
         for path in ('', 'Comic-Archive', 'unrelated/episode.cbz', self.path.replace('/tests/','/archives/'),
                      self.path.replace('episode.cbz','../../elsewhere'), self.path.replace('episode.cbz','other.cbz')):

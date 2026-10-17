@@ -2630,5 +2630,29 @@
   "new": "                        storage_hidden='' if (\n",
   "test_file": "test_local_web.py",
   "test": "test_both_pages_share_the_menu_with_storage_and_only_the_dashboard_lists_sites"
+ },
+ {
+  "id": "stopped direct episode drops its pages",
+  "source": "comic_archive/publication.py",
+  "old": "                self._keep_direct_pages()\n",
+  "new": "                pass\n",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_paused_episode_keeps_its_pages_and_continues_without_downloading_them_again"
+ },
+ {
+  "id": "rented episode held only in memory",
+  "source": "comic_archive/publication.py",
+  "old": "            if direct and episode.access_expires_at is not None:\n",
+  "new": "            if False:\n",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_rented_episode_is_saved_here_before_it_goes_to_b2"
+ },
+ {
+  "id": "direct pages held until the whole CBZ is built",
+  "source": "comic_archive/publication.py",
+  "old": "if uses[page['sha256']] else direct.pages.pop(page['sha256'], None)",
+  "new": "if uses[page['sha256']] else direct.pages.get(page['sha256'])",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_each_page_is_let_go_once_its_last_use_is_in_the_cbz"
  }
 ]
