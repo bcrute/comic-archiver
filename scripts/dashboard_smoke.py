@@ -462,11 +462,22 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
         page.locator('#theme-toggle').click()
         expect(page.locator('html')).to_have_attribute('data-theme','dark')
         expect(page.locator('#notice')).to_have_text('Saved files loaded.')
-        # The site is chosen in one place, the dashboard; the library page lists the open site's files.
+        # The site is chosen in one place, the dashboard; the library page lists the open site's files, and names it.
         expect(page.locator('#site')).to_have_count(0)
+        expect(page.locator('#library-title')).to_have_text('Your saved Tapas library')
+        # Only the app's own window can open its save folder.
+        expect(page.locator('#open-folder')).to_be_hidden()
+        # Comics and novels are listed first: each episode once, not again for its data file.
+        expect(page.locator('#file-kind')).to_have_value('episodes')
         page.locator('#refresh-files').click()
-        expect(page.locator('#file-range')).to_have_text('Showing 1–50 of 151 files.')
+        expect(page.locator('#file-range')).to_have_text('Showing 1–50 of 75 files.')
         expect(page.locator('#files tr')).to_have_count(50)
+        expect(page.locator('#files tr td:nth-child(4)').first).to_have_text('Comic')
+        # Nothing is in cloud storage yet, so there is no storage column and the summary does not mention it.
+        expect(page.locator('#library-summary')).not_to_contain_text('cloud')
+        expect(page.locator('#storage-heading')).to_be_hidden()
+        assert page.locator('#files td:nth-child(7)').evaluate_all('cells => cells.every(cell => cell.hidden)')
+        assert page.evaluate('[sizes(1536), sizes(3*1024*1024)]') == ['1.5 KB', '3.0 MB']
         expect(page.locator('#files a')).to_have_count(0)
         assert page.locator('#files .file-action').evaluate_all('nodes => nodes.every(n => n.tagName === "BUTTON" && n.textContent === "'+('Open' if local else 'Download')+'")')
         if local:
@@ -490,6 +501,14 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
             assert not downloads, 'Opening a device file must not create another downloaded copy'
         assert page.locator('#files img').count() == 0 and not page.evaluate('Boolean(window.executed)')
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        page.locator('#file-kind').select_option('all')
+        expect(page.locator('#file-range')).to_have_text('Showing 1–50 of 151 files.')
+        data = page.locator('#files tr').filter(has_text='.json')
+        expect(data.first.locator('td').nth(3)).to_have_text('Data file')
+        if local:
+            # Only comics and novels are offered to open: a reading app opens those, not their data files.
+            expect(data.locator('.file-action')).to_have_count(0)
+            assert page.locator('#files tr').filter(has_text='.cbz').locator('.file-action').count() > 0
         page.locator('#next-page').click()
         expect(page.locator('#file-range')).to_have_text('Showing 51–100 of 151 files.')
         page.locator('#file-page').fill('4');page.locator('#go-page').click()
@@ -508,20 +527,21 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
         expect(page.locator('#file-kind')).to_have_value('episodes')
         page.locator('#clear-search').click()
         expect(page.locator('#files tr')).to_have_count(50)
+        expect(page.locator('#file-kind')).to_have_value('episodes')
         expect(page.locator('#library-locations [data-location='+('all' if local else 'device')+']')).to_have_attribute('aria-pressed','true')
         page.locator('#page-size').select_option('100')
-        expect(page.locator('#file-range')).to_have_text('Showing 1–100 of 151 files.')
+        expect(page.locator('#file-range')).to_have_text('Showing 1–75 of 75 files.')
         page.locator('#file-search').fill('NOT_SAVED_ANYWHERE');page.locator('#search-files').click()
         expect(page.locator('#file-range')).to_have_text('No saved files match these filters.')
         expect(page.locator('#files tr')).to_have_count(0)
         page.locator('#clear-search').click()
-        expect(page.locator('#files tr')).to_have_count(100)
+        expect(page.locator('#files tr')).to_have_count(75)
         page.locator('#file-sort').select_option('saved_asc')
         expect(page.locator('#notice')).to_have_text('Saved files loaded.')
         stamps = page.locator('#files time').evaluate_all('nodes => nodes.map(n => n.dateTime)')
         assert stamps == sorted(stamps)
         page.locator('#library-locations [data-location=device]').click()
-        expect(page.locator('#file-range')).to_have_text('Showing 1–100 of 151 files.')
+        expect(page.locator('#file-range')).to_have_text('Showing 1–75 of 75 files.')
         if local:
             from comic_archive.publication import public_metadata
             # The older Store fixture uses source metadata. Upload receipts
@@ -543,13 +563,15 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
                 'files':files,'version':hashlib.sha256((files[0]['sha256']+files[1]['sha256']).encode()).hexdigest(),
                 'verified_at':'2026-10-11T12:00:00+00:00','eviction_requested':True,'token':'PRIVATE_TOKEN'})
             original.unlink();page.locator('#refresh-files').click()
-            expect(page.locator('#file-range')).to_have_text('Showing 1–100 of 150 files.')
+            expect(page.locator('#file-range')).to_have_text('Showing 1–74 of 74 files.')
             # All, this device and B2, which is set up: cloud storage that is not set up is not listed.
             expect(page.locator('#library-locations button')).to_have_count(3)
             expect(page.locator('#library-locations [data-location=proton]')).to_have_count(0)
             expect(page.locator('#library-summary')).to_contain_text('153 files and cloud copies')
-            page.goto(site+'/library#'+workspace.id+'/b2'); page.reload()
+            expect(page.locator('#storage-heading')).to_be_visible()
+            page.goto(site+'/library#'+workspace.id+'/b2?kind=all'); page.reload()
             expect(page.locator('#files tr')).to_have_count(3)
+            expect(page.locator('#files td:nth-child(8)').first).to_have_text('Cloud copy')
             assert '/b2?' in page.url
             expect(page.locator('#notice')).to_have_text('Saved files loaded.')
             page.locator('#library-locations [data-location=b2]').click()
@@ -568,6 +590,16 @@ def saved_library_controls(context, site, registry, workspace, local, screenshot
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         if screenshot:
             page.screenshot(path=str(screenshot.with_name(screenshot.stem+'-library.png')), full_page=True)
+        # With nothing saved, the page says so once, and not also that nothing matches the filters.
+        empty = {'locations':[{'id':'device','label':'This device','connected':True,'files':0,'episodes':0,'bytes':0}],
+                 'episode_count':0, 'file_count':0, 'updated_at':'2026-10-11T12:00:00+00:00',
+                 'files':[], 'total':0, 'offset':0, 'limit':50}
+        nothing = lambda route: route.fulfill(status=200, content_type='application/json', body=json.dumps(empty))
+        page.route(re.compile(r'/saved-files\?'), nothing)
+        page.reload()
+        expect(page.locator('#notice')).to_have_text(re.compile(r'^No files have been saved yet\. Use .+ to start\.$'))
+        expect(page.locator('#file-range')).to_have_text('')
+        page.unroute(re.compile(r'/saved-files\?'), nothing)
     finally:
         page.close()
 
@@ -628,6 +660,12 @@ def own_window_controls(context, site, registry, workspace):
             else:
                 expect(page.locator('#library-locations [data-location=all]')).to_be_visible()
                 expect(page.locator('#library-locations [data-location=device]')).to_be_visible()
+                expect(page.locator('#notice')).to_have_text('Saved files loaded.')
+                # The library page opens the same folder, the same way.
+                with page.expect_response(lambda response: response.url.endswith('/api/v1/location')) as sent:
+                    page.locator('#open-folder').click()
+                assert sent.value.status == 200 and asked == ['open', 'open']
+                expect(page.locator('#notice')).to_have_text('Your save folder opens in its own window.')
             wanted = 'light' if page.locator('html').get_attribute('data-theme') == 'dark' else 'dark'
             with page.expect_response(lambda response: response.url.endswith('/api/v1/theme')) as sent:
                 page.locator('#theme-toggle').click()
@@ -684,6 +722,9 @@ def own_window_controls(context, site, registry, workspace):
                     # With another site open, the account card and its badge name that site.
                     expect(page.locator('#dashboard-session')).to_have_text(re.compile(r'^Example · '))
                     expect(page.locator('#site-signin')).to_have_text('Sign in to Example')
+            # The library page names the site whose files it lists.
+            page.goto(site+'/library#'+workspace.id+'/all')
+            expect(page.locator('#library-title')).to_have_text('Your saved Example library')
         registry.sites = listed
     finally:
         page.close()
@@ -1655,7 +1696,8 @@ def smoke(screenshot=None,mobile=False,local=False):
                 try:
                     assert held.wait(5)
                     page.locator('#downloads').click()
-                    expect(page.locator('#files tr')).to_have_count(3)
+                    # The one saved episode, listed once: its data files are under All files.
+                    expect(page.locator('#files tr')).to_have_count(1)
                     original=next(alice.library.glob('*/*.cbz'))
                     row=page.locator('#files tr').filter(has_text='.cbz');button=row.locator('.file-action')
                     expect(button).to_have_text('Open' if local else 'Download')

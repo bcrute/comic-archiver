@@ -2718,5 +2718,45 @@
   "new": "batches.CODES | {",
   "test_file": "test_account_ui.py",
   "test": "test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do"
+ },
+ {
+  "id": "saved-library series sort orders episodes by their title words",
+  "source": "comic_archive/saved_library.py",
+  "old": "rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold()",
+  "new": "rows.sort(key=lambda r:(r['series'].casefold(), r['title'].casefold()",
+  "test_file": "test_saved_library.py",
+  "test": "test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles"
+ },
+ {
+  "id": "saved-library series sort ignores the saved episode number",
+  "source": "comic_archive/saved_library.py",
+  "old": "    if type(number) is int and number >= 0:\n        return number\n",
+  "new": "",
+  "test_file": "test_saved_library.py",
+  "test": "test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles"
+ },
+ {
+  "id": "saved-library series sort takes true or false for an episode number",
+  "source": "comic_archive/saved_library.py",
+  "old": "if type(number) is int and number >= 0:",
+  "new": "if isinstance(number, int) and number >= 0:",
+  "test_file": "test_saved_library.py",
+  "test": "test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles"
+ },
+ {
+  "id": "saved-library series sort ignores the order number a file name starts with",
+  "source": "comic_archive/saved_library.py",
+  "old": "return int(match.group(1)) if match else float('inf')",
+  "new": "return float('inf')",
+  "test_file": "test_saved_library.py",
+  "test": "test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles"
+ },
+ {
+  "id": "saved-library sends its private sort order to the page",
+  "source": "comic_archive/saved_library.py",
+  "old": "files = [{k:v for k,v in r.items() if k != 'order'} for r in rows[offset:offset+limit]]",
+  "new": "files = rows[offset:offset+limit]",
+  "test_file": "test_saved_library.py",
+  "test": "test_series_sort_lists_episodes_in_their_order_not_by_the_words_of_their_titles"
  }
 ]

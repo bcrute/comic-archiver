@@ -9,6 +9,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import threading
 import time
@@ -64,6 +65,15 @@ def date(value, fallback=None):
     except (ValueError, TypeError, AttributeError, OverflowError):
         pass
     return datetime.fromtimestamp(fallback, timezone.utc).isoformat() if fallback is not None else None
+
+
+def episode_order(value, archive):
+    """Where an episode comes in its series: the saved number, else the number its file name starts with."""
+    number = value.get('episode_number')
+    if type(number) is int and number >= 0:
+        return number
+    match = re.match(r'([0-9]{1,8}) - ', archive.name)
+    return int(match.group(1)) if match else float('inf')
 
 
 def metadata(path, maximum=16*1024**2):
@@ -122,7 +132,8 @@ class Catalog:
                 groups[provider] = {'id':provider, 'label':label, 'connected':provider in targets,
                                     'files':0, 'episodes':0, 'bytes':0}
 
-        def add(path, kind, series, title='', saved=None, episode=None, location='device', size=None, downloadable=True):
+        def add(path, kind, series, title='', saved=None, episode=None, location='device', size=None, downloadable=True,
+                order=-1):
             if location == 'device':
                 if not path.is_file() or any(p.is_symlink() for p in (path, *path.parents)):
                     return
@@ -135,9 +146,10 @@ class Catalog:
                 identifier = self.export_id(workspace, path) if downloadable else None
             else:
                 timestamp = date(saved); identifier = None
+            # The order only sorts the list; it is taken out of the rows the page receives.
             rows.append({'id':identifier, 'filename':path.name, 'kind':kind, 'series':series,
                          'title':title, 'saved_at':timestamp, 'date_source':'saved' if date(saved) else 'file_modified',
-                         'size':size, 'location':location})
+                         'size':size, 'location':location, 'order':order})
             group = groups[location]; group['files'] += 1
             if size is not None: group['bytes'] += size
             if kind in {'cbz', 'epub', 'tar.zst'}:
@@ -170,9 +182,10 @@ class Catalog:
                 archive = archives.get(sidecar, sidecar.with_suffix(extension))
                 title = text(value.get('title'))
                 episode = archive.relative_to(root).as_posix()
-                add(archive, extension[1:], series_title, title, value.get('imported_at'), episode)
+                order = episode_order(value, archive)
+                add(archive, extension[1:], series_title, title, value.get('imported_at'), episode, order=order)
                 add(sidecar, 'episode_metadata', series_title, title, value.get('imported_at'),
-                    downloadable=archive.is_file())
+                    downloadable=archive.is_file(), order=order)
                 if not settings:
                     continue
                 for provider in cloud.PROVIDERS:
@@ -201,17 +214,17 @@ class Catalog:
                     for item in record['files']:
                         name = item['name']
                         if name.startswith('episode.') and name != 'episode.json':
-                            kind = extension[1:]; item_title = title
+                            kind = extension[1:]; item_title = title; item_order = order
                         elif name == 'episode.json':
-                            kind = 'episode_metadata'; item_title = title
+                            kind = 'episode_metadata'; item_title = title; item_order = order
                         elif name == 'series.json':
-                            kind = 'series_metadata'; item_title = ''
+                            kind = 'series_metadata'; item_title = ''; item_order = -1
                         elif name in {'cover.jpg','cover.png','cover.webp','cover.gif'}:
-                            kind = 'cover'; item_title = ''
+                            kind = 'cover'; item_title = ''; item_order = -1
                         else:
                             continue
                         add(Path(name), kind, series_title, item_title, record['verified_at'], episode,
-                            location, downloadable=False)
+                            location, downloadable=False, order=item_order)
         return {'rows':rows, 'locations':list(groups.values()), 'episode_count':len(episodes),
                 'file_count':len(rows), 'updated_at':datetime.now(timezone.utc).isoformat()}
 
@@ -230,9 +243,11 @@ class Catalog:
                      or kind == 'covers' and r['kind'] == 'cover')
                 and (not needle or needle in (' '.join((r['series'],r['title'],r['filename']))).casefold())]
         if sort == 'series':
-            rows.sort(key=lambda r:(r['series'].casefold(), r['title'].casefold(), r['filename'], r['location']))
+            # Within a series, its own files first, then episodes in their order: Episode 2 before Episode 10.
+            rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold(), r['filename'], r['location']))
         else:
             rows.sort(key=lambda r:(r['saved_at'] or '', r['series'], r['filename'], r['location']), reverse=sort == 'saved_desc')
         total = len(rows)
         offset = min(offset, ((total-1)//limit)*limit if total else 0)
-        return result | {'files':rows[offset:offset+limit], 'total':total, 'offset':offset, 'limit':limit}
+        files = [{k:v for k,v in r.items() if k != 'order'} for r in rows[offset:offset+limit]]
+        return result | {'files':files, 'total':total, 'offset':offset, 'limit':limit}
