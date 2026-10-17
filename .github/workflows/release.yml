@@ -1,14 +1,16 @@
 # Builds the downloads for a version and publishes them as a GitHub Release.
 #
-# A tag v<version> (the version in pyproject.toml) reaching GitHub starts it: the Linux package and the Windows
-# zip and installer are built on GitHub's own machines, each passes its self-test, and the release is published
-# with them. "Run workflow" on the Actions page builds and self-tests them without publishing anything.
+# Every push to main builds the Linux package and the Windows zip and installer on GitHub's own machines and runs
+# each one's self-test, as does "Run workflow" on the Actions page; neither publishes anything. A tag v<version>
+# (the version in pyproject.toml) does the same and then publishes the release with them. Tags are made on the
+# self-hosted Gitea and reach GitHub through its mirror, which would remove a tag made only on GitHub.
 #
 # Development checks run on the owner's own CI hosts before anything is committed; this only packages a version.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
