@@ -294,6 +294,10 @@ class LocalServer(ThreadingMixIn, WSGIServer):
 
 
 class PrivateRequestHandler(WSGIRequestHandler):
+    # The Server header names no Python version, and a connection that sends nothing is let go.
+    server_version, sys_version = 'ComicArchiver', ''
+    timeout = 60
+
     def log_message(self, format, *args):
         if format == '%s %s' and len(args) == 2:
             super().log_message(format, *args)
