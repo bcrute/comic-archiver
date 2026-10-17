@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 from urllib.parse import urlsplit
-from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
+from wsgiref.simple_server import ServerHandler, WSGIRequestHandler, WSGIServer, make_server
 
 from .hosted import HostedJobLimits, Workspace, WorkspaceRegistry
 from .inventory import Inventory
@@ -293,10 +293,27 @@ class LocalServer(ThreadingMixIn, WSGIServer):
         super().server_close()
 
 
+class PrivateServerHandler(ServerHandler):
+    server_software = 'ComicArchiver'
+
+
 class PrivateRequestHandler(WSGIRequestHandler):
     # The Server header names no Python version, and a connection that sends nothing is let go.
     server_version, sys_version = 'ComicArchiver', ''
     timeout = 60
+
+    def handle(self):
+        # The standard library's own steps, with a response handler that does not name its Python either.
+        self.raw_requestline = self.rfile.readline(65537)
+        if len(self.raw_requestline) > 65536:
+            self.requestline = self.request_version = self.command = ''
+            self.send_error(414)
+            return
+        if not self.parse_request():
+            return
+        handler = PrivateServerHandler(self.rfile, self.wfile, self.get_stderr(), self.get_environ(), multithread=False)
+        handler.request_handler = self
+        handler.run(self.server.get_app())
 
     def log_message(self, format, *args):
         if format == '%s %s' and len(args) == 2:
