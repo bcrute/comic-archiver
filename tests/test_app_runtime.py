@@ -65,6 +65,17 @@ class AppRuntimeTests(unittest.TestCase):
             runtime.start()
         self.assertTrue((real / 'Comic Archiver/Library').is_dir())
 
+    def test_the_apps_private_folders_beside_and_inside_the_library_are_hidden_from_the_file_manager(self):
+        example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        with patch('comic_archive.osdep.hide') as hide, patch('comic_archive.sites.SITES', (sites.DEFAULT, example)):
+            self.runtime.start()
+            self.assertIsNone(self.runtime.change_site(example))
+        hidden = {call.args[0] for call in hide.call_args_list}
+        for place in (self.root, self.root / 'Example'):
+            for name in ('.comic-session', '.comic-web', 'Library/.archive-state'):
+                self.assertIn(place / name, hidden)
+                self.assertEqual(stat.S_IMODE((place / name).stat().st_mode), PRIVATE_FOLDER)
+
     def test_a_picked_folder_becomes_a_library_folder_without_mixing_into_other_files(self):
         pick = app_runtime.library_root
         empty, photos, named = self.home / 'empty', self.home / 'photos', self.home / 'drive/Comic Archiver'

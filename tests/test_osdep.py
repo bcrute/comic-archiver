@@ -2,7 +2,7 @@ import os
 from pathlib import Path, PureWindowsPath
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE
 from comic_archive import osdep
@@ -86,6 +86,46 @@ class FileTests(unittest.TestCase):
             st_size = 5000
         with patch.object(os, 'stat', return_value=Windows()):
             self.assertEqual(osdep.disk_bytes(path), 5000)
+
+
+class WindowsMarkTests(unittest.TestCase):
+    """Windows' own calls, stood in for: these tests run on Linux."""
+
+    def kernel(self):
+        kernel = Mock()
+        wrapper = patch('ctypes.WinDLL', create=True, return_value=kernel); wrapper.start(); self.addCleanup(wrapper.stop)
+        return kernel
+
+    def test_on_windows_a_private_folder_is_marked_hidden_keeping_its_other_marks(self):
+        kernel = self.kernel()
+        folder = Path('C:/Users/me/Comic Archiver/.comic-session')
+        with patch.object(osdep, 'WINDOWS', True):
+            kernel.GetFileAttributesW.return_value = 0x10 | 0x20  # A folder, marked for backup.
+            osdep.hide(folder)
+            kernel.SetFileAttributesW.assert_called_once_with(str(folder), 0x10 | 0x20 | 0x2)
+            # Already hidden, or not there to be asked about: nothing is changed.
+            for marks in (0x12, 0xFFFFFFFF):
+                kernel.SetFileAttributesW.reset_mock(); kernel.GetFileAttributesW.return_value = marks
+                osdep.hide(folder)
+                kernel.SetFileAttributesW.assert_not_called()
+            # A folder that cannot be marked is only shown.
+            kernel.GetFileAttributesW.side_effect = OSError('denied')
+            osdep.hide(folder)
+        kernel.reset_mock(side_effect=True)
+        osdep.hide(folder)  # Elsewhere a leading dot hides it already.
+        kernel.GetFileAttributesW.assert_not_called(); kernel.SetFileAttributesW.assert_not_called()
+
+    def test_on_windows_the_computer_is_kept_awake_for_a_download_and_let_sleep_again_with_the_screen_free_to_turn_off(self):
+        kernel = self.kernel()
+        with patch.object(osdep, 'WINDOWS', True):
+            osdep.keep_awake(True)
+            osdep.keep_awake(False)
+            self.assertEqual([call.args for call in kernel.SetThreadExecutionState.call_args_list], [(0x80000001,), (0x80000000,)])
+            kernel.SetThreadExecutionState.side_effect = OSError('refused')
+            osdep.keep_awake(True)  # Asking is all the app can do.
+        kernel.reset_mock(side_effect=True)
+        osdep.keep_awake(True)
+        kernel.SetThreadExecutionState.assert_not_called()
 
 
 if __name__ == '__main__':

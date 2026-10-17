@@ -30,6 +30,10 @@ def complete(workspace, key, browser, save, cancelled, interval):
         return False
     save()
     result = background.start(workspace.session, browser, interval)
+    if result.get('startup_pending') and result.get('running') is False:
+        # Started, but slow to come up, as the first start after installing can be while Windows checks
+        # its files. The sign-in is saved and kept; the downloader goes on starting by itself.
+        return True
     if result.get('running') is not True or result.get('start_deferred'):
         raise ArchiveError('Downloader startup is pending.')
     return True

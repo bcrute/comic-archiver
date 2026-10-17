@@ -2678,5 +2678,141 @@
   "new": "False",
   "test_file": "test_b2_cleanup.py",
   "test": "test_a_file_outside_the_apps_own_folder_is_never_deleted"
+ },
+ {
+  "id": "Windows shows the app's private folders",
+  "source": "comic_archive/osdep.py",
+  "old": "        if marks != invalid and not marks & hidden_mark:\n",
+  "new": "        if True:\n",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_a_private_folder_is_marked_hidden_keeping_its_other_marks"
+ },
+ {
+  "id": "hiding a folder drops its other marks",
+  "source": "comic_archive/osdep.py",
+  "old": "marks | hidden_mark)",
+  "new": "hidden_mark)",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_a_private_folder_is_marked_hidden_keeping_its_other_marks"
+ },
+ {
+  "id": "a download does not keep Windows awake",
+  "source": "comic_archive/osdep.py",
+  "old": "continuous | (system_required if running else 0)",
+  "new": "continuous",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_the_computer_is_kept_awake_for_a_download_and_let_sleep_again"
+ },
+ {
+  "id": "the app's private folders beside the library are left visible",
+  "source": "comic_archive/state_paths.py",
+  "old": "    osdep.hide(path)\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
+ },
+ {
+  "id": "the dashboard's private folder is made without being hidden",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            private_folder(place, 'web')\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
+ },
+ {
+  "id": "the library's state folder is left visible",
+  "source": "comic_archive/locking.py",
+  "old": "                osdep.hide(state)\n",
+  "new": "",
+  "test_file": "test_locking.py",
+  "test": "test_the_librarys_private_state_folder_is_hidden_from_the_file_manager"
+ },
+ {
+  "id": "the library's cache folder is left visible",
+  "source": "comic_archive/archive.py",
+  "old": "            hide(self.cache)\n",
+  "new": "",
+  "test_file": "test_archive.py",
+  "test": "test_the_librarys_private_cache_folder_is_hidden_from_the_file_manager"
+ },
+ {
+  "id": "a slow downloader start fails a saved sign-in",
+  "source": "comic_archive/tapas_auth.py",
+  "old": "    if result.get('startup_pending') and result.get('running') is False:\n",
+  "new": "    if False:\n",
+  "test_file": "test_window_signin.py",
+  "test": "test_a_downloader_still_starting_after_the_wait_keeps_the_saved_sign_in_and_reports_no_failure"
+ },
+ {
+  "id": "the sign-in bar keeps the first site's name",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "the sign-in bar does not ask for an email and password",
+  "source": "comic_archive/desktop_app.py",
+  "old": "               'Use your email and password: Google and Facebook buttons may not work here. '\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "the computer is never kept awake for a download",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.stay_awake(self.phase == 'open' and self.runtime.busy() == 'download')",
+  "new": "self.stay_awake(False)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "the computer stays awake after a download ends",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if running != self.awake:\n",
+  "new": "        if running and not self.awake:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "closing the window keeps the computer awake while the download stops",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            self.awake_clock.stop()\n            self.stay_awake(False)\n",
+  "new": "            self.awake_clock.stop()\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "ending the window keeps the computer awake",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.stay_awake(False)\n        self.app.quit()",
+  "new": "        self.app.quit()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "the starting notice does not say a first start is slow",
+  "source": "comic_archive/desktop_app.py",
+  "old": "\\n\\nThe first start can take up to a minute.'",
+  "new": "'",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
+ },
+ {
+  "id": "a second double-click while starting says only that the app is open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "'Comic Archiver is already open or still starting. The first start can take up to a minute; '\n                   'its window then appears by itself.'",
+  "new": "'Comic Archiver is already open. Look for its window, or wait a moment and try again.'",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
+ },
+ {
+  "id": "a new save folder does not say Go saves everything again",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                    'Go then saves everything again in the new folder, and your library page shows only what is there. '\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
  }
 ]

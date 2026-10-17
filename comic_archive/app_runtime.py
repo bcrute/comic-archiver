@@ -18,7 +18,7 @@ from .errors import LibraryBusy
 from .local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry, create_server
 from .models import ArchiveError
 from .session import load_session, store_session
-from .state_paths import session_path
+from .state_paths import private_folder
 from .storage import safe_root
 from .web import LOCATION_ACTIONS, THEMES
 from .worker import WORKER_VERSION
@@ -273,7 +273,9 @@ class Runtime:
             root.mkdir(mode=0o700, exist_ok=True)
             place = safe_root(sites.folder(root, site))
             place.mkdir(mode=0o700, exist_ok=True)
-            session = session_path(place)
+            # Made here, not later by the dashboard, so that Windows hides them from the start.
+            session = private_folder(place, 'session')
+            private_folder(place, 'web')
             return root, place, session, safe_root(session / 'state.json')
         except ArchiveError:
             raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '

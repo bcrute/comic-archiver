@@ -117,6 +117,47 @@ def sync_file(path):
         os.fsync(stream.fileno())
 
 
+def hide(path):
+    """Leave a private folder out of what the file manager shows, as its leading dot already does on Linux.
+
+    Windows hides by a mark on the folder, which is added to the marks it has. A folder that cannot be
+    marked is only shown; nothing depends on it being hidden.
+    """
+    if not WINDOWS:
+        return
+    import ctypes
+    hidden_mark, invalid = 0x2, 0xFFFFFFFF
+    try:
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetFileAttributesW.restype = ctypes.c_uint32
+        kernel.GetFileAttributesW.argtypes = (ctypes.c_wchar_p,)
+        kernel.SetFileAttributesW.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32)
+        marks = kernel.GetFileAttributesW(str(path))
+        if marks != invalid and not marks & hidden_mark:
+            kernel.SetFileAttributesW(str(path), marks | hidden_mark)
+    except (AttributeError, OSError):
+        pass
+
+
+def keep_awake(running):
+    """Ask Windows not to go to sleep while a download runs, or let it sleep again; the screen may still turn off.
+
+    The request belongs to the thread that makes it, so the same thread lifts it, and Windows drops it
+    when that thread or the app ends. Elsewhere this does nothing.
+    """
+    if not WINDOWS:
+        return
+    import ctypes
+    continuous, system_required = 0x80000000, 0x1
+    try:
+        kernel = ctypes.WinDLL('kernel32')
+        kernel.SetThreadExecutionState.restype = ctypes.c_uint32
+        kernel.SetThreadExecutionState.argtypes = (ctypes.c_uint32,)
+        kernel.SetThreadExecutionState(continuous | (system_required if running else 0))
+    except (AttributeError, OSError):
+        pass
+
+
 def disk_bytes(path):
     """The room a file takes on its disk, which for a sparse or tiny file is not its length."""
     info = os.stat(path)
