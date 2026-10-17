@@ -432,6 +432,13 @@ function renderCloud() {
   if ($('b2-bucket-name').value !== name) $('b2-bucket-name').value = name;
   $('b2-key-bucket').textContent = name;
   renderB2State();
+  // One Backblaze setup serves every site, unless this site keeps its own.
+  $('b2-sharing').hidden = !b2 || !['shared', 'separate'].includes(value.storage);
+  $('b2-shared').checked = value.storage === 'shared';
+  $('b2-shared').disabled = state.busy || state.auth?.status === 'running';
+  $('b2-sharing-help').textContent = value.storage === 'shared'
+    ? 'Every site you save from uses it, each in a folder of its own in your bucket.'
+    : `${siteName()} has a Backblaze setup of its own. Your other sites keep the shared one.`;
   // A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
   const folded = b2 && target?.connected === true && !state.b2StepsOpen;
   $('cloud-options').classList.toggle('b2-folded', folded);
@@ -644,6 +651,10 @@ $('storage-options').addEventListener('change', event => {
     } catch (error) { $('cloud-choice-status').textContent = error.message; await cloud().catch(renderCloud); }
   });
 });
+$('b2-shared').addEventListener('change', event => {
+  const storage = event.target.checked ? 'shared' : 'separate';
+  action(async () => { state.cloud = await api(base()+'/cloud/storage', {storage}); }).then(renderCloud);
+});
 $('retry-cloud').addEventListener('click', () => cloudAction(async () => {
   const value = await api(base()+'/cloud/upload', {});
   state.task = value.task_id; state.taskKind = 'cloud'; state.taskInfo = null;
@@ -805,6 +816,36 @@ async function poll() {
   }
   finally { state.polling = false; buttons(); renderSeries(); }
 }
+// The speed of each other site there is a sign-in for, which its next Go uses; that site's downloader is stopped.
+function renderOtherSpeeds(others) {
+  const box = $('other-site-speeds');
+  for (const row of [...box.children]) if (!others.some(item => item.key === row.dataset.site)) row.remove();
+  for (const item of others) {
+    let row = [...box.children].find(node => node.dataset.site === item.key);
+    if (!row) {
+      row = document.createElement('div'); row.className = 'setting'; row.dataset.site = item.key;
+      const label = document.createElement('label'), select = document.createElement('select'), help = document.createElement('p');
+      select.id = 'site-speed-' + item.key; label.htmlFor = select.id; help.className = 'muted';
+      for (const [value, text] of [['fast', 'Fast'], ['medium', 'Medium'], ['slow', 'Slow']]) select.add(new Option(text, value));
+      select.addEventListener('change', async () => {
+        // Read the choice first: action() redraws Settings, which shows the saved speed until this one is kept.
+        const speed = select.value;
+        await action(async () => {
+          // api() fetches the context anew before it posts, so the answer goes on that one.
+          const {site_settings} = await api('/api/v1/site-speed', {site:item.key, speed});
+          state.context.site_settings = site_settings;
+        });
+        renderAccount();
+      });
+      row.append(label, ' ', select, help); box.append(row);
+    }
+    const [label, select, help] = [row.querySelector('label'), row.querySelector('select'), row.querySelector('p')];
+    label.textContent = `Speed on ${item.name}`;
+    if (select.value !== item.speed && ['fast', 'medium', 'slow'].includes(item.speed)) select.value = item.speed;
+    select.disabled = state.busy;
+    help.textContent = `Used the next time you hit Go on ${item.name}.`;
+  }
+}
 function renderAccount() {
   if (!simpleMode()) return;
   const local = state.context?.interface_mode === 'local';
@@ -833,10 +874,16 @@ function renderAccount() {
   $('account-pause').disabled = state.busy;
   const speeds = {fast:`The quickest. If ${site} keeps pausing the download, choose a slower speed.`, medium:'About four images a second.', slow:'About one image a second. A large library can take months at this speed.'};
   const speed = speeds[state.account?.speed] ? state.account.speed : 'fast';
-  $('account-speed-row').hidden = !local;
+  // Settings lists the speed of each site there is a sign-in for; one that is not signed in has none to choose.
+  const others = (state.context?.site_settings || []).filter(item => !item.current);
+  const signedIn = Boolean(state.status?.session_configured);
+  $('account-speed-row').hidden = !local || !signedIn;
+  $('account-speed-label').textContent = others.length ? `Speed on ${site}` : 'Speed';
   if ($('account-speed').value !== speed) $('account-speed').value = speed;
   $('account-speed').disabled = !local || state.busy || accountRunning || signingIn || !state.account;
   $('account-speed-help').textContent = accountRunning ? 'Pause to change the speed.' : speeds[speed];
+  renderOtherSpeeds(local ? others : []);
+  $('downloads-signin-note').hidden = !local || signedIn || others.length > 0;
   $('account-download').setAttribute('aria-busy', String(accountRunning || signingIn));
   const net = state.network;
   const networkHeld = Boolean(local && net?.supported_on_this_interface && net.wifi_only && !net.allowed);

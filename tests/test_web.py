@@ -42,6 +42,11 @@ class WebTests(unittest.TestCase):
             self.assertEqual(self.call(route+'/cloud',method='POST',body=body,headers=headers)[0],'400 Bad Request')
         self.assertEqual(self.call(route+'/cloud',method='POST',body={'provider':'google','enabled':True},headers=headers)[0],'400 Bad Request')
         self.assertEqual(self.call(route+'/cloud/upload',method='POST',body={},headers=headers)[0],'400 Bad Request')
+        # A hosted library is not one site among others on a computer: it has no shared cloud storage to choose.
+        from comic_archive import shared
+        shared.link(self.alice.library,self.alice.library.parent/'.comic-shared')
+        self.assertEqual(self.call(route+'/cloud/storage',method='POST',body={'storage':'separate'},headers=headers)[0],'400 Bad Request')
+        self.assertEqual(shared.cloud_mode(self.alice.library),'shared')
         for body in ({'image_profile':'unknown'},{'image_profile':'original','path':'/outside'}):
             self.assertEqual(self.call(route+'/storage',method='POST',body=body,headers=headers)[0],'400 Bad Request')
         self.assertEqual(self.call(route+'/storage',method='POST',body={'image_profile':'original'},headers=headers)[0],'200 OK')

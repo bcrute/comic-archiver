@@ -803,6 +803,73 @@ def mobile_data_controls(page, registry, workspace):
     assert wifi_only() is True
 
 
+def site_settings_controls(page, registry, workspace):
+    """Settings lists the speed of each site there is a sign-in for, and one Backblaze setup serves every site
+    unless the open one keeps its own."""
+    from playwright.sync_api import expect
+    from comic_archive import shared
+    class Sites:
+        speed, chosen = 'fast', []
+        def list(self):
+            return [{'key':'tapas', 'name':'Tapas', 'current':True, 'speed':'fast'},
+                    {'key':'tappytoon', 'name':'Tappytoon', 'current':False, 'speed':self.speed}]
+        def choose_speed(self, key, value):
+            self.chosen.append((key, value)); self.speed = value
+            return self.list()
+    others = registry.site_settings = Sites()
+    try:
+        page.reload()
+        page.evaluate("location.hash = 'settings/downloads'")
+        expect(page.locator('#account-speed-label')).to_have_text('Speed on Tapas')
+        row = page.locator('#other-site-speeds .setting')
+        expect(row).to_have_count(1)
+        expect(row.locator('label')).to_have_text('Speed on Tappytoon')
+        expect(row.locator('select')).to_have_value('fast')
+        expect(row.locator('p')).to_have_text('Used the next time you hit Go on Tappytoon.')
+        expect(page.locator('#downloads-signin-note')).to_be_hidden()
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/site-speed') and response.ok):
+            row.locator('select').select_option('slow')
+        assert others.chosen == [('tappytoon', 'slow')], others.chosen
+        expect(row.locator('select')).to_have_value('slow')
+        # A site that is not signed in has no speed to choose; with no other site either, Settings says how to get one.
+        shown = page.evaluate("""() => {
+            const status = state.status, listed = state.context.site_settings, seen = [];
+            const look = () => seen.push([$('account-speed-row').hidden, $('downloads-signin-note').hidden,
+                                          $('other-site-speeds').children.length, $('account-speed-label').textContent]);
+            state.status = {...status, session_configured:false}; renderAccount(); look();
+            state.context.site_settings = []; renderAccount(); look();
+            state.status = status; renderAccount(); look();
+            state.context.site_settings = listed; renderAccount(); return seen;}""")
+        assert shown == [[True, True, 1, 'Speed on Tapas'], [True, False, 0, 'Speed'], [False, True, 0, 'Speed']], shown
+    finally:
+        registry.site_settings = None
+    own = workspace.library / '.archive-state/cloud/targets.json'
+    had = own.exists()
+    page.evaluate("location.hash = 'settings/b2'")
+    expect(page.locator('#b2-sharing')).to_be_hidden()
+    shared.link(workspace.library, workspace.library.parent / '.comic-shared')
+    try:
+        page.evaluate('cloud()')
+        expect(page.locator('#b2-sharing')).to_be_visible()
+        expect(page.locator('#b2-shared')).to_be_checked()
+        expect(page.locator('#b2-sharing-help')).to_have_text('Every site you save from uses it, each in a folder of its own in your bucket.')
+        with page.expect_response(lambda response: response.url.endswith('/cloud/storage') and response.ok):
+            page.locator('#b2-shared').uncheck()
+        expect(page.locator('#b2-sharing-help')).to_have_text('Tapas has a Backblaze setup of its own. Your other sites keep the shared one.')
+        assert shared.cloud_mode(workspace.library) == 'separate'
+        with page.expect_response(lambda response: response.url.endswith('/cloud/storage') and response.ok):
+            page.locator('#b2-shared').check()
+        assert shared.cloud_mode(workspace.library) == 'shared'
+    finally:
+        (workspace.library / shared.LINK).unlink()
+        if not had:
+            own.unlink(missing_ok=True)
+    page.evaluate('cloud()')
+    expect(page.locator('#b2-sharing')).to_be_hidden()
+    page.locator('#settings-back').click()
+    expect(page.locator('#account-download')).to_be_visible()
+
+
 def b2_setup_controls(page, registry):
     """Four-step default setup, private key clearing, nearby feedback and reload."""
     from playwright.sync_api import expect
@@ -1479,8 +1546,10 @@ def smoke(screenshot=None,mobile=False,local=False):
                 simple_account_controls(page,registry,alice,local,screenshot)
                 if local:
                     mobile_data_controls(page,registry,alice)
+                    site_settings_controls(page,registry,alice)
                     cloud_controls(page,registry,alice)
-                assert not any(path.endswith('/series') or path.endswith('/storage') for _,path in calls)
+                # The library's storage view is the fuller page's; the Backblaze tab's /cloud/storage is not it.
+                assert not any(path.endswith('/series') or (path.endswith('/storage') and not path.endswith('/cloud/storage')) for _,path in calls)
                 if not local:
                     assert not any('/cloud' in path or path.endswith('/network') for _,path in calls)
                 registry.simple_mode = False
@@ -1522,7 +1591,8 @@ def smoke(screenshot=None,mobile=False,local=False):
                     expect(page.locator('#network-status')).to_contain_text('local archiver')
                 page.locator('#open-b2').click()
                 expect(page.locator('#cloud-options')).to_be_visible()
-                expect(page.locator('#cloud-options input[type=checkbox]')).to_have_count(0)
+                # Sharing one setup with other sites is offered only to a library the app linked, which this is not.
+                expect(page.locator('#cloud-options input[type=checkbox]:visible')).to_have_count(0)
                 if local:
                     expect(page.locator('#cloud-status')).to_contain_text('No connection configured')
                     select_hidden_provider(page, 'proton')

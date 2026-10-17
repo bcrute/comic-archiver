@@ -11,14 +11,15 @@ import sqlite3
 import threading
 import time
 import traceback
+from types import SimpleNamespace
 
-from . import background, osdep, sites
+from . import background, osdep, shared, sites
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy
 from .local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry, create_server
 from .models import ArchiveError
 from .session import load_session, store_session
-from .state_paths import private_folder
+from .state_paths import private_folder, session_path
 from .storage import safe_root
 from .web import LOCATION_ACTIONS, THEMES
 from .worker import WORKER_VERSION
@@ -118,6 +119,15 @@ def remember_root(root):
         LOG.warning('the library folder choice could not be saved; it lasts until the app closes')
 
 
+def share(place, folder):
+    """Every site's library uses the library folder's cloud storage and connection rule. If linking fails,
+    the library keeps its own for now and linking is tried again the next time it is opened."""
+    try:
+        shared.link(place / 'Library', folder)
+    except (ArchiveError, OSError) as error:
+        LOG.warning('the shared settings could not be linked: %s', describe(error))
+
+
 def saved_site():
     """The site chosen in the app, or the first one; a site that can no longer be chosen counts as none."""
     try:
@@ -167,6 +177,41 @@ class SiteChoice:
     def waiting(self):
         with self._guard:
             return self._waiting
+
+
+class SiteSettings:
+    """The settings of each site the library folder has a sign-in for, as Settings lists them.
+
+    A site counts once a sign-in to it is saved. The open site comes first; its speed is changed through
+    its own account, which may be downloading, and the others' here, while their downloaders are stopped.
+    """
+
+    def __init__(self, root, site):
+        self.root, self.site = root, site
+
+    def _session(self, site):
+        return session_path(sites.folder(self.root, site))
+
+    def list(self):
+        from .account_ui import speed
+        found = []
+        for site in sorted((s for s in sites.SITES if s.available), key=lambda s: s.key != self.site.key):
+            try:
+                session = self._session(site)
+                if (session / 'state.json').is_file():
+                    found.append({'key': site.key, 'name': site.name, 'current': site.key == self.site.key,
+                                  'speed': speed(SimpleNamespace(session=session))})
+            except (ArchiveError, OSError):
+                pass  # A folder that cannot be read is left out until it can.
+        return found
+
+    def choose_speed(self, key, value):
+        from .account_ui import choose_speed
+        site = sites.find(key)
+        if site is None or site.key == self.site.key or not (self._session(site) / 'state.json').is_file():
+            raise ArchiveError('Choose a site you are signed in to, other than the open one.')
+        choose_speed(SimpleNamespace(session=self._session(site)), value)
+        return self.list()
 
 
 class Location:
@@ -276,6 +321,7 @@ class Runtime:
             # Made here, not later by the dashboard, so that Windows hides them from the start.
             session = private_folder(place, 'session')
             private_folder(place, 'web')
+            share(place, private_folder(root, 'shared'))
             return root, place, session, safe_root(session / 'state.json')
         except ArchiveError:
             raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '
@@ -313,6 +359,7 @@ class Runtime:
         registry.theme = self.theme
         registry.sites = sites.choices(self.site)
         registry.site_choice = self.site_choice
+        registry.site_settings = SiteSettings(self.root, self.site)
         self.location = registry.location = Location(registry.resolve(LOCAL_OWNER, registry.workspace_id).library)
         self._reopen(registry, session)
         self.signin = registry.site_signin = WindowSignIn(registry.resolve(LOCAL_OWNER, registry.workspace_id),

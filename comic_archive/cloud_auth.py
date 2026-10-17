@@ -136,7 +136,7 @@ class SignIn:
             self._update(stage='preparing')
             ensure(root, self._cancel)
             self._update(stage='authenticating')
-            folder = directory(root / '.archive-state/cloud'); folder.chmod(0o700)
+            folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)
             with tempfile.TemporaryDirectory(prefix='signin-', dir=folder) as work:
                 config = Path(work) / 'rclone.conf'
                 config.touch(mode=0o600)

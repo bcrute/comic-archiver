@@ -18,8 +18,15 @@ class NetworkPolicyHold(ArchiveError):
     """A policy pause, never a source refusal or an automatic network retry."""
 
 
+def _path(root):
+    """The connection rule: the library folder's, which every site shares, or the library's own when it is not linked."""
+    from .shared import folder
+    shared = folder(root)
+    return shared / 'network-policy.json' if shared else safe_root(root) / '.archive-state/network-policy.json'
+
+
 def policy(root):
-    path = safe_root(root) / '.archive-state/network-policy.json'
+    path = _path(root)
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ArchiveError('Network settings must not be symlinked.')
     if not path.exists():
@@ -40,13 +47,21 @@ def configure(root, wifi_only):
     if type(wifi_only) is not bool:
         raise ArchiveError('Wi-Fi only must be an explicit boolean.')
     root = safe_root(root)
-    directory(root / '.archive-state').chmod(0o700)
     # Independent of the import writer lock so a running transfer can be held.
-    path = root / '.archive-state/network-policy.json'
+    path = _path(root)
+    directory(path.parent).chmod(0o700)
     value = {'schema_version': 1, 'wifi_only': wifi_only}
     atomic_json(path, value)
     path.chmod(0o600)
     return status(root)
+
+
+def join(root, shared):
+    """A library linked to the shared settings for the first time brings its connection rule, if they have none."""
+    own, path = safe_root(root) / '.archive-state/network-policy.json', shared / 'network-policy.json'
+    if own.is_file() and not path.exists():
+        atomic_json(path, policy(root))
+        path.chmod(0o600)
 
 
 def _command(*args):

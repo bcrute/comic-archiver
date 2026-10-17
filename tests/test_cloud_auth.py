@@ -58,6 +58,21 @@ class CloudSignInTests(unittest.TestCase):
             self.assertNotIn('PRIVATE_TOKEN', json.dumps(status))
             self.assertFalse(list(config.parent.glob('signin-*')))
 
+    def test_a_backblaze_sign_in_for_a_site_that_shares_its_storage_keeps_the_connection_with_the_shared_settings(self):
+        from comic_archive import shared
+        store = self.root.parent/'.comic-shared'
+        shared.link(self.root, store)
+        section = {'type': 'b2', 'account': 'PRIVATE_KEY_ID', 'key': 'PRIVATE_KEY', 'archive_bucket': 'synthetic-bucket'}
+        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=section), \
+                patch('comic_archive.cloud.configure_target') as configure:
+            self.signin.start('b2', {'key_id': 'k'*25, 'application_key': 'a'*31})
+            self.assertEqual(self.finish()['status'], 'connected')
+        config = configure.call_args.kwargs['config']
+        self.assertEqual((config.parent, config.stat().st_mode&0o777), (store/'cloud', PRIVATE_FILE))
+        self.assertIn('PRIVATE_KEY', config.read_text())
+        self.assertFalse(list((self.root/'.archive-state/cloud').glob('connection-*')))
+        self.assertFalse(list(config.parent.glob('signin-*')))
+
     def test_proton_uses_private_obscured_config_without_password_in_process_arguments(self):
         seen = []
         def command(args, log, **kwargs):

@@ -65,7 +65,9 @@
       <p id="settings-status" role="status" aria-live="polite"></p>
     <section id="downloads-settings" class="settings-panel" aria-labelledby="downloads-title">
       <h3 id="downloads-title">Downloads</h3>
-      <div id="account-speed-row" class="setting" hidden><label for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select><p id="account-speed-help" class="muted"></p></div>
+      <p id="downloads-signin-note" class="muted" hidden>Sign in to a site to choose how fast it saves.</p>
+      <div id="account-speed-row" class="setting" hidden><label id="account-speed-label" for="account-speed">Speed</label> <select id="account-speed" disabled><option value="fast">Fast</option><option value="medium">Medium</option><option value="slow">Slow</option></select><p id="account-speed-help" class="muted"></p></div>
+      <div id="other-site-speeds"></div>
       <div id="account-network" class="setting" hidden><label class="checkbox"><input id="account-mobile-data" type="checkbox"> Also save on metered and mobile connections</label><p id="account-network-help" class="muted"></p></div>
     </section>
     <section id="storage-page" class="settings-panel" aria-labelledby="storage-page-title">
@@ -80,6 +82,7 @@
     <section id="cloud-options" class="settings-panel" aria-labelledby="cloud-title">
       <h3 id="cloud-title">Save to your Backblaze B2 account</h3>
       <div id="b2-state" class="cloud-state b2-only" data-tone="neutral" role="status"><span id="b2-state-pill" class="status-pill" data-tone="neutral">Not set up</span><p id="b2-state-text">Follow the steps below to connect your own Backblaze account.</p></div>
+      <div id="b2-sharing" class="setting" hidden><label class="checkbox"><input id="b2-shared" type="checkbox"> Use the same Backblaze setup for every site</label><p id="b2-sharing-help" class="muted"></p></div>
       <p>Each new episode goes straight to your own Backblaze account as it downloads, with no copy kept on this computer, and is checked against Backblaze’s own record of it. An upload that fails keeps the episode here, to retry.</p>
       <label hidden>Provider <select id="cloud-provider"><option value="b2">Backblaze B2</option><option value="google" hidden>Google Drive</option><option value="dropbox" hidden>Dropbox</option><option value="proton" hidden>Proton Drive (experimental)</option></select></label>
       <p id="cloud-status" role="status">Checking cloud connections…</p>

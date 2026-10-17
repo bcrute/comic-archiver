@@ -142,6 +142,48 @@ class LocalWebTests(unittest.TestCase):
         self.assertEqual((status,json.loads(payload),choice.value),('200 OK',{'theme':'dark'},'dark'))
         self.assertEqual(json.loads(self.call('/api/v1/context',cookie=cookie)[2])['theme'],'dark')
 
+    def test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf(self):
+        cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
+        headers={'HTTP_ORIGIN':self.app.origin,'HTTP_X_CSRF_TOKEN':context['csrf_token']}
+        # A browser tab has no other sites.
+        self.assertIsNone(context['site_settings'])
+        self.assertEqual(self.call('/api/v1/site-speed',method='POST',body={'site':'tappytoon','speed':'slow'},cookie=cookie,headers=headers)[0],'404 Not Found')
+        class Settings:
+            chosen=[]
+            def list(self): return [{'key':'tapas','name':'Tapas','current':True,'speed':'fast'}]
+            def choose_speed(self,site,speed):
+                if site=='tapas': raise ArchiveError('PRIVATE the open site')
+                self.chosen.append((site,speed)); return self.list()
+        settings=self.registry.site_settings=Settings()
+        self.assertEqual(json.loads(self.call('/api/v1/context',cookie=cookie)[2])['site_settings'],settings.list())
+        self.assertEqual(self.call('/api/v1/site-speed',method='POST',body={'site':'tappytoon','speed':'slow'})[0],'401 Unauthorized')
+        self.assertEqual(self.call('/api/v1/site-speed',method='POST',body={'site':'tappytoon','speed':'slow'},cookie=cookie)[0],'403 Forbidden')
+        for body in ({},{'site':'tappytoon'},{'speed':'slow'},{'site':'tappytoon','speed':3},{'site':['tappytoon'],'speed':'slow'},
+                     {'site':'tappytoon','speed':'slow','path':'/PRIVATE'}):
+            self.assertEqual(self.call('/api/v1/site-speed',method='POST',body=body,cookie=cookie,headers=headers)[0],'400 Bad Request')
+        status,_,payload=self.call('/api/v1/site-speed',method='POST',body={'site':'tapas','speed':'slow'},cookie=cookie,headers=headers)
+        self.assertEqual((status,json.loads(payload)),('400 Bad Request',{'code':'request_unavailable'}))
+        self.assertEqual(settings.chosen,[])
+        status,_,payload=self.call('/api/v1/site-speed',method='POST',body={'site':'tappytoon','speed':'slow'},cookie=cookie,headers=headers)
+        self.assertEqual((status,json.loads(payload),settings.chosen),('200 OK',{'site_settings':settings.list()},[('tappytoon','slow')]))
+
+    def test_a_site_uses_the_shared_cloud_storage_or_its_own_as_asked_by_the_local_page(self):
+        from comic_archive import shared
+        cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
+        headers={'HTTP_ORIGIN':self.app.origin,'HTTP_X_CSRF_TOKEN':context['csrf_token']}
+        route='/api/v1/workspaces/'+self.workspace.id+'/cloud/storage'
+        self.assertIsNone(json.loads(self.call(route[:-len('/storage')],cookie=cookie)[2])['storage'])
+        # A library the app has not linked has nothing to share.
+        self.assertEqual(self.call(route,method='POST',body={'storage':'separate'},cookie=cookie,headers=headers)[0],'400 Bad Request')
+        shared.link(self.workspace.library,self.root/'.comic-shared')
+        self.assertEqual(self.call(route,method='POST',body={'storage':'separate'},cookie=cookie)[0],'403 Forbidden')
+        for body in ({},{'storage':'both'},{'storage':['shared']},{'storage':'shared','path':'/PRIVATE'}):
+            self.assertEqual(self.call(route,method='POST',body=body,cookie=cookie,headers=headers)[0],'400 Bad Request')
+        self.assertEqual(shared.cloud_mode(self.workspace.library),'shared')
+        for mode in ('separate','shared'):
+            status,_,payload=self.call(route,method='POST',body={'storage':mode},cookie=cookie,headers=headers)
+            self.assertEqual((status,json.loads(payload)['storage'],shared.cloud_mode(self.workspace.library)),('200 OK',mode,mode))
+
     def test_site_list_is_in_the_context_only_when_the_desktop_app_gives_one(self):
         cookie=self.session()
         # In a browser tab there is no list: the page keeps its site choice hidden.
