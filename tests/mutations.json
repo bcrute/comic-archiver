@@ -2678,5 +2678,45 @@
   "new": "False",
   "test_file": "test_b2_cleanup.py",
   "test": "test_a_file_outside_the_apps_own_folder_is_never_deleted"
+ },
+ {
+  "id": "Go after the reader retries ran out starts them over",
+  "source": "comic_archive/batches.py",
+  "old": "            previous['source_recovery_attempts']=0\n",
+  "new": "            pass\n",
+  "test_file": "test_batches.py",
+  "test": "test_go_after_the_automatic_reader_retries_ran_out_tries_the_refused_episode_alone_first"
+ },
+ {
+  "id": "Status hides the image retry wait",
+  "source": "comic_archive/account_ui.py",
+  "old": ",\n                                    ('asset_retry_after', 'images')):",
+  "new": "):",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status hides the site's cooldown from Go",
+  "source": "comic_archive/account_ui.py",
+  "old": "result['go_after_seconds'] = math.ceil(left)",
+  "new": "pass",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status shows a finished cooldown to Go",
+  "source": "comic_archive/account_ui.py",
+  "old": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if left > 0:",
+  "new": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if True:",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status drops the whole download's hold reasons",
+  "source": "comic_archive/account_ui.py",
+  "old": "batches.CODES | completion.REASONS | {",
+  "new": "batches.CODES | {",
+  "test_file": "test_account_ui.py",
+  "test": "test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do"
  }
 ]

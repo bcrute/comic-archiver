@@ -235,7 +235,9 @@ def _start(root,values,resume,*,now=None):
         if previous.get('source_retry_after') and _now() < _instant(previous['source_retry_after']):
             raise ArchiveError('The saved source cooldown must finish before resuming.')
         if previous['code']=='source_refused' and previous['source_recovery_episode'] is not None and previous['source_recovery_wait'] is None:
-            raise ArchiveError('Reader recovery is held; resolve the source or exhausted recovery limits before resuming.')
+            # The automatic retries ran out. Pressing Go again is the person's own retry: the refused episode
+            # is tried first, alone, and the retries start over with the longer waits already learned.
+            previous['source_recovery_attempts']=0
         previous['source_retry_after'] = None
         waiting=(previous['status']=='paused' and (previous['code']=='network_unavailable'
                  and previous['network_retry_after'] is not None or previous['code']=='source_refused'

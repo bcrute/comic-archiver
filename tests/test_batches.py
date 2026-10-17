@@ -729,6 +729,17 @@ class BatchTests(unittest.TestCase):
         value=self.step()
         self.assertIsNotNone(value['pending_task_id']);self.assertEqual(value['submitted_batches'],1)
 
+    def test_go_after_the_automatic_reader_retries_ran_out_tries_the_refused_episode_alone_first(self):
+        self.start()
+        self.edit(lambda s:s.update(status='paused',code='source_refused',source_recovery_episode='81',
+                                    source_recovery_attempts=4,source_recovery_delay=240))
+        value=batches._start(self.root,None,True)
+        self.assertEqual((value['status'],value['code'],value['source_recovery_episode'],value['source_recovery_attempts'],
+                          value['source_recovery_delay']),('running',None,'81',0,240))
+        self.step()
+        options=batches._load(self.root)['pending']['options']
+        self.assertEqual((options['limit'],options['retry_episode_id']),(1,'81'))
+
     def test_stop_while_reader_recovery_is_held_ends_the_recovery_instead_of_probing_later(self):
         self.start()
         self.edit(lambda s:s.update(status='paused',code='source_refused',stop_requested=True,source_recovery_episode='81'))
