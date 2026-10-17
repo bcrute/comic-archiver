@@ -1607,7 +1607,8 @@ def smoke(screenshot=None,mobile=False,local=False):
                 try:
                     assert held.wait(5)
                     page.locator('#downloads').click()
-                    expect(page.locator('#files tr')).to_have_count(3)
+                    # The one saved episode, listed once: its data files are under All files.
+                    expect(page.locator('#files tr')).to_have_count(1)
                     original=next(alice.library.glob('*/*.cbz'))
                     row=page.locator('#files tr').filter(has_text='.cbz');button=row.locator('.file-action')
                     expect(button).to_have_text('Open' if local else 'Download')
