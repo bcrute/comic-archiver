@@ -792,15 +792,16 @@ async function poll() {
       if (Date.now() - (state.libraryRefreshedAt || 0) > 60000) await librarySummary();
     }
   } catch (error) {
-    if (simpleMode()) {
-      state.accountOffline = true;
-      state.accountMessage = {message:'Could not refresh progress. We’ll retry automatically; your saved work is retained.', error:true, polling:true};
-    }
     if (kind === 'session' && workspace === state.workspace && task === state.task) {
       state.connectionCheck = { message: `${error.message} Waiting to retry the connection check status.`, error: true, pending: true };
       renderConnectionCheck();
     }
     notice(error.message, true);
+    // A failed refresh says it will retry, rather than showing the raw error; the next good refresh clears it.
+    if (simpleMode()) {
+      state.accountOffline = true;
+      state.accountMessage = {message:'Could not refresh progress. We’ll retry automatically; your saved work is retained.', error:true, polling:true};
+    }
   }
   finally { state.polling = false; buttons(); renderSeries(); }
 }
