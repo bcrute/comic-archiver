@@ -128,7 +128,7 @@ class WebtoonTests(unittest.TestCase):
         self.assertEqual(verify(self.root), [])
         saved = sorted(self.root.glob('**/*.cbz'))
         self.assertEqual(len(saved), 3)
-        for path, number in zip(saved, (1, 2, 4)):
+        for path, number in zip(saved, (1, 2, 4), strict=True):
             with zipfile.ZipFile(path) as archive:
                 pictures = [archive.read(name) for name in sorted(archive.namelist()) if name.endswith('.png')]
             self.assertEqual(pictures, [png(10 * number + 1), png(10 * number + 2)])

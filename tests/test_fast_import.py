@@ -8,12 +8,10 @@ from unittest.mock import Mock, patch
 from comic_archive.archive import Store, verify
 from comic_archive.cli import parser
 from comic_archive.downloads import AssetDownload
-from comic_archive.errors import AccessDenied, RunLimit
 from comic_archive.hosted import WorkspaceRegistry
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_series_url, DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
-from comic_archive.queue_client import submit_job
 from comic_archive.selection import series_link
 from comic_archive.task_cancellation import cancelled_result
 from comic_archive.worker import execute

@@ -41,7 +41,7 @@ class MemoryAdapter:
 class ArchiveTests(unittest.TestCase):
     def test_optional_decoding_checks_saved_pages_without_retrieval_or_rewrite(self):
         folder = self.archive()
-        cbz = next(folder.glob('*.cbz'))
+        next(folder.glob('*.cbz'))
         before = {p.name: p.read_bytes() for p in folder.iterdir() if p.is_file()}
         calls = self.adapter.calls
         decoder = Mock()

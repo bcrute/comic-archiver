@@ -360,7 +360,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 summary['reader_probe_succeeded'] = True
                             inventory.mark(key, 'downloading')
                             last_progress = [None]
-                            def progress(line):
+                            def progress(line, last_progress=last_progress, key=key):
                                 now = time.monotonic()
                                 force = line.endswith(('archive and JSON saved', 'already archived and verified'))
                                 if not force and last_progress[0] is not None and now - last_progress[0] < 0.25:
@@ -586,7 +586,7 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             job_progress(inventory.root,run_id,phase='account_list',category=category)
             library_series = set()
             library_page_count = 0
-            def library_checkpoint(value):
+            def library_checkpoint(value, category=category, library_series=library_series):
                 nonlocal library_page_count
                 if value.get('authenticated') is not True or value.get('membership_verified') is not True or value.get('scope')!=category:
                     raise MetadataError('The account reading-list checkpoint scope was not verified.')

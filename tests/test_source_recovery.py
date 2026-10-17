@@ -96,7 +96,10 @@ class SourceRecoveryTests(unittest.TestCase):
         self.now += timedelta(seconds=500)
         self.assertIsNone(self.step()['pending_task_id'])
         self.assertEqual(self.step()['submitted_batches'],5)
-        with self.assertRaises(ArchiveError):batches._start(self.root,None,True)
+        # Go is then the person's own retry: the refused episode is tried again, alone, with the waits already learned.
+        resumed=batches._start(self.root,None,True)
+        self.assertEqual((resumed['status'],resumed['code'],resumed['source_recovery_attempts'],resumed['source_recovery_delay']),
+                         ('running',None,0,480))
 
     def test_status_without_verified_reader_gate_challenge_and_invalid_receipt_never_retry(self):
         for fields in ({'source_retry_episode_id':None},{'source_response_kind':'challenge'},

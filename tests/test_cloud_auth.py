@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from support import PRIVATE_FILE, helper_program, posix_signals
-from comic_archive import cloud_auth, cloud, google_client
+from comic_archive import cloud, google_client
 from comic_archive.cloud_auth import SignIn, oauth_link, validate
 from comic_archive.models import ArchiveError
 from comic_archive.network import NetworkPolicyHold

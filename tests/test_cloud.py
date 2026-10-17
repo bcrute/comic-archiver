@@ -1,5 +1,4 @@
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -12,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE, helper_program
 from comic_archive import cloud
-from comic_archive.archive import episode_archives, sidecar_path
+from comic_archive.archive import sidecar_path
 from comic_archive.audit import audit_library
 from comic_archive.inventory import Inventory
 from comic_archive.cloud_errors import CloudCleanupError, CloudTransferError, safe_code

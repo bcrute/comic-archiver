@@ -190,7 +190,7 @@ class Transfer:
             actual = None
         if self.provider == 'b2' and source is not None and not getattr(self, 'full_readback', False):
             # B2 keeps the SHA-1 it checked on arrival; compare it instead of downloading the file again.
-            whole, sha1 = hashlib.sha256(), hashlib.sha1()
+            whole, sha1 = hashlib.sha256(), hashlib.sha1(usedforsecurity=False)  # B2 lists SHA-1; SHA-256 is the check that counts
             with Path(source).open('rb') as data:
                 while block := data.read(4 * 1024**2):
                     whole.update(block); sha1.update(block)
@@ -611,7 +611,7 @@ class DirectUpload:
             files = [data] + [(self.root / item['path']).read_bytes() for item in self.bundle['files'][1:]]
             if [hashlib.sha256(f).hexdigest() for f in files] != [item['sha256'] for item in self.bundle['files']]:
                 raise ArchiveError('Episode files changed while their upload was prepared.')
-            self.files = [(item['name'], f) for item, f in zip(self.bundle['files'], files)]
+            self.files = [(item['name'], f) for item, f in zip(self.bundle['files'], files, strict=True)]
             transfer = cleanup_direct(self.root)
             from .cloud_stream import _stage, cleanup_stage
             if _stage(self.root, self.bundle['episode_id'], 'b2')[1] is not None:
@@ -634,7 +634,7 @@ class DirectUpload:
         try:
             for name, data in self.files:
                 self.transfer.upload_bytes(data, self.prefix + '/' + name)
-            if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data).hexdigest() for name, data in self.files}:
+            if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data, usedforsecurity=False).hexdigest() for name, data in self.files}:
                 raise CloudTransferError('cloud_verification')
         except BaseException as error:
             self.error = error
@@ -750,7 +750,7 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
                             # checked as for them, then the bytes are read back as well.
                             data = source.read_bytes()
                             transfer.upload_bytes(data, remote_path)
-                            if transfer.sha1s(remote_path) != {item['name']: hashlib.sha1(data).hexdigest()}:
+                            if transfer.sha1s(remote_path) != {item['name']: hashlib.sha1(data, usedforsecurity=False).hexdigest()}:
                                 raise CloudTransferError('cloud_verification')
                             transfer.verify(remote_path, item['sha256'])
                         elif stream and item == bundle['files'][0]:
@@ -903,7 +903,7 @@ def evict_uploaded(root):
                 receipts = [_receipt_for(root, archive, p) for p in providers]
                 if any(r is None or r['version'] != record['version'] for r in receipts):continue
                 current = settings(root)
-                if any(saved['target_id'] != current['targets'][name]['target_id'] for name,saved in zip(providers,receipts)):
+                if any(saved['target_id'] != current['targets'][name]['target_id'] for name,saved in zip(providers,receipts,strict=True)):
                     continue
                 seen.add(relative)
                 if archive.exists():
@@ -913,7 +913,7 @@ def evict_uploaded(root):
                             raise ArchiveError('Local archive differs from verified cloud copy; deletion held.')
                 # Persist intent before unlink; restart can distinguish deliberate
                 # cloud-only storage from accidental loss without downloading again.
-                for name, saved in zip(providers, receipts):
+                for name, saved in zip(providers, receipts, strict=True):
                     _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'),
                            saved | {'eviction_requested':True})
                 if archive.exists():

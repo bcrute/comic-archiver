@@ -44,9 +44,7 @@ def command(args, *, cwd=ROOT, env=None):
 
 
 def prerequisites(prepare):
-    import coverage  # Fail before collecting tests if a required extra is absent.
-    import PIL
-    import playwright.sync_api
+    import coverage, PIL, playwright.sync_api  # noqa: F401 - fail before collecting tests if a required extra is absent
     if prepare:
         command([sys.executable, '-m', 'playwright', 'install', 'firefox'])
 
@@ -87,6 +85,17 @@ def suites(prepare=False):
     return summary
 
 
+def static_checks():
+    """Lint and security rules over the code, then known vulnerabilities in the installed dependencies."""
+    command([sys.executable, '-m', 'ruff', 'check', '--no-cache', 'comic_archive', 'scripts', 'tests'])
+    frozen = subprocess.run(['uv', 'pip', 'freeze', '--python', sys.executable], cwd=ROOT, check=True,
+                            capture_output=True, text=True, timeout=120).stdout
+    # This project itself is installed editable and is not on the package index.
+    requirements = OUT / 'audit-requirements.txt'
+    requirements.write_text(''.join(line + '\n' for line in frozen.splitlines() if '==' in line and not line.startswith('-e')))
+    command([sys.executable, '-m', 'pip_audit', '--disable-pip', '--no-deps', '--progress-spinner', 'off', '-r', requirements])
+
+
 def installed_package():
     command([sys.executable, '-m', 'build', '--installer', 'uv', '--wheel', '--outdir', OUT / 'dist'])
     wheels = list((OUT / 'dist').glob('*.whl'))
@@ -115,6 +124,7 @@ def main():
     # Never reuse a stale distribution as evidence for the current source.
     if (OUT / 'dist').exists():
         shutil.rmtree(OUT / 'dist')
+    static_checks()
     summary = suites(args.prepare)
     command([sys.executable, '-m', 'compileall', '-q', 'comic_archive'])
     # The browser checks keep their scratch files in memory where they can: on a busy fleet host one write
@@ -129,7 +139,7 @@ def main():
     command([sys.executable, 'scripts/reading_filter_smoke.py'])
     command([sys.executable, 'scripts/cloud_tools_smoke.py'])
     installed_package()
-    summary.update(required_gates_passed=True, browser_dashboard_variants=4, saved_library_browser_variants=4,
+    summary.update(required_gates_passed=True, lint_and_security_rules=True, dependency_audit=True, browser_dashboard_variants=4, saved_library_browser_variants=4,
                    reading_filter_smoke=True, pinned_cloud_helper_install=True, fresh_wheel_install=True,
                    real_second_account_onboarding_verified=False,
                    windows_verified=False, macos_verified=False)

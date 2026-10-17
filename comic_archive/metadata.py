@@ -21,7 +21,7 @@ def enrich_with_store(adapter,key,store,refresh=False,cover_adapter=None):
     except ExpiredAsset:
         fresh=adapter.series_metadata(key)
         if fresh.platform_id!=series.platform_id:
-            raise MetadataError('Refreshed cover metadata changed series identity.')
+            raise MetadataError('Refreshed cover metadata changed series identity.') from None
         series=fresh
         cover=store.cover(series,retrieval,refresh)
     folder=store.write_series_metadata(series,cover=cover,enriched=True)
