@@ -27,7 +27,7 @@ class PipeUpload:
     """
     def __init__(self, transfer, remote_path, size=None):
         from .cloud import _environment
-        self.transfer = transfer
+        self.transfer, self.size = transfer, size
         self.error = None
         self.stop = threading.Event()
         transfer.guard.check()
@@ -97,7 +97,9 @@ class PipeUpload:
         self.process.stdin.close()
         try:
             if self.error is not None: raise self.error
-            code = wait_process(self.process, self.transfer.guard)
+            from .cloud import transfer_timeout
+            # Given its size, rclone sends the whole file only now: a large one gets longer to finish.
+            code = wait_process(self.process, self.transfer.guard, transfer_timeout(self.size))
             if code:
                 from .cloud_errors import transfer_failure
                 raise transfer_failure(self.logs[1], code)

@@ -267,7 +267,8 @@ def worker_tick(session, library=Path('Library')):
             return _public(value)
     except LibraryBusy:
         return
-    except (ArchiveError, OSError):
+    except Exception:
+        # Anything unexpected, a damaged inventory database among them, holds the export instead of the worker.
         if root is None:
             return
         try:
