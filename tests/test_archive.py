@@ -347,6 +347,13 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(cbz.read_bytes(), original)
         self.assertEqual(outside.read_bytes(), b'keep')
 
+    def test_a_metadata_write_replaces_what_an_interrupted_write_left_behind(self):
+        target = self.root / 'series.json'
+        (self.root / 'series.json.tmp').write_text('{"interrupted":')
+        atomic_json(target, {'title': 'Sample Series'})
+        self.assertEqual(json.loads(target.read_text()), {'title': 'Sample Series'})
+        self.assertFalse((self.root / 'series.json.tmp').exists())
+
     def test_stored_paths_must_stay_inside_the_library_without_symlinks(self):
         self.assertEqual(self.store.stored_path('Series/one.cbz'), self.store.root / 'Series/one.cbz')
         for bad in ('/etc/passwd', '../escape.cbz', 'Series/../../escape.cbz'):

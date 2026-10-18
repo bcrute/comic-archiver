@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from .models import ArchiveError, canonical_url, identifier
 from .transport import ExpiredAsset
 from .archive_paths import directory
-from .osdep import anchored, hide, replace_file, sync_file
+from .osdep import anchored, hide, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
 from .errors import RunLimit
 ARCHIVE_VERSION = 15
@@ -72,7 +72,8 @@ def atomic_json(path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     if path.is_symlink() or temporary.is_symlink():
         raise ArchiveError("Refusing a symlink in archive output.")
-    with temporary.open("w", encoding="utf-8") as f:
+    # Created fresh and private, never through a symlink planted since the check above.
+    with os.fdopen(open_exclusive(temporary), "w", encoding="utf-8") as f:
         json.dump(value, f, ensure_ascii=False, indent=2)
         f.write("\n")
         f.flush()

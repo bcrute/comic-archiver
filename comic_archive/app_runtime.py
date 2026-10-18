@@ -286,7 +286,8 @@ def configure_logging():
         path = state_dir() / 'desktop.log'
         if path.is_symlink():
             raise OSError
-        os.close(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600))
+        # The guard opens as the log itself does: privately, appending, never through a symlink.
+        os.close(osdep.open_log(path))
         handler = RotatingFileHandler(path, maxBytes=256 * 1024, backupCount=2, encoding='utf-8')
     except (OSError, ArchiveError):
         # The app still runs; it only cannot explain itself afterwards.
