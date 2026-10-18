@@ -10,7 +10,7 @@ from contextlib import closing
 from pathlib import Path
 from . import sites
 from .models import ArchiveError
-from .osdep import open_exclusive, replace_file
+from .osdep import open_exclusive, replace_file, sync_directory
 
 
 def browser_api(preferred="auto"):
@@ -115,13 +115,18 @@ def store_session(state, directory: Path, site=sites.DEFAULT):
     # The site first: the downloader never finds a sign-in without knowing whose it is.
     _private_write(directory / "site.tmp", site.key)
     replace_file(directory / "site.tmp", directory / "site")
+    sync_directory(directory)
     _private_write(temporary, json.dumps(state))
     replace_file(temporary, directory / "state.json")
+    sync_directory(directory)
 
 
 def _private_write(path, text):
     with os.fdopen(open_exclusive(path), "w") as f:
         f.write(text)
+        # On disk before it takes the old file's place, so a crash leaves one or the other whole.
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def login(directory: Path, preferred="auto"):

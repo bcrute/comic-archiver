@@ -27,6 +27,8 @@ class SiteReader:
 
     @deadline.setter
     def deadline(self, value):
+        # Each job begins by setting this; a rate limit an earlier job met stopped only that job.
+        self.transport.clear_rate_limit()
         self.transport.deadline = value
 
     @property
@@ -54,6 +56,11 @@ class SiteReader:
 
     def manifest(self):
         return self._manifest
+
+    def episode_access(self, url):
+        """Whether an episode may be read, asked before reading it; a site that cannot say refuses."""
+        raise ArchiveError(f'{self.site.name} cannot check an episode\'s access before reading it, '
+                           'so its free episodes cannot be downloaded on their own.')
 
     def retrieve(self, page, max_bytes=None):
         return self.transport.get(page.location, max_bytes=max_bytes) if max_bytes is not None else self.transport.get(page.location)

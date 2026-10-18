@@ -5,6 +5,8 @@ import math
 import re
 
 MAX_RETRY_AFTER = 2**31 - 1
+# HTTP's older asctime date, "Sun Nov  6 08:49:37 1994", which is always GMT though it does not say so.
+ASCTIME = re.compile(r'[A-Z][a-z]{2} [A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4}')
 
 
 def retry_after_seconds(value, now=None):
@@ -16,6 +18,8 @@ def retry_after_seconds(value, now=None):
         return min(MAX_RETRY_AFTER, int(value))
     try:
         stamp = parsedate_to_datetime(value)
+        if stamp.tzinfo is None and ASCTIME.fullmatch(value):
+            stamp = stamp.replace(tzinfo=timezone.utc)
         if stamp.tzinfo is None:
             return None
         current = datetime.now(timezone.utc) if now is None else now
