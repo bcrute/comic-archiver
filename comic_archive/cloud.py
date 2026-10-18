@@ -33,6 +33,10 @@ OAUTH_PROVIDERS = ('google', 'dropbox')
 LABELS = {'google': 'Google Drive', 'dropbox': 'Dropbox', 'proton': 'Proton Drive', 'b2': 'Backblaze B2'}
 REMOTE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}')
 CLOUD_ROOT = 'Comic-Archive'
+# Failures every upload to the connection would meet; the others are one episode's own.
+CONNECTION_FAILURES = {'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket', 'cloud_client_required',
+                       'cloud_login_required', 'cloud_space', 'cloud_cap', 'cloud_rate_limited',
+                       'cloud_connection', 'cloud_permission', 'cloud_network_held'}
 
 
 def test_prefixes(library_id, test_id):
@@ -109,8 +113,12 @@ def settings(root):
     return own | {'targets': _shared(store)}
 
 
-def _save(root, value):
-    """Keep changed connections where settings reads them from."""
+def _save(root, value, provider):
+    """Keep one changed connection where settings reads it from.
+
+    The shared connections are read again with their folder locked: another library may
+    have changed one since this library read them, and that change is kept.
+    """
     from .shared import cloud_folder
     path, store = root / '.archive-state/cloud/targets.json', cloud_folder(root)
     if store is None:
@@ -119,7 +127,8 @@ def _save(root, value):
     if not path.exists():
         _write(path, value | {'targets': {}})
     with LibraryLock(store.parent):
-        _write(store / 'targets.json', {'schema_version': 1, 'targets': value['targets']})
+        targets = _shared(store) | {provider: value['targets'][provider]}
+        _write(store / 'targets.json', {'schema_version': 1, 'targets': targets})
 
 
 def connection_folder(root):
@@ -183,10 +192,23 @@ def _environment():
 
 def _binary():
     from .cloud_tools import installed
-    executable = shutil.which('rclone') or installed()
+    # The pinned, checksum-verified helper first; an rclone of the person's own only without it.
+    executable = installed() or shutil.which('rclone')
     if not executable:
         raise ArchiveError('Cloud support is not installed. Click Sign in in the local app to set it up.')
     return executable
+
+
+def transfer_timeout(size):
+    """A quarter hour, and longer for a large file: it may go as slowly as 256 KiB a second."""
+    return 900 + (size or 0) // (256 * 1024)
+
+
+def _size(path):
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return 0
 
 
 def _config(path):
@@ -222,7 +244,8 @@ class Transfer:
         if found.get(target['remote']) != PROVIDERS[provider]:
             raise ArchiveError('Cloud connection does not match the selected provider. Run cloud-connect again.')
 
-    def run(self, *arguments, missing_ok=False):
+    def run(self, *arguments, missing_ok=False, size=0):
+        timeout = transfer_timeout(size)
         command = [self.binary, '--config', str(self.config), '--ask-password=false',
                    '--log-level', 'ERROR', '--stats', '0', '--retries', '2',
                    '--low-level-retries', '2', '--contimeout', '30s', '--timeout', '60s',
@@ -237,10 +260,10 @@ class Transfer:
                     guard.check()
                     with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                                           env=_environment(), **osdep.hidden()) as process:
-                        code = wait_process(process, guard)
+                        code = wait_process(process, guard, timeout)
                 else:
                     code = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
-                                          timeout=900, env=_environment(), check=False, **osdep.hidden()).returncode
+                                          timeout=timeout, env=_environment(), check=False, **osdep.hidden()).returncode
                 if missing_ok and code in (3,4):
                     return b''
                 if code:
@@ -259,7 +282,7 @@ class Transfer:
 
     def upload(self, source, remote_path, expected):
         destination = self.remote(remote_path)
-        self.run('copyto', str(source), destination, '--immutable')
+        self.run('copyto', str(source), destination, '--immutable', size=_size(source))
         self.verify(remote_path, expected, source=source)
 
     def verify(self, remote_path, expected, *, source=None):
@@ -304,7 +327,7 @@ class Transfer:
             if actual and actual[0] == b'UNSUPPORTED':
                 actual = None
         if not actual:
-            actual = self.run('hashsum', 'SHA256', destination, '--download').split()
+            actual = self.run('hashsum', 'SHA256', destination, '--download', size=_size(source) if source else 0).split()
         if not actual or actual[0].decode('ascii', errors='replace') != expected:
             raise CloudTransferError('cloud_verification')
 
@@ -382,7 +405,7 @@ def configure_target(root, provider, *, remote=None, config=None):
                     record['connection'] = _test_connection(previous)
                     _write(receipt, record)
         value['targets'][provider] = target
-        _save(root, value)
+        _save(root, value, provider)
     return status(root)
 
 
@@ -452,7 +475,7 @@ def enable(root, provider, enabled):
         if enabled and not target['tested']:
             raise ArchiveError('Run the small cloud test and cleanup before enabling automatic uploads.')
         target['enabled'] = enabled
-        _save(root, value)
+        _save(root, value, provider)
     return status(root)
 
 
@@ -586,6 +609,7 @@ def upload_pending(root, *, limit=None, provider=None):
     root = safe_root(root)
     report = {'uploaded_episodes':0, 'local_archives_deleted':0, 'freed_bytes':0}
     if settings(root) is None:return report
+    failure = None
     with LibraryLock(root):
         value = settings(root)
         if not value:return report
@@ -617,6 +641,12 @@ def upload_pending(root, *, limit=None, provider=None):
                             retain(root, name, historical)
                             if not archive.exists() and historical.get('eviction_requested') is True:
                                 continue  # The old account keeps this copy; there are no local bytes to send elsewhere.
+                    if _orphaned(root, archive):
+                        # Deleted or moved away before it was uploaded: there is nothing to send, so it is set
+                        # aside instead of failing every retry. It is sent once the episode is back.
+                        if record.get('state') != 'orphaned':
+                            _write(path, {k: v for k, v in record.items() if k != 'error_code'} | {'state':'orphaned'})
+                        continue
                     bundle = _bundle(root, archive)
                     if any(bundle[k] != record.get(k) for k in ('episode_id','version')):
                         raise ArchiveError('Cloud retry no longer matches the completed episode.')
@@ -642,10 +672,21 @@ def upload_pending(root, *, limit=None, provider=None):
                     from .network import NetworkPolicyHold
                     if isinstance(error, NetworkPolicyHold):
                         raise
-                    raise CloudTransferError(code) from None
+                    if code in CONNECTION_FAILURES:
+                        raise CloudTransferError(code) from None
+                    failure = failure or code  # This episode waits for its retry; the others still go up.
         deleted = evict_uploaded(root)
         report.update(deleted)
+    if failure:
+        raise CloudTransferError(failure)
     return report
+
+
+def _orphaned(root, archive):
+    """An episode in the library whose file is gone, though no upload let it go."""
+    parts = archive.relative_to(root).parts
+    return (len(parts) == 2 and '..' not in parts and not parts[0].startswith('.')
+            and not archive.exists() and not archive.is_symlink() and not offloaded(root, archive))
 
 
 def direct_target(root):
@@ -655,6 +696,9 @@ def direct_target(root):
     return value['targets']['b2'] if enabled == ['b2'] else None
 
 
+DIRECT_NAMES = r'episode\.(?:cbz|epub|tar\.zst|json)|series\.json|cover\.(?:jpg|png|webp|gif)'
+
+
 def cleanup_direct(root, transfer=None):
     """Delete what an interrupted direct upload left in B2, by the paths it recorded first.
 
@@ -662,24 +706,41 @@ def cleanup_direct(root, transfer=None):
     for an earlier connection are kept too, since that account may not be this one.
     """
     root = safe_root(root)
-    folder = root / '.archive-state/cloud/direct/b2'
+    folder = safe_root(root / '.archive-state/cloud/direct/b2')
     if not folder.is_dir():
         return transfer
     value = settings(root)
     target = value and value['targets'].get('b2')
-    for path in sorted(folder.glob('*.json'))[:20]:
-        record = _json(path)
-        if (set(record) != {'schema_version', 'library_id', 'target_id', 'episode_id', 'prefix', 'names'}
-                or record['schema_version'] != 1 or not valid_export_id(record['episode_id'])
-                or path.stem != record['episode_id'] or not isinstance(record['prefix'], str)
-                or not isinstance(record['names'], list) or not all(isinstance(n, str) for n in record['names'])):
-            raise ArchiveError('Direct upload recovery state is invalid; no cloud files were changed.')
-        if not target or record['library_id'] != value['library_id'] or record['target_id'] != target['target_id']:
+    if not target:
+        return transfer
+    records = []
+    for path in sorted(folder.glob('*.json')):
+        try:
+            record = _json(path)
+            parts = record['prefix'].split('/') if isinstance(record.get('prefix'), str) else []
+            if (set(record) != {'schema_version', 'library_id', 'target_id', 'episode_id', 'prefix', 'names'}
+                    or record['schema_version'] != 1 or not valid_export_id(record['episode_id'])
+                    or path.stem != record['episode_id'] or len(parts) != 5 or parts[0] != CLOUD_ROOT
+                    or parts[1] != record['library_id'] or not valid_export_id(parts[2]) or parts[3] != record['episode_id']
+                    or not re.fullmatch(r'[0-9a-f]{64}', parts[4]) or not isinstance(record['names'], list)
+                    or not all(isinstance(n, str) and re.fullmatch(DIRECT_NAMES, n) for n in record['names'])):
+                raise ArchiveError('Direct upload recovery state is invalid; no cloud files were changed.')
+        except ArchiveError:
+            # Paths from a damaged record cannot be trusted: it is set aside, and nothing in B2 is changed.
+            os.replace(path, path.with_suffix('.damaged-' + uuid.uuid4().hex))
+            _directory_sync(folder)
             continue
+        if record['library_id'] == value['library_id'] and record['target_id'] == target['target_id']:
+            records.append((path, record))
+    for path, record in records[:20]:
+        version = record['prefix'].rsplit('/', 1)[-1]
         receipt = root / '.archive-state/cloud/outbox/b2' / (record['episode_id'] + '.json')
-        kept = _json(receipt) if receipt.is_file() else {}
-        finished = (kept.get('state') == 'verified' and kept.get('target_id') == target['target_id']
-                    and record['prefix'].endswith('/' + str(kept.get('version'))))
+        history = (root / '.archive-state/cloud/history/b2' / record['episode_id']
+                   / (target['target_id'] + '-' + version + '.json'))
+        # The outbox or the history saying it was uploaded each keep it: either may be all that was written.
+        kept = [_json(file) for file in (receipt, history) if file.is_file()]
+        finished = any(saved.get('state') == 'verified' and saved.get('target_id') == target['target_id']
+                       and saved.get('version') == version for saved in kept)
         if not finished:
             if transfer is None:
                 transfer = transfer_for(root, 'b2', target)
@@ -769,8 +830,9 @@ class DirectUpload:
         verified = queued | self.bundle | {'state':'verified', 'target_id':self.target['target_id'],
                                           'verified_at':datetime.now(timezone.utc).isoformat(),
                                           'eviction_requested':True}
-        retain(self.root, 'b2', verified)
+        # The outbox first: the recovery record reads it, so B2's only copy is never taken for leftovers.
         _write(self.root / '.archive-state/cloud/outbox/b2' / (self.bundle['episode_id'] + '.json'), verified)
+        retain(self.root, 'b2', verified)
         self.intent.unlink()
         _directory_sync(self.intent.parent)
         _prepare_cache_for_offload(self.root, self.archive, saved=False)
@@ -887,7 +949,7 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
             # Only exact files journaled under this fresh test UUID are deleted.
             cleanup_test(root, run_id, transfer=transfer)
         value['targets'][provider]['tested'] = True
-        _save(root, value)
+        _save(root, value, provider)
         result = {'provider':provider, 'verified_episodes':record['verified_episodes'],
                 'test_files_deleted':True, 'local_archives_retained':True, 'test_id':run_id}
         if stream:

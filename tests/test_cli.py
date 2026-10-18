@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import runpy
 import struct
 import tempfile
@@ -306,6 +307,34 @@ class CLITests(unittest.TestCase):
                     self.assertRaises(SystemExit) as raised:
                 main()
             self.assertEqual(raised.exception.code, returned)
+
+    def test_main_ends_quietly_on_a_closed_pipe_and_shows_tracebacks_only_when_debugging(self):
+        with patch('sys.argv', ['comic-archive', 'doctor']), patch('comic_archive.cli.run', side_effect=BrokenPipeError()), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit) as raised:
+            main()
+        self.assertEqual((raised.exception.code, err.getvalue()), (141, ''))
+        for debug in ('1', None):
+            with self.subTest(debug=debug), patch.dict('os.environ'), patch('sys.argv', ['comic-archive', 'doctor']), \
+                    patch('comic_archive.cli.run', side_effect=RuntimeError('DETAIL')), redirect_stderr(io.StringIO()) as err, \
+                    self.assertRaises(SystemExit) as raised:
+                os.environ.pop('COMIC_ARCHIVE_DEBUG', None)
+                if debug: os.environ['COMIC_ARCHIVE_DEBUG'] = debug
+                main()
+            self.assertEqual(raised.exception.code, 1)
+            self.assertIn('Operation failed', err.getvalue())
+            self.assertEqual(('Traceback' in err.getvalue(), 'DETAIL' in err.getvalue()), (bool(debug), bool(debug)))
+
+    def test_a_symlinked_default_session_folder_never_breaks_parsing_and_is_refused_when_used(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('pathlib.Path.cwd', return_value=Path(tmp)):
+            (Path(tmp) / 'elsewhere').mkdir()
+            (Path(tmp) / '.comic-session').symlink_to(Path(tmp) / 'elsewhere')
+            self.assertEqual(parser().parse_args(['doctor']).session_dir, Path('.comic-session'))
+            with redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as raised:
+                parser().parse_args(['--help'])
+            self.assertEqual(raised.exception.code, 0)
+            self.assertIn('comic-archive', out.getvalue())
+            with self.assertRaises(ArchiveError):
+                invoke('backlog-status')
 
     def test_python_dash_m_entry_point_exits_nonzero_for_a_library_without_archives(self):
         with tempfile.TemporaryDirectory() as tmp, patch('sys.argv', ['comic-archive', 'verify', tmp]), \
@@ -647,6 +676,40 @@ class CLITests(unittest.TestCase):
             self.assertIn('downloaded 0 pages and 0 covers', out)
             invoke('sync', '--output', str(library), '--watched-only', '--scan-only')
             self.assertEqual((job.call_args.kwargs['refresh_lists'], job.call_args.kwargs['scan_only']), (False, True))
+
+    def test_local_imports_exit_nonzero_with_the_reason_when_the_job_pauses_or_is_cancelled(self):
+        for command, job_name, status, reason, code in (('sync', 'sync', 'paused', 'network_policy', 1),
+                                                         ('archive-discovered', 'archive_discovered', 'cancelled', None, 1),
+                                                         ('import-series', 'archive_series_url', 'paused', 'network_unavailable', 1),
+                                                         ('sync', 'sync', 'limited', None, 0)):
+            result = {'archived_episode_ids': [], 'downloaded_pages': 0, 'downloaded_bytes': 0, 'status': status}
+            if reason: result['pause_reason'] = reason
+            argv = [command, 'https://tapas.io/series/my-comic'] if command == 'import-series' else [command]
+            with self.subTest(command=command, status=status), tempfile.TemporaryDirectory() as tmp, \
+                    patch(f'comic_archive.jobs.{job_name}', return_value=result), patch('comic_archive.adapters.tapas.TapasAdapter'):
+                self.assertEqual(invoke(*argv, '--output', tmp)[0], code)
+                returned, out, _ = invoke(*argv, '--output', tmp, '--json')
+                self.assertEqual((returned, json.loads(out)), (code, result))
+                if reason:
+                    self.assertIn(f"Job paused ({reason.replace('_', ' ')});", invoke(*argv, '--output', tmp)[1])
+
+    def test_local_imports_refuse_bad_options_before_the_library_lock_or_browser(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('comic_archive.locking.wait_for_library') as wait, \
+                patch('comic_archive.jobs.sync') as sync_job, patch('comic_archive.jobs.archive_discovered') as discovered_job, \
+                patch('comic_archive.jobs.archive_series_url') as series_job, \
+                patch('comic_archive.fast_import.FastImportAdapter') as fast_type, \
+                patch('comic_archive.adapters.tapas.TapasAdapter') as adapter_type:
+            for argv in (['sync', '--history-pages', '0'], ['sync', '--history-pages', '501'], ['sync', '--scan-limit', '0'],
+                         ['sync', '--limit', '0'], ['archive-discovered', '--max-pages', '0'],
+                         ['archive-discovered', '--speed', 'fast', '--max-bytes', '0'],
+                         ['archive-discovered', '--max-seconds', 'nan'], ['import-series', 'https://example.com/series/x']):
+                with self.subTest(argv=argv), self.assertRaises(ArchiveError):
+                    invoke(*argv, '--output', tmp)
+            wait.assert_not_called()
+            for job in (sync_job, discovered_job, series_job):
+                job.assert_not_called()
+            fast_type.return_value.__enter__.assert_not_called()
+            adapter_type.return_value.__enter__.assert_not_called()
 
     def test_fast_speed_uses_the_fast_adapter_with_its_own_worker_pool(self):
         from comic_archive.fast_import import FAST_WORKERS

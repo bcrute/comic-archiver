@@ -233,6 +233,31 @@ class CloudSignInTests(unittest.TestCase):
         with self.assertRaises(ArchiveError): google_client.install(self.root, source)
         source.unlink(); source.symlink_to(private)
         with self.assertRaises(ArchiveError): google_client.install(self.root, source)
+    def test_a_new_sign_in_deletes_the_connection_file_it_replaces_unless_a_test_cleanup_needs_it(self):
+        import uuid
+        section = {'type': 'b2', 'account': 'PRIVATE_KEY_ID', 'key': 'PRIVATE_KEY', 'archive_bucket': 'synthetic-bucket'}
+        def sign_in():
+            with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(section)), \
+                    patch('comic_archive.cloud.Transfer'):
+                self.signin.start('b2', {'key_id': 'k'*25, 'application_key': 'a'*31})
+                self.assertEqual(self.finish()['status'], 'connected')
+            return Path(cloud.settings(self.root)['targets']['b2']['config'])
+        named = self.root.parent/'named.conf'; named.write_text('[b2]\ntype = b2\n'); named.chmod(0o600)
+        with patch('comic_archive.cloud.Transfer'):
+            cloud.configure_target(self.root, 'b2', config=named)
+        first = sign_in()
+        self.assertTrue(named.is_file())  # A file named on the command line stays.
+        second = sign_in()
+        self.assertFalse(first.exists()); self.assertTrue(second.is_file())
+        target = cloud.settings(self.root)['targets']['b2']
+        receipt = self.root/'.archive-state/cloud/tests'/(str(uuid.uuid4()) + '.json')
+        cloud._write(receipt, {'provider': 'b2', 'state': 'cleanup_pending',
+                               'connection': {k: target[k] for k in ('remote', 'config', 'target_id')}})
+        third = sign_in()
+        self.assertTrue(second.is_file()); self.assertTrue(third.is_file())
+        cloud._write(receipt, json.loads(receipt.read_text()) | {'state': 'cleaned'})
+        sign_in()
+        self.assertFalse(third.exists())
 
     def test_duplicate_signin_is_rejected_and_shutdown_cancels_owned_work(self):
         entered = threading.Event()
@@ -254,7 +279,7 @@ class CloudSignInTests(unittest.TestCase):
             + 'time.sleep(30)\n')
         with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.cloud._binary', return_value=str(script)):
             self.signin.start('google', {})
-            deadline = time.monotonic()+4
+            deadline = time.monotonic()+30  # A loaded machine can take seconds to start the helper.
             while not self.signin.status().get('auth_url') and time.monotonic()<deadline:
                 time.sleep(0.02)
             self.assertTrue(self.signin.status().get('auth_url'))

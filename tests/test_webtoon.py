@@ -10,7 +10,7 @@ from test_archive import png
 from comic_archive import sites, worker
 from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, split_episode, split_series
 from comic_archive.archive import verify
-from comic_archive.errors import MetadataError
+from comic_archive.errors import AccessDenied, MetadataError, UnsupportedContent
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_watched_series
 from comic_archive.models import ArchiveError
@@ -152,6 +152,23 @@ class WebtoonTests(unittest.TestCase):
         self.assertEqual([(e['id'], e['order'], e['title'], e['access_state']) for e in listing['episodes']],
                          [('7000001', 1, 'Episode 1', 'webtoon_free'), ('7000002', 2, 'Episode 2', 'webtoon_free'),
                           ('7000004', 4, 'Episode 4', 'webtoon_free')])
+
+    def test_series_details_are_found_when_webtoon_lists_its_episodes_at_full_addresses(self, sleep):
+        pages = series_pages()
+        for url in [url for url in pages if url.startswith('https://m.webtoons.com/api/')]:
+            pages[url] = pages[url].replace(b'"/en/', b'"https://www.webtoons.com/en/')
+        adapter, client = reader(pages)
+        details = adapter.series_metadata('7')
+        self.assertEqual((details.id, details.title, details.platform_id), ('sample-series', 'Sample Series', '7'))
+        self.assertIn(f'{HOME}/en/fantasy/sample-series/list?title_no=7', [url for url, _ in client.calls])
+
+    def test_a_free_only_download_is_refused_plainly_since_webtoon_cannot_say_which_episodes_are_free(self, sleep):
+        adapter, client = reader(series_pages(), SignedIn)
+        with self.assertRaisesRegex(ArchiveError, 'cannot check') as refused:
+            adapter.episode_access(HOME + viewer_link('fantasy', 'sample-series', 7, 1))
+        # Not a refusal of the one episode, which would set every episode aside in turn and go on.
+        self.assertNotIsInstance(refused.exception, (AccessDenied, UnsupportedContent, MetadataError))
+        self.assertEqual(client.calls, [])
 
     def test_without_an_account_no_episode_is_claimed_readable_and_nothing_is_captured(self, sleep):
         # Access marks are earned from evidence: a reader that cannot check an account reports

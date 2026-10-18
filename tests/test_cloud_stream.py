@@ -776,6 +776,61 @@ class B2DirectTests(unittest.TestCase):
         self.assertEqual(self.target()['verified'], 1)
         self.assertFalse(self.intents())
 
+    def sent_archive(self):
+        """The episode B2 alone keeps, by the sidecar left here."""
+        files = self.b2()
+        cbz = next(path for path in files if path.endswith('/episode.cbz'))
+        export_id = json.loads(files[cbz.rsplit('/', 1)[0] + '/episode.json'])['export_id']
+        sidecar = next(path for path in self.root.glob('*/*.json') if path.name != 'series.json'
+                       and json.loads(path.read_text())['export_id'] == export_id)
+        return sidecar.with_suffix('.cbz')
+
+    def test_an_upload_recorded_in_either_record_alone_is_never_taken_for_leftovers(self):
+        # Stopped after the outbox was written, before the history was.
+        with patch('comic_archive.cloud_history.retain', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError): self.publish((self.episode,), MemoryAdapter())
+        sent = self.b2(); archive = self.sent_archive()
+        self.assertEqual(len(self.intents()), 1)
+        cloud.cleanup_direct(self.root)
+        self.assertEqual(self.b2(), sent); self.assertFalse(self.intents())
+        self.assertTrue(cloud.offloaded(self.root, archive))
+        # The history alone: an upload stopped before its outbox record was written, as earlier versions wrote them.
+        cloud.upload_pending(self.root)  # The history is written as the episode's upload is confirmed.
+        history = json.loads(next((self.root/'.archive-state/cloud/history/b2').glob('*/*.json')).read_text())
+        intent = self.root/'.archive-state/cloud/direct/b2'/(history['episode_id'] + '.json')
+        cloud._write(intent, {'schema_version': 1, 'library_id': history['library_id'], 'target_id': history['target_id'],
+                              'episode_id': history['episode_id'], 'names': [item['name'] for item in history['files']],
+                              'prefix': f"Comic-Archive/{history['library_id']}/{history['series_id']}/{history['episode_id']}/{history['version']}"})
+        (self.root/'.archive-state/cloud/outbox/b2'/(history['episode_id'] + '.json')).unlink()
+        cloud.cleanup_direct(self.root)
+        self.assertEqual(self.b2(), sent); self.assertFalse(self.intents())
+        self.assertTrue(cloud.offloaded(self.root, archive))
+
+    def test_a_damaged_recovery_record_is_set_aside_and_never_stops_later_uploads(self):
+        folder = self.root/'.archive-state/cloud/direct/b2'; folder.mkdir(parents=True, exist_ok=True)
+        damaged = folder/(str(uuid.uuid4()) + '.json'); damaged.write_text('{broken'); damaged.chmod(0o600)
+        StreamingTransfer.files[('b2', 'unrelated/keep')] = b'keep'
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=lambda page: png(page.order))
+        folder_of_episodes = self.publish((self.episode,), adapter)
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 0))
+        self.assertEqual(len(episode_archives(folder_of_episodes)), 1)  # Only the seed is here.
+        self.assertFalse(self.intents()); self.assertFalse(damaged.exists())
+        self.assertEqual([path.read_text() for path in folder.glob(damaged.stem + '.damaged-*')], ['{broken'])
+        self.assertEqual(self.b2()['unrelated/keep'], b'keep')
+
+    def test_records_for_other_connections_never_crowd_out_this_ones_leftovers(self):
+        self.crash_after_the_cbz()
+        left = self.b2(); ours = self.intents()
+        value = cloud.settings(self.root); folder = self.root/'.archive-state/cloud/direct/b2'
+        for number in range(25):
+            episode = f'00000000-0000-0000-0000-{number:012d}'
+            cloud._write(folder/(episode + '.json'), {'schema_version': 1, 'library_id': value['library_id'],
+                         'target_id': str(uuid.uuid4()), 'episode_id': episode, 'names': ['episode.cbz'],
+                         'prefix': f"Comic-Archive/{value['library_id']}/{uuid.uuid4()}/{episode}/{'0'*64}"})
+        cloud.cleanup_direct(self.root)
+        self.assertFalse(set(left) & set(self.b2()))
+        self.assertEqual(len(self.intents()), 25); self.assertFalse(any(path.exists() for path in ours))
+
     def test_leftovers_recorded_for_an_earlier_connection_are_kept(self):
         self.crash_after_the_cbz()
         left = self.b2()

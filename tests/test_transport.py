@@ -4,7 +4,7 @@ from unittest.mock import patch
 from test_transport_session import Client, Response
 from comic_archive.errors import NetworkUnavailable, RunLimit
 from comic_archive.models import ArchiveError
-from comic_archive.transport import Transport
+from comic_archive.transport import ExpiredAsset, Transport, asset_url
 
 
 class Clock:
@@ -94,6 +94,42 @@ class TransportLimitTests(unittest.TestCase):
                 holder[0].get('https://cdn.tapas.io/a')
         self.assertEqual(error.exception.source_http_status, 429)
         self.assertEqual(error.exception.retry_after_seconds, 30)
+        self.assertEqual(client.calls, [])
+
+    @patch('comic_archive.transport.time.sleep')
+    def test_a_rate_limit_stops_the_job_that_met_it_and_the_next_job_may_ask_again(self, sleep):
+        client = Client([Response(429, headers={'Retry-After': '30'}), Response()])
+        transport = Transport(client=client)
+        for _ in range(2):
+            with self.assertRaisesRegex(ArchiveError, 'rate limit') as error:
+                transport.get('https://cdn.tapas.io/a')
+            self.assertEqual(error.exception.retry_after_seconds, 30)
+        self.assertEqual(len(client.calls), 1)
+        transport.clear_rate_limit()
+        self.assertEqual(transport.get('https://cdn.tapas.io/a'), b'image')
+        self.assertEqual(len(client.calls), 2)
+
+    @patch('comic_archive.transport.time.sleep')
+    def test_an_address_that_ran_out_or_was_refused_names_the_status_it_was_given(self, sleep):
+        for code in (401, 403, 404, 410):
+            client = Client([Response(code), Response()])
+            with self.subTest(code=code), self.assertRaises(ExpiredAsset) as error:
+                Transport(client=client).get('https://cdn.tapas.io/a')
+            self.assertEqual(error.exception.source_http_status, code)
+            self.assertEqual(len(client.calls), 1)
+
+
+class TransportAddressTests(unittest.TestCase):
+    def test_an_address_whose_port_or_host_cannot_be_read_is_refused_as_outside_the_boundary(self):
+        client = Client([Response()])
+        for url in ('https://cdn.tapas.io:99999/a', 'https://cdn.tapas.io:abc/a', 'https://cdn.tapas.io:-1/a',
+                    'https://[cdn.tapas.io/a', 'https://cdn.tapas.io:443/a'):
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(ArchiveError, 'host boundary') as error:
+                    asset_url(url)
+                self.assertIs(type(error.exception), ArchiveError)
+                with self.assertRaisesRegex(ArchiveError, 'host boundary'):
+                    Transport(client=client).get(url)
         self.assertEqual(client.calls, [])
 
 

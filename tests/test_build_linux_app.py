@@ -329,6 +329,16 @@ class CommandLineTests(WorkspaceCase):
         self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
         self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
 
+    def test_a_host_package_mirror_or_extra_index_never_reaches_the_bundled_install(self):
+        leaks = dict.fromkeys(('UV_INDEX_URL', 'UV_EXTRA_INDEX_URL', 'UV_INDEX', 'UV_DEFAULT_INDEX', 'UV_FIND_LINKS',
+                               'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'PIP_FIND_LINKS'), 'https://mirror.invalid/simple')
+        kept = {'UV_CACHE_DIR': '/cache', 'PIP_DISABLE_PIP_VERSION_CHECK': '1', 'COMIC_ARCHIVER_BUILD_DOWNLOAD_CACHE': '/downloads'}
+        with patch.dict(os.environ, leaks | kept):
+            build.uv_install(Path('/app/python/bin/python3'), ['/w/x.whl'])
+        env = self.calls[0][1]['env']
+        self.assertEqual([name for name in leaks if name in env], [])
+        self.assertEqual({name: env.get(name) for name in kept}, kept)
+
 
 class MainTests(WorkspaceCase):
     def invoke(self, *args):

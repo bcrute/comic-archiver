@@ -71,6 +71,14 @@ class PurgeTests(unittest.TestCase):
         self.assertTrue(original.is_file()); self.assertTrue(duplicate.is_file())
         self.assertFalse((self.root/'.archive-state/purge.json').exists())
 
+    def test_a_series_folder_waiting_for_its_first_episode_is_skipped_but_one_with_exports_is_not(self):
+        archive = self.publish()
+        waiting = self.root/'Waiting [0123456789ab]'; waiting.mkdir()  # Made before the first page downloads.
+        self.assertEqual(purge_library(self.root)['verified_archives'], 1)
+        shutil.copy2(archive, waiting/archive.name)
+        with self.assertRaisesRegex(ArchiveError, 'Series verification'): purge_library(self.root, apply=True)
+        self.assert_untouched()
+
     def test_symlinked_cache_or_retained_export_directories_are_refused(self):
         self.publish()
         outside = self.work/'outside'; outside.mkdir(); (outside/'keep').write_bytes(b'keep')

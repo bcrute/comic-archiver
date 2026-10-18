@@ -71,6 +71,14 @@ def _source_series(meta):
     return str(meta.get('source_series_id', meta.get('series_id')))
 
 
+def _site(rows, portable):
+    """The site a library saves from, named by its recorded access and saved exports; Tapas when nothing names one."""
+    found = {site.key for site in sites.SITES for row in rows if row['access_state'] in (site.free, site.unlocked)}
+    found |= {entry['metadata'].get('source') for entry in portable.values()
+              if isinstance(entry['metadata'], dict) and entry['metadata'].get('source') in sites.KEYS}
+    return found.pop() if len(found) == 1 else 'mixed' if found else sites.DEFAULT.key
+
+
 def audit_library(output, report=None):
     target = _report_target(report)
     root = Path(output).absolute()
@@ -226,7 +234,7 @@ def audit_library(output, report=None):
                            'episodes': per_series.get(row['id'], {'verified': 0, 'missing_recorded_accessible': 0, 'by_status': {}})})
         scanned = bool(series) and not status['series_without_scan_checkpoint_count'] and not status['scan_remaining_series_count'] and not status['series_scan_gap_count']
         valid_files = not integrity_problems and not folder_problems
-        value = {'schema_version': 1, 'document_type': 'comic_archive_reconciliation', 'source': 'tapas',
+        value = {'schema_version': 1, 'document_type': 'comic_archive_reconciliation', 'source': _site(rows, portable),
                  'audited_at': checked_at, 'access_snapshot_only': True, 'remote_authorization_checked': False,
                  'account_inventory_complete': False, 'account_archive_complete': False,
                  'coverage_blockers': ['independent_purchase_inventory_unverified'],

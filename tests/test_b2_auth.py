@@ -93,14 +93,50 @@ class B2ConnectionTests(unittest.TestCase):
 
     def test_errors_and_oversized_or_invalid_responses_do_not_expose_credentials(self):
         for response, code in ((httpx.Response(401, text='PrivateFixtureKey123'),'b2_key_permissions'),
+                               (httpx.Response(403, text='PrivateFixtureKey123'),'b2_key_permissions'),
+                               (httpx.Response(403, json={'code':'access_denied'}),'b2_key_permissions'),
                                (httpx.Response(429),'cloud_rate_limited'), (httpx.Response(503),'cloud_connection'),
                                (httpx.Response(200, text='x'*65537),'cloud_connection'),
                                (httpx.Response(200, json=[]),'cloud_connection')):
             transport = httpx.MockTransport(lambda req:response)
-            with patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)):
+            with patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)), \
+                    patch('comic_archive.b2_auth._pause'):
                 with self.assertRaises(CloudTransferError) as error:self.connect()
                 self.assertEqual(error.exception.cloud_code, code)
                 self.assertNotIn('Private', str(error.exception))
+
+    def test_a_reached_backblaze_cap_is_reported_as_the_cap_not_as_a_wrong_key(self):
+        for name in ('transaction_cap_exceeded', 'storage_cap_exceeded', 'download_cap_exceeded'):
+            transport = httpx.MockTransport(lambda req:httpx.Response(403, json={'status':403, 'code':name, 'message':'Private'}))
+            with self.subTest(name), patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)):
+                with self.assertRaises(CloudTransferError) as error:self.connect()
+                self.assertEqual(error.exception.cloud_code, 'cloud_cap')
+
+    def test_a_busy_service_is_asked_again_after_the_wait_it_names_up_to_a_bound(self):
+        answers = [httpx.Response(503, headers={'Retry-After':'5'}), httpx.Response(429, headers={'Retry-After':'86400'}),
+                   httpx.Response(429)]
+        def request(req):
+            self.requests.append(req)
+            return answers.pop(0) if answers else httpx.Response(200, json=self.account if req.url.path.endswith('b2_authorize_account') else self.listing)
+        transport = httpx.MockTransport(request)
+        with patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)), \
+                patch('comic_archive.b2_auth._pause') as pause:
+            self.assertEqual(self.connect()['archive_bucket'], self.bucket['name'])
+        self.assertEqual([c.args[0] for c in pause.call_args_list], [5, 30, 4])
+        self.assertEqual(len(self.requests), 5)
+        # A service still busy after the last try is reported, not waited on forever.
+        transport = httpx.MockTransport(lambda req:httpx.Response(503, headers={'Retry-After':'1'}))
+        with patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)), \
+                patch('comic_archive.b2_auth._pause') as pause:
+            with self.assertRaises(CloudTransferError) as error:self.connect()
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection'); self.assertEqual(pause.call_count, 3)
+
+    def test_cancelling_during_a_wait_for_a_busy_service_stops_without_asking_again(self):
+        transport = httpx.MockTransport(lambda req:(self.requests.append(req), httpx.Response(503, headers={'Retry-After':'20'}))[1])
+        self.cancel = Mock(); self.cancel.is_set.return_value = False; self.cancel.wait.return_value = True
+        with patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw:self.factory(transport=transport, **kw)):
+            with self.assertRaisesRegex(ArchiveError, 'stopped'):self.connect()
+        self.cancel.wait.assert_called_once_with(20); self.assertEqual(len(self.requests), 1)
 
     def test_key_must_be_for_the_bucket_named_in_setup(self):
         # Backblaze keeps the name as typed at creation; a different case is the same bucket.

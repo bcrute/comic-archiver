@@ -375,6 +375,15 @@ class AccountExportTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(state))
         self.assertEqual(list((self.root / 'requests').glob('*.json')), [])
 
+    def test_a_damaged_inventory_database_holds_the_export_instead_of_stopping_the_worker(self):
+        import sqlite3
+        account_export.configure(self.session, self.library)
+        with patch('comic_archive.account_export._advance', side_effect=sqlite3.DatabaseError('PRIVATE')):
+            self.assertIsNone(self.tick())
+        state = account_export.status(self.session, self.library)
+        self.assertEqual((state['status'], state['code']), ('held', 'controller_failed'))
+        self.assertNotIn('PRIVATE', json.dumps(state))
+
     def test_discovery_renewal_preserves_prior_usage_and_recovery_limits(self):
         completion.configure(self.session, self.library, until_drained=True)
         for _ in range(3):

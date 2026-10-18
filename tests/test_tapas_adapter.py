@@ -214,6 +214,16 @@ class StartupAndLimitTests(AdapterBase):
         save.assert_not_called()
 
 
+    @patch('comic_archive.adapters.tapas.Transport')
+    def test_threaded_image_reads_share_the_jobs_stop_and_time_limit(self, assets):
+        # Threaded image reads go straight to the asset client, never through the browser transport's own checks.
+        self.adapter.deadline = time.monotonic() + 3600
+        self.adapter.cancel_check = Mock()
+        transport = self.adapter.automatic_adapter().transport
+        self.assertEqual(transport.assets.deadline, self.adapter.deadline)
+        self.assertIs(transport.assets.cancel_check, self.adapter.cancel_check)
+
+
 class HeadlessDiagnosticTests(AdapterBase):
     def test_background_test_requires_an_exact_episode_url_before_any_session_use(self):
         self.adapter.driver = Mock()
@@ -882,6 +892,23 @@ class ReadingListTests(AdapterBase):
         self.assertIs(result['restore_succeeded'], False)
         self.assertEqual([s['source_series_id'] for s in result['series']], ['42', '43'])
 
+    def test_reading_list_boundary_is_not_complete_when_a_series_repeats_or_has_no_single_id(self):
+        first, second = dict(self.ROW), {'url': 'https://tapas.io/series/second', 'title': 'Second', 'ids': ['43']}
+        third = {'url': 'https://tapas.io/series/third', 'title': 'Third', 'ids': ['44']}
+        renamed = dict(first, url='https://tapas.io/series/renamed')
+        for rows, duplicates, unresolved in (([[first, second], [second, third]], 1, 0), ([[first], [renamed]], 1, 0),
+                                             ([[first, second], [dict(third, ids=[])]], 0, 1)):
+            with self.subTest(rows=rows):
+                self.reading_list(rows=rows)
+                self.next.get_attribute.side_effect = lambda name: (
+                    'paging__button--next' + (' disabled' if self.adapter.page.url == self.SECOND else '') if name == 'class' else self.SECOND)
+                result = self.adapter.inspect_library_pages('subscribed', max_pages=2)
+                self.assertTrue(result['boundary_observed'])
+                self.assertFalse(result['complete'])
+                self.assertEqual(len(result['pages']), 2)
+                self.assertEqual(result['duplicate_series_on_later_pages'], duplicates)
+                self.assertEqual(result['unresolved_series_id_count'], unresolved)
+
     def test_reading_list_pager_stops_on_an_empty_list_or_missing_next_control_and_checkpoints_each_page(self):
         self.reading_list(rows=[[]])
         checkpoint = Mock()
@@ -994,6 +1021,41 @@ class LibraryDetailTests(AdapterBase):
                 self.assertEqual(result['scope'], scope)
                 self.assertEqual(set(result), {'authenticated', 'membership_verified', 'scope',
                                                'initial_list_count', 'final_list_count'})
+
+
+class HistoryAnswerTests(AdapterBase):
+    def test_history_answer_without_data_or_pagination_stalls_the_cursor_instead_of_crashing(self):
+        for answer in (None, [], {'data': None}, {'data': []}, {'data': {'pagination': None}}):
+            with self.subTest(answer=answer):
+                observation = SimpleNamespace(library_values={'/profile/transactions': answer}, history_status=200, responses=[])
+                state = {'advance_clicked': True, 'observation': observation, 'previous_index': 0, 'needs_advance': True}
+                self.adapter.wait_normal = Mock()
+                with patch('comic_archive.adapters.tapas.time', Mock(monotonic=Mock(side_effect=[0, 100]))):
+                    self.assertFalse(self.adapter._advance_history(state))
+                self.assertEqual(state['navigation_error'], 'history_cursor_stalled')
+
+    def test_history_page_with_null_rows_or_pagination_is_recorded_without_crashing(self):
+        adapter = self.adapter
+        adapter.account_identity = Mock(return_value='1')
+        adapter.wait_normal = Mock()
+        adapter.remaining_timeout = Mock(return_value=30000)
+        page = Mock()
+        page.is_closed.return_value = False
+        adapter.context.new_page.return_value = page
+        control = Mock()
+        control.count.return_value = 1
+        control.get_attribute.return_value = 'disabled'
+        control.evaluate_all.return_value = []
+        page.locator.return_value = control
+
+        def opened():
+            adapter._history_scan['observation'].library_values['/profile/transactions'] = {
+                'data': {'transactions': None, 'pagination': None}}
+            return {'history_clicked': True}
+        adapter.inspect_account_navigation = Mock(side_effect=opened)
+        result = adapter.inspect_transaction_history(1)
+        self.assertTrue(result['observed_boundary'])
+        self.assertEqual((result['pages'][0]['source_types'], result['pages'][0]['server_pagination']), ([], {}))
 
 
 class FreeFilterTests(unittest.TestCase):

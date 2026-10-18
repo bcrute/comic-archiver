@@ -1538,8 +1538,10 @@ def smoke(screenshot=None,mobile=False,local=False):
                 context=browser.new_context(viewport={'width':390 if mobile else 1150,'height':1000},accept_downloads=True)
                 context.route('**/*',route_request)
                 if local: registry.sites = sites.choices()
-                page=context.new_page();page.goto(site+'/')
+                # The local dashboard opens only at its launch address, which the page then drops from its address.
+                page=context.new_page();page.goto(app.launch_url if local else site+'/')
                 expect(page.locator('#notice')).to_have_text('Library loaded. Choose a series to get started.')
+                if local: assert page.url==site+'/',page.url
                 if local:
                     expect(page.locator('#site')).to_have_value('tapas')
                     expect(page.locator('#site option')).to_have_text(['Tapas','Webtoon — coming later','Tappytoon'])

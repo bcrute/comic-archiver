@@ -52,6 +52,35 @@ def sidecar(path):
     return path.with_name(path.name[:-8]+'.json') if path.name.endswith('.tar.zst') else path.with_suffix('.json')
 
 
+def offloaded(source, metadata_path):
+    """An episode uploaded and then removed here, by the library's own verified receipt for these exact metadata bytes."""
+    try:
+        episode = json.loads(metadata_path.read_text())
+        export_id = episode['export_id']
+        if not isinstance(export_id, str) or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', export_id):
+            return False
+        archive = metadata_path.with_suffix({'epub': '.epub', 'tar.zst': '.tar.zst'}.get(episode.get('format'), '.cbz'))
+        if archive.exists() or archive.is_symlink():
+            return False
+        relative = archive.relative_to(source).as_posix()
+        digest = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
+        state = source / '.archive-state/cloud'
+        for path in [*state.glob('outbox/*/' + export_id + '.json'), *state.glob('history/*/' + export_id + '/*.json')]:
+            if path.is_symlink() or path.stat().st_size > 1024**2:
+                continue
+            record = json.loads(path.read_text())
+            if not isinstance(record, dict):
+                continue
+            files = record.get('files')
+            if (record.get('state') == 'verified' and record.get('eviction_requested') is True
+                    and record.get('archive') == relative and isinstance(files, list) and len(files) >= 2
+                    and isinstance(files[1], dict) and files[1].get('sha256') == digest):
+                return True
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    return False
+
+
 def restore(source, destination, decode=False):
     image_module = None
     if decode:
@@ -63,7 +92,7 @@ def restore(source, destination, decode=False):
         raise ValueError('Restore destination must be separate from the source library.')
     destination.mkdir(parents=True, exist_ok=False)
     report = {'archive_count':0,'series_count':0,'image_count':0,'cover_count':0,
-              'novel_chapter_count':0,'novel_character_count':0,
+              'novel_chapter_count':0,'novel_character_count':0,'offloaded_episode_count':0,
               'original_image_bytes':0,'images_decoded':decode,
               'application_imported':False,'cache_or_session_copied':False}
     for series_path in sorted(source.glob('*/series.json')):
@@ -92,8 +121,17 @@ def restore(source, destination, decode=False):
                     image.load()
             report['cover_count'] += 1
         episode_paths = sorted([*series_path.parent.glob('*.cbz'), *series_path.parent.glob('*.epub'), *series_path.parent.glob('*.tar.zst')])
-        if len(episode_paths) != series['episode_count']:
+        local = {sidecar(path) for path in episode_paths}
+        # Uploaded, then removed from the library: its metadata is restored alone; the archive is in the cloud.
+        remote = [path for path in sorted(series_path.parent.glob('*.json'))
+                  if path.name != 'series.json' and path not in local and offloaded(source, path)]
+        if len(episode_paths) + len(remote) != series['episode_count']:
             raise ValueError('Series episode count does not match its portable exports.')
+        for metadata_path in remote:
+            if metadata_path.is_symlink():
+                raise ValueError('Refusing a symlinked episode export.')
+            shutil.copy2(metadata_path, folder / metadata_path.name)
+            report['offloaded_episode_count'] += 1
         for archive_path in episode_paths:
             metadata_path = sidecar(archive_path)
             if archive_path.is_symlink() or metadata_path.is_symlink():
@@ -217,7 +255,7 @@ def restore(source, destination, decode=False):
                     report['image_count'] += 1
                     report['original_image_bytes'] += len(data)
             report['archive_count'] += 1
-    if not report['archive_count']:
+    if not report['archive_count'] and not report['offloaded_episode_count']:
         raise ValueError('No portable episode archives were found.')
     (destination/'restore-report.json').write_text(json.dumps(report,indent=2)+'\n')
     return report

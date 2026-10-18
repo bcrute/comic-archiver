@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -498,14 +499,20 @@ class JobTests(unittest.TestCase):
             self.assertIsNone(inventory.status()['last_completed_scan'])
 
     def test_scheduled_writer_waits_for_an_existing_process_without_overlap(self):
-        code = "import sys,time; from comic_archive.locking import LibraryLock; from pathlib import Path;\nwith LibraryLock(Path(sys.argv[1])):\n print('locked',flush=True);time.sleep(.25)"
-        process = subprocess.Popen([sys.executable,'-c',code,str(self.root)],stdout=subprocess.PIPE,text=True)
+        # The other process keeps the library until this test closes its input, however slowly either runs.
+        code = "import sys; from comic_archive.locking import LibraryLock; from pathlib import Path;\nwith LibraryLock(Path(sys.argv[1])):\n print('locked',flush=True);sys.stdin.read()"
+        process = subprocess.Popen([sys.executable,'-c',code,str(self.root)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        release = threading.Timer(.25,process.stdin.close)
         try:
             self.assertEqual(process.stdout.readline().strip(),'locked')
             self.assertIsNone(process.poll())
-            with wait_for_library(self.root,2):
+            release.start()
+            with wait_for_library(self.root,10):
                 self.assertEqual(process.wait(timeout=2),0)
         finally:
+            release.cancel()
+            if release.is_alive():release.join()
+            process.stdin.close()
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=2)
@@ -522,6 +529,54 @@ class JobTests(unittest.TestCase):
             "series": [{"source_series_id": "42", "title": "S", "checked_at": "2026-10-02T00:00:00Z",
                 "accessible_episodes": [{"id": "81", "title": "E81", "order": 1, "access_state": "tapas_free"},
                                         {"id": "82", "title": "E82", "order": 2, "access_state": "tapas_unlocked"}]}]}))
+
+    @patch('builtins.print')
+    def test_a_time_limit_that_ends_the_refresh_itself_still_reports_the_scan_count(self,output):
+        clock=[0.0];identity=self.adapter.account_identity
+        def slow_sign_in():
+            clock[0]=11.0  # Signing in outlasted this short last batch.
+            return identity()
+        self.adapter.account_identity=slow_sign_in
+        with Inventory(self.root) as inventory:inventory.observe('42','S',[],'fixture')
+        with patch('comic_archive.jobs.time.monotonic',side_effect=lambda:clock[0]):
+            result=sync(self.adapter,self.root,refresh_lists=False,max_seconds=10)
+        self.assertEqual(result['status'],'limited')
+        self.assertEqual(result['refresh'],{'state':'limited','remaining_series_count':1})
+        self.assertEqual(self.adapter.calls,['identity'])
+
+    @patch('builtins.print')
+    def test_an_episode_that_keeps_failing_is_tried_after_the_others_and_then_held(self,output):
+        capture=self.adapter.capture_automatic
+        def broken(url):
+            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            return capture(url)
+        self.adapter.capture_automatic=broken
+        with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report,limit=1)
+        # The next run goes past it instead of failing on it again first.
+        self.assertEqual(archive_discovered(self.adapter,self.root,self.report,limit=1)['archived_episode_ids'],['81'])
+        for _ in range(2):
+            with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report)
+        self.adapter.calls.clear()
+        held=archive_discovered(self.adapter,self.root,self.report)
+        self.assertEqual((held['status'],held['pending_episode_count']),('finished',0))
+        self.assertNotIn(('capture','82'),self.adapter.calls)
+        with Inventory(self.root,read_only=True) as inventory:
+            row=inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='82'").fetchone()
+            self.assertEqual(tuple(row),('failed','job_failed',3))
+            self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1,'failed':1})
+
+    @patch('builtins.print')
+    def test_a_job_waits_for_a_short_library_writer_instead_of_failing_before_its_run(self,output):
+        held=threading.Event();release=threading.Event()
+        def writer():
+            with LibraryLock(self.root):
+                held.set();release.wait(5)
+        thread=threading.Thread(target=writer);thread.start()
+        self.addCleanup(thread.join,5);self.addCleanup(release.set)
+        self.assertTrue(held.wait(5))
+        timer=threading.Timer(.2,release.set);timer.start();self.addCleanup(timer.cancel)
+        result=archive_discovered(self.adapter,self.root,self.report,limit=1)
+        self.assertEqual((result['status'],result['archived_episode_ids']),('limited',['82']))
 
     @patch("builtins.print")
     def test_durable_queue_resumes_after_page_limit_and_skips_verified_archives(self, output):

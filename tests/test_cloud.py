@@ -78,6 +78,63 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(FakeTransfer.files, before)
         self.assertEqual(json.loads(receipt.read_text())['state'], 'failed')
 
+    def test_one_episode_that_cannot_upload_does_not_hold_up_the_others(self):
+        self.publish(); self.ready(); FakeTransfer.fail_upload = True
+        for key in ('82', '83'):
+            with self.assertRaises(ArchiveError): self.publish(key)
+        FakeTransfer.fail_upload = False
+        outbox = sorted((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        stuck, other = (json.loads(path.read_text()) for path in outbox)
+        cloud._write(outbox[0], stuck | {'version': '0'*64})  # The first in line no longer matches its episode.
+        with self.assertRaises(CloudTransferError) as caught: cloud.upload_pending(self.root)
+        self.assertEqual(caught.exception.cloud_code, 'cloud_unknown')
+        self.assertEqual(json.loads(outbox[0].read_text())['state'], 'failed')
+        self.assertTrue((self.root / stuck['archive']).exists())
+        self.assertEqual(json.loads(outbox[1].read_text())['state'], 'verified')
+        self.assertFalse((self.root / other['archive']).exists())
+
+    def test_a_failure_every_upload_would_meet_stops_the_run_at_once(self):
+        self.publish(); self.ready(); FakeTransfer.fail_upload = True
+        for key in ('82', '83'):
+            with self.assertRaises(ArchiveError): self.publish(key)
+        FakeTransfer.fail_upload = False
+        for code in ('cloud_login_required', 'cloud_cap', 'cloud_connection'):
+            with self.subTest(code), patch.object(FakeTransfer, 'upload', side_effect=CloudTransferError(code)) as upload:
+                with self.assertRaises(CloudTransferError) as caught: cloud.upload_pending(self.root)
+                self.assertEqual(caught.exception.cloud_code, code); self.assertEqual(upload.call_count, 1)
+        self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 2)
+
+    def test_an_episode_deleted_before_its_upload_is_set_aside_until_it_is_back(self):
+        self.publish(); self.ready(); FakeTransfer.fail_upload = True
+        with self.assertRaises(ArchiveError): self.publish('82')
+        FakeTransfer.fail_upload = False
+        receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        archive = self.root / json.loads(receipt.read_text())['archive']; data = archive.read_bytes(); archive.unlink()
+        for _ in range(2):
+            self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 0)
+            self.assertEqual(json.loads(receipt.read_text())['state'], 'orphaned')
+            google = cloud.status(self.root)['targets'][0]
+            self.assertEqual((google['pending'], google['failed'], google['verified']), (0, 0, 0))
+        self.assertFalse(FakeTransfer.files)
+        archive.write_bytes(data)
+        self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 1)
+        self.assertFalse(archive.exists()); self.assertTrue(cloud.offloaded(self.root, archive))
+
+    def test_a_shared_connection_changed_by_another_library_meanwhile_keeps_that_change(self):
+        from comic_archive import shared
+        other, store = self.base / 'Other/Library', self.base / '.comic-shared'
+        for library in (self.root, other): shared.link(library, store)
+        self.publish(); self.ready(); self.configured('proton')
+        real = FakeTransfer.upload
+        def upload(transfer, *args):
+            cloud.enable(other, 'google', False)  # Another site turns Google uploads off during this library's test.
+            real(transfer, *args)
+        with patch.object(FakeTransfer, 'upload', upload):
+            cloud.smoke_test(self.root, 'proton', episodes=1)
+        for library in (self.root, other):
+            targets = cloud.settings(library)['targets']
+            self.assertFalse(targets['google']['enabled']); self.assertTrue(targets['proton']['tested'])
+
     def test_cleanup_keeps_original_connection_after_account_or_client_changes(self):
         self.publish(); self.configured(); FakeTransfer.fail_delete = True
         with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1)
@@ -694,6 +751,8 @@ class TransferTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.config = Path(temporary.name)/'config';self.config.write_text('[google]\ntype=drive\n');self.config.chmod(0o600)
         self.target = {'config':str(self.config),'remote':'google'}
+        # The pinned helper comes first; these tests choose the rclone found on the path.
+        patch('comic_archive.cloud_tools.installed',return_value=None).start();self.addCleanup(patch.stopall)
 
     def command(self, args, **kwargs):
         self.assertFalse(kwargs['check']);self.assertNotIn('PASSWORD_PRIVATE',' '.join(args))
@@ -725,6 +784,25 @@ class TransferTests(unittest.TestCase):
         for code in (3,4):
             with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],code)):
                 self.assertEqual(transfer.run('lsf','google:test',missing_ok=True),b'')
+
+    def test_a_large_file_gets_longer_than_the_usual_quarter_hour_to_transfer(self):
+        from unittest.mock import MagicMock
+        transfer = object.__new__(cloud.Transfer);transfer.binary='/fake/rclone';transfer.config=self.config
+        with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],0)) as run:
+            transfer.run('lsf','google:test')
+            self.assertEqual(run.call_args.kwargs['timeout'],900)
+            transfer.run('copyto','source','google:test',size=1024**3)
+            self.assertEqual(run.call_args.kwargs['timeout'],900+4096)
+        transfer.guard = Mock()
+        with patch('comic_archive.cloud.subprocess.Popen',MagicMock()), patch('comic_archive.network.wait_process',return_value=0) as wait:
+            transfer.run('copyto','source','google:test',size=1024**3)
+            self.assertEqual(wait.call_args.args[2],900+4096)
+        source = self.config.parent/'episode.cbz';source.write_bytes(b'x'*(512*1024))
+        expected = hashlib.sha256(source.read_bytes()).hexdigest()
+        transfer.target={'remote':'google'};transfer.provider='google';transfer.full_readback=True
+        transfer.run = Mock(side_effect=[b'',expected.encode()])
+        transfer.upload(source,'Comic-Archive/test/episode.cbz',expected)
+        self.assertEqual([c.kwargs['size'] for c in transfer.run.call_args_list],[512*1024]*2)
 
     def test_uploaded_byte_verification_is_required_and_copy_never_syncs_or_deletes(self):
         transfer = object.__new__(cloud.Transfer);transfer.target={'remote':'google'};transfer.provider='google';transfer.full_readback=True

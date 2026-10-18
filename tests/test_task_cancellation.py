@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -11,7 +12,8 @@ from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
 from comic_archive.queue_client import submit_job
 from comic_archive.task_cancellation import (admission_lock, can_stop_queued,
-    cancelled_result, end_unstarted, queued_stop_requested, request_queued_stop)
+    cancelled_result, end_unstarted, queued_stop_requested, request_queued_stop, request_running_stop,
+    started_stop_requested)
 
 
 class QueuedStopTests(unittest.TestCase):
@@ -152,3 +154,34 @@ class QueuedStopTests(unittest.TestCase):
         for operation in ('check_session','configure_daily','purchase',None):
             with self.subTest(operation=operation),self.assertRaises(ArchiveError):cancelled_result(library,operation)
         self.assertFalse(library.exists())
+
+    def test_a_stop_left_with_a_running_task_is_read_only_by_the_worker_process_running_it(self):
+        library=self.project/'Library';marker=self.root/'cancellations'/f'{self.task}.json'
+        self.assertEqual(request_running_stop(self.session,self.task)['status'],'not_running')  # Still queued.
+        self.assertFalse(marker.exists());self.assertFalse(started_stop_requested(library))
+        atomic_json(self.root/'status.json',{'state':'busy','worker_version':35,'task_id':self.task,'pid':os.getpid()})
+        self.assertFalse(started_stop_requested(library))
+        result=request_running_stop(self.session,self.task)
+        self.assertEqual(result,{'task_id':self.task,'status':'cancellation_requested'})
+        self.assertEqual(request_running_stop(self.session,self.task),result)
+        self.assertEqual(marker.stat().st_mode&0o777,PRIVATE_FILE)
+        self.assertTrue(started_stop_requested(library))
+        atomic_json(self.root/'status.json',{'state':'busy','worker_version':35,'task_id':self.task,'pid':os.getpid()+1})
+        self.assertFalse(started_stop_requested(library))  # Another process's task.
+        atomic_json(self.root/'responses'/f'{self.task}.json',{'task_id':self.task,'status':'ok','result':{}})
+        self.assertEqual(request_running_stop(self.session,self.task)['status'],'not_running')
+        self.assertFalse(started_stop_requested(self.project/'elsewhere'/'Library'))  # No worker there.
+
+    def test_a_task_its_worker_was_running_when_it_stopped_reports_its_use_as_unknown(self):
+        library=self.project/'Library';receipt=self.root/'responses'/f'{self.task}.json'
+        atomic_json(self.root/'status.json',{'state':'busy','worker_version':35,'task_id':self.task,'pid':1})
+        self.assertTrue(end_unstarted(self.session,library,self.task))
+        result=json.loads(receipt.read_bytes())['result']
+        self.assertEqual((result['status'],result['cancelled_before_start'],result['usage_unreported']),('cancelled',False,True))
+        self.assertEqual(result['downloaded_pages'],0)
+        # A check of what is saved has no allowance to count.
+        check=submit_job(self.session,'audit_account',{})['task_id']
+        atomic_json(self.root/'status.json',{'state':'busy','worker_version':35,'task_id':check,'pid':1})
+        self.assertTrue(end_unstarted(self.session,library,check))
+        self.assertEqual(json.loads((self.root/'responses'/f'{check}.json').read_bytes())['result'],
+                         {'status':'cancelled','cancelled_before_start':True})

@@ -54,6 +54,13 @@ class AuditTests(unittest.TestCase):
         audit_library(self.root)
         self.assertEqual(self.adapter.calls, calls)
 
+    def test_report_names_the_site_the_library_saves_from(self):
+        self.assertEqual(audit_library(self.root)['source'], 'tapas')
+        other = self.root.parent / 'Tappytoon' / 'Library'
+        with Inventory(other) as inventory:
+            inventory.observe('7', 'Series', [{'id': '70', 'title': 'Free', 'order': 1, 'access_state': 'tappytoon_free'}], 'subscribed')
+        self.assertEqual(audit_library(other)['source'], 'tappytoon')
+
     def test_all_observed_candidates_archived_never_asserts_complete_account_or_changes_state(self):
         self.archive()
         with Inventory(self.root, read_only=True) as inventory:

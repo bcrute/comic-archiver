@@ -62,6 +62,15 @@ class ReconciliationTests(unittest.TestCase):
             row=inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='81'").fetchone()
             self.assertEqual(tuple(row),('queued','archive_corrupt'))
 
+    def test_an_unknown_image_quality_in_a_sidecar_requeues_the_episode_instead_of_failing_the_scan(self):
+        # A neutral sidecar, whose image quality is checked before its private record is read.
+        self.archive.with_suffix('.json').write_text(json.dumps({'schema_version':2,'export_id':'0'*8+'-0000'*3+'-'+'0'*12,
+            'title':'E','format':'cbz','content_type':'comic','image_profile':'PRIVATE','images_recompressed':False}))
+        with Inventory(self.root) as inventory:
+            inventory.reconcile();inventory.reconcile()  # The archived row, then the folder scan alone.
+            row=inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='81'").fetchone()
+            self.assertEqual(tuple(row),('queued','archive_corrupt'))
+
     def test_numeric_series_id_in_older_sidecars_can_be_reconciled_without_redownloading(self):
         sidecar=self.archive.with_suffix('.json')
         metadata=json.loads(sidecar.read_text());metadata.pop('source_series_id');metadata['series_id']='42'

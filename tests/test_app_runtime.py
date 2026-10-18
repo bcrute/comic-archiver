@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment
@@ -194,7 +194,7 @@ class AppRuntimeTests(unittest.TestCase):
     def test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app(self):
         example, saved = replace(sites.DEFAULT, key='example', name='Example', available=True), self.state / 'comic-archiver/site'
         def context(cookie):
-            request = Request(self.runtime.url + 'api/v1/context', headers={'Cookie': cookie})
+            request = Request(f'http://127.0.0.1:{self.runtime.port}/api/v1/context', headers={'Cookie': cookie})
             with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
                 value = json.loads(response.read())
             return [site['key'] for site in value['sites'] if site['current']], value['site_switching'], value['workspace_ids']
@@ -336,14 +336,20 @@ class AppRuntimeTests(unittest.TestCase):
 
     def test_start_creates_private_library_and_serves_dashboard_on_a_free_loopback_port_without_worker(self):
         url = self.runtime.start()
-        self.assertRegex(url, r'^http://127\.0\.0\.1:[1-9][0-9]*/$')
-        self.assertEqual((url, self.runtime.url), (f'http://127.0.0.1:{self.runtime.port}/', url))
+        self.assertRegex(url, r'^http://127\.0\.0\.1:[1-9][0-9]*/\?launch=[A-Za-z0-9_-]{43}$')
+        # The address the window opens carries this launch's secret; the port alone opens nothing.
+        launch = self.runtime.server.get_app().launch_token
+        self.assertEqual((url, self.runtime.url), (f'http://127.0.0.1:{self.runtime.port}/?launch={launch}', url))
+        with self.assertRaises(HTTPError) as refused:
+            self.fetch(f'http://127.0.0.1:{self.runtime.port}/')
+        self.assertEqual(refused.exception.code, 401); self.assertNotIn('Set-Cookie', refused.exception.headers)
+        refused.exception.close()
         self.assertEqual(self.runtime.server.server_address, ('127.0.0.1', self.runtime.port))
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), PRIVATE_FOLDER)
         status, headers, body = self.fetch(url)
         self.assertEqual(status, 200)
         self.assertIn('id="account-download"', body)
-        self.assertIn('comic_archive_local=', headers['Set-Cookie'])
+        self.assertIn(f'comic_archive_local-{self.runtime.port}=', headers['Set-Cookie'])
         signin = self.runtime.server.get_app().registry.site_signin
         self.assertIsInstance(signin, WindowSignIn)  # No separate browser window: the app's own window signs in.
         self.assertIs(signin, self.runtime.signin)
@@ -367,6 +373,27 @@ class AppRuntimeTests(unittest.TestCase):
             with self.assertRaises(ArchiveError): self.runtime.start()
         self.assertIsNone(self.runtime.thread)
         self.background['start'].assert_not_called(); self.background['stop'].assert_not_called()
+
+    def test_a_start_that_fails_after_the_port_was_opened_closes_it_and_stop_still_works(self):
+        servers = []
+        real = app_runtime.create_server
+
+        def made(*args):
+            servers.append(real(*args))
+            return servers[-1]
+        with patch('comic_archive.app_runtime.create_server', side_effect=made), \
+                patch.object(app_runtime.Runtime, '_reopen', side_effect=RuntimeError('PRIVATE')):
+            with self.assertRaises(RuntimeError): self.runtime.start()
+        self.assertEqual(servers[0].socket.fileno(), -1)
+        self.assertEqual((self.runtime.server, self.runtime.thread, self.runtime.url), (None, None, None))
+        # Closing the window afterwards neither fails nor asks a downloader that was never started.
+        self.assertEqual(self.runtime.stop(), 'not_started')
+        self.background['stop'].assert_not_called()
+        # A runtime whose server is up but was never served stops without waiting on a thread that does not exist.
+        other = app_runtime.Runtime(self.root)
+        other.server = Mock()
+        self.assertEqual(other.stop(0), 'stopped')
+        other.server.shutdown.assert_not_called(); other.server.server_close.assert_called_once_with()
 
     def test_saved_sign_in_starts_the_slow_built_in_engine_downloader_and_replaces_an_older_version(self):
         session = self.sign_in(); self.runtime.start()

@@ -66,9 +66,15 @@ def installed():
 
 
 def ensure(root, cancel):
-    if binary := shutil.which('rclone') or installed():
+    """The pinned, checksum-verified helper, installed when missing; another rclone only where there is none for this computer."""
+    if binary := installed():
         return binary
-    folder, build = location()
+    try:
+        folder, build = location()
+    except ArchiveError:
+        if binary := shutil.which('rclone'):
+            return binary
+        raise
     safe_root(folder); directory(folder).chmod(0o700)
     guard = NetworkGuard(root); guard.check()
     if shutil.disk_usage(folder).free < 1024**3:

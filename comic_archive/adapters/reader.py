@@ -1,9 +1,11 @@
 """Tapas reader HTML observations; raw HTML and signed URLs stay in memory."""
+import json
 import re
 from collections import Counter
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlsplit, unquote, urljoin
 from ..models import ArchiveError
+from ..errors import MetadataError
 from ..transport import asset_url
 
 RESEARCH_VERSION = 18
@@ -38,7 +40,8 @@ class ReaderHTML(HTMLParser):
         self.episode_links_truncated = False
 
     def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
+        # A valueless attribute (<img class>) arrives as None; read it as empty.
+        attrs = {name: value or "" for name, value in attrs}
         value = attrs.get("data-series-id", "")
         if re.fullmatch(r"[0-9]{1,15}", value):
             self.series_ids.add(int(value))
@@ -123,11 +126,19 @@ def safe_primitives(text):
     """Small allowlist, never user IDs, account names, cookies or token fields."""
     names = r"(?:seriesId|seriesID|series_id|episodeId|episodeID|episode_id|isFree|is_free|isPurchased|is_purchased|isUnlocked|is_unlocked|isAccessible|is_accessible|isLocked|is_locked|isLoggedIn|is_logged_in)"
     found = {}
+    series = set()
     for match in re.finditer(r"(?<![A-Za-z0-9_])(?:[\"']?(" + names + r")[\"']?)\s*[:=]\s*(true|false|[0-9]{1,15})(?![A-Za-z0-9_.])", text):
         value = match[2]
         found[match[1]] = value == "true" if value in {"true", "false"} else int(value)
+        if match[1] in {"seriesId", "seriesID", "series_id"}:
+            series.add(found[match[1]])
     for match in re.finditer(r"(?<![A-Za-z0-9_])[\"']?(seriesId|seriesID|series_id|episodeId|episodeID|episode_id)[\"']?\s*[:=]\s*[\"']([0-9]{1,15})[\"']", text):
         found[match[1]] = int(match[2])
+        if match[1] in {"seriesId", "seriesID", "series_id"}:
+            series.add(found[match[1]])
+    # Every series ID the page names must agree; never pick one of several.
+    if len(series) > 1:
+        raise MetadataError("The page names more than one series ID; its series is unverified.")
     return found
 
 
@@ -294,6 +305,8 @@ class ReaderObservation:
                     self.values[path] = value
                 if re.search(r"library|subscribed|subscription|reading-list|bookmark|recent|history|transaction|unlocked|purchased", path, re.I):
                     self.library_values[path] = value
+                # JSON spends the same budget as scripts; without a length, its parsed size stands in.
+                self.body_budget -= int(size) if size.isdigit() else len(json.dumps(value).encode())
             elif kind == "script":
                 text = response.text()
                 self.body_budget -= len(text.encode())

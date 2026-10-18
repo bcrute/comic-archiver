@@ -61,6 +61,10 @@ class SeriesMetadataTests(unittest.TestCase):
         for page in (description('a'*20001),credits('a'*20001)):
             with self.assertRaises(MetadataError):series_details(page,42)
 
+    def test_valueless_attributes_are_read_as_empty_not_as_a_parser_failure(self):
+        noisy=HTML.replace('<header>','<header class><div data-series-id><span class></span></div>')
+        self.assertEqual(series_details('<p class></p><div data-series-id></div>'+noisy,42),series_details(HTML,42))
+
     def test_stray_closing_tags_do_not_change_the_extracted_details(self):
         noisy=HTML.replace('<p class="colophon">','</aside><p class="colophon"></i>').replace('<header>','</section><header>')
         self.assertEqual(series_details(noisy,42),series_details(HTML,42))

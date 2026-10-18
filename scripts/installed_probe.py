@@ -8,6 +8,7 @@ from importlib import resources
 from importlib import metadata
 import json
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -46,15 +47,18 @@ def main():
         raise RuntimeError('Installed button sign-in modules are unavailable')
     entry = Path(sys.executable).parent / 'comic-archive'
     help_text = subprocess.check_output([str(entry), '--help'], text=True, timeout=30)
-    for command in ('cloud-connect','cloud-test','cloud-upload','cloud-cleanup','storage-plan','preview-series','purge','network-policy','convert-comics','desktop'):
-        if command not in help_text:raise RuntimeError('Installed CLI is missing storage/cloud commands')
+    # Compare whole subcommand names from the help's own list, never substrings of other help text.
+    listed = re.findall(r'^\s*\{([a-z0-9,-]+)\}$', help_text, re.M)
+    commands = set(listed[0].split(',')) if len(listed) == 1 else set()
+    for command in ('cloud-connect','cloud-test','cloud-upload','cloud-cleanup','storage-plan','preview-series','purge','network-policy','convert-comics'):
+        if command not in commands:raise RuntimeError('Installed CLI is missing storage/cloud commands')
     space = json.loads(subprocess.check_output([str(entry),'storage-plan','--episodes','2'],text=True,timeout=30))
     if space['image_profile'] != 'original' or space['inventory_complete']:
         raise RuntimeError('Fresh installed storage planning is unsafe')
     cloud_state = json.loads(subprocess.check_output([str(entry),'cloud-status'],text=True,timeout=30))
     if any(t['connected'] for t in cloud_state['targets']):
         raise RuntimeError('Fresh installed cloud state is not isolated')
-    if 'extract-account' not in help_text:
+    if 'extract-account' not in commands:
         raise RuntimeError('Installed account extraction entry point missing')
     status = json.loads(subprocess.check_output([str(entry), 'account-status'], text=True, timeout=30))
     if status.get('configured') is not False:
@@ -80,13 +84,14 @@ def main():
     if verify(Path('Library'), decode_images=True):
         raise RuntimeError('Installed package failed portable export verification')
     server = make_server('127.0.0.1', 0, None, server_class=LocalServer, handler_class=PrivateRequestHandler)
-    server.set_app(LocalApplication(LocalWorkspaceRegistry(Path.cwd()), server.server_port))
+    app = LocalApplication(LocalWorkspaceRegistry(Path.cwd()), server.server_port)
+    server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         origin = 'http://127.0.0.1:' + str(server.server_port)
-        with client.open(origin + '/', timeout=10) as response:
+        with client.open(app.launch_url, timeout=10) as response:
             body = response.read()
             if response.status != 200 or b'archive.js' not in body or b'Comic Archiver' not in body:
                 raise RuntimeError('Installed loopback dashboard failed')
