@@ -245,7 +245,7 @@ class OrchestrationTests(WorkspaceCase):
         self.assertEqual(archive, self.root / 'dist' / f'ComicArchiver-{release}-linux-x86_64.tar.gz')
         self.assertTrue(checksum.is_file())
         self.assertEqual(self.installs, [[f'{self.root}/comic_archive-0.whl[desktop,validation]']])
-        self.assertEqual(self.run.call_args_list[0].args[0][:3], ['uv', 'pip', 'freeze'])
+        self.assertEqual(self.run.call_args_list[0].args[0][:5], ['uv', 'pip', 'list', '--format', 'freeze'])
         audit = self.run.call_args.args[0]
         self.assertEqual(audit[1:], [PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
                                     '--output', app / 'dependency-audit.json'])

@@ -7,8 +7,8 @@ Run on a Linux CI host that has uv, never on the development PC:
 Output: dist/ComicArchiver-<version>-linux-x86_64.tar.gz and a .sha256 file.
 
 Pinned downloads: CPython from python-build-standalone (SHA-256 below).
-Python packages otherwise come from PyPI as in scripts/validate.py; the exact
-result is recorded in requirements-frozen.txt. The app carries no separate
+Python packages come from PyPI constrained by packaging/linux-requirements.txt;
+the exact installed versions are audited and recorded in requirements-frozen.txt. The app carries no separate
 browser: the downloader uses the Qt web engine that comes with PySide6.
 This script reads no Tapas
 session and makes no Tapas requests.
@@ -300,7 +300,9 @@ def build():
     uv_install(python, [f'{wheel}[{EXTRAS}]'])
     drop_entry_scripts(app)
     collect_licences(app)
-    listing = run(['uv', 'pip', 'freeze', '--python', python], capture=True).stdout
+    # list --format freeze reports installed versions even for CPython's preinstalled
+    # pip, whose direct_url metadata points at the Python builder's private wheel path.
+    listing = run(['uv', 'pip', 'list', '--format', 'freeze', '--python', python], capture=True).stdout
     (app / 'requirements-frozen.txt').write_text(frozen_requirements(listing, release))
     run([sys.executable, PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
          '--output', app / 'dependency-audit.json'])
