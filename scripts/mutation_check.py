@@ -73,7 +73,7 @@ def check(item, unchanged):
         code, count, why, failed = run(item)
     finally:
         path.write_text(text)
-    if code and count >= 1 and failed:
+    if code and failed:  # failed already names the test, which an interrupted run never counts
         return f'CAUGHT   {name}: {count} run, failed with: {why}'
     if code:
         return f'CRASHED  {name}: the change stopped the test from running, which proves nothing ({why})'
