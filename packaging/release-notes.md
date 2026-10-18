@@ -12,7 +12,15 @@ Each is self-contained: nothing else needs installing.
 
 1. If Edge says the file "isn't commonly downloaded", point at the download, choose **…**, then **Keep**. If it
    asks again, choose **Show more**, then **Keep anyway**.
-2. Run the setup file. If Windows says "Windows protected your PC", choose **More info**, then **Run anyway**.
+2. Run the setup file. If Windows says "Windows protected your PC", its only button is **Don't run**. Don't
+   press it. Click the small **More info** link under the message instead:
+
+   ![The "Windows protected your PC" window, with the small More info link under the message circled](https://raw.githubusercontent.com/bcrute/comic-archiver/v{version}/docs/images/windows-warning-1-more-info.png)
+
+3. A **Run anyway** button then appears beside **Don't run**. Click **Run anyway**:
+
+   ![The same window after More info, with the Run anyway button circled](https://raw.githubusercontent.com/bcrute/comic-archiver/v{version}/docs/images/windows-warning-2-run-anyway.png)
+
    It installs Comic Archiver for your own account and never asks for an administrator.
 
 If Windows says Smart App Control blocked it and there is no **Run anyway**, Comic Archiver can't be installed on
