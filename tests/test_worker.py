@@ -488,6 +488,17 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual([path.name for path in (session/'worker/responses').iterdir()],['b-real.json'])
             self.assertTrue((requests/'a-link.json').is_symlink());self.assertTrue(outside.exists())
 
+    def test_a_wrongly_named_request_is_dropped_and_later_requests_still_run(self):
+        with tempfile.TemporaryDirectory() as work:
+            session=Path(work)/'session';requests=session/'worker/requests';requests.mkdir(parents=True)
+            # 'bad name.json' sorts first, so a worker that stopped on it would never reach the task behind it.
+            (requests/'bad name.json').write_text('{"operation":"inspect_episode","args":{"url":"https://tapas.io/episode/81"}}')
+            private_json(requests/'good-task.json',{'operation':'inspect_episode','args':{'url':'https://tapas.io/episode/82'}})
+            adapter=RecordingAdapter();self.serve_one_pass(session,adapter)
+            self.assertEqual(adapter.calls,['https://tapas.io/episode/82'])
+            self.assertEqual([path.name for path in (session/'worker/responses').iterdir()],['good-task.json'])
+            self.assertFalse((requests/'bad name.json').exists());self.assertFalse((requests/'good-task.json').exists())
+
     def test_a_request_that_already_has_a_response_is_dropped_and_not_run_again(self):
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'session';root=session/'worker'
