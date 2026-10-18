@@ -97,6 +97,11 @@ what the app loads goes into it. Starting the app (`--smoke`) and building
 `ComicArchiver-<version>-windows-x86_64-setup.exe` (`--installer`) need Windows. The installer puts the app in the
 person's own programs folder and never asks for an administrator.
 
+Windows uses Python's signed embeddable runtime, pinned to its published SHA-256.
+On a CI host with restricted downloads, stage that exact vendor archive in a directory and set
+`COMIC_ARCHIVER_BUILD_DOWNLOAD_CACHE` to that directory; the packager verifies its checksum before using it.
+The installer itself remains unsigned, as described above.
+
 On Windows the tests are run directly, since some of them are for Linux only and are skipped there:
 
 ```sh

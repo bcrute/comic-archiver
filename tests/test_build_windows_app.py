@@ -22,30 +22,90 @@ class WorkspaceCase(unittest.TestCase):
         self.root = Path(work.name).resolve()
 
 
+def signature_image():
+    """PE metadata fixture: a certificate table, without claiming a cryptographically valid signer."""
+    data = bytearray(0x210)
+    data[:2] = b'MZ'
+    struct.pack_into('<I', data, 0x3c, 0x80)
+    data[0x80:0x84] = b'PE\0\0'
+    struct.pack_into('<H', data, 0x98, 0x20b)
+    struct.pack_into('<II', data, 0x98 + 112 + 8 * 4, 0x200, 16)
+    struct.pack_into('<IHH', data, 0x200, 16, 0x200, 2)
+    return bytes(data)
+
+
 class PinnedDownloadTests(WorkspaceCase):
     def test_the_python_for_windows_is_the_version_that_compiles_its_modules_on_linux(self):
         # Compiled modules are only read by the Python version that wrote them.
-        version = lambda name: re.match(r'cpython-([0-9.]+\+[0-9]+)-', name).group(1)
-        self.assertEqual(version(build.PBS_NAME), version(build.common.PBS_NAME))
-        self.assertTrue(version(build.PBS_NAME).startswith(build.PYTHON_VERSION + '.'))
-        self.assertIn('x86_64-pc-windows-msvc', build.PBS_NAME)
-        self.assertTrue(build.PBS_URL.endswith('/' + build.common.PBS_TAG + '/' + build.PBS_NAME.replace('+', '%2B')))
-        self.assertEqual(len(build.PBS_SHA256), 64); int(build.PBS_SHA256, 16)
-        self.assertNotEqual(build.PBS_SHA256, build.common.PBS_SHA256)
+        version = re.match(r'cpython-([0-9.]+)\+', build.common.PBS_NAME).group(1)
+        self.assertEqual(build.PYTHON_RELEASE, version)
+        self.assertTrue(build.PYTHON_RELEASE.startswith(build.PYTHON_VERSION + '.'))
+        self.assertEqual(build.PYTHON_NAME, f'python-{version}-embed-amd64.zip')
+        self.assertEqual(build.PYTHON_URL, f'https://www.python.org/ftp/python/{version}/{build.PYTHON_NAME}')
+        self.assertEqual(len(build.PYTHON_SHA256), 64); int(build.PYTHON_SHA256, 16)
 
     def test_a_python_archive_without_the_windows_programs_is_refused(self):
         def unpacked(*names):
             def unpack(archive, destination):
                 for name in names:
-                    (destination / name).parent.mkdir(parents=True, exist_ok=True); (destination / name).write_text('x')
+                    path = destination / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(signature_image() if path.suffix in ('.exe', '.dll', '.pyd') else b'x')
             return unpack
         app = self.root / 'app'
         with patch.object(build.common, 'fetch', return_value=self.root / 'archive') as fetch:
-            with patch.object(build, 'unpack_python', unpacked('python.exe', 'pythonw.exe', 'Lib/os.py')):
+            with patch.object(build, 'unpack_windows_python', unpacked('python.exe', 'pythonw.exe', 'python3.dll',
+                              build.PYTHON_STEM + '.dll', build.PYTHON_STEM + '.zip')):
                 build.bundle_python(app)
-            self.assertEqual(fetch.call_args.args[2], build.PBS_SHA256)
-            with patch.object(build, 'unpack_python', unpacked('bin/python3', 'Lib/os.py')):
+            self.assertEqual(fetch.call_args.args[2], build.PYTHON_SHA256)
+            self.assertEqual((app / 'python' / (build.PYTHON_STEM + '._pth')).read_text(),
+                             build.PYTHON_STEM + '.zip\n.\nLib/site-packages\nimport site\n')
+            with patch.object(build, 'unpack_windows_python', unpacked('bin/python3', 'Lib/os.py')):
                 with self.assertRaisesRegex(RuntimeError, 'lacks python.exe'): build.bundle_python(self.root / 'other')
+
+    def test_unsigned_malformed_or_out_of_bounds_certificate_data_is_refused(self):
+        path = self.root / 'python.exe'
+        path.write_bytes(signature_image())
+        self.assertTrue(build.carries_signature(path))
+        unsigned = bytearray(signature_image()); struct.pack_into('<II', unsigned, 0x98 + 112 + 8 * 4, 0, 0)
+        outside = bytearray(signature_image()); struct.pack_into('<II', outside, 0x98 + 112 + 8 * 4, 0x200, 5000)
+        wrong_kind = bytearray(signature_image()); struct.pack_into('<H', wrong_kind, 0x206, 3)
+        for data in (b'not a PE file', signature_image()[:100], unsigned, outside, wrong_kind):
+            with self.subTest(data=bytes(data[:8])):
+                path.write_bytes(data)
+                self.assertFalse(build.carries_signature(path))
+
+    def test_the_bundle_rejects_an_unsigned_interpreter_before_writing_its_search_path(self):
+        archive = self.root / 'vendor.zip'
+        with zipfile.ZipFile(archive, 'w') as package:
+            for name in ('python.exe', 'pythonw.exe', 'python3.dll', build.PYTHON_STEM + '.dll'):
+                package.writestr(name, b'unsigned' if name == 'python.exe' else signature_image())
+            package.writestr(build.PYTHON_STEM + '.zip', b'library')
+        app = self.root / 'app'
+        with patch.object(build.common, 'fetch', return_value=archive):
+            with self.assertRaisesRegex(RuntimeError, 'lacks an embedded signature: python.exe'):
+                build.bundle_python(app)
+        self.assertFalse((app / 'python' / (build.PYTHON_STEM + '._pth')).exists())
+
+    def test_vendor_zip_refuses_nested_paths_drives_and_symlinks_before_writing(self):
+        archive = self.root / 'vendor.zip'
+        for name in ('../outside', '/outside', 'C:outside', 'nested/file', 'nested\\file', '.'):
+            with self.subTest(name=name):
+                with zipfile.ZipFile(archive, 'w') as package:
+                    package.writestr('python.exe', b'first file')
+                    package.writestr(name, b'bad path')
+                with self.assertRaisesRegex(RuntimeError, 'archive structure'):
+                    build.unpack_windows_python(archive, self.root / 'refused')
+                self.assertFalse((self.root / 'refused').exists())
+        with zipfile.ZipFile(archive, 'w') as package:
+            item = zipfile.ZipInfo('python.exe'); item.external_attr = (0o120777 << 16)
+            package.writestr(item, 'outside')
+        with self.assertRaisesRegex(RuntimeError, 'archive structure'):
+            build.unpack_windows_python(archive, self.root / 'refused')
+        with zipfile.ZipFile(archive, 'w') as package:
+            package.writestr('python.exe', b'validated vendor file')
+        build.unpack_windows_python(archive, self.root / 'accepted')
+        self.assertEqual((self.root / 'accepted/python.exe').read_bytes(), b'validated vendor file')
 
 
 class PackagingTests(WorkspaceCase):

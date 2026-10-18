@@ -3,6 +3,7 @@
 - Keep verified cloud saves visible after reconnecting an account or switching shared settings, including episodes removed from this computer.
 - Repair app-owned cloud credential and cleanup paths when the library folder moves.
 - Restore source-install compatibility with Windows Python 3.11 and 3.12.
+- Use Python's signed Windows runtime to avoid lengthy checks of unsigned interpreter DLLs during startup.
 - Add cloud failure-path regression tests, JavaScript linting, pinned desktop dependencies, and audits of the packages in each download.
 - Require successful fleet validation for the exact tagged commit and download hashes before publishing a release.
 

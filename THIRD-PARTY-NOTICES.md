@@ -16,11 +16,13 @@ here.
 ## CPython
 
 The Python interpreter is CPython, under the Python Software Foundation
-Licence, packaged by the python-build-standalone project
-(https://github.com/astral-sh/python-build-standalone). That distribution also
-contains other open-source libraries (for example OpenSSL, SQLite, zlib, xz,
-libffi, ncurses and readline); their licences are listed in the upstream
-release and in the interpreter's own `LICENSE` text.
+Licence. Windows uses the Python Software Foundation's signed embeddable
+Windows distribution (https://www.python.org/downloads/windows/). Linux uses
+python-build-standalone (https://github.com/astral-sh/python-build-standalone).
+Both distributions also contain other open-source libraries (for example
+OpenSSL, SQLite, zlib and libffi); their licences are included in the
+interpreter's own licence text. The Linux distribution additionally includes
+libraries such as ncurses and readline.
 Source: https://www.python.org/downloads/ and the python-build-standalone
 release page.
 
