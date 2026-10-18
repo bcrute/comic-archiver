@@ -16,6 +16,7 @@ from comic_archive.errors import RunLimit
 from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore, import_metadata, write_compressed_comic
+from comic_archive.purge import purge_library
 from comic_archive.storage import configure
 from test_archive import MemoryAdapter, png
 
@@ -280,3 +281,31 @@ class CbzConversionTests(unittest.TestCase):
             store.publish_metadata(sidecar_path(old), import_metadata(sidecar_path(old))|{'format':'cbz'})
         with self.assertRaisesRegex(ArchiveError, 'Unexpected original format'): convert_comics(self.root, min_free_bytes=0)
         self.assertEqual(old.read_bytes(), before[0]); self.assertEqual(list(self.root.glob('*/*.cbz')), [])
+
+    def test_a_legacy_tar_that_fails_verification_moves_aside_for_the_cbz_saved_again(self):
+        old=self.legacy()[0]
+        data=bytearray(old.read_bytes()); data[-20]^=0xff; old.write_bytes(bytes(data))
+        with closing(PublicationStore(self.root)) as store:
+            folder=store.archive(Manifest(self.series,(replace(self.episode,title='Chapter 0'),)),MemoryAdapter(),progress=lambda _:None)
+        retained=self.root/'.archive-state/legacy-exports'/folder.name/old.name
+        self.assertFalse(old.exists()); self.assertEqual(retained.read_bytes(),bytes(data))
+        self.assertEqual(json.loads(sidecar_path(retained).read_text())['format'],'tar.zst')
+        self.assertEqual([p.name for p in folder.glob('*.cbz')],[old.name[:-8]+'.cbz'])
+        self.assertEqual(verify(self.root),[])
+        self.assertEqual(purge_library(self.root,include_legacy=True)['retained_legacy_episodes'],1)
+        with Inventory(self.root) as inventory:
+            inventory.observe('42','Synthetic',[{'id':'81','title':'Chapter 0','order':1,'access_state':'tapas_free'}],'fixture')
+            inventory.reconcile(full=True)
+            self.assertEqual(tuple(inventory.db.execute('SELECT status,error_code FROM episodes').fetchone()),('archived',None))
+
+    def test_a_stop_before_the_converted_public_metadata_is_written_leaves_the_tar_readable(self):
+        from comic_archive import cbz_conversion
+        old=self.legacy()[0]; real=cbz_conversion.atomic_json
+        def stopped(path,value):
+            if path==sidecar_path(old): raise OSError('simulated power loss')
+            return real(path,value)
+        with patch.object(cbz_conversion,'atomic_json',stopped), self.assertRaises(OSError):
+            convert_comics(self.root,remove_originals=True,min_free_bytes=0)
+        self.assertEqual(import_metadata(sidecar_path(old))['format'],'tar.zst')
+        self.assertEqual(convert_comics(self.root,remove_originals=True,min_free_bytes=0)['converted_comics'],1)
+        self.assertEqual(verify(self.root),[]); self.assertFalse(old.exists())

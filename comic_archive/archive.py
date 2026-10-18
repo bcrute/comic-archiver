@@ -43,6 +43,18 @@ def archive_from_sidecar(path, metadata):
     return Path(path).with_suffix(archive_extension(metadata))
 
 
+def offloaded_archive(root, sidecar):
+    """The archive a sidecar describes when it was uploaded and then removed here, or None."""
+    try:
+        if sidecar.is_symlink() or sidecar.stat().st_size > 16*1024*1024:
+            return None
+        archive = archive_from_sidecar(sidecar, json.loads(sidecar.read_text()))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    from .cloud import offloaded
+    return archive if not archive.exists() and offloaded(root, archive) else None
+
+
 def safe_name(title):
     title = unicodedata.normalize("NFKC", title)
     title = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", title).strip(" .")
@@ -109,11 +121,19 @@ class Store:
             columns = self.db.execute('PRAGMA table_info(archived_pages)').fetchall()
             if [r[1] for r in columns if r[5]] == ['hash']:
                 # Preserve early single-location cache indexes while adding
-                # alternate recovery archives for shared images.
+                # alternate recovery archives for shared images. One transaction:
+                # sqlite3 would otherwise commit each schema change on its own.
                 with self.db:
+                    self.db.execute('BEGIN')
                     self.db.execute('ALTER TABLE archived_pages RENAME TO archived_pages_single')
                     self.db.execute('CREATE TABLE archived_pages (hash TEXT,path TEXT,member TEXT,size INTEGER,PRIMARY KEY(hash,path,member))')
                     self.db.execute('INSERT INTO archived_pages SELECT hash,path,member,size FROM archived_pages_single')
+                    self.db.execute('DROP TABLE archived_pages_single')
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='archived_pages_single'").fetchone():
+                # An upgrade stopped partway by an earlier version: finish copying its rows.
+                with self.db:
+                    self.db.execute('BEGIN')
+                    self.db.execute('INSERT OR IGNORE INTO archived_pages SELECT hash,path,member,size FROM archived_pages_single')
                     self.db.execute('DROP TABLE archived_pages_single')
             self.db.execute('CREATE TABLE IF NOT EXISTS cache_owners (hash TEXT,source TEXT,series_id TEXT,episode_id TEXT,PRIMARY KEY(hash,source,series_id,episode_id))')
             self.db.commit()
@@ -803,8 +823,7 @@ def verify(root, *, decode_images=False):
     errors = []
     archives = sorted(p for pattern in ('*.cbz', '*.epub', '*.tar.zst') for p in root.rglob(pattern)
                       if not {'.archive-state', '.archive-cache'}.intersection(p.relative_to(root).parts))
-    if not archives:
-        return ["No portable episode archives found"]
+    offloaded = 0
     for cbz in archives:
         errors.extend(f"{cbz.name}: {e}" for e in verify_episode(cbz,image_decoder=image_decoder))
     for sidecar in root.rglob("*.json"):
@@ -812,6 +831,9 @@ def verify(root, *, decode_images=False):
             errors.extend(f'{sidecar.parent.name}: {e}' for e in verify_series(sidecar,image_decoder=image_decoder))
             continue
         if sidecar.name != "series.json" and not {".archive-cache", ".archive-state"}.intersection(sidecar.parts) and not any(sidecar.with_suffix(ext).is_file() for ext in ('.cbz', '.epub', '.tar.zst')):
+            if offloaded_archive(root, sidecar):
+                offloaded += 1  # Uploaded, then removed here: the cloud copy is the archive.
+                continue
             # A discovery report is metadata about potential imports, not an
             # episode sidecar. Keep detecting actual orphan episode metadata.
             try:
@@ -824,4 +846,6 @@ def verify(root, *, decode_images=False):
             except (OSError, ValueError):
                 pass
             errors.append(f"{sidecar.name}: missing CBZ or EPUB")
+    if not archives and not offloaded:
+        return ["No portable episode archives found"]
     return errors

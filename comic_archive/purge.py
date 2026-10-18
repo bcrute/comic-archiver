@@ -107,6 +107,8 @@ def purge_library(root, *, apply=False, include_legacy=False, wait_seconds=0, pr
         for folder in sorted(root.iterdir()):
             if not folder.is_dir() or folder.name.startswith('.'):
                 continue
+            if not folder.is_symlink() and not (folder / 'series.json').exists() and not episode_archives(folder):
+                continue  # A series whose first episode is not saved yet.
             if folder.is_symlink() or verify_series(folder / 'series.json'):
                 raise ArchiveError('Series verification failed; purge stopped without deleting data.')
             for path in episode_archives(folder):

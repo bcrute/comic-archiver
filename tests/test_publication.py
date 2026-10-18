@@ -204,6 +204,20 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(report['application_imported']);self.assertFalse((destination/'.archive-state').exists())
         self.assertEqual(verify_episode(next(destination.glob('*/*.cbz'))),[])
 
+    def test_independent_restore_keeps_the_sidecar_of_an_episode_kept_only_in_the_cloud(self):
+        from scripts.offline_restore import restore
+        folder=self.publish();archive=next(folder.glob('*.cbz'));sidecar=sidecar_path(archive);archive.unlink()
+        receipt=self.root/'.archive-state/cloud/outbox/b2'/(json.loads(sidecar.read_text())['export_id']+'.json')
+        receipt.parent.mkdir(parents=True)
+        record={'state':'verified','eviction_requested':True,'archive':archive.relative_to(self.root).as_posix(),
+                'files':[{'name':'episode.cbz'},{'name':'episode.json','sha256':digest(sidecar.read_bytes())}]}
+        receipt.write_text(json.dumps(record))
+        report=restore(self.root,self.root.parent/'Restored')
+        self.assertEqual((report['archive_count'],report['offloaded_episode_count']),(0,1))
+        self.assertEqual((self.root.parent/'Restored'/folder.name/sidecar.name).read_bytes(),sidecar.read_bytes())
+        record['files'][1]['sha256']='0'*64;receipt.write_text(json.dumps(record))  # A receipt for other metadata.
+        with self.assertRaisesRegex(ValueError,'episode count'): restore(self.root,self.root.parent/'Again')
+
     def legacy(self, count=1, novel=False):
         episodes=tuple(Episode(str(818181+i),self.series.id,'Chapter',i+1,
             () if novel else (Page(1,'https://cdn.tapas.io/a',False),), 'tapas_unlocked',
@@ -413,6 +427,38 @@ class PublicationTests(unittest.TestCase):
         self.publish()
         self.assertTrue(blob.is_file())
         self.assertEqual((archive.read_bytes(), sidecar_path(archive).read_bytes()), before)
+
+    def test_a_stop_between_the_private_and_public_metadata_writes_leaves_the_episode_readable(self):
+        from comic_archive import publication
+        folder=self.publish();sidecar=sidecar_path(next(folder.glob('*.cbz')));real=publication.atomic_json
+        def stopped(path,value):
+            if path==sidecar: raise OSError('simulated power loss')
+            return real(path,value)
+        self.episode=replace(self.episode,title='Chapter renamed upstream')
+        with patch.object(publication,'atomic_json',stopped),self.assertRaises(OSError): self.publish()
+        self.assertEqual(import_metadata(sidecar)['title'],'Chapter')  # The public file before still reads.
+        self.publish()
+        self.assertEqual(import_metadata(sidecar)['title'],'Chapter renamed upstream')
+        self.assertEqual(verify(self.root),[])
+        value=json.loads(sidecar.read_text());value['title']='Neither'
+        sidecar.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError,'provenance mismatch'): import_metadata(sidecar)
+
+    def test_a_retried_episode_records_each_original_page_once_in_page_order(self):
+        self.episode=replace(self.episode,pages=(Page(1,'https://cdn.tapas.io/a',False),Page(2,'https://cdn.tapas.io/b',False)))
+        adapter=MemoryAdapter();adapter.fail_on=2
+        with patch('comic_archive.image_profiles.compress_image',lambda data,profile:png(99)):
+            store=PublicationStore(self.root)
+            try:
+                with self.assertRaises(ArchiveError): store.archive(Manifest(self.series,(self.episode,)),adapter,progress=lambda _:None)
+                folder=store.archive(Manifest(self.series,(self.episode,)),adapter,progress=lambda _:None)
+                other=replace(self.episode,id='818182')  # Pages finishing out of order, as parallel downloads do.
+                for page in reversed(other.pages): store.transform_page('tapas',other,page,png(page.order))
+                prepared=store.prepare_metadata({},self.series,other)
+            finally: store.close()
+        expected=[{'sha256':digest(png(1)),'size':len(png(1))},{'sha256':digest(png(2)),'size':len(png(2))}]
+        self.assertEqual(import_metadata(sidecar_path(next(folder.glob('*.cbz'))))['original_content_hashes'],expected)
+        self.assertEqual(prepared['original_content_hashes'],expected)
 
 
 if __name__=='__main__': unittest.main()
