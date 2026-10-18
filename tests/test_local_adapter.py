@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from comic_archive.adapters.local import LocalAdapter
 from comic_archive.models import ArchiveError
@@ -35,6 +36,24 @@ class LocalAdapterTests(unittest.TestCase):
                 LocalAdapter(self.write(value))
         with self.assertRaisesRegex(ArchiveError, 'Invalid or unreadable local manifest'):
             LocalAdapter(self.root / 'missing.json')
+
+    def test_manifest_is_read_as_utf8_whatever_the_locale_and_creators_must_be_a_list_of_names(self):
+        data = json.loads(json.dumps(self.data))
+        data['series'] |= {'title': 'Café ☕', 'creators': ['Zoë']}
+        self.path.write_bytes(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        # The locale's encoding cannot be swapped in-process, so check what the read asks for.
+        read, encodings = Path.read_text, []
+        def spy(path, *args, **kwargs):
+            encodings.append(kwargs.get('encoding'))
+            return read(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', spy):
+            series = LocalAdapter(self.path).manifest().series
+        self.assertEqual(encodings, ['utf-8'])
+        self.assertEqual((series.title, series.creators), ('Café ☕', ('Zoë',)))
+        for creators in ('Artist', [1], {'name': 'Artist'}):
+            data['series']['creators'] = creators
+            with self.subTest(creators=creators), self.assertRaisesRegex(ArchiveError, 'Invalid or unreadable local manifest'):
+                LocalAdapter(self.write(data))
 
     def test_pages_outside_the_manifest_folder_or_that_are_not_files_are_refused(self):
         outside = self.root.parent / 'outside.png'

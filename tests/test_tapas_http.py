@@ -458,6 +458,54 @@ class TapasHTTPTests(unittest.TestCase):
                                           envelope({'id': 42, 'title': 'S', 'token': 'PRIVATE'})]
         self.assertEqual(self.adapter.series_identity('42'), {'source_series_id': '42', 'title': 'S'})
 
+    def test_missing_or_non_text_titles_are_metadata_errors_not_crashes(self):
+        from test_series_metadata import HTML
+        for series in ({'id': 42}, {'id': 42, 'title': None}, {'id': 42, 'title': 5}):
+            with self.subTest(series=series):
+                self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope(series)]
+                with self.assertRaises(MetadataError):
+                    self.adapter.series_identity('42')
+                self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope(series)]
+                with self.assertRaises(MetadataError):
+                    self.adapter.inspect_series('42')
+                self.transport.get.side_effect = [envelope({'user': {'id': 123}}),
+                    envelope(series | {'url': 'series-slug', 'comic': True, 'book': False}), HTML.encode()]
+                with self.assertRaises(MetadataError):
+                    self.adapter.series_metadata('42')
+        untitled = {key: value for key, value in self.info.items() if key != 'title'}
+        self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope({'id': 42, 'title': 'S'}),
+            envelope({'episodes': [untitled], 'pagination': {'page': 1, 'total': 1, 'has_next': False}})]
+        with self.assertRaises(MetadataError):
+            self.adapter.inspect_series('42')
+        self.responses(info=untitled)
+        with self.assertRaisesRegex(ArchiveError, 'title'):
+            self.adapter.capture('https://tapas.io/episode/81')
+        self.responses(info=untitled)
+        self.assertEqual(self.adapter.capture('https://tapas.io/episode/81', title='Supplied').episodes[0].title, 'Supplied')
+
+    def test_series_page_that_is_oversized_or_undecodable_is_refused_before_parsing(self):
+        for page in (b'<div data-series-id="42"></div>' + b' ' * (8 * 1024 * 1024), b'<div data-series-id="42">\xff</div>'):
+            self.transport.reset_mock()
+            self.transport.get.side_effect = [page]
+            with self.subTest(size=len(page)), self.assertRaises(MetadataError):
+                self.adapter.resolve_series('series-slug')
+            self.assertEqual(self.transport.get.call_count, 1)
+
+    def test_reader_that_names_two_series_ids_is_refused_before_series_metadata(self):
+        self.responses(html=self.html.replace(b'var seriesId = 42;', b'var seriesId = 42; var series_id = "43";'))
+        with self.assertRaises(MetadataError):
+            self.adapter.capture('https://tapas.io/episode/81')
+        self.assertEqual(self.transport.get.call_count, 3)
+
+    def test_publish_time_is_kept_only_when_it_is_a_short_iso_date(self):
+        for value, expected in (('2023-07-19T18:00:00Z', '2023-07-19T18:00:00Z'),
+                                ('2023-07-19T18:00:00+09:00', '2023-07-19T18:00:00+09:00'), ('2023-07-19', '2023-07-19'),
+                                ('yesterday', None), ('', None), ('2023-07-19T18:00:00Z' + ' ' * 50, None),
+                                ('<script>PRIVATE</script>', None), (1689789600, None), ({'at': 'PRIVATE'}, None), (None, None)):
+            self.responses(info=self.info | {'publish_date': value})
+            with self.subTest(value=value):
+                self.assertEqual(self.adapter.capture('https://tapas.io/episode/81').episodes[0].published_at, expected)
+
     def test_series_metadata_refuses_unverified_slug_oversized_or_undecodable_page_and_foreign_covers(self):
         from test_series_metadata import HTML
         base = {'id': 42, 'title': 'Series', 'url': 'series-slug', 'comic': True, 'book': False}
