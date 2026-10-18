@@ -153,25 +153,6 @@ the draft. It performs no builds or suites.
 | `tests/` | Unit tests, and `mutations.json` for the mutation check. |
 | `parked/` | Work that is set aside and not part of the app or its checks. Currently the Android prototype. |
 
-## The web version and bringing its experiments over
-
-New ideas, such as cloud storage, are tried first in an experimental web version that lives on its own line of
-history, not in this tree. The tag `web-split-point` marks the commit of that line this tree was built from.
-
-```sh
-git log --oneline web-split-point..<web branch>                    # what has been tried there since
-git diff web-split-point <web branch> -- comic_archive/cloud.py    # what changed in one file
-git checkout <web branch> -- comic_archive/some_module.py          # take one file over as it is
-```
-
-Files this tree no longer has (the browser version's folder chooser, the `desktop`, `status`, `list-series` and
-`prepare-*` commands, the throughput experiments) are still there. The code that saves episodes, including the
-cloud upload path, is shared, so most experiments arrive as changes to files that exist in both places. The pages
-in `comic_archive/static/` have diverged; changes to them are carried over by hand.
-
-That version's own documents (its guide, the research on the site and the older plans) stay with it and are not
-in this tree.
-
 ## Licence
 
 MIT; see [LICENSE](LICENSE). Bundled components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
