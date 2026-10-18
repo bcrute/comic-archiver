@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -358,6 +359,76 @@ class CloudTests(unittest.TestCase):
         self.assertTrue(cloud.offloaded(self.root,archive))
         self.assertFalse(cloud.status(self.root)['targets'][0]['enabled'])
 
+    def test_retry_after_reconnecting_keeps_an_offloaded_episode_saved_without_local_bytes(self):
+        from comic_archive.hosted import Workspace
+        from comic_archive.saved_library import Catalog
+        self.publish(); self.ready('b2'); archive, episode = self.publish('82')
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
+        previous = json.loads(receipt.read_text())
+        # An upgrade from 0.1.4 starts with only the outbox receipt, without the new history folder.
+        shutil.rmtree(self.root / '.archive-state/cloud/history')
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Synthetic', [{'id':'82', 'title':episode.title, 'order':episode.order,
+                                                  'access_state':'tapas_free'}], 'fixture')
+            inventory.mark('82', 'archived', path=archive)
+        self.ready('b2')
+        remote = dict(FakeTransfer.files)
+        self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 0)
+        self.assertEqual(json.loads(receipt.read_text()), previous)
+        self.assertEqual(FakeTransfer.files, remote)
+        self.assertTrue(cloud.offloaded(self.root, archive))
+        with Inventory(self.root) as inventory:
+            inventory.reconcile()
+            self.assertEqual(inventory.status()['episodes_by_status'], {'archived':1})
+        catalog = Catalog(b'review-fixture').page(Workspace('a'*32, self.base), True, kind='episodes')
+        self.assertEqual(catalog['episode_count'], 2)
+        previous_location = next(g for g in catalog['locations'] if g['id'].startswith('b2-'))
+        self.assertEqual(previous_location['episodes'], 1)
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=AssertionError('No source download'))
+        with closing(PublicationStore(self.root)) as store:
+            store.archive(Manifest(self.series, (episode,)), adapter, progress=lambda _: None)
+        adapter.retrieve.assert_not_called()
+
+    def test_a_failed_upload_to_another_connection_preserves_the_previous_verified_copy(self):
+        from comic_archive.hosted import Workspace
+        from comic_archive.saved_library import Catalog
+        self.publish(); self.ready()
+        with patch.object(cloud, 'evict_uploaded', return_value={'local_archives_deleted':0, 'freed_bytes':0}):
+            archive, _ = self.publish('82')
+        self.ready()
+        cloud.queue_episode(self.root, archive)
+        FakeTransfer.fail_upload = True
+        with self.assertRaises(CloudTransferError):
+            cloud.upload_pending(self.root)
+        catalog = Catalog(b'review-fixture')
+        workspace = Workspace('a'*32, self.base)
+        value = catalog.page(workspace, True, kind='episodes', refresh=True)
+        previous = next(g for g in value['locations'] if g['id'].startswith('google-'))
+        self.assertEqual(previous['episodes'], 1)
+        self.assertTrue(archive.is_file())
+        FakeTransfer.fail_upload = False
+        cloud.upload_pending(self.root)
+        records = cloud.receipts_for(self.root, archive, 'google')
+        self.assertEqual(len(records), 2)
+        self.assertEqual(len({r['target_id'] for r in records}), 2)
+        self.assertTrue(cloud.offloaded(self.root, archive))
+        value = catalog.page(workspace, True, kind='episodes', refresh=True)
+        self.assertEqual(next(g for g in value['locations'] if g['id'] == 'google')['episodes'], 1)
+        self.assertEqual(next(g for g in value['locations'] if g['id'].startswith('google-'))['episodes'], 1)
+
+    def test_saved_history_remains_visible_when_the_retry_entry_is_removed(self):
+        from comic_archive.hosted import Workspace
+        from comic_archive.saved_library import Catalog
+        self.publish(); self.ready(); archive, _ = self.publish('82')
+        receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt.unlink()
+        self.assertTrue(cloud.offloaded(self.root, archive))
+        value = Catalog(b'review-fixture').page(Workspace('a'*32, self.base), True, kind='episodes')
+        self.assertEqual(value['episode_count'], 2)
+        # A changed sidecar still cannot vouch for any old cloud copy.
+        sidecar_path(archive).write_text('{}')
+        self.assertFalse(cloud.offloaded(self.root, archive))
+
     def test_legacy_cloud_only_tar_is_reused_without_source_download(self):
         import zipfile
         from comic_archive.publication import import_metadata, write_compressed_comic
@@ -397,6 +468,11 @@ class CloudTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):cloud.evict_uploaded(self.root)
         self.assertTrue(archive.exists())
         path.write_text(json.dumps(saved | {'files':[]}))
+        self.assertIsNone(cloud._receipt_for(self.root, archive, 'google'))
+        # The separate, still-valid history remains evidence until it too is damaged.
+        self.assertTrue(cloud.offloaded(self.root, archive))
+        for history in (self.root / '.archive-state/cloud/history/google').glob('*/*.json'):
+            history.write_text(json.dumps(saved | {'files':[]}))
         self.assertIsNone(cloud.offloaded(self.root,archive))
 
     def test_existing_upload_is_explicit_bounded_and_does_not_enable_another_provider(self):
@@ -565,6 +641,9 @@ class CloudTests(unittest.TestCase):
         for name,change in damaged.items():
             with self.subTest(name):
                 receipt.write_text(json.dumps(value | change))
+                self.assertIsNone(cloud._receipt_for(self.root, archive, 'google'))
+                for history in (self.root / '.archive-state/cloud/history/google').glob('*/*.json'):
+                    history.write_text(json.dumps(value | change))
                 self.assertIsNone(cloud.offloaded(self.root,archive))
         receipt.write_text(json.dumps(value));self.assertTrue(cloud.offloaded(self.root,archive))
         self.assertIsNone(cloud.offloaded(self.root,self.root/'.archive-state'/'x.cbz'))

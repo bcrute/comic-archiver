@@ -3174,5 +3174,37 @@
   "new": "first add a password: sign in in your ",
   "test_file": "test_desktop_app.py",
   "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "reconnecting retries a cloud-only archive and loses the verified receipt",
+  "source": "comic_archive/cloud.py",
+  "old": "if not archive.exists() and historical.get('eviction_requested') is True:",
+  "new": "if False:",
+  "test_file": "test_cloud.py",
+  "test": "test_retry_after_reconnecting_keeps_an_offloaded_episode_saved_without_local_bytes"
+ },
+ {
+  "id": "cloud history disappears when the outbox is removed",
+  "source": "comic_archive/cloud_history.py",
+  "old": "if not outbox_only:",
+  "new": "if False:",
+  "test_file": "test_cloud.py",
+  "test": "test_saved_history_remains_visible_when_the_retry_entry_is_removed"
+ },
+ {
+  "id": "relocation updates the library link without repairing connection paths",
+  "source": "comic_archive/shared.py",
+  "old": "                relocate(library, value['folder'], shared)",
+  "new": "                pass",
+  "test_file": "test_shared.py",
+  "test": "test_a_real_library_move_repairs_shared_credentials_and_pending_cleanup_without_changing_identity"
+ },
+ {
+  "id": "direct B2 upload ignores the remote checksum mismatch",
+  "source": "comic_archive/cloud.py",
+  "old": "if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data, usedforsecurity=False).hexdigest() for name, data in self.files}:",
+  "new": "if False:",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_wrong_or_missing_remote_checksums_keep_a_verified_local_fallback_and_never_mark_uploaded"
  }
 ]

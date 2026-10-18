@@ -1,3 +1,11 @@
+## Changes in {version}
+
+- Keep verified cloud saves visible after reconnecting an account or switching shared settings, including episodes removed from this computer.
+- Repair app-owned cloud credential and cleanup paths when the library folder moves.
+- Restore source-install compatibility with Windows Python 3.11 and 3.12.
+- Add cloud failure-path regression tests, JavaScript linting, pinned desktop dependencies, and audits of the packages in each download.
+- Require successful fleet validation for the exact tagged commit and download hashes before publishing a release.
+
 ## Download
 
 | Your computer | File |
@@ -49,4 +57,5 @@ Uninstalling removes only the app: your saved episodes and your sign-in are kept
 first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above.
 
 `SHA256SUMS.txt` lists each file's SHA-256, to check a download against. These files were built and self-tested
-by this repository's Release workflow, from the tagged source.
+on Core/Heavy from the tagged source. `release-evidence.json` records the validation results and download
+hashes checked by the Release workflow before publication.

@@ -85,7 +85,9 @@ def link(library, shared):
     if value is not None:
         if value['folder'] != str(shared):
             # The library folder was moved or renamed by hand: the shared settings are those beside it now.
-            with LibraryLock(library):
+            from .cloud_paths import relocate
+            with LibraryLock(library), LibraryLock(shared):
+                relocate(library, value['folder'], shared)
                 _write(library, value | {'folder': str(shared)})
         return
     directory(shared).chmod(0o700)

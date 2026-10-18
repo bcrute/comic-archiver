@@ -1,0 +1,35 @@
+anyio==4.15.1
+    # via httpx
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+h11==0.16.0
+    # via httpcore
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via comic-archive (pyproject.toml)
+idna==3.20
+    # via
+    #   anyio
+    #   httpx
+pillow==13.0.0
+    # via comic-archive (pyproject.toml)
+pyside6==6.11.2
+    # via comic-archive (pyproject.toml)
+pyside6-addons==6.11.2
+    # via pyside6
+pyside6-essentials==6.11.2
+    # via
+    #   pyside6
+    #   pyside6-addons
+shiboken6==6.11.2
+    # via
+    #   pyside6
+    #   pyside6-addons
+    #   pyside6-essentials
+typing-extensions==4.16.0
+    # via anyio
+zstandard==0.25.0
+    # via comic-archive (pyproject.toml)

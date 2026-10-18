@@ -107,6 +107,7 @@ def install_packages(app, wheel):
     """Put the Windows builds of the app's packages into the bundled Python without running it."""
     common.run(['uv', 'pip', 'install', '--target', site_packages(app), '--python-platform', PLATFORM,
                 '--python-version', PYTHON_VERSION, '--only-binary', ':all:', '--no-compile',
+                '--constraint', common.PACKAGING / 'windows-requirements.txt',
                 f'{wheel}[{common.EXTRAS}]'])
     # Starters for the command line that name the build path; the app is started through its shortcut.
     shutil.rmtree(site_packages(app) / 'bin', ignore_errors=True)
@@ -316,6 +317,8 @@ def build():
     compile_bytecode(app)
     collect_licences(app)
     (app / 'requirements-frozen.txt').write_text(common.frozen_requirements(installed(app), release))
+    common.run([sys.executable, common.PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
+                '--output', app / 'dependency-audit.json'])
     install_packaging(app, release)
     return app, *make_archive(app, DIST, release)
 

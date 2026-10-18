@@ -1,0 +1,12 @@
+{
+  "name": "comic-archiver-checks",
+  "private": true,
+  "scripts": {
+    "lint": "eslint comic_archive/static --max-warnings 0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
+    "globals": "17.13.0"
+  }
+}

@@ -60,7 +60,7 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every change is checked before it is committed. About 1,800 automated tests run, and the app's pages are driven
+Every release is checked on Core/Heavy before publication. About 1,800 automated tests run, and the app's pages are driven
 in a real browser in four layouts. A mutation check then puts more than 300 deliberate faults into the code, one
 at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
 
@@ -78,7 +78,7 @@ never leaves the computer.
 ## Build the Linux package
 
 ```sh
-python3 scripts/build_linux_app.py --smoke
+uv run --extra test python scripts/build_linux_app.py --smoke
 ```
 
 This writes `dist/ComicArchiver-<version>-linux-x86_64.tar.gz` with its own Python and Qt, so the person using it
@@ -87,8 +87,8 @@ installs nothing else. `--smoke` starts the built app off-screen and checks that
 ## Build the Windows package
 
 ```sh
-python3 scripts/build_windows_app.py                       # on Linux or Windows: the app folder and its zip
-python scripts/build_windows_app.py --smoke --installer    # on Windows, with Inno Setup 6 or 7 installed
+uv run --extra test python scripts/build_windows_app.py                       # on Linux or Windows: the app folder and its zip
+uv run --extra test python scripts/build_windows_app.py --smoke --installer    # on Windows, with Inno Setup 6 or 7 installed
 ```
 
 The first line writes `dist/ComicArchiver-<version>-windows-x86_64.zip`. The folder in it is put together from files
@@ -107,6 +107,10 @@ Many of them make symlinks, which an ordinary Windows account may do only with D
 
 ## Check a change
 
+Run these commands through the shared CI fleet helper, using its private host configuration. All automated
+suites and builds run on Core/Heavy, including the Windows VM; unavailable capacity leaves checks pending.
+Install the test and desktop extras, uv, and Node.js 22.13 or newer in that remote environment first.
+
 ```sh
 python3 scripts/validate.py --prepare      # tests, coverage floors, page checks in Firefox, a fresh install
 python3 scripts/mutation_check.py          # every listed fault must be caught by a test
@@ -114,7 +118,20 @@ python3 scripts/qt_engine_smoke.py         # the app's real web engine against a
 ```
 
 None of these sign in anywhere or contact a comic site. They are heavy; this project runs them on its CI hosts
-rather than on a development PC.
+rather than on a development PC. Validation includes Ruff lint and security rules, ESLint, and pip-audit.
+
+Desktop dependencies are constrained by `packaging/linux-requirements.txt` and
+`packaging/windows-requirements.txt`. Both packagers audit the exact installed third-party versions before
+writing a download, and include `requirements-frozen.txt` and `dependency-audit.json` in the app folder.
+Update the constraints deliberately when updating dependencies.
+
+For a release, validate and build the exact commit on the fleet, stage all three downloads and
+`release-evidence.json` in a draft GitHub release, and post the repository owner's successful
+`Core/Heavy validation` commit status. Its description must be `Fleet evidence SHA256 <sha256 of the evidence file>`.
+The evidence records the commit, version, successful gates, suite totals without skips, and each download's
+size and SHA-256. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
+to Gitea so its mirror retains it. GitHub's Release workflow verifies the status and downloads, then publishes
+the draft. It performs no builds or suites.
 
 ## Where things are
 

@@ -11,7 +11,7 @@ from .archive import atomic_json, verify_episode, verify_series, episode_archive
 from .archive_paths import directory
 from .locking import LibraryLock, wait_for_library
 from .models import ArchiveError
-from .osdep import replace_file, sync_directory
+from .osdep import private_file, replace_file, sync_directory
 
 
 def _regular(path):
@@ -140,7 +140,7 @@ def backup_library(source, destination, *, wait_seconds=0, reserve_bytes=1024**3
                 try:
                     with tempfile.NamedTemporaryFile(dir=staging, delete=False) as stream:
                         temporary = Path(stream.name)
-                        os.fchmod(stream.fileno(), 0o600)
+                        private_file(stream.fileno())
                         with path.open('rb') as incoming:
                             shutil.copyfileobj(incoming, stream, length=1024**2)
                         stream.flush(); os.fsync(stream.fileno())

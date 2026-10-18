@@ -192,39 +192,35 @@ class Catalog:
                     identifier = value.get('export_id')
                     if not valid_export_id(identifier):
                         continue
-                    receipt = root/'.archive-state/cloud/outbox'/provider/(identifier+'.json')
-                    if not receipt.is_file():
-                        continue
                     try:
-                        record = cloud._receipt_for(root, archive, provider)
+                        records = cloud.receipts_for(root, archive, provider)
                     except (ArchiveError, OSError, ValueError, TypeError, KeyError):
-                        record = None
-                    if not record:
-                        continue
-                    location = provider
-                    target_id = record.get('target_id')
-                    if target_id != targets.get(provider, {}).get('target_id'):
-                        opaque = hmac.new(self.key, str(target_id).encode(), hashlib.sha256).hexdigest()[:16]
-                        location = provider+'-'+opaque
-                        if location not in groups:
-                            label = cloud.LABELS[provider]
-                            previous = 1+sum(k.startswith(provider+'-') for k in groups)
-                            groups[location] = {'id':location, 'label':f'{label} (previous connection {previous})',
-                                                'connected':False, 'files':0, 'episodes':0, 'bytes':0}
-                    for item in record['files']:
-                        name = item['name']
-                        if name.startswith('episode.') and name != 'episode.json':
-                            kind = extension[1:]; item_title = title; item_order = order
-                        elif name == 'episode.json':
-                            kind = 'episode_metadata'; item_title = title; item_order = order
-                        elif name == 'series.json':
-                            kind = 'series_metadata'; item_title = ''; item_order = -1
-                        elif name in {'cover.jpg','cover.png','cover.webp','cover.gif'}:
-                            kind = 'cover'; item_title = ''; item_order = -1
-                        else:
-                            continue
-                        add(Path(name), kind, series_title, item_title, record['verified_at'], episode,
-                            location, downloadable=False, order=item_order)
+                        records = []
+                    for record in records:
+                        location = provider
+                        target_id = record.get('target_id')
+                        if target_id != targets.get(provider, {}).get('target_id'):
+                            opaque = hmac.new(self.key, str(target_id).encode(), hashlib.sha256).hexdigest()[:16]
+                            location = provider+'-'+opaque
+                            if location not in groups:
+                                label = cloud.LABELS[provider]
+                                previous = 1+sum(k.startswith(provider+'-') for k in groups)
+                                groups[location] = {'id':location, 'label':f'{label} (previous connection {previous})',
+                                                    'connected':False, 'files':0, 'episodes':0, 'bytes':0}
+                        for item in record['files']:
+                            name = item['name']
+                            if name.startswith('episode.') and name != 'episode.json':
+                                kind = extension[1:]; item_title = title; item_order = order
+                            elif name == 'episode.json':
+                                kind = 'episode_metadata'; item_title = title; item_order = order
+                            elif name == 'series.json':
+                                kind = 'series_metadata'; item_title = ''; item_order = -1
+                            elif name in {'cover.jpg','cover.png','cover.webp','cover.gif'}:
+                                kind = 'cover'; item_title = ''; item_order = -1
+                            else:
+                                continue
+                            add(Path(name), kind, series_title, item_title, record['verified_at'], episode,
+                                location, downloadable=False, order=item_order)
         return {'rows':rows, 'locations':list(groups.values()), 'episode_count':len(episodes),
                 'file_count':len(rows), 'updated_at':datetime.now(timezone.utc).isoformat()}
 

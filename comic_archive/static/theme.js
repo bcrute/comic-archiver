@@ -9,7 +9,7 @@
       preference = localStorage.getItem('comic-archive-theme');
       if (['light', 'dark'].includes(preference)) localStorage.setItem(key, preference);
     }
-  } catch {}
+  } catch { /* Storage may be blocked; the device theme still works. */ }
   if (!['light', 'dark'].includes(preference)) preference = null;
   function apply() {
     const dark = preference ? preference === 'dark' : device.matches;
@@ -30,7 +30,7 @@
     apply();
     document.getElementById('theme-toggle')?.addEventListener('click', () => {
       preference = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-      try {localStorage.setItem(key, preference);} catch {}
+      try {localStorage.setItem(key, preference);} catch { /* Keep this choice for the open page. */ }
       apply();
       // The desktop app keeps the choice itself: its page storage does not outlive the window.
       document.dispatchEvent(new CustomEvent('comic-archive-theme', {detail: preference}));

@@ -10,7 +10,7 @@ from contextlib import closing
 from pathlib import Path
 from . import sites
 from .models import ArchiveError
-from .osdep import replace_file
+from .osdep import private_file, replace_file
 
 
 def browser_api(preferred="auto"):
@@ -121,8 +121,8 @@ def store_session(state, directory: Path, site=sites.DEFAULT):
 
 def _private_write(path, text):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w") as f:
+        private_file(f.fileno())
         f.write(text)
 
 

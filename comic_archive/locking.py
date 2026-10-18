@@ -57,7 +57,7 @@ class LibraryLock:
                 osdep.hide(state)
                 fd = os.open(state / "writer.lock", os.O_CREAT | os.O_RDWR | osdep.NOFOLLOW, 0o600)
                 try:
-                    os.fchmod(fd, 0o600)
+                    osdep.private_file(fd)
                     osdep.lock(fd)
                 except BlockingIOError:
                     os.close(fd)
