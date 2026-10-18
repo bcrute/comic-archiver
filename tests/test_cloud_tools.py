@@ -94,6 +94,7 @@ class CloudToolsLocationTests(unittest.TestCase):
         work = tempfile.TemporaryDirectory(); self.addCleanup(work.cleanup)
         self.home = Path(work.name); self.addCleanup(patch.stopall)
         patch('comic_archive.cloud_tools.Path.home', return_value=self.home).start()
+        patch.dict(os.environ, {'LOCALAPPDATA': str(self.home / 'Local')}).start()
 
     def platform(self, system, machine):
         patch('comic_archive.cloud_tools.platform.system', return_value=system).start()
