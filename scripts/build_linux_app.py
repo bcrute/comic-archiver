@@ -150,7 +150,8 @@ def build_wheel(work):
 
 def uv_install(python, requirements):
     # No venv (they are not relocatable); the flag is harmless if the interpreter is not marked externally managed.
-    run(['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--compile-bytecode', *requirements])
+    run(['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--compile-bytecode',
+         '--constraint', PACKAGING / 'linux-requirements.txt', *requirements])
 
 
 def drop_entry_scripts(app):
@@ -301,6 +302,8 @@ def build():
     collect_licences(app)
     listing = run(['uv', 'pip', 'freeze', '--python', python], capture=True).stdout
     (app / 'requirements-frozen.txt').write_text(frozen_requirements(listing, release))
+    run([sys.executable, PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
+         '--output', app / 'dependency-audit.json'])
     install_packaging(app, release)
     return app, *make_archive(app, DIST, release)
 

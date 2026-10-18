@@ -599,6 +599,48 @@ class B2DirectTests(unittest.TestCase):
     def intents(self):
         return list((self.root/'.archive-state/cloud/direct/b2').glob('*.json'))
 
+    def test_wrong_or_missing_remote_checksums_keep_a_verified_local_fallback_and_never_mark_uploaded(self):
+        for index, checksums in enumerate(({}, {'episode.cbz':'0'*40}), 1):
+            with self.subTest(checksums=checksums):
+                episode = replace(self.episode, id=str(83 + index), order=3 + index)
+                with patch.object(StreamingTransfer, 'sha1s', return_value=checksums):
+                    with self.assertRaises(CloudTransferError) as caught:
+                        self.publish((episode,), MemoryAdapter())
+                self.assertEqual(safe_code(caught.exception), 'cloud_verification')
+                self.assertEqual((self.target()['verified'], self.target()['failed']), (0, index))
+                self.assertEqual(len(list(self.root.glob('*/*.cbz'))), 1 + index)
+                self.assertTrue(self.intents())
+        cloud.upload_pending(self.root)
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (2, 0))
+        self.assertFalse(self.intents())
+
+    def test_a_failed_local_fallback_keeps_the_recovery_intent_without_claiming_a_saved_copy(self):
+        from comic_archive.archive import sidecar_path
+        with patch.object(StreamingTransfer, 'upload_bytes', side_effect=CloudTransferError('cloud_cap')):
+            with patch('comic_archive.cloud.keep_here', side_effect=OSError('disk full')):
+                with self.assertRaises(CloudTransferError) as caught:
+                    self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual(safe_code(caught.exception), 'cloud_cap')
+        self.assertEqual(self.target()['verified'], 0)
+        self.assertTrue(self.intents())
+        for path in self.root.glob('*/*.json'):
+            if path.name != 'series.json' and json.loads(path.read_text()).get('episode_number') == self.episode.order:
+                self.assertFalse(cloud.offloaded(self.root, sidecar_path(path).with_suffix('.cbz')))
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=lambda page: png(page.order))
+        self.publish((self.episode,), adapter)
+        self.assertEqual(self.target()['verified'], 1)
+        self.assertFalse(self.intents())
+
+    def test_a_direct_upload_network_hold_retains_its_type_after_saving_the_local_fallback(self):
+        with patch.object(StreamingTransfer, 'upload_bytes', side_effect=NetworkPolicyHold('held')):
+            with self.assertRaises(NetworkPolicyHold):
+                self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (0, 1))
+        self.assertEqual(len(list(self.root.glob('*/*.cbz'))), 2)
+        self.assertTrue(self.intents())
+        cloud.upload_pending(self.root)
+        self.assertEqual(self.target()['verified'], 1)
+
     def test_new_episode_goes_to_b2_from_memory_and_is_never_saved_here(self):
         from comic_archive.archive import verify_episode_contents
         import io

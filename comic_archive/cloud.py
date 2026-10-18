@@ -571,6 +571,9 @@ def queue_episode(root, archive, *, provider=None):
             if (previous.get('version') == bundle['version'] and previous.get('library_id') == value['library_id']
                     and previous.get('target_id') == target['target_id']):
                 continue
+            if previous.get('state') == 'verified':
+                from .cloud_history import retain
+                retain(root, provider, previous)
         _write(receipt, bundle | {'state':'pending', 'library_id':value['library_id'], 'target_id':target['target_id'],
                                  'remote_root':CLOUD_ROOT})
 
@@ -607,6 +610,13 @@ def upload_pending(root, *, limit=None, provider=None):
                     if record.get('library_id') != value['library_id'] or not isinstance(record.get('archive'), str):
                         raise ArchiveError('Cloud retry state is invalid.')
                     archive = safe_root(root / record['archive'])
+                    if record.get('state') == 'verified':
+                        from .cloud_history import retain
+                        historical = _receipt_for(root, archive, name)
+                        if historical is not None:
+                            retain(root, name, historical)
+                            if not archive.exists() and historical.get('eviction_requested') is True:
+                                continue  # The old account keeps this copy; there are no local bytes to send elsewhere.
                     bundle = _bundle(root, archive)
                     if any(bundle[k] != record.get(k) for k in ('episode_id','version')):
                         raise ArchiveError('Cloud retry no longer matches the completed episode.')
@@ -755,10 +765,12 @@ class DirectUpload:
                   'version':self.bundle['version'], 'required_targets':['b2'], 'state':'pending',
                   'library_id':self.value['library_id'], 'target_id':self.target['target_id'],
                   'remote_root':CLOUD_ROOT}
-        _write(self.root / '.archive-state/cloud/outbox/b2' / (self.bundle['episode_id'] + '.json'),
-               queued | self.bundle | {'state':'verified', 'target_id':self.target['target_id'],
-                                       'verified_at':datetime.now(timezone.utc).isoformat(),
-                                       'eviction_requested':True})
+        from .cloud_history import retain
+        verified = queued | self.bundle | {'state':'verified', 'target_id':self.target['target_id'],
+                                          'verified_at':datetime.now(timezone.utc).isoformat(),
+                                          'eviction_requested':True}
+        retain(self.root, 'b2', verified)
+        _write(self.root / '.archive-state/cloud/outbox/b2' / (self.bundle['episode_id'] + '.json'), verified)
         self.intent.unlink()
         _directory_sync(self.intent.parent)
         _prepare_cache_for_offload(self.root, self.archive, saved=False)
@@ -933,38 +945,18 @@ def cleanup_test(root, test_id, *, transfer=None):
         return {'test_files_deleted':True}
 
 
+def receipts_for(root, archive, provider, *, outbox_only=False):
+    """Historical saves use the library identity, independent of its active connections."""
+    from .cloud_history import receipts
+    root = safe_root(root)
+    own = _own(root)
+    return receipts(root, archive, provider, own['library_id'], outbox_only=outbox_only) if own else []
+
+
 def _receipt_for(root, archive, provider):
-    """Validate local metadata against a historical cloud verification receipt."""
-    root, archive = safe_root(root), safe_root(archive)
-    if len(archive.relative_to(root).parts) != 2 or archive.parent.name.startswith('.'):
-        return None
-    public = _json(sidecar_path(archive), 16*1024**2)
-    validate_public_metadata(public)
-    value = settings(root)
-    if not value or provider not in value['targets']:return None
-    path = root / '.archive-state/cloud/outbox' / provider / (public['export_id'] + '.json')
-    if not path.is_file():return None
-    record = _json(path)
-    if (record.get('state') != 'verified' or record.get('library_id') != value['library_id']
-            or record.get('archive') != archive.relative_to(root).as_posix()
-            or record.get('episode_id') != public['export_id'] or not isinstance(record.get('files'),list)
-            or len(record['files']) < 3 or not valid_export_id(record.get('series_id'))):
-        return None
-    try:
-        verified_at = datetime.fromisoformat(record['verified_at'])
-        if verified_at.tzinfo is None:return None
-    except (ValueError,TypeError,KeyError):
-        return None
-    items = record['files']
-    expected_names = ['episode.' + public['format'],'episode.json','series.json']
-    if any(not isinstance(item,dict) or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256','')))
-           for item in items) or [p.get('name') for p in items[:3]] != expected_names:
-        return None
-    if items[0].get('path') != record['archive'] or items[1].get('path') != sidecar_path(archive).relative_to(root).as_posix():return None
-    with sidecar_path(archive).open('rb') as stream:
-        if hashlib.file_digest(stream, 'sha256').hexdigest() != items[1]['sha256']:return None
-    if hashlib.sha256((items[0]['sha256'] + items[1]['sha256']).encode()).hexdigest() != record.get('version'):return None
-    return record
+    """The validated outbox entry; deletion additionally checks the active target explicitly."""
+    records = receipts_for(root, archive, provider, outbox_only=True)
+    return records[0] if records else None
 
 
 def offloaded(root, archive):
@@ -974,8 +966,8 @@ This is historical evidence only, never a fresh cloud availability assertion.
 """
     try:
         for provider in PROVIDERS:
-            record = _receipt_for(root, archive, provider)
-            if record and record.get('eviction_requested') is True:return record
+            for record in receipts_for(root, archive, provider):
+                if record.get('eviction_requested') is True:return record
     except (ArchiveError,OSError,ValueError,TypeError,KeyError):
         return None
     return None
@@ -999,7 +991,8 @@ def evict_uploaded(root):
                 receipts = [_receipt_for(root, archive, p) for p in providers]
                 if any(r is None or r['version'] != record['version'] for r in receipts):continue
                 current = settings(root)
-                if any(saved['target_id'] != current['targets'][name]['target_id'] for name,saved in zip(providers,receipts,strict=True)):
+                if not current or any(saved['target_id'] != current['targets'].get(name, {}).get('target_id')
+                                      for name,saved in zip(providers,receipts,strict=True)):
                     continue
                 seen.add(relative)
                 if archive.exists():
@@ -1010,8 +1003,10 @@ def evict_uploaded(root):
                 # Persist intent before unlink; restart can distinguish deliberate
                 # cloud-only storage from accidental loss without downloading again.
                 for name, saved in zip(providers, receipts, strict=True):
-                    _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'),
-                           saved | {'eviction_requested':True})
+                    from .cloud_history import retain
+                    saved = saved | {'eviction_requested':True}
+                    _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'), saved)
+                    retain(root, name, saved)
                 if archive.exists():
                     _prepare_cache_for_offload(root, archive)
                     size = disk_bytes(archive)

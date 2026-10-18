@@ -81,6 +81,80 @@ class SharedSettingsTests(unittest.TestCase):
         self.assertEqual(cloud.connection_folder(self.tapas), self.tapas / '.archive-state/cloud')
         self.assertEqual(cloud.connection_folder(self.other), self.other / '.archive-state/cloud')
 
+    def test_switching_shared_and_separate_keeps_cloud_only_files_in_the_catalog_and_inventory(self):
+        from comic_archive.hosted import Workspace
+        from comic_archive.inventory import Inventory
+        from comic_archive.saved_library import Catalog
+        shared.link(self.tapas, self.store)
+        self.publish(self.tapas)
+        self.ready(self.tapas, self.config(self.store / 'cloud'))
+        self.publish(self.tapas, '82')
+        sidecar = next(p for p in self.tapas.glob('*/*.json') if json.loads(p.read_text()).get('episode_number') == 82)
+        archive = sidecar.with_suffix('.cbz')
+        with Inventory(self.tapas) as inventory:
+            inventory.observe('42', 'Synthetic', [{'id':'82', 'title':'Chapter 82', 'order':82,
+                                                  'access_state':'tapas_free'}], 'fixture')
+            inventory.mark('82', 'archived', path=archive)
+        remote = dict(FakeTransfer.files)
+        catalog = Catalog(b'review-fixture'); workspace = Workspace('a'*32, self.top)
+        for mode in ('separate', 'shared', 'separate'):
+            shared.choose_cloud(self.tapas, mode)
+            self.assertEqual(catalog.page(workspace, True, kind='episodes', refresh=True)['episode_count'], 2)
+            self.assertTrue(cloud.offloaded(self.tapas, archive))
+            with Inventory(self.tapas) as inventory:
+                inventory.reconcile()
+                self.assertEqual(inventory.status()['episodes_by_status'], {'archived':1})
+            self.assertEqual(cloud.evict_uploaded(self.tapas)['local_archives_deleted'], 0)
+        self.assertFalse(archive.exists())
+        self.assertEqual(FakeTransfer.files, remote)
+
+    def test_a_real_library_move_repairs_shared_credentials_and_pending_cleanup_without_changing_identity(self):
+        original = self.top / 'Original'
+        library, store = original / 'Library', original / '.comic-shared'
+        self.publish(library)
+        old_config = self.config(self.own(library))
+        self.ready(library, old_config)
+        target_id = cloud.settings(library)['targets']['b2']['target_id']
+        FakeTransfer.fail_delete = True
+        with self.assertRaises(ArchiveError):
+            cloud.smoke_test(library, 'b2', episodes=1)
+        FakeTransfer.fail_delete = False
+        shared.link(library, store)
+        shared_config = Path(cloud.settings(library)['targets']['b2']['config'])
+        moved = self.top / 'Moved'; original.rename(moved)
+        library, store = moved / 'Library', moved / '.comic-shared'
+        # An interrupted repair is retried from the still-old link.
+        with patch('comic_archive.shared._write', side_effect=OSError('interrupted')):
+            with self.assertRaises(OSError):
+                shared.link(library, store)
+        shared.link(library, store)
+        target = cloud.settings(library)['targets']['b2']
+        self.assertEqual(target['target_id'], target_id)
+        self.assertTrue(target['enabled'] and target['tested'])
+        self.assertEqual(cloud._config(target['config']), store / 'cloud' / shared_config.name)
+        [waiting] = cloud.status(library)['pending_test_cleanup']
+        connect = cloud.transfer_for
+        with patch('comic_archive.cloud.transfer_for', wraps=connect) as transfer:
+            cloud.cleanup_test(library, waiting['test_id'])
+        self.assertEqual(transfer.call_args.args[2]['config'], str(self.own(library) / old_config.name))
+        shared.link(library, store)
+        self.assertEqual(cloud.settings(library)['targets']['b2'], target)
+
+    def test_a_real_move_repairs_separate_credentials_and_preserves_external_configs(self):
+        for external in (False, True):
+            with self.subTest(external=external):
+                original = self.top / ('Before-' + str(external))
+                library, store = original / 'Library', original / '.comic-shared'
+                shared.link(library, store); shared.choose_cloud(library, 'separate')
+                config = self.config(self.top / 'external' if external else self.own(library))
+                cloud.configure_target(library, 'b2', config=config)
+                moved = self.top / ('After-' + str(external)); original.rename(moved)
+                library, store = moved / 'Library', moved / '.comic-shared'
+                shared.link(library, store)
+                target = cloud.settings(library)['targets']['b2']
+                expected = config if external else self.own(library) / config.name
+                self.assertEqual(cloud._config(target['config']), expected)
+
     def test_a_site_set_up_before_sharing_gives_its_setup_to_every_site_and_its_uploads_stay_done(self):
         self.publish(self.other)
         first = self.config(self.own(self.other))

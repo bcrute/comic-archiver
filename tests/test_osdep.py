@@ -61,6 +61,21 @@ class FileTests(unittest.TestCase):
             self.assertTrue(osdep.anchored(PureWindowsPath(outside)), outside)
         self.assertFalse(osdep.anchored(PureWindowsPath('Series/one.cbz')))
 
+    def test_private_files_use_unix_permissions_but_do_not_need_windows_fchmod(self):
+        path = self.folder / 'private'; path.touch()
+        with path.open('wb') as stream:
+            with patch.object(osdep, 'WINDOWS', False), patch.object(os, 'fchmod', create=True) as restrict:
+                osdep.private_file(stream.fileno())
+                restrict.assert_called_once_with(stream.fileno(), 0o600)
+            with patch.object(osdep, 'WINDOWS', True), patch.dict(os.__dict__):
+                del os.fchmod
+                osdep.private_file(stream.fileno())
+                from comic_archive.session import store_session
+                from comic_archive.locking import LibraryLock
+                with LibraryLock(self.folder / 'Library'):
+                    store_session({'cookies':[], 'origins':[]}, self.folder / 'session')
+                self.assertTrue((self.folder / 'session/state.json').is_file())
+
     def test_a_finished_file_is_flushed_through_a_handle_the_system_accepts(self):
         path = self.folder / 'episode.cbz'; path.write_bytes(b'saved')
         with patch.object(osdep.os, 'fsync', wraps=os.fsync) as flushed:

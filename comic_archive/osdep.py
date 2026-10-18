@@ -54,6 +54,16 @@ else:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
+def private_file(descriptor):
+    """Restrict a private file on Unix; Windows keeps it private through its containing profile's ACL.
+
+    Windows Python before 3.13 has no fchmod. Permission bits on newer Windows
+    Python only change read-only status, not who may read the file.
+    """
+    if not WINDOWS:
+        os.fchmod(descriptor, 0o600)
+
+
 def replace_file(source, target):
     """Put one file in the place of another in a single step, as os.replace does."""
     deadline = time.monotonic() + REPLACE_WAIT_SECONDS

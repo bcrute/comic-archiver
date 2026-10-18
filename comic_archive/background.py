@@ -140,7 +140,7 @@ def resume_backlog(folder, result):
                'run-backlog','--resume']
     try:
         with os.fdopen(descriptor,'ab',buffering=0) as output:
-            os.fchmod(output.fileno(),0o600)
+            osdep.private_file(output.fileno())
             process = subprocess.Popen(command,cwd=folder.parent.parent,stdin=subprocess.DEVNULL,
                 stdout=output,stderr=subprocess.STDOUT,**osdep.detached())
     except OSError:
@@ -199,7 +199,7 @@ def start(session, browser="firefox", interval=1.0, *, resume=False, restart=Fal
                    "browser-worker", "--stable-code"]
         try:
             with os.fdopen(descriptor, "ab", buffering=0) as output:
-                os.fchmod(output.fileno(), 0o600)
+                osdep.private_file(output.fileno())
                 process = subprocess.Popen(command, cwd=folder.parent.parent,
                     stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                     **osdep.detached())

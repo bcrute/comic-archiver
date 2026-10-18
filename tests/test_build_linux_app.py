@@ -245,7 +245,10 @@ class OrchestrationTests(WorkspaceCase):
         self.assertEqual(archive, self.root / 'dist' / f'ComicArchiver-{release}-linux-x86_64.tar.gz')
         self.assertTrue(checksum.is_file())
         self.assertEqual(self.installs, [[f'{self.root}/comic_archive-0.whl[desktop,validation]']])
-        self.assertEqual(self.run.call_args.args[0][:3], ['uv', 'pip', 'freeze'])
+        self.assertEqual(self.run.call_args_list[0].args[0][:3], ['uv', 'pip', 'freeze'])
+        audit = self.run.call_args.args[0]
+        self.assertEqual(audit[1:], [PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
+                                    '--output', app / 'dependency-audit.json'])
         with tarfile.open(archive) as package:
             names = set(package.getnames())
             frozen = package.extractfile(f'{app.name}/requirements-frozen.txt').read().decode()
@@ -318,7 +321,8 @@ class CommandLineTests(WorkspaceCase):
             build.uv_install(Path('/app/python/bin/python3'), ['/w/x.whl[desktop,validation]'])
         args, kwargs = self.calls[0]
         self.assertEqual(args, ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages',
-                                '--compile-bytecode', '/w/x.whl[desktop,validation]'])
+                                '--compile-bytecode', '--constraint', str(build.PACKAGING / 'linux-requirements.txt'),
+                                '/w/x.whl[desktop,validation]'])
         self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
         self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
 
