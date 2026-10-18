@@ -1,6 +1,7 @@
 from contextlib import closing, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -148,3 +149,25 @@ class BrowserSessionTests(unittest.TestCase):
                     session.import_firefox(profile, destination)
                 self.assertIn(case['fragment'], str(raised.exception)); self.assertNotIn('PRIVATE', str(raised.exception))
                 self.assertFalse(destination.exists())
+
+    def test_a_saved_sign_in_is_on_disk_before_it_takes_the_old_ones_place_and_the_rename_reaches_the_disk(self):
+        events, fsync, replace_file = [], os.fsync, session.replace_file
+
+        def written(descriptor):
+            events.append('file')
+            fsync(descriptor)
+
+        def replaced(source, target):
+            events.append(('replace', target.name))
+            replace_file(source, target)
+
+        directory = self.root / 'session'
+        with patch('comic_archive.session.os.fsync', side_effect=written), \
+                patch('comic_archive.session.replace_file', side_effect=replaced), \
+                patch('comic_archive.session.sync_directory', side_effect=lambda path: events.append(('folder', path))):
+            session.store_session({'cookies': [{'domain': '.tapas.io', 'name': 'session', 'value': 'PRIVATE', 'expires': -1}],
+                                   'origins': []}, directory)
+        self.assertEqual(events, ['file', ('replace', 'site'), ('folder', directory),
+                                  'file', ('replace', 'state.json'), ('folder', directory)])
+        self.assertEqual(json.loads((directory / 'state.json').read_text())['cookies'][0]['value'], 'PRIVATE')
+        self.assertEqual((directory / 'state.json').stat().st_mode & 0o777, PRIVATE_FILE)
