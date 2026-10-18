@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 import tomllib
 
-CONTEXT = 'Core/Heavy validation'
 CHECKS = {'validation', 'mutation', 'qt_engine', 'linux_build', 'windows_build', 'bundle_audits'}
 
 
@@ -15,7 +14,12 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def verify(folder, commit, statuses, owner, version):
+def owned_by(actor, owner):
+    return (isinstance(actor, dict) and isinstance(actor.get('login'), str)
+            and actor['login'].casefold() == owner.casefold())
+
+
+def verify(folder, commit, release, owner, version):
     evidence = folder / 'release-evidence.json'
     if evidence.is_symlink() or not evidence.is_file() or evidence.stat().st_size > 1024**2:
         raise ValueError('Missing or invalid release evidence.')
@@ -23,11 +27,19 @@ def verify(folder, commit, statuses, owner, version):
     if (not re.fullmatch(r'[a-f0-9]{40}', commit) or value.get('schema_version') != 1
             or value.get('commit') != commit or value.get('version') != version):
         raise ValueError('The evidence does not describe this tagged version and commit.')
-    status = next((item for item in statuses.get('statuses', []) if item.get('context') == CONTEXT), {})
-    if (statuses.get('sha') != commit or status.get('state') != 'success'
-            or status.get('creator', {}).get('login', '').casefold() != owner.casefold()
-            or status.get('description') != 'Fleet evidence SHA256 ' + digest(evidence)):
-        raise ValueError('The exact release evidence needs a successful owner-posted fleet status.')
+    if (release.get('draft') is not True or release.get('target_commitish') != commit
+            or release.get('tag_name') != 'v' + version
+            or not owned_by(release.get('author'), owner)):
+        raise ValueError('The owner must stage a draft release for this exact commit and version.')
+    assets = release.get('assets', [])
+    if not isinstance(assets, list):
+        raise ValueError('The release must include uploaded asset metadata.')
+    manifests = [asset for asset in assets if isinstance(asset, dict) and asset.get('name') == evidence.name]
+    if (len(manifests) != 1 or manifests[0].get('state') != 'uploaded'
+            or not owned_by(manifests[0].get('uploader'), owner)
+            or manifests[0].get('size') != evidence.stat().st_size
+            or manifests[0].get('digest') != 'sha256:' + digest(evidence)):
+        raise ValueError('The exact evidence must be uploaded by the owner and match GitHub\'s recorded digest.')
     checks = value.get('checks', {})
     if set(checks) != CHECKS or any(checks[name] is not True for name in CHECKS):
         raise ValueError('Every required fleet check must pass.')
@@ -53,12 +65,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('folder', type=Path)
     parser.add_argument('--commit', required=True)
-    parser.add_argument('--statuses', required=True, type=Path)
+    parser.add_argument('--release', required=True, type=Path)
     parser.add_argument('--owner', required=True)
     args = parser.parse_args()
     project = Path(__file__).resolve().parents[1] / 'pyproject.toml'
     version = tomllib.loads(project.read_text('utf-8'))['project']['version']
-    verify(args.folder, args.commit, json.loads(args.statuses.read_text('utf-8')), args.owner, version)
+    verify(args.folder, args.commit, json.loads(args.release.read_text('utf-8')), args.owner, version)
     print('Fleet evidence and all release downloads match the tagged commit.')
 
 
