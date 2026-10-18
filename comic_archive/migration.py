@@ -122,8 +122,9 @@ def migrate_exports(output, *, limit=None, min_free_bytes=256*1024*1024, progres
                         if identity is None: raise ArchiveError('Original EPUB identifier is missing; retained.')
                         identity.text = 'urn:uuid:' + converted['export_id']
                         # Swapped in place, so the package keeps a fresh export's prefixes; ElementTree would write ns0.
+                        new_id = identity.text.encode()
                         opf, count = re.subn(rb'(<dc:identifier id="book-id">)[^<]*(</dc:identifier>)',
-                                             lambda m: m[1] + identity.text.encode() + m[2], entries['EPUB/package.opf'])
+                                             lambda m, new_id=new_id: m[1] + new_id + m[2], entries['EPUB/package.opf'])
                         entries['EPUB/package.opf'] = opf if count == 1 else ET.tostring(package, encoding='utf-8', xml_declaration=True)
                         converted['content_hashes'] = [{'file': name, 'size': len(data), 'sha256': digest(data)} for name,data in entries.items()]
                         temporary = path.with_name(path.name + '.tmp')

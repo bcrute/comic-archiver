@@ -349,7 +349,7 @@ class AccountUITests(unittest.TestCase):
         self.assertTrue(RunCancellation(self.workspace.library,run).requested())
 
     def test_pause_before_a_batch_has_recorded_its_run_stops_it_as_soon_as_it_does(self):
-        session,library=self.workspace.session,self.workspace.library
+        library=self.workspace.library
         task,earlier=self.running_batch()
         with Inventory(library) as inventory:inventory.finish_run(earlier,'finished',{})
         # The downloader has taken the task; the progress it shows is still an earlier run's.
