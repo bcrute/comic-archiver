@@ -68,7 +68,7 @@ class FileTests(unittest.TestCase):
                 osdep.private_file(stream.fileno())
                 restrict.assert_called_once_with(stream.fileno(), 0o600)
             with patch.object(osdep, 'WINDOWS', True), patch.dict(os.__dict__):
-                del os.fchmod
+                os.__dict__.pop('fchmod', None)
                 osdep.private_file(stream.fileno())
                 from comic_archive.session import store_session
                 from comic_archive.locking import LibraryLock
