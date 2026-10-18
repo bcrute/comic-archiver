@@ -93,6 +93,30 @@ class FileTests(unittest.TestCase):
         if not osdep.WINDOWS:
             self.assertEqual(log.stat().st_mode & 0o777, PRIVATE_FILE)
 
+    def test_whatever_has_the_name_a_leftover_or_a_planted_symlink_gives_it_up_without_being_followed(self):
+        path = self.folder / 'state.tmp'
+        os.close(osdep.open_exclusive(path))
+        if not osdep.WINDOWS:
+            self.assertEqual(path.stat().st_mode & 0o777, PRIVATE_FILE)
+        # A leftover from an interrupted write does not keep the name taken, and starts empty again.
+        path.write_text('left over')
+        os.close(osdep.open_exclusive(path))
+        self.assertEqual(path.read_text(), '')
+        # A symlink at the name loses the name, not its target: nothing is ever written through it.
+        outside = self.folder / 'elsewhere'; outside.write_text('not mine')
+        path.unlink()
+        path.symlink_to(outside)
+        os.close(osdep.open_exclusive(path))
+        self.assertEqual(outside.read_text(), 'not mine'); self.assertFalse(path.is_symlink())
+
+    def test_a_name_taken_again_straight_away_is_reported_as_taken(self):
+        path = self.folder / 'state.tmp'; path.write_text('left over')
+        with patch.object(osdep.os, 'open', side_effect=FileExistsError(17, 'exists')):
+            with self.assertRaises(FileExistsError):
+                osdep.open_exclusive(path)
+        # The name was given up once and not retried again: the caller learns it is contested.
+        self.assertFalse(path.exists())
+
     def test_the_room_a_file_takes_is_what_its_disk_gives_it_and_its_length_where_the_disk_does_not_say(self):
         path = self.folder / 'page.bin'; path.write_bytes(b'x' * 5000)
         if hasattr(os.stat_result, 'st_blocks'):

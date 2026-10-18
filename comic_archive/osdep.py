@@ -175,6 +175,23 @@ def disk_bytes(path):
     return info.st_size if blocks is None else blocks * 512
 
 
+def open_exclusive(path):
+    """A descriptor for a fresh private file, created only where its name was unused and never through a symlink.
+
+    Whatever already has the name — an interrupted earlier write's leftover, or a symlink planted
+    at the name — gives the name up by that name alone, and the creation is tried once more; the
+    target of a symlink is never opened or written, and a name taken again straight away is
+    reported as taken rather than retried.
+    """
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o600)
+    except FileExistsError:
+        os.unlink(path)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o600)
+    private_file(descriptor)
+    return descriptor
+
+
 def open_log(path):
     """A descriptor for a private log that only ever adds to its end, to give a child process as its output.
 
