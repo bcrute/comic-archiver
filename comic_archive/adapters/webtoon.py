@@ -170,6 +170,18 @@ class WebtoonAdapter(SiteReader):
     def account_identity(self):
         raise AuthenticationError('Signing in to Webtoon is not supported yet.')
 
+    def signed_in(self):
+        """Whether the account's own evidence is available. It never is yet, so nothing may claim access.
+
+        Access marks are earned from evidence, never assumed: an unsigned-in reader reports
+        episodes as listed-but-unverified and refuses captures, instead of asserting they are free.
+        """
+        try:
+            self.account_identity()
+        except AuthenticationError:
+            return False
+        return True
+
     def inspect_library(self, details=False, category='subscribed', on_page=None):
         raise AuthenticationError('Signing in to Webtoon is not supported yet.')
 
@@ -226,11 +238,17 @@ class WebtoonAdapter(SiteReader):
         title = self.series_page(key).text('title')
         if not title:
             raise MetadataError('Webtoon gave a series page without its title.')
+        # Without an account there is no evidence any listed episode may be read: the list is
+        # reported as enumerated but unverified, and the importer refuses unauthenticated series.
+        verified = self.signed_in()
         listed = [{'id': episode_key(key, number), 'title': name, 'order': number, 'source_scene': None,
-                   'access_state': SITE.free, 'authorization_reason': None, 'access_expires_at': None,
+                   'access_state': SITE.free if verified else None,
+                   'authorization_reason': None if verified else 'webtoon_access_unverified',
+                   'access_expires_at': None,
                    'source_url': self.viewers[episode_key(key, number)]} for number, name, _ in episodes]
-        return {'complete': True, 'authenticated': True, 'source_series_id': key, 'title': title,
-                'episode_count': len(listed), 'ordering_verified': True, 'accessible_episode_count': len(listed),
+        return {'complete': True, 'authenticated': verified, 'source_series_id': key, 'title': title,
+                'episode_count': len(listed), 'ordering_verified': True,
+                'accessible_episode_count': len(listed) if verified else 0,
                 'series_content_flags': {'comic': True, 'book': False}, 'episodes': listed}
 
     def series_page(self, key):
@@ -274,6 +292,9 @@ class WebtoonAdapter(SiteReader):
         return self.viewers[key]
 
     def capture_automatic(self, url):
+        # Like every reader, capture needs an account whose evidence it can check first.
+        if not self.signed_in():
+            raise AuthenticationError('Signing in to Webtoon is not supported yet.')
         title_no, episode_no = numbers(url)
         path = urlsplit(url).path
         match = VIEWER.fullmatch(path)
