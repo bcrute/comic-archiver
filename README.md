@@ -18,8 +18,18 @@ to be built.
 
 On Windows the app is not signed yet, so two warnings are expected. If Edge says the file "isn't commonly
 downloaded", point at the download, choose **…**, then **Keep** (and **Show more**, then **Keep anyway**, if it asks
-again). If Windows says "Windows protected your PC", choose **More info**, then **Run anyway**. If Smart App Control
-blocks it with no **Run anyway**, Comic Archiver can't be installed on that PC yet.
+again).
+
+If Windows says "Windows protected your PC", its only button is **Don't run**. Don't press it. Click the small
+**More info** link under the message instead:
+
+![The "Windows protected your PC" window, with the small More info link under the message circled](docs/images/windows-warning-1-more-info.png)
+
+A **Run anyway** button then appears beside **Don't run**. Click **Run anyway**:
+
+![The same window after More info, with the Run anyway button circled](docs/images/windows-warning-2-run-anyway.png)
+
+If Smart App Control blocks it with no **Run anyway**, Comic Archiver can't be installed on that PC yet.
 
 The first time:
 
