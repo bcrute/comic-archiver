@@ -6,6 +6,7 @@ from pathlib import Path
 import select
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -270,7 +271,16 @@ class CloudStreamTests(unittest.TestCase):
         finally:pipe.close()
 
     def fixture(self, name, body):
-        script = helper_program(self.base/name, body)
+        # Own the interpreter directly: terminating a Windows batch launcher
+        # would leave its Python child running with the fixture file open.
+        script = self.base / (name + '.py')
+        script.write_text(body)
+        real = subprocess.Popen
+        def spawn(command, *args, **kwargs):
+            if command[0] == str(script): command = [sys.executable, *command]
+            return real(command, *args, **kwargs)
+        wrapper = patch('comic_archive.cloud_stream.subprocess.Popen', side_effect=spawn)
+        wrapper.start(); self.addCleanup(wrapper.stop)
         transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'google:'+path
         return transfer
 
