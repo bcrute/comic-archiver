@@ -6,7 +6,8 @@ Run on a CI host that has uv, never on the development PC:
     python scripts/build_windows_app.py --smoke --installer # on Windows only
 
 The folder is put together from files alone: the pinned CPython for Windows (SHA-256 below) and the
-Windows packages from PyPI. Nothing in it is run to make it, so a Linux host can make it. Starting
+Windows packages from PyPI. The Windows runtime is Python's signed embeddable distribution. Nothing
+in it is run to make it, so a Linux host can make it. Starting
 the app (--smoke) and building the installer (--installer, with Inno Setup 6 or 7) need Windows.
 
 Qt's package holds every module Qt has, and Python comes with the means to install packages and to
@@ -37,11 +38,13 @@ PACKAGING = PROJECT / 'packaging/windows'
 BUILD = PROJECT / 'build/windows'
 DIST = PROJECT / 'dist'
 APP = common.APP
-PBS_NAME = 'cpython-3.14.8+20261009-x86_64-pc-windows-msvc-install_only_stripped.tar.gz'
-PBS_URL = ('https://github.com/astral-sh/python-build-standalone/releases/download/' + common.PBS_TAG + '/'
-           + PBS_NAME.replace('+', '%2B'))
-PBS_SHA256 = '5b6fa7ddeabe23ae83d7b54e5043eb4fa1ccb10a73fa4c6b0f541dea8160d505'
+PYTHON_RELEASE = '3.14.8'
+PYTHON_NAME = f'python-{PYTHON_RELEASE}-embed-amd64.zip'
+PYTHON_URL = f'https://www.python.org/ftp/python/{PYTHON_RELEASE}/{PYTHON_NAME}'
+# Published at https://www.python.org/downloads/release/python-3148/.
+PYTHON_SHA256 = 'a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310'
 PYTHON_VERSION = '3.14'
+PYTHON_STEM = 'python' + PYTHON_VERSION.replace('.', '')
 PLATFORM = 'x86_64-pc-windows-msvc'
 # How the app is started. -I keeps Python to this folder (no PYTHON* settings, no user packages, no code
 # from the folder it was started in); -X utf8 reads and writes text the same way on every computer.
@@ -96,11 +99,51 @@ def unpack_python(archive, destination):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def carries_signature(path):
+    """Require embedded Authenticode data; the upstream archive checksum authenticates the actual bytes.
+
+    This presence guard prevents silently switching back to unsigned interpreter
+    builds. Windows verifies the signature's trust when loading an image.
+    """
+    data = path.read_bytes()
+    try:
+        header = struct.unpack_from('<I', data, 0x3c)[0]
+        if data[:2] != b'MZ' or data[header:header + 4] != b'PE\0\0':
+            return False
+        optional = header + 24
+        tables = optional + {0x10b: 96, 0x20b: 112}[struct.unpack_from('<H', data, optional)[0]]
+        start, size = struct.unpack_from('<II', data, tables + 8 * 4)
+        if start < tables + 8 * 5 or size < 8 or start + size > len(data):
+            return False
+        length, revision, kind = struct.unpack_from('<IHH', data, start)
+        return 8 <= length <= size and revision == 0x200 and kind == 2
+    except (KeyError, struct.error):
+        return False
+
+
+def unpack_windows_python(archive, destination):
+    """The pinned embeddable package contains only regular files at its root."""
+    with zipfile.ZipFile(archive) as package:
+        for item in package.infolist():
+            if (not item.filename or item.filename in ('.', '..') or any(c in item.filename for c in '/\\:')
+                    or item.is_dir() or (item.external_attr >> 16) & 0o170000 == 0o120000):
+                raise RuntimeError('Unexpected Windows Python archive structure')
+        package.extractall(destination)  # noqa: S202 - pinned vendor archive; flat paths and symlinks checked above
+
+
 def bundle_python(app):
-    unpack_python(common.fetch(PBS_URL, BUILD / 'downloads' / PBS_NAME, PBS_SHA256), app / 'python')
-    for name in ('python.exe', 'pythonw.exe', 'Lib/os.py'):
+    # Restricted CI networks can stage the vendor archive here; fetch still verifies the published hash.
+    cache = Path(os.environ.get('COMIC_ARCHIVER_BUILD_DOWNLOAD_CACHE') or BUILD / 'downloads')
+    unpack_windows_python(common.fetch(PYTHON_URL, cache / PYTHON_NAME, PYTHON_SHA256), app / 'python')
+    for name in ('python.exe', 'pythonw.exe', 'python3.dll', PYTHON_STEM + '.dll', PYTHON_STEM + '.zip'):
         if not (app / 'python' / name).is_file():
             raise RuntimeError('The Python for Windows lacks ' + name)
+    for path in [*(app / 'python').glob('*.exe'), *(app / 'python').glob('python*.dll'), *(app / 'python').glob('*.pyd')]:
+        if not carries_signature(path):
+            raise RuntimeError('The Windows Python runtime lacks an embedded signature: ' + path.name)
+    # Relative paths keep this portable and isolated from the person's installed Python.
+    (app / 'python' / (PYTHON_STEM + '._pth')).write_text(
+        PYTHON_STEM + '.zip\n.\nLib/site-packages\nimport site\n', encoding='utf-8')
 
 
 def install_packages(app, wheel):
@@ -237,7 +280,10 @@ def compile_bytecode(app):
     print('Build stage: ' + ' '.join(str(a) for a in command), flush=True)
     # Its exit status is not the test: packages ship a few files that are not meant to compile.
     subprocess.run([str(a) for a in command], env=common.clean_env(), stdout=subprocess.DEVNULL, timeout=1800)
-    for module in ('__pycache__/os', 'site-packages/comic_archive/__pycache__/desktop_app', 'site-packages/PySide6/__pycache__/__init__'):
+    with zipfile.ZipFile(app / 'python' / (PYTHON_STEM + '.zip')) as library:
+        if 'os.pyc' not in library.namelist():
+            raise RuntimeError('The embedded Python standard library is missing')
+    for module in ('site-packages/comic_archive/__pycache__/desktop_app', 'site-packages/PySide6/__pycache__/__init__'):
         if not list((app / 'python/Lib').glob(module + '.*.pyc')):
             raise RuntimeError('The modules of the app were not compiled')
 
