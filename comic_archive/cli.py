@@ -1,6 +1,8 @@
 import argparse
 import json
+import os
 import sys
+import traceback
 from pathlib import Path
 from .publication import PublicationStore as Store
 from .archive import verify
@@ -9,9 +11,10 @@ from .models import ArchiveError
 
 
 def parser():
-    from .state_paths import session_path
+    from .state_paths import SESSION_NAME
     p = argparse.ArgumentParser(prog="comic-archive", description="Comic Archiver: personal comic CBZ and novel EPUB preservation")
-    p.add_argument("--session-dir", type=Path, default=Path(session_path(Path.cwd()).name))
+    # A relative literal: each command checks the folder when it uses it, so a bad folder never breaks --help.
+    p.add_argument("--session-dir", type=Path, default=Path(SESSION_NAME))
     p.add_argument("--browser", choices=("auto", "chromium", "firefox", "qt"), default="auto",
                    help="Browser engine; auto falls back from Chromium to Firefox, qt is the desktop app's built-in engine")
     p.add_argument("--headless", action="store_true", help="Run authenticated imports without a browser window")
@@ -253,6 +256,24 @@ def parser():
     q.add_argument("library", type=Path)
     q.add_argument('--decode-images',action='store_true',help='Also decode every saved page and cover locally (requires Pillow; no downloads)')
     return p
+
+
+def validate_job_options(args, options, speed):
+    """Refuse a bad local import before the library lock or a browser is taken; the job checks again."""
+    from .downloads import validate_download_workers
+    from .jobs import DownloadBudget
+    DownloadBudget(None, options['max_pages'], options['max_bytes'], options['max_seconds'])
+    if options['limit'] is not None and options['limit'] < 1:
+        raise ArchiveError("Episode limit must be a positive integer.")
+    validate_download_workers(options.get('download_workers', 1), speed)
+    if args.command == 'sync':
+        if not 1 <= args.history_pages <= 500:
+            raise ArchiveError('History page limit must be from 1 to 500.')
+        if args.scan_limit is not None and args.scan_limit < 1:
+            raise ArchiveError('Series scan limit must be a positive integer.')
+    if args.command == 'import-series':
+        from .selection import series_link
+        series_link(args.url)
 
 
 def run(args):
@@ -606,6 +627,7 @@ def run(args):
             context = TapasAdapter(args.session_dir, args.browser, args.headless, args.request_interval)
         if speed != 'fast' and args.download_workers != 1:
             options['download_workers'] = args.download_workers
+        validate_job_options(args, options, speed)
         with wait_for_library(args.output,args.wait_for_lock):
             with context as adapter:
                 if args.command == 'import-series':
@@ -620,9 +642,11 @@ def run(args):
             chapters = result.get('downloaded_chapters', 0)
             transfers = f"{result['downloaded_pages'] - chapters} comic pages and {chapters} novel chapters" if chapters else f"{result['downloaded_pages']} pages"
             print(f"Archived {len(result['archived_episode_ids'])} episodes; downloaded {transfers} and {result.get('downloaded_covers',0)} covers ({result['downloaded_bytes'] / 1024 ** 2:.2f} MiB).")
-            print(f"Job {result['status'].replace('_', ' ')}; {result.get('pending_episode_count', 0)} matching episodes remain queued.")
+            reason = f" ({result['pause_reason'].replace('_', ' ')})" if isinstance(result.get('pause_reason'), str) else ''
+            print(f"Job {result['status'].replace('_', ' ')}{reason}; {result.get('pending_episode_count', 0)} matching episodes remain queued.")
             print(f"Details: {args.output / '.archive-state/last-run.json'}")
-        return 0
+        # A paused or cancelled job did not finish its work; scheduled callers must see a failure.
+        return 1 if result.get('status') in {'paused', 'cancelled'} else 0
     elif args.command == "discover-available":
         from .adapters.tapas import TapasAdapter
         from .discovery import discover_available
@@ -732,8 +756,17 @@ def main():
     except EOFError:
         print("Interactive browser step needs a terminal.", file=sys.stderr)
         code = 1
+    except BrokenPipeError:
+        # The reader went away (for example `| head`); end quietly without a second error at exit.
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        code = 141
     except Exception:
-        # Browser/http exceptions can include signed URLs or headers. Never echo them.
-        print("Operation failed. Check browser installation, input files and output permissions. Raw exceptions are suppressed to protect session data.", file=sys.stderr)
+        # Browser/http exceptions can include signed URLs or headers. Never echo them unless asked.
+        if os.environ.get('COMIC_ARCHIVE_DEBUG') == '1':
+            traceback.print_exc()
+        print("Operation failed. Check browser installation, input files and output permissions. Raw exceptions are suppressed to protect session data; set COMIC_ARCHIVE_DEBUG=1 to show them.", file=sys.stderr)
         code = 1
     raise SystemExit(code)

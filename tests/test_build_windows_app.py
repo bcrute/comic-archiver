@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 from pathlib import Path
 import re
 import struct
@@ -281,6 +282,18 @@ class ArchiveTests(WorkspaceCase):
             self.assertEqual(sorted(package.namelist()), ['ComicArchiver-1.2.3/VERSION', 'ComicArchiver-1.2.3/python/python.exe'])
         self.assertEqual(checksum.read_text(), f'{build.common.file_sha256(archive)}  {archive.name}\n')
         self.assertEqual([p.name for p in (self.root / 'dist').iterdir() if p.name.endswith('.partial')], [])
+
+    def test_the_zip_bytes_do_not_depend_on_file_times(self):
+        app = self.root / 'ComicArchiver-1.2.3'
+        (app / 'python').mkdir(parents=True); (app / 'python/python.exe').write_bytes(b'MZ' * 4096); (app / 'VERSION').write_text('1.2.3\n')
+        first, _ = build.make_archive(app, self.root / 'one', '1.2.3')
+        os.utime(app / 'VERSION', (1_000_000_000, 1_000_000_000))
+        second, _ = build.make_archive(app, self.root / 'two', '1.2.3')
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        with zipfile.ZipFile(second) as package:
+            self.assertEqual({(info.date_time, info.compress_type) for info in package.infolist()},
+                             {(build.ZIP_DATE, zipfile.ZIP_DEFLATED)})
+            self.assertEqual(package.read('ComicArchiver-1.2.3/python/python.exe'), b'MZ' * 4096)
 
 
 class MainTests(WorkspaceCase):

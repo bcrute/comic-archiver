@@ -31,6 +31,19 @@ class ReleaseGateTests(unittest.TestCase):
                         'author': {'login': 'owner'}, 'assets': [{'name': path.name, 'state': 'uploaded',
                         'uploader': {'login': 'owner'}, 'size': path.stat().st_size,
                         'digest': 'sha256:' + release.digest(path)}]}
+        for name in self.value['artifacts']:
+            self.release['assets'].append(self.asset(name))
+
+    def asset(self, name):
+        path = self.folder / name
+        return {'name': name, 'state': 'uploaded', 'uploader': {'login': 'builder'},
+                'size': path.stat().st_size if path.is_file() else 1}
+
+    def write_sums(self, text):
+        (self.folder / release.SUMS).write_text(text, encoding='utf-8')
+        metadata = copy.deepcopy(self.release)
+        metadata['assets'].append(self.asset(release.SUMS))
+        return metadata
 
     def verify(self, metadata=None):
         return release.verify(self.folder, self.commit, self.release if metadata is None else metadata, 'owner', self.version)
@@ -60,6 +73,35 @@ class ReleaseGateTests(unittest.TestCase):
                 metadata['assets'][0][field] = value
                 with self.assertRaises(ValueError):
                     self.verify(metadata)
+
+    def test_refuses_any_draft_asset_the_evidence_does_not_cover(self):
+        (self.folder / 'notes.txt').write_text('extra', encoding='utf-8')
+        for assets in (self.release['assets'][:-1], self.release['assets'] + [self.asset('notes.txt')],
+                       self.release['assets'] + [self.release['assets'][-1]], self.release['assets'] + ['notes.txt']):
+            with self.subTest(names=[asset.get('name') if isinstance(asset, dict) else asset for asset in assets]):
+                with self.assertRaises(ValueError):
+                    self.verify(self.release | {'assets': assets})
+        for field, value in (('state', 'starter'), ('size', 1)):
+            with self.subTest(download_field=field):
+                metadata = copy.deepcopy(self.release)
+                metadata['assets'][-1][field] = value
+                with self.assertRaises(ValueError):
+                    self.verify(metadata)
+
+    def test_accepts_a_checksum_list_only_when_it_matches_the_evidence_exactly(self):
+        lines = [f"{record['sha256']}  {name}" for name, record in self.value['artifacts'].items()]
+        self.assertEqual(self.verify(self.write_sums('\n'.join(lines) + '\n')), self.value)
+        self.assertEqual(self.verify(self.write_sums('\n'.join(line.replace('  ', ' *') for line in lines))), self.value)
+        name = next(iter(self.value['artifacts']))
+        for text in ('\n'.join(lines[:2]), '\n'.join(lines + [lines[0]]), '\n'.join(lines + ['0' * 64 + '  other.exe']),
+                     '\n'.join([lines[0].replace(lines[0][:64], '0' * 64)] + lines[1:]), '\n'.join(lines).upper(),
+                     '\n'.join(lines + ['']) + '\n', '\n'.join(lines).replace(name, '../' + name), ''):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                self.verify(self.write_sums(text))
+        metadata = self.write_sums('\n'.join(lines))
+        (self.folder / release.SUMS).unlink()
+        with self.assertRaises(ValueError):
+            self.verify(metadata)
 
     def test_refuses_missing_gates_skips_missing_downloads_and_wrong_version(self):
         original = copy.deepcopy(self.value)

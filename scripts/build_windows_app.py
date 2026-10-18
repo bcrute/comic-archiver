@@ -323,6 +323,9 @@ def install_packaging(app, release):
     (app / 'VERSION').write_text(release + '\n')
 
 
+ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+
 def archive_name(release):
     return f'{APP}-{release}-windows-x86_64.zip'
 
@@ -340,7 +343,11 @@ def make_archive(app, destination, release):
         with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as package:
             for path in sorted(app.rglob('*')):
                 if path.is_file() and not path.is_symlink():
-                    package.write(path, (Path(app.name) / path.relative_to(app)).as_posix())
+                    # A fixed date keeps the zip the same for the same files; the compiled modules never compare times.
+                    info = zipfile.ZipInfo.from_file(path, (Path(app.name) / path.relative_to(app)).as_posix())
+                    info.date_time, info.compress_type = ZIP_DATE, zipfile.ZIP_DEFLATED
+                    with path.open('rb') as source, package.open(info, 'w') as entry:
+                        shutil.copyfileobj(source, entry, 1024 ** 2)
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
