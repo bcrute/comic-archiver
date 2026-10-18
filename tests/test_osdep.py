@@ -104,7 +104,7 @@ class FileTests(unittest.TestCase):
 
 
 class WindowsMarkTests(unittest.TestCase):
-    """Windows' own calls, stood in for: these tests run on Linux."""
+    """Windows' own calls, stood in for on either operating system."""
 
     def kernel(self):
         kernel = Mock()
@@ -127,7 +127,8 @@ class WindowsMarkTests(unittest.TestCase):
             kernel.GetFileAttributesW.side_effect = OSError('denied')
             osdep.hide(folder)
         kernel.reset_mock(side_effect=True)
-        osdep.hide(folder)  # Elsewhere a leading dot hides it already.
+        with patch.object(osdep, 'WINDOWS', False):
+            osdep.hide(folder)  # Elsewhere a leading dot hides it already.
         kernel.GetFileAttributesW.assert_not_called(); kernel.SetFileAttributesW.assert_not_called()
 
     def test_on_windows_the_computer_is_kept_awake_for_a_download_and_let_sleep_again_with_the_screen_free_to_turn_off(self):
@@ -139,7 +140,8 @@ class WindowsMarkTests(unittest.TestCase):
             kernel.SetThreadExecutionState.side_effect = OSError('refused')
             osdep.keep_awake(True)  # Asking is all the app can do.
         kernel.reset_mock(side_effect=True)
-        osdep.keep_awake(True)
+        with patch.object(osdep, 'WINDOWS', False):
+            osdep.keep_awake(True)
         kernel.SetThreadExecutionState.assert_not_called()
 
 

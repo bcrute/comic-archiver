@@ -321,7 +321,7 @@ class SharedSettingsTests(unittest.TestCase):
     def test_shared_cloud_settings_of_an_unexpected_shape_are_refused(self):
         shared.link(self.tapas, self.store)
         (self.store / 'cloud').mkdir()
-        target = {'remote': 'b2', 'config': '/private/connection.conf', 'enabled': False, 'tested': False,
+        target = {'remote': 'b2', 'config': str(self.top / 'private/connection.conf'), 'enabled': False, 'tested': False,
                   'target_id': '00000000-0000-4000-8000-000000000000'}
         for broken in ({'targets': {}}, {'schema_version': 2, 'targets': {}}, {'schema_version': True, 'targets': {}},
                        {'schema_version': 1, 'targets': {'ftp': target}}, {'schema_version': 1, 'targets': {'b2': target | {'tested': 1}}},
