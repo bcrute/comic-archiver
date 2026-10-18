@@ -136,7 +136,8 @@ the full validated commit SHA. Upload the evidence using the owner's release cre
 uploader and SHA-256, which the publisher checks against the downloaded evidence. Contents write permission
 is sufficient; no commit-status permission is needed.
 The evidence records the commit, version, successful gates, suite totals without skips, and each download's
-size and SHA-256. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
+size and SHA-256. The draft may also hold `SHA256SUMS.txt` listing exactly those three hashes; any other asset
+stops publication. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
 to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
 
