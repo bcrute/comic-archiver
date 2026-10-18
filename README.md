@@ -131,11 +131,13 @@ writing a download, and include `requirements-frozen.txt` and `dependency-audit.
 Update the constraints deliberately when updating dependencies.
 
 For a release, validate and build the exact commit on the fleet, stage all three downloads and
-`release-evidence.json` in a draft GitHub release, and post the repository owner's successful
-`Core/Heavy validation` commit status. Its description must be `Fleet evidence SHA256 <sha256 of the evidence file>`.
+`release-evidence.json` in a draft GitHub release authored by the repository owner. Set the draft's target to
+the full validated commit SHA. Upload the evidence using the owner's release credential: GitHub records its
+uploader and SHA-256, which the publisher checks against the downloaded evidence. Contents write permission
+is sufficient; no commit-status permission is needed.
 The evidence records the commit, version, successful gates, suite totals without skips, and each download's
 size and SHA-256. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
-to Gitea so its mirror retains it. GitHub's Release workflow verifies the status and downloads, then publishes
+to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
 
 ## Where things are

@@ -20,7 +20,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
-      statuses: read
     steps:
       - uses: actions/checkout@v4
       - name: Verify fleet evidence and publish staged release
@@ -39,6 +38,6 @@ jobs:
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           mkdir dist
           gh release download "$RELEASE_TAG" --dir dist
-          gh api "repos/$GH_REPO/commits/$COMMIT/status" > statuses.json
-          python3 scripts/verify_release.py dist --commit "$COMMIT" --statuses statuses.json --owner "$OWNER"
+          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release.json
+          python3 scripts/verify_release.py dist --commit "$COMMIT" --release release.json --owner "$OWNER"
           gh release edit "$RELEASE_TAG" --draft=false --latest

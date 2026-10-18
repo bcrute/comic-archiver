@@ -26,26 +26,32 @@ class ReleaseGateTests(unittest.TestCase):
     def save(self):
         path = self.folder / 'release-evidence.json'
         path.write_text(json.dumps(self.value), encoding='utf-8')
-        self.statuses = {'sha': self.commit, 'statuses': [{'context': release.CONTEXT, 'state': 'success',
-                         'creator': {'login': 'owner'}, 'description': 'Fleet evidence SHA256 ' + release.digest(path)}]}
+        self.release = {'target_commitish': self.commit, 'tag_name': 'v' + self.version, 'draft': True,
+                        'author': {'login': 'owner'}, 'assets': [{'name': path.name, 'state': 'uploaded',
+                        'uploader': {'login': 'owner'}, 'size': path.stat().st_size,
+                        'digest': 'sha256:' + release.digest(path)}]}
 
-    def verify(self, statuses=None):
-        return release.verify(self.folder, self.commit, statuses or self.statuses, 'owner', self.version)
+    def verify(self, metadata=None):
+        return release.verify(self.folder, self.commit, self.release if metadata is None else metadata, 'owner', self.version)
 
     def test_accepts_owner_attested_exact_commit_and_all_downloads(self):
         self.assertEqual(self.verify(), self.value)
 
-    def test_refuses_untrusted_or_failed_status_and_another_commit(self):
-        for field, value in (('creator', {'login': 'someone-else'}), ('state', 'pending'),
-                             ('description', 'unchecked'), ('context', 'other check')):
+    def test_refuses_untrusted_or_incomplete_uploads_and_another_commit(self):
+        for field, value in (('author', {'login': 'someone-else'}), ('author', None), ('draft', False),
+                             ('target_commitish', 'b' * 40), ('tag_name', 'v0.1.4'),
+                             ('assets', []), ('assets', None), ('assets', self.release['assets'] * 2)):
             with self.subTest(field=field):
-                statuses = copy.deepcopy(self.statuses)
-                statuses['statuses'][0][field] = value
                 with self.assertRaises(ValueError):
-                    self.verify(statuses)
-        statuses = self.statuses | {'sha': 'b' * 40}
-        with self.assertRaises(ValueError):
-            self.verify(statuses)
+                    self.verify(self.release | {field: value})
+        for field, value in (('uploader', {'login': 'someone-else'}), ('uploader', None),
+                             ('state', 'starter'), ('size', 0), ('digest', None),
+                             ('digest', 'sha256:' + '0' * 64), ('name', 'other.json')):
+            with self.subTest(asset_field=field):
+                metadata = copy.deepcopy(self.release)
+                metadata['assets'][0][field] = value
+                with self.assertRaises(ValueError):
+                    self.verify(metadata)
 
     def test_refuses_missing_gates_skips_missing_downloads_and_wrong_version(self):
         original = copy.deepcopy(self.value)
