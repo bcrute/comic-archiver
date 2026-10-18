@@ -148,17 +148,32 @@ class WebtoonTests(unittest.TestCase):
         self.assertEqual((details.source_url, details.cover_url),
                          (f'{HOME}/en/fantasy/sample-series/list?title_no=7', 'https://swebtoon-phinf.pstatic.net/20200101_2/cover.jpg'))
         self.assertEqual(adapter.retrieve_cover(details), png(200))
-        listing = adapter.inspect_series('7')
+        listing = reader(series_pages(), SignedIn)[0].inspect_series('7')
         self.assertEqual([(e['id'], e['order'], e['title'], e['access_state']) for e in listing['episodes']],
                          [('7000001', 1, 'Episode 1', 'webtoon_free'), ('7000002', 2, 'Episode 2', 'webtoon_free'),
                           ('7000004', 4, 'Episode 4', 'webtoon_free')])
+
+    def test_without_an_account_no_episode_is_claimed_readable_and_nothing_is_captured(self, sleep):
+        # Access marks are earned from evidence: a reader that cannot check an account reports
+        # the list it saw without asserting any episode may be read, and captures nothing.
+        adapter, client = reader(series_pages())
+        listing = adapter.inspect_series('7')
+        self.assertFalse(listing['authenticated'])
+        self.assertEqual(listing['accessible_episode_count'], 0)
+        self.assertEqual({e['access_state'] for e in listing['episodes']}, {None})
+        self.assertEqual({e['authorization_reason'] for e in listing['episodes']}, {'webtoon_access_unverified'})
+        from comic_archive.errors import AuthenticationError
+        with self.assertRaises(AuthenticationError):
+            adapter.capture_automatic(adapter.episode_url('7000001'))
+        # No episode page or picture is asked for: capture without an account reads nothing.
+        self.assertFalse([url for url, _ in client.calls if '/viewer' in url or url.startswith(IMAGES)])
 
     def test_a_canvas_series_has_its_own_numbers_addresses_and_library_name(self, sleep):
         key = str(CANVAS + 5)
         pages = {LIST_API.format(kind='canvas', title=5): listed('canvas', 'small-story', 5, [1], 0),
                  f'{HOME}/en/canvas/small-story/list?title_no=5': list_page('canvas', 'small-story', 5, heading='h3'),
                  HOME + viewer_link('canvas', 'small-story', 5, 1): viewer_page('canvas', 'small-story', 5, 1, [f'{IMAGES}/c.jpg?type=q90'])}
-        adapter, _ = reader(pages)
+        adapter, _ = reader(pages, SignedIn)
         self.assertEqual(adapter.inspect_series(key)['title'], 'Sample Series')
         self.assertEqual(adapter.series_metadata(key).id, 'canvas-small-story')
         manifest = adapter.capture_automatic(adapter.episode_url(key + '000001'))
@@ -201,10 +216,10 @@ class WebtoonTests(unittest.TestCase):
             'no title': good.replace(b'class="subj_episode"', b'class="other"'),
         }
         for name, page in wrong.items():
-            adapter, _ = reader({url: page})
+            adapter, _ = reader({url: page}, SignedIn)
             with self.subTest(name), self.assertRaises(ArchiveError):
                 adapter.capture_automatic(url)
-        adapter, client = reader({})
+        adapter, client = reader({}, SignedIn)
         for address in (url.replace('www.webtoons.com', 'example.com'), url.replace('/viewer', '/list'), url.split('&')[0]):
             with self.subTest(address), self.assertRaises(ArchiveError):
                 adapter.capture_automatic(address)

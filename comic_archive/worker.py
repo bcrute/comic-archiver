@@ -31,6 +31,18 @@ def private_json(path, value):
     path.chmod(0o600)
 
 
+def discard_request(path):
+    """Remove one consumed request file; a file that cannot be removed must not stop the worker.
+
+    A request left behind is retried after the next restart, where its published response
+    (when one exists) has the worker remove it again instead of repeating the task.
+    """
+    try:
+        path.unlink()
+    except OSError:
+        print(f"Could not remove worker request {path.name}; it is retried after the next restart.", flush=True)
+
+
 def execute(adapter, request, *, fast_session=None):
     try:
         return _execute(adapter, request, fast_session=fast_session)
@@ -368,16 +380,28 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0,*,rel
                 for file in sorted(requests.glob("*.json")):
                     if file.is_symlink():
                         continue
-                    task_id = identifier(file.stem)
+                    # One wrongly named request must not stop the worker or the
+                    # tasks behind it; a name is not task content, so it is dropped.
+                    try:
+                        task_id = identifier(file.stem)
+                    except ArchiveError:
+                        print(f"Ignoring worker request with an invalid name: {file.name}", flush=True)
+                        discard_request(file)
+                        continue
                     response = responses / f"{task_id}.json"
                     if response.exists():
-                        file.unlink()
+                        discard_request(file)
                         continue
                     print(f"Starting task {task_id}", flush=True)
                     try:
                         if file.stat().st_size > 16384:
                             raise ArchiveError("Worker request is too large.")
-                        request = json.loads(file.read_text())
+                        # Read the bytes once and check their actual length: the file may
+                        # change between the size check above and the read.
+                        data = file.read_bytes()
+                        if len(data) > 16384:
+                            raise ArchiveError("Worker request is too large.")
+                        request = json.loads(data)
                         if not isinstance(request, dict):
                             raise ArchiveError("Worker request must be an object.")
                         from .task_cancellation import queued_stop_requested, cancelled_result
@@ -416,7 +440,7 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0,*,rel
                         print(f"Task {task_id} failed: {value['error']}", flush=True)
                     else:
                         print(f"Task {task_id} completed.", flush=True)
-                    file.unlink()
+                    discard_request(file)
                     publish({"state": "ready"})
                 time.sleep(0.5)
     except ArchiveError:

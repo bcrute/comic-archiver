@@ -141,6 +141,15 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(json.loads(archive.with_suffix('.json').read_text())['title'],title)
         self.assertEqual(verify(folder),[])
 
+    def test_source_titles_are_bounded_so_exports_stay_verifiable(self):
+        # A hostile source could otherwise publish a title longer than the archives' text caps.
+        with self.assertRaises(ArchiveError):
+            Series('42','x'*501)
+        with self.assertRaises(ArchiveError):
+            Episode('81','42','x'*501,1,(Page(1,'https://cdn.tapas.io/a',False),),'reader_confirmed')
+        Series('42','x'*500)
+        Episode('81','42','x'*500,1,(Page(1,'https://cdn.tapas.io/a',False),),'reader_confirmed')
+
     def test_normalized_source_links_and_storage_are_platform_independent(self):
         series = Series('42', 'Other platform', source='other_platform',
                         source_url='https://example.org/comic/42?session=PRIVATE')
@@ -337,6 +346,13 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(moved.read_bytes(), before)
         self.assertEqual(cbz.read_bytes(), original)
         self.assertEqual(outside.read_bytes(), b'keep')
+
+    def test_a_metadata_write_replaces_what_an_interrupted_write_left_behind(self):
+        target = self.root / 'series.json'
+        (self.root / 'series.json.tmp').write_text('{"interrupted":')
+        atomic_json(target, {'title': 'Sample Series'})
+        self.assertEqual(json.loads(target.read_text()), {'title': 'Sample Series'})
+        self.assertFalse((self.root / 'series.json.tmp').exists())
 
     def test_stored_paths_must_stay_inside_the_library_without_symlinks(self):
         self.assertEqual(self.store.stored_path('Series/one.cbz'), self.store.root / 'Series/one.cbz')
