@@ -10,6 +10,8 @@ class LocalAdapter:
         try:
             obj = json.loads(path.read_text(encoding="utf-8"))
             s = obj["series"]
+            if not isinstance(s, dict):
+                raise ValueError
             creators = s.get("creators", [])
             # A plain string would otherwise become one creator per character.
             if not isinstance(creators, list) or any(not isinstance(name, str) for name in creators):
