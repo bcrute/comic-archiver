@@ -59,6 +59,10 @@ class Series:
         identifier(self.source)
         if not isinstance(self.title, str) or not self.title.strip():
             raise ArchiveError("Series title is required.")
+        # Like creators and descriptions, titles are bounded: the source controls
+        # them, and an unbounded one could outgrow the archives' verification caps.
+        if len(self.title) > 500:
+            raise ArchiveError('Series titles must be at most 500 characters.')
         canonical_url(self.source_url)
         if self.platform_id is not None:
             identifier(self.platform_id)
@@ -91,6 +95,8 @@ class Episode:
         identifier(self.series_id)
         if not isinstance(self.title, str) or not self.title.strip():
             raise ArchiveError("Episode title is required.")
+        if len(self.title) > 500:
+            raise ArchiveError('Episode titles must be at most 500 characters.')
         if type(self.order) is not int or self.order < 1:
             raise ArchiveError("Episode order must be a positive integer.")
         if self.access not in {"local_owned", "reader_confirmed"} | sites.ACCESS:
