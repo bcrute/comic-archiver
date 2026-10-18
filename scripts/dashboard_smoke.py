@@ -883,6 +883,10 @@ def b2_setup_controls(page, registry):
     expect(page.locator('#connect-cloud')).to_be_hidden()
     expect(page.locator('#b2-bucket-name')).to_have_value(re.compile(r'comic-library-[a-f0-9]{12}'))
     expect(page.locator('#b2-key-bucket')).to_have_text(page.locator('#b2-bucket-name').input_value())
+    # Bucket names are unique across all of Backblaze: said plainly, right under the name, not in the small print.
+    expect(page.locator('#b2-bucket-unique')).to_be_visible()
+    expect(page.locator('#b2-bucket-unique b')).to_have_text('A bucket name can belong to only one Backblaze account, anywhere.')
+    assert page.locator('label:has(#b2-bucket-name) + p').get_attribute('id') == 'b2-bucket-unique'
     # Backblaze refuses a key name with anything but letters, numbers and hyphens.
     assert re.fullmatch(r'[A-Za-z0-9-]{1,100}', page.locator('#b2-key-name').inner_text())
     # What Backblaze charges is offered before the first step, closed, with the estimate as its heading.
