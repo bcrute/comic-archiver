@@ -19,7 +19,7 @@ class SeriesDetailsHTML(HTMLParser):
 
     def handle_starttag(self,tag,pairs):
         attrs=dict(pairs)
-        classes=set(attrs.get('class','').split())
+        classes=set((attrs.get('class') or '').split())
         scopes=set().union(*(item[1] for item in self.stack)) if self.stack else set()
         kind=None
         if tag=='span' and 'description__body' in classes and 'js-series-description' in scopes:

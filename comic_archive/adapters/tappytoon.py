@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from .. import sites
-from ..errors import AccessDenied, AuthenticationError, MetadataError
+from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from ..expiry import expiration
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
@@ -76,6 +76,15 @@ def rental_end(chapter):
     if not isinstance(chapter.get('rentalExpiredAt'), str):
         raise MetadataError('Tappytoon gave a rented chapter without the end of its rental.')
     return expiration(chapter['rentalExpiredAt'])
+
+
+def listed_access(chapter):
+    """(access mark, why it is not readable, end of rental) of a listed chapter. A rental without a
+    readable end is listed as unverified, so one odd chapter does not stop the series' whole list."""
+    try:
+        return access(chapter), None, rental_end(chapter)
+    except (MetadataError, UnsupportedContent):
+        return 'unavailable_or_unverified', 'temporary_access', None
 
 
 def checked_chapter(item, comic=None):
@@ -174,7 +183,15 @@ class TappytoonAdapter(SiteReader):
     def comic(self, key):
         """A series' own details from Tappytoon, checked to be that series."""
         if key not in self._comics:
-            value = self.api(f'/comics/{int(key)}', {'locale': 'en'})
+            try:
+                value = self.api(f'/comics/{int(key)}', {'locale': 'en'})
+            except ExpiredAsset as gone:
+                if getattr(gone, 'source_http_status', None) not in {404, 410}:
+                    raise
+                # Tappytoon no longer has the series: the job sets it aside, as it does for other sites.
+                error = MetadataError('Tappytoon no longer shows this series.')
+                error.source_http_status, error.source_series_id, error.source_route = gone.source_http_status, key, f'/series/{key}'
+                raise error from None
             if (not isinstance(value, dict) or value.get('id') != int(key) or not isinstance(value.get('title'), str)
                     or not value['title'].strip() or not isinstance(value.get('slug'), str) or not SLUG.fullmatch(value['slug'])
                     or value.get('category') not in {'comic', 'novel'}):
@@ -184,9 +201,10 @@ class TappytoonAdapter(SiteReader):
 
     def listed(self, path, query):
         """Everything in one of Tappytoon's lists, following its pages."""
-        found, address = [], None
+        found, address, asked = [], None, set()
         for _ in range(MAX_LIST_PAGES):
             value = self.api(path, query, address=address)
+            asked.add(address or f'{API}{path}?{urlencode(query)}')
             if not isinstance(value, list):
                 raise MetadataError('Tappytoon gave a list of an unexpected shape.')
             found += value
@@ -196,6 +214,8 @@ class TappytoonAdapter(SiteReader):
             parts = urlsplit(following[1])
             if (parts.scheme, parts.netloc, parts.path) != ('https', urlsplit(API).netloc, path) or not value:
                 raise MetadataError('Tappytoon gave a list that leads somewhere unexpected.')
+            if following[1] in asked:
+                raise MetadataError('Tappytoon gave a list that leads back to a page already read.')
             address = following[1]
         else:
             raise MetadataError('Tappytoon gave a list longer than any the app expects.')
@@ -219,10 +239,12 @@ class TappytoonAdapter(SiteReader):
                     'episodes': [], 'episode_enumeration_skipped': True, 'unsupported_series_reason': 'novel',
                     'series_content_flags': {'comic': False, 'book': True}}
         # Tappytoon counts chapters from 0; the library counts from 1.
-        listed = [{'id': str(chapter['id']), 'title': chapter['title'].strip(), 'order': chapter['order'] + 1,
-                   'source_scene': None, 'access_state': access(chapter), 'authorization_reason': None,
-                   'access_expires_at': rental_end(chapter), 'source_url': self.episode_url(str(chapter['id']))}
-                  for chapter in self.chapters(key)]
+        listed = []
+        for chapter in self.chapters(key):
+            mark, reason, expires = listed_access(chapter)
+            listed.append({'id': str(chapter['id']), 'title': chapter['title'].strip(), 'order': chapter['order'] + 1,
+                           'source_scene': None, 'access_state': mark, 'authorization_reason': reason,
+                           'access_expires_at': expires, 'source_url': self.episode_url(str(chapter['id']))})
         return {'complete': True, 'authenticated': True, 'source_series_id': key, 'title': comic['title'].strip(),
                 'episode_count': len(listed), 'ordering_verified': True,
                 'accessible_episode_count': sum(episode['access_state'] in sites.ACCESS for episode in listed),
@@ -241,21 +263,44 @@ class TappytoonAdapter(SiteReader):
         return Series(comic['slug'], comic['title'].strip(), names, description, f"{HOME}/en/book/{comic['slug']}",
                       SITE.key, key, comic['slug'], cover_url=cover)
 
+    def retrieve_cover(self, series, max_bytes=None):
+        try:
+            return super().retrieve_cover(series, max_bytes)
+        except ExpiredAsset:
+            # The cover's address has run out: the series' details are asked for again for a fresh one.
+            self._comics.pop(series.platform_id, None)
+            raise
+
     def episode_url(self, key):
         return f'{HOME}/en/chapters/{int(key)}'
 
-    def capture_automatic(self, url):
+    def chapter(self, url):
+        """(chapter, access mark, end of rental) of a chapter page the account may read; any other is refused."""
         parts = urlsplit(url)
         match = CHAPTER.fullmatch(parts.path)
         if (parts.scheme, parts.netloc, parts.query) != ('https', SITE.host, '') or match is None:
             raise ArchiveError('This is not a Tappytoon chapter page.')
-        chapter = checked_chapter(self.api(f'/chapters/{match[1]}', {'locale': 'en'}))
+        try:
+            chapter = checked_chapter(self.api(f'/chapters/{match[1]}', {'locale': 'en'}))
+        except ExpiredAsset as error:
+            if getattr(error, 'source_http_status', None) not in {403, 404, 410}:
+                raise
+            raise AccessDenied('Tappytoon no longer gives this chapter to this account; it will not be read.') from None
         if chapter['id'] != int(match[1]):
             raise MetadataError('Tappytoon showed a different chapter than the one asked for.')
         mark = access(chapter)
         if mark not in sites.ACCESS:
             raise AccessDenied('This chapter is neither free, bought nor rented; it will not be read.')
         expires = rental_end(chapter)
+        return chapter, mark, expires
+
+    def episode_access(self, url):
+        """Whether the account may read a chapter, from its details alone: none of its pictures are asked for."""
+        chapter, mark, expires = self.chapter(url)
+        return {'source_episode_id': str(chapter['id']), 'access_state': mark, 'access_expires_at': expires}
+
+    def capture_automatic(self, url):
+        chapter, mark, expires = self.chapter(url)
         key = str(chapter['comicId'])
         comic = self.comic(key)
         try:

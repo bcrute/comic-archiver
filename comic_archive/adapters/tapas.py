@@ -95,6 +95,13 @@ def finish_route(route, action):
         raise ArchiveError('Read-only browser routing failed; credential details are suppressed.') from None
 
 
+def history_data(observation):
+    """The last observed history answer's data object; {} when it is missing or null."""
+    response=observation.library_values.get('/profile/transactions')
+    data=response.get('data') if isinstance(response,dict) else None
+    return data if isinstance(data,dict) else {}
+
+
 def read_only_source_request(route):
     method=getattr(route.request,'method','GET')
     if isinstance(method,str) and method.upper() not in {'GET','HEAD','OPTIONS'}:
@@ -449,6 +456,9 @@ class TapasAdapter:
                     network_guard=getattr(self, 'network_guard', None))
         self.transport.last = last_metadata_request
         self.transport.cancel_check=getattr(self,'cancel_check',None)
+        # Threaded image reads use the asset client directly, so it needs the same stop and time limit.
+        self.transport.assets.deadline=self.transport.deadline
+        self.transport.assets.cancel_check=self.transport.cancel_check
         self._automatic = TapasHTTPAdapter(transport=self.transport, expected_account_id=getattr(self, "expected_account_id", None))
         return self._automatic
 
@@ -529,13 +539,15 @@ class TapasAdapter:
                                   'path_segment_count':len(parts),'extension':suffix if suffix in {'.jpg','.jpeg','.png','.gif','.webp'} else None,
                                   'has_query':bool(parsed.query)})
         inline='\n'.join(parser.inline)
+        try:inline_series_id=safe_primitives(inline).get('seriesId')
+        except MetadataError:inline_series_id=None  # The candidates below show the disagreement.
         ids=sorted({int(m[1]) for m in re.finditer(r'(?<![A-Za-z0-9_])[\"\']?seriesId[\"\']?\s*[:=]\s*[\"\']?([0-9]{1,15})(?![A-Za-z0-9_.])',inline)})
         rendered=self._reader_navigation(url)
         adapter.check_session()
         from ..novels import novel_structure
         novel = novel_structure(raw.decode('utf-8'), verified['source_episode_id'])
         return {'authenticated':True,**verified,'source_url':url,
-                'inline_series_id':safe_primitives(inline).get('seriesId'),
+                'inline_series_id':inline_series_id,
                 'inline_series_id_candidates':ids,'data_series_ids':sorted(parser.series_ids),
                 'scoped_page_count':len(parser.images),'ordered_sources_available':ordered_sources(parser.images) is not None,
                 'scoped_image_source_shapes':source_shapes,
@@ -785,21 +797,7 @@ class TapasAdapter:
                           public_type_code=code.upper() if code.upper() in {'FREE','FREE_EPISODES','WUF','WAIT_UNTIL_FREE'} else None)
             result['view_semantics']=self._reading_filter_semantics()
             for index in range(page_limit):
-                rows=self.page.locator('ul.content-list-wrap li.content-item a[href*="/series/"]').evaluate_all("""els=>els.map(e=>{
-                    const ids=[];
-                    for(let p=e,d=0;p&&d<5;p=p.parentElement,d++) {
-                        const id=p.getAttribute('data-tiara-event-meta-series-id');if(id&&/^[1-9][0-9]{0,19}$/.test(id))ids.push(id);
-                    }
-                    return {url:e.href,title:e.innerText.trim().slice(0,200),ids:Array.from(new Set(ids))};
-                })""")
-                candidates={}
-                for row in rows:
-                    parsed=urlsplit(row['url']);ids=row.get('ids',[])
-                    if (parsed.scheme=='https' and parsed.hostname=='tapas.io' and not parsed.username and not parsed.password and not parsed.port
-                            and re.fullmatch(r'/series/[A-Za-z0-9_-]{1,100}(?:/info)?',parsed.path)):
-                        url=f'https://tapas.io{parsed.path}'
-                        identity=ids[0] if len(ids)==1 and isinstance(ids[0],str) and re.fullmatch(r'[1-9][0-9]{0,19}',ids[0]) else None
-                        candidates[identity or url]={'source_series_id':identity,'title':row['title'],'source_url':url}
+                candidates={card['source_series_id'] or card['source_url']:card for card in self._series_cards()}
                 signature=tuple(sorted(candidates))
                 result['duplicate_series_on_later_pages']+=len(set(candidates)&set(found))
                 if not signature or signature in seen:
@@ -843,6 +841,25 @@ class TapasAdapter:
                     result['restore_succeeded']=bool(response and response.status==200 and reading_list_location(self.page.url)==reading_list_location(start))
                 except Exception:result['restore_succeeded']=False
             self.page.remove_listener('response',observation.on_response)
+
+    def _series_cards(self):
+        """Series links on the rendered list, each with its one tiara series ID or None."""
+        rows=self.page.locator('ul.content-list-wrap li.content-item a[href*="/series/"]').evaluate_all("""els=>els.map(e=>{
+            const ids=[];
+            for(let p=e,d=0;p&&d<5;p=p.parentElement,d++) {
+                const id=p.getAttribute('data-tiara-event-meta-series-id');if(id&&/^[1-9][0-9]{0,19}$/.test(id))ids.push(id);
+            }
+            return {url:e.href,title:e.innerText.trim().slice(0,200),ids:Array.from(new Set(ids))};
+        })""")
+        cards=[]
+        for row in rows:
+            parsed=urlsplit(row['url'])
+            if (parsed.scheme=='https' and parsed.hostname=='tapas.io' and not parsed.username and not parsed.password and not parsed.port
+                    and re.fullmatch(r'/series/[A-Za-z0-9_-]{1,100}(?:/info)?',parsed.path)):
+                url=f'https://tapas.io{parsed.path}';ids=row.get('ids',[])
+                identity=ids[0] if len(ids)==1 and isinstance(ids[0],str) and re.fullmatch(r'[1-9][0-9]{0,19}',ids[0]) else None
+                cards.append({'source_series_id':identity,'title':row['title'],'source_url':url})
+        return cards
 
     def _reading_filter_semantics(self):
         """Fixed displayed labels and attribute types only; never activate them."""
@@ -900,34 +917,26 @@ class TapasAdapter:
         result={'authenticated':before['authenticated'],'membership_verified':before['membership_verified'],
                 'scope':before['scope'],'complete':False,'account_inventory_complete':False,
                 'pages':[],'series':[],'boundary_observed':False,'restore_succeeded':None,
-                'reader_or_comic_pages_requested':False,'blocker':'The reading-list page budget was reached.'}
+                'reader_or_comic_pages_requested':False,'duplicate_series_on_later_pages':0,
+                'blocker':'The reading-list page budget was reached.'}
         if not before['membership_verified'] or current is None or current['category']!=category or current['page']!=1:
             result['blocker']='Initial reading-list scope/page is unverified; no pager was clicked.';return result
         active=self.page.locator('nav.section-sort li.sort-item.on a.item-title')
         if active.count()!=1 or active.inner_text().strip().lower()!='all':
             result['blocker']='The initial All type selection is unverified; no pager was clicked.';return result
-        found={};fingerprints=set();moved=False
+        found={};fingerprints=set();identities=set();moved=False
         observation=ReaderObservation();self.page.on('response',observation.on_response)
         try:
             for index in range(max_pages):
-                rows=self.page.locator('ul.content-list-wrap li.content-item a[href*="/series/"]').evaluate_all("""els=>els.map(e=>{
-                    const ids=[];
-                    for(let p=e,d=0;p&&d<5;p=p.parentElement,d++) {
-                        const id=p.getAttribute('data-tiara-event-meta-series-id');if(id&&/^[1-9][0-9]{0,19}$/.test(id))ids.push(id);
-                    }
-                    return {url:e.href,title:e.innerText.trim().slice(0,200),ids:Array.from(new Set(ids))};
-                })""")
-                candidates={}
-                for row in rows:
-                    parsed=urlsplit(row['url'])
-                    if parsed.hostname=='tapas.io' and parsed.scheme=='https' and not parsed.username and not parsed.password and not parsed.port and re.fullmatch(r'/series/[A-Za-z0-9_-]{1,100}(?:/info)?',parsed.path):
-                        url=f'https://tapas.io{parsed.path}';ids=row.get('ids',[])
-                        identity=ids[0] if len(ids)==1 and isinstance(ids[0],str) and re.fullmatch(r'[1-9][0-9]{0,19}',ids[0]) else None
-                        candidates[url]={'source_series_id':identity,'title':row['title'],'source_url':url}
+                candidates={card['source_url']:card for card in self._series_cards()}
                 signature=tuple(sorted(candidates))
                 if not signature or signature in fingerprints:
                     result['blocker']='The reading list is empty or repeats a prior page; completeness remains unverified.';break
+                # A series seen on an earlier page means the list shifted while it was read and may have skipped one.
+                result['duplicate_series_on_later_pages']+=sum(url in found or card['source_series_id'] in identities
+                                                               for url,card in candidates.items())
                 fingerprints.add(signature);found.update(candidates)
+                identities.update(card['source_series_id'] for card in candidates.values() if card['source_series_id'])
                 result['pages'].append({'page':current['page'],'series_count':len(candidates)})
                 if on_page is not None:
                     on_page({'authenticated':True,'membership_verified':True,'scope':category,'complete':False,
@@ -937,7 +946,14 @@ class TapasAdapter:
                     result['blocker']='The observed Next control is unavailable or ambiguous; no forced click was attempted.';break
                 classes=(next_control.get_attribute('class') or '').split()
                 if 'disabled' in classes or next_control.get_attribute('aria-disabled')=='true':
-                    result.update(complete=True,boundary_observed=True,blocker='Rendered All reading-list boundary observed; purchase/unlock reconciliation remains unverified.');break
+                    result['boundary_observed']=True
+                    if result['duplicate_series_on_later_pages']:
+                        result['blocker']='The boundary was reached with series repeated across pages; the list may have shifted and skipped one.'
+                    elif any(card['source_series_id'] is None for card in found.values()):
+                        result['blocker']='Some listed series have no single verified series ID; the list is not complete.'
+                    else:
+                        result.update(complete=True,blocker='Rendered All reading-list boundary observed; purchase/unlock reconciliation remains unverified.')
+                    break
                 if index+1>=max_pages:break
                 href=urljoin(self.page.url,next_control.get_attribute('href') or '');location=reading_list_location(href)
                 if location is None or location['category']!=category or location['page']!=current['page']+1:
@@ -1445,9 +1461,8 @@ class TapasAdapter:
                 next_page = self.page.locator('.tp-table.transactions .js-next-page')
                 older_disabled = prev.count()!=1 or 'disabled' in (prev.get_attribute('class') or '').split()
                 newer_disabled = next_page.count()!=1 or 'disabled' in (next_page.get_attribute('class') or '').split()
-                response = observation.library_values.get('/profile/transactions',{})
-                data = response.get('data',{}) if isinstance(response,dict) else {}
-                private_rows = data.get('transactions',[]) if isinstance(data,dict) else []
+                data = history_data(observation)
+                private_rows = data.get('transactions') if isinstance(data.get('transactions'),list) else []
                 private_ids = tuple(item.get('id') for item in private_rows if isinstance(item,dict))
                 # Transaction IDs are used in memory solely to detect a repeated
                 # page. Repeated series links alone are legitimate on many pages.
@@ -1456,12 +1471,12 @@ class TapasAdapter:
                     return result('History navigation repeated; no completeness claim.')
                 seen.add(signature)
                 links.update(current)
-                pagination = data.get('pagination',{}) if isinstance(data,dict) else {}
+                pagination = data.get('pagination')
                 safe_pagination = {k:v for k,v in pagination.items() if k in {'page','total','max_limit','index','has_next','to_prev'}
                                    and type(v) in (int,bool)} if isinstance(pagination,dict) else {}
-                source_types = sorted({item.get('source_type') for item in data.get('transactions',[])
+                source_types = sorted({item.get('source_type') for item in private_rows
                                        if isinstance(item,dict) and isinstance(item.get('source_type'),str)
-                                       and re.fullmatch(r'[A-Za-z_]{1,40}',item['source_type'])}) if isinstance(data,dict) else []
+                                       and re.fullmatch(r'[A-Za-z_]{1,40}',item['source_type'])})
                 pages.append({'number':len(pages)+1,'row_count':rows.count(),'public_content_link_count':len(current),
                               'older_disabled':older_disabled,'newer_disabled':newer_disabled,
                               'server_pagination':safe_pagination,'source_types':source_types})
@@ -1501,7 +1516,8 @@ class TapasAdapter:
             if type(status) is int and status != 200:
                 state['refused_status'] = status
                 return False
-            updated = state['observation'].library_values.get('/profile/transactions',{}).get('data',{}).get('pagination',{}).get('index')
+            pagination = history_data(state['observation']).get('pagination')
+            updated = pagination.get('index') if isinstance(pagination,dict) else None
             if updated != state['previous_index'] and type(updated) is int:
                 self.wait_normal(250)
                 state['needs_advance'] = state['advance_clicked'] = False
@@ -1813,7 +1829,10 @@ class TapasAdapter:
                     result["initial_html"] = source_summary(parser.images)
                     result['provided_episode_navigation']=parser.navigation_summary()
                     result["episode_data_attributes"] = parser.attributes
-                    result["safe_inline_primitives"] = safe_primitives("\n".join(parser.inline))
+                    try:
+                        result["safe_inline_primitives"] = safe_primitives("\n".join(parser.inline))
+                    except MetadataError:
+                        result["safe_inline_primitives"] = {"series_ids_disagree": True}
                     result["script_assets"] = [{"host": urlsplit(value).hostname,
                                                 "path": urlsplit(value).path}
                                                for value in parser.scripts if value.endswith(".js")][:30]

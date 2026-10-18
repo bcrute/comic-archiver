@@ -85,7 +85,9 @@ def fetch(url, target, expected):
 
 
 def clean_env(**extra):
-    env = os.environ.copy()
+    # Bundled packages come from the public index alone; a host's mirror or extra index must not change them.
+    env = {name: value for name, value in os.environ.items()
+           if not (name.upper().startswith(('UV_', 'PIP_')) and ('INDEX' in name.upper() or name.upper().endswith('FIND_LINKS')))}
     for name in ('PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV'):
         env.pop(name, None)
     env.update(PYTHONNOUSERSITE='1', UV_PYTHON_DOWNLOADS='never')

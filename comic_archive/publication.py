@@ -59,6 +59,20 @@ def metadata_hash(value):
     return digest(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode())
 
 
+def provenance_record(root, sidecar, value, metadata):
+    """The private record for a public file about to be written, keeping the one it replaces readable."""
+    record = {'schema_version': 1, 'sidecar': sidecar.relative_to(root).as_posix(),
+              'public_hash': metadata_hash(value), 'metadata': metadata}
+    try:
+        current = json.loads(sidecar.read_text()) if sidecar.is_file() and not sidecar.is_symlink() else None
+        if (isinstance(current, dict) and current.get('schema_version') == 2
+                and current.get('export_id') == value['export_id'] and current != value):
+            record['previous'] = {'public_hash': metadata_hash(current), 'metadata': import_metadata(sidecar)}
+    except (OSError, ValueError, TypeError):
+        pass  # Nothing readable is there to keep.
+    return record
+
+
 def import_metadata(sidecar):
     """Recover source identity only from the matching private provenance record."""
     sidecar = Path(sidecar)
@@ -75,8 +89,12 @@ def import_metadata(sidecar):
     if any(p.is_symlink() for p in (private, *private.parents)) or private.stat().st_size > 16*1024*1024:
         raise ValueError('Unsafe private provenance')
     record = json.loads(private.read_text())
-    if (not isinstance(record, dict) or record.get('sidecar') != sidecar.relative_to(root).as_posix()
-            or record.get('public_hash') != metadata_hash(value) or not isinstance(record.get('metadata'), dict)):
+    if not isinstance(record, dict) or record.get('sidecar') != sidecar.relative_to(root).as_posix():
+        raise ValueError('Export provenance mismatch')
+    if record.get('public_hash') != metadata_hash(value) and isinstance(record.get('previous'), dict):
+        # Stopped between the private and public writes: the public file is still the one before.
+        record = record['previous']
+    if record.get('public_hash') != metadata_hash(value) or not isinstance(record.get('metadata'), dict):
         raise ValueError('Export provenance mismatch')
     metadata = record['metadata']
     if public_metadata(metadata, export_id, series=sidecar.name == 'series.json') != value:
@@ -346,6 +364,7 @@ class PublicationStore(Store):
             from .archive import verify_episode
             candidate = self.stored_path(row[0])
             legacy = (candidate.is_file() and not verify_episode(candidate)) or offloaded(self.root,candidate)
+            if not legacy and candidate.is_file(): self._retire_legacy(candidate)
         if row and (row[0].endswith('[' + export_id[:12] + ']' + extension) or legacy):
             path = self.stored_path(row[0])
             from .archive import sidecar_path, verify_episode
@@ -361,6 +380,23 @@ class PublicationStore(Store):
                         (series.source, key, episode.id, path.relative_to(self.root).as_posix()))
         self.db.commit()
         return path
+
+    def _retire_legacy(self, old):
+        """Move a legacy tar that fails verification aside, so the CBZ saved again in its place is all that is left."""
+        from .archive import sidecar_path
+        folder = directory(self.root/'.archive-state/legacy-exports'/old.parent.name); folder.chmod(0o700)
+        retained, sidecar = folder/old.name, sidecar_path(old)
+        if any(p.exists() or p.is_symlink() for p in (retained, sidecar_path(retained))):
+            raise ArchiveError('Retained tar already exists; both copies held for review.')
+        try:
+            # A full private manifest, as conversion keeps, when the public one can still be read.
+            atomic_json(sidecar_path(retained), import_metadata(sidecar)); sidecar_path(retained).chmod(0o600)
+            sidecar.unlink()
+        except (OSError, ValueError, TypeError):
+            if sidecar.is_file() and not sidecar.is_symlink(): replace_file(sidecar, sidecar_path(retained))
+        replace_file(old, retained); retained.chmod(0o600)
+        self.db.execute('DELETE FROM archived_pages WHERE path=?', (old.relative_to(self.root).as_posix(),))
+        self.db.commit()
 
     def read_metadata(self, path):
         return import_metadata(path)
@@ -434,7 +470,7 @@ class PublicationStore(Store):
                            'content_type': episode.content_type,
                            'image_profile': self._episode_profiles.get((series.source, episode.series_id, episode.id), self.storage_policy['image_profile']) if episode.content_type == 'comic' else 'original',
                            'images_recompressed': (series.source, episode.series_id, episode.id) in self._recompressed,
-                           'original_content_hashes': self._originals.get((series.source, episode.series_id, episode.id), []),
+                           'original_content_hashes': [item for _, item in sorted(self._originals.get((series.source, episode.series_id, episode.id), {}).items())],
                            'cache_series_id': series.id}
 
     def cache_image(self, data):
@@ -485,7 +521,7 @@ class PublicationStore(Store):
         key = (source, episode.series_id, episode.id)
         result = compress_image(data, self._episode_profiles.get(key, self.storage_policy['image_profile']))
         if result != data:
-            self._originals.setdefault(key, []).append({'sha256':digest(data),'size':len(data)})
+            self._originals.setdefault(key, {})[page.order] = {'sha256':digest(data),'size':len(data)}
             self._recompressed.add(key)
             self.cache_image(result)
         if self._streaming_episode is not None:
@@ -495,6 +531,10 @@ class PublicationStore(Store):
     def archive(self, manifest, adapter, refresh=False, progress=print, download_workers=1):
         from .network import bind_adapter
         bind_adapter(adapter,self.root)
+        for episode in manifest.episodes:
+            # Originals are counted again from this attempt's pages, never added to an earlier attempt's.
+            key = (manifest.series.source, episode.series_id, episode.id)
+            self._originals.pop(key, None); self._recompressed.discard(key)
         from .cloud import settings
         from .models import Manifest
         from .cloud_stream import StreamingEpisode
@@ -565,8 +605,7 @@ class PublicationStore(Store):
                      if series else metadata['export_id'])
         value = public_metadata(metadata, export_id, series=series)
         private = self.provenance / (export_id + '.json')
-        atomic_json(private, {'schema_version': 1, 'sidecar': path.relative_to(self.root).as_posix(),
-                              'public_hash': metadata_hash(value), 'metadata': metadata})
+        atomic_json(private, provenance_record(self.root, path, value, metadata))
         private.chmod(0o600)
         atomic_json(path, value)
         if not series: names.add(path.name)

@@ -15,7 +15,7 @@ from .inventory import Inventory
 from .models import ArchiveError
 from .osdep import anchored, replace_file, sync_directory
 from .publication import (PublicationStore, StrictZstdReader, comic_pages, import_metadata,
-                          metadata_hash, public_metadata, validate_public_metadata, valid_export_id)
+                          provenance_record, public_metadata, validate_public_metadata, valid_export_id)
 from .purge import register_archive
 from .storage import safe_root
 
@@ -56,8 +56,7 @@ def _finish(store, record):
             raise ArchiveError('Original comic changed during conversion; both copies retained.')
     sidecar = sidecar_path(new)
     private = store.provenance / (converted['export_id']+'.json')
-    _write(private, {'schema_version':1,'sidecar':sidecar.relative_to(root).as_posix(),
-                     'public_hash':metadata_hash(public),'metadata':converted})
+    _write(private, provenance_record(root, sidecar, public, converted))
     atomic_json(sidecar,public)
     register_archive(store,new,converted)  # Recovery is durable before removal.
     store.db.execute('UPDATE episode_paths SET path=? WHERE path=?',

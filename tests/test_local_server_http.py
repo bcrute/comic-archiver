@@ -18,6 +18,7 @@ class LocalServerOverHTTPTests(unittest.TestCase):
         self.server = create_server(Path(folder.name), 0)
         self.port = self.server.server_port
         self.host = f'127.0.0.1:{self.port}'
+        self.launch = '/?launch=' + self.server.get_app().launch_token
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         def stop():
@@ -45,7 +46,7 @@ class LocalServerOverHTTPTests(unittest.TestCase):
 
     def signed_in(self):
         """The cookie the page gets, and the headers a request from the page itself carries."""
-        status, headers, _ = self.request('GET', '/')
+        status, headers, _ = self.request('GET', self.launch)
         self.assertEqual(status, 200)
         cookie = headers['set-cookie'].split(';', 1)[0]
         context = json.loads(self.request('GET', '/api/v1/context', headers={'Cookie': cookie})[2])
@@ -56,7 +57,7 @@ class LocalServerOverHTTPTests(unittest.TestCase):
         return '/api/v1/workspaces/' + workspace + '/network'
 
     def test_the_page_carries_its_protections_on_the_wire(self):
-        status, headers, body = self.request('GET', '/')
+        status, headers, body = self.request('GET', self.launch)
         self.assertEqual(status, 200)
         self.assertIn(b'archive.js', body)
         policy = headers['content-security-policy']
@@ -66,7 +67,7 @@ class LocalServerOverHTTPTests(unittest.TestCase):
         self.assertEqual((headers['x-content-type-options'], headers['referrer-policy'], headers['cache-control']),
                          ('nosniff', 'no-referrer', 'no-store'))
         cookie = headers['set-cookie']
-        self.assertTrue(cookie.startswith(COOKIE_NAME + '='))
+        self.assertTrue(cookie.startswith(f'{COOKIE_NAME}-{self.port}='))
         for part in ('HttpOnly', 'SameSite=Strict', 'Path=/'):
             self.assertIn(part, cookie)
         self.assertNotIn('Domain=', cookie)
@@ -87,6 +88,20 @@ class LocalServerOverHTTPTests(unittest.TestCase):
                     self.assertEqual(status, 403)
                     self.assertNotIn('set-cookie', headers)
                     self.assertNotIn(b'csrf', body)
+
+    def test_another_program_on_this_computer_without_the_launch_secret_gets_no_session(self):
+        token = self.server.get_app().launch_token
+        for path in ('/', '/library', '/?launch=', '/?launch=' + token[:-1], '/?launch=' + 'A' * len(token),
+                     '/api/v1/context?launch=' + token, '/assets/archive.js?launch=' + token):
+            for extra in ({}, {'Sec-Fetch-Site': 'none'}, {'Origin': 'http://' + self.host}):
+                with self.subTest(path=path, extra=extra):
+                    status, headers, body = self.request('GET', path, headers=extra)
+                    self.assertIn(status, {400, 401})
+                    self.assertNotIn('set-cookie', headers); self.assertNotIn(b'csrf', body); self.assertNotIn(b'archive.js', body)
+        # So it cannot read a CSRF token or make a change either.
+        self.assertEqual(self.request('GET', '/api/v1/context', headers={'Origin': 'http://' + self.host})[0], 401)
+        self.assertEqual(self.request('POST', '/api/v1/workspaces', '{}', {'Origin': 'http://' + self.host,
+                                                                        'Content-Type': 'application/json'})[0], 401)
 
     def test_the_api_needs_the_cookie_and_a_change_needs_the_page_origin_and_its_token(self):
         for path in ('/api/v1/context', '/assets/archive.js', '/api/v1/workspaces'):
@@ -147,11 +162,11 @@ class LocalServerOverHTTPTests(unittest.TestCase):
         # Connections that send nothing do not keep the page from loading.
         idle = [socket.create_connection(('127.0.0.1', self.port), timeout=10) for _ in range(8)]
         try:
-            self.assertEqual(self.request('GET', '/')[0], 200)
+            self.assertEqual(self.request('GET', self.launch)[0], 200)
         finally:
             for connection in idle:
                 connection.close()
-        self.assertEqual(self.request('GET', '/')[0], 200)
+        self.assertEqual(self.request('GET', self.launch)[0], 200)
 
 
 if __name__ == '__main__':

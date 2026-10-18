@@ -464,6 +464,14 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual((self.root/'backlog.json').read_text(),'{bad')
         self.assertEqual(completion.worker_tick(self.session,self.library)['code'],'controller_failed')
 
+    def test_an_unexpected_failure_such_as_a_damaged_database_holds_the_plan_too(self):
+        import sqlite3
+        self.configure()
+        with patch.object(completion,'_advance',side_effect=sqlite3.DatabaseError('file is not a database')):
+            self.assertIsNone(completion.worker_tick(self.session,self.library))
+        value=completion.status(self.session,self.library)
+        self.assertEqual((value['status'],value['code']),('paused','controller_failed'))
+
 
     def test_reaching_the_page_cap_ends_the_plan_and_stops_the_idle_window_without_another_job(self):
         self.configure({'max_pages':1});task,request=self.publish()

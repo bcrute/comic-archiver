@@ -314,12 +314,15 @@ class ContinuationSessionTests(unittest.TestCase):
             if len(calls) == 2:
                 self.assertTrue(background.stop(self.session)['stop_requested'])
             return result
-        # Bound the loop even if a future dispatch failure prevents the stop.
+        # Bound the loop even if a future dispatch failure prevents the stop. The worker keeps
+        # serving its queue past an ordinary controller failure, so the bound is not an Exception.
+        class Unbounded(BaseException):
+            pass
         ticks = []
         def tick(*args):
             ticks.append(None)
             if len(ticks) > 3:
-                raise AssertionError('The worker did not drain after its two jobs')
+                raise Unbounded('The worker did not drain after its two jobs')
         ordinary = MagicMock()
         ordinary.interval = 1.0
         ordinary.__enter__.return_value = ordinary

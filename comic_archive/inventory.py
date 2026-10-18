@@ -19,6 +19,8 @@ from .models import ArchiveError
 from .osdep import anchored
 INVENTORY_VERSION=22
 ASSET_RETRY_COOLDOWN_SECONDS = 300
+# An episode a job failed on this many times is held as failed, so the queue goes on past it.
+MAX_FAILED_ATTEMPTS = 3
 UNSUPPORTED_REASONS=frozenset({'scheduled','novel','temporary_access','order_unverified',
                               'reader_manifest_incomplete','novel_manifest_incomplete','content_unsupported','ordering_unverified'})
 
@@ -45,6 +47,11 @@ def observation_epoch(value):
 
 def valid_order(value):
     return type(value) is int and value > 0
+
+
+def failing(row):
+    """An episode a job failed on is tried after the rest of the queue."""
+    return row.get('status') == 'failed' and row.get('error_code') == 'job_failed'
 
 
 def file_signature(path):
@@ -207,6 +214,9 @@ class Inventory:
                     # An unchanged discovery refresh must not move a failing
                     # original ahead of the remaining healthy candidates.
                     error = 'asset_read_unavailable'
+                elif (old_episode is not None and status == 'queued'
+                        and old_episode['access_state'] == access and failing(dict(old_episode))):
+                    status, error = 'failed', 'job_failed'  # Nor reset its failed tries.
                 self.db.execute("""INSERT INTO episodes
                     (id,series_id,title,episode_order,access_state,observed_at,status,error_code)
                     VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
@@ -340,7 +350,7 @@ class Inventory:
                 continue
             try:
                 metadata=self.archive_metadata(path)
-            except (OSError,ValueError,TypeError):
+            except (ArchiveError,OSError,ValueError,TypeError):
                 self.mark(row['id'],'queued','archive_corrupt')
                 continue
             if not self.archive_matches_row(metadata,row):
@@ -373,7 +383,7 @@ class Inventory:
                     self.mark(key, "queued", "archive_corrupt")
                 else:
                     self.mark(key, "archived", path=path)
-            except (OSError, ValueError, TypeError, KeyError):
+            except (ArchiveError, OSError, ValueError, TypeError, KeyError):
                 continue
         for row in self.db.execute("SELECT * FROM episodes WHERE status='archived'").fetchall():
             path = self.portable_archive_path(row['archive_path'])
@@ -552,7 +562,9 @@ class Inventory:
             if urgent: return (0 if priority=='expiring_first' else 1,expiry)
             return (2,'')
         for row in rows: row['access_expires_at']=expirations.get(row['id'])
-        return sorted(rows,key=rank)  # Stable: retain fair retries and recent-free order within each tier.
+        rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS]
+        # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
+        return sorted(rows,key=lambda row:(failing(row),row['attempts'] if failing(row) else 0,rank(row)))
 
     def watched_series(self):
         return [dict(row) for row in self.db.execute("SELECT id,title FROM series ORDER BY id")]
@@ -572,7 +584,7 @@ class Inventory:
         selected = eligible[:1] + healthy
         if self.queue_priority()=='expiring_first':
             from .expiry import now as expiry_now
-            urgent=[row for row in healthy if row.get('access_expires_at') is not None
+            urgent=[row for row in healthy if row.get('access_expires_at') is not None and not failing(row)
                     and observation_time(row['access_expires_at'])>expiry_now()]
             urgent_ids={row['id'] for row in urgent}
             selected=urgent+eligible[:1]+[row for row in healthy if row['id'] not in urgent_ids]

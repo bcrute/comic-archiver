@@ -55,6 +55,23 @@ def oauth_link(text):
     return None
 
 
+def retire(root, folder, config):
+    """Delete the connection file a new sign-in replaced, with the sign-in it holds.
+
+    As when a library is first linked, a test still to be cleaned up keeps the file it names. A file
+    named on the command line stays, and so does one the libraries sharing cloud storage use.
+    """
+    if (folder != root / '.archive-state/cloud' or config.parent != folder or not config.name.startswith('connection-')
+            or any(t['config'] == str(config) for t in cloud.settings(root)['targets'].values())):
+        return
+    for receipt in (root / '.archive-state/cloud/tests').glob('*.json'):
+        record = cloud._json(receipt)
+        if (record.get('state') != 'cleaned' and isinstance(record.get('connection'), dict)
+                and record['connection'].get('config') == str(config)):
+            return
+    config.unlink(missing_ok=True)
+
+
 class SignIn:
     def __init__(self, root):
         self.root = Path(root)
@@ -239,10 +256,17 @@ class SignIn:
                 with LibraryLock(root):
                     os.replace(config, destination); destination.chmod(0o600)
                     try:
+                        value = cloud.settings(root)
+                        previous = value and value['targets'].get(provider)
                         cloud.configure_target(root, provider, config=destination)
                     except BaseException:
                         destination.unlink(missing_ok=True)
                         raise
+                    if previous:
+                        try:
+                            retire(root, folder, Path(previous['config']))
+                        except (ArchiveError, OSError):
+                            pass  # The old file stays; the new connection is saved either way.
                 self._update(status='connected', auth_url=None)
         except Exception as error:
             from .network import NetworkPolicyHold

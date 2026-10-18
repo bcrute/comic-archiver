@@ -29,8 +29,10 @@ MAX_NETWORK_RECOVERIES=2
 MAX_SOURCE_RECOVERIES=4
 MIN_SOURCE_DELAY=30
 MAX_SOURCE_DELAY=1800
+# A window's tail shorter than this is not worth a batch: signing in alone can outlast it.
+MIN_BATCH_SECONDS=60
 STATUSES={'running','budget_reached','known_backlog_drained','paused','stopped','interrupted'}
-CODES={None,'login_required','task_failed','task_unavailable','invalid_result','cancelled','no_progress','network_unavailable','source_refused','source_access_changed'}
+CODES={None,'login_required','task_failed','task_unavailable','invalid_result','cancelled','no_progress','network_unavailable','network_policy','source_refused','source_access_changed'}
 
 
 def budgets(values=None):
@@ -239,6 +241,11 @@ def _start(root,values,resume,*,now=None):
             # is tried first, alone, and the retries start over with the longer waits already learned.
             previous['source_recovery_attempts']=0
         previous['source_retry_after'] = None
+        if previous['code']=='invalid_result' and previous['pending'] is not None:
+            # A receipt that cannot be counted holds once. Resuming counts its whole allowance as used and moves on.
+            previous['unreported_reserved_pages']+=previous['pending']['options']['max_pages']
+            previous['unreported_reserved_bytes']+=previous['pending']['options']['max_bytes']
+            previous['pending']=None
         waiting=(previous['status']=='paused' and (previous['code']=='network_unavailable'
                  and previous['network_retry_after'] is not None or previous['code']=='source_refused'
                  and previous['source_recovery_wait'] is not None))
@@ -326,7 +333,7 @@ def _valid_accounting(result, pending, remaining, *, failed=False):
         return False
     statuses = {'login_required', 'paused', 'interrupted'} if failed else {'finished', 'limited', 'cancelled', 'paused'}
     return (result.get('status') in statuses
-            and (failed or result.get('status') != 'paused' or result.get('pause_reason') == 'network_unavailable')
+            and (failed or result.get('status') != 'paused' or result.get('pause_reason') in {'network_unavailable', 'network_policy'})
             and (not failed or (isinstance(result.get('run_id'), str)
                                 and re.fullmatch(r'[a-f0-9]{24}', result['run_id']) is not None))
             and all(type(result.get(key)) is int and result[key] >= 0
@@ -391,7 +398,8 @@ def step(session,library=Path('Library'),*,observe_only=False):
                 if pending.get('operation','sync')=='sync' and isinstance(result.get('refresh'),dict):
                     observation=result['refresh']
                 elif (pending.get('operation','sync')=='archive_discovered' or value['status']=='error'
-                      or result.get('status') in {'cancelled','paused'}):
+                      or result.get('status') in {'cancelled','paused','limited'}):
+                    # A limit that cut the refresh short leaves the same scan count in the inventory summary.
                     observation=result.get('inventory');remaining_key='scan_remaining_series_count'
             remaining=observation.get(remaining_key) if isinstance(observation,dict) else None
             if value['status']=='error':
@@ -429,6 +437,10 @@ def step(session,library=Path('Library'),*,observe_only=False):
             else:
                 state['pending']=None
                 _charge(state, result)
+                if result['status']=='cancelled' and result.get('usage_unreported') is True:
+                    # Cut off with its worker, the batch reported nothing it used: its whole allowance counts.
+                    state['unreported_reserved_pages']+=pending['options']['max_pages']
+                    state['unreported_reserved_bytes']+=pending['options']['max_bytes']
                 # Recoveries are counted while nothing gets through: a batch that saved an episode shows
                 # the connection works, however it ended.
                 if result['archived_episode_ids']:state['network_recovery_attempts']=0
@@ -445,6 +457,9 @@ def step(session,library=Path('Library'),*,observe_only=False):
                 if cooling:
                     state['asset_retry_after']=(_now()+timedelta(seconds=asset_wait)).isoformat()
                 if result['status']=='cancelled':state.update(status='paused',code='cancelled')
+                elif result['status']=='paused' and result.get('pause_reason')=='network_policy':
+                    # The connection rule held the batch; it waits for an allowed connection and Go.
+                    state.update(status='paused',code='network_policy')
                 elif result['status']=='paused':
                     source_status=result.get('source_http_status')
                     code=('network_unavailable' if source_status is None
@@ -471,7 +486,8 @@ def step(session,library=Path('Library'),*,observe_only=False):
         config=state['budgets'];seconds=(_instant(state['submit_before'])-_now()).total_seconds()
         pages=config['max_pages']-state['downloaded_pages']-state['unreported_reserved_pages']
         remaining_bytes=config['max_bytes']-state['downloaded_bytes']-state['unreported_reserved_bytes']
-        if state['submitted_batches']>=config['max_batches'] or min(seconds,pages,remaining_bytes)<=0:
+        if (state['submitted_batches']>=config['max_batches'] or min(seconds,pages,remaining_bytes)<=0
+                or state['submitted_batches'] and seconds<MIN_BATCH_SECONDS):
             state['status']='budget_reached';_save(root,state);return _public(state)
         if state['asset_retry_after'] is not None:
             if _now() < _instant(state['asset_retry_after']):return _public(state)

@@ -457,6 +457,26 @@ class WorkerTests(unittest.TestCase):
             self.assertIs(args[0],fast);self.assertEqual(args[1:],('https://tapas.io/series/example',Path('Library')))
         self.assertEqual(adapter.mock_calls,[])
 
+    def test_a_failing_cloud_upload_is_reported_with_the_archive_job_instead_of_stopping_it(self):
+        from comic_archive.cloud_errors import CloudTransferError
+        from comic_archive.network import NetworkPolicyHold
+        self.work_in_temporary_directory()
+        request={'operation':'archive_series_url','args':{'url':'https://tapas.io/series/example','limit':1}}
+        for failure,code in ((CloudTransferError('cloud_login_required'),'cloud_login_required'),
+                             (CloudTransferError('cloud_cap'),'cloud_cap'),(ArchiveError('Cloud retry state is invalid.'),'cloud_unknown'),
+                             (OSError('PRIVATE'),'cloud_unknown')):
+            with self.subTest(code=code),patch('comic_archive.cloud.upload_pending',side_effect=failure) as upload, \
+                    patch('comic_archive.jobs.archive_series_url',return_value={'status':'finished'}) as series:
+                result=execute(Mock(interval=1.0),request)
+                self.assertEqual(result,{'status':'finished','cloud_upload_error_code':code})
+                upload.assert_called_once();series.assert_called_once()
+        # A connection hold is left to the job, which meets the same rule and pauses with its own receipt.
+        paused={'status':'paused','pause_reason':'network_policy'}
+        with patch('comic_archive.cloud.upload_pending',side_effect=NetworkPolicyHold('held')), \
+                patch('comic_archive.jobs.archive_series_url',return_value=paused) as series:
+            self.assertEqual(execute(Mock(interval=1.0),request),paused)
+            series.assert_called_once()
+
     def test_history_checkpoint_records_only_a_well_formed_task_id(self):
         observed={'authenticated':True,'complete':False,'pages':[{'number':1,'row_count':20}],
                   'content_links':['https://tapas.io/series/example']}
@@ -546,12 +566,41 @@ class WorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'session'
             with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
-                    patch('comic_archive.account_export.worker_tick'), \
-                    patch('comic_archive.completion.worker_tick',side_effect=ArchiveError('Safe failure')):
+                    patch('comic_archive.account_export.worker_tick'),patch('comic_archive.completion.worker_tick'), \
+                    patch('comic_archive.worker.time.sleep',side_effect=ArchiveError('Safe failure')):
                 with self.assertRaises(ArchiveError):run_worker(session,'firefox',reload_adapter=False)
             status=json.loads((session/'worker/status.json').read_text())
             self.assertEqual(status['state'],'stopped');self.assertNotIn('last_error_code',status)
             self.assertFalse(background.running(session/'worker'))
+
+    def test_a_failing_controller_tick_never_stops_the_worker_serving_its_queue(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as work:
+            session=Path(work)/'session';requests=session/'worker/requests';requests.mkdir(parents=True)
+            private_json(requests/'test-task.json',{'operation':'inspect_episode','args':{'url':'https://tapas.io/episode/81'}})
+            adapter=RecordingAdapter()
+            with patch('comic_archive.account_export.worker_tick',side_effect=sqlite3.DatabaseError('PRIVATE')) as account, \
+                    patch('comic_archive.completion.worker_tick',side_effect=RuntimeError('PRIVATE')) as backlog:
+                self.serve_one_pass(session,adapter)
+            account.assert_called_once();backlog.assert_called_once()
+            self.assertEqual(adapter.calls,['https://tapas.io/episode/81'])
+            value=json.loads((session/'worker/responses/test-task.json').read_text())
+            self.assertEqual(value['status'],'ok')
+
+    def test_a_result_that_cannot_be_saved_ends_its_task_with_a_fixed_error(self):
+        class Unsaveable(RecordingAdapter):
+            def inspect_episode(self,url,interactive=False):
+                self.calls.append(url);return {'value':object()}
+        with tempfile.TemporaryDirectory() as work:
+            session=Path(work)/'session';requests=session/'worker/requests';requests.mkdir(parents=True)
+            for name in ('a-task','b-task'):
+                private_json(requests/f'{name}.json',{'operation':'inspect_episode','args':{'url':'https://tapas.io/episode/81'}})
+            adapter=Unsaveable();self.serve_one_pass(session,adapter)
+            self.assertEqual(len(adapter.calls),2)
+            for name in ('a-task','b-task'):
+                value=json.loads((session/f'worker/responses/{name}.json').read_text())
+                self.assertEqual((value['status'],value['error_code']),('error','job_failed'))
+            self.assertEqual(list(requests.iterdir()),[])
 
 
 if __name__ == "__main__":

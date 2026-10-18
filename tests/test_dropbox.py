@@ -218,4 +218,5 @@ class DropboxTests(unittest.TestCase):
         transfer = object.__new__(cloud.Transfer); transfer.provider = 'dropbox'; transfer.target = {'remote': 'dropbox'}
         transfer.full_readback = True; transfer.run = Mock(return_value=b'123  episode.cbz')
         transfer.verify('episode.cbz', '123', source=self.base / 'not-needed')
-        transfer.run.assert_called_once_with('hashsum', 'SHA256', 'dropbox:episode.cbz', '--download')
+        # The read-back's time limit grows with the file; a source that is not there counts as empty.
+        transfer.run.assert_called_once_with('hashsum', 'SHA256', 'dropbox:episode.cbz', '--download', size=0)

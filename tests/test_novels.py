@@ -506,6 +506,16 @@ class NovelTests(unittest.TestCase):
         buffer.seek(0)
         return verify_episode_contents(buffer, meta)
 
+    def test_characters_xml_cannot_hold_are_left_out_of_titles_creators_and_chapter_text(self):
+        _, meta = self.epub_parts()
+        entries = epub_entries(Series('42', 'Novel\x01', ('Writer\x0b',)),
+                               Episode('81', '42', 'Chapter\x0c\ufffe', 1, (), 'tapas_free', content_type='novel',
+                                       text_html='<p>Hello <em>world</em>.</p>'), '2026-01-01T00:00:00Z')
+        self.assertEqual(self.verify_package(entries, meta), [])
+        self.assertIn(b'<dc:creator>Writer</dc:creator>', entries['EPUB/package.opf'])
+        self.assertIn(b'<h1>Chapter</h1>', entries['EPUB/chapter.xhtml'])
+        self.assertIn('<p>First second.</p>', self.fragment_of(HTML.replace('First &amp; second.', 'First\x08 &#8;second.')))
+
     def test_epub_with_correct_hashes_but_altered_structure_or_metadata_fails_verification(self):
         corrupt = ['Unreadable, incomplete or corrupt archive/metadata']
         entries, meta = self.epub_parts()

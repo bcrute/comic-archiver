@@ -41,8 +41,12 @@ class ExpiredAsset(ArchiveError):
 
 
 def asset_url(url: str, site=sites.DEFAULT):
-    u = urlsplit(url)
-    if u.scheme != "https" or u.username or u.password or u.port or not site.asset_host(u.hostname):
+    try:
+        u = urlsplit(url)
+        outside = u.scheme != "https" or u.username or u.password or u.port or not site.asset_host(u.hostname)
+    except ValueError:  # A port that is not a port, or a malformed host.
+        outside = True
+    if outside:
         raise ArchiveError(f"Asset is outside the confirmed {site.name} HTTPS host boundary.")
     return url
 
@@ -168,6 +172,11 @@ class Transport:
             time.sleep(min(.1, max(0, end-time.monotonic())))
         self._check_budget()
 
+    def clear_rate_limit(self):
+        """A rate limit stops the job that met it; the next job may ask again."""
+        self._rate_limit_error = None
+        self._rate_limited.clear()
+
     def _raise_rate_limit(self):
         error = ArchiveError(f'{self.site.name} rate limit reached; this job has stopped.')
         error.source_http_status = 429
@@ -203,7 +212,9 @@ class Transport:
                                           # Where the next page of a paged list is, when the site says so.
                                           "link": response.headers.get("Link", response.headers.get("link", ""))}
                     if response.status_code in {401, 403, 404, 410}:
-                        raise ExpiredAsset("Page URL expired or access was revoked.")
+                        expired = ExpiredAsset("Page URL expired or access was revoked.")
+                        expired.source_http_status = response.status_code
+                        raise expired
                     if response.status_code == 429:
                         from .retry_after import retain_retry_after
                         error = retain_retry_after(ArchiveError(f'{self.site.name} rate limit reached; this job has stopped.'), response.headers.get('Retry-After'))

@@ -255,7 +255,7 @@ class WebtoonAdapter(SiteReader):
         """The series' own page, found through its first listed episode: Webtoon redirects any other address."""
         title_no, _ = split_series(key)
         links = [url for episode, url in self.viewers.items() if split_episode(episode)[0] == key] or [
-            HOME + link for _, _, link in self.episode_list(key)]
+            self.viewer(link, title_no, number) for number, _, link in self.episode_list(key)]
         if not links:
             raise MetadataError('Webtoon shows no episodes of this series.')
         language, genre, slug = urlsplit(links[0]).path.split('/')[1:4]

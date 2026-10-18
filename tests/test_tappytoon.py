@@ -327,6 +327,137 @@ class TappytoonTests(unittest.TestCase):
                 adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902')
             self.assertFalse(any('manifest' in url for url, _ in client.calls))
 
+    def test_a_list_that_leads_back_to_a_page_already_read_stops_there(self, sleep):
+        following = CHAPTERS + '&cursor=abc'
+        for back in (CHAPTERS, following):
+            answers = series_answers() | {following: Answer(json.dumps([chapter(2)]).encode(), headers=[('Link', f'<{back}>; rel="next"')])}
+            adapter, client = reader(answers)
+            with self.subTest(back=back), self.assertRaisesRegex(MetadataError, 'already read'):
+                adapter.inspect_series('67')
+            self.assertEqual([url for url, _ in client.calls if '/chapters' in url], [CHAPTERS, following])
+
+    @patch('builtins.print')
+    def test_a_rented_chapter_without_a_readable_end_is_listed_as_unverified_and_the_rest_of_the_series_is_saved(self, output, sleep):
+        following = CHAPTERS + '&cursor=abc'
+        for end in (None, 'soon', 5):
+            rented = chapter(2, free=False) | {'isAccessible': True, 'isUserRented': True, 'rentalExpiredAt': end}
+            adapter, _ = reader(series_answers() | {following: [rented, chapter(3, free=False, unlocked=True)]})
+            listing = adapter.inspect_series('67')
+            with self.subTest(end=end):
+                self.assertEqual({e['id']: (e['access_state'], e['authorization_reason'], e['access_expires_at']) for e in listing['episodes']},
+                                 {'900': ('tappytoon_free', None, None), '901': ('tappytoon_free', None, None),
+                                  '902': ('unavailable_or_unverified', 'temporary_access', None),
+                                  '903': ('tappytoon_unlocked', None, None)})
+                self.assertEqual(listing['accessible_episode_count'], 3)
+        answers = series_answers() | {KEY_PAGE: page_data(account=5), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}],
+                                      following: [rented, chapter(3, free=False, unlocked=True)]}
+        adapter, client = reader(answers)
+        with adapter:
+            result = sync(adapter, self.root, categories=['unlocked'])
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
+        self.assertFalse(any('chapterId=902' in url for url, _ in client.calls))
+
+    def test_a_rate_limit_met_in_one_job_stops_only_that_job_on_the_same_reader(self, sleep):
+        adapter, client = reader({KEY_PAGE: Answer(b'', 429, headers=[('Retry-After', '30')])})
+        adapter.deadline = None  # As the downloader begins each job.
+        with self.assertRaisesRegex(ArchiveError, 'rate limit'):
+            adapter.account_identity()
+        # The rest of that job asks for nothing more.
+        with self.assertRaisesRegex(ArchiveError, 'rate limit') as stopped:
+            adapter.account_identity()
+        self.assertEqual((len(client.calls), stopped.exception.retry_after_seconds), (1, 30))
+        client.answers[KEY_PAGE] = page_data(account=5)
+        adapter.deadline = None
+        self.assertEqual(adapter.account_identity(), '5')
+        self.assertEqual(len(client.calls), 2)
+
+    @patch('builtins.print')
+    def test_a_series_tappytoon_no_longer_has_is_set_aside_and_go_goes_on_with_the_rest(self, output, sleep):
+        gone = API + '/comics/68?locale=en'
+        for code in (404, 410):
+            adapter, client = reader({KEY_PAGE: page_data(), gone: Answer(b'{}', code)})
+            with self.subTest(code=code), self.assertRaises(MetadataError) as raised:
+                adapter.inspect_series('68')
+            self.assertEqual((raised.exception.source_http_status, raised.exception.source_series_id, raised.exception.source_route),
+                             (code, '68', '/series/68'))
+            # The key is renewed once first, in case it was only the key that had run out.
+            self.assertEqual([url for url, _ in client.calls], [KEY_PAGE, gone] * 2)
+        # A refusal is not taken for a series that is gone.
+        adapter, _ = reader({KEY_PAGE: page_data(), gone: Answer(b'{}', 403)})
+        with self.assertRaises(ArchiveError) as raised:
+            adapter.inspect_series('68')
+        self.assertNotIsInstance(raised.exception, MetadataError)
+        answers = series_answers() | {KEY_PAGE: page_data(account=5), gone: Answer(b'{}', 404),
+                                      LIST['unlocked']: [{'bookId': 68, 'title': 'Gone Series'}, {'bookId': 67, 'title': 'Sample Series'}]}
+        adapter, _ = reader(answers)
+        with adapter:
+            result = sync(adapter, self.root, categories=['unlocked'])
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
+
+    def test_a_chapter_tappytoon_no_longer_gives_or_has_is_set_aside_without_asking_for_its_pictures(self, sleep):
+        url = 'https://www.tappytoon.com/en/chapters/900'
+        for code in (403, 404, 410):
+            adapter, client = reader(series_answers() | {f'{API}/chapters/900?locale=en': Answer(b'{}', code)})
+            for check in (adapter.capture_automatic, adapter.episode_access):
+                with self.subTest(code=code, check=check.__name__), self.assertRaises(AccessDenied):
+                    check(url)
+            self.assertFalse(any('manifest' in address or address.startswith(CDN) for address, _ in client.calls))
+        adapter, _ = reader(series_answers() | {f'{API}/chapters/900?locale=en': Answer(b'{}', 401)})
+        with self.assertRaises(ArchiveError) as raised:
+            adapter.capture_automatic(url)
+        self.assertNotIsInstance(raised.exception, AccessDenied)
+
+    def test_whether_a_chapter_may_be_read_is_told_from_its_details_alone(self, sleep):
+        rented = chapter(2, free=False) | {'isAccessible': True, 'isUserRented': True, 'rentalExpiredAt': RENTAL_END}
+        adapter, client = reader(series_answers() | {f'{API}/chapters/902?locale=en': rented})
+        self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/900'),
+                         {'source_episode_id': '900', 'access_state': 'tappytoon_free', 'access_expires_at': None})
+        self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/902'),
+                         {'source_episode_id': '902', 'access_state': 'tappytoon_unlocked',
+                          'access_expires_at': '2099-11-01T10:00:00+00:00'})
+        for end in (None, 'soon'):
+            adapter.transport.client.answers[f'{API}/chapters/902?locale=en'] = rented | {'rentalExpiredAt': end}
+            with self.subTest(end=end), self.assertRaises(ArchiveError):
+                adapter.episode_access('https://www.tappytoon.com/en/chapters/902')
+        adapter.transport.client.answers[f'{API}/chapters/902?locale=en'] = chapter(2, free=False)
+        with self.assertRaises(AccessDenied):
+            adapter.episode_access('https://www.tappytoon.com/en/chapters/902')
+        with self.assertRaises(ArchiveError):
+            adapter.episode_access('https://www.tappytoon.com/en/book/sample-series')
+        self.assertFalse(any('manifest' in url or url.startswith(CDN) for url, _ in client.calls))
+
+    @patch('builtins.print')
+    def test_a_free_only_download_checks_each_chapter_first_and_saves_only_the_free_ones(self, output, sleep):
+        adapter, client = reader(series_answers() | {KEY_PAGE: page_data(account=5)})
+        with Inventory(self.root) as inventory:
+            inventory.observe('67', 'Sample Series', [], 'fixture')
+        with adapter:
+            result = archive_watched_series(adapter, '67', self.root, free_only=True)
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901'])
+        self.assertFalse(any('chapterId=903' in url for url, _ in client.calls))
+        self.assertEqual(verify(self.root), [])
+
+    @patch('builtins.print')
+    def test_a_cover_whose_address_ran_out_is_asked_for_again_with_the_series_details_read_afresh(self, output, sleep):
+        fresh = 'https://image-repository-cdn.tappytoon.com/series/67/fresh.jpg'
+
+        class CoverRunsOut(Site):
+            def stream(self, method, url, headers):
+                if url == COMIC['coverImageUrl']:
+                    # Tappytoon now gives the series with a new cover address.
+                    self.answers[API + '/comics/67?locale=en'] = COMIC | {'coverImageUrl': fresh}
+                return super().stream(method, url, headers)
+
+        client = CoverRunsOut(series_answers() | {KEY_PAGE: page_data(account=5), COMIC['coverImageUrl']: Answer(b'', 403),
+                                                  fresh: png(201)})
+        adapter = TappytoonAdapter(transport=Transport(client=client, site=sites.named('tappytoon')))
+        with Inventory(self.root) as inventory:
+            inventory.observe('67', 'Sample Series', [], 'fixture')
+        with adapter:
+            result = archive_watched_series(adapter, '67', self.root)
+        self.assertEqual((result['enriched_series_ids'], result['metadata_unavailable_series']), (['67'], []))
+        self.assertEqual([url for url, _ in client.calls if 'image-repository' in url], [COMIC['coverImageUrl'], fresh])
+
     def test_the_downloader_reads_tappytoon_with_its_reader(self, sleep):
         self.assertIs(worker.reader(sites.named('tappytoon')), TappytoonAdapter)
 

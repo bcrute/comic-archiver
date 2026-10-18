@@ -410,22 +410,26 @@ class WorkspaceRegistry:
         return {'cwd':workspace.root,'argv':tuple(args)}  # Server-only launch data.
 
     def _exports(self,workspace):
+        # A file that is a link, or gone since the folder was read, is left out; the rest of the library is still offered.
         result={}
+        def safe(path):
+            return path.is_file() and not any(p.is_symlink() for p in (path,*path.parents))
         def add(path,kind):
-            if not path.is_file() or any(p.is_symlink() for p in (path,*path.parents)):
-                raise ArchiveError('Refusing an unsafe export file.')
+            if not safe(path):
+                return
             relative=path.relative_to(workspace.library).as_posix()
             key=hmac.new(self._key,f'export\0{workspace.id}\0{relative}'.encode(),hashlib.sha256).hexdigest()
             result[key]=(path,kind)
         folders=sorted({p.parent for ext in ('.cbz', '.epub', '.tar.zst') for p in workspace.library.glob('*/*'+ext) if not p.parent.name.startswith('.')})
         for folder in folders:
             series=folder/'series.json'
-            if series.is_symlink() or folder.is_symlink():
-                raise ArchiveError('Refusing unsafe export storage.')
-            episodes=[p for p in episode_archives(folder) if sidecar_path(p).is_file()]
+            if folder.is_symlink():
+                continue
+            # An episode is offered with its details or not at all.
+            episodes=[p for p in episode_archives(folder) if safe(p) and safe(sidecar_path(p))]
             if not episodes:
                 continue
-            if series.is_file():
+            if safe(series):
                 add(series,'series_metadata')
                 cover=None
                 try:
@@ -442,8 +446,13 @@ class WorkspaceRegistry:
 
     def exports(self,owner,workspace_id):
         workspace=self.resolve(owner,workspace_id)
-        return [{'id':key,'filename':path.name,'kind':kind,'size':path.stat().st_size}
-                for key,(path,kind) in self._exports(workspace).items()]
+        result=[]
+        for key,(path,kind) in self._exports(workspace).items():
+            try:
+                result.append({'id':key,'filename':path.name,'kind':kind,'size':path.stat().st_size})
+            except OSError:
+                pass  # Removed while the list was being made.
+        return result
 
     def saved_files(self, owner, workspace_id, **options):
         workspace = self.resolve(owner, workspace_id)

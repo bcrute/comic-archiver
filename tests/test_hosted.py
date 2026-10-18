@@ -445,9 +445,33 @@ class HostedTests(unittest.TestCase):
             exports=self.registry.exports('website-user-a',self.a.id)
             self.assertEqual({row['kind'] for row in exports},wanted,content)
             self.assertEqual({row['filename'] for row in exports},{archive.name,sidecar.name,'series.json'})
-        outside=Path(self.work.name)/'outside.json';outside.write_text('PRIVATE')
+        outside=Path(self.work.name)/'outside.json';outside.write_text(json.dumps({'cover_file':'cover.png'}))
         series.unlink();series.symlink_to(outside)
-        with self.assertRaises(ArchiveError):self.registry.exports('website-user-a',self.a.id)
+        # The link is left out, never followed; the episode beside it is still offered.
+        exports=self.registry.exports('website-user-a',self.a.id)
+        self.assertEqual({row['filename'] for row in exports},{archive.name,sidecar.name})
+
+    def test_a_linked_or_vanished_file_is_left_out_and_the_rest_of_the_library_is_still_offered(self):
+        archive,sidecar,_=self.archive_one()
+        other=archive.with_name('0002 - Other.cbz');other.write_bytes(archive.read_bytes())
+        other.with_suffix('.json').write_bytes(sidecar.read_bytes())
+        private=Path(self.work.name)/'private.cbz';private.write_bytes(b'PRIVATE_COOKIES')
+        linked=archive.with_name('0003 - Linked.cbz');linked.symlink_to(private)
+        linked.with_suffix('.json').write_bytes(sidecar.read_bytes())
+        lone=archive.with_name('0004 - Lone.cbz');lone.write_bytes(archive.read_bytes())
+        lone.with_suffix('.json').symlink_to(sidecar)  # Its details are a link: the episode is left out with them.
+        names={row['filename'] for row in self.registry.exports('website-user-a',self.a.id)}
+        self.assertEqual(names,{archive.name,sidecar.name,other.name,other.with_suffix('.json').name,'series.json'})
+        # A file removed between reading the folder and measuring it is left out too.
+        real=self.registry._exports
+        def vanished(workspace):
+            result=real(workspace);other.unlink();return result
+        with patch.object(self.registry,'_exports',side_effect=vanished):
+            names={row['filename'] for row in self.registry.exports('website-user-a',self.a.id)}
+        self.assertEqual(names,{archive.name,sidecar.name,other.with_suffix('.json').name,'series.json'})
+        selected=next(e for e in self.registry.exports('website-user-a',self.a.id) if e['filename']==archive.name)['id']
+        with self.registry.open_export('website-user-a',self.a.id,selected) as download:
+            self.assertTrue(download.stream.read().startswith(b'PK'))
 
     def test_downloads_are_refused_for_damaged_metadata_changed_format_oversized_or_escaping_cover_names(self):
         archive,sidecar,series=self.archive_one()

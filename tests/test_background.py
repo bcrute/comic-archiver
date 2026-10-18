@@ -377,7 +377,8 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                 return child
             old=launch()
             try:
-                deadline=time.monotonic()+5
+                # A shared builder can stall on fsync; match background.start's 30-second startup window.
+                deadline=time.monotonic()+30
                 while time.monotonic()<deadline:
                     if background.status(session)['state']=='ready':break
                     time.sleep(.05)
@@ -387,7 +388,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                 with patch('comic_archive.session.load_session'), \
                         patch.object(background.subprocess,'Popen',side_effect=launch) as start:
                     result=background.start(session,restart=True)
-                self.assertEqual(old.wait(timeout=5),0)
+                self.assertEqual(old.wait(timeout=30),0)
                 self.assertEqual(len(processes),2)
                 self.assertTrue(result['running'])
                 self.assertTrue(result['headless'])
@@ -398,7 +399,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                 self.assertEqual(observed['pid'],processes[1].pid)
                 self.assertNotEqual(observed['pid'],old.pid)
                 background.stop(session)
-                self.assertEqual(processes[1].wait(timeout=5),0)
+                self.assertEqual(processes[1].wait(timeout=30),0)
             finally:
                 for process in processes:
                     if process.poll() is None:

@@ -2410,8 +2410,8 @@
  {
   "id": "site-switch-page-cookie-not-kept",
   "source": "comic_archive/app_runtime.py",
-  "old": "self.port, cookie_key=self.server.get_app().cookie_key)",
-  "new": "self.port)",
+  "old": "self.port, cookie_key=current.cookie_key,",
+  "new": "self.port,",
   "test_file": "test_app_runtime.py",
   "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
  },
@@ -2842,7 +2842,7 @@
  {
   "id": "the computer is never kept awake for a download",
   "source": "comic_archive/desktop_app.py",
-  "old": "self.stay_awake(self.phase == 'open' and self.runtime.busy() == 'download')",
+  "old": "self.stay_awake(self.phase == 'open' and self.busy_seen == 'download')",
   "new": "self.stay_awake(False)",
   "test_file": "test_desktop_app.py",
   "test": "test_the_computer_stays_awake_only_while_a_download_runs"
@@ -2858,8 +2858,8 @@
  {
   "id": "closing the window keeps the computer awake while the download stops",
   "source": "comic_archive/desktop_app.py",
-  "old": "            self.awake_clock.stop()\n            self.stay_awake(False)\n",
-  "new": "            self.awake_clock.stop()\n",
+  "old": "        self.awake_clock.stop()\n        self.stay_awake(False)\n",
+  "new": "        self.awake_clock.stop()\n",
   "test_file": "test_desktop_app.py",
   "test": "test_the_computer_stays_awake_only_while_a_download_runs"
  },
@@ -2962,7 +2962,7 @@
  {
   "id": "cloud-shared-change-kept-in-library",
   "source": "comic_archive/cloud.py",
-  "old": "        _write(store / 'targets.json', {'schema_version': 1, 'targets': value['targets']})",
+  "old": "        _write(store / 'targets.json', {'schema_version': 1, 'targets': targets})",
   "new": "        _write(path, value)",
   "test_file": "test_shared.py",
   "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"

@@ -1,6 +1,7 @@
 """Resumable, source-free conversion. Verified originals remain private."""
 import json
 from pathlib import Path
+import re
 import shutil
 import zipfile
 import xml.etree.ElementTree as ET
@@ -120,7 +121,11 @@ def migrate_exports(output, *, limit=None, min_free_bytes=256*1024*1024, progres
                         identity = package.find(f'{{{OPF}}}metadata/{{{DC}}}identifier')
                         if identity is None: raise ArchiveError('Original EPUB identifier is missing; retained.')
                         identity.text = 'urn:uuid:' + converted['export_id']
-                        entries['EPUB/package.opf'] = ET.tostring(package, encoding='utf-8', xml_declaration=True)
+                        # Swapped in place, so the package keeps a fresh export's prefixes; ElementTree would write ns0.
+                        new_id = identity.text.encode()
+                        opf, count = re.subn(rb'(<dc:identifier id="book-id">)[^<]*(</dc:identifier>)',
+                                             lambda m, new_id=new_id: m[1] + new_id + m[2], entries['EPUB/package.opf'])
+                        entries['EPUB/package.opf'] = opf if count == 1 else ET.tostring(package, encoding='utf-8', xml_declaration=True)
                         converted['content_hashes'] = [{'file': name, 'size': len(data), 'sha256': digest(data)} for name,data in entries.items()]
                         temporary = path.with_name(path.name + '.tmp')
                         if temporary.is_symlink(): raise ArchiveError('Unsafe conversion output.')

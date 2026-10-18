@@ -109,6 +109,12 @@ class ArchiveTests(unittest.TestCase):
     def archive(self, refresh=False):
         return self.store.archive(self.manifest, self.adapter, refresh, progress=lambda _: None)
 
+    def test_verify_accepts_a_sidecar_whose_archive_was_uploaded_and_then_removed(self):
+        cbz = next(self.archive().glob("*.cbz")); cbz.unlink()
+        self.assertEqual(verify(self.store.root), ["No portable episode archives found"])
+        with patch('comic_archive.cloud.offloaded', lambda root, archive: {'eviction_requested': True} if archive == cbz else None):
+            self.assertEqual(verify(self.store.root), [])
+
     def test_portable_order_original_bytes_deterministic_zip(self):
         folder = self.archive()
         cbz = next(folder.glob("*.cbz"))

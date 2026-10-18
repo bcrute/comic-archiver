@@ -1,6 +1,7 @@
 """Read-only authenticated Tapas GET flow observed in the normal web reader."""
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
@@ -34,6 +35,25 @@ def access_state(info):
     if info.get("unlocked") is True:
         return "tapas_unlocked"
     raise AccessDenied("Episode is neither free nor already unlocked; it will not be retrieved.")
+
+
+def title_of(info):
+    """The source's title text; a missing or non-text title is a metadata change."""
+    value = info.get("title")
+    if not isinstance(value, str):
+        raise MetadataError("Tapas metadata has no usable title; inspection is required.")
+    return value
+
+
+def published_at(value):
+    """A short ISO-8601 publish time as sent; anything else is dropped."""
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:
+        return None
+    return value
 
 
 class TapasHTTPAdapter:
@@ -151,7 +171,7 @@ class TapasHTTPAdapter:
     def series_identity(self, key):
         self.check_session()
         series = self.resolve_series(key)
-        return {'source_series_id':str(series['id']),'title':series['title']}
+        return {'source_series_id':str(series['id']),'title':title_of(series)}
 
     def series_metadata(self,key):
         from .series_metadata import series_details
@@ -176,7 +196,7 @@ class TapasHTTPAdapter:
             if not isinstance(cover,str):
                 raise MetadataError('Series cover has an unexpected value.')
             asset_url(cover)
-        return Series(slug,info['title'],source_url=url,platform_id=str(info['id']),slug=slug,
+        return Series(slug,title_of(info),source_url=url,platform_id=str(info['id']),slug=slug,
                       cover_url=cover,**details)
 
     def retrieve_cover(self,series,max_bytes=None):
@@ -196,8 +216,14 @@ class TapasHTTPAdapter:
             platform_id = int(key)
         else:
             html = self.transport.get(f"https://tapas.io/series/{key}/info")
+            if len(html) > 8 * 1024 * 1024:
+                raise MetadataError("Series page exceeds the supported size.")
+            try:
+                html = html.decode("utf-8")
+            except UnicodeError:
+                raise MetadataError("Series page has an unsupported encoding.") from None
             parser = ReaderHTML("unused")
-            parser.feed(html.decode("utf-8"))
+            parser.feed(html)
             values = safe_primitives("\n".join(parser.inline))
             platform_id = next((values[name] for name in ("seriesId", "seriesID", "series_id") if name in values), None)
             if platform_id is None and len(parser.series_ids) == 1:
@@ -256,9 +282,10 @@ class TapasHTTPAdapter:
             raise ArchiveError("Episode ordering validation must be an explicit boolean.")
         self.check_session()
         series = self.resolve_series(key)
+        title = title_of(series)
         if comic_only and series.get('book') is True and series.get('comic') is False:
             return {'authenticated':True,'complete':False,'source_series_id':str(series['id']),
-                    'title':series['title'],'episodes':[], 'episode_enumeration_skipped':True,
+                    'title':title,'episodes':[], 'episode_enumeration_skipped':True,
                     'unsupported_series_reason':'novel','series_content_flags':{'book':True,'comic':False}}
         try:
             episodes = self.enumerate_episodes(series["id"], strict_order=strict_order)
@@ -266,12 +293,12 @@ class TapasHTTPAdapter:
             summaries=getattr(error,'partial_episode_summaries',None)
             if isinstance(summaries,list):
                 error.partial_inspection={'complete':False,'authenticated':True,
-                    'source_series_id':str(series['id']),'title':series['title'],
+                    'source_series_id':str(series['id']),'title':title,
                     'episode_count':len(summaries),'episodes':summaries}
             raise
         summaries=self._episode_summaries(episodes)
         return {"complete": True, "authenticated": True, "source_series_id": str(series["id"]),
-                "title": series["title"], "episode_count": len(summaries),
+                "title": title, "episode_count": len(summaries),
                 "ordering_verified": all(item["order"] is not None for item in summaries),
                 "accessible_episode_count": sum(item["access_state"] != "unavailable_or_unverified" for item in summaries),
                 "series_content_flags": {key:series[key] for key in ('book','comic') if type(series.get(key)) is bool},
@@ -292,7 +319,7 @@ class TapasHTTPAdapter:
                 reason=error.code
             scene = item.get("scene")
             order = scene if type(scene) is int and scene > 0 and scenes.count(scene) == 1 else None
-            summaries.append({"id": str(item["id"]), "title": item["title"],
+            summaries.append({"id": str(item["id"]), "title": title_of(item),
                               "order": order, "source_scene": scene if type(scene) is int else None, "access_state": access,
                               'authorization_reason':reason,
                               'access_expires_at':expiration(item['closing_date']) if access in {'tapas_free','tapas_unlocked'} else None,
@@ -360,14 +387,14 @@ class TapasHTTPAdapter:
             raise ArchiveError("Tapas returned an unexpected series slug.")
         if series_id is not None and series_id not in {slug, str(platform_id)}:
             raise ArchiveError("Supplied series ID does not match the reader's series.")
-        self.series = Series(series_id or slug, series_title or series_info["title"],
+        self.series = Series(series_id or slug, series_title or series_info.get("title"),
                              source_url=f"https://tapas.io/series/{slug}/info",
                              platform_id=str(platform_id), slug=slug)
         self.episode_info = {key: info.get(key) for key in ("id", "free", "unlocked", "must_pay", "scheduled", "book", "closing_date")}
-        episode = Episode(match[1], self.series.id, title or info["title"],
+        episode = Episode(match[1], self.series.id, title or info.get("title"),
                           order if order is not None else info["scene"],
                           tuple(Page(i, value, False) for i, value in enumerate(urls, 1)),
-                          access, url, info.get("publish_date"),
+                          access, url, published_at(info.get("publish_date")),
                           content_type='novel' if info['book'] else 'comic', text_html=text,
                           access_expires_at=expiration(info['closing_date']), illustrations=illustrations)
         self._manifest = Manifest(self.series, (episode,))

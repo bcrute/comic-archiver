@@ -5,6 +5,7 @@ from comic_archive.adapters.reader import (
     ReaderHTML, ReaderObservation, json_shape, ordered_sources, safe_primitives,
     script_routes, source_summary, public_script_contexts, navigation_fragment_shape, public_access_filters,
 )
+from comic_archive.errors import MetadataError
 from comic_archive.models import ArchiveError
 
 
@@ -172,6 +173,26 @@ class ReaderTests(unittest.TestCase):
         values = safe_primitives('''seriesId="262669"; episodeID:'81'; isUnlocked:"true"; userId:"123";''')
         self.assertEqual(values, {"seriesId": 262669, "episodeID": 81})
 
+    def test_series_ids_that_disagree_are_refused_instead_of_keeping_the_last_one(self):
+        self.assertEqual(safe_primitives('seriesId=42; "seriesId":"42"; series_id: 42; episodeId: 81; episodeId: 82'),
+                         {'seriesId': 42, 'series_id': 42, 'episodeId': 82})
+        for text in ('seriesId=42; seriesId="43"', 'seriesId: 42; series_id: 43', "seriesID='42'; seriesId=7"):
+            with self.subTest(text=text), self.assertRaises(MetadataError):
+                safe_primitives(text)
+
+    def test_valueless_attributes_are_read_as_empty_not_as_a_parser_failure(self):
+        parser = ReaderHTML('81')
+        parser.feed('<div data-series-id><div id="episode-81" data-series-id><img class><img src>'
+                    '<img class="content__img" data-src><img class="content__img" data-src="https://us-a.tapas.io/pc/a.jpg?sig=TEST">'
+                    '<a href>Empty</a><a href="/episode/82" rel>Next</a><script src>var seriesId=42;</script></div></div>')
+        self.assertEqual(parser.series_ids, set())
+        self.assertEqual(parser.attributes, {})
+        self.assertEqual(len(parser.images), 2)
+        self.assertIsNone(ordered_sources(parser.images))
+        self.assertEqual([v['source_episode_id'] for v in parser.episode_links.values()], ['82'])
+        self.assertEqual(parser.scripts, [])
+        self.assertEqual(safe_primitives('\n'.join(parser.inline)), {'seriesId': 42})
+
     def test_json_summaries_never_include_values_or_dynamic_keys(self):
         value = {"episodes": [{"id": 81, "imageUrl": "SIGNED", "purchased": True}],
                  "email": "EMAIL", "sessionToken": "SECRET", "PRIVATE-DYNAMIC-KEY": "PRIVATE"}
@@ -317,6 +338,22 @@ class ReaderTests(unittest.TestCase):
         other=self.response('https://other.tapas.io/resources/js/app.js',kind='script',text='"/x/episode"')
         observation.on_response(other)
         self.assertEqual(observation.summary()['inspected_script_paths'],['/resources/js/app.js'])
+
+    def test_observer_json_bodies_spend_the_body_budget_with_or_without_a_length(self):
+        observation=ReaderObservation()
+        observation.body_budget=100
+        observation.on_response(self.response('https://tapas.io/series/1',length='30',body={'data':{}}))
+        self.assertEqual(observation.body_budget,70)
+        unsized=self.response('https://tapas.io/series/2',body={'data':'x'*200})
+        observation.on_response(unsized)
+        # Without a length the parsed body's size is charged, so the budget is spent.
+        self.assertIn('/series/2',observation.values)
+        self.assertLessEqual(observation.body_budget,0)
+        later=self.response('https://tapas.io/series/3')
+        observation.on_response(later)
+        later.json.assert_not_called()
+        self.assertNotIn('/series/3',observation.values)
+        self.assertNotIn('shape',observation.responses[-1])
 
     def test_observer_never_propagates_errors_that_could_carry_credentials(self):
         observation=ReaderObservation()

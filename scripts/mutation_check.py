@@ -14,7 +14,8 @@ while it runs.
 
 An entry: {"id", "source": "comic_archive/x.py", "old": text found exactly once
 in that file, "new": its replacement, "test_file": "test_x.py", "test": name}.
-Exit status 0 only when every change was caught.
+Exit status 0 only when every change was caught. A change that stops the test
+from running at all (an import error, a timeout) is CRASHED, not caught.
 """
 import json
 import os
@@ -27,17 +28,23 @@ ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
 
 
 def run(item):
-    """(exit status, tests run, first error line) of the one named test."""
+    """(exit status, tests run, first error line, whether the named test itself failed) of the one named test."""
     try:
         done = subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', item['test_file'],
                                '-k', item['test']], capture_output=True, text=True, timeout=240, env=ENV)
     except subprocess.TimeoutExpired:
-        return 1, 1, 'timed out after 240 seconds'
+        return 1, 1, 'timed out after 240 seconds', False
     out = done.stderr + done.stdout
     count = re.search(r'^Ran (\d+) test', out, re.M)
     errors = [line for line in out.splitlines() if re.match(r'^[A-Za-z_.]*(Error|Exception|Exit|Interrupt)\b', line)]
     last = out.strip().splitlines()[-1] if out.strip() else ''
-    return done.returncode, int(count.group(1)) if count else 0, (errors[0] if errors else last)[:170]
+    # unittest heads each failure "FAIL: name (id)"; a module that failed to import shows up as a _FailedTest.
+    # An exception unittest does not catch (KeyboardInterrupt) ends the run instead, its traceback through the test.
+    failed = (any(item['test'] in test and '_FailedTest' not in where
+                  for test, where in re.findall(r'^(?:FAIL|ERROR): (\S+) \(([^)]*)\)', out, re.M))
+              or any(item['test'] in frame for frame in re.findall(
+                  r'^  File "[^"]*' + re.escape(item['test_file']) + r'", line \d+, in (\w+)$', out, re.M)))
+    return done.returncode, int(count.group(1)) if count else 0, (errors[0] if errors else last)[:170], failed
 
 
 def check(item, unchanged):
@@ -45,7 +52,7 @@ def check(item, unchanged):
     key = (item['test_file'], item['test'])
     if key not in unchanged:
         unchanged[key] = run(item)
-    code, count, why = unchanged[key]
+    code, count, why, _ = unchanged[key]
     name = f"{item['id']} [{item['test_file']} -k {item['test']}]"
     if count < 1:
         return f'NOTEST   {name}: no test matched ({why})'
@@ -63,11 +70,13 @@ def check(item, unchanged):
             compile(path.read_text(), str(path), 'exec')
         except SyntaxError as error:
             return f'INVALID  {name}: the changed file does not compile ({str(error)[:120]})'
-        code, count, why = run(item)
+        code, count, why, failed = run(item)
     finally:
         path.write_text(text)
-    if code:
+    if code and failed:  # failed already names the test, which an interrupted run never counts
         return f'CAUGHT   {name}: {count} run, failed with: {why}'
+    if code:
+        return f'CRASHED  {name}: the change stopped the test from running, which proves nothing ({why})'
     return f'SURVIVED {name}: {count} run, all still pass with the product broken'
 
 

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from comic_archive.errors import AuthenticationError, LibraryBusy, MetadataError
-from comic_archive.inventory import Inventory
+from comic_archive.inventory import MAX_FAILED_ATTEMPTS, Inventory
 from comic_archive.locking import LibraryLock
 from comic_archive.models import ArchiveError
 
@@ -186,6 +186,22 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(inventory.scan_gaps(), [])
             self.assertEqual([row['id'] for row in inventory.pending()], ['90'])
 
+
+    def test_an_episode_a_job_keeps_failing_on_goes_last_then_is_held_until_its_access_changes(self):
+        listed = [episode('81', 1), episode('82', 2), episode('83', 3)]
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', listed, 'subscribed')
+            inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            self.assertEqual([row['id'] for row in inventory.pending()], ['82', '83', '81'])
+            inventory.observe('42', 'S', listed, 'subscribed')  # An unchanged refresh keeps it last.
+            row = inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='81'").fetchone()
+            self.assertEqual(tuple(row), ('failed', 'job_failed'))
+            self.assertEqual([row['id'] for row in inventory.pending()], ['82', '83', '81'])
+            for _ in range(MAX_FAILED_ATTEMPTS - 1):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            self.assertEqual([row['id'] for row in inventory.pending()], ['82', '83'])
+            inventory.observe('42', 'S', [episode('81', 1, 'tapas_unlocked')] + listed[1:], 'subscribed')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83'])
 
 if __name__ == '__main__':
     unittest.main()

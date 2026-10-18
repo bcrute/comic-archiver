@@ -713,6 +713,14 @@ class BatchTests(unittest.TestCase):
         value=self.step()
         self.assertEqual((value['status'],value['code'],value['pending_task_id'],value['completed_batches']),
                          ('paused','invalid_result',task,0))
+        # A limit that cut the refresh short still leaves the inventory's scan count, which is enough to go on.
+        batches._start(self.root,None,True);task,_=self.publish()
+        result['inventory']={'scan_remaining_series_count':3}
+        atomic_json(self.root/'responses'/f'{task}.json',{'task_id':task,'status':'ok','result':result})
+        (self.root/'requests'/f'{task}.json').unlink()
+        value=self.step()
+        self.assertEqual((value['status'],value['code'],value['pending_task_id'],value['completed_batches']),
+                         ('running',None,None,1))
 
     def test_a_library_write_in_progress_delays_publication_until_it_ends(self):
         self.start();held=threading.Event();release=threading.Event()
@@ -748,6 +756,50 @@ class BatchTests(unittest.TestCase):
                          ('stopped',None,None,None))
         self.assertEqual(self.step()['status'],'stopped')
         self.assertEqual(list((self.root/'requests').iterdir()),[])
+
+    def test_a_wifi_only_hold_is_counted_and_go_continues_with_a_new_batch(self):
+        self.start({'archive_only':True,'refresh_lists':False});task,_=self.publish()
+        result={'run_id':'a'*24,'status':'paused','pause_reason':'network_policy','archived_episode_ids':['81'],
+                'downloaded_pages':2,'downloaded_bytes':5,'pending_episode_count':4,'inventory':{'scan_remaining_series_count':0}}
+        atomic_json(self.root/'responses'/f'{task}.json',{'task_id':task,'status':'ok','result':result})
+        (self.root/'requests'/f'{task}.json').unlink()
+        value=self.step()
+        self.assertEqual((value['status'],value['code'],value['pending_task_id'],value['completed_batches'],
+                          value['downloaded_pages'],value['network_retry_after']),('paused','network_policy',None,1,2,None))
+        self.assertEqual(self.step()['pending_task_id'],None)  # It waits for an allowed connection and Go.
+        batches._start(self.root,None,True)
+        again,request=self.publish()
+        self.assertNotEqual(again,task);self.assertEqual(request['operation'],'archive_discovered')
+
+    def test_go_on_a_receipt_that_cannot_be_counted_counts_its_whole_allowance_and_continues(self):
+        self.start({'batch_pages':1});task,_=self.publish()
+        value=self.finish(task,pages=2)
+        self.assertEqual((value['code'],value['pending_task_id']),('invalid_result',task))
+        value=batches._start(self.root,None,True)
+        self.assertEqual((value['status'],value['code'],value['pending'],value['downloaded_pages']),('running',None,None,0))
+        self.assertEqual((value['unreported_reserved_pages'],value['unreported_reserved_bytes']),(1,batches.DEFAULTS['batch_bytes']))
+        again,_=self.publish()
+        self.assertNotEqual(again,task);self.assertEqual(batches.status(self.session,self.library)['submitted_batches'],2)
+
+    def test_a_window_with_less_than_a_minute_left_ends_instead_of_starting_another_batch(self):
+        now=datetime(2026,10,18,tzinfo=timezone.utc);clock=[now]
+        with patch('comic_archive.batches._now',side_effect=lambda:clock[0]):
+            self.start({'max_seconds':600});task,_=self.publish();self.finish(task)
+            clock[0]=now+timedelta(seconds=541)
+            value=self.step()
+        self.assertEqual((value['status'],value['submitted_batches'],value['pending_task_id']),('budget_reached',1,None))
+        self.assertEqual(list((self.root/'requests').iterdir()),[])
+
+    def test_a_batch_its_worker_died_running_counts_its_whole_allowance_when_the_app_ends_it(self):
+        from comic_archive.task_cancellation import end_unstarted
+        with Inventory(self.library) as inventory:inventory.observe('42','S',[],'fixture')
+        self.start({'max_pages':10,'batch_pages':4,'max_bytes':100,'batch_bytes':40});task,_=self.publish()
+        atomic_json(self.root/'status.json',{'state':'busy','task_id':task})  # A power cut came while it ran.
+        self.assertTrue(end_unstarted(self.session,self.library,task))
+        value=self.step()
+        self.assertEqual((value['status'],value['code'],value['pending_task_id'],value['downloaded_pages']),
+                         ('paused','cancelled',None,0))
+        self.assertEqual((value['unreported_reserved_pages'],value['unreported_reserved_bytes']),(4,40))
 
 
 if __name__=='__main__':unittest.main()

@@ -28,6 +28,13 @@ EPUB_FILES = ('mimetype', 'META-INF/container.xml', 'EPUB/package.opf',
 XHTML = 'http://www.w3.org/1999/xhtml'
 OPF = 'http://www.idpf.org/2007/opf'
 DC = 'http://purl.org/dc/elements/1.1/'
+# Characters XML 1.0 cannot hold even escaped, such as most control characters.
+NOT_XML = re.compile('[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]')
+
+
+def xml_text(value, quote=True):
+    """Escaped text without the characters XML cannot hold."""
+    return escape(NOT_XML.sub('', value), quote=quote)
 
 
 def incomplete(reason=None):
@@ -122,7 +129,7 @@ class NovelHTML(HTMLParser):
             if tag not in TEXT_TAGS | {'img'} or 'hidden' in attrs:
                 raise incomplete()
             style = safe_style(attrs.get('style'))
-            attr = f' style="{escape(style, quote=True)}"' if style else ''
+            attr = f' style="{xml_text(style)}"' if style else ''
             if tag == 'img':
                 source = attrs.get('src', '')
                 match = re.fullmatch(r'data:(image/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=\s]+)', source)
@@ -147,7 +154,7 @@ class NovelHTML(HTMLParser):
                 # Editors sometimes label a complete PNG as JPEG. Package the
                 # original bytes using their verified format, never that label.
                 alt = attrs.get('alt', '')
-                self.parts.append(f'<img src="{name}" alt="{escape(alt, quote=True)}"{attr} />')
+                self.parts.append(f'<img src="{name}" alt="{xml_text(alt)}"{attr} />')
             else:
                 self.parts.append(f'<{tag}{attr}' + (' />' if tag in VOID_TAGS else '>'))
         if tag not in {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
@@ -177,7 +184,7 @@ class NovelHTML(HTMLParser):
 
     def handle_data(self, data):
         if self.body_depth is not None:
-            self.parts.append(escape(data, quote=False))
+            self.parts.append(xml_text(data, quote=False))
 
     def text(self):
         if self.episode_count != 1 or self.body_count != 1 or not self.closed or self.body_depth is not None:
@@ -270,10 +277,10 @@ def epub_entries(series, episode, modified, *, export_id=None):
     validate_fragment(episode.text_html, episode.illustrations)
     media_items = ''.join(f'<item id="image-{index:04d}" href="{name}" media-type="{IMAGE_TYPES["." + name.rsplit(".", 1)[1]]}" />'
                           for index, name in enumerate(names, 1))
-    title = escape(series.title + ' — ' + episode.title)
-    chapter_title = escape(episode.title)
-    identity = escape('urn:uuid:' + export_id if export_id else f'{series.source}:{series.id}:{episode.id}')
-    creators = ''.join(f'<dc:creator>{escape(name)}</dc:creator>' for name in series.creators)
+    title = xml_text(series.title + ' — ' + episode.title)
+    chapter_title = xml_text(episode.title)
+    identity = xml_text('urn:uuid:' + export_id if export_id else f'{series.source}:{series.id}:{episode.id}')
+    creators = ''.join(f'<dc:creator>{xml_text(name)}</dc:creator>' for name in series.creators)
     head = '<?xml version="1.0" encoding="utf-8"?>'
     entries = {
         'mimetype': b'application/epub+zip',

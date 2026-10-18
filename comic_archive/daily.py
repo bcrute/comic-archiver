@@ -117,7 +117,7 @@ def _load(root):
     last=value.get('last_result')
     if last is not None:
         if (not isinstance(last,dict) or not isinstance(last.get('task_id'),str) or not re.fullmatch(r'job-[a-f0-9]{24}',last['task_id'])
-                or last.get('status') not in {'finished','limited','login_required','job_failed'}):
+                or last.get('status') not in {'finished','limited','paused','cancelled','login_required','job_failed'}):
             raise ArchiveError('Daily result summary is invalid.')
         _instant(last.get('completed_at'))
         for key in ('archived_episode_count','downloaded_pages','downloaded_bytes'):
@@ -198,9 +198,12 @@ def tick(session,*,now=None):
             result=observed.get('result',{})
             if not isinstance(result,dict):result={}
             successful=observed['status']=='ok' and result.get('status') in {'finished','limited'}
-            outcome=result.get('status') if successful else ('login_required' if observed.get('error_code')=='login_required' else 'job_failed')
+            # No connection yet (a laptop waking before its Wi-Fi), a metered one, or Pause: tomorrow's run still goes.
+            transient=observed['status']=='ok' and (result.get('status')=='cancelled' or result.get('status')=='paused'
+                      and result.get('pause_reason') in {'network_unavailable','network_policy'})
+            outcome=result.get('status') if successful or transient else ('login_required' if observed.get('error_code')=='login_required' else 'job_failed')
             last={'task_id':task,'completed_at':now.isoformat(),'status':outcome}
-            if successful:
+            if successful or transient:
                 ids=result.get('archived_episode_ids',[])
                 last['archived_episode_count']=len(ids) if isinstance(ids,list) else 0
                 for key in ('downloaded_pages','downloaded_bytes'):

@@ -7,6 +7,7 @@ import httpx
 from .cloud_errors import CloudTransferError
 from .models import ArchiveError
 from .network import NetworkGuard
+from .retry_after import retry_after_seconds
 
 BUCKET = re.compile(r'[A-Za-z0-9-]{6,63}')
 
@@ -22,32 +23,56 @@ def validate(credentials):
         raise ArchiveError('Enter your bucket name: 6 to 63 letters, numbers or hyphens.')
 
 
-def _request(client, method, url, guard, cancel, **options):
-    if cancel.is_set():
+def _pause(seconds, cancel):
+    if cancel.wait(seconds):
         raise ArchiveError('Cloud sign-in stopped.')
-    guard.check()
-    try:
-        with client.stream(method, url, **options) as response:
-            if response.status_code in (401, 403):
-                raise CloudTransferError('b2_key_permissions')
-            if response.status_code == 429:
-                raise CloudTransferError('cloud_rate_limited')
-            if response.status_code != 200:
-                raise CloudTransferError('cloud_connection')
-            data = bytearray()
-            for block in response.iter_bytes(4096):
-                guard.check()
-                if cancel.is_set():
-                    raise ArchiveError('Cloud sign-in stopped.')
-                data.extend(block)
-                if len(data) > 65536:
-                    raise ValueError
-            value = json.loads(data)
-            if not isinstance(value, dict):
-                raise ValueError
-            return value
-    except (httpx.HTTPError, ValueError):
-        raise CloudTransferError('cloud_connection') from None
+
+
+def _body(response, guard, cancel):
+    data = bytearray()
+    for block in response.iter_bytes(4096):
+        guard.check()
+        if cancel.is_set():
+            raise ArchiveError('Cloud sign-in stopped.')
+        data.extend(block)
+        if len(data) > 65536:
+            raise ValueError
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise ValueError
+    return value
+
+
+def _request(client, method, url, guard, cancel, **options):
+    """One B2 call; a busy service is asked again a few times, waiting as it says, up to half a minute."""
+    for attempt in range(4):
+        if cancel.is_set():
+            raise ArchiveError('Cloud sign-in stopped.')
+        guard.check()
+        try:
+            with client.stream(method, url, **options) as response:
+                if response.status_code in (429, 503) and attempt < 3:
+                    wait = retry_after_seconds(response.headers.get('Retry-After'))
+                    wait = min(30, 2 ** attempt if wait is None else wait)
+                elif response.status_code == 403:
+                    # Backblaze refuses a key's calls with 403 once a cap set on its Caps & Alerts page is reached.
+                    try:
+                        code = _body(response, guard, cancel).get('code')
+                    except (httpx.HTTPError, ValueError):
+                        code = None
+                    raise CloudTransferError('cloud_cap' if isinstance(code, str) and code.endswith('cap_exceeded')
+                                             else 'b2_key_permissions')
+                elif response.status_code == 401:
+                    raise CloudTransferError('b2_key_permissions')
+                elif response.status_code == 429:
+                    raise CloudTransferError('cloud_rate_limited')
+                elif response.status_code != 200:
+                    raise CloudTransferError('cloud_connection')
+                else:
+                    return _body(response, guard, cancel)
+        except (httpx.HTTPError, ValueError):
+            raise CloudTransferError('cloud_connection') from None
+        _pause(wait, cancel)
 
 
 def connection(root, credentials, cancel):
