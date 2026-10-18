@@ -122,6 +122,24 @@ class DailyTests(unittest.TestCase):
         configure(self.session,run_now=True,now=later)
         self.assertIsNotNone(tick(self.session,now=later)['pending_task_id'])
 
+    def test_a_run_with_no_connection_a_metered_one_or_a_pause_keeps_the_schedule(self):
+        configure(self.session,run_now=True,now=self.now);day=self.now
+        for result in ({'status':'paused','pause_reason':'network_unavailable','downloaded_pages':0},
+                       {'status':'paused','pause_reason':'network_policy','downloaded_pages':0},
+                       {'status':'cancelled','cancelled_before_start':False,'downloaded_pages':2}):
+            with self.subTest(result=result):
+                task=tick(self.session,now=day)['pending_task_id'];self.assertIsNotNone(task)
+                self.complete(task,result=result)
+                done=tick(self.session,now=day)
+                self.assertIsNone(done['pause_reason']);self.assertIsNone(done['pending_task_id'])
+                self.assertEqual(done['last_result']['status'],result['status'])
+                day=instant(done['next_due'])
+        self.assertEqual(status(self.session)['last_result']['downloaded_pages'],2)
+        # Any other hold is still a failure the schedule stops for.
+        task=tick(self.session,now=day)['pending_task_id']
+        self.complete(task,result={'status':'paused','pause_reason':'source_refused'})
+        self.assertEqual(tick(self.session,now=day)['pause_reason'],'job_failed')
+
     def test_disable_retains_queued_work_and_prevents_new_runs(self):
         configure(self.session,run_now=True,now=self.now)
         task=tick(self.session,now=self.now)['pending_task_id']

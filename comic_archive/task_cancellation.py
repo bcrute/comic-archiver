@@ -4,6 +4,7 @@ A queued stop never removes its request. The worker writes the terminal
 receipt without invoking the task's account or source methods.
 """
 import json
+import os
 from pathlib import Path
 import re
 
@@ -84,6 +85,45 @@ def request_queued_stop(session,task_id):
     return {'task_id':task_id,'status':'cancellation_requested'}
 
 
+def request_running_stop(session,task_id):
+    """Leave a stop with a started task; its import reads it once its run is recorded."""
+    task_id=_task(task_id);root=Path(session)/'worker'
+    with admission_lock(session):
+        from .queue_client import task_status
+        if task_status(session,task_id)['status']!='running':
+            return {'task_id':task_id,'status':'not_running'}
+        path=root/'cancellations'/f'{task_id}.json'
+        directory(path.parent).chmod(0o700)
+        if not queued_stop_requested(session,task_id):
+            atomic_json(path,{'document_type':'queued_comic_import_stop','task_id':task_id})
+            path.chmod(0o600)
+    return {'task_id':task_id,'status':'cancellation_requested'}
+
+
+def started_stop_requested(library):
+    """Whether the task this worker process is running was stopped before its import recorded a run."""
+    from .state_paths import SESSION_NAME
+    session=Path(library).absolute().parent/SESSION_NAME
+    try:
+        worker=_read(session/'worker/status.json')
+    except ArchiveError:
+        return False  # No worker runs this import, as from the command line.
+    task=worker.get('task_id')
+    if (worker.get('state')!='busy' or worker.get('pid')!=os.getpid()
+            or not isinstance(task,str) or not re.fullmatch(r'job-[a-f0-9]{24}',task)):
+        return False
+    return queued_stop_requested(session,task)
+
+
+def _was_running(root,task_id):
+    """Whether the worker's last word was that it was busy with this task."""
+    try:
+        worker=_read(root/'status.json')
+    except ArchiveError:
+        return False
+    return worker.get('state')=='busy' and worker.get('task_id')==task_id
+
+
 def end_unstarted(session,library,task_id):
     """Give a task that no worker got to the receipt of one stopped while queued; True when it was given.
 
@@ -97,6 +137,9 @@ def end_unstarted(session,library,task_id):
         # A task that only checks what is saved has nothing to count; its receipt just says it did not run.
         result=(cancelled_result(library,operation) if operation in OPERATIONS
                 else {'status':'cancelled','cancelled_before_start':True})
+        if operation in OPERATIONS and _was_running(root,task_id):
+            # The worker was on it when it stopped, as at a power cut: what it used was never reported.
+            result.update(cancelled_before_start=False,usage_unreported=True)
         atomic_json(response,{'task_id':task_id,'status':'ok','result':result})
         response.chmod(0o600)
     return True

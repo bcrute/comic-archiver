@@ -161,14 +161,23 @@ def _interrupted(session, library, task):
     """False only while the task is running and has not accepted a stop yet; the caller asks again."""
     from .cancellation import request_stop
     from .monitoring import _read
+    from .task_cancellation import request_running_stop
     try:
         if task_status(session, task)['status'] != 'running':
             return True
     except ArchiveError:
         return True
+    try:
+        # Left with the task first: a batch still getting ready stops as soon as it records its run.
+        if request_running_stop(session, task)['status'] != 'cancellation_requested':
+            return True
+    except (ArchiveError, OSError):
+        return False
     run = _read(Path(library) / '.archive-state/progress.json').get('run_id')
     try:
-        return request_stop(library, run).get('status') == 'cancellation_requested'
+        # A run that has ended is an earlier one, or this task's own; either way the stop left above covers it.
+        stopped = request_stop(library, run)
+        return stopped.get('status') == 'cancellation_requested' or stopped.get('stop_requested') is False
     except (ArchiveError, OSError, sqlite3.Error):
         return False
 

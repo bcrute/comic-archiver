@@ -20,6 +20,8 @@ from .adapters.pagination import EpisodeCountMismatch
 JOBS_VERSION = 57
 MAX_CONSECUTIVE_ASSET_FAILURES = 3
 MAX_DEFERRED_ASSET_FAILURES = 5
+# A short audit or backup holding the library is waited for; failing here would leave the batch without a receipt.
+LIBRARY_WAIT_SECONDS = 30
 
 
 def retain_partial_series(inventory,error):
@@ -209,7 +211,8 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
     previous_transport_metrics = assets.metrics if isinstance(assets, Transport) else None
     adapter.deadline = budget.started + max_seconds if max_seconds is not None else None
     output = Path(output).absolute()
-    with Inventory(output) as inventory:
+    from .locking import wait_for_library
+    with wait_for_library(output, LIBRARY_WAIT_SECONDS), Inventory(output) as inventory:
         run_id = inventory.start_run()
         budget.cancellation=RunCancellation(output,run_id)
         previous_cancel_check=getattr(adapter,'cancel_check',None)
@@ -282,6 +285,10 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         try:
             with boundary() if callable(boundary) else nullcontext():
                 job_progress(output,run_id,phase='authentication')
+                from .task_cancellation import started_stop_requested
+                if started_stop_requested(output):
+                    # Pause came before this run was recorded and left its stop with the task.
+                    raise RunCancelled('This import was stopped; completed archives and cached pages are retained.')
                 identity = adapter.account_identity()
                 inventory.bind_account(identity)
                 adapter.expected_account_id = identity
@@ -294,6 +301,12 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 if _refresh is not None:
                     scan_started=time.monotonic()
                     try:refresh_result = _refresh(inventory, budget, run_id)
+                    except RunCancelled:raise
+                    except RunLimit:
+                        # A limit that ends the refresh itself still reports the scan checkpoint it leaves.
+                        summary['refresh'] = {'state':'limited',
+                                              'remaining_series_count':inventory.status()['scan_remaining_series_count']}
+                        raise
                     finally:summary['scan_elapsed_seconds']=round(max(0,time.monotonic()-scan_started),3)
                     if refresh_result is not None:
                         summary['refresh'] = refresh_result
@@ -501,7 +514,9 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 for frame in traceback.extract_tb(error.__traceback__)
                 if Path(frame.filename).suffix == ".py"]}
             if current is not None:
-                code = "interrupted" if isinstance(error, KeyboardInterrupt) else "job_failed"
+                # A refusal is the site's, not the episode's: it is not counted towards parking the episode.
+                code = ("interrupted" if isinstance(error, KeyboardInterrupt)
+                        else "source_refused" if summary.get('pause_reason') == 'source_refused' else "job_failed")
                 inventory.mark(current["id"], "queued" if code == "interrupted" else "failed", code)
             checkpoint("interrupted" if isinstance(error, KeyboardInterrupt) else "paused")
             from .run_receipts import retain_failure_receipt

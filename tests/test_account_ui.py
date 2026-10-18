@@ -11,10 +11,11 @@ from support import PRIVATE_FILE
 from comic_archive import account_export, account_ui, batches, completion
 from comic_archive.cancellation import RunCancellation
 from comic_archive.inventory import Inventory
-from comic_archive.jobs import job_progress
+from comic_archive.jobs import archive_discovered, job_progress
 from comic_archive.local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry
 from comic_archive.models import ArchiveError
 from comic_archive.worker import private_json
+from test_jobs import AccountAdapter
 
 
 class AccountUITests(unittest.TestCase):
@@ -39,7 +40,7 @@ class AccountUITests(unittest.TestCase):
             if hasattr(response,'close'):response.close()
 
     def browser_headers(self):
-        _,headers,_=self.call('/')
+        _,headers,_=self.call('/',headers={'QUERY_STRING':'launch='+self.app.launch_token})
         cookie={'HTTP_COOKIE':headers['Set-Cookie'].split(';',1)[0]}
         token=json.loads(self.call('/api/v1/context',headers=cookie)[2])['csrf_token']
         return cookie|{'HTTP_ORIGIN':self.app.origin,'HTTP_X_CSRF_TOKEN':token}
@@ -347,6 +348,21 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(naps,[0.25])
         self.assertTrue(RunCancellation(self.workspace.library,run).requested())
 
+    def test_pause_before_a_batch_has_recorded_its_run_stops_it_as_soon_as_it_does(self):
+        session,library=self.workspace.session,self.workspace.library
+        task,earlier=self.running_batch()
+        with Inventory(library) as inventory:inventory.finish_run(earlier,'finished',{})
+        # The downloader has taken the task; the progress it shows is still an earlier run's.
+        private_json(self.queue/'status.json',{'state':'busy','task_id':task,'pid':os.getpid()})
+        with patch.object(account_ui.time,'sleep') as nap:
+            self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
+        nap.assert_not_called()
+        self.assertTrue((self.queue/'cancellations'/(task+'.json')).is_file())
+        self.assertFalse(RunCancellation(library,earlier).requested())
+        adapter=AccountAdapter()
+        with patch('builtins.print'):result=archive_discovered(adapter,library,limit=1)
+        self.assertEqual((result['status'],adapter.calls),('cancelled',[]))
+
     def test_go_after_a_batch_stopped_by_pause_continues_without_a_hold(self):
         session,library=self.workspace.session,self.workspace.library
         task,run=self.running_batch()
@@ -476,11 +492,14 @@ class AccountUITests(unittest.TestCase):
         session,library=self.workspace.session,self.workspace.library
         task,_=self.running_batch()  # No receipt, and the downloader's last word is that it was busy with it.
         request=self.queue/'requests'/(task+'.json');before=request.read_bytes()
+        reserved=batches._load(batches._root(session,library))['pending']['options']['max_pages']
         with patch.object(account_ui.time,'sleep') as nap:self.assertTrue(account_ui.reopen(self.workspace))
         nap.assert_not_called()
         receipt=self.queue/'responses'/(task+'.json');value=json.loads(receipt.read_bytes())
+        # It was running, so what it used went unreported.
         self.assertEqual((value['task_id'],value['status'],value['result']['status'],value['result']['cancelled_before_start'],
-                          value['result']['downloaded_pages'],value['result']['pending_episode_count']),(task,'ok','cancelled',True,0,1))
+                          value['result']['usage_unreported'],value['result']['downloaded_pages'],
+                          value['result']['pending_episode_count']),(task,'ok','cancelled',False,True,0,1))
         self.assertEqual((receipt.stat().st_mode&0o777,request.read_bytes()),(PRIVATE_FILE,before))
         # The downloader that starts next removes a request that has its receipt, without running it.
         request.unlink();private_json(self.queue/'status.json',{'state':'ready'})
@@ -488,7 +507,7 @@ class AccountUITests(unittest.TestCase):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.ticks()
         window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code']),('running',None))
+        self.assertEqual((window['status'],window['code'],window['unreported_reserved_pages']),('running',None,reserved))
         self.assertNotIn(window['pending_task_id'],(None,task))
 
     def test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause(self):
@@ -536,14 +555,16 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(naps,[0.25])
         self.assertTrue(RunCancellation(self.workspace.library,run).requested())
 
-    def test_go_after_a_start_of_the_app_holds_a_download_whose_interrupted_batch_left_a_damaged_receipt(self):
+    def test_go_after_a_start_of_the_app_counts_the_whole_allowance_of_a_batch_that_left_a_damaged_receipt(self):
         session,library=self.workspace.session,self.workspace.library
         task,run=self.running_batch()
+        reserved=batches._load(batches._root(session,library))['pending']['options']['max_pages']
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED,'downloaded_pages':10**9}})
         self.assertTrue(account_ui.reopen(self.workspace))
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        completion.worker_tick(session,library)  # Go asks again; the receipt is still not one to count from.
+        self.ticks()  # The receipt still cannot be counted from, so Go counted all of it and went on.
         window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code'],window['pending_task_id'],window['downloaded_pages']),
-                         ('paused','invalid_result',task,0))
+        self.assertEqual((window['status'],window['code'],window['downloaded_pages'],window['unreported_reserved_pages']),
+                         ('running',None,0,reserved))
+        self.assertNotIn(window['pending_task_id'],(None,task))
 
