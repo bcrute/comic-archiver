@@ -88,6 +88,22 @@ class CloudToolsTests(unittest.TestCase):
         with self.assertRaisesRegex(ArchiveError, 'too large'): cloud_tools.ensure(self.root, threading.Event())
         self.assert_nothing_installed()
 
+    def test_an_rclone_found_on_the_path_is_used_only_where_no_pinned_helper_exists(self):
+        with patch('comic_archive.cloud_tools.shutil.which', return_value='/usr/bin/rclone'):
+            binary = cloud_tools.ensure(self.root, threading.Event())
+            self.assertEqual(binary, str(self.folder/'rclone')); self.download.assert_called_once()
+            with patch('comic_archive.cloud_tools.location', side_effect=ArchiveError('Unsupported')):
+                self.assertEqual(cloud_tools.ensure(self.root, threading.Event()), '/usr/bin/rclone')
+        with patch('comic_archive.cloud_tools.location', side_effect=ArchiveError('Unsupported')):
+            with self.assertRaises(ArchiveError): cloud_tools.ensure(self.root, threading.Event())
+
+    def test_transfers_run_the_pinned_helper_before_any_rclone_on_the_path(self):
+        from comic_archive import cloud
+        with patch('comic_archive.cloud.shutil.which', return_value='/usr/bin/rclone'):
+            self.assertEqual(cloud._binary(), '/usr/bin/rclone')
+            cloud_tools.ensure(self.root, threading.Event())
+            self.assertEqual(cloud._binary(), str(self.folder/'rclone'))
+
 
 class CloudToolsLocationTests(unittest.TestCase):
     def setUp(self):

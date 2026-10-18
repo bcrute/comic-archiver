@@ -58,7 +58,7 @@ def execute(adapter, request, *, fast_session=None):
         raise failure from None
 
 
-def _execute(adapter, request, *, fast_session=None):
+def _execute(adapter, request, *, fast_session=None, upload_first=True):
     adapter.deadline = None
     operation = request.get("operation")
     args = request.get("args", {})
@@ -209,8 +209,22 @@ def _execute(adapter, request, *, fast_session=None):
             checkpoint(result)
         return result
     if operation in {"archive_discovered", "sync", "archive_watched_series", "archive_series_url"}:
-        from .cloud import upload_pending
-        upload_pending(Path('Library'), limit=10)
+        if upload_first:
+            from .cloud import upload_pending
+            from .network import NetworkPolicyHold
+            from .cloud_errors import safe_code
+            try:
+                upload_pending(Path('Library'), limit=10)
+                held = None
+            except NetworkPolicyHold:
+                # The job meets the same connection rule and pauses for it with a receipt of its own.
+                return _execute(adapter, request, fast_session=fast_session, upload_first=False)
+            except (ArchiveError, OSError) as error:
+                held = safe_code(error)
+            if held:
+                # A stuck upload, an expired sign-in or a full cloud must not stop saving here; the result says why.
+                result = _execute(adapter, request, fast_session=fast_session, upload_first=False)
+                return result | {'cloud_upload_error_code': held} if isinstance(result, dict) else result
         allowed = {"limit", "max_pages", "max_bytes", "max_seconds", "free_only",'request_interval', 'download_workers'}
         if operation == 'archive_discovered':
             allowed.add('retry_episode_id')
@@ -370,13 +384,21 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0,*,rel
             print("Comic images may show broken icons in this browser: originals download separately into compressed archives. No scrolling is needed for automatic imports.", flush=True)
             from .daily import start_scheduler
             start_scheduler(session)
+            failing = set()
             while True:
                 if drain_requested(root, worker_id):
                     return
                 from .completion import worker_tick
                 from .account_export import worker_tick as account_tick
-                account_tick(session)
-                worker_tick(session)
+                for name, tick in (('account export', account_tick), ('backlog', worker_tick)):
+                    # Each controller holds itself on a failure it expects; anything else must not stop the queue.
+                    try:
+                        tick(session)
+                        failing.discard(name)
+                    except Exception as error:
+                        if name not in failing:
+                            failing.add(name)
+                            print(f"The {name} controller failed ({type(error).__name__}); queued tasks continue.", flush=True)
                 for file in sorted(requests.glob("*.json")):
                     if file.is_symlink():
                         continue
@@ -435,7 +457,16 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0,*,rel
                     except Exception:
                         value = {"task_id": task_id, "status": "error",
                                  "error": "Worker task failed; raw exceptions suppressed to protect credentials."}
-                    private_json(response, value)
+                    try:
+                        private_json(response, value)
+                    except (OSError, TypeError, ValueError):
+                        # A result that cannot be saved still ends its task, so it is not run again.
+                        value = {"task_id": task_id, "status": "error", 'error_code': 'job_failed',
+                                 "error": "Worker could not save the task result."}
+                        try:
+                            private_json(response, value)
+                        except OSError:
+                            pass
                     if value["status"] == "error":
                         print(f"Task {task_id} failed: {value['error']}", flush=True)
                     else:

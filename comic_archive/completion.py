@@ -326,10 +326,10 @@ def tick(session,library=Path('Library')):
 
 
 def worker_tick(session,library=Path('Library')):
-    """A malformed plan holds itself, without taking down the browser worker."""
+    """A malformed plan, or anything unexpected such as a damaged database, holds itself, without taking down the browser worker."""
     try:return tick(session,library)
     except LibraryBusy:return None
-    except (ArchiveError,OSError):
+    except Exception:
         try:
             root=batches._root(session,library)
             with LibraryLock(root/'.completion-state'):
