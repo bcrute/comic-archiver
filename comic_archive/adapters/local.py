@@ -8,9 +8,13 @@ class LocalAdapter:
     def __init__(self, path: Path):
         self.root = path.resolve().parent
         try:
-            obj = json.loads(path.read_text())
+            obj = json.loads(path.read_text(encoding="utf-8"))
             s = obj["series"]
-            series = Series(s["id"], s["title"], tuple(s.get("creators", [])),
+            creators = s.get("creators", [])
+            # A plain string would otherwise become one creator per character.
+            if not isinstance(creators, list) or any(not isinstance(name, str) for name in creators):
+                raise ValueError
+            series = Series(s["id"], s["title"], tuple(creators),
                             s.get("description"), s.get("source_url"), s.get("source", "tapas"))
             episodes = []
             for e in obj["episodes"]:
