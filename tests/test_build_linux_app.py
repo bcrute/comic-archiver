@@ -113,6 +113,9 @@ class PackagingTests(WorkspaceCase):
         self.assertNotIn('PLAYWRIGHT', text)
         self.assertIn('-m comic_archive.desktop_app "$@"', text)
         self.assertIn('export PYTHONSAFEPATH=1', text)
+        for name in ('QTWEBENGINE_DISABLE_SANDBOX', 'QTWEBENGINE_CHROMIUM_FLAGS',
+                     'QTWEBENGINE_REMOTE_DEBUGGING', 'QTWEBENGINEPROCESS_PATH'):
+            self.assertIn(name, text)
         self.assertNotIn('exec ', text)
 
     def test_desktop_entry_and_icon_are_well_formed(self):

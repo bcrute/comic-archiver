@@ -25,7 +25,7 @@ from . import app_runtime, osdep, sites
 from .app_runtime import LOG
 from .local_web import SESSION_SECONDS
 from .models import ArchiveError
-from .qt_engine import CookieRecords, common_agent
+from .qt_engine import CookieRecords, common_agent, secure_qt_environment
 from .tapas_auth import identity
 from .adapters.tappytoon import account as tappytoon_account
 from .window_signin import storage_state
@@ -199,7 +199,7 @@ def signin_navigation(scheme, host, path, main_frame=True, history=False):
     Stepping back through the page's history never returns to its blank start."""
     if scheme == 'about' and not host:
         return (path == 'blank' and not history) or (path == 'srcdoc' and not main_frame)
-    if scheme == 'https' and host:
+    if scheme == 'https' and host and not private_destination(host):
         return True
     # Inside a page, sites also build frames from their own data; files and engine pages stay out.
     return not main_frame and scheme in {'data', 'blob'}
@@ -216,6 +216,26 @@ def loopback(host):
         return False
     address = getattr(address, 'ipv4_mapped', None) or address
     return address.is_loopback or address.is_unspecified
+
+
+def private_destination(host):
+    """A name or address that unambiguously stays off the public Internet.
+
+    The sign-in page may use public identity providers, but it has no reason to
+    contact this computer, another LAN host, or a special-purpose IP address.
+    DNS names are still subject to the web engine's own private-network rules;
+    this catches destinations visible before DNS resolution.
+    """
+    name = host.strip('[]').rstrip('.').lower()
+    if (name == 'localhost' or name.endswith('.localhost') or name == 'local' or name.endswith('.local')
+            or name == 'home.arpa' or name.endswith('.home.arpa')):
+        return True
+    try:
+        address = ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    address = getattr(address, 'ipv4_mapped', None) or address
+    return not address.is_global or address.is_multicast
 
 
 def on_site(scheme, host, site=sites.DEFAULT):
@@ -658,7 +678,7 @@ class Shell:
         class Guard(core.QWebEngineUrlRequestInterceptor):
             def interceptRequest(self, info):
                 # May run off the window's thread: it looks at the request and at nothing else.
-                if loopback(info.requestUrl().host()):
+                if private_destination(info.requestUrl().host()):
                     info.block(True)
 
         self.world = int(core.QWebEngineScript.ScriptWorldId.ApplicationWorld)
@@ -1226,6 +1246,7 @@ def main(argv=None):
     if args.version:
         print(f'{APP_NAME} {version()}')
         return 0
+    secure_qt_environment(os.environ)
     try:
         q = qt()
     except ImportError as error:

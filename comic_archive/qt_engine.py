@@ -48,6 +48,11 @@ RESOURCE_KINDS = {
     'ResourceTypeFavicon': 'image', 'ResourceTypeFontResource': 'font', 'ResourceTypeMedia': 'media',
     'ResourceTypeXhr': 'xhr', 'ResourceTypePing': 'ping', 'ResourceTypeCspReport': 'cspreport',
     'ResourceTypeWebSocket': 'websocket'}
+# These variables can turn off Chromium's sandbox or other browser boundaries.
+# The app supplies its few required engine switches directly instead of trusting
+# ambient process configuration inherited from a shell or desktop launcher.
+UNSAFE_QT_ENVIRONMENT = ('QTWEBENGINE_DISABLE_SANDBOX', 'QTWEBENGINE_CHROMIUM_FLAGS',
+                         'QTWEBENGINE_REMOTE_DEBUGGING', 'QTWEBENGINEPROCESS_PATH')
 # A page's reads: a refused one is worth a note for the log. Qt reports fetch() as Xhr.
 READS = ('document', 'xhr', 'fetch')
 # What started a request, as the page's own timing records name it, in Playwright's words.
@@ -207,6 +212,12 @@ class TimeoutError(Error):
     """Named as Playwright names it: callers tell a timeout from other failures by this name."""
 
 
+def secure_qt_environment(environ):
+    """Remove inherited switches that can weaken or replace the embedded browser."""
+    for name in UNSAFE_QT_ENVIRONMENT:
+        environ.pop(name, None)
+
+
 def serve(work, arguments=()):
     """Run work() on a second thread while this, the main thread, belongs to Qt; return what it returns.
 
@@ -216,6 +227,7 @@ def serve(work, arguments=()):
     global _serving
     if _serving is not None or threading.current_thread() is not threading.main_thread():
         raise Error('The built-in engine is served once, from the main thread.')
+    secure_qt_environment(os.environ)
     loop = _serving = Loop(arguments)
     outcome, left = {}, threading.Event()
 

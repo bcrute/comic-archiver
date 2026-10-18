@@ -1503,6 +1503,13 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(self.loops[0].work.name, 'tapas-downloader')
         self.assertEqual(self.abandoned, [])
 
+    def test_serve_removes_inherited_web_engine_overrides_before_starting(self):
+        unsafe = dict.fromkeys(qt_engine.UNSAFE_QT_ENVIRONMENT, 'unsafe')
+        with patch.dict(qt_engine.os.environ, unsafe):
+            self.assertEqual(qt_engine.serve(lambda: 'done'), 'done')
+            for name in unsafe:
+                self.assertNotIn(name, qt_engine.os.environ)
+
     def test_work_that_never_launches_the_engine_never_starts_qt(self):
         self.assertEqual(qt_engine.serve(lambda: 'done'), 'done')
         self.opening.assert_not_called()
