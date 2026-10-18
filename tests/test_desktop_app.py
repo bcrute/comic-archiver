@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
 from types import ModuleType, SimpleNamespace
@@ -77,6 +78,9 @@ class InlineThread:
 
     def is_alive(self):
         return type(self).alive
+
+    def join(self, timeout=None):
+        pass
 
 
 def emit(signal, *args):
@@ -865,17 +869,19 @@ class DesktopAppTests(unittest.TestCase):
             shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
             clock.time.return_value = 1000.0 + SESSION_SECONDS + 60
             emit(shell.clock.timeout)
-            shell.view.reload.assert_not_called()
+            self.assertEqual(self.loads(shell.view), [URL])
             # Wall-clock time, so hours asleep count as soon as the computer wakes.
             clock.time.return_value = renewed = 1000.0 + SESSION_SECONDS + 7200
             emit(shell.clock.timeout)
-            shell.view.reload.assert_called_once_with()
+            # The launch address again, not a reload: the page's own address opens no session by itself.
+            self.assertEqual(self.loads(shell.view), [URL] * 2)
             emit(shell.page.loadFinished, False)
             emit(shell.clock.timeout)
-            self.assertEqual(shell.view.reload.call_count, 2)
+            self.assertEqual(self.loads(shell.view), [URL] * 3)
             emit(shell.page.loadFinished, True)
             emit(shell.clock.timeout)
-            self.assertEqual(shell.view.reload.call_count, 2)
+            self.assertEqual(self.loads(shell.view), [URL] * 3)
+            shell.view.reload.assert_not_called()
             # Moving between the dashboard's pages issues no new cookie and must not reset the clock.
             clock.time.return_value = renewed + 3600
             emit(shell.page.loadFinished, True)
@@ -1341,7 +1347,7 @@ class DesktopAppTests(unittest.TestCase):
         shell.issued = 1000.0
         with patch('comic_archive.desktop_app.time', SimpleNamespace(time=Mock(return_value=1000.0 + SESSION_SECONDS + 7200))):
             emit(shell.clock.timeout)
-            shell.view.reload.assert_called_once_with()
+            self.assertEqual(self.loads(shell.view), [URL] * 2)
             emit(shell.page.loadFinished, True)
         with self.assertLogs('comic_archive.desktop', 'ERROR'):
             emit(shell.page.renderProcessTerminated, 'crashed', 9)
@@ -1613,6 +1619,103 @@ class DesktopAppTests(unittest.TestCase):
             emit(shell.page.renderProcessTerminated, crashed, 9)
         shell.view.reload.assert_called_once_with()  # A second crash is left for the person to act on.
         shell.stack.setCurrentWidget.assert_called_with(shell.notice)
+
+    def test_a_window_process_that_crashes_again_hours_later_is_reloaded_again(self):
+        shell = self.opened()
+        shell.load(); emit(shell.page.loadFinished, True)
+        clock = SimpleNamespace(time=Mock(return_value=1000.0))
+        with patch('comic_archive.desktop_app.time', clock), self.assertLogs('comic_archive.desktop', 'ERROR'):
+            emit(shell.page.renderProcessTerminated, 'crashed', 9)
+            emit(shell.page.loadFinished, True)
+            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS
+            emit(shell.page.renderProcessTerminated, 'crashed', 9)
+            self.assertEqual(shell.view.reload.call_count, 1)  # Crashing again so soon is left for the person.
+            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS + 1
+            emit(shell.page.renderProcessTerminated, 'crashed', 9)
+            self.assertEqual(shell.view.reload.call_count, 2)
+            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS + 2
+            emit(shell.page.renderProcessTerminated, 'crashed', 9)
+            self.assertEqual(shell.view.reload.call_count, 2)
+
+    def test_the_window_asks_whether_a_download_runs_on_a_thread_and_never_waits_long_for_a_slow_drive(self):
+        made, joined = [], []
+
+        class Asleep(InlineThread):
+            """A library on a drive that is asleep: the answer has not come back yet."""
+            alive = True
+
+            def __init__(self, target, daemon=None):
+                self.target, self.daemon = target, daemon
+                made.append(self)
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                joined.append(timeout)
+        with patch('comic_archive.desktop_app.osdep.keep_awake') as awake:
+            shell = self.opened(); shell.load()
+            self.threads.Thread = Asleep
+            self.runtime.busy.return_value = 'download'
+            emit(shell.awake_clock.timeout); emit(shell.awake_clock.timeout)
+            # One look at a time, on its own thread; the window's own thread is never held by it.
+            self.assertEqual((len(made), made[0].daemon), (1, True))
+            self.runtime.busy.assert_not_called(); awake.assert_not_called()
+            made[0].target()  # The drive answers.
+            emit(shell.awake_clock.timeout)
+            self.assertEqual([call.args for call in awake.call_args_list], [(True,)])
+            self.assertEqual(len(made), 1)
+            # Closing waits a moment at most for a fresh answer, then goes by the last one seen.
+            self.box.question.return_value = self.box.StandardButton.No
+            shell.window.closeEvent(Mock())
+            self.assertEqual(joined, [desktop_app.CLOSE_CHECK_SECONDS])
+            self.assertEqual(self.box.question.call_args.args[2], desktop_app.CLOSE_DOWNLOAD)
+            self.runtime.stop.assert_not_called()
+            # An answer about a library the window has since left is not taken for the new one's.
+            Asleep.alive = False
+            emit(shell.awake_clock.timeout)
+            shell.runtime = Mock(busy=Mock(return_value=None))
+            self.runtime.busy.return_value = None
+            made[-1].target()
+            self.assertEqual(shell.busy_seen, 'download')
+
+    def test_ending_the_app_from_outside_stops_the_downloader_as_closing_the_window_does(self):
+        shell = self.opened()
+        shell.end_clock.setInterval.assert_called_once_with(desktop_app.END_CHECK_MS); shell.end_clock.start.assert_called_once_with()
+        emit(shell.end_clock.timeout)
+        self.runtime.stop.assert_not_called()
+        shell.load()
+        self.runtime.busy.return_value = 'download'
+        shell.phase = 'moving'
+        shell.end(signal.SIGTERM, None)
+        self.runtime.stop.assert_not_called()  # A signal handler only takes note.
+        emit(shell.end_clock.timeout)
+        self.runtime.stop.assert_not_called()  # A library folder change is finished first.
+        shell.phase = 'open'
+        self.threads.Thread.alive = True
+        emit(shell.end_clock.timeout)
+        self.box.question.assert_not_called()  # No one is there to answer.
+        self.runtime.stop.assert_called_once_with(); self.runtime.signin.cancel.assert_called_once_with()
+        self.assertEqual(shell.phase, 'stopping')
+        shell.notice.setText.assert_called_with(desktop_app.FINISHING)
+        emit(shell.end_clock.timeout)
+        self.runtime.stop.assert_called_once_with()
+        self.threads.Thread.alive = False
+        emit(self.core.QTimer.made[-1].timeout)
+        shell.app.quit.assert_called_once_with()
+
+    def test_the_app_listens_for_the_system_asking_it_to_end_only_while_it_runs(self):
+        self.assertIn(signal.SIGTERM, desktop_app.ENDING_SIGNALS)
+        before = {number: signal.getsignal(number) for number in desktop_app.ENDING_SIGNALS}
+        seen = []
+
+        def loop():
+            seen.extend(signal.getsignal(number) for number in desktop_app.ENDING_SIGNALS)
+            return 0
+        self.widgets.QApplication.exec = Mock(side_effect=loop)
+        self.assertEqual(desktop_app.main([]), 0)
+        self.assertEqual([getattr(handler, '__name__', None) for handler in seen], ['end'] * len(desktop_app.ENDING_SIGNALS))
+        self.assertEqual({number: signal.getsignal(number) for number in desktop_app.ENDING_SIGNALS}, before)
 
     def test_closing_while_the_downloader_is_still_starting_never_shows_the_dashboard(self):
         shell = self.opened()

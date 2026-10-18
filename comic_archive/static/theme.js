@@ -5,10 +5,6 @@
   let preference;
   try {
     preference = localStorage.getItem(key);
-    if (preference === null) {
-      preference = localStorage.getItem('comic-archive-theme');
-      if (['light', 'dark'].includes(preference)) localStorage.setItem(key, preference);
-    }
   } catch { /* Storage may be blocked; the device theme still works. */ }
   if (!['light', 'dark'].includes(preference)) preference = null;
   function apply() {

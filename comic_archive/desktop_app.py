@@ -14,6 +14,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
 import threading
@@ -35,12 +36,19 @@ DESKTOP_ID = 'comic-archiver'
 # The same name as in packaging/windows/comic-archiver.iss, so the taskbar keeps the window with its shortcut.
 WINDOWS_APP_ID = 'ComicArchiver.Desktop'
 RAISE = b'raise\n'
+ENDING_SIGNALS = tuple(getattr(signal, name) for name in ('SIGTERM', 'SIGHUP') if hasattr(signal, name))
 SELF_TEST_SECONDS = 60
 SELF_TEST_SCRIPT = "document.querySelector('#account-download') !== null"
 SELF_TEST_COOKIE = 'comic_archive_self_test'
 SIGNIN_POLL_MS = 250
 # How often the window checks whether a download is running, to keep the computer awake for it.
 AWAKE_CHECK_MS = 5000
+# How long closing waits to learn whether a download is running; a drive that is asleep can take longer.
+CLOSE_CHECK_SECONDS = 2
+# How often the window looks for a request from the system to end, since Qt holds Python's signal handlers back.
+END_CHECK_MS = 500
+# A crashed page is reloaded by itself at most once in this long; a page that keeps crashing is left for the person.
+CRASH_RELOAD_SECONDS = 3600
 SIGNIN_PROBE_MS = 500
 SIGNIN_OPEN_SECONDS = 20
 SIGNIN_BACK = 'Cancel sign-in'
@@ -294,7 +302,7 @@ def close_action(phase, busy):
 
 
 def session_stale(issued, now):
-    """The dashboard's local cookie lasts SESSION_SECONDS and the server never renews it."""
+    """The dashboard's local cookie lasts SESSION_SECONDS; the server renews it only while the page is in use."""
     # A clock moved backwards leaves a cookie stamped in the future, which the server also rejects.
     return issued is not None and not 0 <= now - issued <= SESSION_SECONDS + 60
 
@@ -426,7 +434,9 @@ class Shell:
         self.phase = 'starting'
         self.issued = None
         self.renewing = False
-        self.crashes = 0
+        self.crashed = None  # When a crashed page was last reloaded by itself.
+        self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
+        self.ended = False
         self.window = self.channel = self.home = None
         # None, or what the sign-in panel shows: 'page', 'offline' or 'finishing'.
         self.signin_stage = self.signin_panel = self.cookie_check = None
@@ -516,6 +526,10 @@ class Shell:
         self.awake_clock.setInterval(AWAKE_CHECK_MS)
         self.awake_clock.timeout.connect(self.awake_check)
         self.awake_clock.start()
+        self.end_clock = q.QtCore.QTimer(self.window)
+        self.end_clock.setInterval(END_CHECK_MS)
+        self.end_clock.timeout.connect(self.end_check)
+        self.end_clock.start()
         self.app.styleHints().colorSchemeChanged.connect(self.theme_paint)
         self.theme_apply()
         self.window.show()
@@ -614,15 +628,17 @@ class Shell:
         LOG.error('the window process stopped: %s, exit code %s', getattr(status, 'name', status), code)
         self.show_notice(RENDER_FAILED)
         self.show(self.notice)
-        if self.crashes < 1:
-            self.crashes += 1
+        now = time.time()
+        if self.crashed is None or not 0 <= now - self.crashed <= CRASH_RELOAD_SECONDS:
+            self.crashed = now
             self.view.reload()
 
     def renew(self):
         # Checked against the wall clock every minute, so a suspended laptop recovers on waking.
         if self.phase == 'open' and session_stale(self.issued, time.time()):
             self.renewing = True
-            self.view.reload()
+            # The launch address, not a reload: the page's own address no longer opens a session.
+            self.view.load(self.q.QtCore.QUrl(self.runtime.url))
 
     def navigate(self, url, main_frame=True):
         action = navigation(url.scheme(), url.host(), url.port(), self.runtime.port, main_frame)
@@ -1010,26 +1026,49 @@ class Shell:
         return box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes
 
     def close_requested(self, event):
-        kind = self.runtime.busy() if self.phase in {'starting', 'open'} else None
+        kind = self.busy_now() if self.phase in {'starting', 'open'} else None
         action = close_action(self.phase, kind)
         if action == 'accept':
             event.accept()
             return
         # The window stays until the runtime has stopped, so it never just freezes or vanishes.
         event.ignore()
-        if action == 'finish' or (action == 'confirm' and self.confirm(kind)):
-            self.phase = 'stopping'
-            self.clock.stop()
-            self.signin_clock.stop()
-            self.awake_clock.stop()
-            self.stay_awake(False)
-            # Nothing is saved unless the last step of a sign-in had already begun.
-            self.runtime.signin.cancel()
-            if self.signin_stage:
-                self.signin_leave()
-            self.notice.setText(FINISHING)
-            self.stack.setCurrentWidget(self.notice)
-            self.background(self.runtime.stop, self.quit)
+        # The system may have ended the app while the question was open.
+        if action == 'finish' or (action == 'confirm' and self.confirm(kind) and self.phase in {'starting', 'open'}):
+            self.finish()
+
+    def finish(self):
+        """Stop the runtime behind a 'Finishing up' notice, then quit."""
+        self.phase = 'stopping'
+        self.clock.stop()
+        self.signin_clock.stop()
+        self.awake_clock.stop()
+        self.stay_awake(False)
+        # Nothing is saved unless the last step of a sign-in had already begun.
+        self.runtime.signin.cancel()
+        if self.signin_stage:
+            self.signin_leave()
+        self.notice.setText(FINISHING)
+        self.stack.setCurrentWidget(self.notice)
+        self.background(self.runtime.stop, self.quit)
+
+    def busy_now(self):
+        """What closing would interrupt, asked on a thread for a moment at most; a slow drive leaves the last answer seen."""
+        runtime, answer = self.runtime, []
+        thread = threading.Thread(target=lambda: answer.append(runtime.busy()), daemon=True)
+        thread.start()
+        thread.join(CLOSE_CHECK_SECONDS)
+        return answer[0] if answer else self.busy_seen
+
+    def end(self, number=None, frame=None):
+        """The system asked the app to end. A signal handler, so only noted here; end_check acts on it."""
+        self.ended = True
+
+    def end_check(self):
+        # Ended the way closing the window ends it, without asking: no one is there to answer.
+        if self.ended and self.phase in {'starting', 'open', 'failed'}:
+            LOG.info('the system asked the app to end')
+            self.finish()
 
     def choose_location(self):
         """Asked for in the dashboard: pick another library folder, in the computer's own folder dialog."""
@@ -1114,8 +1153,21 @@ class Shell:
         self.background(lambda: moved.append(app_runtime.move(previous, root)), done)
 
     def awake_check(self):
-        """Keep the computer from sleeping while a download runs, and let it sleep again once it has ended or paused."""
-        self.stay_awake(self.phase == 'open' and self.runtime.busy() == 'download')
+        """Keep the computer from sleeping while a download runs, and let it sleep again once it has ended or paused.
+
+        The runtime is asked on a thread, as a library on a drive that is asleep can take seconds to answer;
+        until it does, the answer before stands.
+        """
+        if self.phase == 'open' and (self.checker is None or not self.checker.is_alive()):
+            runtime = self.runtime
+
+            def check():
+                value = runtime.busy()
+                if runtime is self.runtime:
+                    self.busy_seen = value
+            self.checker = threading.Thread(target=check, daemon=True)
+            self.checker.start()
+        self.stay_awake(self.phase == 'open' and self.busy_seen == 'download')
 
     def stay_awake(self, running):
         if running != self.awake:
@@ -1134,6 +1186,7 @@ def run(q, project_root):
     LOG.info('starting version %s', version())
     app = application(q)
     lock = runtime = shell = None
+    handlers = {}
     try:
         state = app_runtime.state_dir()
         lock = q.QtCore.QLockFile(str(state / 'desktop.lock'))
@@ -1153,6 +1206,8 @@ def run(q, project_root):
         runtime = app_runtime.Runtime(Path(project_root).expanduser() if project_root
                                       else chosen or app_runtime.default_root(), site=app_runtime.saved_site())
         shell = Shell(q, app, runtime, log_path)
+        # Ending the app from outside (logging out, kill) stops the downloader as closing the window does.
+        handlers = {number: signal.signal(number, shell.end) for number in ENDING_SIGNALS}
         shell.listen(name)
         runtime.start()
         if missing:
@@ -1172,6 +1227,8 @@ def run(q, project_root):
             runtime.stop(wait_seconds=0)
         if lock is not None:
             lock.unlock()
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
     q.QtWidgets.QMessageBox.critical(None, APP_NAME, text)
     return 1
 

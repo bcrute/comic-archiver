@@ -331,7 +331,7 @@ class Runtime:
             raise ArchiveError(UNWRITABLE) from None
 
     def start(self):
-        """Serve the dashboard on a free loopback port and return its address."""
+        """Serve the dashboard on a free loopback port and return the address that opens it."""
         root, place, session, state = self._place(self.site)
         try:
             server = create_server(place, 0)
@@ -345,10 +345,17 @@ class Runtime:
             raise ArchiveError(UNWRITABLE) from None
         self.root, self.server, self.port = root, server, server.server_port
         self.site_choice = SiteChoice()
-        self._serve(server.get_app(), session, state)
+        try:
+            self._serve(server.get_app(), session, state)
+        except BaseException:
+            # Nothing was served yet: closing it here leaves stop() nothing to wait for.
+            self.server = None
+            server.server_close()
+            raise
         self.thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .25}, daemon=True)
         self.thread.start()
-        self.url = f'http://127.0.0.1:{self.port}/'
+        # The window opens the launch address: the page's secret way in, which other programs here do not have.
+        self.url = server.get_app().launch_url
         LOG.info('dashboard is listening on loopback port %d', self.port)
         return self.url
 
@@ -376,7 +383,9 @@ class Runtime:
         """
         try:
             _, place, session, state = self._place(site)
-            app = LocalApplication(LocalWorkspaceRegistry(place), self.port, cookie_key=self.server.get_app().cookie_key)
+            current = self.server.get_app()
+            app = LocalApplication(LocalWorkspaceRegistry(place), self.port, cookie_key=current.cookie_key,
+                                   launch_token=current.launch_token)
         except ArchiveError as error:
             LOG.warning('the site was not changed: %s', describe(error))
             return str(error)
@@ -546,7 +555,7 @@ class Runtime:
         deadline = time.monotonic() + wait_seconds
         if self.server is None:
             return 'not_started'
-        if self.thread.is_alive():
+        if self.thread is not None and self.thread.is_alive():
             self.server.shutdown()
         self.server.server_close()
         # A downloader that is still starting must be visible before it is asked to stop.
