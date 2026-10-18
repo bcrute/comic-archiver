@@ -141,6 +141,15 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(json.loads(archive.with_suffix('.json').read_text())['title'],title)
         self.assertEqual(verify(folder),[])
 
+    def test_source_titles_are_bounded_so_exports_stay_verifiable(self):
+        # A hostile source could otherwise publish a title longer than the archives' text caps.
+        with self.assertRaises(ArchiveError):
+            Series('42','x'*501)
+        with self.assertRaises(ArchiveError):
+            Episode('81','42','x'*501,1,(Page(1,'https://cdn.tapas.io/a',False),),'reader_confirmed')
+        Series('42','x'*500)
+        Episode('81','42','x'*500,1,(Page(1,'https://cdn.tapas.io/a',False),),'reader_confirmed')
+
     def test_normalized_source_links_and_storage_are_platform_independent(self):
         series = Series('42', 'Other platform', source='other_platform',
                         source_url='https://example.org/comic/42?session=PRIVATE')

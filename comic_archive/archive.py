@@ -710,6 +710,8 @@ def verify_series(path, *, image_decoder=None):
     try:
         if path.is_symlink():
             return ['Series metadata is a symlink']
+        if path.stat().st_size > 16*1024*1024:
+            return ['Series metadata is oversized']
         metadata=json.loads(path.read_text())
         filename=metadata.get('cover_file')
         if filename is None:
