@@ -30,6 +30,9 @@ from .web import HostedApplication
 LOCAL_OWNER = 'trusted-local-device'
 COOKIE_NAME = 'comic_archive_local'
 SESSION_SECONDS = 12 * 3600
+NEEDS_LAUNCH = ('This address alone does not open the dashboard. Open Comic Archiver itself, or the full '
+                'dashboard address it showed when it started.\n').encode()
+SAVED_FILES = re.compile(r'/api/v1/workspaces/[a-f0-9]{32}/saved-files')
 
 
 class LocalWorkspaceRegistry(WorkspaceRegistry):
@@ -203,41 +206,50 @@ class LocalWorkspaceRegistry(WorkspaceRegistry):
 class LocalApplication:
     """Authenticate same-origin loopback browsing with a private signed cookie.
 
-    Opening the root page on this trusted device creates the website session.
-    Tapas credentials remain in the existing worker, never in this cookie.
-    Host/peer/fetch checks prevent remote access and unsolicited cross-site
-    bootstrapping; a user-activated top-level navigation may open the dashboard.
+    Opening the launch address, which holds this server's own secret, creates
+    the website session; the port alone is reachable by every program and user
+    on the computer. Tapas credentials remain in the existing worker, never in
+    this cookie. Host/peer/fetch checks prevent remote access and unsolicited
+    cross-site bootstrapping; a user-activated top-level navigation may open
+    the launch address.
     """
-    def __init__(self, registry, port, cookie_key=None):
+    def __init__(self, registry, port, cookie_key=None, launch_token=None):
         if not isinstance(registry, LocalWorkspaceRegistry) or type(port) is not int or not 1 <= port <= 65535:
             raise ArchiveError('Local dashboard requires a local registry and valid port.')
+        if launch_token is not None and not (isinstance(launch_token, str) and re.fullmatch(r'[A-Za-z0-9_-]{32,128}', launch_token)):
+            raise ArchiveError('Local dashboard requires a valid launch secret.')
         self.registry = registry
-        # A page opened before the app switched to another site's library keeps its cookie.
+        # A page opened before the app switched to another site's library keeps its cookie and launch address.
         self.cookie_key = registry._key if cookie_key is None else cookie_key
+        self.launch_token = secrets.token_urlsafe(32) if launch_token is None else launch_token
+        # Named for the port, so dashboards on other ports of this computer keep their own.
+        self.cookie_name = f'{COOKIE_NAME}-{port}'
         self._dispatch_lock = threading.RLock()
         self.host = f'127.0.0.1:{port}'
         self.origin = f'http://{self.host}'
+        self.launch_url = f'{self.origin}/?launch={self.launch_token}'
         self.app = HostedApplication(registry, lambda env: env.get('comic.local.principal'), self.origin, max_workspaces=1)
 
     def _sign(self, payload):
         return hmac.new(self.cookie_key, b'local-browser-session\0' + payload.encode('ascii'), hashlib.sha256).hexdigest()
 
     def _cookie(self, environ):
+        """The age in seconds of a valid session cookie, else None."""
         raw = environ.get('HTTP_COOKIE', '')
         if not isinstance(raw, str) or len(raw) > 4096:
-            return False
+            return None
         cookie = SimpleCookie()
         try:
             cookie.load(raw)
         except CookieError:
-            return False
-        item = cookie.get(COOKIE_NAME)
+            return None
+        item = cookie.get(self.cookie_name)
         token = item.value if item else ''
         if not re.fullmatch(r'[0-9]{1,12}\.[a-f0-9]{32}\.[a-f0-9]{64}', token):
-            return False
+            return None
         stamp, nonce, signature = token.split('.')
-        return (0 <= time.time() - int(stamp) <= SESSION_SECONDS
-                and hmac.compare_digest(signature, self._sign(stamp + '.' + nonce)))
+        age = time.time() - int(stamp)
+        return age if 0 <= age <= SESSION_SECONDS and hmac.compare_digest(signature, self._sign(stamp + '.' + nonce)) else None
 
     def __call__(self, environ, start_response):
         # Never accept proxy headers as proof of a local peer or website owner.
@@ -252,32 +264,46 @@ class LocalApplication:
             same_ref = ref is None or (ref.scheme + '://' + ref.netloc == self.origin)
         except (TypeError, ValueError):
             same_ref = False
-        root_page = (environ.get('PATH_INFO') in {'/', '/library'} and environ.get('REQUEST_METHOD') in {'GET', 'HEAD'}
-                     and not environ.get('QUERY_STRING'))
-        # A user may click the displayed dashboard link from another website.
+        method = environ.get('REQUEST_METHOD')
+        query = environ.get('QUERY_STRING') or ''
+        root_page = environ.get('PATH_INFO') in {'/', '/library'} and method in {'GET', 'HEAD'}
+        # Only the launch address opens a session; constant-time, so the secret cannot be guessed piece by piece.
+        launch = root_page and hmac.compare_digest(query.encode('latin-1', 'replace'), b'launch=' + self.launch_token.encode())
+        # A user may click the launch link from another website.
         # Only a user-activated top-level document navigation may cross sites;
         # API calls, POSTs, fetches and frames still require the local origin.
-        user_navigation = (root_page and environ.get('REQUEST_METHOD') == 'GET'
+        user_navigation = (launch and method == 'GET'
                            and environ.get('HTTP_SEC_FETCH_MODE') == 'navigate'
                            and environ.get('HTTP_SEC_FETCH_DEST') == 'document'
                            and environ.get('HTTP_SEC_FETCH_USER') == '?1')
         if (origin not in {'', self.origin} or fetch_site not in {'', 'none', 'same-origin', 'cross-site', 'same-site'}
                 or ((fetch_site not in {'', 'none', 'same-origin'} or not same_ref) and not user_navigation)):
-            return self.app._json(start_response, '403 Forbidden', {'code': 'same_origin_required'}, environ.get('REQUEST_METHOD') == 'HEAD')
-        authenticated = self._cookie(environ)
-        bootstrap = not authenticated and root_page
-        if not bootstrap and not authenticated:
-            return self.app._json(start_response, '401 Unauthorized', {'code': 'local_session_required'}, environ.get('REQUEST_METHOD') == 'HEAD')
+            return self.app._json(start_response, '403 Forbidden', {'code': 'same_origin_required'}, method == 'HEAD')
+        age = self._cookie(environ)
+        if age is None and not launch:
+            if root_page and not query:
+                # Someone opened the plain address: say where the dashboard opens instead.
+                data = b'' if method == 'HEAD' else NEEDS_LAUNCH
+                start_response('401 Unauthorized', self.app._headers('text/plain; charset=utf-8') + [('Content-Length', str(len(NEEDS_LAUNCH)))])
+                return [data]
+            return self.app._json(start_response, '401 Unauthorized', {'code': 'local_session_required'}, method == 'HEAD')
         trusted = dict(environ)
         trusted['comic.local.principal'] = LOCAL_OWNER
+        if launch:
+            trusted['QUERY_STRING'] = ''
+        # A page in use keeps its session: past half its life the cookie is issued again.
+        issue = launch or age > SESSION_SECONDS / 2
 
         def respond(status, headers, exc_info=None):
-            if bootstrap and status.startswith('200 '):
+            if issue and status.startswith('200 '):
                 payload = str(int(time.time())) + '.' + secrets.token_hex(16)
                 value = payload + '.' + self._sign(payload)
-                headers = [*headers, ('Set-Cookie', f'{COOKIE_NAME}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_SECONDS}')]
+                headers = [*headers, ('Set-Cookie', f'{self.cookie_name}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_SECONDS}')]
             return start_response(status, headers, exc_info)
 
+        if not launch and method in {'GET', 'HEAD'} and SAVED_FILES.fullmatch(environ.get('PATH_INFO') or ''):
+            # Read-only, behind the catalog's own lock: a slow library scan does not hold up Pause or Go.
+            return self.app(trusted, respond)
         with self._dispatch_lock:
             return self.app(trusted, respond)
 
@@ -346,7 +372,8 @@ def create_server(project_root, port=8765):
 
 def serve(project_root, port=8765):
     with create_server(project_root, port) as server:
-        print(f'Local dashboard: http://127.0.0.1:{server.server_port}/', flush=True)
+        # Printed for this user's own terminal: the address holds the secret that opens the dashboard.
+        print(f'Local dashboard: {server.get_app().launch_url}', flush=True)
         print('Uses this project’s Library and existing browser worker. Ctrl+C stops the dashboard.', flush=True)
         try:
             server.serve_forever(poll_interval=0.25)

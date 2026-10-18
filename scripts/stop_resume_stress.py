@@ -370,10 +370,11 @@ class Bench:
         opener = build_opener(ProxyHandler({}))
         with opener.open(self.url, timeout=10) as response:
             cookie = response.headers['Set-Cookie'].split(';', 1)[0]
-        with opener.open(Request(self.url + 'api/v1/context', headers={'Cookie': cookie}), timeout=10) as response:
+        self.base = f'http://127.0.0.1:{self.runtime.port}/'  # self.url carries the launch secret
+        with opener.open(Request(self.base + 'api/v1/context', headers={'Cookie': cookie}), timeout=10) as response:
             token = json.loads(response.read())['csrf_token']
         self.opener = opener
-        self.headers = {'Cookie': cookie, 'Origin': self.url.rstrip('/'), 'X-CSRF-Token': token,
+        self.headers = {'Cookie': cookie, 'Origin': self.base.rstrip('/'), 'X-CSRF-Token': token,
                         'Content-Type': 'application/json'}
 
     def post(self, action):
@@ -383,7 +384,7 @@ class Bench:
         "busy, try again": the page shows that as an error and the person
         clicks again, so it is counted and the click repeated.
         """
-        url = f'{self.url}api/v1/workspaces/{self.registry.workspace_id}/{action}'
+        url = f'{self.base}api/v1/workspaces/{self.registry.workspace_id}/{action}'
         start = time.monotonic()
         with self.watch() as samples:
             for _ in range(8):

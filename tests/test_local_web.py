@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 from wsgiref.simple_server import make_server
@@ -11,7 +12,7 @@ from support import PRIVATE_FILE
 from comic_archive.cli import parser, run
 from comic_archive.inventory import Inventory
 from comic_archive.locking import LibraryLock
-from comic_archive.local_web import (COOKIE_NAME, LOCAL_OWNER, SESSION_SECONDS, LocalApplication,
+from comic_archive.local_web import (COOKIE_NAME, LOCAL_OWNER, NEEDS_LAUNCH, SESSION_SECONDS, LocalApplication,
                                      LocalWorkspaceRegistry, LocalServer, PrivateRequestHandler, create_server)
 from comic_archive.models import ArchiveError
 from comic_archive.sites import choices
@@ -194,17 +195,18 @@ class LocalWebTests(unittest.TestCase):
                          [('tapas',True,True),('webtoon',False,False),('tappytoon',True,False)])
 
     def test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites(self):
+        cookie=self.session()
         for route,title in (('/','<title>Comic Archiver</title>'),('/library','<title>Saved library — Comic Archiver</title>')):
-            page=self.call(route)[2].decode()
+            page=self.call(route,cookie=cookie)[2].decode()
             self.assertIn(title,page); self.assertNotIn('Tapas Archive',page)
             self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',page)
             self.assertEqual(page.count('<select id="site">'),int(route=='/'))
         # Where the cloud helper is not offered, the app on this computer still has its download settings; the
         # fuller view, which keeps its choices on the page itself, then has nothing to set.
         with patch('comic_archive.cloud_tools.offered',return_value=False):
-            self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',self.call('/')[2].decode())
+            self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',self.call('/',cookie=cookie)[2].decode())
             with patch.object(self.registry,'simple_mode',False):
-                self.assertIn('<a id="settings-nav" href="/#settings" hidden>Settings</a>',self.call('/')[2].decode())
+                self.assertIn('<a id="settings-nav" href="/#settings" hidden>Settings</a>',self.call('/',cookie=cookie)[2].decode())
 
     def test_open_existing_file_requires_local_cookie_origin_csrf_and_fixed_action(self):
         archive,identifier=self.file_to_open()
@@ -280,7 +282,8 @@ class LocalWebTests(unittest.TestCase):
                 self.registry.open_file_on_device(LOCAL_OWNER,self.workspace.id,identifier)
 
     def test_saved_library_view_can_bootstrap_locally_and_only_lists_owned_files(self):
-        status, headers, body = self.call('/library')
+        self.assertEqual(self.call('/library')[0],'401 Unauthorized')
+        status, headers, body = self.call('/library', headers=self.launch())
         self.assertEqual(status,'200 OK'); self.assertIn(b'id="saved-files"',body)
         cookie=headers['Set-Cookie'].split(';',1)[0]
         route='/api/v1/workspaces/'+self.workspace.id+'/saved-files'
@@ -413,8 +416,11 @@ class LocalWebTests(unittest.TestCase):
                 result.close()
         return *captured[0], payload
 
+    def launch(self, app=None):
+        return {'QUERY_STRING': 'launch=' + (app or self.app).launch_token}
+
     def session(self):
-        status, headers, _ = self.call(headers={'HTTP_SEC_FETCH_SITE': 'none'})
+        status, headers, _ = self.call(headers={'HTTP_SEC_FETCH_SITE': 'none'} | self.launch())
         self.assertEqual(status, '200 OK')
         return headers['Set-Cookie'].split(';', 1)[0]
 
@@ -447,14 +453,37 @@ class LocalWebTests(unittest.TestCase):
             self.assertEqual(inventory.status()['episodes_by_status'], {'downloading':1})
             self.assertEqual(inventory.status()['last_run']['status'], 'running')
 
-    def test_direct_navigation_bootstraps_private_cookie_and_assets_and_api_require_it(self):
-        status, headers, body = self.call()
+    def test_only_the_launch_address_bootstraps_private_cookie_and_assets_and_api_require_it(self):
+        # Any program or user on this computer can reach the port; without the launch secret it gets no session.
+        for path in ('/', '/library'):
+            for method in ('GET', 'HEAD'):
+                status, headers, body = self.call(path, method=method)
+                self.assertEqual(status, '401 Unauthorized')
+                self.assertNotIn('Set-Cookie', headers)
+                self.assertEqual(body, b'' if method == 'HEAD' else NEEDS_LAUNCH)
+        self.assertIn(b'Open Comic Archiver itself', NEEDS_LAUNCH)
+        token = self.app.launch_token
+        self.assertGreaterEqual(len(token), 43)
+        for query in ('launch=', 'launch=' + token[:-1], 'launch=' + token + 'x', 'launch=' + token + '&x=1', 'x=1&launch=' + token,
+                      'launch=' + token.swapcase(), 'launch=é' + token,
+                      'launch=' + LocalApplication(self.registry, 8765).launch_token, 'token=' + token):
+            status, headers, _ = self.call(headers={'QUERY_STRING': query})
+            self.assertEqual(status, '401 Unauthorized', query)
+            self.assertNotIn('Set-Cookie', headers)
+        for path in ('/api/v1/context', '/assets/archive.js'):
+            self.assertNotIn('Set-Cookie', self.call(path, headers=self.launch())[1])
+        self.assertEqual(self.call(method='POST', body={}, headers=self.launch())[0], '401 Unauthorized')
+        status, headers, body = self.call(headers=self.launch())
         self.assertEqual(status, '200 OK')
         self.assertIn(b'archive.js', body)
+        self.assertTrue(headers['Set-Cookie'].startswith(COOKIE_NAME + '-8765='))
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         self.assertIn('SameSite=Strict', headers['Set-Cookie'])
         self.assertNotIn('Domain=', headers['Set-Cookie'])
         cookie = headers['Set-Cookie'].split(';', 1)[0]
+        self.assertEqual(self.app.launch_url, 'http://127.0.0.1:8765/?launch=' + token)
+        # The page itself, once open, loads without the secret.
+        self.assertEqual(self.call(cookie=cookie)[0], '200 OK')
         for path in ('/assets/archive.js', '/assets/archive.css', '/api/v1/context'):
             self.assertEqual(self.call(path)[0], '401 Unauthorized')
             status, headers, body = self.call(path, cookie=cookie)
@@ -477,6 +506,61 @@ class LocalWebTests(unittest.TestCase):
         forged = cookie[:-1] + ('1' if cookie[-1] != '1' else '2')
         for value in (forged, 'bad=1', COOKIE_NAME + '=not-signed', 'x' * 4097):
             self.assertEqual(self.call('/api/v1/context', cookie=value, headers={'comic.local.principal': LOCAL_OWNER})[0], '401 Unauthorized')
+
+    def test_a_page_in_use_has_its_cookie_issued_again_past_half_its_life(self):
+        with patch('comic_archive.local_web.time.time', return_value=100000):
+            cookie = self.session()
+        with patch('comic_archive.local_web.time.time', return_value=100000 + SESSION_SECONDS // 2):
+            status, headers, _ = self.call('/api/v1/context', cookie=cookie)
+            self.assertEqual(status, '200 OK'); self.assertNotIn('Set-Cookie', headers)
+        with patch('comic_archive.local_web.time.time', return_value=100000 + SESSION_SECONDS // 2 + 1):
+            status, headers, _ = self.call('/api/v1/context', cookie=cookie)
+            self.assertEqual(status, '200 OK')
+            self.assertIn('HttpOnly', headers['Set-Cookie']); self.assertIn(f'Max-Age={SESSION_SECONDS}', headers['Set-Cookie'])
+            renewed = headers['Set-Cookie'].split(';', 1)[0]
+            # A refused request renews nothing.
+            self.assertNotIn('Set-Cookie', self.call('/api/v1/workspaces/' + '0' * 32, cookie=cookie)[1])
+        with patch('comic_archive.local_web.time.time', return_value=100000 + SESSION_SECONDS + 60):
+            self.assertEqual(self.call('/api/v1/context', cookie=cookie)[0], '401 Unauthorized')
+            self.assertEqual(self.call('/api/v1/context', cookie=renewed)[0], '200 OK')
+
+    def test_each_port_has_its_own_cookie_and_launch_secret_and_a_site_switch_keeps_both(self):
+        other = LocalApplication(self.registry, 8766)
+        self.assertNotEqual(other.launch_token, self.app.launch_token)
+        self.assertEqual((other.cookie_name, self.app.cookie_name), (COOKIE_NAME + '-8766', COOKIE_NAME + '-8765'))
+        cookie = self.session()
+        env = {'REMOTE_ADDR': '127.0.0.1', 'HTTP_HOST': '127.0.0.1:8766', 'wsgi.url_scheme': 'http', 'REQUEST_METHOD': 'GET',
+               'PATH_INFO': '/api/v1/context', 'QUERY_STRING': '', 'HTTP_COOKIE': cookie}
+        captured = []
+        other(env, lambda status, values, exc_info=None: captured.append(status))
+        self.assertEqual(captured, ['401 Unauthorized'])
+        switched = LocalApplication(self.registry, 8765, cookie_key=self.app.cookie_key, launch_token=self.app.launch_token)
+        self.assertEqual(switched.launch_url, self.app.launch_url)
+        self.app = switched
+        self.assertEqual(self.call('/api/v1/context', cookie=cookie)[0], '200 OK')
+        for token in ('', 'short', 'x' * 129, 'a/b' * 20, 42):
+            with self.assertRaises(ArchiveError):
+                LocalApplication(self.registry, 8765, launch_token=token)
+
+    def test_a_slow_saved_library_listing_does_not_hold_up_other_requests(self):
+        from concurrent.futures import ThreadPoolExecutor
+        cookie = self.session()
+        scanning, release = threading.Event(), threading.Event()
+        real = self.registry.saved_catalog.collect
+
+        def slow(*args):
+            scanning.set(); release.wait(10)
+            return real(*args)
+        route = '/api/v1/workspaces/' + self.workspace.id
+        with patch.object(self.registry.saved_catalog, 'collect', side_effect=slow), ThreadPoolExecutor(max_workers=2) as pool:
+            listing = pool.submit(self.call, route + '/saved-files', cookie=cookie, headers={'QUERY_STRING': 'summary=1&refresh=1'})
+            self.assertTrue(scanning.wait(5))
+            try:
+                # The dashboard's status and context answer while the scan goes on.
+                self.assertEqual(pool.submit(self.call, route, cookie=cookie).result(timeout=5)[0], '200 OK')
+            finally:
+                release.set()
+            self.assertEqual(listing.result(timeout=10)[0], '200 OK')
 
     def test_remote_cross_site_and_dns_rebinding_requests_never_bootstrap_or_authenticate(self):
         cookie = self.session()
@@ -523,6 +607,9 @@ class LocalWebTests(unittest.TestCase):
         headers = {'HTTP_SEC_FETCH_SITE': 'cross-site', 'HTTP_SEC_FETCH_MODE': 'navigate',
                    'HTTP_SEC_FETCH_DEST': 'document', 'HTTP_SEC_FETCH_USER': '?1',
                    'HTTP_REFERER': 'https://another-site.example/'}
+        # Without the launch secret, another site's link opens nothing.
+        self.assertEqual(self.call(headers=headers)[0], '403 Forbidden')
+        headers |= self.launch()
         status, values, _ = self.call(headers=headers)
         self.assertEqual(status, '200 OK')
         cookie = values['Set-Cookie'].split(';', 1)[0]
@@ -643,7 +730,7 @@ class LocalWebTests(unittest.TestCase):
                 contextlib.redirect_stdout(output):
             serve(self.root, 0)
         self.assertEqual(made[0].socket.fileno(), -1)
-        self.assertIn(f'Local dashboard: http://127.0.0.1:{made[0].server_port}/', output.getvalue())
+        self.assertIn(f'Local dashboard: http://127.0.0.1:{made[0].server_port}/?launch={made[0].get_app().launch_token}\n', output.getvalue())
         self.assertIn('Local dashboard stopped.', output.getvalue())
 
 

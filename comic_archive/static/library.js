@@ -1,4 +1,6 @@
 'use strict';
+// The launch address's secret has done its work once the page is here; it is not kept in the address bar or history.
+if (location.search.startsWith('?launch=')) history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
 const state = {workspace:null, interfaceMode:null, desktopOnly:true, location:'device', offset:0, total:0, busy:false, request:0, locations:[], cloud:false};
 const count = n => Number.isInteger(n) && n >= 0 ? n.toLocaleString() : '0';
@@ -21,7 +23,7 @@ async function api(path, body, failed='This file could not be opened. Refresh fi
   let result;
   try {result = await response.json();} catch {throw new Error('The app returned an unexpected response. Reload this page and try again.');}
   if (!response.ok) {
-    throw new Error(response.status === 401 ? 'Your session expired. Reload this page.'
+    throw new Error(response.status === 401 ? 'Your session expired. Close and reopen the app, or open the full dashboard address again.'
       : body !== undefined ? result.code === 'device_file_open_unavailable'
         ? 'No app could open this file. Choose a default app for this file type on your device, then try again.'
         : failed

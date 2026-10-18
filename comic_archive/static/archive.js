@@ -1,8 +1,10 @@
 'use strict';
+// The launch address's secret has done its work once the page is here; it is not kept in the address bar or history.
+if (location.search.startsWith('?launch=')) history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
 const state = { context: null, account: null, siteAuth: null, accountMessage: null, workspace: null, status: null, cloud: null, network: null, auth: null, storage: null, series: [], task: null, taskKind: null, taskInfo: null, taskLabel: null, connectionCheck: null, busy: false, polling: false, seriesKey: null, auditUrl: null, previewUrl: null, preview: null, bucketDrafts: {}, b2StepsOpen: false, locations: [] };
 const errors = { website_login_required: 'Sign in to this website to open your library.',
-  local_session_required: 'This page’s session expired. Close and reopen the app, or reload this page in a browser.',
+  local_session_required: 'This page’s session expired. Close and reopen the app, or open the full dashboard address it showed again.',
   same_origin_required: 'Open the local dashboard directly at its displayed address.',
   loopback_required: 'Use the displayed 127.0.0.1 address on this computer.',
   origin_required: 'Open this page at the configured website address.',
@@ -749,7 +751,8 @@ async function poll() {
       // The connection can change under a running download; check it now and then, not every poll.
       if (Date.now() - (state.networkCheckedAt || 0) > 15000) await network(false);
       state.lastAccountRefreshAt = Date.now(); state.accountOffline = false;
-      if (Date.now() - (state.libraryRefreshedAt || 0) > 30000) await librarySummary(true);
+      // The saved summary is at most 15 seconds old; reading every file again is left to a refresh someone asked for.
+      if (Date.now() - (state.libraryRefreshedAt || 0) > 30000) await librarySummary();
       if (state.accountMessage?.polling || state.accountMessage?.until < Date.now()) state.accountMessage = null;
       return;
     }
@@ -988,6 +991,8 @@ function heldMessage(code, site, goWait, missing) {
   if (['source_refused','source_recovery_limit'].includes(code)) return `Paused: ${site} asked the app to slow down. ${safe} `
     + (goWait ? `Go works again in ${waitText(goWait)}.` : 'Hit Go to try again. If this keeps happening, choose a slower speed in Settings.');
   if (code === 'source_access_changed') return `Paused: ${site} still would not send an episode after waiting. ${safe} Check that you can read it on ${site}, then hit Go to continue.`;
+  // While the connection is still held, the caller's own message names it; this one is for after it changed.
+  if (code === 'network_policy') return `Paused while the connection was not Wi-Fi or wired. ${safe} Hit Go to continue.`;
   if (['network_unavailable','network_recovery_limit'].includes(code)) return `Paused: ${site} could not be reached several times in a row. ${safe} Check your internet connection, then hit Go to continue.`;
   if (['no_progress','scan_no_progress'].includes(code)) return `Paused: the last few tries saved nothing new. ${safe} Hit Go to try again; if it pauses again, ${site} may be having trouble, so try later.`;
   if (code === 'cancelled') return 'Paused. Hit Go to continue from saved progress.';
