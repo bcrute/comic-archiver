@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from support import PRIVATE_FILE
-from comic_archive.archive import Store, digest, verify
+from comic_archive.archive import Store, digest, sidecar_path, verify
 from comic_archive.backup import backup_library
 from comic_archive.cli import parser
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
@@ -162,6 +162,16 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.destination.iterdir() if not p.name.startswith('.')), [self.folder.name])
         empty = self.root/'EmptyLibrary'; (empty/'Plain').mkdir(parents=True)
         with self.assertRaisesRegex(ArchiveError, 'No verified'): backup_library(empty, self.root/'empty-backup', reserve_bytes=0)
+
+    def test_an_episode_kept_only_in_the_cloud_is_backed_up_as_its_sidecar(self):
+        archive = next(self.folder.glob('*.cbz')); archive.unlink()
+        with self.assertRaisesRegex(ArchiveError, 'episode count'): backup_library(self.source, self.destination, reserve_bytes=0)
+        with patch('comic_archive.cloud.offloaded', lambda root, path: {'eviction_requested': True} if path == archive else None):
+            result = backup_library(self.source, self.destination, reserve_bytes=0)
+        self.assertEqual((result['archive_count'], result['offloaded_episode_count'], result['copied_files']), (0, 1, 2))
+        copied = self.destination/self.folder.name
+        self.assertEqual(sidecar_path(copied/archive.name).read_bytes(), sidecar_path(archive).read_bytes())
+        self.assertFalse((copied/archive.name).exists())
 
     def test_symlinked_endpoints_and_invalid_reserves_are_refused_before_anything_is_written(self):
         link = self.root/'link'; link.symlink_to(self.source, target_is_directory=True)

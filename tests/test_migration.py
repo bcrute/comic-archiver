@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from comic_archive.archive import Store, digest, episode_archives, sidecar_path, verify
 from comic_archive.errors import RunLimit
@@ -46,6 +47,14 @@ class MigrationTests(unittest.TestCase):
         for root in (alias, self.root.parent/'absent'):
             with self.subTest(root=root.name), self.assertRaises(ArchiveError): migrate_exports(root, min_free_bytes=0)
         self.assertFalse((self.root/'.archive-state/legacy-exports').exists()); self.assertEqual(len(episode_archives(folder)), 1)
+
+    def test_a_migrated_epub_package_keeps_the_namespace_prefixes_of_a_fresh_export(self):
+        self.legacy(novel=True); self.migrate()
+        epub = next(self.root.glob('*/*.epub'))
+        with zipfile.ZipFile(epub) as archive: package = archive.read('EPUB/package.opf')
+        self.assertNotIn(b'ns0:', package); self.assertIn(b'<package xmlns="http://www.idpf.org/2007/opf"', package)
+        self.assertIn(('<dc:identifier id="book-id">urn:uuid:' + import_metadata(sidecar_path(epub))['export_id']).encode(), package)
+        self.assertEqual(verify(self.root), [])
 
     def test_conversion_stops_with_originals_in_place_when_free_space_is_short(self):
         folder = self.legacy()

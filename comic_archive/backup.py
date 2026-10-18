@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from .archive import atomic_json, verify_episode, verify_series, episode_archives, sidecar_path
+from .archive import atomic_json, verify_episode, verify_series, episode_archives, offloaded_archive, sidecar_path
 from .archive_paths import directory
 from .locking import LibraryLock, wait_for_library
 from .models import ArchiveError
@@ -37,8 +37,12 @@ def _series_files(folder):
         raise ArchiveError('Source series metadata or cover failed verification; backup retained.')
     metadata = json.loads(path.read_text())
     archives = episode_archives(folder)
+    local = {sidecar_path(archive) for archive in archives}
+    # Uploaded, then removed here: only the sidecar is copied, describing the archive kept in the cloud.
+    remote = [p for p in sorted(folder.glob('*.json'))
+              if p.name != 'series.json' and p not in local and offloaded_archive(folder.parent, p)]
     if (type(metadata.get('episode_count')) is not int
-            or metadata['episode_count'] != len(archives)):
+            or metadata['episode_count'] != len(archives) + len(remote)):
         raise ArchiveError('Source series episode count differs from its exports; backup retained.')
     files = []
     for archive in archives:
@@ -46,11 +50,12 @@ def _series_files(folder):
         if verify_episode(archive):
             raise ArchiveError('Source episode failed verification; backup retained.')
         files.extend((archive, sidecar_path(archive)))
+    files.extend(_regular(p) for p in remote)
     cover = metadata.get('cover_file')
     if cover is not None:
         files.append(_regular(folder / cover))
     # Publish series metadata after its covers/episodes, never before them.
-    return files + [path], len(archives)
+    return files + [path], len(archives), len(remote)
 
 
 def backup_library(source, destination, *, wait_seconds=0, reserve_bytes=1024**3, progress=None):
@@ -89,7 +94,7 @@ def backup_library(source, destination, *, wait_seconds=0, reserve_bytes=1024**3
                                 'source_identity': hashlib.sha256(str(source).encode()).hexdigest(),
                                 'complete': False, 'files': []})
         folders = sorted(p for p in source.iterdir() if not p.name.startswith('.') and p.is_dir())
-        selection, episodes, series = [], 0, 0
+        selection, episodes, offloaded, series = [], 0, 0, 0
         for folder in folders:
             if folder.is_symlink():
                 raise ArchiveError('Refusing a symlinked source series.')
@@ -97,11 +102,11 @@ def backup_library(source, destination, *, wait_seconds=0, reserve_bytes=1024**3
                 if episode_archives(folder):
                     raise ArchiveError('A source series is missing portable metadata.')
                 continue
-            files, count = _series_files(folder)
-            if not count:
+            files, count, remote = _series_files(folder)
+            if not count and not remote:
                 continue
-            selection.extend(files); episodes += count; series += 1
-        if not episodes:
+            selection.extend(files); episodes += count; offloaded += remote; series += 1
+        if not episodes and not offloaded:
             raise ArchiveError('No verified portable episode exports were found.')
         expected = {p.relative_to(source).as_posix() for p in selection}
         existing = {p.relative_to(destination).as_posix() for folder in destination.iterdir()
@@ -125,7 +130,7 @@ def backup_library(source, destination, *, wait_seconds=0, reserve_bytes=1024**3
         report = {'schema_version': 1, 'document_type': 'portable_archive_backup',
                   'source_identity': hashlib.sha256(str(source).encode()).hexdigest(),
                   'checked_at': datetime.now(timezone.utc).isoformat(), 'complete': False,
-                  'archive_count': episodes, 'series_count': series,
+                  'archive_count': episodes, 'offloaded_episode_count': offloaded, 'series_count': series,
                   'file_count': len(records), 'copied_files': 0, 'copied_bytes': 0,
                   'reused_files': len(records) - len(changed),
                   'total_portable_bytes': sum(r['size'] for r in records),
