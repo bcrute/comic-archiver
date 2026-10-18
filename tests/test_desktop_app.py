@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 from support import home_environment
-from comic_archive import app_runtime, desktop_app, sites
+from comic_archive import app_runtime, desktop_app, qt_engine, sites
 from comic_archive.local_web import SESSION_SECONDS
 from comic_archive.models import ArchiveError
 
@@ -574,7 +574,9 @@ class DesktopAppTests(unittest.TestCase):
             return desktop_app.signin_navigation(url.scheme(), url.host(), url.path(), main_frame)
         for text in (SIGNIN, 'https://tapas.io/', 'https://accounts.google.com/o/oauth2/auth?x=1', 'https://www.facebook.com/login', 'about:blank'):
             self.assertTrue(allowed(text)); self.assertTrue(allowed(text, main_frame=False))
-        for text in ('http://tapas.io/account/signin', URL, 'http://localhost:4321/', 'file:///etc/passwd', 'view-source:https://tapas.io/',
+        for text in ('http://tapas.io/account/signin', URL, 'http://localhost:4321/', 'https://192.168.1.10/',
+                     'https://169.254.169.254/latest/meta-data/', 'https://printer.local/', 'https://router.home.arpa/',
+                     'file:///etc/passwd', 'view-source:https://tapas.io/',
                      'devtools://devtools/bundled/inspector.html', 'chrome://gpu', 'data:text/html,x', 'javascript:alert(1)',
                      'blob:https://tapas.io/5b2c', 'about:srcdoc', 'about:config', 'ftp://tapas.io/x', 'qrc:/x', 'https:///x', ''):
             self.assertFalse(allowed(text), text)
@@ -592,6 +594,16 @@ class DesktopAppTests(unittest.TestCase):
         for host in ('tapas.io', 'accounts.google.com', 'localhost.example.com', 'notlocalhost', '128.0.0.1', '126.255.255.255',
                      '192.168.1.10', '::2', '2001:db8::1', '::ffff:8.8.8.8', '127.0.0.1.example.com', ''):
             self.assertFalse(desktop_app.loopback(host), host)
+
+    def test_private_destinations_include_local_names_and_every_non_public_ip_literal(self):
+        for host in ('localhost', 'app.localhost.', 'local', 'printer.local', 'home.arpa', 'router.home.arpa.',
+                     '0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1',
+                     '192.168.1.10', '224.0.0.1', '255.255.255.255', '::', '[::1]', 'fe80::1', 'fd00::1',
+                     '2001:db8::1', '::ffff:192.168.1.10'):
+            self.assertTrue(desktop_app.private_destination(host), host)
+        for host in ('tapas.io', 'accounts.google.com', 'localhost.example.com', 'printer.local.example.com',
+                     '8.8.8.8', '1.1.1.1', '2001:4860:4860::8888', ''):
+            self.assertFalse(desktop_app.private_destination(host), host)
 
     def test_only_the_tapas_site_itself_is_asked_who_is_signed_in_and_the_bar_names_the_site_plainly(self):
         self.assertTrue(desktop_app.on_site('https', 'tapas.io'))
@@ -721,6 +733,13 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(app.args, (['comic-archiver'],))
         # Nor the environment, which the downloader and the programs it opens would inherit.
         self.assertNotIn('QTWEBENGINE_DISABLE_SANDBOX', os.environ)
+
+    def test_startup_drops_inherited_web_engine_overrides_before_qt_runs(self):
+        for name in qt_engine.UNSAFE_QT_ENVIRONMENT:
+            os.environ[name] = 'unsafe'
+        self.assertEqual(desktop_app.main([]), 0)
+        for name in qt_engine.UNSAFE_QT_ENVIRONMENT:
+            self.assertNotIn(name, os.environ)
 
     def test_second_launch_wakes_the_first_and_starts_no_server_or_worker(self):
         self.held_lock(answered=True, stale=False)
@@ -990,6 +1009,7 @@ class DesktopAppTests(unittest.TestCase):
         page = shell.signin_page
         for text, main_frame, allowed in [(SIGNIN, True, True), ('https://accounts.google.com/o/oauth2/auth', True, True),
                                           ('about:srcdoc', False, True), (URL, True, False), (URL, False, False),
+                                          ('https://192.168.1.10/', True, False), ('https://router.local/', True, False),
                                           ('http://tapas.io/', True, False), ('file:///etc/passwd', True, False), ('chrome://gpu', True, False)]:
             self.assertEqual(page.acceptNavigationRequest(Url(text), None, main_frame), allowed, text)
         # Going back through the history never lands on the blank page the panel starts from.
@@ -998,7 +1018,10 @@ class DesktopAppTests(unittest.TestCase):
         self.assertTrue(page.acceptNavigationRequest(Url('about:blank'), 'link', True))
         self.q.QtGui.QDesktopServices.openUrl.assert_not_called()  # Nothing is handed to another browser.
         for text, blocked in [(URL + 'api/v1/context', True), ('http://localhost:4321/', True), ('https://[::1]:4321/', True),
-                              ('ws://127.0.0.1:4321/', True), ('https://tapas.io/who-am-i', False), ('https://accounts.google.com/', False)]:
+                              ('ws://127.0.0.1:4321/', True), ('https://192.168.1.10/', True),
+                              ('https://169.254.169.254/latest/meta-data/', True), ('https://router.local/', True),
+                              ('https://device.home.arpa/', True), ('https://tapas.io/who-am-i', False),
+                              ('https://accounts.google.com/', False), ('https://8.8.8.8/', False)]:
             info = Mock(); info.requestUrl.return_value = Url(text)
             shell.signin_guard.interceptRequest(info)
             self.assertEqual([call.args for call in info.block.call_args_list], [(True,)] if blocked else [], text)

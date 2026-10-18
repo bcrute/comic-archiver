@@ -1,6 +1,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -33,6 +34,13 @@ class ReleaseGateTests(unittest.TestCase):
 
     def verify(self, metadata=None):
         return release.verify(self.folder, self.commit, self.release if metadata is None else metadata, 'owner', self.version)
+
+    def test_release_workflow_pins_every_action_to_an_exact_commit(self):
+        workflow = (Path(__file__).parents[1] / '.github/workflows/release.yml').read_text(encoding='utf-8')
+        actions = re.findall(r'^\s*-\s+uses:\s+([^\s#]+)', workflow, re.M)
+        self.assertTrue(actions)
+        for action in actions:
+            self.assertRegex(action, r'^[^@]+@[0-9a-f]{40}$')
 
     def test_accepts_owner_attested_exact_commit_and_all_downloads(self):
         self.assertEqual(self.verify(), self.value)

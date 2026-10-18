@@ -2,7 +2,7 @@
 # Comic Archiver launcher: runs the Python bundled in this folder.
 self=$(readlink -f -- "$0" 2>/dev/null) || self=$0
 here=$(cd -- "$(dirname -- "$self")" && pwd -P) || exit 1
-unset PYTHONPATH PYTHONHOME
+unset PYTHONPATH PYTHONHOME QTWEBENGINE_DISABLE_SANDBOX QTWEBENGINE_CHROMIUM_FLAGS QTWEBENGINE_REMOTE_DEBUGGING QTWEBENGINEPROCESS_PATH
 export PYTHONNOUSERSITE=1
 # Never import code from the folder the app was started in (the downloader inherits this too).
 export PYTHONSAFEPATH=1

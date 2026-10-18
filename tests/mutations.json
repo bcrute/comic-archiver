@@ -3206,5 +3206,53 @@
   "new": "if False:",
   "test_file": "test_cloud_stream.py",
   "test": "test_wrong_or_missing_remote_checksums_keep_a_verified_local_fallback_and_never_mark_uploaded"
+ },
+ {
+  "id": "sign-in navigation can reach a private destination",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if scheme == 'https' and host and not private_destination(host):",
+  "new": "if scheme == 'https' and host:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_page_loads_whole_pages_only_over_https"
+ },
+ {
+  "id": "sign-in requests use only the old loopback guard",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if private_destination(info.requestUrl().host()):",
+  "new": "if loopback(info.requestUrl().host()):",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_page_keeps_to_https_cannot_reach_this_computer_and_saves_or_grants_nothing"
+ },
+ {
+  "id": "sign-in private IP literals are treated as public",
+  "source": "comic_archive/desktop_app.py",
+  "old": "return not address.is_global or address.is_multicast",
+  "new": "return False",
+  "test_file": "test_desktop_app.py",
+  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
+ },
+ {
+  "id": "sign-in home network names are treated as public",
+  "source": "comic_archive/desktop_app.py",
+  "old": " or name == 'home.arpa' or name.endswith('.home.arpa')",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
+ },
+ {
+  "id": "desktop inherits unsafe web engine overrides",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    secure_qt_environment(os.environ)\n    try:\n        q = qt()",
+  "new": "    try:\n        q = qt()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_startup_drops_inherited_web_engine_overrides_before_qt_runs"
+ },
+ {
+  "id": "downloader inherits unsafe web engine overrides",
+  "source": "comic_archive/qt_engine.py",
+  "old": "    secure_qt_environment(os.environ)\n    loop = _serving = Loop(arguments)",
+  "new": "    loop = _serving = Loop(arguments)",
+  "test_file": "test_qt_engine.py",
+  "test": "test_serve_removes_inherited_web_engine_overrides_before_starting"
  }
 ]
