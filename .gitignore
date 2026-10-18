@@ -9,6 +9,7 @@ Library/
 .comic-web/
 *.har
 storage-state*.json
+comic_archive/oauth-clients.json
 parked/android/build/
 .validation/
 /build/
