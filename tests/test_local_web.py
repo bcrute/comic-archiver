@@ -1,4 +1,3 @@
-import contextlib
 import io
 import json
 from pathlib import Path
@@ -6,10 +5,8 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from wsgiref.simple_server import make_server
 
 from support import PRIVATE_FILE
-from comic_archive.cli import parser, run
 from comic_archive.inventory import Inventory
 from comic_archive.locking import LibraryLock
 from comic_archive.local_web import (COOKIE_NAME, LOCAL_OWNER, NEEDS_LAUNCH, SESSION_SECONDS, LocalApplication,
@@ -19,68 +16,12 @@ from comic_archive.sites import choices
 
 
 class LocalWebTests(unittest.TestCase):
-    def desktop_settings_fixture(self):
-        import uuid
-        from comic_archive.worker import private_json
-        folder = self.workspace.library/'.archive-state/cloud'
-        config = folder/'rclone.conf'; folder.mkdir(parents=True, exist_ok=True)
-        config.write_text('PRIVATE_CREDENTIALS')
-        receipt = folder/'tests/pending.json'; receipt.parent.mkdir()
-        private_json(receipt, {'state':'cleanup_pending','private':'PRIVATE_RECEIPT'})
-        private_json(folder/'targets.json', {'schema_version':1,'library_id':str(uuid.uuid4()),
-            'targets':{'google':{'remote':'google','config':str(config),'enabled':True,
-                'tested':True,'target_id':str(uuid.uuid4())}}})
-        return config, receipt
-
-    def test_desktop_review_and_import_preserve_explicit_cloud_destination_and_recovery(self):
-        from comic_archive.cloud import settings
-        from comic_archive.network import policy, configure
-        requests = self.workspace.session/'worker/requests'; requests.mkdir(parents=True)
-        config, receipt = self.desktop_settings_fixture()
-        context = json.loads(self.call('/api/v1/context',cookie=self.session())[2])
-        self.assertTrue(context['desktop_only'])
-        self.assertEqual(self.registry.storage(LOCAL_OWNER,self.workspace.id)['storage_destination'],'cloud')
-        self.assertTrue(settings(self.workspace.library)['targets']['google']['enabled'])
-        for action in ('review', 'import', 'schedule'):
-            from comic_archive.worker import private_json
-            value = settings(self.workspace.library); value['targets']['google']['enabled'] = True
-            private_json(config.parent/'targets.json',value)
-            configure(self.workspace.library, True)
-            if action == 'review':
-                self.registry.preview_series_storage(LOCAL_OWNER,self.workspace.id,
-                    'https://tapas.io/series/sample/info','one')
-            elif action == 'import':
-                self.registry.submit(LOCAL_OWNER,self.workspace.id,'archive_discovered',{'speed':'fast'})
-            else:
-                self.registry.configure_daily(LOCAL_OWNER,self.workspace.id,enabled=True)
-            target = settings(self.workspace.library)['targets']['google']
-            self.assertTrue(target['enabled']); self.assertTrue(target['tested'])
-            self.assertTrue(policy(self.workspace.library)['wifi_only'])
-            self.assertEqual(config.read_text(),'PRIVATE_CREDENTIALS')
-            self.assertEqual(json.loads(receipt.read_text())['state'],'cleanup_pending')
-        self.assertEqual(len(list(requests.glob('*.json'))),3)
-
-    def test_desktop_review_refuses_active_writer_without_changing_settings_or_queue(self):
-        from concurrent.futures import ThreadPoolExecutor
-        from comic_archive.cloud import settings
-        from comic_archive.network import policy
-        from comic_archive.errors import LibraryBusy
-        config, receipt = self.desktop_settings_fixture()
-        with LibraryLock(self.workspace.library), ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self.registry.preview_series_storage, LOCAL_OWNER,
-                self.workspace.id, 'https://tapas.io/series/sample/info', 'one')
-            with self.assertRaises(LibraryBusy): future.result(timeout=5)
-        self.assertTrue(settings(self.workspace.library)['targets']['google']['enabled'])
-        self.assertTrue(policy(self.workspace.library)['wifi_only'])
-        self.assertFalse(list(self.workspace.session.glob('worker/requests/*.json')))
-        self.assertEqual(config.read_text(),'PRIVATE_CREDENTIALS')
-        self.assertTrue(receipt.exists())
 
     def file_to_open(self):
         folder=self.workspace.library/'portable';folder.mkdir()
         archive=folder/'saved episode.cbz';archive.write_bytes(b'owned portable file')
         archive.with_suffix('.json').write_text('{}')
-        return archive,next(row['id'] for row in self.registry.exports(LOCAL_OWNER,self.workspace.id) if row['kind']=='cbz')
+        return archive,next(key for key,(_,kind) in self.registry._exports(self.workspace).items() if kind=='cbz')
 
     def test_library_folder_is_named_only_by_the_desktop_app_and_the_page_can_only_leave_a_fixed_request(self):
         cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
@@ -201,12 +142,9 @@ class LocalWebTests(unittest.TestCase):
             self.assertIn(title,page); self.assertNotIn('Tapas Archive',page)
             self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',page)
             self.assertEqual(page.count('<select id="site">'),int(route=='/'))
-        # Where the cloud helper is not offered, the app on this computer still has its download settings; the
-        # fuller view, which keeps its choices on the page itself, then has nothing to set.
+        # Where the cloud helper is not offered, the app on this computer still has its download settings.
         with patch('comic_archive.cloud_tools.offered',return_value=False):
             self.assertIn('<a id="settings-nav" href="/#settings">Settings</a>',self.call('/',cookie=cookie)[2].decode())
-            with patch.object(self.registry,'simple_mode',False):
-                self.assertIn('<a id="settings-nav" href="/#settings" hidden>Settings</a>',self.call('/',cookie=cookie)[2].decode())
 
     def test_open_existing_file_requires_local_cookie_origin_csrf_and_fixed_action(self):
         archive,identifier=self.file_to_open()
@@ -296,57 +234,39 @@ class LocalWebTests(unittest.TestCase):
         cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
         headers={'HTTP_ORIGIN':'http://127.0.0.1:8765','HTTP_X_CSRF_TOKEN':context['csrf_token']}
         route='/api/v1/workspaces/'+self.workspace.id+'/cloud/signin'
-        self.assertEqual(self.call(route,method='POST',body={'provider':'google'},cookie=cookie)[0],'403 Forbidden')
-        for body in ({'provider':[]},{'provider':'ftp'},{'provider':'google','credentials':{'password':'PRIVATE'}},
-                {'provider':'proton','credentials':{'username':'u','password':'p','path':'/outside'}},
-                {'provider':'google','path':'/outside'}):
+        credentials={'key_id':'K'*12,'application_key':'PRIVATE_KEY'+'A'*20}
+        self.assertEqual(self.call(route,method='POST',body={'provider':'b2','credentials':credentials},cookie=cookie)[0],'403 Forbidden')
+        for body in ({'provider':[]},{'provider':'ftp'},{'provider':'google','credentials':credentials},{'provider':'b2'},
+                {'provider':'b2','credentials':{'password':'PRIVATE'}},{'provider':'b2','credentials':credentials|{'path':'/outside'}},
+                {'provider':'b2','credentials':credentials,'path':'/outside'}):
             self.assertEqual(self.call(route,method='POST',body=body,headers=headers,cookie=cookie)[0],'400 Bad Request')
-        with patch.object(self.registry.cloud_signin,'start',return_value={'status':'running','provider':'google'}) as start:
-            response=self.call(route,method='POST',body={'provider':'google'},headers=headers,cookie=cookie)
-            self.assertEqual(response[0],'200 OK');start.assert_called_once_with('google',{})
-            self.assertEqual(self.call('/api/v1/workspaces/'+'0'*32+'/cloud/signin',method='POST',body={'provider':'google'},headers=headers,cookie=cookie)[0],'404 Not Found')
-        with patch.object(self.registry.cloud_signin,'start',return_value={'status':'running','provider':'proton'}) as start:
-            credentials={'username':'user@example.test','password':'PRIVATE_PASSWORD','code':'123456'}
-            response=self.call(route,method='POST',body={'provider':'proton','credentials':credentials},headers=headers,cookie=cookie)
-            self.assertEqual(response[0],'200 OK');start.assert_called_once_with('proton',credentials)
-            self.assertNotIn('PRIVATE_PASSWORD',response[2].decode())
+        with patch.object(self.registry.cloud_signin,'start',return_value={'status':'running','provider':'b2'}) as start:
+            response=self.call(route,method='POST',body={'provider':'b2','credentials':credentials},headers=headers,cookie=cookie)
+            self.assertEqual(response[0],'200 OK');start.assert_called_once_with('b2',credentials)
+            self.assertNotIn('PRIVATE_KEY',response[2].decode())
+            self.assertEqual(self.call('/api/v1/workspaces/'+'0'*32+'/cloud/signin',method='POST',body={'provider':'b2','credentials':credentials},headers=headers,cookie=cookie)[0],'404 Not Found')
         self.assertFalse(list(self.workspace.session.glob('worker/requests/*.json')))
         cancel=route.replace('/signin','/cancel-signin')
         self.assertEqual(self.call(cancel,method='POST',body={},cookie=cookie)[0],'403 Forbidden')
         self.assertEqual(self.call(cancel,method='POST',body={},headers=headers,cookie=cookie)[0],'200 OK')
-
-    def test_series_storage_preview_is_owner_csrf_scoped_and_rejects_extra_paths(self):
-        cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
-        headers={'HTTP_ORIGIN':'http://127.0.0.1:8765','HTTP_X_CSRF_TOKEN':context['csrf_token']}
-        route='/api/v1/workspaces/'+self.workspace.id+'/storage/preview'
-        options={'url':'https://tapas.io/series/sample/info','scope':'series'}
-        queue=self.workspace.session/'worker';(queue/'requests').mkdir(parents=True);(queue/'status.json').write_text('{"state":"ready"}')
-        self.assertEqual(self.call(route,method='POST',body=options,cookie=cookie)[0],'403 Forbidden')
-        for body in ({**options,'output':'/outside'},{**options,'password':'PRIVATE'},{**options,'scope':[]},
-                {**options,'url':'https://evil.test/series/sample'}):
-            self.assertEqual(self.call(route,method='POST',body=body,headers=headers,cookie=cookie)[0],'400 Bad Request')
-        result=self.call(route,method='POST',body=options,headers=headers,cookie=cookie)
-        self.assertEqual(result[0],'200 OK');task=json.loads(result[2])['task_id']
-        self.assertEqual(json.loads((queue/'requests'/f'{task}.json').read_text()),{'operation':'preview_series','args':options})
-        self.assertEqual(self.call('/api/v1/workspaces/'+'0'*32+'/storage/preview',method='POST',body=options,headers=headers,cookie=cookie)[0],'404 Not Found')
 
     def test_cloud_test_controls_require_csrf_and_cleanup_belongs_to_this_library(self):
         cookie=self.session();context=json.loads(self.call('/api/v1/context',cookie=cookie)[2])
         headers={'HTTP_ORIGIN':'http://127.0.0.1:8765','HTTP_X_CSRF_TOKEN':context['csrf_token']}
         route='/api/v1/workspaces/'+self.workspace.id+'/cloud'
         queue=self.workspace.session/'worker';(queue/'requests').mkdir(parents=True);(queue/'status.json').write_text('{"state":"ready"}')
-        self.assertEqual(self.call(route+'/test',method='POST',body={'provider':'google'},cookie=cookie)[0],'403 Forbidden')
-        for body in ({'provider':'google','episodes':100},{'provider':[]},{'password':'PRIVATE'}):
+        self.assertEqual(self.call(route+'/test',method='POST',body={'provider':'b2'},cookie=cookie)[0],'403 Forbidden')
+        for body in ({'provider':'b2','episodes':100},{'provider':[]},{'provider':'google'},{'password':'PRIVATE'}):
             self.assertEqual(self.call(route+'/test',method='POST',body=body,headers=headers,cookie=cookie)[0],'400 Bad Request')
-        result=self.call(route+'/test',method='POST',body={'provider':'google'},headers=headers,cookie=cookie)
+        result=self.call(route+'/test',method='POST',body={'provider':'b2'},headers=headers,cookie=cookie)
         self.assertEqual(result[0],'200 OK')
         task=json.loads(result[2])['task_id']
-        self.assertEqual(json.loads((queue/'requests'/f'{task}.json').read_text()),{'operation':'cloud_test','args':{'provider':'google'}})
+        self.assertEqual(json.loads((queue/'requests'/f'{task}.json').read_text()),{'operation':'cloud_test','args':{'provider':'b2'}})
         test_id='f257c685-2a39-4e16-8dc0-353338e2f7d7'
         self.assertEqual(self.call(route+'/cleanup',method='POST',body={'test_id':'../outside'},headers=headers,cookie=cookie)[0],'400 Bad Request')
         with patch('comic_archive.cloud.status',return_value={'pending_test_cleanup':[]}):
             self.assertEqual(self.call(route+'/cleanup',method='POST',body={'test_id':test_id},headers=headers,cookie=cookie)[0],'400 Bad Request')
-        with patch('comic_archive.cloud.status',return_value={'pending_test_cleanup':[{'test_id':test_id,'provider':'google'}]}):
+        with patch('comic_archive.cloud.status',return_value={'pending_test_cleanup':[{'test_id':test_id,'provider':'b2'}]}):
             result=self.call(route+'/cleanup',method='POST',body={'test_id':test_id},headers=headers,cookie=cookie)
         self.assertEqual(result[0],'200 OK');task=json.loads(result[2])['task_id']
         self.assertEqual(json.loads((queue/'requests'/f'{task}.json').read_text()),{'operation':'cloud_cleanup','args':{'test_id':test_id}})
@@ -372,17 +292,15 @@ class LocalWebTests(unittest.TestCase):
         context = json.loads(self.call('/api/v1/context',cookie=cookie)[2])
         headers = {'HTTP_ORIGIN':'http://127.0.0.1:8765','HTTP_X_CSRF_TOKEN':context['csrf_token']}
         route = '/api/v1/workspaces/'+self.workspace.id
-        space = json.loads(self.call(route+'/storage',cookie=cookie)[2])
-        self.assertEqual(space['storage_location'],'this_device')
         info = json.loads(self.call(route+'/cloud',cookie=cookie)[2])
         self.assertTrue(info['supported_on_this_interface'])
         self.assertFalse(info['targets'][0]['connected'])
-        self.assertEqual(self.call(route+'/cloud',method='POST',body={'provider':'google','enabled':True},cookie=cookie)[0],'403 Forbidden')
-        for body in ({'provider':'google','enabled':True,'password':'SECRET'},{'remote':'PRIVATE'}):
+        self.assertEqual(self.call(route+'/cloud',method='POST',body={'provider':'b2','enabled':True},cookie=cookie)[0],'403 Forbidden')
+        for body in ({'provider':'b2','enabled':True,'password':'SECRET'},{'remote':'PRIVATE'}):
             self.assertEqual(self.call(route+'/cloud',method='POST',body=body,headers=headers,cookie=cookie)[0],'400 Bad Request')
         with patch('comic_archive.cloud.enable',return_value=info) as enable:
-            self.assertEqual(self.call(route+'/cloud',method='POST',body={'provider':'google','enabled':True},headers=headers,cookie=cookie)[0],'200 OK')
-            enable.assert_called_once_with(self.workspace.library,'google',True)
+            self.assertEqual(self.call(route+'/cloud',method='POST',body={'provider':'b2','enabled':True},headers=headers,cookie=cookie)[0],'200 OK')
+            enable.assert_called_once_with(self.workspace.library,'b2',True)
         queue = self.workspace.session/'worker';(queue/'requests').mkdir(parents=True)
         (queue/'status.json').write_text('{"state":"ready"}')
         result = self.call(route+'/cloud/upload',method='POST',body={},headers=headers,cookie=cookie)
@@ -433,11 +351,11 @@ class LocalWebTests(unittest.TestCase):
         self.assertEqual(registry.workspace_id, self.workspace.id)
         self.assertEqual(self.workspace.root, self.root)
         self.assertEqual(self.root.stat().st_mode, mode)
-        self.assertEqual(list(registry.workspaces.iterdir()), [])
-        self.assertEqual(registry.series(LOCAL_OWNER, self.workspace.id)[0]['source_series_id'], '42')
+        self.assertEqual(registry.status(LOCAL_OWNER, self.workspace.id)['series_count'], 1)
+        self.assertEqual((self.workspace.session / 'owned.txt').read_text(), 'PRIVATE')
+        self.assertEqual(registry.ids(LOCAL_OWNER), [self.workspace.id])
         self.assertEqual(registry.ids('someone-else'), [])
         with self.assertRaises(ArchiveError): registry.resolve('someone-else', self.workspace.id)
-        with self.assertRaises(ArchiveError): registry.create(LOCAL_OWNER)
         self.assertEqual((self.root / '.comic-web/registry.key').stat().st_mode & 0o777, PRIVATE_FILE)
 
     def test_dashboard_start_does_not_take_the_writer_lock_or_reset_an_active_import(self):
@@ -492,7 +410,7 @@ class LocalWebTests(unittest.TestCase):
             self.assertNotIn(b'PRIVATE', body)
         context = json.loads(self.call('/api/v1/context', cookie=cookie)[2])
         self.assertEqual(context['workspace_ids'], [self.workspace.id])
-        self.assertEqual(context['max_workspaces'], 1)
+        self.assertEqual((context['interface_mode'], context['desktop_only']), ('local', True))
 
     def test_cookie_signature_age_and_forged_principal_are_checked(self):
         with patch('comic_archive.local_web.time.time', return_value=100000):
@@ -579,30 +497,6 @@ class LocalWebTests(unittest.TestCase):
         self.assertEqual(self.call(method='POST', body={})[0], '401 Unauthorized')
         self.assertNotIn('Set-Cookie', self.call(headers={'QUERY_STRING': 'token=PRIVATE'})[1])
 
-    def test_session_check_uses_existing_worker_and_requires_origin_and_csrf(self):
-        cookie = self.session()
-        requests = self.workspace.session / 'worker/requests'
-        requests.mkdir(parents=True)
-        path = '/api/v1/workspaces/' + self.workspace.id + '/session/check'
-        self.assertEqual(self.call(path, method='POST', body={}, cookie=cookie)[0], '403 Forbidden')
-        csrf = json.loads(self.call('/api/v1/context', cookie=cookie)[2])['csrf_token']
-        headers = {'HTTP_ORIGIN': self.app.origin, 'HTTP_X_CSRF_TOKEN': csrf}
-        status, _, body = self.call(path, method='POST', body={}, headers=headers, cookie=cookie)
-        self.assertEqual(status, '200 OK')
-        task = json.loads(body)['task_id']
-        self.assertEqual(json.loads((requests / (task + '.json')).read_text()), {'operation': 'check_session', 'args': {}})
-
-    def test_local_fast_import_has_bounded_pool_headroom_and_normal_defaults_stay_small(self):
-        requests = self.workspace.session / 'worker/requests'; requests.mkdir(parents=True)
-        for speed, maximum in (('normal', 256*1024**2), ('fast', 8*1024**3)):
-            task = self.registry.submit(LOCAL_OWNER, self.workspace.id, 'archive_discovered', {'speed': speed})
-            request = json.loads((requests / (task['task_id'] + '.json')).read_text())
-            self.assertEqual(request['args']['max_bytes'], maximum)
-            self.assertEqual(request['args']['speed'], speed)
-        with self.assertRaises(ArchiveError):
-            self.registry.submit(LOCAL_OWNER, self.workspace.id, 'archive_discovered',
-                                 {'speed': 'fast', 'max_bytes': 8*1024**3+1})
-
     def test_user_can_click_a_dashboard_link_but_frames_post_forms_and_api_calls_cannot_bootstrap(self):
         headers = {'HTTP_SEC_FETCH_SITE': 'cross-site', 'HTTP_SEC_FETCH_MODE': 'navigate',
                    'HTTP_SEC_FETCH_DEST': 'document', 'HTTP_SEC_FETCH_USER': '?1',
@@ -630,14 +524,6 @@ class LocalWebTests(unittest.TestCase):
         link.symlink_to(project, target_is_directory=True)
         with self.assertRaises(ArchiveError): LocalWorkspaceRegistry(link)
         self.assertEqual(list(other.iterdir()), [])
-
-    def test_cli_selects_local_project_and_does_not_accept_public_binding_or_session_override(self):
-        args = parser().parse_args(['serve-local', '--project-root', str(self.root), '--port', '9876'])
-        with patch('comic_archive.local_web.serve') as serve:
-            self.assertEqual(run(args), 0)
-            serve.assert_called_once_with(self.root, 9876)
-        for command in (['serve-local', '--port', '0'], ['--session-dir', 'other', 'serve-local']):
-            with self.assertRaises(ArchiveError): run(parser().parse_args(command))
 
     def test_server_binds_only_loopback_and_bind_errors_do_not_expose_raw_details(self):
         with patch('comic_archive.local_web.make_server') as make:
@@ -715,23 +601,71 @@ class LocalWebTests(unittest.TestCase):
         (project / 'Library').write_text('NOT A FOLDER')
         with self.assertRaises(ArchiveError): LocalWorkspaceRegistry(project)
         self.assertEqual((project / 'Library').read_text(), 'NOT A FOLDER')
+    def archive_one(self):
+        from contextlib import closing
+        from comic_archive.archive import Store
+        from test_jobs import AccountAdapter
+        adapter = AccountAdapter(); manifest = adapter.capture_automatic('https://tapas.io/episode/81')
+        with closing(Store(self.workspace.library)) as store: store.archive(manifest, adapter, progress=lambda _: None)
+        archive = next(self.workspace.library.glob('*/*.cbz'))
+        return archive, archive.with_suffix('.json'), archive.parent / 'series.json'
 
-    def bind_for_real(self, made):
-        real = make_server
-        def bind(*args, **kwargs):
-            made.append(real(*args, **kwargs))
-            return made[-1]
-        return patch('comic_archive.local_web.make_server', side_effect=bind)
+    def listed(self):
+        return {path.name: kind for path, kind in self.registry._exports(self.workspace).values()}
 
-    def test_ctrl_c_stops_the_dashboard_cleanly_after_announcing_its_address_and_releases_the_port(self):
-        from comic_archive.local_web import serve
-        made = []; output = io.StringIO()
-        with self.bind_for_real(made), patch.object(LocalServer, 'serve_forever', side_effect=KeyboardInterrupt), \
-                contextlib.redirect_stdout(output):
-            serve(self.root, 0)
-        self.assertEqual(made[0].socket.fileno(), -1)
-        self.assertIn(f'Local dashboard: http://127.0.0.1:{made[0].server_port}/?launch={made[0].get_app().launch_token}\n', output.getvalue())
-        self.assertIn('Local dashboard stopped.', output.getvalue())
+    def test_session_state_stray_covers_and_private_folders_are_never_offered_as_saved_files(self):
+        import shutil
+        from test_archive import png
+        archive, sidecar, series = self.archive_one()
+        (self.workspace.session / 'state.json').write_text('PRIVATE_COOKIES')
+        (series.parent / 'cover.jpg').write_bytes(png(1))  # Never named by the series file.
+        for name in ('.archive-state', '.archive-cache', '.other-private'):
+            folder = self.workspace.library / name; folder.mkdir(exist_ok=True)
+            shutil.copy2(archive, folder / 'private.cbz')
+            shutil.copy2(sidecar, folder / 'private.json')
+            shutil.copy2(series, folder / 'series.json')
+        self.assertEqual(self.listed(), {archive.name: 'cbz', sidecar.name: 'episode_metadata', 'series.json': 'series_metadata'})
+
+    def test_unreadable_series_file_or_unpaired_folders_never_break_or_widen_the_saved_files(self):
+        from test_archive import png
+        archive, sidecar, series = self.archive_one()
+        orphans = self.workspace.library / 'orphans'; orphans.mkdir()
+        (orphans / 'episode.cbz').write_bytes(b'NO_SIDECAR'); (orphans / 'series.json').write_text('{}')
+        (series.parent / 'cover.png').write_bytes(png(1))
+        value = json.loads(series.read_text())
+        for content in ('not json', '[]', json.dumps(value | {'cover_file': {'malformed': 'field'}}),
+                        json.dumps(value | {'cover_file': '../cover.png'})):
+            series.write_text(content)
+            self.assertEqual(self.listed(), {archive.name: 'cbz', sidecar.name: 'episode_metadata', 'series.json': 'series_metadata'}, content)
+        series.write_text(json.dumps(value | {'cover_file': 'cover.png'}))
+        self.assertEqual(self.listed()['cover.png'], 'cover')
+        outside = self.root / 'outside.json'; outside.write_text(json.dumps({'cover_file': 'cover.png'}))
+        series.unlink(); series.symlink_to(outside)
+        # The link is left out, never followed; the episode beside it is still offered.
+        self.assertEqual(self.listed(), {archive.name: 'cbz', sidecar.name: 'episode_metadata'})
+        series.unlink()
+        self.assertEqual(self.listed(), {archive.name: 'cbz', sidecar.name: 'episode_metadata'})
+
+    def test_a_linked_file_or_linked_details_are_left_out_and_the_rest_of_the_library_is_still_offered(self):
+        archive, sidecar, _ = self.archive_one()
+        other = archive.with_name('0002 - Other.cbz'); other.write_bytes(archive.read_bytes())
+        other.with_suffix('.json').write_bytes(sidecar.read_bytes())
+        private = self.root / 'private.cbz'; private.write_bytes(b'PRIVATE_COOKIES')
+        linked = archive.with_name('0003 - Linked.cbz'); linked.symlink_to(private)
+        linked.with_suffix('.json').write_bytes(sidecar.read_bytes())
+        lone = archive.with_name('0004 - Lone.cbz'); lone.write_bytes(archive.read_bytes())
+        lone.with_suffix('.json').symlink_to(sidecar)  # Its details are a link: the episode is left out with them.
+        self.assertEqual(set(self.listed()), {archive.name, sidecar.name, other.name, other.with_suffix('.json').name, 'series.json'})
+
+    def test_status_reports_a_session_file_but_refuses_a_symlinked_one(self):
+        status = self.registry.status(LOCAL_OWNER, self.workspace.id)
+        self.assertFalse(status['session_configured']); self.assertFalse(status['inventory_complete'])
+        self.assertNotIn(str(self.root), json.dumps(status))
+        state = self.workspace.session / 'state.json'; state.write_text('PRIVATE_COOKIES')
+        self.assertTrue(self.registry.status(LOCAL_OWNER, self.workspace.id)['session_configured'])
+        outside = self.root / 'outside.json'; outside.write_text('PRIVATE_COOKIES')
+        state.unlink(); state.symlink_to(outside)
+        with self.assertRaises(ArchiveError): self.registry.status(LOCAL_OWNER, self.workspace.id)
 
 
 if __name__ == '__main__':

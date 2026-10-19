@@ -18,10 +18,10 @@ from wsgiref.simple_server import make_server
 import zlib
 
 import comic_archive
+from comic_archive import account_export, cloud, storage
 from comic_archive.archive import verify
-from comic_archive.adapters.local import LocalAdapter
 from comic_archive.local_web import LocalApplication, LocalWorkspaceRegistry, LocalServer, PrivateRequestHandler
-from comic_archive.models import Episode, Manifest, Series
+from comic_archive.models import Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore
 
 
@@ -30,6 +30,15 @@ def png():
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(b'\0\x40\xa0\x80')) + chunk(b'IEND', b''))
+
+
+class SyntheticSource:
+    """Hands the archive its one synthetic page; there is nothing to refresh."""
+    def retrieve(self, page):
+        return png()
+
+    def refresh(self, episode):
+        raise RuntimeError('Synthetic pages never need refreshing')
 
 
 def main():
@@ -45,41 +54,29 @@ def main():
     from comic_archive.cloud_tools import VERSION
     if SignIn(Path.cwd()/'Library').status() != {'status':'idle'} or not VERSION:
         raise RuntimeError('Installed button sign-in modules are unavailable')
-    entry = Path(sys.executable).parent / 'comic-archive'
-    help_text = subprocess.check_output([str(entry), '--help'], text=True, timeout=30)
-    # Compare whole subcommand names from the help's own list, never substrings of other help text.
+    # The app starts its downloader as `python -m comic_archive browser-worker`; that and the builds' doctor are the
+    # whole command line. Compare whole names from the help's own list, never substrings of other help text.
     # Before Python 3.14 a wrapped usage line repeats the list on a line of its own, so identical copies count once.
+    help_text = subprocess.check_output([sys.executable, '-m', 'comic_archive', '--help'], text=True, timeout=30)
     listed = set(re.findall(r'^\s*\{([a-z0-9,-]+)\}$', help_text, re.M))
-    commands = set(next(iter(listed)).split(',')) if len(listed) == 1 else set()
-    for command in ('cloud-connect','cloud-test','cloud-upload','cloud-cleanup','storage-plan','preview-series','purge','network-policy','convert-comics'):
-        if command not in commands:raise RuntimeError('Installed CLI is missing storage/cloud commands')
-    space = json.loads(subprocess.check_output([str(entry),'storage-plan','--episodes','2'],text=True,timeout=30))
-    if space['image_profile'] != 'original' or space['inventory_complete']:
-        raise RuntimeError('Fresh installed storage planning is unsafe')
-    cloud_state = json.loads(subprocess.check_output([str(entry),'cloud-status'],text=True,timeout=30))
-    if any(t['connected'] for t in cloud_state['targets']):
+    if len(listed) != 1 or set(next(iter(listed)).split(',')) != {'browser-worker', 'doctor'}:
+        raise RuntimeError('Installed downloader commands are missing')
+    if storage.policy(Path('Library'))['image_profile'] != 'original':
+        raise RuntimeError('Fresh installed storage policy is unsafe')
+    if any(t['connected'] for t in cloud.status(Path('Library'))['targets']):
         raise RuntimeError('Fresh installed cloud state is not isolated')
-    if 'extract-account' not in commands:
-        raise RuntimeError('Installed account extraction entry point missing')
-    status = json.loads(subprocess.check_output([str(entry), 'account-status'], text=True, timeout=30))
-    if status.get('configured') is not False:
+    if account_export.status(Path('.comic-session')).get('configured') is not False:
         raise RuntimeError('Clean installation unexpectedly reused account state')
-    subprocess.run([str(entry), '--browser', 'firefox', '--headless', 'doctor'], check=True, timeout=30)
-    image = Path('original.png')
-    image.write_bytes(png())
+    subprocess.run([sys.executable, '-m', 'comic_archive', '--browser', 'firefox', '--headless', 'doctor'], check=True, timeout=30)
     comic = Series('synthetic-comic', 'Synthetic comic', source='local')
     novel = Series('synthetic-novel', 'Synthetic novel', source='local')
-    manifest_path = Path('manifest.json')
-    manifest_path.write_text(json.dumps({'series': {'id': comic.id, 'title': comic.title, 'source': 'local'},
-                            'episodes': [{'id': 'comic-1', 'title': 'Chapter', 'order': 1,
-                                          'pages': [{'order': 1, 'file': image.name}]}]}))
-    adapter = LocalAdapter(manifest_path)
+    pages = Manifest(comic, (Episode('comic-1', comic.id, 'Chapter', 1, (Page(1, 'original.png'),), 'local_owned'),))
     chapter = Manifest(novel, (Episode('novel-1', novel.id, 'Chapter', 1, (), 'local_owned', content_type='novel',
                         text_html='<p>Unicode 尾声<img src="images/0001.png" alt="Art" /></p>', illustrations=(png(),)),))
     store = PublicationStore(Path('Library'))
     try:
-        store.archive(adapter.manifest(), adapter, progress=lambda _: None)
-        store.archive(chapter, adapter, progress=lambda _: None)
+        store.archive(pages, SyntheticSource(), progress=lambda _: None)
+        store.archive(chapter, SyntheticSource(), progress=lambda _: None)
     finally:
         store.close()
     if verify(Path('Library'), decode_images=True):
@@ -103,7 +100,7 @@ def main():
         context = json.loads(client.open(origin+'/api/v1/context', timeout=10).read())
         if context.get('desktop_only') is not True:
             raise RuntimeError('Installed app did not default to desktop downloads')
-        workspace = json.loads(client.open(origin+'/api/v1/workspaces', timeout=10).read())['workspace_ids'][0]
+        workspace = context['workspace_ids'][0]
         catalog = json.loads(client.open(origin+'/api/v1/workspaces/'+workspace+'/saved-files?kind=episodes', timeout=10).read())
         if catalog['total'] != 2 or {f['kind'] for f in catalog['files']} != {'cbz','epub'}:
             raise RuntimeError('Installed saved-file table lost a portable episode')
