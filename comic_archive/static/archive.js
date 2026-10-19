@@ -123,6 +123,11 @@ function buttons() {
   $('cancel-cloud-signin').disabled = state.busy;
   const choiceLocked = state.busy || signingIn || Boolean(state.task) || state.account?.status === 'running' || !state.cloud;
   for (const input of $('storage-options').querySelectorAll('input')) input.disabled = choiceLocked || input.dataset.ready !== 'true';
+  // Said beside the choice, so a locked choice does not look broken.
+  const choiceWhy = state.account?.status === 'running' ? 'This can’t be changed while episodes are downloading. Press Pause on the dashboard first.'
+    : signingIn ? 'This can’t be changed while you sign in to cloud storage.'
+    : state.task ? 'This can’t be changed until the cloud task finishes.' : '';
+  $('cloud-choice-lock').textContent = choiceWhy; $('cloud-choice-lock').hidden = !choiceWhy;
   $('retry-cloud').disabled = !canImport() || !state.cloud?.targets?.some(t => t.enabled);
   $('test-cloud').disabled = !canImport() || !b2Target()?.connected || state.cloud?.pending_test_cleanup?.some(t => t.provider === 'b2');
   for (const button of $('cloud-cleanup').querySelectorAll('button')) button.disabled = !canImport();
@@ -510,6 +515,8 @@ function renderAccount() {
   $('account-pause').hidden = !accountRunning;
   $('change-folder').disabled = state.busy || accountRunning || batchRunning || signingIn;
   $('change-folder').title = accountRunning || batchRunning ? 'Pause saving before you change the folder.' : '';
+  $('change-folder-lock').textContent = 'The folder can’t be changed while episodes are downloading. Press Pause on the dashboard first.';
+  $('change-folder-lock').hidden = $('change-folder').hidden || !(accountRunning || batchRunning);
   $('site').disabled = state.busy || accountRunning || batchRunning || signingIn;
   $('site').title = accountRunning || batchRunning ? 'Pause saving to change the site.' : '';
   $('account-pause').disabled = state.busy;
