@@ -85,7 +85,9 @@ def held_card_messages(page):
                        ('network_recovery_limit', 'Tapas could not be reached several times'),
                        ('source_access_changed', 'still would not send an episode'),
                        ('cancelled', 'Paused. Hit Go to continue'),
-                       ('window_changed', 'the download stopped unexpectedly'), ('controller_failed', 'stopped unexpectedly')):
+                       ('window_changed', 'the download stopped unexpectedly'), ('controller_failed', 'stopped unexpectedly'),
+                       ('cloud_verification', 'an upload to cloud storage stopped. The cloud copy could not be verified.'),
+                       ('cloud_cap', 'Backblaze stopped the upload')):
         value = held(code)
         assert text in value['status'] and not value['go'] and not value['settings'], (code, value)
         assert value['pill'] == 'Paused', value

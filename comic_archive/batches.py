@@ -13,6 +13,7 @@ import secrets
 
 from .archive import atomic_json
 from .archive_paths import directory
+from .cloud_errors import MESSAGES
 from .errors import LibraryBusy
 from .locking import LibraryLock
 from .models import ArchiveError
@@ -32,6 +33,9 @@ MAX_SOURCE_DELAY=1800
 MIN_BATCH_SECONDS=60
 STATUSES={'running','budget_reached','known_backlog_drained','paused','stopped','interrupted'}
 CODES={None,'login_required','task_failed','task_unavailable','invalid_result','cancelled','no_progress','network_unavailable','network_policy','source_refused','source_access_changed'}
+# A cloud upload that stopped a batch keeps its own reason, so the window can say what to fix.
+CLOUD_CODES=frozenset(MESSAGES)
+CODES|=CLOUD_CODES
 
 
 def budgets(values=None):
@@ -403,7 +407,9 @@ def step(session,library=Path('Library'),*,observe_only=False):
             remaining=observation.get(remaining_key) if isinstance(observation,dict) else None
             if value['status']=='error':
                 state['source_recovery_episode']=None
-                code='login_required' if value.get('error_code')=='login_required' else 'task_failed'
+                error_code=value.get('error_code')
+                code=('login_required' if error_code=='login_required'
+                      else error_code if error_code in CLOUD_CODES else 'task_failed')
                 if (value.get('error_code') == 'source_refused' and isinstance(result,dict)
                         and result.get('pause_reason') == 'source_refused'
                         and type(result.get('source_http_status')) is int and result['source_http_status'] in {403,429}):

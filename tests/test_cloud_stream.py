@@ -19,7 +19,7 @@ from comic_archive import cloud
 from comic_archive.cloud import Transfer as RealTransfer
 from comic_archive.archive import episode_archives, digest
 from comic_archive.cloud_errors import CloudTransferError, safe_code
-from comic_archive.cloud_stream import PipeUpload, StreamingEpisode, _stage, cleanup_stage, promote_stream
+from comic_archive.cloud_stream import PipeUpload, StreamingEpisode, _stage, cleanup_stage, held_cutoff, promote_stream
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.errors import RunLimit
 from comic_archive.network import NetworkPolicyHold
@@ -516,20 +516,60 @@ class B2DirectTests(unittest.TestCase):
     def intents(self):
         return list((self.root/'.archive-state/cloud/direct/b2').glob('*.json'))
 
-    def test_wrong_or_missing_remote_checksums_keep_a_verified_local_fallback_and_never_mark_uploaded(self):
-        for index, checksums in enumerate(({}, {'episode.cbz':'0'*40}), 1):
-            with self.subTest(checksums=checksums):
+    def test_wrong_remote_checksums_set_episodes_aside_for_retry_until_one_run_has_too_many(self):
+        episodes = tuple(replace(self.episode, id=str(84 + i), order=4 + i) for i in range(3))
+        with patch.object(StreamingTransfer, 'sha1s', return_value={'episode.cbz':'0'*40}):
+            with self.assertRaises(CloudTransferError) as caught:
+                self.publish(episodes, MemoryAdapter())
+        self.assertEqual(safe_code(caught.exception), 'cloud_verification')
+        # Two were saved here and the run went on; the third, a pattern rather than one episode, paused it.
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (0, 3))
+        self.assertEqual(len(list(self.root.glob('*/*.cbz'))), 4)
+        self.assertTrue(self.intents())
+        cloud.upload_pending(self.root)
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (3, 0))
+        self.assertFalse(self.intents())
+
+    def test_one_unconfirmed_episode_is_saved_here_and_the_next_still_goes_to_b2(self):
+        real, calls = StreamingTransfer.sha1s, []
+        def first_wrong(transfer, path):
+            calls.append(path)
+            listed = real(transfer, path)
+            return listed | {'episode.cbz':'0'*40} if len(calls) == 1 else listed
+        episodes = tuple(replace(self.episode, id=str(84 + i), order=4 + i) for i in range(2))
+        with patch.object(StreamingTransfer, 'sha1s', first_wrong):
+            self.publish(episodes, MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 1))
+        self.assertEqual(len(list(self.root.glob('*/*.cbz'))), 2)
+
+    def test_a_file_b2_lists_but_was_not_sent_fails_the_check(self):
+        real = StreamingTransfer.sha1s
+        with patch.object(StreamingTransfer, 'sha1s', lambda transfer, path: real(transfer, path) | {'stray.bin':'0'*40}):
+            self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (0, 1))
+
+    def test_an_upload_b2_lists_no_sha1_for_is_read_back_instead(self):
+        with patch.object(StreamingTransfer, 'sha1s', return_value={}):
+            self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 0))
+        self.assertFalse(self.intents())
+        changed = replace(self.episode, id='84', order=4)
+        with patch.object(StreamingTransfer, 'sha1s', return_value={}), \
+                patch.object(StreamingTransfer, 'verify', side_effect=ArchiveError('synthetic changed bytes')):
+            self.publish((changed,), MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 1))
+
+    def test_only_an_unconfirmed_episode_saved_here_lets_the_run_go_on(self):
+        # Anything else stops every upload alike, and one not saved here must be downloaded again.
+        for index, (failure, keep) in enumerate(((CloudTransferError('cloud_cap'), None),
+                                                 (CloudTransferError('cloud_verification'), OSError('disk full'))), 1):
+            with self.subTest(failure=failure.cloud_code):
                 episode = replace(self.episode, id=str(83 + index), order=3 + index)
-                with patch.object(StreamingTransfer, 'sha1s', return_value=checksums):
+                with patch.object(StreamingTransfer, 'upload_bytes', side_effect=failure), \
+                        patch('comic_archive.cloud.keep_here', side_effect=keep):
                     with self.assertRaises(CloudTransferError) as caught:
                         self.publish((episode,), MemoryAdapter())
-                self.assertEqual(safe_code(caught.exception), 'cloud_verification')
-                self.assertEqual((self.target()['verified'], self.target()['failed']), (0, index))
-                self.assertEqual(len(list(self.root.glob('*/*.cbz'))), 1 + index)
-                self.assertTrue(self.intents())
-        cloud.upload_pending(self.root)
-        self.assertEqual((self.target()['verified'], self.target()['failed']), (2, 0))
-        self.assertFalse(self.intents())
+                self.assertEqual(safe_code(caught.exception), failure.cloud_code)
 
     def test_a_failed_local_fallback_keeps_the_recovery_intent_without_claiming_a_saved_copy(self):
         from comic_archive.archive import sidecar_path
@@ -806,6 +846,15 @@ class B2DirectTests(unittest.TestCase):
         transfer.verify('own/episode.cbz', sha256, source=source)
         self.assertIn('--download', transfer.run.call_args.args)
 
+    def test_known_size_cutoff_survives_rclone_keeping_three_decimals_of_it(self):
+        # rclone 1.75 read 10685131B back as 10.190Mi, 10684989 bytes, and sent that episode in parts.
+        for size in (0, 1, 1023, 1024**2 - 1, 1024**2, 10685130, 256 * 1024**2):
+            with self.subTest(size=size):
+                whole = int(held_cutoff(size).removesuffix('Mi'))
+                self.assertEqual(held_cutoff(size), f'{whole}Mi')
+                self.assertLess(size, whole * 1024**2)
+                self.assertLessEqual(whole * 1024**2, size + 1024**2)
+
     def test_known_size_pipe_lets_rclone_hold_the_whole_file_for_its_sha1(self):
         self.transfer_patch.stop()
         script = helper_program(self.base/'rclone-fixture', 'import sys,pathlib,json\np=pathlib.Path(sys.argv[sys.argv.index("--config")+1]).parent/"received"\np.write_bytes(sys.stdin.buffer.read())\np.with_suffix(".args").write_text(json.dumps(sys.argv))\n')
@@ -815,5 +864,5 @@ class B2DirectTests(unittest.TestCase):
         RealTransfer.upload_bytes(transfer, data, 'Comic-Archive/test/episode.cbz')
         self.assertEqual((self.base/'received').read_bytes(), data)
         arguments = json.loads((self.base/'received.args').read_text())
-        self.assertEqual(arguments[arguments.index('--streaming-upload-cutoff') + 1], f'{len(data) + 1}B')
+        self.assertEqual(arguments[arguments.index('--streaming-upload-cutoff') + 1], held_cutoff(len(data)))
         self.assertEqual(arguments[-2:], ['rcat', 'b2:Comic-Archive/test/episode.cbz'])

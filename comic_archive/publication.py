@@ -245,6 +245,8 @@ def write_cbz(path, metadata, open_page, check=None):
 
 # An episode bigger than this, held in memory for a direct upload, is saved here instead.
 DIRECT_MEMORY = 256 * 1024**2
+# Episodes one run saves here when B2 could not confirm their upload, before it pauses instead.
+SET_ASIDE_LIMIT = 2
 
 
 class DirectEpisode:
@@ -286,6 +288,7 @@ class PublicationStore(Store):
             self._direct = None
             self._direct_ready = []
             self._uploading = None
+            self._set_aside = 0
             self.db.execute('''CREATE TABLE IF NOT EXISTS export_ids
                 (source TEXT,series_id TEXT,episode_id TEXT,id TEXT UNIQUE NOT NULL,
                  PRIMARY KEY(source,series_id,episode_id))''')
@@ -448,7 +451,15 @@ class PublicationStore(Store):
     def _finish_upload(self):
         uploading, self._uploading = self._uploading, None
         if uploading is not None:
-            uploading.finish()
+            from .cloud_errors import CloudTransferError
+            try:
+                uploading.finish()
+            except CloudTransferError as error:
+                # An episode B2 could not confirm is saved here for the retry button, and the download goes on.
+                # Any other failure, or several in one run, is not about one episode: the download pauses.
+                if error.cloud_code != 'cloud_verification' or not uploading.kept or self._set_aside >= SET_ASIDE_LIMIT:
+                    raise
+                self._set_aside += 1
 
     def comparable_metadata(self, metadata):
         value = super().comparable_metadata(metadata)

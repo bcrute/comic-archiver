@@ -693,6 +693,7 @@ class DirectUpload:
         self.intent = self.root / '.archive-state/cloud/direct/b2' / (self.bundle['episode_id'] + '.json')
         self.error = None
         self.thread = None
+        self.kept = False  # Whether a failed upload left the episode saved here.
         try:
             files = [data] + [(self.root / item['path']).read_bytes() for item in self.bundle['files'][1:]]
             if [hashlib.sha256(f).hexdigest() for f in files] != [item['sha256'] for item in self.bundle['files']]:
@@ -720,7 +721,15 @@ class DirectUpload:
         try:
             for name, data in self.files:
                 self.transfer.upload_bytes(data, self.prefix + '/' + name)
-            if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data, usedforsecurity=False).hexdigest() for name, data in self.files}:
+            listed = self.transfer.sha1s(self.prefix)
+            for name, data in self.files:
+                if name in listed:
+                    if listed.pop(name) != hashlib.sha1(data, usedforsecurity=False).hexdigest():
+                        raise CloudTransferError('cloud_verification')
+                    continue
+                # A file B2 took in parts has no SHA-1 there: its bytes are read back instead.
+                self.transfer.verify(self.prefix + '/' + name, hashlib.sha256(data).hexdigest())
+            if listed:
                 raise CloudTransferError('cloud_verification')
         except BaseException as error:
             self.error = error
@@ -735,6 +744,7 @@ class DirectUpload:
             code = safe_code(error)
             try:
                 keep_here(self.root, self.archive, self.data, code)
+                self.kept = True
             except (ArchiveError, OSError):
                 pass  # Not saved anywhere: the episode is downloaded again next time.
             from .network import NetworkPolicyHold

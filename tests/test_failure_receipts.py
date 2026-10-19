@@ -133,6 +133,25 @@ class FailureReceiptTests(unittest.TestCase):
             self.assertEqual(state['unreported_reserved_bytes'], 1048576)
             self.assertIsNone(batches.step(session, library)['pending_task_id'])
 
+    def test_a_cloud_upload_that_stopped_a_batch_pauses_with_its_own_reason(self):
+        for code, expected in (('cloud_cap', 'cloud_cap'), ('cloud_verification', 'cloud_verification'),
+                               ('job_failed', 'task_failed')):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as temporary:
+                project = Path(temporary); session = project / '.comic-session'; library = project / 'Library'
+                root = session / 'worker'
+                for name in ('requests', 'responses'): (root / name).mkdir(parents=True)
+                atomic_json(root / 'status.json', {'state': 'ready'})
+                batches._start(root, {'archive_only': True, 'refresh_lists': False, 'max_pages': 5,
+                                     'batch_pages': 4, 'max_bytes': 1048576}, False)
+                task = batches.step(session, library)['pending_task_id']; batches.step(session, library)
+                atomic_json(root / 'responses' / (task + '.json'), {'task_id': task, 'status': 'error',
+                    'error_code': code, 'result': {'run_id': 'a' * 24, 'status': 'paused',
+                        'downloaded_pages': 1, 'downloaded_bytes': 1, 'pending_episode_count': 1,
+                        'archived_episode_ids': ['81'], 'inventory': {'scan_remaining_series_count': 0}}})
+                (root / 'requests' / (task + '.json')).unlink()
+                state = batches.step(session, library)
+                self.assertEqual((state['status'], state['code']), ('paused', expected))
+
     def test_source_refusal_receipt_is_kept_only_for_a_paused_run_with_a_refusal_status(self):
         def receipt(status='paused',http=403,retry_after=None):
             return FailureReceipt('a'*24,status,2,3,4,('81',),0,'source_refused',http,retry_after)

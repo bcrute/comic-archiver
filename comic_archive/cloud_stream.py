@@ -19,6 +19,15 @@ from .errors import RunLimit
 from .network import NetworkPolicyHold, wait_process
 
 
+def held_cutoff(size):
+    """The --streaming-upload-cutoff that has rclone hold a file of this size whole.
+
+    rclone keeps the value to three decimals of KiB or MiB, which can round a byte count
+    below the size, and the file then goes to B2 in parts, with no SHA-1. Whole MiB stay exact.
+    """
+    return f'{size // 1024**2 + 1}Mi'
+
+
 class PipeUpload:
     """A bounded pipe, a small provider buffer, and a monitored owned child.
 
@@ -37,7 +46,7 @@ class PipeUpload:
                 transfer.binary, '--config', str(transfer.config), '--ask-password=false',
                 '--log-level', 'ERROR', '--stats', '0', '--retries', '1',
                 '--low-level-retries', '2', '--contimeout', '30s', '--timeout', '60s',
-                '--streaming-upload-cutoff', '256Ki' if size is None else f'{size + 1}B',
+                '--streaming-upload-cutoff', '256Ki' if size is None else held_cutoff(size),
                 *(['--b2-chunk-size', '5Mi', '--b2-upload-concurrency', '1', '--b2-hard-delete']
                   if transfer.provider == 'b2' else []),
                 'rcat', transfer.remote(remote_path)], stdin=subprocess.PIPE,
