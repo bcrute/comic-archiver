@@ -118,7 +118,7 @@ site's reader.
 
 ## Not planned for now
 
-These were tried in the browser version and hidden there too. Say if one should come:
+These were tried in the browser version, then taken out of the code (October 2026). Say if one should come back:
 
 - Google Drive, Dropbox and Proton Drive as cloud storage.
 - Choosing single series, image quality, a daily schedule and the library report on the main screen.

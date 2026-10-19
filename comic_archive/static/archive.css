@@ -14,27 +14,12 @@ nav a { display: flex; align-items: center; min-height: 44px; padding: 8px 12px;
 nav a:hover { color: var(--text); background: var(--surface-soft); }
 nav a[aria-current=page] { color: var(--accent); background: var(--notice); font-weight: 600; }
 section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; }
-.download-flow { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.download-flow section { margin: 0; min-width: 0; }
-.choose-series { grid-column: 1 / -1; }
-.step-label { color: var(--accent); font-size: .8rem; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; }
-.series-link { flex: 1 1 450px; }
-.series-link input { width: 100%; }
-.review-download { border-color: var(--accent-border); background: var(--surface-tint); }
-.destination { font-weight: 600; }
 .section-heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 .section-heading h2 { margin: 0; }
 #library-overview .section-heading { margin-bottom: 16px; }
-.connection-check { max-width: 480px; }
-#connection-check-status { margin: 0; }
-#connection-check-status:not(:empty) { margin-top: 8px; padding: 12px; border-left: 4px solid var(--accent-border); background: var(--notice); border-radius: 4px; }
-#connection-check-status.error { border-color: var(--warning); background: var(--warning-bg); }
 details { margin-top: 20px; }
 summary { cursor: pointer; font-weight: 600; color: var(--accent); padding: 12px 0; }
 summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
-.details-content { padding-top: 12px; }
-.advanced { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 24px; }
-.advanced section { margin-top: 0; }
 .cloud-costs { margin-bottom: 16px; padding: 12px 16px; border-left: 4px solid var(--accent-border); background: var(--notice); border-radius: 4px; }
 .cloud-costs ul { padding-left: 20px; }
 .cloud-costs > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 4px 0; list-style: none; color: var(--text); }
@@ -84,7 +69,6 @@ body:not([data-settings-tab="b2"]) #cloud-options { display: none !important; }
 #b2-pages li { margin-bottom: 6px; }
 .cloud-steps li { margin-bottom: 20px; }
 .cloud-steps p { overflow-wrap: anywhere; }
-code { overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
 .toolbar, .actions, form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 label { display: block; font-size: .9rem; font-weight: 600; }
@@ -129,7 +113,7 @@ th { font-size: .85rem; color: var(--muted); }
 #saved-files .file-action-status.error { color: var(--error); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 a { color: var(--accent); }
-@media (max-width: 700px) { .wrap { padding: 16px; } section { padding: 16px; } .metrics { grid-template-columns: repeat(2, 1fr); } .toolbar > label { width: 100%; } .download-flow { grid-template-columns: 1fr; } .advanced { padding: 8px 16px; } .actions button { flex: 1 1 160px; } }
+@media (max-width: 700px) { .wrap { padding: 16px; } section { padding: 16px; } .metrics { grid-template-columns: repeat(2, 1fr); } .toolbar > label { width: 100%; } .actions button { flex: 1 1 160px; } }
 @media (max-width: 700px) { .header-content { gap: 4px; padding-block: 8px; } nav { width: 100%; } nav a { padding-inline: 10px; } }
 
 #account-download { border-color: var(--accent-border); background: var(--surface-tint); }
@@ -170,9 +154,7 @@ a { color: var(--accent); }
 .connection-badge { font-size: .8rem; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .connection-badge[data-tone=warning] { color: var(--warning); border-color: var(--warning); }
 .dashboard-grid #account-status { font-weight: 400; margin-bottom: 20px; }
-.dashboard-grid .dashboard-intro { display: none; }
 .account-storage { margin-top: 16px; }
-.account-storage p { margin: 6px 0 0; font-size: .85rem; }
 .dashboard-grid .dashboard-footnote { border-top: 1px solid var(--border); padding-top: 16px; font-size: .85rem; margin-bottom: 0; }
 .dashboard-grid #library-overview h2 { font-size: 1.1rem; }
 .dashboard-grid #library-overview .metric { padding: 18px 12px; font-size: .85rem; }

@@ -2,7 +2,7 @@
 // The launch address's secret has done its work once the page is here; it is not kept in the address bar or history.
 if (location.search.startsWith('?launch=')) history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
-const state = {workspace:null, interfaceMode:null, desktopOnly:true, location:'device', offset:0, total:0, busy:false, request:0, locations:[], cloud:false};
+const state = {workspace:null, desktopOnly:true, location:'device', offset:0, total:0, busy:false, request:0, locations:[], cloud:false};
 const count = n => Number.isInteger(n) && n >= 0 ? n.toLocaleString() : '0';
 const sizes = n => {
   if (!Number.isFinite(n) || n < 0) return '—';
@@ -46,7 +46,7 @@ async function openFile(button, feedback, url) {
 }
 function notice(message, error=false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); }
 function buttons() {
-  for (const id of ['workspace','refresh-files','search-files','clear-search','file-search','file-kind','file-sort','page-size','file-page','go-page']) $(id).disabled = state.busy || !state.workspace;
+  for (const id of ['refresh-files','search-files','clear-search','file-search','file-kind','file-sort','page-size','file-page','go-page']) $(id).disabled = state.busy || !state.workspace;
   $('previous-page').disabled = state.busy || state.offset === 0;
   $('next-page').disabled = state.busy || state.offset + Number($('page-size').value) >= state.total;
   for (const button of $('library-locations').querySelectorAll('button')) button.disabled = state.busy;
@@ -94,19 +94,14 @@ function rows(value) {
     row.append(cell);
     const destination = document.createElement('td'); destination.textContent = storage; destination.hidden = !state.cloud; row.append(destination);
     const action = document.createElement('td');
-    // On this computer only comics and novels are offered to open: those are what a reading app opens.
-    const opens = state.interfaceMode !== 'local' || ['cbz','epub'].includes(file.kind);
+    // Only comics and novels are offered to open: those are what a reading app opens.
+    const opens = ['cbz','epub'].includes(file.kind);
     if (file.location === 'device' && opens && typeof file.id === 'string' && /^[a-f0-9]{64}$/.test(file.id)) {
       const url = '/api/v1/workspaces/'+state.workspace+'/exports/'+file.id;
-      const label = state.interfaceMode === 'local' ? 'Open' : 'Download';
       const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary file-action';
-      button.textContent = label; button.setAttribute('aria-label', label+' '+file.filename);
-      if (state.interfaceMode === 'local') {
-        const feedback = document.createElement('small'); feedback.className = 'file-action-status'; feedback.setAttribute('role','status');
-        button.addEventListener('click', () => openFile(button, feedback, url)); action.append(button, feedback);
-      } else {
-        button.addEventListener('click', () => {window.location.href = url;}); action.append(button);
-      }
+      button.textContent = 'Open'; button.setAttribute('aria-label', 'Open '+file.filename);
+      const feedback = document.createElement('small'); feedback.className = 'file-action-status'; feedback.setAttribute('role','status');
+      button.addEventListener('click', () => openFile(button, feedback, url)); action.append(button, feedback);
     } else if (file.location !== 'device') action.textContent = 'Cloud copy';
     row.append(action); $('files').append(row);
   }
@@ -147,7 +142,6 @@ $('open-folder').addEventListener('click', async () => {
   } catch (error) {notice(error.message, true);}
   finally {$('open-folder').disabled = false;}
 });
-$('workspace').addEventListener('change', () => {state.workspace = $('workspace').value; state.location = state.desktopOnly ? 'device' : 'all'; state.offset = 0; hash(); loadFiles();});
 let keepsTheme = false;
 document.addEventListener('comic-archive-theme', async event => {
   // Only the desktop app keeps the choice; in a browser the page's own storage does.
@@ -158,26 +152,23 @@ async function openLibrary() {
   try {
     const context = await api('/api/v1/context');
     keepsTheme = typeof context.theme === 'string';
-    state.interfaceMode = context.interface_mode;
     // Each site has a library of its own; pages without a list of sites are Tapas's.
     const site = (Array.isArray(context.sites) ? context.sites : []).find(item => item.current === true)?.name || 'Tapas';
     $('library-title').textContent = `Your saved ${site} library`;
     $('open-folder').hidden = typeof context.library_folder !== 'string';
-    // Only this computer's files where cloud saving is not offered: the hosted version, or a computer without the helper.
-    state.desktopOnly = context.cloud_offered === false || (context.desktop_only !== false && context.interface_mode !== 'local');
+    // Only this computer's files where cloud saving is not offered: a computer the app has no helper for.
+    state.desktopOnly = context.cloud_offered === false;
     const [workspace, location, filters] = locationHash();
     state.workspace = context.workspace_ids.includes(workspace) ? workspace : context.workspace_ids[0];
-    if (!state.workspace) {notice(`No library is available. Use ${$('save-nav').textContent} to create one.`); buttons(); return;}
-    state.location = state.desktopOnly ? 'device' : /^(all|device|google|dropbox|proton|b2|(?:google|dropbox|proton|b2)-[a-f0-9]{16})$/.test(location || '') ? location : 'all';
+    if (!state.workspace) {notice('This library is unavailable. Close and reopen the app.', true); buttons(); return;}
+    state.location = state.desktopOnly ? 'device' : /^(all|device|b2|b2-[a-f0-9]{16})$/.test(location || '') ? location : 'all';
     $('file-search').value = (filters.get('q') || '').slice(0,200);
     $('file-kind').value = ['all','episodes','metadata','covers'].includes(filters.get('kind')) ? filters.get('kind') : 'episodes';
     $('file-sort').value = ['saved_desc','saved_asc','series'].includes(filters.get('sort')) ? filters.get('sort') : 'saved_desc';
     $('page-size').value = ['50','100','200'].includes(filters.get('limit')) ? filters.get('limit') : '50';
     const offset = filters.get('offset') || '0';
     state.offset = /^[0-9]{1,8}$/.test(offset) && Number(offset) <= 10000000 ? Number(offset) : 0;
-    $('workspace').replaceChildren();
-    for (const [index, id] of context.workspace_ids.entries()) {const option = document.createElement('option'); option.value = id; option.textContent = 'Library '+(index+1); $('workspace').append(option);}
-    $('workspace').value = state.workspace; $('library-picker').hidden = context.interface_mode === 'local'; hash(); await loadFiles();
+    hash(); await loadFiles();
   } catch (error) {notice(error.message, true);}
 }
 openLibrary();
