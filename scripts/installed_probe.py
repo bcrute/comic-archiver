@@ -33,9 +33,9 @@ def png():
 
 
 class SyntheticSource:
-    """Hands the archive its one synthetic page; there is nothing to refresh."""
+    """Hands the archive its synthetic page from disk; there is nothing to refresh."""
     def retrieve(self, page):
-        return png()
+        return Path(page.location).read_bytes()
 
     def refresh(self, episode):
         raise RuntimeError('Synthetic pages never need refreshing')
@@ -70,7 +70,9 @@ def main():
     subprocess.run([sys.executable, '-m', 'comic_archive', '--browser', 'firefox', '--headless', 'doctor'], check=True, timeout=30)
     comic = Series('synthetic-comic', 'Synthetic comic', source='local')
     novel = Series('synthetic-novel', 'Synthetic novel', source='local')
-    pages = Manifest(comic, (Episode('comic-1', comic.id, 'Chapter', 1, (Page(1, 'original.png'),), 'local_owned'),))
+    image = Path('original.png').absolute()
+    image.write_bytes(png())
+    pages = Manifest(comic, (Episode('comic-1', comic.id, 'Chapter', 1, (Page(1, str(image)),), 'local_owned'),))
     chapter = Manifest(novel, (Episode('novel-1', novel.id, 'Chapter', 1, (), 'local_owned', content_type='novel',
                         text_html='<p>Unicode 尾声<img src="images/0001.png" alt="Art" /></p>', illustrations=(png(),)),))
     store = PublicationStore(Path('Library'))
