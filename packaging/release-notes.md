@@ -1,10 +1,13 @@
 ## Changes in {version}
 
-- Comic Archiver is now only the desktop app. The `comic-archive` command-line tool and the parts of the code written
-  for a browser-only version are removed; the app window, its downloads and your library work as before.
-- Backblaze B2 is the cloud storage, and new episodes still go straight to it without being kept on this computer.
-  Google Drive, Dropbox and Proton Drive, which the app never offered, are removed. A connection to one of them saved
-  by an earlier version is kept as it was, but not used.
+- Episodes larger than 5 MB now go to Backblaze B2 in one piece. B2 sent about half of them in parts before, kept no
+  checksum for them, and the check after each upload then failed and paused the download.
+- If B2 can't confirm an episode's upload, that episode is saved on this computer for the retry button in the cloud
+  settings, and the download carries on. It still pauses if that happens to several episodes in one run, or if the
+  problem is with cloud storage itself.
+- A download paused by a cloud upload now says why on the dashboard.
+- The cloud settings now say why the storage choice and the library folder can't be changed while episodes are
+  downloading.
 
 ## Download
 
