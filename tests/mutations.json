@@ -2946,8 +2946,8 @@
  {
   "id": "direct B2 upload ignores the remote checksum mismatch",
   "source": "comic_archive/cloud.py",
-  "old": "if listed.pop(name) != hashlib.sha1(data, usedforsecurity=False).hexdigest():",
-  "new": "if listed.pop(name) is None:",
+  "old": "elif listed[name] != hashlib.sha1(data, usedforsecurity=False).hexdigest():",
+  "new": "elif listed[name] is None:",
   "test_file": "test_cloud_stream.py",
   "test": "test_wrong_remote_checksums_set_episodes_aside_for_retry_until_one_run_has_too_many"
  },
@@ -3018,8 +3018,8 @@
  {
   "id": "direct B2 upload accepts files it did not send",
   "source": "comic_archive/cloud.py",
-  "old": "            if listed:\n                raise CloudTransferError('cloud_verification')",
-  "new": "            if False:\n                raise CloudTransferError('cloud_verification')",
+  "old": "if set(listed) - {name for name, _ in self.files}:",
+  "new": "if False:",
   "test_file": "test_cloud_stream.py",
   "test": "test_a_file_b2_lists_but_was_not_sent_fails_the_check"
  },
