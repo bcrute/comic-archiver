@@ -3219,7 +3219,7 @@
   "id": "sign-in requests use only the old loopback guard",
   "source": "comic_archive/desktop_app.py",
   "old": "if private_destination(info.requestUrl().host()):",
-  "new": "if loopback(info.requestUrl().host()):",
+  "new": "if info.requestUrl().host() in ('localhost', '127.0.0.1'):",
   "test_file": "test_desktop_app.py",
   "test": "test_sign_in_page_keeps_to_https_cannot_reach_this_computer_and_saves_or_grants_nothing"
  },
