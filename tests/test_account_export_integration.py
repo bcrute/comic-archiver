@@ -177,7 +177,7 @@ class AccountExportIntegrationTests(unittest.TestCase):
 
     def go(self, speed):
         """The page's Go at one of its speeds, driven to the end of the whole account."""
-        from comic_archive.local_web import LOCAL_OWNER, LocalWorkspaceRegistry
+        from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
         (self.root/'account-export.json').unlink()
         private_json(self.session/'state.json',{'cookies':[],'origins':[]})
         registry=LocalWorkspaceRegistry(self.project)

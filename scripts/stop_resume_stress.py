@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Try to break Go, Pause and closing the app.
 
-The dashboard server and its routes, the queue, the controllers and the
+The window's calls (app_actions), the queue, the controllers and the
 downloader process are the real ones. Only Tapas is replaced: the downloader
 is started with the offline source below instead of a browser, so nothing here
 contacts Tapas. The window is not part of this. "Closing" is `Runtime.stop`,
@@ -33,9 +33,7 @@ import tempfile
 import threading
 import time
 import traceback
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, Request, build_opener
 import zlib
 
 # The offline account: comics only, the last episode of each series locked.
@@ -228,7 +226,7 @@ class Bench:
         return [row for row in rows if len(row) == 4 and (kind is None or row[2] == kind)]
 
     def account(self):
-        from comic_archive.local_web import LOCAL_OWNER
+        from comic_archive.local_library import LOCAL_OWNER
         return self.registry.account_status(LOCAL_OWNER, self.registry.workspace_id)
 
     def worker(self):
@@ -359,63 +357,53 @@ class Bench:
 
     # -- acting ------------------------------------------------------------------------------------------------
     def open(self):
-        from comic_archive import app_runtime
+        from comic_archive import app_actions, app_runtime
         os.environ[FOLDER] = str(self.control)
         self.runtime = app_runtime.Runtime(self.root)
-        self.url = self.runtime.start()
-        self.registry = self.runtime.server.get_app().registry
+        self.runtime.start()
+        self.registry = self.runtime.registry
         outcome = self.runtime.start_worker()
         self.need(outcome == 'running', f'the downloader did not start: {outcome}')
         self.until(lambda: self.worker() in {'ready', 'busy'}, 90, 'the downloader to be ready')
-        opener = build_opener(ProxyHandler({}))
-        with opener.open(self.url, timeout=10) as response:
-            cookie = response.headers['Set-Cookie'].split(';', 1)[0]
-        self.base = f'http://127.0.0.1:{self.runtime.port}/'  # self.url carries the launch secret
-        with opener.open(Request(self.base + 'api/v1/context', headers={'Cookie': cookie}), timeout=10) as response:
-            token = json.loads(response.read())['csrf_token']
-        self.opener = opener
-        self.headers = {'Cookie': cookie, 'Origin': self.base.rstrip('/'), 'X-CSRF-Token': token,
-                        'Content-Type': 'application/json'}
+        self.actions = app_actions.Actions(lambda: self.runtime)
 
     def post(self, action):
-        """The page's Go ('account') or Pause ('account/pause') click.
+        """The window's Go ('go') or Pause ('pause') click.
 
-        Returns the HTTP status, or None if the app was closing. 409 means
-        "busy, try again": the page shows that as an error and the person
+        Returns 'ok', or the code it was refused with. 'library_busy' means
+        "busy, try again": the window shows that as an error and the person
         clicks again, so it is counted and the click repeated.
         """
-        url = f'{self.base}api/v1/workspaces/{self.registry.workspace_id}/{action}'
+        from comic_archive.app_actions import Refused
         start = time.monotonic()
         with self.watch() as samples:
             for _ in range(8):
                 try:
-                    with self.opener.open(Request(url, data=b'{}', headers=self.headers, method='POST'), timeout=60) as response:
-                        response.read()
-                        code = response.status
-                except HTTPError as error:
-                    code = error.code
-                except (URLError, OSError):
-                    return None
-                if code != 409:
+                    getattr(self.actions, action)()
+                    code = 'ok'
+                except Refused as refused:
+                    code = refused.code
+                if code != 'library_busy':
                     break
                 self.busy_answers += 1
                 time.sleep(.3)
         seconds = round(time.monotonic() - start, 2)
         if seconds > 2:
             self.slowly(f'{action} answered {code}', seconds, samples)
-        self.check(code < 500 and code != 409, f'the dashboard answered {code} to {action} after {seconds}s')
+        # A refusal the person is told about is an answer; a busy library or one that did not answer is not.
+        self.check(code in {'ok', 'request_unavailable'}, f'the window was told {code} for {action} after {seconds}s')
         return code
 
     def go(self):
         self.until(lambda: self.worker() == 'ready', 30, 'the downloader to be free for Go')
-        self.need(self.post('account') == 200, 'Go was refused although the downloader was ready')
+        self.need(self.post('go') == 'ok', 'Go was refused although the downloader was ready')
         state = self.account()
         self.check(state.get('status') in {'running', 'finished'}, f'after Go the download is {state.get("status")}/{state.get("code")}')
 
     def pause(self, limit=20):
         """Pause, then time how long the downloader takes to stop working."""
         start = time.monotonic()
-        self.need(self.post('account/pause') == 200, 'Pause was refused')
+        self.need(self.post('pause') == 'ok', 'Pause was refused')
         self.check(self.account().get('status') == 'stopped', f'after Pause the download is {self.account().get("status")}')
         self.until(lambda: self.worker() != 'busy', limit, 'the downloader to stop after Pause')
         self.times['pause'].append(round(time.monotonic() - start, 2))
@@ -525,15 +513,15 @@ def impatient_clicks(b):
         clicks = [threading.Thread(target=lambda: codes.append(b.post(action))) for _ in range(2)]
         for click in clicks: click.start()
         for click in clicks: click.join()
-        b.check(200 in codes, f'neither of two clicks on {action} was accepted: {codes}')
+        b.check('ok' in codes, f'neither of two clicks on {action} was accepted: {codes}')
 
     for _ in range(4):
-        twice('account/pause')
-        early = b.post('account')  # Go while the downloader may still be stopping: accepted or refused, never an error.
-        b.check(early in {200, 400}, f'an early Go was answered {early}')
+        twice('pause')
+        early = b.post('go')  # Go while the downloader may still be stopping: accepted or refused, never an error.
+        b.check(early in {'ok', 'request_unavailable'}, f'an early Go was answered {early}')
         b.until(lambda: b.worker() != 'busy', 20, 'the downloader to settle after the clicks')
         if b.account().get('status') != 'running':
-            twice('account')
+            twice('go')
         b.check(b.account().get('status') == 'running', f'after the clicks the download is {b.account().get("status")}/{b.account().get("code")}')
         b.flowing()
 
@@ -565,7 +553,7 @@ def close_while_paused(b):
     b.check(b.account().get('status') == 'stopped', f'a paused download reopened as {b.account().get("status")}')
     b.quiet(2, 'while paused after reopening')
     b.go(); b.flowing()
-    click = threading.Thread(target=b.post, args=('account/pause',))
+    click = threading.Thread(target=b.post, args=('pause',))
     click.start()
     time.sleep(b.rng.uniform(0, .2))
     b.close()
@@ -649,10 +637,10 @@ def random_abuse(b):
             b.close()
             b.open()
         elif action == 'both':
-            first = threading.Thread(target=b.post, args=('account/pause',))
-            first.start(); b.post('account'); first.join()
+            first = threading.Thread(target=b.post, args=('pause',))
+            first.start(); b.post('go'); first.join()
         else:
-            b.post('account' if action == 'go' else 'account/pause')
+            b.post(action)
         state = b.account()
         b.need(state.get('status') in {'running', 'stopped', 'finished'},
                f'step {step} ({action}) left the download {state.get("status")}/{state.get("code")}')

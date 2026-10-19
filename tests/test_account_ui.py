@@ -1,18 +1,19 @@
 from datetime import datetime, timedelta, timezone
-import io
 import json
 from pathlib import Path
 import tempfile
 import os
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from support import PRIVATE_FILE
-from comic_archive import account_export, account_ui, batches, completion
+from comic_archive import account_export, account_ui, batches, completion, sites
+from comic_archive.app_actions import Actions, Refused
 from comic_archive.cancellation import RunCancellation
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered, job_progress
-from comic_archive.local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry
+from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from comic_archive.models import ArchiveError
 from comic_archive.worker import private_json
 from test_jobs import AccountAdapter
@@ -27,38 +28,19 @@ class AccountUITests(unittest.TestCase):
         (self.queue/'requests').mkdir(parents=True);(self.queue/'responses').mkdir()
         private_json(self.queue/'status.json',{'state':'ready'})
         private_json(self.workspace.session/'state.json',{'cookies':[],'origins':[]})
-        self.app=LocalApplication(self.registry,8765)
+        # What the window's calls go through: the open site's library, as the app's runtime holds it.
+        runtime=SimpleNamespace(registry=self.registry,site=sites.DEFAULT,folder=self.workspace.library,site_settings=None)
+        self.actions=Actions(lambda:runtime)
 
-    def call(self,path,method='GET',body=None,headers=None):
-        data=json.dumps(body).encode() if body is not None else b''
-        env={'REMOTE_ADDR':'127.0.0.1','HTTP_HOST':'127.0.0.1:8765','wsgi.url_scheme':'http',
-             'REQUEST_METHOD':method,'PATH_INFO':path,'QUERY_STRING':'','CONTENT_TYPE':'application/json',
-             'CONTENT_LENGTH':str(len(data)),'wsgi.input':io.BytesIO(data),**(headers or {})}
-        result=[];response=self.app(env,lambda status,values,exc_info=None:result.append((status,dict(values))))
-        try:return *result[0],b''.join(response)
-        finally:
-            if hasattr(response,'close'):response.close()
-
-    def browser_headers(self):
-        _,headers,_=self.call('/',headers={'QUERY_STRING':'launch='+self.app.launch_token})
-        cookie={'HTTP_COOKIE':headers['Set-Cookie'].split(';',1)[0]}
-        token=json.loads(self.call('/api/v1/context',headers=cookie)[2])['csrf_token']
-        return cookie|{'HTTP_ORIGIN':self.app.origin,'HTTP_X_CSRF_TOKEN':token}
-
-    def test_account_and_signin_routes_require_local_owner_cookie_csrf_and_empty_payload(self):
-        headers=self.browser_headers();base='/api/v1/workspaces/'+self.workspace.id
-        for path,method_name in [(base+'/account','start_account'),(base+'/session/signin','start_site_signin'),
-                                 (base+'/account/pause','pause_account')]:
+    def test_go_pause_and_signin_reach_only_this_librarys_own_account_and_queue_nothing_themselves(self):
+        for name,method_name in [('go','start_account'),('signin','start_site_signin'),('pause','pause_account')]:
             with patch.object(self.registry,method_name,return_value={'status':'running'}) as action:
-                self.assertEqual(self.call(path,'POST',{})[0],'401 Unauthorized')
-                self.assertEqual(self.call(path,'POST',{},headers={'HTTP_COOKIE':headers['HTTP_COOKIE']})[0],'403 Forbidden')
-                for body in ({'limit':1},{'url':'https://tapas.io/series/one/info'},{'password':'PRIVATE'}):
-                    self.assertEqual(self.call(path,'POST',body,headers=headers)[0],'400 Bad Request')
-                action.assert_not_called()
-                self.assertEqual(self.call(path,'POST',{},headers=headers)[0],'200 OK')
+                self.assertEqual(getattr(self.actions,name)(),{'status':'running'})
                 action.assert_called_once_with(LOCAL_OWNER,self.workspace.id)
-        foreign='/api/v1/workspaces/'+'0'*32+'/account'
-        self.assertEqual(self.call(foreign,'POST',{},headers=headers)[0],'404 Not Found')
+        # Another owner's or another library's account is never reached.
+        for owner,workspace_id in (('someone-else',self.workspace.id),(LOCAL_OWNER,'0'*32)):
+            with self.assertRaisesRegex(ArchiveError,'unavailable for this owner'):
+                self.registry.start_account(owner,workspace_id)
         self.assertFalse(list((self.queue/'requests').iterdir()))
 
     def test_go_is_durable_account_wide_and_duplicate_go_does_not_start_another_run(self):
@@ -126,17 +108,17 @@ class AccountUITests(unittest.TestCase):
                 self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'medium')
 
-    def test_the_speed_route_takes_one_known_speed_from_the_signed_page_only(self):
-        headers=self.browser_headers();path='/api/v1/workspaces/'+self.workspace.id+'/account/speed'
-        self.assertEqual(self.call(path,'POST',{'speed':'slow'})[0],'401 Unauthorized')
-        self.assertEqual(self.call(path,'POST',{'speed':'slow'},headers={'HTTP_COOKIE':headers['HTTP_COOKIE']})[0],'403 Forbidden')
-        for body in ({},{'speed':'slow','limit':1},{'speed':['slow']},{'speed':'ludicrous'}):
-            self.assertEqual(self.call(path,'POST',body,headers=headers)[0],'400 Bad Request')
-        self.assertEqual(self.call(path,headers=headers)[0],'405 Method Not Allowed')
+    def test_the_windows_speed_choice_takes_one_known_speed_and_is_refused_in_words_otherwise(self):
+        with self.assertRaises(Refused) as refused:self.actions.speed('ludicrous')
+        self.assertEqual(refused.exception.code,'request_unavailable')
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
-        status,_,body=self.call(path,'POST',{'speed':'slow'},headers=headers)
-        self.assertEqual((status,json.loads(body)['speed']),('200 OK','slow'))
-        self.assertEqual(json.loads(self.call('/api/v1/workspaces/'+self.workspace.id+'/account',headers=headers)[2])['speed'],'slow')
+        self.assertEqual(self.actions.speed('slow')['speed'],'slow')
+        self.assertEqual(self.actions.poll(cloud=False,network=False)['account']['speed'],'slow')
+        # Under a running download the person is told to try again after Pause, and the speed stands.
+        self.actions.go()
+        with self.assertRaises(Refused) as refused:self.actions.speed('fast')
+        self.assertEqual(refused.exception.code,'library_busy')
+        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'slow')
 
     def test_pause_then_go_keeps_the_same_pending_discovery_task(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)

@@ -1,9 +1,8 @@
 """Probe an installed wheel from an empty directory, with Python -I.
 
-Executed by validate.py on the fleet. Uses synthetic exports, a fresh browser
-and a real loopback listener; never loads an existing account or contacts Tapas.
+Executed by validate.py on the fleet. Uses synthetic exports and a fresh browser,
+and reads the library through the window's own calls; never loads an existing account or contacts Tapas.
 """
-import http.cookiejar
 from importlib import resources
 from importlib import metadata
 import json
@@ -12,15 +11,14 @@ import re
 import struct
 import subprocess
 import sys
-import threading
-import urllib.request
-from wsgiref.simple_server import make_server
+from types import SimpleNamespace
 import zlib
 
 import comic_archive
-from comic_archive import account_export, cloud, storage
+from comic_archive import account_export, cloud, sites, storage
+from comic_archive.app_actions import Actions
 from comic_archive.archive import verify
-from comic_archive.local_web import LocalApplication, LocalWorkspaceRegistry, LocalServer, PrivateRequestHandler
+from comic_archive.local_library import LocalWorkspaceRegistry
 from comic_archive.models import Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore
 
@@ -47,9 +45,9 @@ def main():
         raise RuntimeError('Install probe imported the source checkout instead of the wheel')
     if metadata.distribution('comic-archive').metadata['Name'] != 'comic-archive':
         raise RuntimeError('Installed distribution still uses the old project name')
-    for name in ('index.html', 'archive.css', 'archive.js', 'library.html', 'library.js'):
-        if not resources.files('comic_archive').joinpath('static', name).read_bytes():
-            raise RuntimeError('Installed dashboard resource missing')
+    for name in (f'{shape}-{tone}{size}.png' for shape in ('check', 'arrow') for tone in ('light', 'dark') for size in ('', '@2x')):
+        if not resources.files('comic_archive').joinpath('window', name).read_bytes():
+            raise RuntimeError('Installed window resource missing')
     from comic_archive.cloud_auth import SignIn
     from comic_archive.cloud_tools import VERSION
     if SignIn(Path.cwd()/'Library').status() != {'status':'idle'} or not VERSION:
@@ -83,38 +81,22 @@ def main():
         store.close()
     if verify(Path('Library'), decode_images=True):
         raise RuntimeError('Installed package failed portable export verification')
-    server = make_server('127.0.0.1', 0, None, server_class=LocalServer, handler_class=PrivateRequestHandler)
-    app = LocalApplication(LocalWorkspaceRegistry(Path.cwd()), server.server_port)
-    server.set_app(app)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        origin = 'http://127.0.0.1:' + str(server.server_port)
-        with client.open(app.launch_url, timeout=10) as response:
-            body = response.read()
-            if response.status != 200 or b'archive.js' not in body or b'Comic Archiver' not in body:
-                raise RuntimeError('Installed loopback dashboard failed')
-        for path in ('/assets/archive.js', '/assets/archive.css', '/library', '/assets/library.js', '/api/v1/context'):
-            with client.open(origin + path, timeout=10) as response:
-                if response.status != 200 or not response.read():
-                    raise RuntimeError('Installed dashboard asset or context failed')
-        context = json.loads(client.open(origin+'/api/v1/context', timeout=10).read())
-        if context.get('desktop_only') is not True:
-            raise RuntimeError('Installed app did not default to desktop downloads')
-        workspace = context['workspace_ids'][0]
-        catalog = json.loads(client.open(origin+'/api/v1/workspaces/'+workspace+'/saved-files?kind=episodes', timeout=10).read())
-        if catalog['total'] != 2 or {f['kind'] for f in catalog['files']} != {'cbz','epub'}:
-            raise RuntimeError('Installed saved-file table lost a portable episode')
-    finally:
-        server.shutdown()
-        thread.join(timeout=10)
-        server.server_close()
+    registry = LocalWorkspaceRegistry(Path.cwd())
+    runtime = SimpleNamespace(registry=registry, site=sites.DEFAULT, folder=Path('Library').absolute(),
+                              site_settings=SimpleNamespace(list=list))
+    actions = Actions(lambda: runtime)
+    if actions.context()['library_folder'] != str(Path('Library').absolute()):
+        raise RuntimeError('Installed window calls named another library')
+    if actions.poll(cloud=False, network=False)['account'].get('configured') is not False:
+        raise RuntimeError('Installed window calls reused account state')
+    catalog = actions.saved_files(kind='episodes')
+    if catalog['total'] != 2 or {f['kind'] for f in catalog['files']} != {'cbz','epub'}:
+        raise RuntimeError('Installed saved-file table lost a portable episode')
     if not Path('.comic-session').is_dir():
         raise RuntimeError('Fresh installed app did not create its session directory')
     print(json.dumps({'wheel_import': True, 'cli': True,
                       'fresh_state': True, 'firefox_startup': True,
-                      'comic_and_illustrated_epub': True, 'real_loopback_dashboard': True,
+                      'comic_and_illustrated_epub': True, 'window_calls': True,
                       'saved_file_table': True,
                       'source_requests': 0}))
 

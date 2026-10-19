@@ -12,15 +12,15 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, build_opener
 
 from support import home_environment
-from comic_archive import app_runtime, desktop_app, qt_engine, sites
-from comic_archive.local_web import SESSION_SECONDS
+from comic_archive import app_runtime, desktop_app, qt_engine, sites, window_style
+from comic_archive.app_actions import Refused
+from comic_archive.dashboard_model import Message, error_text
 from comic_archive.models import ArchiveError
 
 RUNTIME = app_runtime.Runtime
-URL = 'http://127.0.0.1:4321/'
+URL = 'http://127.0.0.1:4321/'  # An address on this computer, which no page may reach.
 SIGNIN = 'https://tapas.io/account/signin'
 QT_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) QtWebEngine/6.11.2 Chrome/140.0.0.0 Safari/537.36'
 
@@ -118,13 +118,10 @@ def fake_qt():
             QLockFile=kind('QLockFile', tryLock=Mock(return_value=True), error=Mock(return_value='held'),
                            removeStaleLockFile=Mock(return_value=False), unlock=Mock(),
                            LockError=SimpleNamespace(LockFailedError='held', PermissionError='denied')),
-            QStandardPaths=kind('QStandardPaths', writableLocation=Mock(return_value='/home/user/Downloads'),
-                                StandardLocation=SimpleNamespace(DownloadLocation='downloads')),
             Qt=SimpleNamespace(AlignmentFlag=SimpleNamespace(AlignCenter='center'),
                                WidgetAttribute=SimpleNamespace(WA_StyledBackground='styled'),
                                ColorScheme=SimpleNamespace(Unknown='unknown', Light='light', Dark='dark'))),
-        'QtGui': module('QtGui', QDesktopServices=kind('QDesktopServices', openUrl=Mock()), QColor=kind('QColor'),
-                        QIcon=kind('QIcon')),
+        'QtGui': module('QtGui', QDesktopServices=kind('QDesktopServices', openUrl=Mock()), QIcon=kind('QIcon')),
         'QtNetwork': module('QtNetwork', QNetworkProxyFactory=kind('QNetworkProxyFactory', setUseSystemConfiguration=Mock()),
             QLocalServer=kind('QLocalServer', removeServer=Mock(), SocketOption=SimpleNamespace(UserAccessOption='user')),
             QLocalSocket=kind('QLocalSocket', waitForConnected=Mock(return_value=True), waitForBytesWritten=Mock(return_value=True)),
@@ -134,14 +131,12 @@ def fake_qt():
             QWidget=kind('QWidget'), QPushButton=kind('QPushButton'), QHBoxLayout=kind('QHBoxLayout'), QVBoxLayout=kind('QVBoxLayout'),
             QMessageBox=kind('QMessageBox', critical=Mock(), information=Mock(), question=Mock(),
                              StandardButton=SimpleNamespace(Yes=1, No=2)),
-            QFileDialog=kind('QFileDialog', getSaveFileName=Mock(return_value=('', '')),
-                             getExistingDirectory=Mock(return_value=''))),
+            QFileDialog=kind('QFileDialog', getExistingDirectory=Mock(return_value=''))),
         'QtWebEngineCore': module('QtWebEngineCore', QWebEngineProfile=kind('QWebEngineProfile', httpUserAgent=Mock(return_value=QT_AGENT)), QWebEnginePage=kind('QWebEnginePage',
             RenderProcessTerminationStatus=SimpleNamespace(NormalTerminationStatus='normal'),
             NavigationType=SimpleNamespace(NavigationTypeBackForward='back')),
             QWebEngineUrlRequestInterceptor=kind('QWebEngineUrlRequestInterceptor'),
-            QWebEngineScript=kind('QWebEngineScript', ScriptWorldId=SimpleNamespace(MainWorld=0, ApplicationWorld=1),
-                                  InjectionPoint=SimpleNamespace(DocumentCreation='creation')),
+            QWebEngineScript=kind('QWebEngineScript', ScriptWorldId=SimpleNamespace(MainWorld=0, ApplicationWorld=1)),
             QWebEngineLoadingInfo=kind('QWebEngineLoadingInfo',
                 LoadStatus=SimpleNamespace(LoadStartedStatus='started', LoadStoppedStatus='stopped',
                                            LoadSucceededStatus='succeeded', LoadFailedStatus='failed'),
@@ -158,14 +153,21 @@ class DesktopAppTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name).resolve()
         self.state, self.log = self.home / 'state/comic-archiver', self.home / 'state/comic-archiver/desktop.log'
-        self.runtime = Mock(url=URL, port=4321, site=sites.DEFAULT)
+        self.runtime = Mock(site=sites.DEFAULT)
         self.runtime.busy.return_value = None
         self.signin = self.runtime.signin
         self.signin.take.return_value = False
         self.signin.status.return_value = {'status': 'idle'}
         self.runtime.theme.get.return_value = 'system'
-        self.runtime.location.take.return_value = None
-        self.runtime.site_choice.take.return_value = None
+        # The pages are window_pages' own, which these stand-ins for Qt cannot draw: each window gets a stand-in
+        # that records what the window asks of it, and keeps the calls it was given to read the library with.
+        self.pages = []
+
+        def pages(q, shell, actions):
+            made = Mock(name='pages', actions=actions, state=SimpleNamespace(busy=False, message=None))
+            self.pages.append(made)
+            return made
+        self.paint = Mock()
         self.runtime_kind = Mock(return_value=self.runtime)
         self.state_dir = Mock(return_value=self.state)
         self.logging = Mock(return_value=self.log)
@@ -175,7 +177,9 @@ class DesktopAppTests(unittest.TestCase):
                         patch('comic_archive.desktop_app.threading', self.threads),
                         patch('comic_archive.desktop_app.app_runtime.Runtime', self.runtime_kind),
                         patch('comic_archive.desktop_app.app_runtime.state_dir', self.state_dir),
-                        patch('comic_archive.desktop_app.app_runtime.configure_logging', self.logging)]:
+                        patch('comic_archive.desktop_app.app_runtime.configure_logging', self.logging),
+                        patch('comic_archive.window_pages.Pages', Mock(side_effect=pages)),
+                        patch('comic_archive.window_pages.paint', self.paint)]:
             wrapper.start(); self.addCleanup(wrapper.stop)
         for name in ('QT_QPA_PLATFORM', 'QT_QUICK_BACKEND', 'QTWEBENGINE_CHROMIUM_FLAGS', 'QTWEBENGINE_DISABLE_SANDBOX'):
             os.environ.pop(name, None)
@@ -190,20 +194,18 @@ class DesktopAppTests(unittest.TestCase):
 
     def test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen_in_the_computers_own_dialog(self):
         shell = self.opened(); shell.load()
+        pages = shell.pages
         root = self.runtime.root = self.home / 'Comic Archiver'
-        location, dialog, external = self.runtime.location, self.widgets.QFileDialog.getExistingDirectory, self.q.QtGui.QDesktopServices.openUrl
-        location.get.return_value = str(root / 'Library')
-        other = Mock(url='http://127.0.0.1:5555/', port=5555, site=sites.DEFAULT)
-        shell.signin_tick()
-        external.assert_not_called(); dialog.assert_not_called()
-        location.take.return_value = 'open'
-        shell.signin_tick()
+        dialog, external = self.widgets.QFileDialog.getExistingDirectory, self.q.QtGui.QDesktopServices.openUrl
+        self.runtime.folder = root / 'Library'
+        other = Mock(site=sites.DEFAULT)
+        shell.open_folder()
         self.assertEqual([call.args[0].toString() for call in external.call_args_list], ['file://' + str(root / 'Library')])
-        location.take.return_value = 'choose'
+        dialog.assert_not_called()
         with patch('comic_archive.desktop_app.app_runtime.move', return_value=(other, None)) as move:
             # Never while saving or signing in: the folder would change under the downloader.
             self.runtime.busy.return_value = 'download'
-            shell.signin_tick()
+            shell.choose_location()
             self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.LOCATION_BUSY)
             dialog.assert_not_called()
             self.runtime.busy.return_value = None
@@ -214,7 +216,7 @@ class DesktopAppTests(unittest.TestCase):
             self.box.question.return_value = 2
             for chosen, asked in [('', 0), (str(root), 0), (str(root / 'Library'), 0), (str(self.home / 'Other'), 1), (str(self.home / 'Old'), 2), (str(self.home / 'Photos'), 3)]:
                 dialog.return_value = chosen
-                shell.signin_tick()
+                shell.choose_location()
                 self.assertEqual(self.box.question.call_count, asked)
             dialog.assert_called_with(shell.window, desktop_app.LOCATION_TITLE, str(self.home))
             first, second, third = (call.args for call in self.box.question.call_args_list)
@@ -229,95 +231,118 @@ class DesktopAppTests(unittest.TestCase):
             self.assertIn('library page then shows only what is saved in this folder', second[2])
             move.assert_not_called()
             self.assertEqual(shell.phase, 'open')
-            # Yes: the window waits on a plain notice and cannot be closed half-way.
+            # Yes: the window waits on a plain notice, with its clocks stopped, and cannot be closed half-way.
             self.box.question.return_value = 1
             dialog.return_value = str(self.home / 'Other')
-            shell.signin_tick()
+            shell.choose_location()
             move.assert_called_once_with(self.runtime, self.home / 'Other')
             self.assertEqual((shell.phase, shell.runtime), ('moving', self.runtime))
             shell.notice.setText.assert_called_with(desktop_app.MOVING); shell.stack.setCurrentWidget.assert_called_with(shell.notice)
-            shell.clock.stop.assert_called_once_with(); shell.signin_clock.stop.assert_called_once_with()
+            for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
+                clock.stop.assert_called_once_with()
             event = Mock()
             shell.close_requested(event)
             event.ignore.assert_called_once_with(); event.accept.assert_not_called(); self.runtime.stop.assert_not_called()
-            shell.signin_tick()
+            shell.choose_location()
             self.assertEqual(dialog.call_count, 7)
-            shell.issued = 1000
             emit(self.core.QTimer.made[-1].timeout)
-        self.assertEqual((shell.runtime, shell.phase, shell.issued, self.loads(shell.view)), (other, 'open', None, [URL, other.url]))
-        self.assertEqual((shell.clock.start.call_count, shell.signin_clock.start.call_count), (2, 2))
+        # The same pages read the new folder's library, afresh, on clocks that run again.
+        self.assertEqual((shell.runtime, shell.phase, pages.actions._runtime()), (other, 'open', other))
+        self.assertEqual([call.args for call in pages.reopened.call_args_list], [(None,), (None,)])
+        shell.stack.setCurrentWidget.assert_called_with(pages.widget)
+        for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
+            self.assertEqual(clock.start.call_count, 2)
         self.box.information.assert_called_once()
         # The new folder cannot be used: back on the old one, with the reason in words.
-        other.busy.return_value = None; other.root = self.home / 'Other'; other.location.take.return_value = 'choose'
-        back = Mock(url='http://127.0.0.1:6666/', port=6666, site=sites.DEFAULT)
-        # The window's clock runs on under the dialogs: a second request waits instead of opening another one.
-        dialog.side_effect = lambda *_: (shell.signin_tick(), str(self.home / 'Third'))[1]
-        shell.issued = 2000
+        other.busy.return_value = None; other.root = self.home / 'Other'
+        back = Mock(site=sites.DEFAULT)
+        # The window's clocks run on under the dialogs: a second request waits instead of opening another one.
+        dialog.side_effect = lambda *_: (shell.choose_location(), str(self.home / 'Third'))[1]
         with patch('comic_archive.desktop_app.app_runtime.move', return_value=(back, 'That folder cannot be written to.')) as move:
-            shell.signin_tick()
+            shell.choose_location()
             emit(self.core.QTimer.made[-1].timeout)
         move.assert_called_once_with(other, self.home / 'Third')
         self.assertEqual((dialog.call_count, shell.choosing), (8, False))
         dialog.side_effect, dialog.return_value = None, str(self.home / 'Third')
-        self.assertEqual((shell.runtime, shell.phase, self.loads(shell.view)[-1]), (back, 'open', back.url))
-        # The old folder's page cookie was not issued again, so its age is still counted from the first time.
-        self.assertEqual((shell.issued, shell.renewing), (2000, False))
+        self.assertEqual((shell.runtime, shell.phase, pages.reopened.call_count), (back, 'open', 3))
         self.assertEqual(self.box.information.call_args.args, (shell.window, 'Comic Archiver',
                          'The folder was not changed.\n\nThat folder cannot be written to.'))
         # Neither folder opens again: a plain notice, and closing still works.
-        back.busy.return_value = None; back.root = self.home / 'Other'; back.location.take.return_value = 'choose'
+        back.busy.return_value = None; back.root = self.home / 'Other'
         with patch('comic_archive.desktop_app.app_runtime.move', side_effect=RuntimeError('PRIVATE_COOKIE')):
             with self.assertLogs('comic_archive.desktop', 'ERROR') as logs:
-                shell.signin_tick()
+                shell.choose_location()
             emit(self.core.QTimer.made[-1].timeout)
         self.assertNotIn('PRIVATE', logs.output[0])
-        self.assertEqual((shell.runtime, shell.phase, len(self.loads(shell.view))), (back, 'failed', 3))
+        self.assertEqual((shell.runtime, shell.phase, pages.reopened.call_count), (back, 'failed', 3))
         self.assertIn(desktop_app.LOAD_FAILED, shell.notice.setText.call_args.args[0])
         shell.close_requested(Mock())
         back.stop.assert_called_once_with()
 
-
     def test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
-        shell = self.opened(); shell.load()
-        choice, change = self.runtime.site_choice, self.runtime.change_site
+        hidden = replace(sites.DEFAULT, key='hidden', name='Hidden', available=False)
+        shell = self.opened()
+        pages, change = shell.pages, self.runtime.change_site
         change.return_value = None
-        choice.take.return_value = sites.DEFAULT  # The site already open: the page stops waiting.
-        shell.signin_tick()
-        choice.settle.assert_called_once_with()
-        # Never while saving or signing in: the page reads the site still open.
-        choice.take.return_value = example
-        self.runtime.busy.return_value = 'download'
-        shell.signin_tick()
-        self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.SITE_BUSY.format(site='Example'))
-        self.assertEqual((choice.settle.call_count, shell.phase), (2, 'open'))
-        change.assert_not_called()
-        self.runtime.busy.return_value = None
-        shell.signin_tick()
-        change.assert_called_once_with(example)
-        # Closing waits for the switch; the page stays in the window and is never reloaded.
-        self.assertEqual((shell.phase, choice.settle.call_count), ('moving', 2))
-        self.assertEqual(desktop_app.close_action(shell.phase, None), 'ignore')
-        emit(self.core.QTimer.made[-1].timeout)
-        self.assertEqual((shell.runtime, shell.phase, choice.settle.call_count, self.loads(shell.view)), (self.runtime, 'open', 3, [URL]))
-        shell.view.reload.assert_not_called()
-        self.box.information.assert_called_once()
-        # The site asked for cannot be opened: it stays as it was, with the reason in words.
-        change.return_value = 'That folder cannot be written to.'
-        self.runtime.site = example
-        choice.take.return_value = sites.DEFAULT
-        shell.signin_tick()
-        emit(self.core.QTimer.made[-1].timeout)
-        self.assertEqual((shell.phase, choice.settle.call_count), ('open', 4))
-        self.assertEqual(self.box.information.call_args.args, (shell.window, 'Comic Archiver',
-                         'Comic Archiver stays on Example.\n\nThat folder cannot be written to.'))
-        # A switch that broke off: the window says so, as when the dashboard cannot be opened.
-        change.side_effect = OSError('PRIVATE')
-        with self.assertLogs('comic_archive.desktop', 'ERROR'):
-            shell.signin_tick()
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, hidden)):
+            shell.choose_site('example')  # Still starting.
+            shell.load()
+            # The site already open, one that cannot be chosen and one that does not exist change nothing.
+            for key in ('tapas', 'hidden', 'nowhere'):
+                shell.choose_site(key)
+            self.box.question.assert_not_called()
+            # Asked first, in plain words; No leaves everything as it was.
+            self.box.question.return_value = 2
+            shell.choose_site('example')
+            self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', desktop_app.SITE_SWITCH.format(
+                site='Example', open='Tapas'), 3, 2))
+            # Never while saving or signing in: the dashboard goes on reading the site still open.
+            self.box.question.return_value = 1
+            self.runtime.busy.return_value = 'download'
+            shell.choose_site('example')
+            self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.SITE_BUSY.format(site='Example'))
+            self.runtime.busy.return_value = None
+            # The window began closing while the question was open.
+            def closing(*_):
+                shell.phase = 'stopping'
+                return 1
+            self.box.question.side_effect = closing
+            shell.choose_site('example')
+            self.box.question.side_effect = None
+            shell.phase = 'open'
+            change.assert_not_called(); pages.render.assert_called_once_with()  # Only when the window was coloured.
+            self.threads.Thread.alive = True
+            shell.choose_site('example')
+            change.assert_called_once_with(example)
+            # Closing waits for the switch, and the dashboard says what is going on until it is done.
+            self.assertEqual((shell.phase, pages.state.busy, pages.state.message), ('moving', True, Message('Switching to Example…')))
+            self.assertEqual(desktop_app.close_action(shell.phase, None), 'ignore')
+            pages.render.assert_called_with()
+            self.threads.Thread.alive = False
             emit(self.core.QTimer.made[-1].timeout)
-        self.assertEqual((shell.phase, choice.settle.call_count), ('failed', 5))
-        self.assertIn(desktop_app.LOAD_FAILED, shell.notice.setText.call_args.args[0])
+            # The pages stay in the window and read the other site's library, afresh.
+            self.assertEqual((shell.runtime, shell.phase, pages.reopened.call_count), (self.runtime, 'open', 2))
+            pages.reopened.assert_called_with()
+            self.box.information.assert_called_once()
+            # The site asked for cannot be opened: it stays as it was, with the reason in words.
+            change.return_value = 'That folder cannot be written to.'
+            self.runtime.site = example
+            shell.choose_site('tapas')
+            emit(self.core.QTimer.made[-1].timeout)
+            self.assertEqual((shell.phase, pages.reopened.call_count), ('open', 3))
+            self.assertEqual(self.box.information.call_args.args, (shell.window, 'Comic Archiver',
+                             'Comic Archiver stays on Example.\n\nThat folder cannot be written to.'))
+            # A switch that broke off: the window says so, with where the details are, and closing still works.
+            change.side_effect = OSError('PRIVATE')
+            with self.assertLogs('comic_archive.desktop', 'ERROR') as logs:
+                shell.choose_site('tapas')
+                emit(self.core.QTimer.made[-1].timeout)
+        self.assertNotIn('PRIVATE', ''.join(logs.output))
+        self.assertEqual((shell.phase, pages.reopened.call_count), ('failed', 3))
+        shell.notice.setText.assert_called_with(f'{desktop_app.LOAD_FAILED}\n\nDetails are saved in:\n{self.log}')
+        shell.stack.setCurrentWidget.assert_called_with(shell.notice)
+        self.assertEqual(desktop_app.close_action(shell.phase, None), 'finish')
 
     def test_the_site_chosen_last_time_is_opened_at_the_next_start(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
@@ -329,7 +354,6 @@ class DesktopAppTests(unittest.TestCase):
     def test_a_folder_change_confirmed_after_a_download_started_or_the_window_began_closing_is_dropped(self):
         shell = self.opened(); shell.load()
         self.runtime.root = self.home / 'Comic Archiver'
-        self.runtime.location.take.return_value = 'choose'
         self.widgets.QFileDialog.getExistingDirectory.return_value = str(self.home / 'Other')
         def started(*_):
             self.runtime.busy.return_value = 'download'  # The dialog let time pass.
@@ -342,7 +366,7 @@ class DesktopAppTests(unittest.TestCase):
                 with self.subTest(answer.__name__):
                     shell.phase = 'open'; self.runtime.busy.return_value = None
                     self.box.question.side_effect = answer
-                    shell.signin_tick()
+                    shell.choose_location()
                     move.assert_not_called()
                     self.assertEqual((shell.phase, shell.choosing, shell.runtime), (phase, False, self.runtime))
         self.box.question.side_effect = None
@@ -389,57 +413,38 @@ class DesktopAppTests(unittest.TestCase):
             self.assertEqual(desktop_app.run(self.q, None), 1)
         self.assertEqual((self.box.question.call_count, self.box.critical.call_count, (self.state / 'library').exists()), (3, 2, True))
 
-    def test_the_window_follows_the_theme_chosen_in_the_dashboard_and_the_computers_own_by_default(self):
+    def test_the_window_follows_the_theme_chosen_in_its_header_and_the_computers_own_by_default(self):
         shell = self.opened()
-        hints, scripts = shell.app.styleHints.return_value, shell.profile.scripts.return_value
-        colours, made = self.q.QtGui.QColor.made, self.q.QtWebEngineCore.QWebEngineScript.made
-        # Nothing chosen: Qt is handed back to the computer's own setting and no page is told anything.
+        hints, pages, choice = shell.app.styleHints.return_value, shell.pages, self.runtime.theme
+        hints.colorScheme.return_value = 'light'
+        # Nothing chosen: Qt is handed back to the computer's own setting, and the window is coloured for what shows.
         hints.setColorScheme.assert_called_once_with('unknown')
-        self.assertEqual((made, colours[-1].args), ([], ('#f4f6f2',)))
-        shell.page.setBackgroundColor.assert_called_with(colours[-1])
-        # The computer itself turns dark: what Qt draws follows, the sign-in bar included.
-        shell.signin_header = Mock()
+        self.paint.assert_called_once_with(self.q, shell.window, False)
+        pages.render.assert_called_once_with()
+        # The computer itself turns dark: the window and its pages follow, the sign-in bar with them.
         hints.colorScheme.return_value = 'dark'
         emit(hints.colorSchemeChanged, 'dark')
-        self.assertEqual(colours[-1].args, ('#111918',))
-        shell.signin_header.setStyleSheet.assert_called_once_with(desktop_app.signin_style(True))
-        self.assertNotEqual(desktop_app.signin_style(True), desktop_app.signin_style(False))
-        # Chosen in the dashboard's header: picked up by the window's own clock, never before it is open.
-        self.runtime.theme.get.return_value = 'light'
+        self.paint.assert_called_with(self.q, shell.window, True)
+        self.assertEqual((pages.render.call_count, choice.set.call_count), (2, 0))
+        # The header's switch shows the other look and keeps it for the next start.
+        choice.set.side_effect = lambda value: setattr(choice.get, 'return_value', value)
+        shell.toggle_theme()
+        choice.set.assert_called_once_with('light')
+        hints.setColorScheme.assert_called_with('light')
         hints.colorScheme.return_value = 'light'
-        shell.signin_tick()
-        self.assertEqual(made, [])
-        shell.load()
-        for _ in range(3):
-            shell.signin_tick()
-        script, = made
-        script.setSourceCode.assert_called_once_with(desktop_app.THEME_SCRIPT % 'light')
-        self.assertIn("dataset.theme = 'light'", desktop_app.THEME_SCRIPT % 'light')
-        script.setInjectionPoint.assert_called_once_with('creation'); script.setWorldId.assert_called_once_with(0)
-        scripts.insert.assert_called_once_with(script); scripts.remove.assert_not_called()
-        self.assertEqual((hints.setColorScheme.call_args.args, colours[-1].args), (('light',), ('#f4f6f2',)))
-        self.runtime.theme.get.return_value = 'dark'
-        hints.colorScheme.return_value = 'dark'
-        shell.signin_tick()
-        scripts.remove.assert_called_once_with(script)
-        made[-1].setSourceCode.assert_called_once_with(desktop_app.THEME_SCRIPT % 'dark')
-        self.assertEqual((len(made), hints.setColorScheme.call_args.args, colours[-1].args), (2, ('dark',), ('#111918',)))
-        # Back to the computer's own: the last page hint goes and none replaces it.
-        self.runtime.theme.get.return_value = 'system'
-        shell.signin_tick()
-        scripts.remove.assert_called_with(made[-1])
-        self.assertEqual((len(made), scripts.insert.call_count, hints.setColorScheme.call_args.args), (2, 2, ('unknown',)))
-        # One palette for the pages and for what Qt draws.
-        css = (Path(desktop_app.__file__).parent / 'static/archive.css').read_text()
-        light_values, dark_values = css.splitlines()[:2]
-        self.assertTrue(dark_values.startswith(':root[data-theme=dark]'))
-        for name, (light, dark) in desktop_app.THEME_COLOURS.items():
-            self.assertIn(f'--{name}:{light};', light_values)
-            self.assertIn(f'--{name}:{dark};', dark_values)
-
-    def decide(self, text, main_frame=True):
-        url = Url(text)
-        return desktop_app.navigation(url.scheme(), url.host(), url.port(), 4321, main_frame)
+        shell.toggle_theme()
+        choice.set.assert_called_with('dark')
+        hints.setColorScheme.assert_called_with('dark')
+        self.assertEqual(shell.theme_choice, 'dark')
+        # Back to the computer's own, as an older choice or an unknown word reads.
+        for chosen in ('system', 'sepia'):
+            choice.get.return_value = chosen
+            shell.theme_apply()
+            hints.setColorScheme.assert_called_with('unknown')
+        # Before the pages exist only the window is coloured.
+        shell.pages = None
+        shell.theme_paint()
+        self.assertEqual(self.paint.call_count, pages.render.call_count + 1)
 
     def held_lock(self, *, answered, stale):
         self.lock.tryLock = Mock(side_effect=[False, True])
@@ -463,18 +468,20 @@ class DesktopAppTests(unittest.TestCase):
         emit(self.q.QtWebEngineCore.QWebEngineProfile.made[-1].cookieStore.return_value.cookieAdded, qt_cookie(**fields))
 
     def answer(self, loaded, found=None, cookie=True):
+        """The pages' part in --self-test: their first refresh came back (loaded) and they drew what it read (found)."""
         def loop():
-            page = [item for item in self.q.QtWebEngineCore.QWebEnginePage.made if type(item).__name__ == 'Page'][-1]
-            page.runJavaScript.side_effect = lambda script, world, callback: callback(found)
+            pages = self.pages[-1]
+            pages.drawn.return_value = found
             if cookie:
                 self.observe_cookie()
-            emit(page.loadFinished, loaded)
+            then, = pages.reopened.call_args.args
+            then(loaded)
         return loop
 
     def signing_in(self):
         """A window whose dashboard asked for a sign-in, with the panel now showing Tapas's page."""
         shell = self.opened()
-        shell.load(); emit(shell.page.loadFinished, True)
+        shell.load()
         self.request_signin(shell)
         shell.signin_page.url.return_value = Url(SIGNIN)
         shell.stack.setCurrentWidget.reset_mock()
@@ -553,25 +560,6 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(len(self.widgets.QApplication.made), 1)
         self.runtime_kind.assert_not_called()
 
-    def test_navigation_stays_on_the_apps_own_loopback_origin(self):
-        for text in (URL, URL + 'library', URL + 'api/v1/context'):
-            self.assertEqual(self.decide(text), 'allow')
-            self.assertEqual(self.decide(text, main_frame=False), 'allow')
-        for text in ('https://tapas.io/series/example', 'http://example.com/', 'http://127.0.0.1:4322/', 'http://127.0.0.1/',
-                     'http://localhost:4321/', 'https://127.0.0.1:4321/', 'http://127.0.0.1:4321@example.com/'):
-            self.assertEqual(self.decide(text), 'external')
-            self.assertEqual(self.decide(text, main_frame=False), 'deny')
-        for text in ('file:///etc/passwd', 'data:text/html,x', 'javascript:alert(1)', 'blob:' + URL + 'x', 'about:blank',
-                     'ftp://example.com/x', 'chrome://gpu', 'http:///x', ''):
-            self.assertEqual(self.decide(text), 'deny')
-
-    def test_only_the_dashboards_own_files_may_be_saved(self):
-        for text in (URL + 'api/v1/workspaces/a/exports/b', 'blob:' + URL + '5b2c'):
-            self.assertTrue(desktop_app.own_download(text, 4321))
-        for text in ('http://127.0.0.1:43210/x', 'http://127.0.0.1:4321@example.com/x', 'https://127.0.0.1:4321/x',
-                     'http://127.0.0.1:4321', 'blob:https://example.com/5b2c', 'blob:http://127.0.0.1:4322/5b2c', 'data:text/plain,x', ''):
-            self.assertFalse(desktop_app.own_download(text, 4321))
-
     def test_sign_in_page_loads_whole_pages_only_over_https(self):
         def allowed(text, main_frame=True):
             url = Url(text)
@@ -638,16 +626,12 @@ class DesktopAppTests(unittest.TestCase):
             record = desktop_app.cookie_record(qt_cookie(same_site=name))
             self.assertEqual(desktop_app.storage_state([record])['cookies'][0]['sameSite'], saved)
 
-    def test_close_session_and_instance_decisions(self):
+    def test_close_and_instance_decisions(self):
         for phase, busy, action in [('starting', False, 'finish'), ('open', False, 'finish'), ('starting', True, 'confirm'),
                                     ('open', True, 'confirm'), ('stopping', False, 'ignore'), ('stopping', True, 'ignore'),
                                     ('moving', False, 'ignore'), ('moving', True, 'ignore'), ('failed', False, 'finish'),
                                     ('done', False, 'accept'), ('done', True, 'accept')]:
             self.assertEqual(desktop_app.close_action(phase, busy), action)
-        for issued, now, stale in [(None, 10**10, False), (1000, 1000, False), (1000, 1005, False),
-                                   (1000, 1000 + SESSION_SECONDS + 60, False), (1000, 1000 + SESSION_SECONDS + 61, True),
-                                   (1000, 999, True)]:  # The clock went backwards: the cookie is stamped in the future.
-            self.assertEqual(desktop_app.session_stale(issued, now), stale)
         self.assertTrue(desktop_app.raise_requested(b'raise\n'))
         for message in (b'', b'raise', b'quit\n', b'raise\nopen /etc/passwd\n'):
             self.assertFalse(desktop_app.raise_requested(message))
@@ -683,15 +667,15 @@ class DesktopAppTests(unittest.TestCase):
 
         def loop():
             window, = self.widgets.QMainWindow.made
-            view, = self.q.QtWebEngineWidgets.QWebEngineView.made
+            pages, = self.pages
             window.setWindowTitle.assert_called_once_with('Comic Archiver'); window.show.assert_called_once_with()
-            view.load.assert_not_called()
-            view.load.side_effect = lambda url: order.append(url.toString())
+            pages.reopened.assert_not_called()
+            pages.reopened.side_effect = lambda then: order.append('dashboard')
             emit(self.core.QTimer.made[-1].timeout)
             return 0
         self.widgets.QApplication.exec = Mock(side_effect=loop)
         self.assertEqual(desktop_app.main([]), 0)
-        self.assertEqual(order, ['worker', URL])
+        self.assertEqual(order, ['worker', 'dashboard'])
         self.runtime_kind.assert_called_once_with(self.home / 'Comic Archiver', site=sites.DEFAULT)
         self.runtime.start.assert_called_once_with()
         self.runtime.stop.assert_called_once_with(wait_seconds=0)
@@ -707,11 +691,13 @@ class DesktopAppTests(unittest.TestCase):
         app, = self.widgets.QApplication.made
         app.setDesktopFileName.assert_called_once_with('comic-archiver')
         self.network.QNetworkProxyFactory.setUseSystemConfiguration.assert_called_once_with(False)
-        profile, = self.q.QtWebEngineCore.QWebEngineProfile.made
-        page, = self.q.QtWebEngineCore.QWebEnginePage.made
-        self.assertEqual(profile.args, (app,))  # No storage name: nothing is kept on disk.
-        self.assertEqual(page.args, (profile, self.widgets.QMainWindow.made[0]))
-        app.aboutToQuit.connect.assert_called_once_with(page.deleteLater)
+        # The pages are drawn by Qt itself: no web page, profile or address exists until a sign-in asks for one.
+        core = self.q.QtWebEngineCore
+        self.assertEqual(core.QWebEngineProfile.made + core.QWebEnginePage.made + self.q.QtWebEngineWidgets.QWebEngineView.made, [])
+        app.aboutToQuit.connect.assert_not_called()
+        stack, = self.widgets.QStackedWidget.made
+        notice, = self.widgets.QLabel.made
+        self.assertEqual([call.args[0] for call in stack.addWidget.call_args_list], [notice, self.pages[0].widget])
         self.box.critical.assert_not_called()
 
     def test_chosen_library_folder_and_an_existing_application_are_used_as_given(self):
@@ -797,103 +783,76 @@ class DesktopAppTests(unittest.TestCase):
 
     # The open window.
 
-    def test_window_loads_only_its_own_pages_and_hands_other_links_to_the_default_browser(self):
+    def test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks(self):
         shell = self.opened()
-        external = self.q.QtGui.QDesktopServices.openUrl
-        own, outside = Url(URL + 'library'), Url('https://tapas.io/series/example')
-        self.assertTrue(shell.page.acceptNavigationRequest(own, None, True))
-        external.assert_not_called()
-        self.assertFalse(shell.page.acceptNavigationRequest(outside, None, True))
-        external.assert_called_once_with(outside)
-        for url, main_frame in ((outside, False), (Url('file:///etc/passwd'), True), (Url('javascript:alert(1)'), True)):
-            self.assertFalse(shell.page.acceptNavigationRequest(url, None, main_frame))
-        external.assert_called_once()
-        for url, opened_here, opened_outside in ((own, 1, 1), (outside, 0, 2), (Url('data:text/html,x'), 0, 2)):
-            request = Mock(); request.requestedUrl.return_value = url
-            emit(shell.page.newWindowRequested, request)
-            self.assertEqual((request.openIn.call_count, external.call_count), (opened_here, opened_outside))
-        request = Mock(); request.requestedUrl.return_value = own
-        emit(shell.page.newWindowRequested, request)
-        request.openIn.assert_called_once_with(shell.page)
-        permission = Mock()
-        emit(shell.page.permissionRequested, permission)
-        permission.deny.assert_called_once_with(); permission.grant.assert_not_called()
-
-    def test_dashboard_files_are_saved_through_a_normal_dialog_and_foreign_downloads_are_refused(self):
-        shell = self.opened()
-        dialog = self.widgets.QFileDialog.getSaveFileName
-
-        def offer(url):
-            item = Mock(); item.url.return_value = Url(url); item.downloadFileName.return_value = 'comic-archive-audit.json'
-            emit(shell.profile.downloadRequested, item)
-            return item
-        dialog.return_value = ('/home/user/Documents/report.json', '')
-        for url in ('blob:' + URL + '5b2c', URL + 'api/v1/workspaces/a/exports/b'):
-            item = offer(url)
-            item.setDownloadDirectory.assert_called_once_with(str(Path('/home/user/Documents')))
-            item.setDownloadFileName.assert_called_once_with('report.json')
-            item.accept.assert_called_once_with(); item.cancel.assert_not_called()
-        dialog.assert_called_with(shell.window, 'Save file', str(Path('/home/user/Downloads/comic-archive-audit.json')))
-        self.core.QStandardPaths.writableLocation.assert_called_with('downloads')
-        dialog.return_value = ('', '')
-        item = offer(URL + 'api/v1/workspaces/a/exports/b')
-        item.cancel.assert_called_once_with(); item.accept.assert_not_called()
-        dialog.reset_mock()
-        with self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
-            for url in ('https://example.com/file.zip', 'blob:https://example.com/5b2c', 'http://127.0.0.1:4322/x'):
-                item = offer(url)
-                item.cancel.assert_called_once_with(); item.accept.assert_not_called()
-        dialog.assert_not_called()
-        self.assertNotIn('example.com', ''.join(logs.output))
-
-    def test_dashboard_replaces_the_starting_notice_and_its_session_is_renewed_after_expiry(self):
-        shell = self.opened()
+        pages = shell.pages
+        # The pages read whichever library the window has now.
+        self.assertEqual(pages.actions._runtime(), self.runtime)
         self.assertEqual(shell.notice.args, (desktop_app.STARTING,))
-        shell.clock.setInterval.assert_called_once_with(60_000)
-        clock = SimpleNamespace(time=Mock(return_value=1000.0))
-        with patch('comic_archive.desktop_app.time', clock):
-            shell.load()
-            self.assertEqual(shell.view.load.call_args.args[0].toString(), URL)
-            shell.clock.start.assert_called_once_with()
-            emit(shell.clock.timeout)
-            shell.stack.setCurrentWidget.assert_not_called()
-            emit(shell.page.loadFinished, True)
-            shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
-            clock.time.return_value = 1000.0 + SESSION_SECONDS + 60
-            emit(shell.clock.timeout)
-            self.assertEqual(self.loads(shell.view), [URL])
-            # Wall-clock time, so hours asleep count as soon as the computer wakes.
-            clock.time.return_value = renewed = 1000.0 + SESSION_SECONDS + 7200
-            emit(shell.clock.timeout)
-            # The launch address again, not a reload: the page's own address opens no session by itself.
-            self.assertEqual(self.loads(shell.view), [URL] * 2)
-            emit(shell.page.loadFinished, False)
-            emit(shell.clock.timeout)
-            self.assertEqual(self.loads(shell.view), [URL] * 3)
-            emit(shell.page.loadFinished, True)
-            emit(shell.clock.timeout)
-            self.assertEqual(self.loads(shell.view), [URL] * 3)
-            shell.view.reload.assert_not_called()
-            # Moving between the dashboard's pages issues no new cookie and must not reset the clock.
-            clock.time.return_value = renewed + 3600
-            emit(shell.page.loadFinished, True)
-            self.assertEqual(shell.issued, renewed)
+        shell.poll_clock.setInterval.assert_called_once_with(desktop_app.POLL_MS)
+        shell.tick_clock.setInterval.assert_called_once_with(desktop_app.CLOCK_MS)
+        self.assertEqual((desktop_app.POLL_MS, desktop_app.CLOCK_MS), (5000, 1000))
+        emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)  # Still starting: nothing to read or draw.
+        pages.poll.assert_not_called(); pages.render.assert_called_once_with()
+        shell.stack.setCurrentWidget.assert_not_called()
+        shell.load()
+        shell.stack.setCurrentWidget.assert_called_once_with(pages.widget)
+        pages.reopened.assert_called_once_with(None)
+        for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
+            clock.start.assert_called_once_with()
+        emit(shell.poll_clock.timeout)
+        pages.poll.assert_called_once_with()
+        emit(shell.tick_clock.timeout)
+        self.assertEqual(pages.render.call_count, 2)
+        shell.load()  # Only once.
+        pages.reopened.assert_called_once_with(None)
+        # While another site or folder opens, or the window closes, the pages are left alone.
+        for phase in ('moving', 'stopping', 'failed'):
+            shell.phase = phase
+            emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)
+        self.assertEqual((pages.poll.call_count, pages.render.call_count), (1, 2))
         shell.notice.setText.assert_not_called()
 
-    def test_dashboard_that_cannot_load_says_so_with_the_log_location(self):
+    def test_a_library_that_cannot_be_shown_says_so_with_the_log_location_when_there_is_one(self):
         for log in (True, False):
             shell = self.opened(log=log)
-            shell.load()
-            with self.assertLogs('comic_archive.desktop', 'ERROR'):
-                emit(shell.page.loadFinished, False)
+            shell.show_notice(desktop_app.LOAD_FAILED)
             expected = desktop_app.LOAD_FAILED + (f'\n\nDetails are saved in:\n{self.log}' if log else '')
             shell.notice.setText.assert_called_once_with(expected)
-            shell.stack.setCurrentWidget.assert_not_called()
-            emit(shell.clock.timeout)
-            shell.view.reload.assert_not_called()
-            shell.phase = 'stopping'
-            emit(shell.page.loadFinished, True)
-            shell.stack.setCurrentWidget.assert_not_called()
+
+    def test_the_pages_work_on_a_thread_and_hear_back_in_the_words_the_person_is_shown(self):
+        shell = self.opened()
+        done = Mock()
+        self.threads.Thread.alive = True
+        shell.run(lambda: {'status': 'ok'}, done)
+        done.assert_not_called()  # Back on the window's own thread, once the work is over.
+        self.threads.Thread.alive = False
+        emit(self.core.QTimer.made[-1].timeout)
+        done.assert_called_once_with({'status': 'ok'}, None)
+        # Refused by the library: its own words.
+        shell.run(Mock(side_effect=Refused('library_busy', 'An import is active.')), done)
+        emit(self.core.QTimer.made[-1].timeout)
+        done.assert_called_with(None, 'An import is active.')
+        # Anything else is logged by its kind only, and the person is told that the library did not answer.
+        with self.assertLogs('comic_archive.desktop', 'ERROR') as logs:
+            shell.run(Mock(side_effect=RuntimeError('PRIVATE_COOKIE')), done)
+        emit(self.core.QTimer.made[-1].timeout)
+        done.assert_called_with(None, error_text('service_unavailable'))
+        self.assertIn('RuntimeError', logs.output[0]); self.assertNotIn('PRIVATE', logs.output[0])
+        self.assertEqual(done.call_count, 3)
+
+    def test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs(self):
+        shell = self.opened()
+        external = self.q.QtGui.QDesktopServices.openUrl
+        shell.open_url('https://www.backblaze.com/sign-up/cloud-storage')
+        self.runtime.folder = self.home / 'Comic Archiver/Library'
+        shell.open_folder()
+        self.assertEqual([call.args[0].toString() for call in external.call_args_list],
+                         ['https://www.backblaze.com/sign-up/cloud-storage', 'file://' + str(self.home / 'Comic Archiver/Library')])
+        # The folder is the open library's own, never one a page names.
+        shell.runtime = Mock(folder=self.home / 'Other/Library')
+        shell.open_folder()
+        self.assertEqual(external.call_args.args[0].toString(), 'file://' + str(self.home / 'Other/Library'))
 
     def test_another_launch_brings_this_window_forward_and_nothing_else_does(self):
         shell = desktop_app.Shell(self.q, desktop_app.application(self.q), self.runtime)
@@ -934,24 +893,22 @@ class DesktopAppTests(unittest.TestCase):
         emit(shell.signin_clock.timeout)  # The dashboard is not on screen yet.
         self.signin.take.assert_not_called()
         self.signin.take.return_value = False
-        shell.load(); emit(shell.page.loadFinished, True)
+        shell.load()
         shell.signin_clock.setInterval.assert_called_once_with(250); shell.signin_clock.start.assert_called_once_with()
-        emit(shell.signin_clock.timeout)  # Nobody asked: no second page or profile exists.
-        self.assertEqual((len(core.QWebEngineProfile.made), len(core.QWebEnginePage.made), shell.signin_panel), (1, 1, None))
+        emit(shell.signin_clock.timeout)  # Nobody asked: no web page or profile exists.
+        self.assertEqual((len(core.QWebEngineProfile.made), len(core.QWebEnginePage.made), shell.signin_panel), (0, 0, None))
         self.signin.status.assert_not_called()
         self.request_signin(shell)
         self.signin.admit.assert_called_once_with()
-        dashboard, private = core.QWebEngineProfile.made
+        private, = core.QWebEngineProfile.made
         self.assertEqual(private.args, (shell.app,))  # No storage name: Qt keeps nothing of the sign-in on disk.
-        self.assertEqual((shell.profile, shell.signin_profile), (dashboard, private))
+        self.assertEqual(shell.signin_profile, private)
         self.assertEqual(shell.signin_page.args, (private, shell.window))
         guard, = core.QWebEngineUrlRequestInterceptor.made
         self.assertEqual(guard.args, (private,))
         private.setUrlRequestInterceptor.assert_called_once_with(guard)
-        dashboard.setUrlRequestInterceptor.assert_not_called()
         # It names itself as the browser the engine is built from, without Qt's tag, and says nothing else about the requests.
         private.setHttpUserAgent.assert_called_once_with(QT_AGENT.replace(' QtWebEngine/6.11.2', ''))
-        dashboard.setHttpUserAgent.assert_not_called()
         for untouched in (private.setHttpAcceptLanguage, private.setPersistentStoragePath,
                           private.setPersistentCookiesPolicy, private.setCachePath, private.scripts):
             untouched.assert_not_called()
@@ -959,7 +916,6 @@ class DesktopAppTests(unittest.TestCase):
         store.loadAllCookies.assert_called_once_with(); store.deleteAllCookies.assert_called_once_with()
         shell.signin_view.setPage.assert_called_once_with(shell.signin_page)
         self.assertEqual(self.loads(shell.signin_view), [SIGNIN])
-        self.assertEqual(self.loads(shell.view), [URL])
         self.assertEqual((shell.back.args, shell.retry.args, shell.where.args), (('Cancel sign-in',), ('Try again',), ('',)))
         shell.hint.setText.assert_called_once_with(desktop_app.site_text(desktop_app.SIGNIN_HINT))
         self.assertTrue(shell.hint.setText.call_args.args[0].startswith('Sign in to Tapas below. Comic Archiver carries on by itself once you are signed in.\n'))
@@ -970,14 +926,14 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(shell.title.args, ('Comic Archiver',))
         panel, header, strip = self.widgets.QWidget.made
         self.assertEqual((panel, header.args, strip.args, column.args), (shell.signin_panel, (panel,), (header,), (panel,)))
-        # Its contents stay in the dashboard's centred column however wide the window is.
-        self.assertEqual((centred.args, bar.args), ((header,), (strip,))); strip.setMaximumWidth.assert_called_once_with(1100)
+        # Its contents stay in the pages' centred column however wide the window is.
+        self.assertEqual((centred.args, bar.args), ((header,), (strip,))); strip.setMaximumWidth.assert_called_once_with(window_style.COLUMN)
         centred.addWidget.assert_called_once_with(strip, 100000); self.assertEqual(centred.addStretch.call_count, 2)
-        self.assertIn('max-width: 1100px', (Path(desktop_app.__file__).parent / 'static/archive.css').read_text())
-        header.setStyleSheet.assert_called_once_with(desktop_app.signin_style(False)); header.setAttribute.assert_called_once_with('styled', True)
-        for colour in ('#d5dfd5', '#52695e', '#183331'):  # The dashboard's own (static/archive.css).
-            self.assertIn(colour, desktop_app.signin_style(False))
-            self.assertIn(colour, (Path(desktop_app.__file__).parent / 'static/archive.css').read_text())
+        # Coloured by the window's own style sheet, light or dark, as the pages' header is: nothing of its own.
+        header.setStyleSheet.assert_not_called(); header.setAttribute.assert_called_once_with('styled', True)
+        header.setObjectName.assert_called_once_with('signinHeader'); shell.title.setObjectName.assert_called_once_with('signinTitle')
+        for name in ('QWidget#signinHeader', 'QLabel#signinTitle'):
+            self.assertIn(name, window_style.SHEET)
         self.assertEqual([call.args[0] for call in column.addWidget.call_args_list], [header, shell.signin_message, shell.signin_view])
         shell.stack.addWidget.assert_called_with(shell.signin_panel)
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
@@ -994,8 +950,7 @@ class DesktopAppTests(unittest.TestCase):
         shell.signin_message.setText.assert_called_with('')
         self.assertEqual(shell.world, 1)  # An isolated world, not the page's own.
         shell.signin_probe.setInterval.assert_called_once_with(500); shell.signin_probe.start.assert_called_once_with()
-        self.assertEqual([call.args[0] for call in shell.app.aboutToQuit.connect.call_args_list],
-                         [shell.page.deleteLater, shell.signin_page.deleteLater])
+        self.assertEqual([call.args[0] for call in shell.app.aboutToQuit.connect.call_args_list], [shell.signin_page.deleteLater])
         # The bar always says whose page is showing.
         for text, shown in ((SIGNIN, 'tapas.io'), ('https://accounts.google.com/o/oauth2/auth?x=PRIVATE', 'accounts.google.com'), ('about:blank', '')):
             emit(shell.signin_page.urlChanged, Url(text))
@@ -1033,7 +988,6 @@ class DesktopAppTests(unittest.TestCase):
         item = Mock()
         emit(shell.signin_profile.downloadRequested, item)
         item.cancel.assert_called_once_with(); item.accept.assert_not_called()
-        self.widgets.QFileDialog.getSaveFileName.assert_not_called()
         permission = Mock()
         emit(page.permissionRequested, permission)
         permission.deny.assert_called_once_with(); permission.grant.assert_not_called()
@@ -1095,7 +1049,7 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(len(self.scripts(shell)), 6)
         self.threads.Thread.alive = False
         emit(saving.timeout)
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         self.assertIsNone(shell.signin_stage)
         self.assertEqual(store.deleteAllCookies.call_count, 2); self.assertEqual(len(self.loads(shell.signin_view)), 2)
 
@@ -1186,7 +1140,7 @@ class DesktopAppTests(unittest.TestCase):
         emit(shell.signin_probe.timeout)
         emit(shell.back.clicked, False)
         self.signin.cancel.assert_called_once_with(); self.signin.finish.assert_not_called()
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         self.assertEqual((shell.signin_stage, shell.cookies), (None, {}))
         shell.signin_probe.stop.assert_called_once_with()
         self.assertEqual(self.loads(shell.signin_view), [SIGNIN, 'about:blank'])
@@ -1202,12 +1156,12 @@ class DesktopAppTests(unittest.TestCase):
         emit(shell.signin_clock.timeout)
         self.signin.cancel.assert_called_once_with(); self.signin.finish.assert_not_called(); self.signin.fail.assert_not_called()
         self.assertEqual((len(self.loads(shell.signin_view)), len(self.scripts(shell))), (2, 2))
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         # The second sign-in uses the same panel, with the cookie store emptied again first.
         shell.signin_profile.clearHttpCache.assert_called_once_with()
         emit(shell.signin_profile.clearHttpCacheCompleted)
         self.request_signin(shell)
-        self.assertEqual((len(self.q.QtWebEngineCore.QWebEngineProfile.made), len(self.widgets.QWidget.made)), (2, 3))
+        self.assertEqual((len(self.q.QtWebEngineCore.QWebEngineProfile.made), len(self.widgets.QWidget.made)), (1, 3))
         self.assertEqual(self.loads(shell.signin_view), [SIGNIN, 'about:blank', SIGNIN])
         self.assertEqual((shell.signin_stage, store.deleteAllCookies.call_count), ('page', 3))
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
@@ -1310,7 +1264,7 @@ class DesktopAppTests(unittest.TestCase):
         self.signin.fail.assert_not_called(); self.signin.cancel.assert_not_called()
         emit(shell.back.clicked, False)
         self.signin.cancel.assert_called_once_with()
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         self.assertIsNone(shell.signin_stage)
 
     def test_a_sign_in_that_runs_out_of_time_or_whose_page_crashes_returns_to_the_dashboard(self):
@@ -1319,7 +1273,7 @@ class DesktopAppTests(unittest.TestCase):
         shell.stack.setCurrentWidget.assert_not_called()
         self.signin.status.return_value = {'status': 'error', 'code': 'signin_incomplete'}
         emit(shell.signin_clock.timeout)
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         self.assertEqual((shell.signin_stage, self.loads(shell.signin_view)), (None, [SIGNIN, 'about:blank']))
         self.signin.cancel.assert_not_called(); self.signin.finish.assert_not_called()
         emit(shell.signin_profile.clearHttpCacheCompleted)
@@ -1330,31 +1284,29 @@ class DesktopAppTests(unittest.TestCase):
         with self.assertLogs('comic_archive.desktop', 'ERROR'):
             emit(shell.signin_page.renderProcessTerminated, 'crashed', 9)
         self.signin.fail.assert_called_once_with('signin_failed')
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         self.assertIsNone(shell.signin_stage)
-        shell.view.reload.assert_not_called(); shell.notice.setText.assert_not_called()  # The dashboard's own page is fine.
+        shell.notice.setText.assert_not_called()  # The dashboard itself is fine.
 
     def test_the_dashboard_behind_a_sign_in_never_takes_the_window_back_by_itself(self):
         shell = self.signing_in()
-        shell.issued = 1000.0
-        with patch('comic_archive.desktop_app.time', SimpleNamespace(time=Mock(return_value=1000.0 + SESSION_SECONDS + 7200))):
-            emit(shell.clock.timeout)
-            self.assertEqual(self.loads(shell.view), [URL] * 2)
-            emit(shell.page.loadFinished, True)
-        with self.assertLogs('comic_archive.desktop', 'ERROR'):
-            emit(shell.page.renderProcessTerminated, 'crashed', 9)
-        shell.notice.setText.assert_called_once_with(f'{desktop_app.RENDER_FAILED}\n\nDetails are saved in:\n{self.log}')
+        pages = shell.pages
+        # The pages go on reading and redrawing the library behind the panel.
+        emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)
+        pages.poll.assert_called_once_with()
+        # What the dashboard puts on screen meanwhile is only remembered.
+        shell.show(shell.notice)
         shell.stack.setCurrentWidget.assert_not_called()
         self.assertEqual(shell.signin_stage, 'page')
         self.signin.cancel.assert_not_called(); self.signin.fail.assert_not_called()
         emit(shell.back.clicked, False)
         shell.stack.setCurrentWidget.assert_called_once_with(shell.notice)  # What the dashboard last had to say.
-        emit(shell.page.loadFinished, True)
-        shell.stack.setCurrentWidget.assert_called_with(shell.view)
+        shell.show(pages.widget)
+        shell.stack.setCurrentWidget.assert_called_with(pages.widget)
 
     def test_a_sign_in_held_before_it_begins_or_overtaken_by_closing_shows_no_tapas_page(self):
         shell = self.opened()
-        shell.load(); emit(shell.page.loadFinished, True)
+        shell.load()
         shell.stack.setCurrentWidget.reset_mock()
 
         def held():
@@ -1370,13 +1322,13 @@ class DesktopAppTests(unittest.TestCase):
         self.signin.cancel.assert_called_once_with()
         self.threads.Thread.alive = False
         emit(admitting.timeout)
-        self.assertEqual((shell.signin_panel, shell.signin_stage, len(self.q.QtWebEngineCore.QWebEngineProfile.made)), (None, None, 1))
+        self.assertEqual((shell.signin_panel, shell.signin_stage, len(self.q.QtWebEngineCore.QWebEngineProfile.made)), (None, None, 0))
         self.assertEqual(self.signin.admit.call_count, 2)
         self.assertEqual([call.args[0] for call in shell.stack.setCurrentWidget.call_args_list], [shell.notice])
 
     def test_a_sign_in_step_that_fails_ends_the_sign_in_at_once_and_a_later_attempt_builds_afresh(self):
         shell = self.opened()
-        shell.load(); emit(shell.page.loadFinished, True)
+        shell.load()
         shell.stack.setCurrentWidget.reset_mock()
         core = self.q.QtWebEngineCore
         shell.stack.addWidget.side_effect = RuntimeError('PRIVATE text')  # The last step of the build.
@@ -1387,17 +1339,17 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual((shell.signin_panel, shell.signin_stage, shell.cookies), (None, None, {}))
         failed = core.QWebEngineProfile.made[-1]
         self.assertEqual((shell.signin_page, shell.signin_view, shell.signin_profile), (None, None, None))
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         view = self.q.QtWebEngineWidgets.QWebEngineView.made[-1]
         for part in (failed, core.QWebEnginePage.made[-1], view):
             part.deleteLater.assert_called_once_with()
-        self.assertEqual(len(shell.app.aboutToQuit.connect.call_args_list), 1)  # Only the dashboard's page.
+        shell.app.aboutToQuit.connect.assert_not_called()
         # The next attempt starts from nothing and works.
         shell.stack.addWidget.side_effect = None
         self.request_signin(shell)
-        self.assertEqual((shell.signin_stage, len(core.QWebEngineProfile.made)), ('page', 3))
+        self.assertEqual((shell.signin_stage, len(core.QWebEngineProfile.made)), ('page', 2))
         self.assertEqual(self.signin.fail.call_count, 1)
-        self.assertEqual(len(shell.app.aboutToQuit.connect.call_args_list), 2)
+        self.assertEqual(len(shell.app.aboutToQuit.connect.call_args_list), 1)
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
 
     def test_a_failure_while_opening_the_page_or_handing_over_the_answer_does_not_strand_the_dashboard(self):
@@ -1409,7 +1361,7 @@ class DesktopAppTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', ''.join(logs.output))
         self.signin.fail.assert_called_once_with('signin_failed'); self.signin.finish.assert_not_called()
         self.assertEqual(shell.signin_stage, None)
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.view)
+        shell.stack.setCurrentWidget.assert_called_once_with(shell.pages.widget)
         # The same when the thread cannot be started for a request that was already taken.
         shell = self.signing_in()
         self.signin.fail.reset_mock(); shell.stack.setCurrentWidget.reset_mock()
@@ -1422,7 +1374,7 @@ class DesktopAppTests(unittest.TestCase):
 
     def test_closing_while_idle_shows_finishing_up_stops_the_runtime_and_only_then_quits(self):
         shell = self.opened()
-        shell.load(); emit(shell.page.loadFinished, True)
+        shell.load()
         self.threads.Thread.alive = True
         event = Mock()
         shell.window.closeEvent(event)
@@ -1431,7 +1383,8 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(shell.phase, 'stopping')
         shell.notice.setText.assert_called_once_with(desktop_app.FINISHING)
         shell.stack.setCurrentWidget.assert_called_with(shell.notice)
-        shell.clock.stop.assert_called_once_with()
+        for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
+            clock.stop.assert_called_once_with()
         waiting = self.core.QTimer.made[-1]
         emit(waiting.timeout)
         again = Mock()
@@ -1502,7 +1455,7 @@ class DesktopAppTests(unittest.TestCase):
         # Switched to another site in the dashboard: the panel built for Tapas is used again, and says so.
         self.runtime.site = replace(sites.DEFAULT, key='example', name='Example', available=True)
         self.request_signin(shell)
-        self.assertEqual(len(self.q.QtWebEngineCore.QWebEngineProfile.made), 2)
+        self.assertEqual(len(self.q.QtWebEngineCore.QWebEngineProfile.made), 1)
         hint = shell.hint.setText.call_args.args[0]
         self.assertIn('Sign in to Example below', hint); self.assertIn('add a password to your Example account', hint)
         self.assertNotIn('Tapas', hint)
@@ -1590,44 +1543,6 @@ class DesktopAppTests(unittest.TestCase):
         shell.stack.setCurrentWidget.assert_called_once_with(shell.notice); shell.app.quit.assert_not_called()
         emit(stopping.timeout)
         shell.app.quit.assert_called_once_with()
-
-    def test_a_crashed_window_process_is_explained_and_reloaded_once(self):
-        shell = self.opened()
-        crashed, normal = 'crashed', 'normal'
-        emit(shell.page.renderProcessTerminated, crashed, 9)  # Still starting: nothing to show yet.
-        shell.view.reload.assert_not_called()
-        shell.load(); emit(shell.page.loadFinished, True)
-        shell.stack.setCurrentWidget.reset_mock()
-        emit(shell.page.renderProcessTerminated, normal, 0)
-        shell.view.reload.assert_not_called(); shell.notice.setText.assert_not_called()
-        with self.assertLogs('comic_archive.desktop', 'ERROR'):
-            emit(shell.page.renderProcessTerminated, crashed, 9)
-        shell.notice.setText.assert_called_once_with(f'{desktop_app.RENDER_FAILED}\n\nDetails are saved in:\n{self.log}')
-        shell.stack.setCurrentWidget.assert_called_once_with(shell.notice)
-        shell.view.reload.assert_called_once_with()
-        emit(shell.page.loadFinished, True)
-        shell.stack.setCurrentWidget.assert_called_with(shell.view)
-        with self.assertLogs('comic_archive.desktop', 'ERROR'):
-            emit(shell.page.renderProcessTerminated, crashed, 9)
-        shell.view.reload.assert_called_once_with()  # A second crash is left for the person to act on.
-        shell.stack.setCurrentWidget.assert_called_with(shell.notice)
-
-    def test_a_window_process_that_crashes_again_hours_later_is_reloaded_again(self):
-        shell = self.opened()
-        shell.load(); emit(shell.page.loadFinished, True)
-        clock = SimpleNamespace(time=Mock(return_value=1000.0))
-        with patch('comic_archive.desktop_app.time', clock), self.assertLogs('comic_archive.desktop', 'ERROR'):
-            emit(shell.page.renderProcessTerminated, 'crashed', 9)
-            emit(shell.page.loadFinished, True)
-            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS
-            emit(shell.page.renderProcessTerminated, 'crashed', 9)
-            self.assertEqual(shell.view.reload.call_count, 1)  # Crashing again so soon is left for the person.
-            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS + 1
-            emit(shell.page.renderProcessTerminated, 'crashed', 9)
-            self.assertEqual(shell.view.reload.call_count, 2)
-            clock.time.return_value = 1000.0 + desktop_app.CRASH_RELOAD_SECONDS + 2
-            emit(shell.page.renderProcessTerminated, 'crashed', 9)
-            self.assertEqual(shell.view.reload.call_count, 2)
 
     def test_the_window_asks_whether_a_download_runs_on_a_thread_and_never_waits_long_for_a_slow_drive(self):
         made, joined = [], []
@@ -1718,7 +1633,7 @@ class DesktopAppTests(unittest.TestCase):
         stopping = self.core.QTimer.made[-1]
         self.threads.Thread.alive = False
         emit(starting.timeout)
-        shell.view.load.assert_not_called(); shell.clock.start.assert_not_called()
+        shell.pages.reopened.assert_not_called(); shell.poll_clock.start.assert_not_called()
         self.assertEqual(shell.phase, 'stopping')
         emit(stopping.timeout)
         shell.app.quit.assert_called_once_with()
@@ -1738,12 +1653,16 @@ class DesktopAppTests(unittest.TestCase):
     def test_self_test_passes_when_the_real_window_shows_the_dashboard_without_lock_log_or_worker(self):
         status, report = self.self_test(self.answer(True, True))
         self.assertEqual((status, report), (0, {'ok': True, 'version': desktop_app.version(), 'signin_cookie': True}))
-        page, signin_page = self.q.QtWebEngineCore.QWebEnginePage.made
-        self.assertEqual(page.runJavaScript.call_args.args[:2], ("document.querySelector('#account-download') !== null", 0))
+        # The dashboard is asked to report its first refresh, and is the one the window shows.
+        pages, = self.pages
+        then, = pages.reopened.call_args.args
+        self.assertEqual(then.__name__, 'answered'); pages.drawn.assert_called_once_with()
+        self.widgets.QStackedWidget.made[0].setCurrentWidget.assert_called_with(pages.widget)
         # The real sign-in panel and its cookie store are exercised, and no Tapas address is ever loaded.
-        dashboard, private = self.q.QtWebEngineCore.QWebEngineProfile.made
-        view, signin_view = self.q.QtWebEngineWidgets.QWebEngineView.made
-        self.assertEqual((self.loads(view), self.loads(signin_view)), ([URL], ['about:blank']))
+        signin_page, = self.q.QtWebEngineCore.QWebEnginePage.made
+        private, = self.q.QtWebEngineCore.QWebEngineProfile.made
+        signin_view, = self.q.QtWebEngineWidgets.QWebEngineView.made
+        self.assertEqual(self.loads(signin_view), ['about:blank'])
         signin_page.runJavaScript.assert_not_called()
         self.assertEqual(signin_page.args, (private, self.widgets.QMainWindow.made[0]))
         cookie, origin = private.cookieStore.return_value.setCookie.call_args.args
@@ -1751,7 +1670,6 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual([item.args for item in cookie.args], [(b'comic_archive_self_test',), (b'synthetic',)])
         cookie.setDomain.assert_called_once_with('.tapas.io'); cookie.setPath.assert_called_once_with('/')
         cookie.setSecure.assert_called_once_with(True); cookie.setHttpOnly.assert_called_once_with(True)
-        dashboard.cookieStore.assert_not_called()
         self.signin.take.assert_not_called(); self.signin.finish.assert_not_called()
         root, = self.runtime_kind.call_args.args
         self.assertEqual(root.name, 'library')
@@ -1825,21 +1743,26 @@ class DesktopAppTests(unittest.TestCase):
         self.assertRegex(report['where'], r'^comic_archive\.\w+:\d+$')
         self.widgets.QApplication.exec.assert_not_called()
 
-    def test_self_test_serves_a_real_empty_temporary_library_and_never_starts_a_downloader(self):
+    def test_self_test_reads_a_real_empty_temporary_library_and_never_starts_a_downloader(self):
         self.runtime_kind.side_effect = RUNTIME
-        pages = []
+        read = []
 
         def loop():
-            view, _ = self.q.QtWebEngineWidgets.QWebEngineView.made
-            with build_opener(ProxyHandler({})).open(view.load.call_args.args[0].toString(), timeout=5) as response:
-                pages.append(response.read().decode())
-            self.answer(True, 'id="account-download"' in pages[0])()
+            # What the dashboard reads, through the same calls, from the library the self-test opened.
+            actions = self.pages[-1].actions
+            read.append((actions.context(), actions.poll(network=False)))
+            context, reading = read[0]
+            self.answer(True, reading['account'].get('configured') is False and context['library_folder'].endswith('Library'))()
         with patch('comic_archive.app_runtime.background.start') as start, \
                 patch('comic_archive.app_runtime.background.stop', return_value={'running': False}) as stop:
             status, report = self.self_test(loop)
             start.assert_not_called(); stop.assert_called_once()
         self.assertEqual((status, report['ok']), (0, True))
+        context, reading = read[0]
+        self.assertEqual([site['key'] for site in context['sites'] if site['current']], ['tapas'])
+        self.assertEqual(reading['site_auth'], {'status': 'idle'})
         root, = self.runtime_kind.call_args.args
+        self.assertEqual(context['library_folder'], str(root / 'Library'))
         self.assertFalse(root.parent.exists())
         self.assertEqual(list(self.home.iterdir()), [])
 

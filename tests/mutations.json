@@ -200,52 +200,12 @@
   "test": "test_the_last_plan_wide_network_recovery_is_cancelled_right_after_it_is_scheduled"
  },
  {
-  "id": "runtime-is-library",
-  "source": "comic_archive/app_runtime.py",
-  "old": "for site in sites.SITES)\n    except (OSError, ValueError):",
-  "new": "for site in sites.SITES)\n    except ZeroDivisionError:",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_folder_the_system_refuses_to_look_at_is_neither_a_library_nor_present"
- },
- {
-  "id": "runtime-present",
-  "source": "comic_archive/app_runtime.py",
-  "old": "return folder.is_dir()\n    except (OSError, ValueError):",
-  "new": "return folder.is_dir()\n    except ZeroDivisionError:",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_folder_the_system_refuses_to_look_at_is_neither_a_library_nor_present"
- },
- {
   "id": "session-browser-name",
   "source": "comic_archive/session.py",
   "old": "if preferred not in {\"auto\", \"chromium\", \"firefox\", \"qt\"}:",
   "new": "if False:",
   "test_file": "test_session.py",
   "test": "test_an_unsupported_browser_name_is_refused_before_anything_is_launched"
- },
- {
-  "id": "signin-busy-check",
-  "source": "comic_archive/local_web.py",
-  "old": "or (info['worker'] or {}).get('reported_state') == 'busy':",
-  "new": "or False:",
-  "test_file": "test_local_web.py",
-  "test": "test_browser_signin_is_refused_while_the_downloader_is_busy_and_does_not_start"
- },
- {
-  "id": "account-post-other",
-  "source": "comic_archive/web.py",
-  "old": "(action == 'account' and key in {None,'pause'})",
-  "new": "(action == 'account' and True)",
-  "test_file": "test_local_web.py",
-  "test": "test_browser_signin_and_account_views_are_cookie_protected_read_only_and_reject_wrong_methods"
- },
- {
-  "id": "account-get-pause",
-  "source": "comic_archive/web.py",
-  "old": "(action == 'session' or key is None)",
-  "new": "(action == 'session' or True)",
-  "test_file": "test_local_web.py",
-  "test": "test_browser_signin_and_account_views_are_cookie_protected_read_only_and_reject_wrong_methods"
  },
  {
   "id": "stream-cache-check",
@@ -640,38 +600,6 @@
   "test": "test_a_request_whose_kind_cannot_be_read_is_refused"
  },
  {
-  "id": "desktop-signin-waits-for-settled-cookies",
-  "source": "comic_archive/desktop_app.py",
-  "old": "if not waited and not self.cookies.settled():",
-  "new": "if False:",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_cookie_removed_just_before_the_answer_is_not_saved_the_hand_over_waits_once_for_the_grace"
- },
- {
-  "id": "desktop-signin-waits-only-once",
-  "source": "comic_archive/desktop_app.py",
-  "old": "lambda: self.signin_answer(text, True))",
-  "new": "lambda: self.signin_answer(text))",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_hand_over_that_waited_goes_on_even_if_removals_keep_coming"
- },
- {
-  "id": "desktop-signin-wait-covers-the-grace",
-  "source": "comic_archive/desktop_app.py",
-  "old": "int(CookieRecords.GRACE * 1000) + 100",
-  "new": "int(CookieRecords.GRACE * 1000) - 100",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_cookie_removed_just_before_the_answer_is_not_saved_the_hand_over_waits_once_for_the_grace"
- },
- {
-  "id": "desktop-signin-wait-skipped-when-settled",
-  "source": "comic_archive/desktop_app.py",
-  "old": "if not waited and not self.cookies.settled():",
-  "new": "if not waited:",
-  "test_file": "test_desktop_app.py",
-  "test": "test_cookies_that_are_settled_are_handed_over_at_once_without_waiting"
- },
- {
   "id": "qt-interrupt-after-work-is-for-qt",
   "source": "comic_archive/qt_engine.py",
   "old": "if not self.interrupted and not self.over and work",
@@ -718,38 +646,6 @@
   "new": "self.agent = None",
   "test_file": "test_qt_engine.py",
   "test": "test_a_context_names_itself_as_its_surface_does"
- },
- {
-  "id": "desktop-signin-profile-named",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        self.signin_profile.setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))\n",
-  "new": "        pass\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
- },
- {
-  "id": "desktop-signin-profile-name-is-common",
-  "source": "comic_archive/desktop_app.py",
-  "old": "setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))",
-  "new": "setHttpUserAgent(self.signin_profile.httpUserAgent())",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
- },
- {
-  "id": "desktop-dashboard-profile-left-alone",
-  "source": "comic_archive/desktop_app.py",
-  "old": "self.profile = q.QtWebEngineCore.QWebEngineProfile(self.app)\n",
-  "new": "self.profile = q.QtWebEngineCore.QWebEngineProfile(self.app)\n        self.profile.setHttpUserAgent(common_agent(self.profile.httpUserAgent()))\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
- },
- {
-  "id": "desktop-engine-gets-no-switch",
-  "source": "comic_archive/desktop_app.py",
-  "old": "q.QtWidgets.QApplication([DESKTOP_ID])",
-  "new": "q.QtWidgets.QApplication([DESKTOP_ID, '--no-sandbox'])",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_engine_is_given_nothing_but_the_windows_own_name"
  },
  {
   "id": "transport-sends-agent",
@@ -816,84 +712,12 @@
   "test": "test_capture_closes_the_previous_transport_and_opens_a_new_one_with_the_refreshed_cookies_network_guard_and_browser_name"
  },
  {
-  "id": "window-site-text-ignores-the-site",
-  "source": "comic_archive/desktop_app.py",
-  "old": "    return text.format(site=site.name)",
-  "new": "    return text.format(site='Tapas')",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
- },
- {
-  "id": "window-signin-hint-ignores-the-site",
-  "source": "comic_archive/desktop_app.py",
-  "old": "self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))",
-  "new": "self.hint.setText(site_text(SIGNIN_HINT))",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
- },
- {
-  "id": "window-close-signin-ignores-the-site",
-  "source": "comic_archive/desktop_app.py",
-  "old": "text = site_text(CLOSE_SIGNIN, self.runtime.site) if kind",
-  "new": "text = site_text(CLOSE_SIGNIN) if kind",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
- },
- {
-  "id": "runtime-hands-the-dashboard-no-sites",
-  "source": "comic_archive/app_runtime.py",
-  "old": "registry.sites = sites.choices(self.site)",
-  "new": "registry.sites = []",
-  "test_file": "test_app_runtime.py",
-  "test": "test_the_dashboard_is_handed_the_list_of_sites_when_the_app_starts"
- },
- {
-  "id": "context-without-sites",
-  "source": "comic_archive/web.py",
-  "old": "'sites':self.registry.sites,",
-  "new": "'sites':None,",
-  "test_file": "test_local_web.py",
-  "test": "test_site_list_is_in_the_context_only_when_the_desktop_app_gives_one"
- },
- {
-  "id": "hosted-sites-default",
-  "source": "comic_archive/local_web.py",
-  "old": "    sites = None  #",
-  "new": "    sites = []  #",
-  "test_file": "test_local_web.py",
-  "test": "test_site_list_is_in_the_context_only_when_the_desktop_app_gives_one"
- },
- {
   "id": "qt-blank-waits-for-its-load",
   "source": "comic_archive/qt_engine.py",
   "old": "while self.surface.ended == ended or self.where() is None:",
   "new": "while self.where() is None:",
   "test_file": "test_qt_engine.py",
   "test": "test_a_new_blank_page_is_not_taken_for_the_page_that_was_asked_for"
- },
- {
-  "id": "clock-counts-from-first-go",
-  "source": "comic_archive/account_ui.py",
-  "old": "            started = max(started, since)",
-  "new": "            started = min(started, since)",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
- },
- {
-  "id": "clock-ignores-reopening",
-  "source": "comic_archive/local_web.py",
-  "old": "        self.working_since = int(time.time())\n\n    def ids(",
-  "new": "        self.working_since = 0\n\n    def ids(",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
- },
- {
-  "id": "clock-ignores-go-after-pause",
-  "source": "comic_archive/local_web.py",
-  "old": "            self.working_since = int(time.time())\n            start(workspace)",
-  "new": "            start(workspace)",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
  },
  {
   "id": "log-foreign-browser-message",
@@ -934,118 +758,6 @@
   "new": "ENOUGH_SECONDS, ENOUGH_EPISODES = 0, 0",
   "test_file": "test_estimate.py",
   "test": "test_no_time_is_given_while_too_little_has_been_saved_to_know_the_pace"
- },
- {
-  "id": "speed-starts-slow",
-  "source": "comic_archive/account_ui.py",
-  "old": "DEFAULT_SPEED = 'fast'",
-  "new": "DEFAULT_SPEED = 'slow'",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_runs_at_the_fast_speed_until_the_person_chooses_another"
- },
- {
-  "id": "speed-fast-is-not-the-fast-importer",
-  "source": "comic_archive/account_ui.py",
-  "old": "    'fast': {'speed': 'fast', ",
-  "new": "    'fast': {'speed': 'normal', ",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_runs_at_the_fast_speed_until_the_person_chooses_another"
- },
- {
-  "id": "speed-choice-ignored-by-go",
-  "source": "comic_archive/account_ui.py",
-  "old": "    pacing = SPEEDS[speed(workspace)]",
-  "new": "    pacing = SPEEDS[DEFAULT_SPEED]",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
- },
- {
-  "id": "speed-choice-not-kept",
-  "source": "comic_archive/account_ui.py",
-  "old": "        replace_file(path.with_name(SPEED_FILE + '.new'), path)\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
- },
- {
-  "id": "speed-not-written-into-saved-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "            value['window_budgets'] = batches.budgets(value['window_budgets'] | pacing)",
-  "new": "            value['window_budgets'] = batches.budgets(value['window_budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
- },
- {
-  "id": "speed-not-carried-into-plan",
-  "source": "comic_archive/account_ui.py",
-  "old": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'] | pacing)",
-  "new": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
- },
- {
-  "id": "speed-not-carried-into-window",
-  "source": "comic_archive/account_ui.py",
-  "old": "            window['budgets'] = batches.budgets(window['budgets'] | pacing)",
-  "new": "            window['budgets'] = batches.budgets(window['budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
- },
- {
-  "id": "speed-rewrites-window-whose-batch-is-out",
-  "source": "comic_archive/account_ui.py",
-  "old": "        if window is not None and window['pending'] is None:",
-  "new": "        if window is not None:",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_resumes_stopped_completion_without_resetting_window_budgets_or_usage"
- },
- {
-  "id": "speed-unknown-accepted",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if value not in SPEEDS:\n        raise ArchiveError('Comic Archiver does not know that speed.')\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
- },
- {
-  "id": "speed-unreadable-file-used-as-it-is",
-  "source": "comic_archive/account_ui.py",
-  "old": "    return text if text in SPEEDS else DEFAULT_SPEED",
-  "new": "    return text",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_speed_file_this_app_cannot_read_means_the_fast_speed_and_go_still_works"
- },
- {
-  "id": "speed-save-failure-unreported",
-  "source": "comic_archive/account_ui.py",
-  "old": "    except OSError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
-  "new": "    except ZeroDivisionError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands"
- },
- {
-  "id": "speed-changed-under-running-download",
-  "source": "comic_archive/local_web.py",
-  "old": "                raise LibraryBusy('Pause the download before changing its speed.')",
-  "new": "                pass",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
- },
- {
-  "id": "speed-route-takes-other-options",
-  "source": "comic_archive/web.py",
-  "old": "                        if set(options) != {'speed'} or not isinstance(options['speed'], str):",
-  "new": "                        if 'speed' not in options or not isinstance(options['speed'], str):",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_speed_route_takes_one_known_speed_from_the_signed_page_only"
- },
- {
-  "id": "speed-route-takes-any-value",
-  "source": "comic_archive/web.py",
-  "old": "                        if set(options) != {'speed'} or not isinstance(options['speed'], str):",
-  "new": "                        if set(options) != {'speed'}:",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_speed_route_takes_one_known_speed_from_the_signed_page_only"
  },
  {
   "id": "script-error-drops-what-the-engine-saw",
@@ -1296,92 +1008,12 @@
   "test": "test_the_hand_over_between_two_batches_is_downloading_and_a_longer_wait_is_not"
  },
  {
-  "id": "ended-step-reported-as-quiet-step",
-  "source": "comic_archive/account_ui.py",
-  "old": "key = 'progress_age_seconds' if progress['status'] == 'running' else 'between_steps_seconds'",
-  "new": "key = 'progress_age_seconds'",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "retry-wait-not-reported",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    if left > 0:\n                        result['retry']",
-  "new": "                    if False:\n                        result['retry']",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "finished-wait-reported",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    if left > 0:\n                        result['retry']",
-  "new": "                    if True:\n                        result['retry']",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "retry-wait-reported-for-a-paused-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "            if result.get('status') == 'running':\n                # A wait the download",
-  "new": "            if True:\n                # A wait the download",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "unreadable-window-breaks-the-status",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    result['go_after_seconds'] = math.ceil(left)\n        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):",
-  "new": "                    result['go_after_seconds'] = math.ceil(left)\n        except (OSError,):",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "download-goes-on-by-itself-at-a-start",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if running:\n        account_export.request_stop(session, library)\n    if idle:",
-  "new": "    if idle:",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_sets_a_download_that_was_running_to_wait_for_go_and_go_continues_it"
- },
- {
-  "id": "unrun-task-left-queued-at-a-start",
-  "source": "comic_archive/account_ui.py",
-  "old": "            end_unstarted(session, library, task)\n",
-  "new": "            pass\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_ends_unrun_the_task_a_power_cut_left_queued_so_no_downloader_works_through_it"
- },
- {
-  "id": "unrun-task-ended-under-a-running-downloader",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if idle:\n        for task in sorted(",
-  "new": "    if True:\n        for task in sorted(",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
- },
- {
-  "id": "running-downloader-not-stopped-at-a-start",
-  "source": "comic_archive/account_ui.py",
-  "old": "        pause(workspace)  # A downloader outlived",
-  "new": "        pass  # A downloader outlived",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
- },
- {
   "id": "unrun-receipt-written-over-a-finished-one",
   "source": "comic_archive/task_cancellation.py",
   "old": "        if response.exists() or not request.is_file():return False",
   "new": "        if not request.is_file():return False",
   "test_file": "test_task_cancellation.py",
   "test": "test_a_task_no_worker_got_to_is_given_the_receipt_of_a_stopped_one_and_other_tasks_are_left_alone"
- },
- {
-  "id": "downloader-of-unknown-state-taken-as-gone",
-  "source": "comic_archive/app_runtime.py",
-  "old": "idle=background.status(session).get('running') is False)",
-  "new": "idle=not background.status(session).get('running'))",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_start_sets_the_saved_download_to_wait_for_go_and_a_failure_doing_so_does_not_keep_the_app_from_starting"
  },
  {
   "id": "unchecked-series-counted-as-holding-nothing",
@@ -1448,22 +1080,6 @@
   "test": "test_the_room_a_file_takes_is_what_its_disk_gives_it_and_its_length_where_the_disk_does_not_say"
  },
  {
-  "id": "another-librarys-downloader-ended",
-  "source": "comic_archive/osdep.py",
-  "old": "        return all(os.fsencode(word) in given for word in words)\n",
-  "new": "        return any(os.fsencode(word) in given for word in words)\n",
-  "test_file": "test_app_runtime.py",
-  "test": "test_only_the_running_downloader_of_this_library_is_ended"
- },
- {
-  "id": "downloader-group-ended-when-not-its-own",
-  "source": "comic_archive/osdep.py",
-  "old": "    elif os.getpgid(pid) == pid:\n",
-  "new": "    elif True:\n",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_downloader_in_the_process_group_of_the_app_is_ended_alone"
- },
- {
   "id": "metered-windows-connection-taken-as-free",
   "source": "comic_archive/network_windows.py",
   "old": "    return {'connection': connection, 'metered': bool(cost & (FIXED | VARIABLE))}\n",
@@ -1494,14 +1110,6 @@
   "new": "    environ.update(PYTHONNOUSERSITE='1', PYTHONSAFEPATH='1')\n",
   "test_file": "test_osdep.py",
   "test": "test_a_python_the_app_starts_reads_text_as_utf8_and_takes_nothing_from_the_persons_own_python"
- },
- {
-  "id": "windows-icon-looked-for-in-the-python-folder",
-  "source": "comic_archive/desktop_app.py",
-  "old": "    icon = Path(sys.executable).resolve().parent.parent / 'comic-archiver.ico'\n",
-  "new": "    icon = Path(sys.executable).resolve().parent / 'comic-archiver.ico'\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_on_windows_the_window_takes_the_icon_that_lies_beside_the_bundled_python"
  },
  {
   "id": "series-folder-leaves-no-room-for-its-files-on-windows",
@@ -1544,68 +1152,12 @@
   "test": "test_where_whole_paths_are_limited_long_titles_are_cut_in_the_names_and_kept_in_the_metadata"
  },
  {
-  "id": "self-test-failure-does-not-say-where",
-  "source": "comic_archive/desktop_app.py",
-  "old": "           if str(frame.f_globals.get('__name__')).partition('.')[0] == package]",
-  "new": "           ]",
-  "test_file": "test_desktop_app.py",
-  "test": "test_self_test_fails_when_the_dashboard_is_missing_incomplete_closed_or_cannot_start"
- },
- {
   "id": "cloud-offered-everywhere",
   "source": "comic_archive/cloud_tools.py",
   "old": "    except ArchiveError:\n        return False\n    return True",
   "new": "    except ArchiveError:\n        return True\n    return True",
   "test_file": "test_cloud_tools.py",
   "test": "test_only_supported_machines_get_a_pinned_helper_folder"
- },
- {
-  "id": "sites-share-one-folder",
-  "source": "comic_archive/sites.py",
-  "old": "return root if site.key == DEFAULT.key else root / site.name",
-  "new": "return root",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "unavailable-site-can-be-chosen",
-  "source": "comic_archive/sites.py",
-  "old": "if site.key == key and site.available)",
-  "new": "if site.key == key)",
-  "test_file": "test_local_web.py",
-  "test": "test_a_site_is_chosen_only_among_those_that_work_and_the_page_only_leaves_a_request_for_the_window"
- },
- {
-  "id": "site-route-takes-anything",
-  "source": "comic_archive/web.py",
-  "old": "                if site is None:\n                    raise HTTPError('400 Bad Request','unknown_options')\n                # The app's own window switches",
-  "new": "                if site is None:\n                    site = sites.DEFAULT\n                # The app's own window switches",
-  "test_file": "test_local_web.py",
-  "test": "test_a_site_is_chosen_only_among_those_that_work_and_the_page_only_leaves_a_request_for_the_window"
- },
- {
-  "id": "site-choice-forgotten",
-  "source": "comic_archive/app_runtime.py",
-  "old": "        remember_site(site)\n        LOG.info('the site was changed')",
-  "new": "        LOG.info('the site was changed')",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "site-switch-while-saving",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        if self.runtime.busy():\n            self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, SITE_BUSY",
-  "new": "        if False:\n            self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, SITE_BUSY",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
- },
- {
-  "id": "site-chosen-last-time-ignored",
-  "source": "comic_archive/desktop_app.py",
-  "old": ", site=app_runtime.saved_site())",
-  "new": ")",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_site_chosen_last_time_is_opened_at_the_next_start"
  },
  {
   "id": "cookies-sent-to-every-site-host",
@@ -1670,14 +1222,6 @@
   "new": "",
   "test_file": "test_sites.py",
   "test": "test_the_window_hands_over_only_the_open_sites_cookies_and_storage"
- },
- {
-  "id": "site-without-identity-taken-as-tapas",
-  "source": "comic_archive/desktop_app.py",
-  "old": "    named = IDENTITIES.get(site.key)",
-  "new": "    named = IDENTITIES.get(site.key, identity)",
-  "test_file": "test_sites.py",
-  "test": "test_the_window_asks_only_the_sites_own_page_and_never_takes_a_site_it_cannot_ask_as_signed_in"
  },
  {
   "id": "worker-reads-every-site-as-tapas",
@@ -2136,14 +1680,6 @@
   "test": "test_a_rented_chapter_is_read_with_the_end_of_its_rental_and_one_without_an_end_is_not"
  },
  {
-  "id": "tappytoon-signin-unrecognised",
-  "source": "comic_archive/desktop_app.py",
-  "old": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}",
-  "new": "IDENTITIES = {'tapas': identity}",
-  "test_file": "test_sites.py",
-  "test": "test_a_tappytoon_page_names_its_account_as_the_downloader_reads_it"
- },
- {
   "id": "tappytoon-bought-list-dropped",
   "source": "comic_archive/sites.py",
   "old": "         '/en/login', ('unlocked', 'subscribed', 'recent')),",
@@ -2174,94 +1710,6 @@
   "new": "value['category'] in sites.DEFAULT.lists:",
   "test_file": "test_monitoring.py",
   "test": "test_reading_list_progress_exposes_counts_without_private_response_fields"
- },
- {
-  "id": "site-switch-page-cookie-not-kept",
-  "source": "comic_archive/app_runtime.py",
-  "old": "self.port, cookie_key=current.cookie_key,",
-  "new": "self.port,",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "site-switch-leaves-downloader-running",
-  "source": "comic_archive/app_runtime.py",
-  "old": "        self._leave()\n        self.site = site",
-  "new": "        self.site = site",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "site-switch-page-not-told-to-wait",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            self._asked, self._waiting = site, True",
-  "new": "            self._asked = site",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "site-switch-context-never-waiting",
-  "source": "comic_archive/web.py",
-  "old": "'site_switching':self.registry.site_choice.waiting() if self.registry.site_choice else False,",
-  "new": "'site_switching':False,",
-  "test_file": "test_app_runtime.py",
-  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
- },
- {
-  "id": "site-switch-settles-newer-request",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            if self._asked is None:\n                self._waiting = False",
-  "new": "            self._waiting = False",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_switch_settles_only_the_latest_request"
- },
- {
-  "id": "site-switch-old-wait-not-ended",
-  "source": "comic_archive/app_runtime.py",
-  "old": "        self._closing.set()\n        self._closing = threading.Event()  # The next site's own.",
-  "new": "        self._closing = threading.Event()  # The next site's own.",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_deferred_start_ends_when_the_window_switches_to_another_site"
- },
- {
-  "id": "site-switch-page-left-waiting",
-  "source": "comic_archive/desktop_app.py",
-  "old": "            self.phase = 'open'\n            choice.settle()\n",
-  "new": "            self.phase = 'open'\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
- },
- {
-  "id": "site-already-open-page-left-waiting",
-  "source": "comic_archive/desktop_app.py",
-  "old": "            self.runtime.site_choice.settle()  # Already open.",
-  "new": "            pass",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
- },
- {
-  "id": "site-busy-page-left-waiting",
-  "source": "comic_archive/desktop_app.py",
-  "old": "            choice.settle()  # The list shows the site still open.",
-  "new": "            pass",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
- },
- {
-  "id": "site-switch-closable-midway",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        self.phase = 'moving'  # Closing waits",
-  "new": "        self.phase = 'open'  # Closing waits",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
- },
- {
-  "id": "site-switch-failure-unsaid",
-  "source": "comic_archive/desktop_app.py",
-  "old": "            if not outcome:\n                self.phase = 'failed'",
-  "new": "            if False:\n                self.phase = 'failed'",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
  },
  {
   "id": "tappytoon-no-license-pauses-go",
@@ -2302,14 +1750,6 @@
   "new": "\"Page request refused or redirected; refresh in the reader.\"",
   "test_file": "test_tappytoon.py",
   "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
- },
- {
-  "id": "go-resume-checks-tapas-lists",
-  "source": "comic_archive/account_ui.py",
-  "old": "        value = account_export._load(root, account_export.lists(session))",
-  "new": "        value = account_export._load(root)",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_continues_a_paused_download_of_another_site_past_that_sites_own_lists"
  },
  {
   "id": "starting-downloader-unreported",
@@ -2440,38 +1880,6 @@
   "test": "test_go_after_the_automatic_reader_retries_ran_out_tries_the_refused_episode_alone_first"
  },
  {
-  "id": "Status hides the image retry wait",
-  "source": "comic_archive/account_ui.py",
-  "old": ",\n                                    ('asset_retry_after', 'images')):",
-  "new": "):",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "Status hides the site's cooldown from Go",
-  "source": "comic_archive/account_ui.py",
-  "old": "result['go_after_seconds'] = math.ceil(left)",
-  "new": "pass",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "Status shows a finished cooldown to Go",
-  "source": "comic_archive/account_ui.py",
-  "old": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if left > 0:",
-  "new": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if True:",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "Status drops the whole download's hold reasons",
-  "source": "comic_archive/account_ui.py",
-  "old": "batches.CODES | completion.REASONS | {",
-  "new": "batches.CODES | {",
-  "test_file": "test_account_ui.py",
-  "test": "test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do"
- },
- {
   "id": "saved-library series sort orders episodes by their title words",
   "source": "comic_archive/saved_library.py",
   "old": "rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold()",
@@ -2536,22 +1944,6 @@
   "test": "test_on_windows_the_computer_is_kept_awake_for_a_download_and_let_sleep_again"
  },
  {
-  "id": "the app's private folders beside the library are left visible",
-  "source": "comic_archive/state_paths.py",
-  "old": "    osdep.hide(path)\n",
-  "new": "",
-  "test_file": "test_app_runtime.py",
-  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
- },
- {
-  "id": "the dashboard's private folder is made without being hidden",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            private_folder(place, 'web')\n",
-  "new": "",
-  "test_file": "test_app_runtime.py",
-  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
- },
- {
   "id": "the library's state folder is left visible",
   "source": "comic_archive/locking.py",
   "old": "                osdep.hide(state)\n",
@@ -2574,78 +1966,6 @@
   "new": "    if False:\n",
   "test_file": "test_window_signin.py",
   "test": "test_a_downloader_still_starting_after_the_wait_keeps_the_saved_sign_in_and_reports_no_failure"
- },
- {
-  "id": "the sign-in bar keeps the first site's name",
-  "source": "comic_archive/desktop_app.py",
-  "old": "            self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))\n",
-  "new": "",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
- },
- {
-  "id": "the sign-in bar does not ask for an email and password",
-  "source": "comic_archive/desktop_app.py",
-  "old": "               'Use your email and password: Google and Facebook buttons may not work here. '\n",
-  "new": "",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
- },
- {
-  "id": "the computer is never kept awake for a download",
-  "source": "comic_archive/desktop_app.py",
-  "old": "self.stay_awake(self.phase == 'open' and self.busy_seen == 'download')",
-  "new": "self.stay_awake(False)",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
- },
- {
-  "id": "the computer stays awake after a download ends",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        if running != self.awake:\n",
-  "new": "        if running and not self.awake:\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
- },
- {
-  "id": "closing the window keeps the computer awake while the download stops",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        self.awake_clock.stop()\n        self.stay_awake(False)\n",
-  "new": "        self.awake_clock.stop()\n",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
- },
- {
-  "id": "ending the window keeps the computer awake",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        self.stay_awake(False)\n        self.app.quit()",
-  "new": "        self.app.quit()",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
- },
- {
-  "id": "the starting notice does not say a first start is slow",
-  "source": "comic_archive/desktop_app.py",
-  "old": "\\n\\nThe first start can take up to a minute.'",
-  "new": "'",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
- },
- {
-  "id": "a second double-click while starting says only that the app is open",
-  "source": "comic_archive/desktop_app.py",
-  "old": "'Comic Archiver is already open or still starting. The first start can take up to a minute; '\n                   'its window then appears by itself.'",
-  "new": "'Comic Archiver is already open. Look for its window, or wait a moment and try again.'",
-  "test_file": "test_desktop_app.py",
-  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
- },
- {
-  "id": "a new save folder does not say Go saves everything again",
-  "source": "comic_archive/desktop_app.py",
-  "old": "                    'Go then saves everything again in the new folder, and your library page shows only what is there. '\n",
-  "new": "",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
  },
  {
   "id": "shared-link-mode-unchecked",
@@ -2816,86 +2136,6 @@
   "test": "test_the_connection_rule_is_one_for_every_site_and_a_site_brings_its_own_choice_when_first_linked"
  },
  {
-  "id": "runtime-site-not-linked",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            share(place, private_folder(root, 'shared'))\n",
-  "new": "",
-  "test_file": "test_app_runtime.py",
-  "test": "test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened"
- },
- {
-  "id": "runtime-link-os-error-stops-app",
-  "source": "comic_archive/app_runtime.py",
-  "old": "    except (ArchiveError, OSError) as error:\n        LOG.warning('the shared settings",
-  "new": "    except ArchiveError as error:\n        LOG.warning('the shared settings",
-  "test_file": "test_app_runtime.py",
-  "test": "test_a_library_that_cannot_be_linked_still_opens_with_its_own_settings_and_the_log_names_no_private_text"
- },
- {
-  "id": "site-settings-open-site-not-first",
-  "source": "comic_archive/app_runtime.py",
-  "old": "sorted((s for s in sites.SITES if s.available), key=lambda s: s.key != self.site.key)",
-  "new": "(s for s in sites.SITES if s.available)",
-  "test_file": "test_app_runtime.py",
-  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
- },
- {
-  "id": "site-settings-unavailable-listed",
-  "source": "comic_archive/app_runtime.py",
-  "old": "(s for s in sites.SITES if s.available)",
-  "new": "(s for s in sites.SITES)",
-  "test_file": "test_app_runtime.py",
-  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
- },
- {
-  "id": "site-settings-open-site-changed",
-  "source": "comic_archive/app_runtime.py",
-  "old": "if site is None or site.key == self.site.key or not",
-  "new": "if site is None or not",
-  "test_file": "test_app_runtime.py",
-  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
- },
- {
-  "id": "site-settings-without-sign-in-changed",
-  "source": "comic_archive/app_runtime.py",
-  "old": " or not (self._session(site) / 'state.json').is_file():",
-  "new": ":",
-  "test_file": "test_app_runtime.py",
-  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
- },
- {
-  "id": "site-settings-symlink-breaks-list",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            except (ArchiveError, OSError):\n                pass  # A folder",
-  "new": "            except OSError:\n                pass  # A folder",
-  "test_file": "test_app_runtime.py",
-  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
- },
- {
-  "id": "site-speed-any-value-type",
-  "source": "comic_archive/web.py",
-  "old": " or not all(isinstance(options[k],str) for k in options):",
-  "new": ":",
-  "test_file": "test_local_web.py",
-  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
- },
- {
-  "id": "site-speed-route-in-browser-tab",
-  "source": "comic_archive/web.py",
-  "old": "elif path == '/api/v1/site-speed' and method == 'POST' and self.registry.site_settings:",
-  "new": "elif path == '/api/v1/site-speed' and method == 'POST':",
-  "test_file": "test_local_web.py",
-  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
- },
- {
-  "id": "context-site-settings-missing",
-  "source": "comic_archive/web.py",
-  "old": "'site_settings':self.registry.site_settings.list() if self.registry.site_settings else None,",
-  "new": "'site_settings':None,",
-  "test_file": "test_local_web.py",
-  "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
- },
- {
   "id": "b2-sign-in-file-beside-library",
   "source": "comic_archive/cloud_auth.py",
   "old": "folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)",
@@ -2910,14 +2150,6 @@
   "new": "",
   "test_file": "test_shared.py",
   "test": "test_a_site_opened_before_but_never_set_up_uses_the_shared_setup_and_keeps_its_folder_name"
- },
- {
-  "id": "the sign-in bar does not say which account gets the password",
-  "source": "comic_archive/desktop_app.py",
-  "old": "first add a password to your {site} account: sign in to {site} in your ",
-  "new": "first add a password: sign in in your ",
-  "test_file": "test_desktop_app.py",
-  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
  },
  {
   "id": "reconnecting retries a cloud-only archive and loses the verified receipt",
@@ -2950,46 +2182,6 @@
   "new": "elif listed[name] is None:",
   "test_file": "test_cloud_stream.py",
   "test": "test_wrong_remote_checksums_set_episodes_aside_for_retry_until_one_run_has_too_many"
- },
- {
-  "id": "sign-in navigation can reach a private destination",
-  "source": "comic_archive/desktop_app.py",
-  "old": "if scheme == 'https' and host and not private_destination(host):",
-  "new": "if scheme == 'https' and host:",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_page_loads_whole_pages_only_over_https"
- },
- {
-  "id": "sign-in requests use only the old loopback guard",
-  "source": "comic_archive/desktop_app.py",
-  "old": "if private_destination(info.requestUrl().host()):",
-  "new": "if info.requestUrl().host() in ('localhost', '127.0.0.1'):",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_page_keeps_to_https_cannot_reach_this_computer_and_saves_or_grants_nothing"
- },
- {
-  "id": "sign-in private IP literals are treated as public",
-  "source": "comic_archive/desktop_app.py",
-  "old": "return not address.is_global or address.is_multicast",
-  "new": "return False",
-  "test_file": "test_desktop_app.py",
-  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
- },
- {
-  "id": "sign-in home network names are treated as public",
-  "source": "comic_archive/desktop_app.py",
-  "old": " or name == 'home.arpa' or name.endswith('.home.arpa')",
-  "new": "",
-  "test_file": "test_desktop_app.py",
-  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
- },
- {
-  "id": "desktop inherits unsafe web engine overrides",
-  "source": "comic_archive/desktop_app.py",
-  "old": "    secure_qt_environment(os.environ)\n    try:\n        q = qt()",
-  "new": "    try:\n        q = qt()",
-  "test_file": "test_desktop_app.py",
-  "test": "test_startup_drops_inherited_web_engine_overrides_before_qt_runs"
  },
  {
   "id": "downloader inherits unsafe web engine overrides",
@@ -3078,5 +2270,1269 @@
   "new": "else 'task_failed')",
   "test_file": "test_failure_receipts.py",
   "test": "test_a_cloud_upload_that_stopped_a_batch_pauses_with_its_own_reason"
+ },
+ {
+  "id": "desktop-signin-waits-for-settled-cookies",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if not waited and not self.cookies.settled():",
+  "new": "if False:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_cookie_removed_just_before_the_answer_is_not_saved_the_hand_over_waits_once_for_the_grace"
+ },
+ {
+  "id": "desktop-signin-waits-only-once",
+  "source": "comic_archive/desktop_app.py",
+  "old": "lambda: self.signin_answer(text, True))",
+  "new": "lambda: self.signin_answer(text))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_hand_over_that_waited_goes_on_even_if_removals_keep_coming"
+ },
+ {
+  "id": "desktop-signin-wait-covers-the-grace",
+  "source": "comic_archive/desktop_app.py",
+  "old": "int(CookieRecords.GRACE * 1000) + 100",
+  "new": "int(CookieRecords.GRACE * 1000) - 100",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_cookie_removed_just_before_the_answer_is_not_saved_the_hand_over_waits_once_for_the_grace"
+ },
+ {
+  "id": "desktop-signin-wait-skipped-when-settled",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if not waited and not self.cookies.settled():",
+  "new": "if not waited:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_cookies_that_are_settled_are_handed_over_at_once_without_waiting"
+ },
+ {
+  "id": "desktop-signin-profile-named",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.signin_profile.setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))\n",
+  "new": "        pass\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
+ },
+ {
+  "id": "desktop-signin-profile-name-is-common",
+  "source": "comic_archive/desktop_app.py",
+  "old": "setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))",
+  "new": "setHttpUserAgent(self.signin_profile.httpUserAgent())",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
+ },
+ {
+  "id": "desktop-engine-gets-no-switch",
+  "source": "comic_archive/desktop_app.py",
+  "old": "q.QtWidgets.QApplication([DESKTOP_ID])",
+  "new": "q.QtWidgets.QApplication([DESKTOP_ID, '--no-sandbox'])",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_engine_is_given_nothing_but_the_windows_own_name"
+ },
+ {
+  "id": "window-site-text-ignores-the-site",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    return text.format(site=site.name)",
+  "new": "    return text.format(site='Tapas')",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
+ },
+ {
+  "id": "window-signin-hint-ignores-the-site",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))",
+  "new": "self.hint.setText(site_text(SIGNIN_HINT))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
+ },
+ {
+  "id": "window-close-signin-ignores-the-site",
+  "source": "comic_archive/desktop_app.py",
+  "old": "text = site_text(CLOSE_SIGNIN, self.runtime.site) if kind",
+  "new": "text = site_text(CLOSE_SIGNIN) if kind",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_texts_name_the_site_that_is_open"
+ },
+ {
+  "id": "windows-icon-looked-for-in-the-python-folder",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    icon = Path(sys.executable).resolve().parent.parent / 'comic-archiver.ico'\n",
+  "new": "    icon = Path(sys.executable).resolve().parent / 'comic-archiver.ico'\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_on_windows_the_window_takes_the_icon_that_lies_beside_the_bundled_python"
+ },
+ {
+  "id": "self-test-failure-does-not-say-where",
+  "source": "comic_archive/desktop_app.py",
+  "old": "           if str(frame.f_globals.get('__name__')).partition('.')[0] == package]",
+  "new": "           ]",
+  "test_file": "test_desktop_app.py",
+  "test": "test_self_test_fails_when_the_dashboard_is_missing_incomplete_closed_or_cannot_start"
+ },
+ {
+  "id": "site-switch-while-saving",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if self.runtime.busy():\n            box.information(self.window, APP_NAME, SITE_BUSY",
+  "new": "        if False:\n            box.information(self.window, APP_NAME, SITE_BUSY",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "site-chosen-last-time-ignored",
+  "source": "comic_archive/desktop_app.py",
+  "old": ", site=app_runtime.saved_site())",
+  "new": ")",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_site_chosen_last_time_is_opened_at_the_next_start"
+ },
+ {
+  "id": "site-without-identity-taken-as-tapas",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    named = IDENTITIES.get(site.key)",
+  "new": "    named = IDENTITIES.get(site.key, identity)",
+  "test_file": "test_sites.py",
+  "test": "test_the_window_asks_only_the_sites_own_page_and_never_takes_a_site_it_cannot_ask_as_signed_in"
+ },
+ {
+  "id": "tappytoon-signin-unrecognised",
+  "source": "comic_archive/desktop_app.py",
+  "old": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}",
+  "new": "IDENTITIES = {'tapas': identity}",
+  "test_file": "test_sites.py",
+  "test": "test_a_tappytoon_page_names_its_account_as_the_downloader_reads_it"
+ },
+ {
+  "id": "site-switch-closable-midway",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.phase = 'moving'  # Closing waits",
+  "new": "        self.phase = 'open'  # Closing waits",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "site-switch-failure-unsaid",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            if not outcome:\n                self.phase = 'failed'",
+  "new": "            if False:\n                self.phase = 'failed'",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "the sign-in bar keeps the first site's name",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            self.hint.setText(site_text(SIGNIN_HINT, self.runtime.site))\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "the sign-in bar does not ask for an email and password",
+  "source": "comic_archive/desktop_app.py",
+  "old": "               'Use your email and password: Google and Facebook buttons may not work here. '\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "the computer is never kept awake for a download",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.stay_awake(self.phase == 'open' and self.busy_seen == 'download')",
+  "new": "self.stay_awake(False)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "the computer stays awake after a download ends",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if running != self.awake:\n",
+  "new": "        if running and not self.awake:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "closing the window keeps the computer awake while the download stops",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.awake_clock.stop()\n        self.stay_awake(False)\n",
+  "new": "        self.awake_clock.stop()\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "ending the window keeps the computer awake",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.stay_awake(False)\n        self.app.quit()",
+  "new": "        self.app.quit()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_computer_stays_awake_only_while_a_download_runs"
+ },
+ {
+  "id": "the starting notice does not say a first start is slow",
+  "source": "comic_archive/desktop_app.py",
+  "old": "\\n\\nThe first start can take up to a minute.'",
+  "new": "'",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
+ },
+ {
+  "id": "a second double-click while starting says only that the app is open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "'Comic Archiver is already open or still starting. The first start can take up to a minute; '\n                   'its window then appears by itself.'",
+  "new": "'Comic Archiver is already open. Look for its window, or wait a moment and try again.'",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
+ },
+ {
+  "id": "a new save folder does not say Go saves everything again",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                    'Go then saves everything again in the new folder, and your library page shows only what is there. '\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "the sign-in bar does not say which account gets the password",
+  "source": "comic_archive/desktop_app.py",
+  "old": "first add a password to your {site} account: sign in to {site} in your ",
+  "new": "first add a password: sign in in your ",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
+ },
+ {
+  "id": "sign-in navigation can reach a private destination",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if scheme == 'https' and host and not private_destination(host):",
+  "new": "if scheme == 'https' and host:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_page_loads_whole_pages_only_over_https"
+ },
+ {
+  "id": "sign-in requests use only the old loopback guard",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if private_destination(info.requestUrl().host()):",
+  "new": "if info.requestUrl().host() in ('localhost', '127.0.0.1'):",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_page_keeps_to_https_cannot_reach_this_computer_and_saves_or_grants_nothing"
+ },
+ {
+  "id": "sign-in private IP literals are treated as public",
+  "source": "comic_archive/desktop_app.py",
+  "old": "return not address.is_global or address.is_multicast",
+  "new": "return False",
+  "test_file": "test_desktop_app.py",
+  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
+ },
+ {
+  "id": "sign-in home network names are treated as public",
+  "source": "comic_archive/desktop_app.py",
+  "old": " or name == 'home.arpa' or name.endswith('.home.arpa')",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_private_destinations_include_local_names_and_every_non_public_ip_literal"
+ },
+ {
+  "id": "desktop inherits unsafe web engine overrides",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    secure_qt_environment(os.environ)\n    try:\n        q = qt()",
+  "new": "    try:\n        q = qt()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_startup_drops_inherited_web_engine_overrides_before_qt_runs"
+ },
+ {
+  "id": "site-switch-pages-not-reread",
+  "source": "comic_archive/desktop_app.py",
+  "old": "reason=outcome[0]))\n            self.pages.reopened()\n",
+  "new": "reason=outcome[0]))\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "site-switch-says-nothing-while-it-runs",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        state.busy, state.message = True, Message(SITE_SWITCHING.format(site=site.name))\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "site-switch-goes-on-after-closing-began",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            return  # The dialog lets time pass.",
+  "new": "            pass  # The dialog lets time pass.",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in"
+ },
+ {
+  "id": "window-reads-the-library-before-it-is-open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    def refresh(self):\n        if self.phase == 'open':",
+  "new": "    def refresh(self):\n        if True:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks"
+ },
+ {
+  "id": "window-redraws-before-it-is-open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    def tick(self):\n        if self.phase == 'open':",
+  "new": "    def tick(self):\n        if True:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks"
+ },
+ {
+  "id": "window-reports-the-first-refresh-to-no-one",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.pages.reopened(self.answered if self.probe else None)",
+  "new": "self.pages.reopened(self.answered)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks"
+ },
+ {
+  "id": "self-test-never-hears-the-first-refresh",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.pages.reopened(self.answered if self.probe else None)",
+  "new": "self.pages.reopened(None)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_self_test_passes_when_the_real_window_shows_the_dashboard_without_lock_log_or_worker"
+ },
+ {
+  "id": "self-test-trusts-an-undrawn-dashboard",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.probe(ok, self.pages.drawn() if ok else None)",
+  "new": "self.probe(ok, ok)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_self_test_fails_when_the_dashboard_is_missing_incomplete_closed_or_cannot_start"
+ },
+ {
+  "id": "pages-told-nothing-when-the-library-is-silent",
+  "source": "comic_archive/desktop_app.py",
+  "old": "(answer[0] if answer else (None, error_text('service_unavailable')))",
+  "new": "(answer[0] if answer else (None, None))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_pages_work_on_a_thread_and_hear_back_in_the_words_the_person_is_shown"
+ },
+ {
+  "id": "pages-lose-the-refusal-words",
+  "source": "comic_archive/desktop_app.py",
+  "old": "answer.append((None, str(refused)))",
+  "new": "answer.append((None, None))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_pages_work_on_a_thread_and_hear_back_in_the_words_the_person_is_shown"
+ },
+ {
+  "id": "backblaze-page-never-opened",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl(url))",
+  "new": "pass",
+  "test_file": "test_desktop_app.py",
+  "test": "test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs"
+ },
+ {
+  "id": "save-folder-opened-one-level-up",
+  "source": "comic_archive/desktop_app.py",
+  "old": "QUrl.fromLocalFile(str(self.runtime.folder))",
+  "new": "QUrl.fromLocalFile(str(self.runtime.folder.parent))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs"
+ },
+ {
+  "id": "theme-switch-keeps-the-look-showing",
+  "source": "comic_archive/desktop_app.py",
+  "old": "self.runtime.theme.set('light' if self.dark() else 'dark')",
+  "new": "self.runtime.theme.set('dark' if self.dark() else 'light')",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_window_follows_the_theme_chosen_in_its_header_and_the_computers_own_by_default"
+ },
+ {
+  "id": "theme-change-leaves-the-pages-uncoloured",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if self.pages is not None:\n            self.pages.render()",
+  "new": "        if False:\n            self.pages.render()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_window_follows_the_theme_chosen_in_its_header_and_the_computers_own_by_default"
+ },
+ {
+  "id": "theme-unchosen-forced-light",
+  "source": "comic_archive/desktop_app.py",
+  "old": "'dark': scheme.Dark}.get(theme, scheme.Unknown)",
+  "new": "'dark': scheme.Dark}.get(theme, scheme.Light)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_window_follows_the_theme_chosen_in_its_header_and_the_computers_own_by_default"
+ },
+ {
+  "id": "folder-move-keeps-reading-the-old-library",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.phase = 'moving'\n        self.poll_clock.stop()\n",
+  "new": "        self.phase = 'moving'\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "folder-move-failure-left-open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                self.phase = 'failed'\n                self.show_notice(LOAD_FAILED)\n                return",
+  "new": "                self.phase = 'open'\n                self.show_notice(LOAD_FAILED)\n                return",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "folder-move-dashboard-never-reread",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            self.phase = 'starting'\n            self.load()",
+  "new": "            self.phase = 'open'\n            self.load()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "folder-move-problem-unsaid",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            if problem:\n",
+  "new": "            if False:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
+ },
+ {
+  "id": "closing-keeps-redrawing",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        self.tick_clock.stop()\n        self.signin_clock.stop()\n        self.awake_clock.stop()",
+  "new": "        self.signin_clock.stop()\n        self.awake_clock.stop()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_closing_while_idle_shows_finishing_up_stops_the_runtime_and_only_then_quits"
+ },
+ {
+  "id": "signin-header-unstyled",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        header.setObjectName('signinHeader')\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
+ },
+ {
+  "id": "signin-header-full-width",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        strip.setMaximumWidth(COLUMN)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
+ },
+ {
+  "id": "runtime-is-library",
+  "source": "comic_archive/app_runtime.py",
+  "old": "for site in sites.SITES)\n    except (OSError, ValueError):",
+  "new": "for site in sites.SITES)\n    except ZeroDivisionError:",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_folder_the_system_refuses_to_look_at_is_neither_a_library_nor_present"
+ },
+ {
+  "id": "runtime-present",
+  "source": "comic_archive/app_runtime.py",
+  "old": "return folder.is_dir()\n    except (OSError, ValueError):",
+  "new": "return folder.is_dir()\n    except ZeroDivisionError:",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_folder_the_system_refuses_to_look_at_is_neither_a_library_nor_present"
+ },
+ {
+  "id": "clock-counts-from-first-go",
+  "source": "comic_archive/account_ui.py",
+  "old": "            started = max(started, since)",
+  "new": "            started = min(started, since)",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
+ },
+ {
+  "id": "clock-ignores-reopening",
+  "source": "comic_archive/local_library.py",
+  "old": "        self.working_since = int(time.time())\n\n    def ids(",
+  "new": "        self.working_since = 0\n\n    def ids(",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
+ },
+ {
+  "id": "clock-ignores-go-after-pause",
+  "source": "comic_archive/local_library.py",
+  "old": "            self.working_since = int(time.time())\n            start(workspace)",
+  "new": "            start(workspace)",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
+ },
+ {
+  "id": "speed-starts-slow",
+  "source": "comic_archive/account_ui.py",
+  "old": "DEFAULT_SPEED = 'fast'",
+  "new": "DEFAULT_SPEED = 'slow'",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_runs_at_the_fast_speed_until_the_person_chooses_another"
+ },
+ {
+  "id": "speed-fast-is-not-the-fast-importer",
+  "source": "comic_archive/account_ui.py",
+  "old": "    'fast': {'speed': 'fast', ",
+  "new": "    'fast': {'speed': 'normal', ",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_runs_at_the_fast_speed_until_the_person_chooses_another"
+ },
+ {
+  "id": "speed-choice-ignored-by-go",
+  "source": "comic_archive/account_ui.py",
+  "old": "    pacing = SPEEDS[speed(workspace)]",
+  "new": "    pacing = SPEEDS[DEFAULT_SPEED]",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
+ },
+ {
+  "id": "speed-choice-not-kept",
+  "source": "comic_archive/account_ui.py",
+  "old": "        replace_file(path.with_name(SPEED_FILE + '.new'), path)\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
+ },
+ {
+  "id": "speed-not-written-into-saved-download",
+  "source": "comic_archive/account_ui.py",
+  "old": "            value['window_budgets'] = batches.budgets(value['window_budgets'] | pacing)",
+  "new": "            value['window_budgets'] = batches.budgets(value['window_budgets'])",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
+ },
+ {
+  "id": "speed-not-carried-into-plan",
+  "source": "comic_archive/account_ui.py",
+  "old": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'] | pacing)",
+  "new": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'])",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
+ },
+ {
+  "id": "speed-not-carried-into-window",
+  "source": "comic_archive/account_ui.py",
+  "old": "            window['budgets'] = batches.budgets(window['budgets'] | pacing)",
+  "new": "            window['budgets'] = batches.budgets(window['budgets'])",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
+ },
+ {
+  "id": "speed-rewrites-window-whose-batch-is-out",
+  "source": "comic_archive/account_ui.py",
+  "old": "        if window is not None and window['pending'] is None:",
+  "new": "        if window is not None:",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_resumes_stopped_completion_without_resetting_window_budgets_or_usage"
+ },
+ {
+  "id": "speed-unknown-accepted",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if value not in SPEEDS:\n        raise ArchiveError('Comic Archiver does not know that speed.')\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
+ },
+ {
+  "id": "speed-unreadable-file-used-as-it-is",
+  "source": "comic_archive/account_ui.py",
+  "old": "    return text if text in SPEEDS else DEFAULT_SPEED",
+  "new": "    return text",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_file_this_app_cannot_read_means_the_fast_speed_and_go_still_works"
+ },
+ {
+  "id": "speed-save-failure-unreported",
+  "source": "comic_archive/account_ui.py",
+  "old": "    except OSError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
+  "new": "    except ZeroDivisionError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands"
+ },
+ {
+  "id": "speed-changed-under-running-download",
+  "source": "comic_archive/local_library.py",
+  "old": "                raise LibraryBusy('Pause the download before changing its speed.')",
+  "new": "                pass",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
+ },
+ {
+  "id": "ended-step-reported-as-quiet-step",
+  "source": "comic_archive/account_ui.py",
+  "old": "key = 'progress_age_seconds' if progress['status'] == 'running' else 'between_steps_seconds'",
+  "new": "key = 'progress_age_seconds'",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "retry-wait-not-reported",
+  "source": "comic_archive/account_ui.py",
+  "old": "                    if left > 0:\n                        result['retry']",
+  "new": "                    if False:\n                        result['retry']",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "finished-wait-reported",
+  "source": "comic_archive/account_ui.py",
+  "old": "                    if left > 0:\n                        result['retry']",
+  "new": "                    if True:\n                        result['retry']",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "retry-wait-reported-for-a-paused-download",
+  "source": "comic_archive/account_ui.py",
+  "old": "            if result.get('status') == 'running':\n                # A wait the download",
+  "new": "            if True:\n                # A wait the download",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "unreadable-window-breaks-the-status",
+  "source": "comic_archive/account_ui.py",
+  "old": "                    result['go_after_seconds'] = math.ceil(left)\n        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):",
+  "new": "                    result['go_after_seconds'] = math.ceil(left)\n        except (OSError,):",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "download-goes-on-by-itself-at-a-start",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if running:\n        account_export.request_stop(session, library)\n    if idle:",
+  "new": "    if idle:",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_sets_a_download_that_was_running_to_wait_for_go_and_go_continues_it"
+ },
+ {
+  "id": "unrun-task-left-queued-at-a-start",
+  "source": "comic_archive/account_ui.py",
+  "old": "            end_unstarted(session, library, task)\n",
+  "new": "            pass\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_ends_unrun_the_task_a_power_cut_left_queued_so_no_downloader_works_through_it"
+ },
+ {
+  "id": "unrun-task-ended-under-a-running-downloader",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if idle:\n        for task in sorted(",
+  "new": "    if True:\n        for task in sorted(",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
+ },
+ {
+  "id": "running-downloader-not-stopped-at-a-start",
+  "source": "comic_archive/account_ui.py",
+  "old": "        pause(workspace)  # A downloader outlived",
+  "new": "        pass  # A downloader outlived",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
+ },
+ {
+  "id": "downloader-of-unknown-state-taken-as-gone",
+  "source": "comic_archive/app_runtime.py",
+  "old": "idle=background.status(session).get('running') is False)",
+  "new": "idle=not background.status(session).get('running'))",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_start_sets_the_saved_download_to_wait_for_go_and_a_failure_doing_so_does_not_keep_the_app_from_starting"
+ },
+ {
+  "id": "another-librarys-downloader-ended",
+  "source": "comic_archive/osdep.py",
+  "old": "        return all(os.fsencode(word) in given for word in words)\n",
+  "new": "        return any(os.fsencode(word) in given for word in words)\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_only_the_running_downloader_of_this_library_is_ended"
+ },
+ {
+  "id": "downloader-group-ended-when-not-its-own",
+  "source": "comic_archive/osdep.py",
+  "old": "    elif os.getpgid(pid) == pid:\n",
+  "new": "    elif True:\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_downloader_in_the_process_group_of_the_app_is_ended_alone"
+ },
+ {
+  "id": "sites-share-one-folder",
+  "source": "comic_archive/sites.py",
+  "old": "return root if site.key == DEFAULT.key else root / site.name",
+  "new": "return root",
+  "test_file": "test_app_runtime.py",
+  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
+ },
+ {
+  "id": "site-choice-forgotten",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        remember_site(site)\n        LOG.info('the site was changed')",
+  "new": "        LOG.info('the site was changed')",
+  "test_file": "test_app_runtime.py",
+  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
+ },
+ {
+  "id": "site-switch-leaves-downloader-running",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        self._leave()\n        self.site = site",
+  "new": "        self.site = site",
+  "test_file": "test_app_runtime.py",
+  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
+ },
+ {
+  "id": "site-switch-old-wait-not-ended",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        self._closing.set()\n        self._closing = threading.Event()  # The next site's own.",
+  "new": "        self._closing = threading.Event()  # The next site's own.",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_deferred_start_ends_when_the_window_switches_to_another_site"
+ },
+ {
+  "id": "go-resume-checks-tapas-lists",
+  "source": "comic_archive/account_ui.py",
+  "old": "        value = account_export._load(root, account_export.lists(session))",
+  "new": "        value = account_export._load(root)",
+  "test_file": "test_account_ui.py",
+  "test": "test_go_continues_a_paused_download_of_another_site_past_that_sites_own_lists"
+ },
+ {
+  "id": "Status hides the image retry wait",
+  "source": "comic_archive/account_ui.py",
+  "old": ",\n                                    ('asset_retry_after', 'images')):",
+  "new": "):",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status hides the site's cooldown from Go",
+  "source": "comic_archive/account_ui.py",
+  "old": "result['go_after_seconds'] = math.ceil(left)",
+  "new": "pass",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status shows a finished cooldown to Go",
+  "source": "comic_archive/account_ui.py",
+  "old": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if left > 0:",
+  "new": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if True:",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
+ },
+ {
+  "id": "Status drops the whole download's hold reasons",
+  "source": "comic_archive/account_ui.py",
+  "old": "batches.CODES | completion.REASONS | {",
+  "new": "batches.CODES | {",
+  "test_file": "test_account_ui.py",
+  "test": "test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do"
+ },
+ {
+  "id": "the app's private folders beside the library are left visible",
+  "source": "comic_archive/state_paths.py",
+  "old": "    osdep.hide(path)\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
+ },
+ {
+  "id": "the dashboard's private folder is made without being hidden",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            private_folder(place, 'web')\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
+ },
+ {
+  "id": "runtime-site-not-linked",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            share(place, private_folder(root, 'shared'))\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened"
+ },
+ {
+  "id": "runtime-link-os-error-stops-app",
+  "source": "comic_archive/app_runtime.py",
+  "old": "    except (ArchiveError, OSError) as error:\n        LOG.warning('the shared settings",
+  "new": "    except ArchiveError as error:\n        LOG.warning('the shared settings",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_that_cannot_be_linked_still_opens_with_its_own_settings_and_the_log_names_no_private_text"
+ },
+ {
+  "id": "site-settings-open-site-not-first",
+  "source": "comic_archive/app_runtime.py",
+  "old": "sorted((s for s in sites.SITES if s.available), key=lambda s: s.key != self.site.key)",
+  "new": "(s for s in sites.SITES if s.available)",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-unavailable-listed",
+  "source": "comic_archive/app_runtime.py",
+  "old": "(s for s in sites.SITES if s.available)",
+  "new": "(s for s in sites.SITES)",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-open-site-changed",
+  "source": "comic_archive/app_runtime.py",
+  "old": "if site is None or site.key == self.site.key or not",
+  "new": "if site is None or not",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-without-sign-in-changed",
+  "source": "comic_archive/app_runtime.py",
+  "old": " or not (self._session(site) / 'state.json').is_file():",
+  "new": ":",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-settings-symlink-breaks-list",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            except (ArchiveError, OSError):\n                pass  # A folder",
+  "new": "            except OSError:\n                pass  # A folder",
+  "test_file": "test_app_runtime.py",
+  "test": "test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others"
+ },
+ {
+  "id": "site-switch-window-reads-old-library",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        self.registry = registry\n",
+  "new": "        self.registry = self.registry or registry\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
+ },
+ {
+  "id": "site-switch-window-shows-old-folder",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        self.folder = registry.resolve(LOCAL_OWNER, registry.workspace_id).library\n",
+  "new": "        self.folder = self.folder or registry.resolve(LOCAL_OWNER, registry.workspace_id).library\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app"
+ },
+ {
+  "id": "library-open-failure-unworded",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            LOG.error('library cannot be opened: %s', describe(error))\n            raise ArchiveError(UNWRITABLE) from None\n",
+  "new": "            raise\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_library_that_exists_but_cannot_be_used_gets_a_plain_message_and_a_class_only_log_entry"
+ },
+ {
+  "id": "stop-leaves-sign-ins-open",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            return 'not_started'\n        self.registry.cloud_signin.close()\n        self.registry.site_signin.close()\n",
+  "new": "            return 'not_started'\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_stop_closes_the_sign_ins_then_interrupts_the_downloader_without_pausing_the_account_download"
+ },
+ {
+  "id": "pages-b2-route",
+  "source": "comic_archive/window_pages.py",
+  "old": "if name == 'settings/b2' and not cloud_offered:",
+  "new": "if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_routes_lead_to_a_page_that_exists_and_a_tab_that_is_offered"
+ },
+ {
+  "id": "pages-link-any-url",
+  "source": "comic_archive/window_pages.py",
+  "old": "if target in B2_PAGES:\n            self.shell.open_url(B2_PAGES[target])",
+  "new": "if target in B2_PAGES or '://' in target:\n            self.shell.open_url(B2_PAGES.get(target, target))",
+  "test_file": "test_window_pages.py",
+  "test": "test_links_open_only_backblazes_own_pages_in_the_browser"
+ },
+ {
+  "id": "pages-leave-b2-keeps-keys",
+  "source": "comic_archive/window_pages.py",
+  "old": "if self.route == 'settings/b2' and route != 'settings/b2':",
+  "new": "if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_typed_keys_lose_stray_spaces_and_are_forgotten_on_leaving_the_tab"
+ },
+ {
+  "id": "pages-connected-keeps-keys",
+  "source": "comic_archive/window_pages.py",
+  "old": "elif app_actions.received(s, value, self.now(), task):\n                self.settings.forget_keys()",
+  "new": "else:\n                app_actions.received(s, value, self.now(), task)",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_key_that_connects_is_sent_once_and_then_forgotten"
+ },
+ {
+  "id": "pages-stale-poll-kept",
+  "source": "comic_archive/window_pages.py",
+  "old": "return  # Another site or folder opened meanwhile",
+  "new": "pass  # Another site or folder opened meanwhile",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_refresh_for_a_library_that_was_replaced_meanwhile_is_dropped"
+ },
+ {
+  "id": "pages-act-twice",
+  "source": "comic_archive/window_pages.py",
+  "old": "if s.busy:\n            return\n        s.busy = True",
+  "new": "s.busy = True",
+  "test_file": "test_window_pages.py",
+  "test": "test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts"
+ },
+ {
+  "id": "pages-poll-while-busy",
+  "source": "comic_archive/window_pages.py",
+  "old": "if s.busy or self.polling:",
+  "new": "if self.polling:",
+  "test_file": "test_window_pages.py",
+  "test": "test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts"
+ },
+ {
+  "id": "pages-old-refusal-kept",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.state.message = None",
+  "new": "pass",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_refusal_is_said_on_the_dashboard_and_in_settings_until_the_next_action"
+ },
+ {
+  "id": "pages-busy-wifi-not-put-back",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.render()  # Another action is running; show the saved choice again.",
+  "new": "pass",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_connection_choice_made_while_another_action_runs_is_put_back"
+ },
+ {
+  "id": "pages-wifi-saving-stuck",
+  "source": "comic_archive/window_pages.py",
+  "old": "s.network_saving = False",
+  "new": "s.network_saving = True",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_connection_choice_is_saved_and_then_shown_as_saved"
+ },
+ {
+  "id": "pages-refused-choice-no-refresh",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.poll_soon()  # Shows the choice as it was kept.",
+  "new": "pass",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_refused_storage_choice_says_why_and_shows_the_kept_one_again"
+ },
+ {
+  "id": "pages-key-problem-ignored",
+  "source": "comic_archive/window_pages.py",
+  "old": "if problem:",
+  "new": "if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_mistyped_key_is_named_before_anything_is_sent"
+ },
+ {
+  "id": "pages-enter-ignores-lock",
+  "source": "comic_archive/window_pages.py",
+  "old": "if not self.connect.isEnabled():\n            return\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_connecting_waits_while_saving_even_from_the_enter_key"
+ },
+ {
+  "id": "pages-key-spaces-kept",
+  "source": "comic_archive/window_pages.py",
+  "old": "            field.setText(value)",
+  "new": "            pass",
+  "test_file": "test_window_pages.py",
+  "test": "test_typed_keys_lose_stray_spaces_and_are_forgotten_on_leaving_the_tab"
+ },
+ {
+  "id": "pages-b2-tab-always",
+  "source": "comic_archive/window_pages.py",
+  "old": "button.setVisible(key != 'b2' or s.cloud_offered)",
+  "new": "button.setVisible(True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer"
+ },
+ {
+  "id": "library-late-answer-shown",
+  "source": "comic_archive/window_pages.py",
+  "old": "        if request != self.request:\n            return\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_while_files_load_the_controls_wait_and_a_late_answer_is_dropped"
+ },
+ {
+  "id": "library-next-past-end",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.offset + self.size.currentData() < self.total",
+  "new": "self.offset < self.total",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_library_lists_a_page_of_saved_files_with_its_places_and_range"
+ },
+ {
+  "id": "library-jump-off-by-one",
+  "source": "comic_archive/window_pages.py",
+  "old": "library_model.offset_for(self.page.value(), self.size.currentData())",
+  "new": "self.page.value() * self.size.currentData()",
+  "test_file": "test_window_pages.py",
+  "test": "test_paging_searching_filtering_and_sorting_ask_for_the_right_files"
+ },
+ {
+  "id": "library-clear-keeps-kind",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.search.clear()\n        choose(self.kind, 'episodes')\n",
+  "new": "        self.search.clear()\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_paging_searching_filtering_and_sorting_ask_for_the_right_files"
+ },
+ {
+  "id": "library-desktop-shows-cloud",
+  "source": "comic_archive/window_pages.py",
+  "old": "if desktop_only:\n            self.location = 'device'",
+  "new": "if False:\n            self.location = 'device'",
+  "test_file": "test_window_pages.py",
+  "test": "test_without_cloud_storage_the_library_shows_this_computer_only"
+ },
+ {
+  "id": "library-return-resets-place",
+  "source": "comic_archive/window_pages.py",
+  "old": "None if self.library.value is not None else 'all'",
+  "new": "'all'",
+  "test_file": "test_window_pages.py",
+  "test": "test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage"
+ },
+ {
+  "id": "library-reopen-keeps-place",
+  "source": "comic_archive/window_pages.py",
+  "old": "if route == 'library':\n            self.go_to('library', location='all')",
+  "new": "if False:\n            self.go_to('library', location='all')",
+  "test_file": "test_window_pages.py",
+  "test": "test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage"
+ },
+ {
+  "id": "library-open-refusal-hidden",
+  "source": "comic_archive/window_pages.py",
+  "old": "say(feedback, error or library_model.OPENED, error is not None)",
+  "new": "say(feedback, library_model.OPENED, error is not None)",
+  "test_file": "test_window_pages.py",
+  "test": "test_opening_a_file_says_it_was_sent_or_why_it_could_not_be"
+ },
+ {
+  "id": "dashboard-files-while-busy",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.files.setEnabled(not s.busy)",
+  "new": "self.files.setEnabled(True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts"
+ },
+ {
+  "id": "dashboard-uncounted-library",
+  "source": "comic_archive/window_pages.py",
+  "old": "if s.summary is False:",
+  "new": "if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+ },
+ {
+  "id": "header-theme-backwards",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.theme.setText('☀' if dark else '☾')",
+  "new": "self.theme.setText('☾' if dark else '☀')",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_theme_switch_shows_where_it_leads"
+ },
+ {
+  "id": "b2-test-despite-cleanup",
+  "source": "comic_archive/storage_model.py",
+  "old": "\n                         and not any(r.get('provider') == 'b2' for r in value.get('pending_test_cleanup') or [])",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_an_unfinished_test_cleanup_is_retried_from_its_own_button"
+ },
+ {
+  "id": "b2-short-application-key",
+  "source": "comic_archive/storage_model.py",
+  "old": "not 8 <= len(application_key) <= 256",
+  "new": "not 1 <= len(application_key) <= 256",
+  "test_file": "test_storage_model.py",
+  "test": "test_a_typed_key_is_checked_for_its_shape_before_it_is_sent"
+ },
+ {
+  "id": "storage-choice-while-running",
+  "source": "comic_archive/storage_model.py",
+  "old": "locked = s.busy or signing_in or bool(s.task) or running or not s.cloud",
+  "new": "locked = s.busy or signing_in or bool(s.task) or not s.cloud",
+  "test_file": "test_storage_model.py",
+  "test": "test_the_storage_choice_is_locked_and_says_why_while_something_runs"
+ },
+ {
+  "id": "go-without-ready-downloader",
+  "source": "comic_archive/dashboard_model.py",
+  "old": " or worker != 'ready' or go_wait > 0)",
+  "new": " or go_wait > 0)",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs"
+ },
+ {
+  "id": "library-open-uppercase-id",
+  "source": "comic_archive/library_model.py",
+  "old": "re.fullmatch(r'[a-f0-9]{64}', item['id'])",
+  "new": "re.fullmatch(r'[A-Fa-f0-9]{64}', item['id'])",
+  "test_file": "test_library_model.py",
+  "test": "test_cloud_copies_data_files_and_unexpected_ids_are_not_offered_to_open"
+ },
+ {
+  "id": "style-light-pictures-in-dark",
+  "source": "comic_archive/window_style.py",
+  "old": "{name: picture(name, dark) for name in ('check', 'arrow')}",
+  "new": "{name: picture(name, False) for name in ('check', 'arrow')}",
+  "test_file": "test_window_style.py",
+  "test": "test_the_tick_and_arrow_pictures_ship_for_both_looks_and_sharp_screens"
+ },
+ {
+  "id": "signin-busy-check",
+  "source": "comic_archive/local_library.py",
+  "old": "or (info['worker'] or {}).get('reported_state') == 'busy':",
+  "new": "or False:",
+  "test_file": "test_local_library.py",
+  "test": "test_browser_signin_is_refused_while_the_downloader_is_busy_and_does_not_start"
+ },
+ {
+  "id": "context-without-sites",
+  "source": "comic_archive/app_actions.py",
+  "old": "return {'sites': sites.choices(runtime.site),",
+  "new": "return {'sites': None,",
+  "test_file": "test_app_actions.py",
+  "test": "test_the_context_names_the_sites_their_settings_and_the_folder"
+ },
+ {
+  "id": "unavailable-site-can-be-chosen",
+  "source": "comic_archive/sites.py",
+  "old": "if site.key == key and site.available)",
+  "new": "if site.key == key)",
+  "test_file": "test_app_actions.py",
+  "test": "test_the_context_names_the_sites_their_settings_and_the_folder"
+ },
+ {
+  "id": "context-site-settings-missing",
+  "source": "comic_archive/app_actions.py",
+  "old": "            settings = runtime.site_settings.list()",
+  "new": "            settings = []",
+  "test_file": "test_app_actions.py",
+  "test": "test_the_context_names_the_sites_their_settings_and_the_folder"
+ },
+ {
+  "id": "library-key-any-length",
+  "source": "comic_archive/local_library.py",
+  "old": "    if len(key) != 32:",
+  "new": "    if False:",
+  "test_file": "test_local_library.py",
+  "test": "test_the_library_key_is_made_once_and_a_linked_or_damaged_one_is_refused_and_kept"
+ },
+ {
+  "id": "library-key-link-followed",
+  "source": "comic_archive/local_library.py",
+  "old": "    if path.is_symlink():\n        raise ArchiveError('Refusing a symlinked library key.')",
+  "new": "    if False:\n        raise ArchiveError('Refusing a symlinked library key.')",
+  "test_file": "test_local_library.py",
+  "test": "test_the_library_key_is_made_once_and_a_linked_or_damaged_one_is_refused_and_kept"
+ },
+ {
+  "id": "busy-told-as-unavailable",
+  "source": "comic_archive/app_actions.py",
+  "old": "raise Refused('library_busy', error_text('library_busy', site)) from None",
+  "new": "raise Refused('request_unavailable', error_text('library_busy', site)) from None",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_refusal_is_told_in_fixed_words_and_an_unexpected_failure_is_logged_by_kind_only"
+ },
+ {
+  "id": "log-carries-exception-text",
+  "source": "comic_archive/app_actions.py",
+  "old": "LOG.error('the library did not answer %s: %s', name, described(error))",
+  "new": "LOG.error('the library did not answer %s: %s', name, error)",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_refusal_is_told_in_fixed_words_and_an_unexpected_failure_is_logged_by_kind_only"
+ },
+ {
+  "id": "failed-count-fails-refresh",
+  "source": "comic_archive/app_actions.py",
+  "old": "            except Refused:\n                reading['summary'] = False",
+  "new": "            except ArchiveError:\n                reading['summary'] = False",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_refresh_reads_what_it_is_asked_for_and_a_failed_count_leaves_the_rest_standing"
+ },
+ {
+  "id": "storage-old-one-left-on",
+  "source": "comic_archive/app_actions.py",
+  "old": "if target.get('enabled') and target.get('provider') != chosen:",
+  "new": "if False:",
+  "test_file": "test_app_actions.py",
+  "test": "test_storage_is_one_place_at_a_time_and_the_old_one_is_turned_off_first"
+ },
+ {
+  "id": "storage-mode-unchecked",
+  "source": "comic_archive/app_actions.py",
+  "old": "        if mode not in STORAGE_MODES:",
+  "new": "        if False:",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_value_the_window_could_not_have_offered_is_refused_before_the_library_is_asked"
+ },
+ {
+  "id": "wifi-only-any-value",
+  "source": "comic_archive/app_actions.py",
+  "old": "        if type(value) is not bool:",
+  "new": "        if False:",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_value_the_window_could_not_have_offered_is_refused_before_the_library_is_asked"
+ },
+ {
+  "id": "task-id-unchecked",
+  "source": "comic_archive/app_actions.py",
+  "old": "if not isinstance(task_id, str) or not TASK_ID.fullmatch(task_id):",
+  "new": "if not isinstance(task_id, str):",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_value_the_window_could_not_have_offered_is_refused_before_the_library_is_asked"
+ },
+ {
+  "id": "export-id-unchecked",
+  "source": "comic_archive/app_actions.py",
+  "old": "if not isinstance(export_id, str) or not EXPORT_ID.fullmatch(export_id):",
+  "new": "if not isinstance(export_id, str):",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_value_the_window_could_not_have_offered_is_refused_before_the_library_is_asked"
+ },
+ {
+  "id": "saved-files-wait-their-turn",
+  "source": "comic_archive/app_actions.py",
+  "old": "            if not locked:\n",
+  "new": "            if False:\n",
+  "test_file": "test_app_actions.py",
+  "test": "test_calls_that_change_the_library_take_turns_and_reading_saved_files_does_not_wait_for_them"
+ },
+ {
+  "id": "changes-do-not-take-turns",
+  "source": "comic_archive/app_actions.py",
+  "old": "            with self._turn:\n                return getattr(registry, name)",
+  "new": "            if True:\n                return getattr(registry, name)",
+  "test_file": "test_app_actions.py",
+  "test": "test_calls_that_change_the_library_take_turns_and_reading_saved_files_does_not_wait_for_them"
+ },
+ {
+  "id": "finished-task-of-another-request",
+  "source": "comic_archive/app_actions.py",
+  "old": "if result and task == state.task and",
+  "new": "if result and",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_task_started_since_the_refresh_was_asked_for_is_left_alone"
+ },
+ {
+  "id": "connected-keeps-bucket-draft",
+  "source": "comic_archive/app_actions.py",
+  "old": "state.bucket_draft, state.library_refresh = None, True",
+  "new": "state.library_refresh = True",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_cloud_key_that_has_just_connected_empties_the_key_fields_once"
+ },
+ {
+  "id": "finished-download-not-recounted",
+  "source": "comic_archive/app_actions.py",
+  "old": "if previous_account != 'finished' and state.account.get('status') == 'finished':",
+  "new": "if False:",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_download_that_has_just_finished_has_its_files_counted_again"
+ },
+ {
+  "id": "network-read-on-the-dot",
+  "source": "comic_archive/app_actions.py",
+  "old": "now - state.network_at > NETWORK_SECONDS",
+  "new": "now - state.network_at >= NETWORK_SECONDS",
+  "test_file": "test_app_actions.py",
+  "test": "test_what_a_refresh_reads_besides_the_dashboard_is_due_by_its_own_clock"
  }
 ]

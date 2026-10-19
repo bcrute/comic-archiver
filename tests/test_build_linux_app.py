@@ -278,7 +278,7 @@ class OrchestrationTests(WorkspaceCase):
     def test_source_copy_excludes_bytecode_and_build_output(self):
         destination = self.root / 'src'
         build.copy_sources(destination)
-        self.assertTrue((destination / 'comic_archive/local_web.py').is_file())
+        self.assertTrue((destination / 'comic_archive/local_library.py').is_file())
         self.assertTrue((destination / 'LICENSE').is_file())
         self.assertFalse(list(destination.rglob('*.pyc')))
         self.assertFalse((destination / 'build').exists())
