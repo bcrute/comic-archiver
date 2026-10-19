@@ -162,9 +162,8 @@ class AccountUITests(unittest.TestCase):
         private_json(self.queue/'status.json',{'state':'busy'})
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         private_json(self.queue/'status.json',{'state':'ready'})
-        self.registry.site_signin._state={'status':'running'}
-        with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.registry.site_signin._state={'status':'idle'}
+        with patch.object(self.registry.site_signin,'status',return_value={'status':'running'}):
+            with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.registry.cloud_signin._state={'status':'running'}
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.assertFalse((self.queue/'account-export.json').exists())

@@ -127,49 +127,13 @@ def stop(session,*,wait_seconds=0):
     return current
 
 
-def resume_backlog(folder, result):
-    if result.get('running') is not True:
-        return result
-    if running(folder, '.backlog-runtime'):
-        return result | {'backlog_controller_already_running':True}
-    log = folder / 'background.log'
-    if log.is_symlink():
-        raise ArchiveError('Worker log must not be symlinked.')
-    descriptor = osdep.open_log(log)
-    command = [sys.executable,'-m','comic_archive','--session-dir',str(folder.parent),
-               'run-backlog','--resume']
-    try:
-        with os.fdopen(descriptor,'ab',buffering=0) as output:
-            osdep.private_file(output.fileno())
-            process = subprocess.Popen(command,cwd=folder.parent.parent,stdin=subprocess.DEVNULL,
-                stdout=output,stderr=subprocess.STDOUT,**osdep.detached())
-    except OSError:
-        raise ArchiveError('Worker started, but its saved backlog controller could not start.') from None
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        exit_code = process.poll()
-        if exit_code is not None:
-            return result | ({'backlog_resume_finished':True} if exit_code == 0
-                             else {'backlog_resume_failed':True})
-        if running(folder, '.backlog-runtime'):
-            return result | {'backlog_resume_started':True}
-        time.sleep(.05)
-    return result | {'backlog_startup_pending':True}
-
-
-def start(session, browser="firefox", interval=1.0, *, resume=False, restart=False):
+def start(session, browser="firefox", interval=1.0, *, restart=False):
     from .downloads import validate_request_interval
     validate_request_interval(interval)
     if browser not in {"auto", "firefox", "chromium", "qt"} or (type(interval) not in (int, float)
-            or type(resume) is not bool or type(restart) is not bool):
+            or type(restart) is not bool):
         raise ArchiveError("Use a supported browser and explicit worker options.")
     folder = root(session, create=True)
-    if resume:
-        from .batches import status as backlog_status
-        if not backlog_status(folder.parent,folder.parent.parent / 'Library').get('configured'):
-            raise ArchiveError('No saved backlog exists to resume; start-worker alone can start the browser worker.')
-    def finish(result):
-        return resume_backlog(folder,result) if resume else result
     with LibraryLock(folder / ".launcher"):
         current = status(session)
         if current['running'] is True and restart:
@@ -185,7 +149,7 @@ def start(session, browser="firefox", interval=1.0, *, resume=False, restart=Fal
         if current['running'] is True:
             if current['stop_requested']:
                 return current | {'start_deferred':True,'reason':'worker_draining'}
-            return finish(current | {"already_running": True})
+            return current | {"already_running": True}
         if current['running'] is None:
             return current | {"start_deferred": True, "reason": "legacy_worker_reported_active"}
         from .session import load_session
@@ -196,7 +160,7 @@ def start(session, browser="firefox", interval=1.0, *, resume=False, restart=Fal
         descriptor = osdep.open_log(log)
         command = [sys.executable, "-m", "comic_archive", "--session-dir", str(folder.parent),
                    "--browser", browser, "--headless", "--request-interval", str(interval),
-                   "browser-worker", "--stable-code"]
+                   "browser-worker"]
         try:
             with os.fdopen(descriptor, "ab", buffering=0) as output:
                 osdep.private_file(output.fileno())
@@ -211,6 +175,6 @@ def start(session, browser="firefox", interval=1.0, *, resume=False, restart=Fal
                 return status(session) | {"start_failed": True}
             observed = read(folder / "status.json")
             if observed.get("pid") == process.pid and observed.get("state") in {"ready", "busy"}:
-                return finish(status(session) | {"already_running": False})
+                return status(session) | {"already_running": False}
             time.sleep(.1)
         return status(session) | {"startup_pending": True}

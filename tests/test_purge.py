@@ -1,35 +1,28 @@
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 import zipfile
 
-from comic_archive.archive import Store, digest, episode_archives, sidecar_path, verify_episode
-from comic_archive.migration import migrate_exports
+from comic_archive.archive import digest, episode_archives, sidecar_path
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore, import_metadata, write_compressed_comic
-from comic_archive.purge import archive_page, evict_episode, purge_library
-from comic_archive.storage import configure
+from comic_archive.purge import archive_page, evict_episode
 from test_archive import MemoryAdapter, png
+from test_storage import set_policy
 
 
 class PurgeTests(unittest.TestCase):
     def setUp(self):
         work = tempfile.TemporaryDirectory(); self.addCleanup(work.cleanup)
-        self.work = Path(work.name); self.count = 0
+        self.work = Path(work.name); self.root = self.work/'Library'
         self.series = Series('42', 'Synthetic', source='local')
         self.episode = Episode('81', '42', 'Chapter', 1, (Page(1, 'https://cdn.test/a', False),), 'local_owned')
-        self.new_library()
+        set_policy(self.root, purge_completed_cache=False)
 
-    def new_library(self):
-        self.count += 1
-        self.root = self.work/f'Library{self.count}'
-        configure(self.root, purge_completed_cache=False)
-
-    def publish(self, cls=PublicationStore, episode=None):
-        store = cls(self.root)
+    def publish(self, episode=None):
+        store = PublicationStore(self.root)
         try:
             folder = store.archive(Manifest(self.series, (episode or self.episode,)), MemoryAdapter(), progress=lambda _: None)
             return episode_archives(folder)[0]
@@ -39,94 +32,6 @@ class PurgeTests(unittest.TestCase):
     @property
     def blob(self):
         return self.root/'.archive-cache'/digest(png(1))
-
-    def assert_untouched(self):
-        self.assertTrue(self.blob.is_file())
-        self.assertFalse((self.root/'.archive-state/purge.json').exists())
-
-    def test_unclear_arguments_are_refused_before_anything_is_read_or_created(self):
-        self.publish()
-        for options in ({'apply': 'yes'}, {'apply': 1}, {'include_legacy': 1}):
-            with self.subTest(options=options), self.assertRaises(ArchiveError):
-                purge_library(self.root, **options)
-        self.assert_untouched()
-        absent = self.work/'absent'
-        with self.assertRaises(ArchiveError): purge_library(absent, apply=True)
-        self.assertFalse(absent.exists())
-
-    def test_an_unverifiable_or_ambiguous_library_stops_before_any_deletion(self):
-        archive = self.publish()
-        series = archive.parent/'series.json'; good = series.read_bytes()
-        series.write_text('{broken')
-        with self.assertRaisesRegex(ArchiveError, 'Series verification'): purge_library(self.root, apply=True)
-        self.assert_untouched(); series.write_bytes(good)
-        moved = self.work/'moved'; archive.parent.rename(moved); archive.parent.symlink_to(moved, target_is_directory=True)
-        with self.assertRaisesRegex(ArchiveError, 'Series verification'): purge_library(self.root, apply=True)
-        self.assert_untouched()
-        self.new_library()
-        original = self.publish(Store)
-        duplicate = original.with_name('duplicate.cbz')
-        shutil.copy2(original, duplicate); shutil.copy2(sidecar_path(original), sidecar_path(duplicate))
-        with self.assertRaisesRegex(ArchiveError, 'Duplicate export identity'): purge_library(self.root, apply=True)
-        self.assertTrue(original.is_file()); self.assertTrue(duplicate.is_file())
-        self.assertFalse((self.root/'.archive-state/purge.json').exists())
-
-    def test_a_series_folder_waiting_for_its_first_episode_is_skipped_but_one_with_exports_is_not(self):
-        archive = self.publish()
-        waiting = self.root/'Waiting [0123456789ab]'; waiting.mkdir()  # Made before the first page downloads.
-        self.assertEqual(purge_library(self.root)['verified_archives'], 1)
-        shutil.copy2(archive, waiting/archive.name)
-        with self.assertRaisesRegex(ArchiveError, 'Series verification'): purge_library(self.root, apply=True)
-        self.assert_untouched()
-
-    def test_symlinked_cache_or_retained_export_directories_are_refused(self):
-        self.publish()
-        outside = self.work/'outside'; outside.mkdir(); (outside/'keep').write_bytes(b'keep')
-        cache = self.root/'.archive-cache'; moved = self.work/'cache'
-        cache.rename(moved); cache.symlink_to(moved, target_is_directory=True)
-        with self.assertRaisesRegex(ArchiveError, 'Cache directory'): purge_library(self.root, apply=True)
-        self.assertTrue((moved/digest(png(1))).is_file())
-        cache.unlink(); moved.rename(cache)
-        legacy = self.root/'.archive-state/legacy-exports'; legacy.symlink_to(outside, target_is_directory=True)
-        for include in (False, True):
-            with self.subTest(include_legacy=include), self.assertRaisesRegex(ArchiveError, 'Retained export directories'):
-                purge_library(self.root, apply=True, include_legacy=include)
-        self.assertEqual([p.name for p in outside.iterdir()], ['keep'])
-        self.assert_untouched()
-
-    def test_unexpected_entry_among_retained_exports_stops_legacy_cleanup_only_when_requested(self):
-        self.publish()
-        legacy = self.root/'.archive-state/legacy-exports'; legacy.mkdir()
-        (legacy/'stray.txt').write_text('keep')
-        purge_library(self.root)
-        with self.assertRaisesRegex(ArchiveError, 'Unsafe retained export entry'):
-            purge_library(self.root, apply=True, include_legacy=True)
-        self.assertEqual((legacy/'stray.txt').read_text(), 'keep'); self.assert_untouched()
-
-    def test_corrupt_retained_legacy_copy_is_kept_and_counted(self):
-        self.publish(Store); migrate_exports(self.root)
-        retired = next((self.root/'.archive-state/legacy-exports').glob('*/*.cbz'))
-        retired.write_bytes(b'broken')
-        report = purge_library(self.root, include_legacy=True, apply=True)
-        self.assertEqual((report['retained_legacy_episodes'], report['legacy_files']), (1, 0))
-        self.assertEqual(retired.read_bytes(), b'broken'); self.assertTrue(sidecar_path(retired).is_file())
-
-    def test_retained_legacy_novel_is_deleted_only_for_the_matching_converted_export(self):
-        novel = replace(self.episode, pages=(), content_type='novel', text_html='<p>Sample chapter.</p>')
-        self.publish(Store, novel); migrate_exports(self.root)
-        retired = next((self.root/'.archive-state/legacy-exports').glob('*/*.epub'))
-        sidecar = sidecar_path(retired); original, original_sidecar = retired.read_bytes(), sidecar.read_bytes()
-        # The same episode saved elsewhere with different (same-length) text: a complete, valid legacy export of its own.
-        mine = self.root; self.new_library()
-        other = self.publish(Store, replace(novel, text_html='<p>Sample chapter!</p>'))
-        self.root = mine
-        shutil.copy2(other, retired); shutil.copy2(sidecar_path(other), sidecar)
-        self.assertEqual(verify_episode(retired), [])
-        self.assertEqual(purge_library(self.root, include_legacy=True, apply=True)['retained_legacy_episodes'], 1)
-        self.assertTrue(retired.is_file()); self.assertTrue(sidecar.is_file())
-        retired.write_bytes(original); sidecar.write_bytes(original_sidecar)
-        report = purge_library(self.root, include_legacy=True, apply=True)
-        self.assertEqual(report['legacy_files'], 2); self.assertFalse(retired.exists())
 
     def test_every_page_of_a_compressed_archive_can_be_recovered_by_its_own_name_and_hash(self):
         two_pages = replace(self.episode, pages=(Page(1, 'https://cdn.test/a', False), Page(2, 'https://cdn.test/b', False)))

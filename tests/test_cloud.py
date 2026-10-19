@@ -11,7 +11,7 @@ from contextlib import closing
 from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE, helper_program
-from comic_archive import cloud
+from comic_archive import cloud, shared
 from comic_archive.archive import sidecar_path
 from comic_archive.audit import audit_library
 from comic_archive.inventory import Inventory
@@ -68,7 +68,7 @@ class CloudTests(unittest.TestCase):
     def test_an_outbox_record_without_the_apps_folder_is_not_retried(self):
         self.publish(); self.ready(); FakeTransfer.fail_upload = True
         with self.assertRaises(ArchiveError): self.publish('82')
-        receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
         record = json.loads(receipt.read_text())
         self.assertEqual(record.pop('remote_root'), 'Comic-Archive')
         cloud._write(receipt, record)
@@ -83,7 +83,7 @@ class CloudTests(unittest.TestCase):
         for key in ('82', '83'):
             with self.assertRaises(ArchiveError): self.publish(key)
         FakeTransfer.fail_upload = False
-        outbox = sorted((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        outbox = sorted((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
         stuck, other = (json.loads(path.read_text()) for path in outbox)
         cloud._write(outbox[0], stuck | {'version': '0'*64})  # The first in line no longer matches its episode.
         with self.assertRaises(CloudTransferError) as caught: cloud.upload_pending(self.root)
@@ -108,40 +108,25 @@ class CloudTests(unittest.TestCase):
         self.publish(); self.ready(); FakeTransfer.fail_upload = True
         with self.assertRaises(ArchiveError): self.publish('82')
         FakeTransfer.fail_upload = False
-        receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
         archive = self.root / json.loads(receipt.read_text())['archive']; data = archive.read_bytes(); archive.unlink()
         for _ in range(2):
             self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 0)
             self.assertEqual(json.loads(receipt.read_text())['state'], 'orphaned')
-            google = cloud.status(self.root)['targets'][0]
-            self.assertEqual((google['pending'], google['failed'], google['verified']), (0, 0, 0))
+            b2 = cloud.status(self.root)['targets'][0]
+            self.assertEqual((b2['pending'], b2['failed'], b2['verified']), (0, 0, 0))
         self.assertFalse(FakeTransfer.files)
         archive.write_bytes(data)
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 1)
         self.assertFalse(archive.exists()); self.assertTrue(cloud.offloaded(self.root, archive))
 
-    def test_a_shared_connection_changed_by_another_library_meanwhile_keeps_that_change(self):
-        from comic_archive import shared
-        other, store = self.base / 'Other/Library', self.base / '.comic-shared'
-        for library in (self.root, other): shared.link(library, store)
-        self.publish(); self.ready(); self.configured('proton')
-        real = FakeTransfer.upload
-        def upload(transfer, *args):
-            cloud.enable(other, 'google', False)  # Another site turns Google uploads off during this library's test.
-            real(transfer, *args)
-        with patch.object(FakeTransfer, 'upload', upload):
-            cloud.smoke_test(self.root, 'proton', episodes=1)
-        for library in (self.root, other):
-            targets = cloud.settings(library)['targets']
-            self.assertFalse(targets['google']['enabled']); self.assertTrue(targets['proton']['tested'])
-
     def test_cleanup_keeps_original_connection_after_account_or_client_changes(self):
         self.publish(); self.configured(); FakeTransfer.fail_delete = True
-        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1)
+        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'b2', episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'))
-        old = cloud.settings(self.root)['targets']['google']
-        second = self.base/'another.conf'; second.write_text('[google]\ntype=drive\n'); second.chmod(0o600)
-        cloud.configure_target(self.root, 'google', config=second)
+        old = cloud.settings(self.root)['targets']['b2']
+        second = self.base/'another.conf'; second.write_text('[b2]\ntype=b2\n'); second.chmod(0o600)
+        cloud.configure_target(self.root, 'b2', config=second)
         FakeTransfer.fail_delete = False
         from comic_archive.cloud import transfer_for
         with patch('comic_archive.cloud.transfer_for', wraps=transfer_for) as connect:
@@ -153,11 +138,11 @@ class CloudTests(unittest.TestCase):
 
     def test_legacy_cleanup_receipt_is_pinned_before_connection_is_replaced(self):
         self.publish(); self.configured(); FakeTransfer.fail_delete = True
-        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1)
+        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'b2', episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'))
         record = json.loads(receipt.read_text()); record.pop('connection')
         cloud._write(receipt, record)
-        old = cloud.settings(self.root)['targets']['google']
+        old = cloud.settings(self.root)['targets']['b2']
         self.configured()
         self.assertEqual(json.loads(receipt.read_text())['connection']['target_id'], old['target_id'])
 
@@ -166,7 +151,7 @@ class CloudTests(unittest.TestCase):
         self.publish();self.ready()
         with patch.object(FakeTransfer,'upload',side_effect=CloudTransferError('cloud_space')):
             with self.assertRaises(CloudTransferError):self.publish('82')
-        receipt=next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt=next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
         record=json.loads(receipt.read_text());archive=self.root/record['archive'];before=archive.read_bytes()
         self.assertEqual(record['state'],'failed');self.assertEqual(record['error_code'],'cloud_space')
         self.assertEqual(cloud.status(self.root)['targets'][0]['failure_reasons'],{'cloud_space':1})
@@ -185,7 +170,7 @@ class CloudTests(unittest.TestCase):
         from comic_archive.cloud_errors import CloudCleanupError, CloudTransferError
         archive,_=self.publish();before=archive.read_bytes();self.configured()
         with patch.object(FakeTransfer,'delete_test_file',side_effect=CloudTransferError('cloud_login_required')):
-            with self.assertRaises(CloudCleanupError):cloud.smoke_test(self.root,'google',episodes=1)
+            with self.assertRaises(CloudCleanupError):cloud.smoke_test(self.root,'b2',episodes=1)
         cleanup=cloud.status(self.root)['pending_test_cleanup'][0]
         self.assertEqual(cleanup['error_code'],'cloud_login_required')
         self.assertEqual(archive.read_bytes(),before)
@@ -205,10 +190,14 @@ class CloudTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name)
         self.root = self.base / 'Library'
-        self.config = self.base / 'rclone.conf';self.config.write_text('[google]\ntype=drive\n[proton]\ntype=protondrive\n')
+        self.config = self.base / 'rclone.conf';self.config.write_text('[b2]\ntype=b2\n')
         self.config.chmod(0o600)
         FakeTransfer.files = {};FakeTransfer.fail_provider = None;FakeTransfer.fail_delete = False;FakeTransfer.fail_upload = False
         transfer = patch.object(cloud,'Transfer',FakeTransfer);transfer.start();self.addCleanup(transfer.stop)
+        # These follow an episode saved here and uploaded after, as B2 takes novels and rented or oversized
+        # episodes; a new comic sent to B2 straight from memory is covered in test_cloud_stream.
+        self.direct_target = cloud.direct_target
+        direct = patch.object(cloud,'direct_target',return_value=None);direct.start();self.addCleanup(direct.stop)
         self.series = Series('42','Synthetic',source='tapas')
 
     def publish(self, key='81', novel=False, cover=False):
@@ -220,10 +209,10 @@ class CloudTests(unittest.TestCase):
             if cover:store.write_series_metadata(self.series,cover=png(1))
         return path, episode
 
-    def configured(self, provider='google'):
+    def configured(self, provider='b2'):
         return cloud.configure_target(self.root,provider,config=self.config,remote=provider)
 
-    def ready(self, provider='google'):
+    def ready(self, provider='b2'):
         self.configured(provider)
         cloud.smoke_test(self.root,provider,episodes=1)
         cloud.enable(self.root,provider,True)
@@ -237,41 +226,41 @@ class CloudTests(unittest.TestCase):
         result = self.configured()
         self.assertFalse(result['targets'][0]['enabled'])
         self.assertNotIn(str(self.config),json.dumps(result))
-        with self.assertRaises(ArchiveError):cloud.enable(self.root,'google',True)
-        cloud.enable(self.root,'google',False)
+        with self.assertRaises(ArchiveError):cloud.enable(self.root,'b2',True)
+        cloud.enable(self.root,'b2',False)
         self.assertEqual((self.root/'.archive-state/cloud/targets.json').stat().st_mode & 0o777,PRIVATE_FILE)
         for name in ('../google',':local:','--secret','',None):
             if name is None:continue
-            with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'google',config=self.config,remote=name)
+            with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'b2',config=self.config,remote=name)
         for provider in ('sftp','local',None):
             with self.assertRaises(ArchiveError):cloud.configure_target(self.root,provider,config=self.config)
         with self.assertRaises(ArchiveError):cloud.enable(self.root,'unknown',True)
-        with self.assertRaises(ArchiveError):cloud.enable(self.root,'google',1)
-        with self.assertRaises(ArchiveError):cloud.enable(self.base/'fresh','google',True)
+        with self.assertRaises(ArchiveError):cloud.enable(self.root,'b2',1)
+        with self.assertRaises(ArchiveError):cloud.enable(self.base/'fresh','b2',True)
 
     def test_smoke_uploads_comic_novel_and_cover_then_deletes_only_its_cloud_files(self):
         first,_ = self.publish(cover=True);second,_ = self.publish('82',novel=True)
         originals = {p:p.read_bytes() for p in (first,second,sidecar_path(first),sidecar_path(second))}
-        self.configured('proton')
-        FakeTransfer.files[('proton','unrelated/private.txt')] = b'keep'
-        result = cloud.smoke_test(self.root,'proton',episodes=2)
+        self.configured()
+        FakeTransfer.files[('b2','unrelated/private.txt')] = b'keep'
+        result = cloud.smoke_test(self.root,'b2',episodes=2)
         self.assertEqual(result['verified_episodes'],2);self.assertTrue(result['test_files_deleted'])
-        self.assertEqual(FakeTransfer.files,{('proton','unrelated/private.txt'):b'keep'})
+        self.assertEqual(FakeTransfer.files,{('b2','unrelated/private.txt'):b'keep'})
         self.assertEqual({p:p.read_bytes() for p in originals},originals)
-        self.assertTrue(cloud.status(self.root)['targets'][1]['tested'])
-        self.assertFalse(cloud.status(self.root)['targets'][1]['enabled'])
+        self.assertTrue(cloud.status(self.root)['targets'][0]['tested'])
+        self.assertFalse(cloud.status(self.root)['targets'][0]['enabled'])
         self.assertEqual(cloud.cleanup_test(self.root,result['test_id']),{'test_files_deleted':True})
 
     def test_failed_test_upload_cleans_partial_files_and_does_not_mark_connection_tested(self):
         first,_ = self.publish();self.configured()
         FakeTransfer.fail_upload = True
-        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'google',episodes=1)
+        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=1)
         self.assertTrue(first.exists());self.assertFalse(cloud.status(self.root)['targets'][0]['tested'])
         self.assertFalse(FakeTransfer.files)
 
     def test_cleanup_failure_keeps_exact_journal_and_can_resume_without_broad_deletion(self):
         self.publish();self.configured();FakeTransfer.fail_delete = True
-        with self.assertRaisesRegex(ArchiveError,'cleanup is pending'):cloud.smoke_test(self.root,'google',episodes=1)
+        with self.assertRaisesRegex(ArchiveError,'cleanup is pending'):cloud.smoke_test(self.root,'b2',episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'))
         self.assertEqual(json.loads(receipt.read_text())['state'],'cleanup_pending')
         FakeTransfer.fail_delete = False
@@ -281,7 +270,7 @@ class CloudTests(unittest.TestCase):
 
     def test_cleanup_rejects_modified_scope_and_invalid_ids_without_deleting_anything(self):
         self.publish();self.configured();FakeTransfer.fail_delete = True
-        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'google',episodes=1)
+        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'))
         value = json.loads(receipt.read_text());saved = dict(FakeTransfer.files)
         for files in (['unrelated/private.txt'],[value['prefix']+'/../private.txt'],['x']*13):
@@ -293,9 +282,9 @@ class CloudTests(unittest.TestCase):
     def test_live_test_count_is_explicit_bounded_and_needs_completed_episodes(self):
         self.publish();self.configured()
         for count in (0,4,True,'2'):
-            with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'google',episodes=count)
+            with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=count)
         with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'proton',episodes=1)
-        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'google',episodes=2)
+        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=2)
         self.assertFalse(cloud.status(self.root)['targets'][0]['tested']);self.assertFalse(FakeTransfer.files)
 
     def test_automatic_upload_deletes_only_after_verified_receipt_and_never_uploads_private_state(self):
@@ -313,24 +302,8 @@ class CloudTests(unittest.TestCase):
             adapter.retrieve.assert_not_called()
             self.assertEqual(store.series_episode_count(self.series,archive.parent),2)
 
-    def test_cloud_only_space_plan_needs_episode_staging_and_retains_a_shared_partial_page(self):
-        from contextlib import closing
-        from comic_archive.archive import Store, digest
-        from comic_archive.storage import storage_plan
-        self.publish();self.ready()
-        with closing(Store(self.root)) as store:
-            pending = Episode('83','42','Unfinished',83,(Page(1,'https://cdn.test/other',False),),'tapas_free')
-            store.remember_page('tapas',pending,pending.pages[0],png(1))
-        archive,_ = self.publish('82')
-        self.assertFalse(archive.exists())
-        self.assertTrue((self.root/'.archive-cache'/digest(png(1))).is_file())
-        plan = storage_plan(self.root,episode_count=1000)
-        self.assertEqual(plan['storage_destination'],'cloud')
-        self.assertEqual(plan['estimated_additional_local_bytes'],0)
-        self.assertEqual(plan['estimated_required_free_bytes'],plan['staging_bytes'] + plan['reserve_bytes'])
-
     def test_failed_upload_retains_archive_then_retry_deletes_without_source_requests(self):
-        self.publish();self.ready();FakeTransfer.fail_provider = 'google'
+        self.publish();self.ready();FakeTransfer.fail_provider = 'b2'
         with self.assertRaises(ArchiveError):self.publish('82')
         archive = next(p for p in self.root.glob('*/*.cbz') if 'Chapter 82' in p.name)
         before = archive.read_bytes()
@@ -341,17 +314,6 @@ class CloudTests(unittest.TestCase):
         self.assertFalse(archive.exists())
         self.assertIn(before,FakeTransfer.files.values())
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'],0)
-
-    def test_two_targets_require_both_copies_before_local_deletion(self):
-        self.publish();self.ready();self.ready('proton');FakeTransfer.fail_provider = 'proton'
-        with self.assertRaises(ArchiveError):self.publish('82')
-        archive = next(p for p in self.root.glob('*/*.cbz') if 'Chapter 82' in p.name)
-        self.assertTrue(archive.exists())
-        FakeTransfer.fail_provider = None
-        result = cloud.upload_pending(self.root)
-        self.assertEqual(result['uploaded_episodes'],1);self.assertFalse(archive.exists())
-        self.assertEqual(cloud.status(self.root)['targets'][0]['verified'],1)
-        self.assertEqual(cloud.status(self.root)['targets'][1]['verified'],1)
 
     def test_inventory_restart_recovers_deletion_before_job_mark_and_audit_distinguishes_local_cloud(self):
         self.publish();self.ready()
@@ -417,9 +379,11 @@ class CloudTests(unittest.TestCase):
         self.assertFalse(cloud.status(self.root)['targets'][0]['enabled'])
 
     def test_retry_after_reconnecting_keeps_an_offloaded_episode_saved_without_local_bytes(self):
-        from comic_archive.hosted import Workspace
+        from comic_archive.workspace import Workspace
         from comic_archive.saved_library import Catalog
-        self.publish(); self.ready('b2'); archive, episode = self.publish('82')
+        self.publish(); self.ready()
+        with patch.object(cloud, 'direct_target', self.direct_target):
+            archive, episode = self.publish('82')
         receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
         previous = json.loads(receipt.read_text())
         # An upgrade from 0.1.4 starts with only the outbox receipt, without the new history folder.
@@ -428,7 +392,7 @@ class CloudTests(unittest.TestCase):
             inventory.observe('42', 'Synthetic', [{'id':'82', 'title':episode.title, 'order':episode.order,
                                                   'access_state':'tapas_free'}], 'fixture')
             inventory.mark('82', 'archived', path=archive)
-        self.ready('b2')
+        self.ready()
         remote = dict(FakeTransfer.files)
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 0)
         self.assertEqual(json.loads(receipt.read_text()), previous)
@@ -447,7 +411,7 @@ class CloudTests(unittest.TestCase):
         adapter.retrieve.assert_not_called()
 
     def test_a_failed_upload_to_another_connection_preserves_the_previous_verified_copy(self):
-        from comic_archive.hosted import Workspace
+        from comic_archive.workspace import Workspace
         from comic_archive.saved_library import Catalog
         self.publish(); self.ready()
         with patch.object(cloud, 'evict_uploaded', return_value={'local_archives_deleted':0, 'freed_bytes':0}):
@@ -460,24 +424,24 @@ class CloudTests(unittest.TestCase):
         catalog = Catalog(b'review-fixture')
         workspace = Workspace('a'*32, self.base)
         value = catalog.page(workspace, True, kind='episodes', refresh=True)
-        previous = next(g for g in value['locations'] if g['id'].startswith('google-'))
+        previous = next(g for g in value['locations'] if g['id'].startswith('b2-'))
         self.assertEqual(previous['episodes'], 1)
         self.assertTrue(archive.is_file())
         FakeTransfer.fail_upload = False
         cloud.upload_pending(self.root)
-        records = cloud.receipts_for(self.root, archive, 'google')
+        records = cloud.receipts_for(self.root, archive, 'b2')
         self.assertEqual(len(records), 2)
         self.assertEqual(len({r['target_id'] for r in records}), 2)
         self.assertTrue(cloud.offloaded(self.root, archive))
         value = catalog.page(workspace, True, kind='episodes', refresh=True)
-        self.assertEqual(next(g for g in value['locations'] if g['id'] == 'google')['episodes'], 1)
-        self.assertEqual(next(g for g in value['locations'] if g['id'].startswith('google-'))['episodes'], 1)
+        self.assertEqual(next(g for g in value['locations'] if g['id'] == 'b2')['episodes'], 1)
+        self.assertEqual(next(g for g in value['locations'] if g['id'].startswith('b2-'))['episodes'], 1)
 
     def test_saved_history_remains_visible_when_the_retry_entry_is_removed(self):
-        from comic_archive.hosted import Workspace
+        from comic_archive.workspace import Workspace
         from comic_archive.saved_library import Catalog
         self.publish(); self.ready(); archive, _ = self.publish('82')
-        receipt = next((self.root / '.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json'))
         receipt.unlink()
         self.assertTrue(cloud.offloaded(self.root, archive))
         value = Catalog(b'review-fixture').page(Workspace('a'*32, self.base), True, kind='episodes')
@@ -490,7 +454,7 @@ class CloudTests(unittest.TestCase):
         import zipfile
         from comic_archive.publication import import_metadata, write_compressed_comic
         self.publish();self.ready()
-        cloud.enable(self.root,'google',False)
+        cloud.enable(self.root,'b2',False)
         cbz,episode=self.publish('82');old=cbz.with_suffix('.tar.zst')
         with closing(PublicationStore(self.root)) as store:
             metadata=import_metadata(sidecar_path(cbz))|{'format':'tar.zst'}
@@ -499,7 +463,7 @@ class CloudTests(unittest.TestCase):
             cbz.unlink();store.publish_metadata(sidecar_path(old),metadata)
             store.db.execute('UPDATE episode_paths SET path=? WHERE path=?',(old.relative_to(self.root).as_posix(),cbz.relative_to(self.root).as_posix()))
             store.db.commit()
-        cloud.enable(self.root,'google',True);cloud.queue_episode(self.root,old);cloud.upload_pending(self.root)
+        cloud.enable(self.root,'b2',True);cloud.queue_episode(self.root,old);cloud.upload_pending(self.root)
         self.assertFalse(old.exists());self.assertTrue(cloud.offloaded(self.root,old))
         adapter=MemoryAdapter();adapter.retrieve=Mock(side_effect=AssertionError('No source requests'))
         with closing(PublicationStore(self.root)) as store:
@@ -509,10 +473,10 @@ class CloudTests(unittest.TestCase):
         self.assertFalse(cbz.exists())
 
     def test_receipt_corruption_and_changed_local_bytes_hold_deletion(self):
-        self.publish();self.ready();FakeTransfer.fail_provider = 'google'
+        self.publish();self.ready();FakeTransfer.fail_provider = 'b2'
         with self.assertRaises(ArchiveError):self.publish('82')
         archive = next(p for p in self.root.glob('*/*.cbz') if 'Chapter 82' in p.name)
-        path = next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        path = next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
         value = json.loads(path.read_text())
         path.write_text(json.dumps(value | {'archive':'../outside.tar.zst'}))
         FakeTransfer.fail_provider = None
@@ -525,20 +489,14 @@ class CloudTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):cloud.evict_uploaded(self.root)
         self.assertTrue(archive.exists())
         path.write_text(json.dumps(saved | {'files':[]}))
-        self.assertIsNone(cloud._receipt_for(self.root, archive, 'google'))
+        self.assertIsNone(cloud._receipt_for(self.root, archive, 'b2'))
         # The separate, still-valid history remains evidence until it too is damaged.
         self.assertTrue(cloud.offloaded(self.root, archive))
-        for history in (self.root / '.archive-state/cloud/history/google').glob('*/*.json'):
+        for history in (self.root / '.archive-state/cloud/history/b2').glob('*/*.json'):
             history.write_text(json.dumps(saved | {'files':[]}))
         self.assertIsNone(cloud.offloaded(self.root,archive))
 
-    def test_existing_upload_is_explicit_bounded_and_does_not_enable_another_provider(self):
-        first,_ = self.publish();self.publish('82');self.ready()
-        result = cloud.upload_existing(self.root,limit=1,provider='google')
-        self.assertEqual(result['uploaded_episodes'],1);self.assertFalse(first.exists())
-        self.assertEqual(len(list(self.root.glob('*/*.cbz'))),1)
-        for limit in (0,101,True,'2'):
-            with self.assertRaises(ArchiveError):cloud.upload_existing(self.root,limit=limit)
+    def test_upload_limit_and_provider_are_explicit(self):
         for limit in (0,True,'2'):
             with self.assertRaises(ArchiveError):cloud.upload_pending(self.root,limit=limit)
         with self.assertRaises(ArchiveError):cloud.upload_pending(self.root,provider='local')
@@ -553,20 +511,49 @@ class CloudTests(unittest.TestCase):
         path.unlink();path.symlink_to(self.config)
         with self.assertRaises(ArchiveError):cloud.settings(self.root)
 
+    def retired(self, path):
+        """Add a Google Drive connection, as an earlier version saved it, to the connections in this file."""
+        value = json.loads(path.read_text())
+        google = value['targets']['b2'] | {'remote':'google', 'enabled':True, 'tested':True, 'target_id':str(uuid.uuid4())}
+        cloud._write(path, value | {'targets':value['targets'] | {'google':google}})
+        return value, google
+
+    def test_a_connection_to_a_retired_provider_is_kept_but_never_used(self):
+        self.configured();path = self.root/'.archive-state/cloud/targets.json'
+        value, google = self.retired(path)
+        self.assertEqual(set(cloud.settings(self.root)['targets']),{'b2'})
+        self.assertEqual([t['provider'] for t in cloud.status(self.root)['targets']],['b2'])
+        with self.assertRaises(ArchiveError):cloud.enable(self.root,'google',False)
+        cloud.enable(self.root,'b2',False)  # A change to B2 leaves the retired connection as it was saved.
+        self.assertEqual(json.loads(path.read_text())['targets']['google'],google)
+        self.assertEqual(set(cloud.settings(self.root)['targets']),{'b2'})
+        cloud._write(path, value | {'targets':value['targets'] | {'sftp':google}})  # Never a provider of this app.
+        with self.assertRaises(ArchiveError):cloud.settings(self.root)
+
+    def test_a_retired_connection_among_the_shared_ones_survives_another_librarys_change(self):
+        other, store = self.base/'Other/Library', self.base/'.comic-shared'
+        for library in (self.root, other):shared.link(library, store)
+        self.configured();path = store/'cloud/targets.json'
+        _, google = self.retired(path)
+        self.assertEqual(set(cloud.settings(other)['targets']),{'b2'})
+        cloud.enable(other,'b2',False)
+        self.assertEqual(json.loads(path.read_text())['targets']['google'],google)
+        self.assertEqual(set(cloud.settings(self.root)['targets']),{'b2'})
+
     @unittest.skipIf(os.name == 'nt', 'Windows keeps no permission bits; the file is private through the profile folder.')
     def test_config_readable_by_others_is_refused(self):
         self.publish();self.ready()
         self.config.chmod(0o644)
-        with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'google',config=self.config)
+        with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'b2',config=self.config)
 
     def test_reconnection_resets_test_approval_and_linked_config_is_refused(self):
         self.publish();self.ready()
-        old = cloud.settings(self.root)['targets']['google']['target_id']
+        old = cloud.settings(self.root)['targets']['b2']['target_id']
         self.configured()
-        target = cloud.settings(self.root)['targets']['google']
+        target = cloud.settings(self.root)['targets']['b2']
         self.assertNotEqual(target['target_id'],old);self.assertFalse(target['tested']);self.assertFalse(target['enabled'])
         link = self.base/'link.conf';link.symlink_to(self.config)
-        with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'google',config=link)
+        with self.assertRaises(ArchiveError):cloud.configure_target(self.root,'b2',config=link)
 
     def test_interrupted_deletion_after_receipt_is_recovered_idempotently(self):
         self.publish();self.ready()
@@ -590,11 +577,11 @@ class CloudTests(unittest.TestCase):
 
     def failed_receipt(self):
         """A library with one completed episode whose upload failed and was retained locally."""
-        self.publish();self.ready();FakeTransfer.fail_provider = 'google'
+        self.publish();self.ready();FakeTransfer.fail_provider = 'b2'
         with self.assertRaises(ArchiveError):self.publish('82')
         FakeTransfer.fail_provider = None
         archive = next(p for p in self.root.glob('*/*.cbz') if 'Chapter 82' in p.name)
-        return archive, next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        return archive, next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
 
     def test_receipt_from_another_library_or_for_a_changed_episode_uploads_nothing(self):
         archive, path = self.failed_receipt();value = json.loads(path.read_text())
@@ -615,7 +602,7 @@ class CloudTests(unittest.TestCase):
         self.publish();self.ready()
         with patch.object(cloud,'evict_uploaded',return_value={'local_archives_deleted':0,'freed_bytes':0}):
             archive,_ = self.publish('82')
-        path = next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        path = next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
         self.assertEqual(json.loads(path.read_text())['state'],'verified')
         self.assertTrue(archive.exists())
         self.ready()  # a new connection: the earlier account's upload no longer counts
@@ -623,9 +610,9 @@ class CloudTests(unittest.TestCase):
         cloud.queue_episode(self.root,archive)
         record = json.loads(path.read_text())
         self.assertEqual(record['state'],'pending')
-        self.assertEqual(record['target_id'],cloud.settings(self.root)['targets']['google']['target_id'])
-        google = cloud.status(self.root)['targets'][0]
-        self.assertEqual((google['pending'],google['verified']),(1,0))
+        self.assertEqual(record['target_id'],cloud.settings(self.root)['targets']['b2']['target_id'])
+        b2 = cloud.status(self.root)['targets'][0]
+        self.assertEqual((b2['pending'],b2['verified']),(1,0))
         self.assertEqual(cloud.upload_pending(self.root)['local_archives_deleted'],1)
         self.assertFalse(archive.exists())
         self.assertTrue(any(key.endswith('episode.cbz') for _,key in FakeTransfer.files))
@@ -638,7 +625,7 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(list((self.root/'.archive-state/cloud/outbox').glob('*/*.json')),[])
 
     def test_upload_limit_leaves_the_remaining_episodes_pending_and_local(self):
-        self.publish();self.ready();FakeTransfer.fail_provider = 'google'
+        self.publish();self.ready();FakeTransfer.fail_provider = 'b2'
         for key in ('82','83'):
             with self.assertRaises(ArchiveError):self.publish(key)
         FakeTransfer.fail_provider = None
@@ -651,29 +638,18 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'],1)
         self.assertEqual(local(),[])
 
-    def test_existing_upload_with_a_larger_limit_covers_every_episode_and_only_the_selected_provider(self):
-        first,_ = self.publish();second,_ = self.publish('82');self.ready();self.ready('proton')
-        result = cloud.upload_existing(self.root,limit=5,provider='google')
-        self.assertEqual(result['uploaded_episodes'],2)
-        self.assertFalse(first.exists() or second.exists())
-        self.assertEqual({provider for provider,_ in FakeTransfer.files},{'google'})
-        proton = cloud.status(self.root)['targets'][1]
-        self.assertEqual((proton['pending'],proton['verified']),(0,0))
-
     def test_local_deletion_needs_every_required_receipt_for_the_current_connection(self):
         self.publish();self.ready()
         with patch.object(cloud,'evict_uploaded',return_value={'local_archives_deleted':0,'freed_bytes':0}):
             archive,_ = self.publish('82')
         original = archive.read_bytes()
-        receipt = next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt = next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
         value = json.loads(receipt.read_text());self.assertEqual(value['state'],'verified')
-        for targets in ([],['bogus'],'google'):
+        # A provider earlier versions offered is no longer one a deletion can rely on.
+        for targets in ([],['bogus'],'b2',['b2','google']):
             receipt.write_text(json.dumps(value | {'required_targets':targets}))
             with self.assertRaises(ArchiveError):cloud.evict_uploaded(self.root)
             self.assertEqual(archive.read_bytes(),original)
-        receipt.write_text(json.dumps(value | {'required_targets':['google','proton']}))
-        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'],0)
-        self.assertEqual(archive.read_bytes(),original)
         receipt.write_text(json.dumps(value))
         archive.write_bytes(b'corrupt')
         with self.assertRaises(ArchiveError):cloud.evict_uploaded(self.root)
@@ -686,7 +662,7 @@ class CloudTests(unittest.TestCase):
     def test_a_damaged_cloud_receipt_is_not_evidence_that_an_episode_is_safely_offloaded(self):
         self.publish();self.ready();archive,_ = self.publish('82')
         self.assertFalse(archive.exists())
-        receipt = next((self.root/'.archive-state/cloud/outbox/google').glob('*.json'))
+        receipt = next((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))
         value = json.loads(receipt.read_text());files = value['files']
         self.assertTrue(cloud.offloaded(self.root,archive))
         damaged = {'unparseable time':{'verified_at':'yesterday'},'time without zone':{'verified_at':'2026-01-01T00:00:00'},
@@ -698,8 +674,8 @@ class CloudTests(unittest.TestCase):
         for name,change in damaged.items():
             with self.subTest(name):
                 receipt.write_text(json.dumps(value | change))
-                self.assertIsNone(cloud._receipt_for(self.root, archive, 'google'))
-                for history in (self.root / '.archive-state/cloud/history/google').glob('*/*.json'):
+                self.assertIsNone(cloud._receipt_for(self.root, archive, 'b2'))
+                for history in (self.root / '.archive-state/cloud/history/b2').glob('*/*.json'):
                     history.write_text(json.dumps(value | change))
                 self.assertIsNone(cloud.offloaded(self.root,archive))
         receipt.write_text(json.dumps(value));self.assertTrue(cloud.offloaded(self.root,archive))
@@ -708,7 +684,7 @@ class CloudTests(unittest.TestCase):
 
     def test_cleanup_that_cannot_prove_deletion_stays_pending_and_resumes(self):
         self.publish();self.configured();FakeTransfer.fail_delete = True
-        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'google',episodes=1)
+        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=1)
         receipt = next((self.root/'.archive-state/cloud/tests').glob('*.json'));FakeTransfer.fail_delete = False
         with patch.object(FakeTransfer,'delete_test_file'):  # the provider says deleted, yet the listing still shows the file
             with self.assertRaises(CloudCleanupError):cloud.cleanup_test(self.root,receipt.stem)
@@ -725,17 +701,17 @@ class CloudTests(unittest.TestCase):
 
     def test_dashboard_cloud_actions_accept_only_a_provider_or_one_recorded_test_identity(self):
         identity = str(uuid.uuid4())
-        cloud.validate_test_action('cloud_test',{'provider':'google'});cloud.validate_test_action('cloud_cleanup',{'test_id':identity})
-        for operation,options in (('cloud_test',{'provider':'elsewhere'}),('cloud_test',{'provider':['google']}),
-                                  ('cloud_test',{'provider':'google','path':'/tmp/x'}),('cloud_test',{}),
-                                  ('cloud_cleanup',{'test_id':'../'+identity}),('cloud_cleanup',{'test_id':identity,'provider':'google'}),
-                                  ('cloud_cleanup',{'test_id':7}),('cloud_delete',{'provider':'google'})):
+        cloud.validate_test_action('cloud_test',{'provider':'b2'});cloud.validate_test_action('cloud_cleanup',{'test_id':identity})
+        for operation,options in (('cloud_test',{'provider':'elsewhere'}),('cloud_test',{'provider':['b2']}),
+                                  ('cloud_test',{'provider':'b2','path':'/tmp/x'}),('cloud_test',{}),
+                                  ('cloud_cleanup',{'test_id':'../'+identity}),('cloud_cleanup',{'test_id':identity,'provider':'b2'}),
+                                  ('cloud_cleanup',{'test_id':7}),('cloud_delete',{'provider':'b2'})):
             with self.subTest(operation=operation,options=options),self.assertRaises(ArchiveError):cloud.validate_test_action(operation,options)
 
     def test_offloading_removes_the_episodes_own_cached_pages_but_keeps_shared_and_other_pages(self):
         from comic_archive.archive import digest
-        from comic_archive.storage import configure
-        configure(self.root,purge_completed_cache=False)
+        policy = self.root/'.archive-state/storage-policy.json';policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({'schema_version':1,'image_profile':'original','purge_completed_cache':False}))
         self.publish();control = self.publish_page('83',3)
         cache = self.root/'.archive-cache'
         self.assertTrue((cache/digest(png(3))).is_file())  # without cloud offload the completed pages stay cached
@@ -749,32 +725,33 @@ class CloudTests(unittest.TestCase):
 class TransferTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
-        self.config = Path(temporary.name)/'config';self.config.write_text('[google]\ntype=drive\n');self.config.chmod(0o600)
-        self.target = {'config':str(self.config),'remote':'google'}
+        self.config = Path(temporary.name)/'config';self.config.write_text('[b2]\ntype=b2\narchive_bucket=library-bucket\n')
+        self.config.chmod(0o600)
+        self.target = {'config':str(self.config),'remote':'b2'}
         # The pinned helper comes first; these tests choose the rclone found on the path.
         patch('comic_archive.cloud_tools.installed',return_value=None).start();self.addCleanup(patch.stopall)
 
     def command(self, args, **kwargs):
         self.assertFalse(kwargs['check']);self.assertNotIn('PASSWORD_PRIVATE',' '.join(args))
         self.assertEqual(kwargs['stdin'],subprocess.DEVNULL)
-        kwargs['stdout'].write(b'google: drive\n')
+        kwargs['stdout'].write(b'b2: b2\n')
         return subprocess.CompletedProcess(args,0)
 
     def test_provider_type_is_checked_and_secret_environment_overrides_are_removed(self):
-        with patch('comic_archive.cloud.shutil.which',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run',side_effect=self.command) as run, patch.dict(os.environ,{'RCLONE_REMOTE_GOOGLE_TYPE':'local','RCLONE_LOG_LEVEL':'DEBUG','RCLONE_CONFIG_PASS':'PASSWORD_PRIVATE'}):
-            cloud.Transfer('google',self.target)
+        with patch('comic_archive.cloud.shutil.which',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run',side_effect=self.command) as run, patch.dict(os.environ,{'RCLONE_REMOTE_B2_TYPE':'local','RCLONE_LOG_LEVEL':'DEBUG','RCLONE_CONFIG_PASS':'PASSWORD_PRIVATE'}):
+            self.assertEqual(cloud.Transfer('b2',self.target).bucket,'library-bucket')
             env = run.call_args.kwargs['env']
-            self.assertNotIn('RCLONE_LOG_LEVEL',env);self.assertNotIn('RCLONE_REMOTE_GOOGLE_TYPE',env)
+            self.assertNotIn('RCLONE_LOG_LEVEL',env);self.assertNotIn('RCLONE_REMOTE_B2_TYPE',env)
             self.assertEqual(env['RCLONE_CONFIG_PASS'],'PASSWORD_PRIVATE')
             with self.assertRaises(ArchiveError):cloud.Transfer('proton',self.target)
             with self.assertRaises(ArchiveError):cloud.Transfer('local',self.target)
-        with patch('comic_archive.cloud.shutil.which',return_value=None),self.assertRaises(ArchiveError):cloud.Transfer('google',self.target)
+        with patch('comic_archive.cloud.shutil.which',return_value=None),self.assertRaises(ArchiveError):cloud.Transfer('b2',self.target)
 
     def test_failed_timeout_and_oversized_subprocess_output_are_sanitized(self):
         transfer = object.__new__(cloud.Transfer);transfer.binary='/fake/rclone';transfer.config=self.config
         for code in (1,5,9):
             with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],code)):
-                with self.assertRaises(ArchiveError) as error:transfer.run('copyto','source','google:path')
+                with self.assertRaises(ArchiveError) as error:transfer.run('copyto','source','b2:path')
                 self.assertNotIn(str(self.config),str(error.exception))
         for exception in (OSError('TOKEN_PRIVATE'),subprocess.TimeoutExpired('TOKEN_PRIVATE',1)):
             with patch('comic_archive.cloud.subprocess.run',side_effect=exception),self.assertRaises(ArchiveError):transfer.run('listremotes')
@@ -783,29 +760,29 @@ class TransferTests(unittest.TestCase):
         with patch('comic_archive.cloud.subprocess.run',side_effect=oversized),self.assertRaises(ArchiveError):transfer.run('listremotes')
         for code in (3,4):
             with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],code)):
-                self.assertEqual(transfer.run('lsf','google:test',missing_ok=True),b'')
+                self.assertEqual(transfer.run('lsf','b2:test',missing_ok=True),b'')
 
     def test_a_large_file_gets_longer_than_the_usual_quarter_hour_to_transfer(self):
         from unittest.mock import MagicMock
         transfer = object.__new__(cloud.Transfer);transfer.binary='/fake/rclone';transfer.config=self.config
         with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],0)) as run:
-            transfer.run('lsf','google:test')
+            transfer.run('lsf','b2:test')
             self.assertEqual(run.call_args.kwargs['timeout'],900)
-            transfer.run('copyto','source','google:test',size=1024**3)
+            transfer.run('copyto','source','b2:test',size=1024**3)
             self.assertEqual(run.call_args.kwargs['timeout'],900+4096)
         transfer.guard = Mock()
         with patch('comic_archive.cloud.subprocess.Popen',MagicMock()), patch('comic_archive.network.wait_process',return_value=0) as wait:
-            transfer.run('copyto','source','google:test',size=1024**3)
+            transfer.run('copyto','source','b2:test',size=1024**3)
             self.assertEqual(wait.call_args.args[2],900+4096)
         source = self.config.parent/'episode.cbz';source.write_bytes(b'x'*(512*1024))
         expected = hashlib.sha256(source.read_bytes()).hexdigest()
-        transfer.target={'remote':'google'};transfer.provider='google';transfer.full_readback=True
+        transfer.target={'remote':'b2'};transfer.provider='b2';transfer.full_readback=True
         transfer.run = Mock(side_effect=[b'',expected.encode()])
         transfer.upload(source,'Comic-Archive/test/episode.cbz',expected)
         self.assertEqual([c.kwargs['size'] for c in transfer.run.call_args_list],[512*1024]*2)
 
     def test_uploaded_byte_verification_is_required_and_copy_never_syncs_or_deletes(self):
-        transfer = object.__new__(cloud.Transfer);transfer.target={'remote':'google'};transfer.provider='google';transfer.full_readback=True
+        transfer = object.__new__(cloud.Transfer);transfer.target={'remote':'b2'};transfer.provider='b2';transfer.full_readback=True
         transfer.run = Mock(side_effect=[b'',b'0'*64+b'  episode.cbz\n'])
         transfer.upload(Path('episode.cbz'),'Comic-Archive/test/episode.cbz','0'*64)
         self.assertEqual(transfer.run.call_args_list[0].args[0],'copyto')
@@ -813,23 +790,6 @@ class TransferTests(unittest.TestCase):
         self.assertIn('--download',transfer.run.call_args_list[1].args)
         transfer.run = Mock(side_effect=[b'',b'1'*64])
         with self.assertRaises(ArchiveError):transfer.upload(Path('episode.cbz'),'test/episode.cbz','0'*64)
-        transfer.run = Mock();transfer.delete_test_file('test/episode.cbz')
-        transfer.run.assert_called_once_with('deletefile','google:test/episode.cbz')
-
-    def test_local_connect_uses_interactive_auth_without_credentials_in_arguments_or_final_output(self):
-        root = self.config.parent/'Library'
-        with patch('comic_archive.cloud.shutil.which',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],0)) as run, patch('comic_archive.cloud.configure_target',return_value={'connected':True}):
-            self.assertEqual(cloud.connect(root,'proton'),{'connected':True})
-            command = run.call_args.args[0]
-            self.assertIn('--all',command);self.assertIn('--no-output',command);self.assertIn('protondrive',command)
-            self.assertNotIn('stdout',run.call_args.kwargs)
-            self.assertEqual((root/'.archive-state/cloud/rclone.conf').stat().st_mode&0o777,PRIVATE_FILE)
-            run.return_value = subprocess.CompletedProcess([],1)
-            with self.assertRaises(ArchiveError):cloud.connect(root,'proton')
-            run.side_effect = OSError('secret')
-            with self.assertRaises(ArchiveError):cloud.connect(root,'proton')
-        with self.assertRaises(ArchiveError):cloud.connect(root,'local')
-
 
     def test_guarded_run_checks_the_network_policy_first_and_classifies_failures(self):
         folder = self.config.parent;marker = folder/'launched';code = folder/'code'
@@ -838,33 +798,15 @@ class TransferTests(unittest.TestCase):
             f'sys.stdout.write("listing")\nsys.exit(int(Path({str(code)!r}).read_text()))\n')
         transfer = object.__new__(cloud.Transfer);transfer.binary = str(script);transfer.config = self.config;transfer.guard = Mock()
         code.write_text('0')
-        self.assertEqual(transfer.run('lsf','google:test'),b'listing')
+        self.assertEqual(transfer.run('lsf','b2:test'),b'listing')
         self.assertTrue(marker.exists());self.assertTrue(transfer.guard.check.called)
         code.write_text('7')
-        with self.assertRaises(CloudTransferError) as caught:transfer.run('copyto','source','google:test')
+        with self.assertRaises(CloudTransferError) as caught:transfer.run('copyto','source','b2:test')
         self.assertEqual(safe_code(caught.exception),'cloud_space')
         code.write_text('3')
-        self.assertEqual(transfer.run('lsf','google:test',missing_ok=True),b'')
-        with self.assertRaises(ArchiveError):transfer.run('lsf','google:test')
+        self.assertEqual(transfer.run('lsf','b2:test',missing_ok=True),b'')
+        with self.assertRaises(ArchiveError):transfer.run('lsf','b2:test')
         marker.unlink();transfer.guard.check.side_effect = NetworkPolicyHold('held')
-        with self.assertRaises(NetworkPolicyHold):transfer.run('lsf','google:test')
+        with self.assertRaises(NetworkPolicyHold):transfer.run('lsf','b2:test')
         self.assertFalse(marker.exists())
 
-    def test_google_hash_listing_failure_falls_back_to_a_download_but_a_network_hold_does_not(self):
-        transfer = object.__new__(cloud.Transfer);transfer.provider = 'google';transfer.target = {'remote':'google'}
-        expected = 'a'*64
-        for first in (ArchiveError('listing unavailable'),b'UNSUPPORTED  episode.cbz'):
-            transfer.run = Mock(side_effect=[first,expected.encode()])
-            transfer.verify('own/episode.cbz',expected)
-            self.assertIn('--download',transfer.run.call_args.args)
-        transfer.run = Mock(side_effect=NetworkPolicyHold('held'))
-        with self.assertRaises(NetworkPolicyHold):transfer.verify('own/episode.cbz',expected)
-        self.assertEqual(transfer.run.call_count,1)
-
-    def test_local_connect_refuses_a_symlinked_config_without_starting_sign_in(self):
-        root = self.config.parent/'Library';folder = root/'.archive-state/cloud';folder.mkdir(parents=True)
-        outside = self.config.parent/'outside.conf'  # a dangling link: touching it would create a file outside the library
-        (folder/'rclone.conf').symlink_to(outside)
-        with patch('comic_archive.cloud.shutil.which',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run') as run:
-            with self.assertRaises(ArchiveError):cloud.connect(root,'proton')
-        run.assert_not_called();self.assertFalse(outside.exists())

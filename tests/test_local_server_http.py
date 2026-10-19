@@ -100,11 +100,11 @@ class LocalServerOverHTTPTests(unittest.TestCase):
                     self.assertNotIn('set-cookie', headers); self.assertNotIn(b'csrf', body); self.assertNotIn(b'archive.js', body)
         # So it cannot read a CSRF token or make a change either.
         self.assertEqual(self.request('GET', '/api/v1/context', headers={'Origin': 'http://' + self.host})[0], 401)
-        self.assertEqual(self.request('POST', '/api/v1/workspaces', '{}', {'Origin': 'http://' + self.host,
+        self.assertEqual(self.request('POST', '/api/v1/theme', '{"theme": "dark"}', {'Origin': 'http://' + self.host,
                                                                         'Content-Type': 'application/json'})[0], 401)
 
     def test_the_api_needs_the_cookie_and_a_change_needs_the_page_origin_and_its_token(self):
-        for path in ('/api/v1/context', '/assets/archive.js', '/api/v1/workspaces'):
+        for path in ('/api/v1/context', '/assets/archive.js', '/api/v1/workspaces/' + '0' * 32):
             self.assertEqual(self.request('GET', path)[0], 401)
         cookie, context, page = self.signed_in()
         path = self.network_choice(context['workspace_ids'][0])

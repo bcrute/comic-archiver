@@ -10,10 +10,9 @@ from unittest.mock import patch
 from support import PRIVATE_FILE
 from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import verify, sidecar_path
-from comic_archive.adapters.pagination import EpisodeCountMismatch
 from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, RunLimit
 from comic_archive.inventory import Inventory
-from comic_archive.jobs import DownloadBudget, archive_discovered, archive_watched_series, check_session, sync
+from comic_archive.jobs import DownloadBudget, archive_discovered, sync
 from comic_archive.locking import LibraryLock, wait_for_library
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from test_archive import png
@@ -193,36 +192,6 @@ class JobTests(unittest.TestCase):
             inventory.observe('42','S',[episode],'later')
             self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
 
-    def test_session_check_reports_authentication_without_binding_or_creating_a_library(self):
-        absent=self.root/'absent'
-        result=check_session(self.adapter,absent)
-        self.assertEqual(result,{'authenticated':True,'account_binding':'unbound','reader_or_comic_pages_requested':False})
-        self.assertFalse(absent.exists());self.assertEqual(self.adapter.calls,['identity'])
-        self.assertEqual(self.adapter.downloads,[])
-        self.adapter.identity=None
-        with self.assertRaises(AuthenticationError):check_session(self.adapter,absent)
-
-    def test_session_check_uses_read_only_account_binding_and_never_exports_identity(self):
-        with Inventory(self.root) as inventory:
-            inventory.bind_account('11')
-            before=list(inventory.db.execute('SELECT key,value FROM settings'))
-        result=check_session(self.adapter,self.root)
-        self.assertEqual(result['account_binding'],'matches');self.assertNotIn('11',json.dumps(result))
-        self.adapter.identity='12'
-        with self.assertRaises(AuthenticationError):check_session(self.adapter,self.root)
-        with Inventory(self.root,read_only=True) as inventory:
-            self.assertEqual([tuple(row) for row in inventory.db.execute('SELECT key,value FROM settings')],[tuple(row) for row in before])
-            self.assertEqual(inventory.db.execute('SELECT COUNT(*) FROM runs').fetchone()[0],0)
-        self.assertEqual(self.adapter.downloads,[])
-
-    def test_session_check_rejects_corrupt_binding_without_changing_or_exposing_it(self):
-        with Inventory(self.root) as inventory:
-            inventory.db.execute("INSERT INTO settings VALUES ('account_salt','PRIVATE')");inventory.db.commit()
-        with self.assertRaises(MetadataError) as raised:check_session(self.adapter,self.root)
-        self.assertNotIn('PRIVATE',str(raised.exception))
-        with Inventory(self.root,read_only=True) as inventory:
-            self.assertEqual(inventory.db.execute('SELECT value FROM settings').fetchone()[0],'PRIVATE')
-
     @patch('builtins.print')
     def test_optional_free_view_records_provenance_and_rechecks_before_free_only_capture(self,output):
         original=self.adapter.inspect_library
@@ -295,65 +264,6 @@ class JobTests(unittest.TestCase):
                         {'refresh_lists':False,'include_history':True}):
             with self.assertRaises(ArchiveError):sync(self.adapter,self.root,**options)
         self.assertEqual(self.adapter.calls,[])
-
-    @patch('builtins.print')
-    def test_selected_series_refreshes_access_and_never_archives_other_series(self,output):
-        with Inventory(self.root) as inventory:
-            inventory.observe('42','Selected',[],'fixture')
-            inventory.observe('43','Other',[{'id':'91','title':'Other episode','order':1,'access_state':'tapas_free'}],'fixture')
-        result=archive_watched_series(self.adapter,'42',self.root)
-        self.assertEqual(result['archived_episode_ids'],['82','81'])
-        self.assertEqual(result['source_series_id'],'42')
-        self.assertEqual(result['pending_episode_count'],0)
-        self.assertEqual(result['status'],'finished')
-        self.assertEqual(result['inventory']['episodes_by_status']['queued'],1)
-        self.assertEqual([v for v in self.adapter.calls if isinstance(v,tuple) and v[0]=='series'],[('series','42')])
-        self.assertNotIn(('capture','91'),self.adapter.calls)
-        self.assertEqual(verify(self.root),[])
-
-    @patch('builtins.print')
-    def test_selected_series_unknown_or_changed_account_stops_before_metadata_or_reader(self,output):
-        with Inventory(self.root) as inventory:
-            inventory.observe('42','Selected',[],'fixture')
-            inventory.bind_account('11')
-        with self.assertRaises(ArchiveError):archive_watched_series(self.adapter,'99',self.root)
-        self.assertEqual(self.adapter.calls,['identity'])
-        self.adapter.calls.clear();self.adapter.identity='12'
-        with self.assertRaises(AuthenticationError):archive_watched_series(self.adapter,'42',self.root)
-        self.assertEqual(self.adapter.calls,['identity'])
-        self.assertEqual(self.adapter.downloads,[])
-
-    @patch('builtins.print')
-    def test_selected_series_fresh_denial_and_free_only_never_load_disallowed_reader(self,output):
-        with Inventory(self.root) as inventory:inventory.observe('42','Selected',[],'fixture')
-        self.adapter.denied.add('81')
-        result=archive_watched_series(self.adapter,'42',self.root,free_only=True)
-        self.assertEqual(result['unavailable_episode_ids'],['81'])
-        self.assertEqual(result['archived_episode_ids'],[])
-        self.assertFalse(any(isinstance(v,tuple) and v[0]=='capture' for v in self.adapter.calls))
-        self.assertEqual(self.adapter.downloads,[])
-
-    @patch('builtins.print')
-    def test_selected_series_page_limit_resumes_cache_and_leaves_unrelated_queue(self,output):
-        with Inventory(self.root) as inventory:
-            inventory.observe('42','Selected',[],'fixture')
-            inventory.observe('43','Other',[{'id':'91','title':'Other','order':1,'access_state':'tapas_free'}],'fixture')
-        first=archive_watched_series(self.adapter,'42',self.root,max_pages=1)
-        self.assertEqual(first['status'],'limited');self.assertEqual(first['archived_episode_ids'],[])
-        self.assertEqual(self.adapter.downloads,[1])
-        second=archive_watched_series(self.adapter,'42',self.root)
-        self.assertEqual(second['status'],'finished');self.assertEqual(second['pending_episode_count'],0)
-        self.assertEqual(self.adapter.downloads,[1,2,1,2])
-        self.assertNotIn(('capture','91'),self.adapter.calls)
-        self.assertEqual(verify(self.root),[])
-
-    @patch('builtins.print')
-    def test_selected_series_incomplete_metadata_stops_before_any_download(self,output):
-        with Inventory(self.root) as inventory:inventory.observe('42','Selected',[],'fixture')
-        self.adapter.inspect_series=lambda key,strict_order=False:{'source_series_id':key,'complete':False,'authenticated':True}
-        with self.assertRaises(MetadataError):archive_watched_series(self.adapter,'42',self.root)
-        self.assertEqual(self.adapter.downloads,[])
-        self.assertNotIn(('capture','81'),self.adapter.calls)
 
     @patch('builtins.print')
     def test_unexpected_reader_manifest_pauses_before_trying_other_readers(self,output):
@@ -854,18 +764,6 @@ class JobTests(unittest.TestCase):
         self.assertEqual(result.returncode,0)
 
 
-    def test_session_check_refuses_symlinked_storage_without_reading_the_binding(self):
-        real=Path(self.work.name)/'real'
-        with Inventory(real) as inventory:inventory.bind_account('11')
-        linked_library=Path(self.work.name)/'linked-library';linked_library.symlink_to(real,target_is_directory=True)
-        linked_state=Path(self.work.name)/'linked-state';linked_state.mkdir()
-        (linked_state/'.archive-state').symlink_to(real/'.archive-state',target_is_directory=True)
-        for output in (linked_library,linked_state):
-            with self.subTest(output=output.name),self.assertRaises(ArchiveError) as raised:
-                check_session(self.adapter,output)
-            self.assertNotIsInstance(raised.exception,AuthenticationError)
-        self.assertEqual(self.adapter.downloads,[])
-
     def test_download_budget_rejects_unusable_limits_before_any_source_request(self):
         for options in ({'max_pages':0},{'max_pages':True},{'max_pages':2.0},{'max_bytes':-1},{'max_bytes':'9'},
                         {'max_seconds':0},{'max_seconds':-5},{'max_seconds':float('nan')},
@@ -896,24 +794,20 @@ class JobTests(unittest.TestCase):
     def test_job_options_that_make_no_sense_stop_before_any_source_request(self):
         for options in ({'_scan_only':'yes'},{'_scan_only':True},{'_pipeline':'yes'},
                         {'retry_episode_id':'0'},{'retry_episode_id':81,'limit':1},{'retry_episode_id':'81'},
-                        {'retry_episode_id':'81','limit':1,'_series_id':'42'},
+                        {'retry_episode_id':'81','limit':1,'_refresh':lambda *args:None},
                         {'limit':0},{'limit':True},{'limit':'1'},{'free_only':'yes'},
-                        {'min_free_bytes':-1},{'min_free_bytes':True},
-                        {'_series_id':'abc'},{'_series_id':42},{'_selected_only':True},{'_selected_only':'yes'}):
+                        {'min_free_bytes':-1},{'min_free_bytes':True}):
             with self.subTest(options=options),self.assertRaises(ArchiveError):
                 archive_discovered(self.adapter,self.root,self.report,**options)
         self.assertEqual(self.adapter.calls,[]);self.assertFalse((self.root/'.archive-state').exists())
 
-    def test_sync_and_selected_series_reject_invalid_scope_options_before_network(self):
+    def test_sync_rejects_invalid_scope_options_before_network(self):
         for options in ({'history_pages':0},{'history_pages':501},{'history_pages':True},
                         {'scan_limit':0},{'scan_limit':True},{'scan_limit':'1'},
                         {'categories':['purchased']},{'categories':['recent','recent']},{'categories':[]},
                         {'categories':'recent'},{'categories':[7]}):
             with self.subTest(options=options),self.assertRaises(ArchiveError):
                 sync(self.adapter,self.root,**options)
-        for series_id in ('abc','0','-1',42,None,'1'*21):
-            with self.subTest(series_id=series_id),self.assertRaises(ArchiveError):
-                archive_watched_series(self.adapter,series_id,self.root)
         self.assertEqual(self.adapter.calls,[]);self.assertEqual(self.adapter.downloads,[])
 
     @patch('builtins.print')
@@ -1090,21 +984,6 @@ class JobTests(unittest.TestCase):
         with Inventory(self.root,read_only=True) as inventory:
             self.assertEqual(inventory.status()['episodes_by_status'],{})
             self.assertIsNone(inventory.status()['last_completed_scan'])
-        self.assertEqual(self.adapter.downloads,[])
-
-    @patch('builtins.print')
-    def test_selected_series_pagination_gap_is_trusted_only_for_that_series_with_its_partial_list(self,output):
-        with Inventory(self.root) as inventory:inventory.observe('42','Selected',[],'fixture')
-        def gap(error):
-            def inspect(key,strict_order=False):raise error
-            return inspect
-        self.adapter.inspect_series=gap(EpisodeCountMismatch('999',2,3))
-        with self.assertRaises(MetadataError) as raised:archive_watched_series(self.adapter,'42',self.root)
-        self.assertNotIsInstance(raised.exception,EpisodeCountMismatch)
-        self.adapter.inspect_series=gap(EpisodeCountMismatch('42',2,3))
-        with self.assertRaises(EpisodeCountMismatch):archive_watched_series(self.adapter,'42',self.root)
-        with Inventory(self.root,read_only=True) as inventory:
-            self.assertEqual(inventory.scan_gaps(),[]);self.assertEqual(inventory.status()['episodes_by_status'],{})
         self.assertEqual(self.adapter.downloads,[])
 
     @patch('builtins.print')

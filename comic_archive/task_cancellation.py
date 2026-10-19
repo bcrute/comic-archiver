@@ -15,8 +15,7 @@ from .locking import LibraryLock
 from .models import ArchiveError
 
 
-MIN_WORKER_VERSION = 35
-OPERATIONS = {'sync', 'archive_discovered', 'archive_watched_series', 'archive_series_url'}
+OPERATIONS = {'sync', 'archive_discovered'}
 
 
 def admission_lock(session):
@@ -49,40 +48,6 @@ def queued_stop_requested(session,task_id):
     if _read(path,1024)!={'document_type':'queued_comic_import_stop','task_id':task_id}:
         raise ArchiveError('Queued stop state is invalid; existing files are retained.')
     return True
-
-
-def can_stop_queued(session,task_id):
-    task_id=_task(task_id);root=Path(session)/'worker'
-    try:
-        worker=_read(root/'status.json')
-        if type(worker.get('worker_version')) is not int or worker['worker_version']<MIN_WORKER_VERSION:
-            return False
-        if (root/'responses'/f'{task_id}.json').exists():return False
-        if worker.get('state')=='busy' and worker.get('task_id')==task_id:return False
-        request=_read(root/'requests'/f'{task_id}.json')
-        return (isinstance(request.get('operation'),str) and request['operation'] in OPERATIONS
-                and isinstance(request.get('args'),dict))
-    except ArchiveError:
-        return False
-
-
-def request_queued_stop(session,task_id):
-    task_id=_task(task_id);root=Path(session)/'worker'
-    with admission_lock(session):
-        from .queue_client import task_status
-        value=task_status(session,task_id)
-        if value['status'] in {'ok','error'}:
-            return {'task_id':task_id,'status':'already_finished'}
-        if value['status']=='running':
-            return {'task_id':task_id,'status':'already_started'}
-        if not can_stop_queued(session,task_id):
-            raise ArchiveError('Queued stopping requires a supporting worker and a pending import task.')
-        path=root/'cancellations'/f'{task_id}.json'
-        directory(path.parent).chmod(0o700)
-        queued_stop_requested(session,task_id)  # Refuse an unsafe existing marker.
-        atomic_json(path,{'document_type':'queued_comic_import_stop','task_id':task_id})
-        path.chmod(0o600)
-    return {'task_id':task_id,'status':'cancellation_requested'}
 
 
 def request_running_stop(session,task_id):

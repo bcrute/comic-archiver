@@ -14,7 +14,6 @@ from pathlib import Path
 from comic_archive.archive import (Store, atomic_json, digest, safe_name, sidecar_path, verify, verify_episode,
                                    verify_series, verify_series_contents, image_extension)
 from comic_archive.errors import RunLimit
-from comic_archive.adapters.local import LocalAdapter
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from comic_archive.transport import ExpiredAsset
 
@@ -256,20 +255,6 @@ class ArchiveTests(unittest.TestCase):
             Series("../../bad", "S")
         with self.assertRaises(ArchiveError):
             Manifest(self.series, (self.episode, self.episode))
-
-    def test_local_manifest_opaque_names_and_traversal(self):
-        (self.root / "opaque").write_bytes(png(3))
-        data = {"series": {"id": "1", "title": "S"}, "episodes": [
-            {"id": "2", "title": "E", "order": 1, "pages": [{"order": 1, "file": "opaque"}]}]}
-        path = self.root / "manifest.json"
-        path.write_text(json.dumps(data))
-        adapter = LocalAdapter(path)
-        folder = self.store.archive(adapter.manifest(), adapter, progress=lambda _: None)
-        self.assertEqual(verify(folder), [])
-        data["episodes"][0]["pages"][0]["file"] = "../outside"
-        path.write_text(json.dumps(data))
-        with self.assertRaises(ArchiveError):
-            LocalAdapter(path)
 
     def test_filenames_and_nonimages(self):
         self.assertNotIn("/", safe_name("../x/../y"))

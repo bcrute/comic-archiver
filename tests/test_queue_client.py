@@ -11,11 +11,11 @@ class QueueClientTests(unittest.TestCase):
     def test_cloud_tasks_reject_paths_credentials_and_unbounded_tests_before_queueing(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work);(root/'worker/requests').mkdir(parents=True)
-            for operation,options in [('cloud_test',{'provider':'google','episodes':100}),('cloud_test',{'provider':[]}),
-                    ('cloud_test',{'provider':'google','password':'PRIVATE'}),('cloud_cleanup',{'test_id':'../outside'})]:
+            for operation,options in [('cloud_test',{'provider':'b2','episodes':100}),('cloud_test',{'provider':[]}),
+                    ('cloud_test',{'provider':'b2','password':'PRIVATE'}),('cloud_cleanup',{'test_id':'../outside'})]:
                 with self.assertRaises(ArchiveError):submit_inspection(root,operation,options)
             self.assertEqual(list((root/'worker/requests').iterdir()),[])
-            for operation,options in [('cloud_test',{'provider':'proton'}),('cloud_cleanup',{'test_id':'f257c685-2a39-4e16-8dc0-353338e2f7d7'})]:
+            for operation,options in [('cloud_test',{'provider':'b2'}),('cloud_cleanup',{'test_id':'f257c685-2a39-4e16-8dc0-353338e2f7d7'})]:
                 task=submit_inspection(root,operation,options)['task_id'];path=root/'worker/requests'/f'{task}.json'
                 self.assertEqual(json.loads(path.read_text()),{'operation':operation,'args':options})
                 self.assertEqual(path.stat().st_mode & 0o777,PRIVATE_FILE)
@@ -36,27 +36,6 @@ class QueueClientTests(unittest.TestCase):
             for categories in (['unlocked'],['subscribed','recent']):
                 task=submit_job(root,'sync',{'categories':categories})['task_id']
                 self.assertEqual(json.loads((root/'worker/requests'/f'{task}.json').read_text())['args']['categories'],categories)
-    def test_account_navigation_inspection_is_fixed_and_rejects_actions(self):
-        with tempfile.TemporaryDirectory() as work:
-            root=Path(work);(root/'worker/requests').mkdir(parents=True)
-            for options in ({'url':'https://tapas.io/'},{'identity':'11'},
-                            {'action':'purchase'},{'cookie':'PRIVATE'}):
-                with self.assertRaises(ArchiveError):
-                    submit_inspection(root,'inspect_account_navigation',options)
-            self.assertEqual(list((root/'worker/requests').iterdir()),[])
-            task=submit_inspection(root,'inspect_account_navigation')['task_id']
-            path=root/'worker/requests'/f'{task}.json'
-            self.assertEqual(json.loads(path.read_text()),
-                             {'operation':'inspect_account_navigation','args':{}})
-            self.assertEqual(path.stat().st_mode & 0o777,PRIVATE_FILE)
-
-    def test_session_health_checks_only_publish_a_fixed_empty_request(self):
-        with tempfile.TemporaryDirectory() as work:
-            root=Path(work);(root/'worker/requests').mkdir(parents=True)
-            for options in ({'identity':'11'},{'cookie':'PRIVATE'},{'output':'/PRIVATE'}):
-                with self.assertRaises(ArchiveError):submit_inspection(root,'check_session',options)
-            task=submit_inspection(root,'check_session')['task_id']
-            self.assertEqual(json.loads((root/'worker/requests'/f'{task}.json').read_text()),{'operation':'check_session','args':{}})
 
     def test_watched_only_scope_cannot_include_account_lists_or_history(self):
         with tempfile.TemporaryDirectory() as work:
@@ -66,17 +45,6 @@ class QueueClientTests(unittest.TestCase):
                 with self.assertRaises(ArchiveError):submit_job(root,'sync',options)
             task=submit_job(root,'sync',{'refresh_lists':False,'scan_limit':1})['task_id']
             self.assertEqual(json.loads((root/'worker/requests'/f'{task}.json').read_text())['args'],{'refresh_lists':False,'scan_limit':1})
-
-    def test_selected_series_jobs_require_a_numeric_identity_and_only_fixed_budgets(self):
-        with tempfile.TemporaryDirectory() as work:
-            root=Path(work);(root/'worker/requests').mkdir(parents=True)
-            for options in ({},{'id':42},{'id':'0'},{'id':'../42'},{'id':'https://tapas.io/series/42'},
-                    {'id':'42','url':'https://tapas.io/episode/81'},{'id':'42','categories':['subscribed']}):
-                with self.assertRaises(ArchiveError):submit_job(root,'archive_watched_series',options)
-            self.assertEqual(list((root/'worker/requests').iterdir()),[])
-            task=submit_job(root,'archive_watched_series',{'id':'42','limit':1,'max_pages':2})['task_id']
-            request=json.loads((root/'worker/requests'/f'{task}.json').read_text())
-            self.assertEqual(request['args'],{'id':'42','limit':1,'max_pages':2})
 
     def test_reserved_scheduler_job_is_idempotent_and_cannot_replace_another_request(self):
         with tempfile.TemporaryDirectory() as work:
@@ -117,31 +85,31 @@ class QueueClientTests(unittest.TestCase):
             with self.assertRaises(ArchiveError):
                 task_status(work,'../outside')
 
-    def test_inspection_is_fixed_and_resume_cannot_supply_a_cursor(self):
+    def test_only_fixed_cloud_inspections_are_accepted_and_history_cannot_resume_a_cursor(self):
         with tempfile.TemporaryDirectory() as work:
             root = Path(work)
             (root/'worker/requests').mkdir(parents=True)
-            request = submit_inspection(root,'inspect_transaction_history',{'max_pages':3,'resume':True})
-            value = json.loads((root/'worker/requests'/f"{request['task_id']}.json").read_text())
-            self.assertEqual(value['args'],{'max_pages':3,'resume':True})
-            for operation,options in [('purchase',{}),('inspect_transaction_history',{'since':'PRIVATE'}),
-                    ('inspect_transaction_history',{'resume':'y'}),('inspect_library',{'category':'purchased'}),
-                    ('inspect_library',{'url':'https://elsewhere.test'})]:
+            for operation,options in [('purchase',{}),('inspect_transaction_history',{'max_pages':3}),
+                    ('check_session',{}),('cloud_upload',{'provider':'b2'})]:
                 with self.assertRaises(ArchiveError):
                     submit_inspection(root,operation,options)
             with self.assertRaises(ArchiveError):
                 submit_job(root,'sync',{'history_resume':True})
+            self.assertEqual(list((root/'worker/requests').iterdir()),[])
+            task=submit_inspection(root,'cloud_upload')['task_id']
+            path=root/'worker/requests'/f'{task}.json'
+            self.assertEqual(json.loads(path.read_text()),{'operation':'cloud_upload','args':{}})
+            self.assertEqual(path.stat().st_mode & 0o777,PRIVATE_FILE)
 
-    def test_audit_and_series_enrichment_jobs_accept_only_their_fixed_options(self):
+    def test_audit_jobs_accept_no_options_and_retired_jobs_are_refused(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work);requests=root/'worker/requests';requests.mkdir(parents=True)
             with self.assertRaises(ArchiveError):submit_job(root,'audit_account',{'output':'/tmp/outside'})
-            for options in ({},{'id':42},{'id':'../outside'},{'id':'42','refresh':'yes'},{'id':'42','url':'https://tapas.io/'}):
-                with self.subTest(options=options),self.assertRaises(ArchiveError):submit_job(root,'enrich_series',options)
+            for operation in ('enrich_series','archive_watched_series','archive_series_url'):
+                with self.subTest(operation=operation),self.assertRaises(ArchiveError):submit_job(root,operation,{'id':'42'})
             self.assertEqual(list(requests.iterdir()),[])
-            for operation,options,args in (('audit_account',None,{}),('enrich_series',{'id':'my-series_1','refresh':True},{'id':'my-series_1','refresh':True})):
-                task=submit_job(root,operation,options)['task_id']
-                self.assertEqual(json.loads((requests/f'{task}.json').read_text()),{'operation':operation,'args':args})
+            task=submit_job(root,'audit_account')['task_id']
+            self.assertEqual(json.loads((requests/f'{task}.json').read_text()),{'operation':'audit_account','args':{}})
 
     def test_reader_recovery_probe_needs_one_numeric_episode_and_limit_one(self):
         with tempfile.TemporaryDirectory() as work:
@@ -166,45 +134,11 @@ class QueueClientTests(unittest.TestCase):
                 task=submit_job(root,'sync',options)['task_id']
                 self.assertEqual(json.loads((requests/f'{task}.json').read_text())['args'],options)
 
-    def test_inspections_publish_only_their_own_fixed_options(self):
-        url='https://tapas.io/episode/81'
-        cases={'configure_priority':([{'priority':'owned_first'}],[{},{'priority':'cheapest'},{'priority':True},{'priority':'owned_first','path':'/tmp'}]),
-            'inspect_episode_page_size':([{'id':'42'},{'id':'42','max_limit':100}],
-                [{},{'id':42},{'id':'0'},{'id':'42','max_limit':30},{'id':'42','max_limit':True},{'id':'42','url':url}]),
-            'diagnose_headless':([{'url':url}],[{},{'url':url+'?token=PRIVATE'},{'url':'https://evil.test/episode/81'},{'url':url,'cookies':'PRIVATE'}]),
-            'inspect_episode':([{'url':url},{'url':url,'details':True}],
-                [{},{'url':url,'details':'yes'},{'url':'https://tapas.io/series/42'},{'url':url,'cookies':'PRIVATE'}]),
-            'inspect_reader_identity':([{'url':url}],[{},{'url':url+'?buy=1'},{'url':5},{'url':url,'x':1}]),
-            'inspect_episode_access':([{'url':url}],[{},{'url':url+'?buy=1'},{'url':5},{'url':url,'x':1}]),
-            'inspect_library_pages':([{},{'category':'recent','max_pages':200}],
-                [{'max_pages':201},{'max_pages':0},{'max_pages':True},{'category':'purchased'},{'url':'https://evil.test/'}]),
-            'inspect_library_filter':([{},{'category':'updated','content_type':'novels'}],
-                [{'content_type':'payments'},{'category':['recent']},{'category':'purchased'},{'x':1}]),
-            'inspect_free_access':([{}],[{'action':'unlock'}]),
-            'inspect_library':([{},{'category':'recent','details':True}],[{'details':'yes'},{'category':'purchased'},{'x':1}]),
-            'inspect_series_metadata':([{'id':'my-series_1'}],[{},{'id':'../outside'},{'id':5},{'id':'42','url':url}]),
-            'inspect_series':([{'id':'my-series','strict_order':False}],
-                [{},{'id':'../outside'},{'id':'42','strict_order':1},{'id':'42','x':1}])}
-        with tempfile.TemporaryDirectory() as work:
-            root=Path(work);requests=root/'worker/requests';requests.mkdir(parents=True)
-            for operation,(valid,invalid) in cases.items():
-                for options in invalid:
-                    with self.subTest(operation=operation,refused=options),self.assertRaises(ArchiveError):
-                        submit_inspection(root,operation,options)
-                    self.assertEqual(list(requests.iterdir()),[])
-                for options in valid:
-                    with self.subTest(operation=operation,accepted=options):
-                        task=submit_inspection(root,operation,options)['task_id']
-                        path=requests/f'{task}.json'
-                        self.assertEqual(json.loads(path.read_text()),{'operation':operation,'args':options})
-                        self.assertEqual(path.stat().st_mode & 0o777,PRIVATE_FILE)
-                        path.unlink()
-
     def test_jobs_are_refused_while_no_worker_has_prepared_the_queue(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work)
-            with self.assertRaisesRegex(ArchiveError,'Start browser-worker'):submit_job(root,'sync')
-            with self.assertRaisesRegex(ArchiveError,'Start browser-worker'):submit_inspection(root,'check_session')
+            with self.assertRaisesRegex(ArchiveError,'Start the downloader'):submit_job(root,'sync')
+            with self.assertRaisesRegex(ArchiveError,'Start the downloader'):submit_inspection(root,'cloud_upload')
             self.assertEqual(list(root.iterdir()),[])
 
     def test_reserved_job_never_replaces_or_trusts_an_unsafe_or_damaged_queued_request(self):

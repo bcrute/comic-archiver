@@ -17,7 +17,6 @@ from .cancellation import RunCancellation, RunCancelled
 from .adapters.pagination import EpisodeCountMismatch
 
 
-JOBS_VERSION = 57
 MAX_CONSECUTIVE_ASSET_FAILURES = 3
 MAX_DEFERRED_ASSET_FAILURES = 5
 # A short audit or backup holding the library is waited for; failing here would leave the batch without a receipt.
@@ -36,24 +35,6 @@ def retain_partial_series(inventory,error):
         raise MetadataError('The partial episode list does not match its observed series/count gap.')
     inventory.observe(error.series_id,partial['title'],partial['episodes'],'partial_series_list')
     return True
-
-
-def check_session(adapter,output=Path('Library')):
-    """One normal identity check, with no account data in the result."""
-    from .network import bind_adapter
-    bind_adapter(adapter, output)
-    adapter.deadline=time.monotonic()+60
-    identity=adapter.account_identity()
-    if not isinstance(identity,str) or not identity:
-        raise AuthenticationError('Tapas authentication is unverified; log in before checking the session.')
-    path=Path(output)/'.archive-state/inventory.sqlite3'
-    if any(parent.is_symlink() for parent in (path,*path.parents)):
-        raise ArchiveError('Session account binding storage is unavailable.')
-    binding='unbound'
-    if path.is_file():
-        with Inventory(output,read_only=True) as inventory:
-            binding=inventory.account_binding_state(identity)
-    return {'authenticated':True,'account_binding':binding,'reader_or_comic_pages_requested':False}
 
 
 def job_progress(root,run_id,**fields):
@@ -172,21 +153,21 @@ class DownloadBudget:
 
 def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                        max_pages=None, max_bytes=None, max_seconds=None, free_only=False,
-                       min_free_bytes=256 * 1024 * 1024, _refresh=None, _series_id=None,
-                       download_workers=1, _selected_only=False, _pipeline=False, _scan_only=False,
+                       min_free_bytes=256 * 1024 * 1024, _refresh=None,
+                       download_workers=1, _pipeline=False, _scan_only=False,
                        retry_episode_id=None):
     from .downloads import adapter_profile, validate_download_workers
     from .network import NetworkPolicyHold, bind_adapter
     bind_adapter(adapter, output)
     profile = adapter_profile(adapter)
-    if type(_scan_only) is not bool or (_scan_only and (_refresh is None or _selected_only)):
+    if type(_scan_only) is not bool or (_scan_only and _refresh is None):
         raise ArchiveError('Scan-only jobs require an explicit inventory refresh.')
     validate_download_workers(download_workers, profile)
     if type(_pipeline) is not bool:
         raise ArchiveError('Metadata lookahead must be an explicit boolean.')
     if retry_episode_id is not None and (not isinstance(retry_episode_id, str)
             or not re.fullmatch(r'[1-9][0-9]{0,19}', retry_episode_id)
-            or limit != 1 or _refresh is not None or _series_id is not None or _scan_only):
+            or limit != 1 or _refresh is not None or _scan_only):
         raise ArchiveError('Reader recovery probes select one observed pending episode.')
     if profile == 'fast' and not free_only:
         _pipeline = True
@@ -194,10 +175,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         raise ArchiveError("Episode limit must be a positive integer.")
     if type(free_only) is not bool or type(min_free_bytes) is not int or min_free_bytes < 0:
         raise ArchiveError("Job filtering and disk reserve options are invalid.")
-    if _series_id is not None and (not isinstance(_series_id,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',_series_id)):
-        raise ArchiveError('A selected series requires its observed numeric source identity.')
-    if type(_selected_only) is not bool or (_selected_only and _refresh is None):
-        raise ArchiveError('A selected import needs an explicit series refresh.')
     if (type(_pipeline) is not bool or (_pipeline and (free_only
             or not callable(getattr(adapter, 'prefetch_episode', None))))):
         raise ArchiveError('Metadata lookahead requires a compatible browser adapter.')
@@ -233,13 +210,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         consecutive_asset_failures = 0
 
         def pending():
-            if _selected_only and _series_id is None:
-                return []
-            rows = inventory.pending(free_only)
-            return rows if _series_id is None else [row for row in rows if row['series_id']==_series_id]
-
-        if _series_id is not None:
-            summary['source_series_id'] = _series_id
+            return inventory.pending(free_only)
 
         def enrich_metadata(series_key,store):
             budget.check()
@@ -310,13 +281,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                     finally:summary['scan_elapsed_seconds']=round(max(0,time.monotonic()-scan_started),3)
                     if refresh_result is not None:
                         summary['refresh'] = refresh_result
-                    if _selected_only:
-                        selected = refresh_result.get('source_series_id') if isinstance(refresh_result, dict) else None
-                        if (not isinstance(selected, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', selected)
-                                or not any(s['id'] == selected for s in inventory.watched_series())):
-                            raise MetadataError('The chosen series identity was not verified.')
-                        _series_id = selected
-                        summary['source_series_id'] = selected
                 inventory.reconcile()
                 if _scan_only:
                     summary['scan_only'] = True
@@ -441,13 +405,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             "downloaded_pages": budget.pages, "downloaded_bytes": budget.bytes,
                             'downloaded_chapters':budget.chapters,
                             'cancellation_supported':True})
-                    # An explicit completed-series retry also repairs optional details
-                    # and covers, under this run's existing byte/time/cancel budgets.
-                    if (not selected and _series_id is not None
-                            and getattr(adapter,'supports_series_metadata',False) is True
-                            and inventory.db.execute('SELECT 1 FROM episodes WHERE series_id=? AND status=? LIMIT 1',
-                                                     (_series_id,'archived')).fetchone()):
-                        enrich_metadata(_series_id,with_store)
                     remaining = len(pending())
                     summary["pending_episode_count"] = remaining
                     checkpoint("finished" if remaining == 0 else "limited")
@@ -719,58 +676,3 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
         adapter.metadata_interval = previous
 
 
-def archive_watched_series(adapter, series_id, output=Path('Library'), **options):
-    """Refresh and archive one observed series within the normal job budgets.
-
-    The account binding is checked before metadata. Unknown series IDs cause
-    no series/reader request. Episode access is rechecked by the archive job.
-    """
-    if not isinstance(series_id,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',series_id):
-        raise ArchiveError('Select an observed numeric series identity.')
-
-    def refresh(inventory, budget, run_id):
-        if not any(series['id']==series_id for series in inventory.watched_series()):
-            raise ArchiveError('The selected series has not been observed in this library.')
-        return refresh_selected_series(adapter, inventory, budget, run_id, series_id)
-
-    return archive_discovered(adapter,output,_refresh=refresh,_series_id=series_id,**options)
-
-
-def refresh_selected_series(adapter, inventory, budget, run_id, series_id):
-    budget.check()
-    job_progress(inventory.root,run_id,phase='scan',series_id=series_id)
-    try:
-        inspected = adapter.inspect_series(series_id,strict_order=False)
-    except EpisodeCountMismatch as error:
-        if error.series_id!=series_id:
-            raise MetadataError('The pagination gap does not match the selected series.') from None
-        if not retain_partial_series(inventory,error):raise
-        inventory.record_scan_gap(series_id,error.observed_count,error.reported_count)
-        budget.check()
-        return {'state':'partial','source_series_id':series_id,'series_scan_gaps':inventory.scan_gaps()}
-    if (inspected.get('authenticated') is not True or inspected.get('complete') is not True
-            or inspected.get('source_series_id') != series_id):
-        raise MetadataError('Selected series refresh is incomplete or inconsistent.')
-    inventory.observe(series_id,inspected['title'],inspected['episodes'],'selected_series')
-    inventory.record_series_scan(series_id)
-    budget.check()
-    return {'state':'finished','source_series_id':series_id}
-
-
-def archive_series_url(adapter, url, output=Path('Library'), **options):
-    """Start with a chosen comic/novel, before scanning an account watchlist."""
-    from .selection import series_link
-    key = series_link(url)
-
-    def refresh(inventory, budget, run_id):
-        budget.check()
-        identity = adapter.series_identity(key)
-        if (not isinstance(identity, dict) or not isinstance(identity.get('source_series_id'), str)
-                or not re.fullmatch(r'[1-9][0-9]{0,19}', identity['source_series_id'])
-                or not isinstance(identity.get('title'), str) or not identity['title'].strip()):
-            raise MetadataError('The supplied link has no verified series identity.')
-        selected = identity['source_series_id']
-        inventory.observe(selected, identity['title'], [], 'explicit_series_link')
-        return refresh_selected_series(adapter, inventory, budget, run_id, selected)
-
-    return archive_discovered(adapter, output, _refresh=refresh, _selected_only=True, **options)

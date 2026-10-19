@@ -18,7 +18,6 @@ from .archive_paths import directory
 from .osdep import anchored, hide, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
 from .errors import RunLimit
-ARCHIVE_VERSION = 15
 LIBRARY_REPORT_MAX_BYTES = 64 * 1024 * 1024
 
 

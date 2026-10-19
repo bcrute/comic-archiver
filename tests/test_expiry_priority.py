@@ -7,15 +7,17 @@ import unittest
 from unittest.mock import patch
 
 from comic_archive.adapters.tapas_http import access_state
-from comic_archive.cli import parser, run
 from comic_archive.errors import AccessDenied, UnsupportedContent
 from comic_archive.expiry import expiration
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import DownloadBudget, archive_discovered
-from comic_archive.models import ArchiveError
-from comic_archive.queue_client import submit_inspection
-from comic_archive.worker import execute
 from test_jobs import AccountAdapter
+
+
+def owned_first(inventory):
+    # A choice older versions could save; libraries that have it keep their order.
+    inventory.db.execute("INSERT INTO settings VALUES ('queue_priority','owned_first')")
+    inventory.db.commit()
 
 
 class ExpiryPriorityTests(unittest.TestCase):
@@ -49,7 +51,7 @@ class ExpiryPriorityTests(unittest.TestCase):
         self.seed()
         with Inventory(self.root) as inventory:
             self.assertEqual([r['id'] for r in inventory.pending()],['83','82','81','84'])
-            inventory.set_queue_priority('owned_first')
+            owned_first(inventory)
             self.assertEqual([r['id'] for r in inventory.pending()],['81','83','82','84'])
         with Inventory(self.root,read_only=True) as inventory:
             self.assertEqual(inventory.queue_priority(),'owned_first')
@@ -113,27 +115,12 @@ class ExpiryPriorityTests(unittest.TestCase):
         self.assertEqual(result['archived_episode_ids'],[]);self.assertEqual(adapter.downloads,[])
         self.assertFalse(any(isinstance(c,tuple) and c[0]=='capture' for c in adapter.calls))
 
-    def test_settings_queue_is_fixed_no_source_actions_and_cli_can_use_the_worker(self):
-        requests=self.session/'worker/requests';requests.mkdir(parents=True)
-        task=submit_inspection(self.session,'configure_priority',{'priority':'owned_first'})
-        request=json.loads((requests/(task['task_id']+'.json')).read_text())
-        adapter=AccountAdapter()
-        with patch('comic_archive.worker.Path') as path:
-            path.return_value=self.root
-            result=execute(adapter,request)
-        self.assertEqual(result,{'queue_priority':'owned_first'});self.assertEqual(adapter.calls,[])
-        for opts in ({'priority':'invalid'},{'priority':'owned_first','account':'PRIVATE'},{'priority':[]}):
-            with self.assertRaises(ArchiveError): submit_inspection(self.session,'configure_priority',opts)
-        args=parser().parse_args(['--session-dir',str(self.session),'queue-priority','expiring_first','--via-worker'])
-        with patch('builtins.print'):self.assertEqual(run(args),0)
-        self.assertEqual(len(list(requests.glob('*.json'))),2)
-
     def test_selection_follows_the_chosen_queue_order_for_expiring_and_owned_episodes(self):
         self.seed()
         with Inventory(self.root) as inventory:
             selected,wait=inventory.archive_selection(inventory.pending(),limit=3)
             self.assertEqual([r['id'] for r in selected],['83','82','81']);self.assertIsNone(wait)
-            inventory.set_queue_priority('owned_first')
+            owned_first(inventory)
             selected,wait=inventory.archive_selection(inventory.pending(),limit=3)
             self.assertEqual([r['id'] for r in selected],['81','83','82']);self.assertIsNone(wait)
 

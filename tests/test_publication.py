@@ -1,9 +1,7 @@
 import io
 import json
-import os
 from pathlib import Path
 import random
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -18,19 +16,17 @@ from dataclasses import replace
 import zstandard
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER
-from comic_archive.archive import Store, digest, sidecar_path, verify, verify_episode, verify_episode_contents
-from comic_archive.backup import backup_library
+from comic_archive.archive import digest, sidecar_path, verify, verify_episode, verify_episode_contents
 from comic_archive.inventory import Inventory
 from comic_archive.errors import LibraryBusy
 from comic_archive.jobs import archive_discovered
 from comic_archive.locking import LibraryLock
-from comic_archive.migration import migrate_exports
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import (PublicationStore, StrictZstdReader, comic_pages, import_metadata,
                                        validate_public_metadata,
                                        verify_compressed_comic, write_cbz, write_compressed_comic)
-from comic_archive.storage import configure
 from test_archive import MemoryAdapter, png
+from test_storage import set_policy
 from test_jobs import AccountAdapter
 
 
@@ -193,10 +189,8 @@ class PublicationTests(unittest.TestCase):
             self.assertIn(b'urn:uuid:',z.read('EPUB/package.opf'));self.assertNotIn(b'tapas:',z.read('EPUB/package.opf'))
         self.assertEqual(verify(self.root),[])
 
-    def test_backup_and_independent_restore_copy_only_neutral_portable_files(self):
+    def test_independent_restore_copies_only_neutral_portable_files(self):
         self.publish()
-        result=backup_library(self.root,self.root.parent/'Backup',reserve_bytes=0)
-        self.assertTrue(result['complete'])
         destination=self.root.parent/'Restored'
         script=Path(__file__).resolve().parents[1]/'scripts/offline_restore.py'
         restored=subprocess.run([sys.executable,str(script),str(self.root),'--destination',str(destination)],capture_output=True,text=True,check=True)
@@ -217,49 +211,6 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual((self.root.parent/'Restored'/folder.name/sidecar.name).read_bytes(),sidecar.read_bytes())
         record['files'][1]['sha256']='0'*64;receipt.write_text(json.dumps(record))  # A receipt for other metadata.
         with self.assertRaisesRegex(ValueError,'episode count'): restore(self.root,self.root.parent/'Again')
-
-    def legacy(self, count=1, novel=False):
-        episodes=tuple(Episode(str(818181+i),self.series.id,'Chapter',i+1,
-            () if novel else (Page(1,'https://cdn.tapas.io/a',False),), 'tapas_unlocked',
-            content_type='novel' if novel else 'comic',text_html='<p>Original text</p>' if novel else None) for i in range(count))
-        store=Store(self.root)
-        try: return store.archive(Manifest(self.series,episodes),MemoryAdapter(),progress=lambda _:None)
-        finally: store.close()
-
-    def test_bounded_migration_resumes_preserves_originals_and_neutralizes_epub(self):
-        self.legacy(count=2)
-        first=migrate_exports(self.root,limit=1,min_free_bytes=0)
-        self.assertEqual(first['converted_episodes'],1);self.assertEqual(first['remaining_legacy_episodes'],1)
-        self.assertEqual(verify(self.root),[])
-        second=migrate_exports(self.root,min_free_bytes=0)
-        self.assertEqual(second['remaining_legacy_episodes'],0);self.assertEqual(len(list(self.root.glob('*/*.cbz'))),2)
-        self.assertEqual(len(list((self.root/'.archive-state/legacy-exports').rglob('*.cbz'))),2)
-        self.assertFalse(any('[424242]' in p.name for p in self.root.iterdir() if not p.name.startswith('.')))
-        self.assertEqual(verify(self.root),[])
-        self.assertEqual(migrate_exports(self.root,min_free_bytes=0)['converted_episodes'],0)
-        shutil.rmtree(self.root);self.legacy(novel=True)
-        result=migrate_exports(self.root,min_free_bytes=0);self.assertEqual(result['converted_episodes'],1)
-        self.assertEqual(verify(self.root),[])
-        with zipfile.ZipFile(next(self.root.glob('*/*.epub'))) as z:
-            self.assertNotIn(b'tapas:',z.read('EPUB/package.opf'))
-
-    def test_migration_recovers_interruption_between_original_pair_moves(self):
-        folder=self.legacy();original_replace=os.replace
-        def interrupted(path,target):
-            path=Path(path)
-            if path.parent==folder and path.suffix=='.json' and path.name!='series.json':
-                raise OSError('simulated interruption')
-            return original_replace(path,target)
-        with patch.object(os,'replace',interrupted),self.assertRaises(OSError): migrate_exports(self.root,min_free_bytes=0)
-        self.assertTrue((self.root/'.archive-state/export-retirement.json').is_file())
-        self.assertEqual(migrate_exports(self.root,min_free_bytes=0)['remaining_legacy_episodes'],0)
-        self.assertEqual(verify(self.root),[])
-        self.assertEqual(len(list((self.root/'.archive-state/legacy-exports').rglob('*.cbz'))),1)
-
-    def test_failed_verification_never_retires_original(self):
-        folder=self.legacy();archive=next(folder.glob('*.cbz'));archive.write_bytes(b'corrupt')
-        with self.assertRaises(ArchiveError): migrate_exports(self.root,min_free_bytes=0)
-        self.assertTrue(archive.is_file());self.assertEqual(list(self.root.glob('*/*.cbz')),[archive])
 
     def pages_manifest(self, *images):
         pages = [{'file': f'{i:04d}.png', 'size': len(data), 'sha256': digest(data)} for i, data in enumerate(images, 1)]
@@ -419,7 +370,7 @@ class PublicationTests(unittest.TestCase):
         PublicationStore(self.root).close()
 
     def test_resume_keeps_cached_pages_when_cache_cleanup_is_disabled(self):
-        configure(self.root, purge_completed_cache=False)
+        set_policy(self.root, purge_completed_cache=False)
         folder = self.publish(); archive = next(folder.glob('*.cbz'))
         blob = self.root / '.archive-cache' / digest(png(1))
         self.assertTrue(blob.is_file())

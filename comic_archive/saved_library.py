@@ -31,7 +31,7 @@ def options(query):
         values = {k:v[0] for k,v in values.items()}
         import re
         location = values.get('location','all')
-        if not re.fullmatch(r'all|device|google|dropbox|proton|b2|(?:google|dropbox|proton|b2)-[a-f0-9]{16}', location):
+        if not re.fullmatch(r'all|device|b2|b2-[a-f0-9]{16}', location):
             raise ValueError
         kind = values.get('kind','all'); sort = values.get('sort','saved_desc')
         if kind not in {'all','episodes','metadata','covers'} or sort not in {'saved_desc','saved_asc','series'}:

@@ -14,8 +14,7 @@ from comic_archive import sites, worker
 from comic_archive.adapters.tappytoon import KEY_PAGE, LISTS, TappytoonAdapter
 from comic_archive.archive import verify
 from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError
-from comic_archive.inventory import Inventory
-from comic_archive.jobs import archive_watched_series, sync
+from comic_archive.jobs import sync
 from comic_archive.models import ArchiveError
 from comic_archive.transport import Transport
 
@@ -127,11 +126,9 @@ class TappytoonTests(unittest.TestCase):
 
     @patch('builtins.print')
     def test_the_free_and_unlocked_chapters_are_saved_with_their_pictures_in_order_and_the_locked_one_is_not(self, output, sleep):
-        adapter, client = reader(series_answers() | {KEY_PAGE: page_data(account=5)})
-        with Inventory(self.root) as inventory:
-            inventory.observe('67', 'Sample Series', [], 'fixture')
+        adapter, client = reader(series_answers() | {KEY_PAGE: page_data(account=5), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}]})
         with adapter:
-            result = archive_watched_series(adapter, '67', self.root)
+            result = sync(adapter, self.root, categories=['unlocked'])
         self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
         self.assertEqual(verify(self.root), [])
         saved = []
@@ -428,11 +425,9 @@ class TappytoonTests(unittest.TestCase):
 
     @patch('builtins.print')
     def test_a_free_only_download_checks_each_chapter_first_and_saves_only_the_free_ones(self, output, sleep):
-        adapter, client = reader(series_answers() | {KEY_PAGE: page_data(account=5)})
-        with Inventory(self.root) as inventory:
-            inventory.observe('67', 'Sample Series', [], 'fixture')
+        adapter, client = reader(series_answers() | {KEY_PAGE: page_data(account=5), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}]})
         with adapter:
-            result = archive_watched_series(adapter, '67', self.root, free_only=True)
+            result = sync(adapter, self.root, categories=['unlocked'], free_only=True)
         self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901'])
         self.assertFalse(any('chapterId=903' in url for url, _ in client.calls))
         self.assertEqual(verify(self.root), [])
@@ -449,12 +444,10 @@ class TappytoonTests(unittest.TestCase):
                 return super().stream(method, url, headers)
 
         client = CoverRunsOut(series_answers() | {KEY_PAGE: page_data(account=5), COMIC['coverImageUrl']: Answer(b'', 403),
-                                                  fresh: png(201)})
+                                                  fresh: png(201), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}]})
         adapter = TappytoonAdapter(transport=Transport(client=client, site=sites.named('tappytoon')))
-        with Inventory(self.root) as inventory:
-            inventory.observe('67', 'Sample Series', [], 'fixture')
         with adapter:
-            result = archive_watched_series(adapter, '67', self.root)
+            result = sync(adapter, self.root, categories=['unlocked'])
         self.assertEqual((result['enriched_series_ids'], result['metadata_unavailable_series']), (['67'], []))
         self.assertEqual([url for url, _ in client.calls if 'image-repository' in url], [COMIC['coverImageUrl'], fresh])
 

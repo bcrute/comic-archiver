@@ -9,7 +9,6 @@ from unittest.mock import patch
 from support import PRIVATE_FILE
 from comic_archive import batches, completion
 from comic_archive.archive import atomic_json
-from comic_archive.cli import parser,run
 from comic_archive.locking import LibraryLock
 from comic_archive.models import ArchiveError
 
@@ -244,13 +243,11 @@ class CompletionTests(unittest.TestCase):
         self.assertIsNone(batches._load(self.root)['network_retry_after'])
         self.assertEqual(list((self.root/'requests').iterdir()),[])
 
-    def test_due_daily_job_gets_priority_over_backlog_submission(self):
-        from comic_archive.daily import configure,tick
-        self.configure();configure(self.session,run_now=True)
-        self.tick();self.assertIsNone(batches._load(self.root))
-        daily=tick(self.session);self.assertIsNotNone(daily['pending_task_id'])
+    def test_a_queued_job_gets_priority_over_backlog_submission(self):
+        from comic_archive.queue_client import submit_job
+        self.configure();task=submit_job(self.session,'audit_account')['task_id']
         for _ in range(3):self.tick()
-        self.assertEqual([p.stem for p in (self.root/'requests').glob('*.json')],[daily['pending_task_id']])
+        self.assertEqual([p.stem for p in (self.root/'requests').glob('*.json')],[task])
 
     def test_stop_keeps_pending_task_and_old_limits_on_explicit_resume(self):
         self.configure();task,_=self.publish();before=completion.status(self.session,self.library)
@@ -290,18 +287,6 @@ class CompletionTests(unittest.TestCase):
         other=self.project/'other.json';other.write_bytes(original)
         (self.root/'completion.json').symlink_to(other)
         with self.assertRaises(ArchiveError):self.tick()
-
-    @patch('builtins.print')
-    def test_cli_defaults_and_resume_preserve_current_bounds(self,output):
-        self.assertEqual(parser().parse_args(['complete-backlog']).max_windows,7)
-        with patch('comic_archive.completion.configure',return_value={'status':'running'}) as configure:
-            self.assertEqual(run(parser().parse_args(['--request-interval','0.5','complete-backlog','--resume'])),0)
-            self.assertTrue(configure.call_args.kwargs['resume'])
-            self.assertEqual(configure.call_args.kwargs['window_budgets'],{'request_interval':.5})
-            self.assertFalse(configure.call_args.kwargs['until_drained'])
-            self.assertEqual(run(parser().parse_args(['complete-backlog','--until-drained','--speed','fast'])),0)
-            self.assertTrue(configure.call_args.kwargs['until_drained'])
-
 
     def test_a_damaged_or_tampered_plan_is_refused_and_left_exactly_as_it_was(self):
         self.configure();path=self.root/'completion.json';original=path.read_bytes()
