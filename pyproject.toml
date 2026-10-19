@@ -24,7 +24,7 @@ comic-archiver = "comic_archive.desktop_app:main"
 include = ["comic_archive*"]
 
 [tool.setuptools.package-data]
-comic_archive = ["static/*.html", "static/*.css", "static/*.js"]
+comic_archive = ["window/*.png"]
 
 [tool.ruff]
 target-version = "py311"
@@ -44,7 +44,7 @@ ignore = [
 # ElementTree never loads external entities.
 "comic_archive/{novels,migration}.py" = ["S314"]
 # Opening a saved file hands it to the system's own opener (os.startfile, or xdg-open by name).
-"comic_archive/local_web.py" = ["S606", "S607"]
+"comic_archive/local_library.py" = ["S606", "S607"]
 # Tests and checks assert, use fixed temporary paths, fake secrets and seeded randomness, and define
 # helpers inside loops that they call in the same pass.
 "tests/**" = ["S101", "S104", "S105", "S108", "S310", "S311", "S314", "S324", "S607", "S608", "B023"]

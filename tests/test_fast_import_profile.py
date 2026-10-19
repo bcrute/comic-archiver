@@ -127,7 +127,7 @@ class FastImportTests(unittest.TestCase):
 
     def test_source_refusal_is_visible_without_publishing_private_worker_errors(self):
         from comic_archive.archive import atomic_json
-        from comic_archive.local_web import LOCAL_OWNER, LocalWorkspaceRegistry
+        from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
         with tempfile.TemporaryDirectory() as temporary:
             registry = LocalWorkspaceRegistry(Path(temporary))
             workspace = registry.resolve(LOCAL_OWNER, registry.workspace_id)

@@ -87,8 +87,6 @@ def suites(prepare=False):
 def static_checks():
     """Lint and security rules over the code, then known vulnerabilities in the installed dependencies."""
     command([sys.executable, '-m', 'ruff', 'check', '--no-cache', 'comic_archive', 'scripts', 'tests'])
-    command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'])
-    command(['npm', 'run', 'lint'])
     frozen = subprocess.run(['uv', 'pip', 'freeze', '--python', sys.executable], cwd=ROOT, check=True,
                             capture_output=True, text=True, timeout=120).stdout
     # This project itself is installed editable and is not on the package index.
@@ -128,19 +126,10 @@ def main():
     static_checks()
     summary = suites(args.prepare)
     command([sys.executable, '-m', 'compileall', '-q', 'comic_archive'])
-    # The browser checks keep their scratch files in memory where they can: on a busy fleet host one write
-    # to disk can stall for longer than the pages are given to react (measured 2026-10-13: 3 of 8 runs
-    # failed on disk, at a different step each time, and none of 8 in memory).
-    memory = Path('/dev/shm')
-    with tempfile.TemporaryDirectory(prefix='comic-validate-', dir=memory if os.access(memory, os.W_OK) else None) as scratch:
-        for flags in ([], ['--mobile']):
-            name = 'dashboard-local' + ('-mobile' if '--mobile' in flags else '-desktop')
-            command([sys.executable, 'scripts/dashboard_smoke.py', *flags, '--screenshot', OUT / (name + '.png')],
-                    env=os.environ | {'TMPDIR': scratch})
     command([sys.executable, 'scripts/reading_filter_smoke.py'])
     command([sys.executable, 'scripts/cloud_tools_smoke.py'])
     installed_package()
-    summary.update(required_gates_passed=True, lint_and_security_rules=True, javascript_lint=True, dependency_audit=True, browser_dashboard_variants=2, saved_library_browser_variants=2,
+    summary.update(required_gates_passed=True, lint_and_security_rules=True, dependency_audit=True,
                    reading_filter_smoke=True, pinned_cloud_helper_install=True, fresh_wheel_install=True,
                    real_second_account_onboarding_verified=False,
                    windows_verified=False, macos_verified=False)

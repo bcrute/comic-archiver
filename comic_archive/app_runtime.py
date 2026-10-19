@@ -1,7 +1,7 @@
-"""Qt-free lifecycle of the desktop app: dashboard server, downloader and log.
+"""Qt-free lifecycle of the desktop app: the open library, its downloader and the log.
 
-The window layer only starts and stops this. It reuses the existing local
-dashboard and background worker and never contacts Tapas itself.
+The window layer only starts and stops this, and reads the library through it.
+It never contacts Tapas itself.
 """
 import logging
 from logging.handlers import RotatingFileHandler
@@ -16,12 +16,11 @@ from types import SimpleNamespace
 from . import background, osdep, shared, sites
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy
-from .local_web import LOCAL_OWNER, LocalApplication, LocalWorkspaceRegistry, create_server
+from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from .models import ArchiveError
 from .session import load_session, store_session
 from .state_paths import private_folder, session_path
 from .storage import safe_root
-from .web import LOCATION_ACTIONS, THEMES
 from .worker import WORKER_VERSION
 
 LOG = logging.getLogger('comic_archive.desktop')
@@ -31,6 +30,7 @@ FOLDER_NAME = 'Comic Archiver'
 RETRY_SECONDS = 2
 # How long closing waits for a downloader that had to be ended.
 END_WAIT_SECONDS = 5
+THEMES = ('system', 'light', 'dark')
 UNWRITABLE = ('The library folder cannot be opened or created. Check that it is a folder you can write to '
               'and that the disk is not full.')
 
@@ -150,35 +150,6 @@ def remember_site(site):
         LOG.warning('the site choice could not be saved; it lasts until the app closes')
 
 
-class SiteChoice:
-    """A site the dashboard has asked the window to switch to; the page waits until the window has settled it."""
-
-    def __init__(self):
-        self._asked = None
-        self._waiting = False
-        self._guard = threading.Lock()
-
-    def ask(self, site):
-        with self._guard:
-            self._asked, self._waiting = site, True
-
-    def take(self):
-        """The latest request, once: a site, or None."""
-        with self._guard:
-            asked, self._asked = self._asked, None
-        return asked
-
-    def settle(self):
-        """The window has switched, or stayed: the page reads the open site again."""
-        with self._guard:
-            if self._asked is None:
-                self._waiting = False
-
-    def waiting(self):
-        with self._guard:
-            return self._waiting
-
-
 class SiteSettings:
     """The settings of each site the library folder has a sign-in for, as Settings lists them.
 
@@ -212,30 +183,6 @@ class SiteSettings:
             raise ArchiveError('Choose a site you are signed in to, other than the open one.')
         choose_speed(SimpleNamespace(session=self._session(site)), value)
         return self.list()
-
-
-class Location:
-    """Where episodes are saved, and what the dashboard has asked the window to do about it."""
-
-    def __init__(self, folder):
-        self.folder = folder
-        self._asked = None
-        self._guard = threading.Lock()
-
-    def get(self):
-        return str(self.folder)
-
-    def ask(self, action):
-        if action not in LOCATION_ACTIONS:
-            raise ArchiveError('Comic Archiver does not know that folder action.')
-        with self._guard:
-            self._asked = action
-
-    def take(self):
-        """The latest request, once: 'open', 'choose' or None."""
-        with self._guard:
-            asked, self._asked = self._asked, None
-        return asked
 
 
 class Theme:
@@ -299,13 +246,13 @@ def configure_logging():
 
 
 class Runtime:
-    """The local dashboard server and the downloader behind one app window."""
+    """The open site's library and the downloader behind one app window."""
 
     def __init__(self, project_root, theme=None, site=None):
         self.project_root = project_root
         self.site = site or sites.DEFAULT
-        self.server = self.thread = self.session = self.state = self.url = self.port = self.signin = None
-        self.root = self.location = self.site_choice = None
+        self.registry = self.session = self.state = self.signin = None
+        self.root = self.folder = self.site_settings = None
         self.theme = theme or Theme()
         self._closing = threading.Event()
         self._launch = threading.Lock()
@@ -319,7 +266,7 @@ class Runtime:
             root.mkdir(mode=0o700, exist_ok=True)
             place = safe_root(sites.folder(root, site))
             place.mkdir(mode=0o700, exist_ok=True)
-            # Made here, not later by the dashboard, so that Windows hides them from the start.
+            # Made here, not later by the library, so that Windows hides them from the start.
             session = private_folder(place, 'session')
             private_folder(place, 'web')
             share(place, private_folder(root, 'shared'))
@@ -331,61 +278,38 @@ class Runtime:
             raise ArchiveError(UNWRITABLE) from None
 
     def start(self):
-        """Serve the dashboard on a free loopback port and return the address that opens it."""
+        """Open the site's library in the library folder; the window reads it through this from now on."""
         root, place, session, state = self._place(self.site)
         try:
-            server = create_server(place, 0)
-        except ArchiveError as error:
-            if not str(error).startswith('Cannot bind'):
-                raise
-            raise ArchiveError('Comic Archiver could not open its private page on this computer. '
-                               'Restart your computer and try again.') from None
+            registry = LocalWorkspaceRegistry(place)
         except (OSError, sqlite3.Error) as error:
             LOG.error('library cannot be opened: %s', describe(error))
             raise ArchiveError(UNWRITABLE) from None
-        self.root, self.server, self.port = root, server, server.server_port
-        self.site_choice = SiteChoice()
-        try:
-            self._serve(server.get_app(), session, state)
-        except BaseException:
-            # Nothing was served yet: closing it here leaves stop() nothing to wait for.
-            self.server = None
-            server.server_close()
-            raise
-        self.thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .25}, daemon=True)
-        self.thread.start()
-        # The window opens the launch address: the page's secret way in, which other programs here do not have.
-        self.url = server.get_app().launch_url
-        LOG.info('dashboard is listening on loopback port %d', self.port)
-        return self.url
+        self.root = root
+        self._serve(registry, session, state)
+        LOG.info('the library is open')
 
-    def _serve(self, app, session, state):
-        """Answer the page from this site's own library from now on."""
+    def _serve(self, registry, session, state):
+        """Read this site's own library from now on."""
         # Sign-in happens in the app's own window. The downloader it starts uses the same engine, unseen.
         from .window_signin import WindowSignIn
-        registry = app.registry
-        registry.theme = self.theme
-        registry.sites = sites.choices(self.site)
-        registry.site_choice = self.site_choice
-        registry.site_settings = SiteSettings(self.root, self.site)
-        self.location = registry.location = Location(registry.resolve(LOCAL_OWNER, registry.workspace_id).library)
+        self.site_settings = SiteSettings(self.root, self.site)
+        self.folder = registry.resolve(LOCAL_OWNER, registry.workspace_id).library
         self._reopen(registry, session)
         self.signin = registry.site_signin = WindowSignIn(registry.resolve(LOCAL_OWNER, registry.workspace_id),
                                                            self._launch, self._closing, site=self.site)
         self.session, self.state = session, state
-        self.server.set_app(app)
+        self.registry = registry
 
     def change_site(self, site):
-        """Open the same library folder on another site, behind the same page and port; that site's own sign-in.
+        """Open the same library folder on another site, with that site's own sign-in.
 
-        The page keeps its cookie and reads the other site's library on its next request. Returns None, or the
-        reason in words when the other site's folder cannot be opened; the open site then stays as it was.
+        Returns None, or the reason in words when the other site's folder cannot be opened; the open site then
+        stays as it was.
         """
         try:
             _, place, session, state = self._place(site)
-            current = self.server.get_app()
-            app = LocalApplication(LocalWorkspaceRegistry(place), self.port, cookie_key=current.cookie_key,
-                                   launch_token=current.launch_token)
+            registry = LocalWorkspaceRegistry(place)
         except ArchiveError as error:
             LOG.warning('the site was not changed: %s', describe(error))
             return str(error)
@@ -394,14 +318,14 @@ class Runtime:
             return UNWRITABLE
         self._leave()
         self.site = site
-        self._serve(app, session, state)
+        self._serve(registry, session, state)
         remember_site(site)
         LOG.info('the site was changed')
         self.start_worker()
         return None
 
     def _leave(self, wait_seconds=20):
-        """Stop the open site's downloader and sign-in; the page is still served."""
+        """Stop the open site's downloader and sign-ins."""
         self._closing.set()
         self._closing = threading.Event()  # The next site's own.
         deadline = time.monotonic() + wait_seconds
@@ -411,9 +335,8 @@ class Runtime:
         finally:
             if held:
                 self._launch.release()
-        registry = self.server.get_app().registry
-        registry.cloud_signin.close()
-        registry.site_signin.close()
+        self.registry.cloud_signin.close()
+        self.registry.site_signin.close()
 
     def _reopen(self, registry, session):
         """A download waits for Go at every start; one that was running when the app closed does not go on by itself."""
@@ -446,7 +369,7 @@ class Runtime:
             except LibraryBusy:
                 outcome = 'deferred'
             except (ArchiveError, OSError) as error:
-                # The dashboard reports the downloader as offline and offers Sign in.
+                # The window reports the downloader as offline and offers Sign in.
                 LOG.warning('downloader did not start: %s', describe(error))
                 return 'failed'
             else:
@@ -460,7 +383,7 @@ class Runtime:
         return outcome
 
     def _signing_in(self):
-        return self.server.get_app().registry.site_signin.status().get('status') == 'running'
+        return self.registry.site_signin.status().get('status') == 'running'
 
     def _start_when_free(self):
         """An earlier downloader is finishing its task; start ours once it has gone."""
@@ -483,9 +406,9 @@ class Runtime:
 
     def busy(self):
         """'download' or 'signin' while closing the window would interrupt one, else None."""
-        if self.server is None:
+        registry = self.registry
+        if registry is None:
             return None
-        registry = self.server.get_app().registry
         try:
             if (registry.account_status(LOCAL_OWNER, registry.workspace_id).get('status') == 'running'
                     or background.status(self.session).get('state') == 'busy'):
@@ -513,7 +436,7 @@ class Runtime:
 
     def _interrupt(self):
         from .account_ui import interrupt
-        registry = self.server.get_app().registry
+        registry = self.registry
         try:
             interrupt(registry.resolve(LOCAL_OWNER, registry.workspace_id))
         except (ArchiveError, OSError, sqlite3.Error) as error:
@@ -541,7 +464,7 @@ class Runtime:
         return result, refused
 
     def stop(self, wait_seconds=20):
-        """Close the dashboard and stop the downloader now; nothing is left running behind the closed window.
+        """Close the library and stop the downloader now; nothing is left running behind the closed window.
 
         The batch in progress is interrupted after the image being saved. A
         downloader that still has not gone when the wait is over is ended. The
@@ -553,11 +476,10 @@ class Runtime:
         self._stopped = True
         self._closing.set()
         deadline = time.monotonic() + wait_seconds
-        if self.server is None:
+        if self.registry is None:
             return 'not_started'
-        if self.thread is not None and self.thread.is_alive():
-            self.server.shutdown()
-        self.server.server_close()
+        self.registry.cloud_signin.close()
+        self.registry.site_signin.close()
         # A downloader that is still starting must be visible before it is asked to stop.
         held = self._launch.acquire(timeout=max(0, deadline - time.monotonic()))
         try:
@@ -568,7 +490,7 @@ class Runtime:
         if refused and result.get('running') is not False:
             return 'failed'
         outcome = 'stopped' if result.get('running') is False else 'finishing'
-        LOG.info('dashboard closed; downloader %s', outcome)
+        LOG.info('library closed; downloader %s', outcome)
         return outcome
 
 

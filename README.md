@@ -60,8 +60,8 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every release is checked on Core/Heavy before publication. More than 1,500 automated tests run, and the app's pages are driven
-in a real browser at desktop and phone sizes. A mutation check then puts more than 300 deliberate faults into the code, one
+Every release is checked on Core/Heavy before publication. More than 1,500 automated tests run, and the window's pages are
+drawn by Qt off-screen and clicked through. A mutation check then puts more than 300 deliberate faults into the code, one
 at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
 
 ## Run it from this folder
@@ -114,16 +114,16 @@ Many of them make symlinks, which an ordinary Windows account may do only with D
 
 Run these commands through the shared CI fleet helper, using its private host configuration. All automated
 suites and builds run on Core/Heavy, including the Windows VM; unavailable capacity leaves checks pending.
-Install the test and desktop extras, uv, and Node.js 22.13 or newer in that remote environment first.
+Install the test and desktop extras and uv in that remote environment first.
 
 ```sh
-python3 scripts/validate.py --prepare      # tests, coverage floors, page checks in Firefox, a fresh install
+python3 scripts/validate.py --prepare      # tests, coverage floors, Firefox checks, a fresh install
 python3 scripts/mutation_check.py          # every listed fault must be caught by a test
 python3 scripts/qt_engine_smoke.py         # the app's real web engine against a local stand-in site
 ```
 
 None of these sign in anywhere or contact a comic site. They are heavy; this project runs them on its CI hosts
-rather than on a development PC. Validation includes Ruff lint and security rules, ESLint, and pip-audit.
+rather than on a development PC. Validation includes Ruff lint and security rules, and pip-audit.
 
 Desktop dependencies are constrained by `packaging/linux-requirements.txt` and
 `packaging/windows-requirements.txt`. Both packagers audit the exact installed third-party versions before
@@ -145,7 +145,7 @@ the draft. It performs no builds or suites.
 
 | Path | What it holds |
 |---|---|
-| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `static/` holds the pages. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
+| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `window_pages.py` draws the window's pages from the plain models beside it (`dashboard_model.py`, `storage_model.py`, `library_model.py`), and `app_actions.py` is what they ask of the library. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
 | `comic_archive/adapters/` | What is specific to one site. |
 | `packaging/`, `scripts/build_linux_app.py` | The Linux package. |
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |

@@ -10,14 +10,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from urllib.error import HTTPError, URLError
-from urllib.request import ProxyHandler, Request, build_opener
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment
 from comic_archive import app_runtime, sites
+from comic_archive.app_actions import Actions
 from comic_archive.account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from comic_archive.errors import LibraryBusy
-from comic_archive.local_web import LOCAL_OWNER
+from comic_archive.local_library import LOCAL_OWNER
 from comic_archive.models import ArchiveError
 from comic_archive.session import load_session
 from comic_archive.window_signin import WindowSignIn
@@ -49,9 +48,10 @@ class AppRuntimeTests(unittest.TestCase):
         (session / 'state.json').write_text('{}')
         return session
 
-    def fetch(self, url):
-        with build_opener(ProxyHandler({})).open(url, timeout=5) as response:
-            return response.status, response.headers, response.read().decode()
+    def library(self, runtime):
+        """The folder of saved episodes the window reads through this runtime now."""
+        registry = runtime.registry
+        return registry.resolve(LOCAL_OWNER, registry.workspace_id).library
 
     def test_default_library_is_one_fixed_folder_in_the_real_home_never_the_working_directory(self):
         self.assertEqual(app_runtime.default_root(), self.home / 'Comic Archiver')
@@ -117,16 +117,11 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertIsNone(app_runtime.saved_root())
         self.assertFalse(saved.exists())
 
-    def test_the_dashboard_only_leaves_a_request_about_the_folder_for_the_window_to_pick_up(self):
+    def test_the_window_is_told_the_folder_of_saved_episodes_it_opens_and_offers_to_change(self):
+        self.assertIsNone(self.runtime.folder)
         self.runtime.start()
-        location = self.runtime.location
-        self.assertIs(self.runtime.server.get_app().registry.location, location)
-        self.assertEqual((location.get(), self.runtime.root, location.take()), (str(self.root / 'Library'), self.root, None))
-        location.ask('open'); location.ask('choose')
-        self.assertEqual((location.take(), location.take()), ('choose', None))
-        with self.assertRaises(ArchiveError):
-            location.ask('delete')
-        self.assertIsNone(location.take())
+        self.assertEqual((self.runtime.folder, self.runtime.root, self.library(self.runtime)),
+                         (self.root / 'Library', self.root, self.root / 'Library'))
 
     def test_changing_the_library_folder_restarts_there_keeps_the_sign_in_and_never_moves_saved_episodes(self):
         def signed_in(root, value):
@@ -141,13 +136,11 @@ class AppRuntimeTests(unittest.TestCase):
         drive = self.home / 'drive'; drive.mkdir(); (drive / 'holiday.jpg').write_text('x')
         target = app_runtime.library_root(drive)
         fresh, problem = app_runtime.move(self.runtime, target); self.addCleanup(fresh.stop, 0)
-        self.assertEqual((problem, fresh.root, fresh.theme, fresh.location.get()), (None, target, self.runtime.theme, str(target / 'Library')))
-        # The old dashboard and downloader are gone before the new ones exist.
+        self.assertEqual((problem, fresh.root, fresh.theme, fresh.folder), (None, target, self.runtime.theme, target / 'Library'))
+        # The old library and downloader are closed before the new ones open.
         self.assertEqual(self.runtime.stop(), 'stopped_before')
         self.assertEqual(self.background['stop'].call_args.args[0], self.root / '.comic-session')
-        with self.assertRaises(URLError):
-            self.fetch(self.runtime.url)
-        self.assertEqual(self.fetch(fresh.url)[0], 200)
+        self.assertEqual(self.library(fresh), target / 'Library')
         # A folder with nothing in it starts signed in as before, privately, and its downloader starts.
         self.assertEqual((cookie(target), stat.S_IMODE((target / '.comic-session/state.json').stat().st_mode)), ('PRIVATE_FIRST', PRIVATE_FILE))
         self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [target / '.comic-session'])
@@ -178,45 +171,32 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual((problem, back.root, back.theme), (app_runtime.UNWRITABLE, self.root, self.runtime.theme))
         self.assertNotIn(str(self.home), ''.join(logs.output))
         self.assertIsNot(back, self.runtime)
-        self.assertEqual((self.fetch(back.url)[0], app_runtime.saved_root()), (200, None))
+        self.assertEqual((self.library(back), app_runtime.saved_root()), (self.root / 'Library', None))
         self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
         link = self.home / 'link'; link.symlink_to(self.home / 'elsewhere', target_is_directory=True)
         with self.assertLogs('comic_archive.desktop', 'WARNING'):
             again, problem = app_runtime.move(back, link / 'Comic Archiver'); self.addCleanup(again.stop, 0)
         self.assertIn('shortcut (symlink)', problem); self.assertEqual(again.root, self.root)
 
-    def test_the_dashboard_is_handed_the_list_of_sites_when_the_app_starts(self):
-        listed = [{'key': 'example', 'name': 'Example', 'available': True, 'current': True}]
-        with patch('comic_archive.sites.choices', return_value=listed):
-            self.runtime.start()
-        self.assertIs(self.runtime.server.get_app().registry.sites, listed)
-
     def test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app(self):
         example, saved = replace(sites.DEFAULT, key='example', name='Example', available=True), self.state / 'comic-archiver/site'
-        def context(cookie):
-            request = Request(f'http://127.0.0.1:{self.runtime.port}/api/v1/context', headers={'Cookie': cookie})
-            with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
-                value = json.loads(response.read())
-            return [site['key'] for site in value['sites'] if site['current']], value['site_switching'], value['workspace_ids']
+        actions = Actions(lambda: self.runtime)
+        def context():
+            value = actions.context()
+            return [site['key'] for site in value['sites'] if site['current']], value['workspace_id']
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, replace(sites.DEFAULT, key='later', name='Later', available=False))):
             self.runtime.start(); self.sign_in()
             (self.root / 'Library/kept.cbz').write_text('saved')
-            url, cookie = self.runtime.url, self.fetch(self.runtime.url)[1]['Set-Cookie'].split(';')[0]
-            tapas = context(cookie)[2]
-            # The dashboard only leaves the request; the page waits until the window has settled it.
-            choice = self.runtime.server.get_app().registry.site_choice
-            self.assertIs(choice, self.runtime.site_choice)
-            choice.ask(example)
-            self.assertEqual((context(cookie)[:2], choice.take(), choice.take()), ((['tapas'], True), example, None))
+            tapas = context()[1]
+            self.assertEqual(context()[0], ['tapas'])
             self.assertIsNone(self.runtime.change_site(example))
-            choice.settle()
             place = self.root / 'Example'
-            self.assertEqual((self.runtime.site, self.runtime.root, self.runtime.location.get(), self.runtime.session),
-                             (example, self.root, str(place / 'Library'), place / '.comic-session'))
-            # The same page and its cookie, on the same port, now read the other site's own library.
-            switched = context(cookie)
-            self.assertEqual((self.runtime.url, switched[:2]), (url, (['example'], False)))
-            self.assertNotEqual(switched[2], tapas)
+            self.assertEqual((self.runtime.site, self.runtime.root, self.runtime.folder, self.runtime.session),
+                             (example, self.root, place / 'Library', place / '.comic-session'))
+            # The window's same calls now read the other site's own library.
+            switched = context()
+            self.assertEqual((switched[0], self.library(self.runtime)), (['example'], place / 'Library'))
+            self.assertNotEqual(switched[1], tapas)
             # Tapas's downloader was stopped; one site's sign-in is never handed to another, so the new one waits for its own.
             self.assertEqual([call.args[0] for call in self.background['stop'].call_args_list], [self.root / '.comic-session'])
             self.assertFalse((place / '.comic-session/state.json').exists())
@@ -224,15 +204,15 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertEqual((app_runtime.saved_site(), saved.read_text()), (example, 'example\n'))
             # Back to Tapas: its own library and sign-in as they were, and its downloader starts; no record is needed.
             self.assertIsNone(self.runtime.change_site(sites.DEFAULT))
-            self.assertEqual((self.runtime.session, (self.root / 'Library/kept.cbz').read_text(), context(cookie)),
-                             (self.root / '.comic-session', 'saved', (['tapas'], False, tapas)))
+            self.assertEqual((self.runtime.session, (self.root / 'Library/kept.cbz').read_text(), context()),
+                             (self.root / '.comic-session', 'saved', (['tapas'], tapas)))
             self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
             self.assertEqual((saved.exists(), app_runtime.saved_site()), (False, sites.DEFAULT))
             # Another library folder keeps the site.
             self.assertIsNone(self.runtime.change_site(example))
             drive = self.home / 'drive'
             moved, problem = app_runtime.move(self.runtime, drive); self.addCleanup(moved.stop, 0)
-            self.assertEqual((problem, moved.site, moved.location.get()), (None, example, str(drive / 'Example/Library')))
+            self.assertEqual((problem, moved.site, moved.folder), (None, example, drive / 'Example/Library'))
             self.assertTrue(app_runtime.is_library(drive))  # A folder only another site has saved into is a library too.
             # A site that can no longer be chosen, or nonsense, counts as none.
             for text in ('later\n', 'PRIVATE nonsense', ''):
@@ -246,7 +226,7 @@ class AppRuntimeTests(unittest.TestCase):
                 problem = moved.change_site(example)
             self.assertEqual((problem, moved.site, moved.root, saved.exists(), self.background['stop'].call_count),
                              (app_runtime.UNWRITABLE, sites.DEFAULT, drive, False, stops))
-            self.assertEqual(self.fetch(moved.url)[0], 200)
+            self.assertEqual(self.library(moved), drive / 'Library')
 
     def test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened(self):
         from comic_archive import shared
@@ -254,10 +234,10 @@ class AppRuntimeTests(unittest.TestCase):
         store = self.root / '.comic-shared'
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)), patch('comic_archive.osdep.hide') as hide:
             self.runtime.start()
-            settings = self.runtime.server.get_app().registry.site_settings
+            settings = self.runtime.site_settings
             self.assertEqual((settings.root, settings.site), (self.root, sites.DEFAULT))
             self.assertIsNone(self.runtime.change_site(example))
-            self.assertEqual(self.runtime.server.get_app().registry.site_settings.site, example)
+            self.assertEqual(self.runtime.site_settings.site, example)
         self.assertEqual([shared.folder(place / 'Library') for place in (self.root, self.root / 'Example')], [store, store])
         self.assertIn(store, {call.args[0] for call in hide.call_args_list})
         self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
@@ -268,7 +248,7 @@ class AppRuntimeTests(unittest.TestCase):
                 runtime = app_runtime.Runtime(self.root); self.addCleanup(runtime.stop, 0)
                 with patch('comic_archive.shared.link', side_effect=error), self.assertLogs('comic_archive.desktop', 'WARNING') as logged:
                     runtime.start()
-                self.assertEqual(self.fetch(runtime.url)[0], 200)
+                self.assertEqual(self.library(runtime), self.root / 'Library')
                 self.assertNotIn('PRIVATE', '\n'.join(logged.output))
                 runtime.stop(0)
 
@@ -304,20 +284,11 @@ class AppRuntimeTests(unittest.TestCase):
             with patch.object(Path, 'is_file', side_effect=PermissionError('PRIVATE')):
                 self.assertEqual(settings.list(), [])
 
-    def test_a_switch_settles_only_the_latest_request(self):
-        choice, example = app_runtime.SiteChoice(), replace(sites.DEFAULT, key='example')
-        self.assertFalse(choice.waiting())
-        choice.ask(example); choice.take(); choice.ask(sites.DEFAULT)
-        choice.settle()  # The first request is done; the page still waits for the second.
-        self.assertEqual((choice.waiting(), choice.take()), (True, sites.DEFAULT))
-        choice.settle()
-        self.assertFalse(choice.waiting())
-
     def test_the_theme_follows_the_computer_until_one_is_chosen_and_the_choice_outlives_the_app(self):
         theme, saved = self.runtime.theme, self.state / 'comic-archiver/theme'
-        self.assertEqual(theme.get(), 'system')
+        self.assertEqual((theme.get(), app_runtime.THEMES), ('system', ('system', 'light', 'dark')))
         self.runtime.start()
-        self.assertIs(self.runtime.server.get_app().registry.theme, theme)  # The dashboard's header changes it.
+        self.assertIs(self.runtime.theme, theme)  # The window's header changes it.
         theme.set('dark')
         self.assertEqual((theme.get(), saved.read_text(), app_runtime.Theme().get()), ('dark', 'dark\n', 'dark'))
         self.assertEqual(sorted(path.name for path in saved.parent.iterdir() if path.name.startswith('theme')), ['theme'])
@@ -334,23 +305,14 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertEqual(fresh.get(), 'light')
         self.assertEqual(saved.read_text(), 'PRIVATE nonsense')
 
-    def test_start_creates_private_library_and_serves_dashboard_on_a_free_loopback_port_without_worker(self):
-        url = self.runtime.start()
-        self.assertRegex(url, r'^http://127\.0\.0\.1:[1-9][0-9]*/\?launch=[A-Za-z0-9_-]{43}$')
-        # The address the window opens carries this launch's secret; the port alone opens nothing.
-        launch = self.runtime.server.get_app().launch_token
-        self.assertEqual((url, self.runtime.url), (f'http://127.0.0.1:{self.runtime.port}/?launch={launch}', url))
-        with self.assertRaises(HTTPError) as refused:
-            self.fetch(f'http://127.0.0.1:{self.runtime.port}/')
-        self.assertEqual(refused.exception.code, 401); self.assertNotIn('Set-Cookie', refused.exception.headers)
-        refused.exception.close()
-        self.assertEqual(self.runtime.server.server_address, ('127.0.0.1', self.runtime.port))
+    def test_start_opens_the_private_library_for_the_window_without_a_worker(self):
+        self.assertIsNone(self.runtime.start())
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), PRIVATE_FOLDER)
-        status, headers, body = self.fetch(url)
-        self.assertEqual(status, 200)
-        self.assertIn('id="account-download"', body)
-        self.assertIn(f'comic_archive_local-{self.runtime.port}=', headers['Set-Cookie'])
-        signin = self.runtime.server.get_app().registry.site_signin
+        registry = self.runtime.registry
+        self.assertEqual((self.library(self.runtime), registry.ids(LOCAL_OWNER), registry.ids('someone-else')),
+                         (self.root / 'Library', [registry.workspace_id], []))
+        self.assertEqual((self.runtime.site_settings.root, self.runtime.site_settings.site), (self.root, sites.DEFAULT))
+        signin = registry.site_signin
         self.assertIsInstance(signin, WindowSignIn)  # No separate browser window: the app's own window signs in.
         self.assertIs(signin, self.runtime.signin)
         self.assertEqual((signin.browser, signin.workspace.session), (DESKTOP_BROWSER, self.root / '.comic-session'))
@@ -359,7 +321,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.background['start'].assert_not_called()
         self.assertFalse(self.runtime.busy())
 
-    def test_unusable_library_folder_or_port_fails_before_any_worker_and_leaves_nothing_running(self):
+    def test_unusable_library_folder_or_library_fails_before_any_worker_and_leaves_nothing_running(self):
         link = self.home / 'link'; link.symlink_to(self.home, target_is_directory=True)
         blocked = self.home / 'file'; blocked.write_text('not a folder')
         for root in (link / 'Comic Archiver', blocked, self.home / 'missing/parent'):
@@ -369,31 +331,23 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertFalse(runtime.busy())
             self.assertEqual(runtime.stop(), 'not_started')
         self.assertEqual(blocked.read_text(), 'not a folder')
-        with patch('comic_archive.app_runtime.create_server', side_effect=ArchiveError('port unavailable')):
+        with patch('comic_archive.app_runtime.LocalWorkspaceRegistry', side_effect=ArchiveError('Library key is invalid')):
             with self.assertRaises(ArchiveError): self.runtime.start()
-        self.assertIsNone(self.runtime.thread)
+        self.assertIsNone(self.runtime.registry)
         self.background['start'].assert_not_called(); self.background['stop'].assert_not_called()
 
-    def test_a_start_that_fails_after_the_port_was_opened_closes_it_and_stop_still_works(self):
-        servers = []
-        real = app_runtime.create_server
-
-        def made(*args):
-            servers.append(real(*args))
-            return servers[-1]
-        with patch('comic_archive.app_runtime.create_server', side_effect=made), \
-                patch.object(app_runtime.Runtime, '_reopen', side_effect=RuntimeError('PRIVATE')):
+    def test_a_start_that_fails_part_way_leaves_no_library_open_and_stop_still_works(self):
+        with patch.object(app_runtime.Runtime, '_reopen', side_effect=RuntimeError('PRIVATE')):
             with self.assertRaises(RuntimeError): self.runtime.start()
-        self.assertEqual(servers[0].socket.fileno(), -1)
-        self.assertEqual((self.runtime.server, self.runtime.thread, self.runtime.url), (None, None, None))
+        self.assertEqual((self.runtime.registry, self.runtime.signin), (None, None))
         # Closing the window afterwards neither fails nor asks a downloader that was never started.
         self.assertEqual(self.runtime.stop(), 'not_started')
         self.background['stop'].assert_not_called()
-        # A runtime whose server is up but was never served stops without waiting on a thread that does not exist.
+        # An open library has both its sign-ins closed with it.
         other = app_runtime.Runtime(self.root)
-        other.server = Mock()
+        other.registry = Mock()
         self.assertEqual(other.stop(0), 'stopped')
-        other.server.shutdown.assert_not_called(); other.server.server_close.assert_called_once_with()
+        other.registry.cloud_signin.close.assert_called_once_with(); other.registry.site_signin.close.assert_called_once_with()
 
     def test_saved_sign_in_starts_the_slow_built_in_engine_downloader_and_replaces_an_older_version(self):
         session = self.sign_in(); self.runtime.start()
@@ -409,9 +363,10 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertFalse(self.background['start'].call_args.kwargs['restart'])
         self.assertIsNone(self.runtime._retry)
 
-    def test_window_sign_in_is_served_by_the_dashboard_and_shares_the_launch_lock_and_closing_flag(self):
+    def test_window_sign_in_is_the_librarys_own_and_shares_the_launch_lock_and_closing_flag(self):
         session = self.sign_in(); self.runtime.start()
-        registry, signin = self.runtime.server.get_app().registry, self.runtime.signin
+        registry, signin = self.runtime.registry, self.runtime.signin
+        self.assertIs(registry.site_signin, signin)
         self.assertEqual(signin.start(), {'status': 'running'})
         self.assertEqual(registry.site_signin_status(LOCAL_OWNER, registry.workspace_id), {'status': 'running'})
         self.assertEqual(self.runtime.busy(), 'signin')
@@ -439,7 +394,7 @@ class AppRuntimeTests(unittest.TestCase):
     def test_draining_or_launching_downloader_defers_then_starts_once_after_it_and_sign_in_have_gone(self):
         self.sign_in(); self.runtime.start()
         self.background['status'].reset_mock()  # Starting looks once, for a batch that closing interrupted.
-        signin = self.runtime.server.get_app().registry.site_signin
+        signin = self.runtime.registry.site_signin
         draining = {'running': True, 'worker_version': WORKER_VERSION, 'stop_requested': True}
         gone = {'running': False}
         for first in ({'running': True, 'start_deferred': True, 'reason': 'worker_draining'}, LibraryBusy('PRIVATE')):
@@ -498,9 +453,9 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertFalse(retry.is_alive())
         self.background['start'].assert_called_once()
 
-    def test_downloader_start_failures_keep_the_dashboard_open_and_log_no_private_text(self):
+    def test_downloader_start_failures_keep_the_library_open_and_log_no_private_text(self):
         log = app_runtime.configure_logging()
-        self.sign_in(); url = self.runtime.start()
+        self.sign_in(); self.runtime.start()
         for failure in (ArchiveError('PRIVATE_COOKIE'), OSError('/PRIVATE_PATH')):
             self.background['start'].side_effect = failure
             self.assertEqual(self.runtime.start_worker(), 'failed')
@@ -509,7 +464,7 @@ class AppRuntimeTests(unittest.TestCase):
             self.background['start'].return_value = result
             self.assertEqual(self.runtime.start_worker(), 'failed')
         self.assertIsNone(self.runtime._retry)
-        self.assertEqual(self.fetch(url)[0], 200)
+        self.assertEqual(self.library(self.runtime), self.root / 'Library')
         text = log.read_text()
         self.assertIn('ArchiveError', text); self.assertIn('OSError', text)
         self.assertNotIn('PRIVATE', text)
@@ -517,7 +472,7 @@ class AppRuntimeTests(unittest.TestCase):
     def test_busy_names_a_download_worker_task_or_sign_in_and_never_guesses_from_unreadable_state(self):
         self.assertIsNone(self.runtime.busy())
         self.runtime.start()
-        registry = self.runtime.server.get_app().registry
+        registry = self.runtime.registry
         self.assertIsNone(self.runtime.busy())
         with patch.object(registry.site_signin, 'status', return_value={'status': 'running'}):
             self.assertEqual(self.runtime.busy(), 'signin')
@@ -540,16 +495,14 @@ class AppRuntimeTests(unittest.TestCase):
         log = app_runtime.configure_logging()
         for failure in (PermissionError('/PRIVATE'), sqlite3.OperationalError('PRIVATE'), OSError(28, 'PRIVATE')):
             runtime = app_runtime.Runtime(self.root)
-            with patch('comic_archive.app_runtime.create_server', side_effect=failure):
+            with patch('comic_archive.app_runtime.LocalWorkspaceRegistry', side_effect=failure):
                 with self.assertRaises(ArchiveError) as caught: runtime.start()
             self.assertEqual(str(caught.exception), app_runtime.UNWRITABLE)
-            self.assertIsNone(runtime.thread)
+            self.assertIsNone(runtime.registry)
         self.assertNotIn('PRIVATE', log.read_text()); self.assertIn('OperationalError', log.read_text())
-        with patch('comic_archive.app_runtime.create_server', side_effect=ArchiveError('Cannot bind the local dashboard. Start it in your normal terminal.')):
-            with self.assertRaises(ArchiveError) as caught: self.runtime.start()
-        self.assertNotIn('terminal', str(caught.exception))
-        with patch('comic_archive.app_runtime.create_server', side_effect=ArchiveError('Hosted registry key is invalid.')):
-            with self.assertRaisesRegex(ArchiveError, 'Hosted registry'): self.runtime.start()
+        # The library's own reason, already in plain words, is passed on as it is.
+        with patch('comic_archive.app_runtime.LocalWorkspaceRegistry', side_effect=ArchiveError('Library key is invalid; existing files are retained.')):
+            with self.assertRaisesRegex(ArchiveError, 'Library key is invalid'): self.runtime.start()
         link = self.home / 'link'; link.symlink_to(self.home, target_is_directory=True)
         with self.assertRaises(ArchiveError) as caught: app_runtime.Runtime(link / 'Comic Archiver').start()
         self.assertIn('link', str(caught.exception)); self.assertIn('symlink', str(caught.exception))
@@ -567,28 +520,28 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.start_worker(), 'closing')
         self.assertEqual(self.background['stop'].call_count, 2)
 
-    def test_stop_closes_the_dashboard_then_interrupts_the_downloader_without_pausing_the_account_download(self):
-        self.sign_in(); url = self.runtime.start()
+    def test_stop_closes_the_sign_ins_then_interrupts_the_downloader_without_pausing_the_account_download(self):
+        self.sign_in(); self.runtime.start()
         self.assertEqual(self.runtime.start_worker(), 'running')
-        registry = self.runtime.server.get_app().registry
+        registry = self.runtime.registry
         seen, session = [], self.root / '.comic-session'
         def drain(session, *, wait_seconds):
-            seen.append(('ask', session, self.runtime.server.socket.fileno(), wait_seconds))
+            seen.append(('ask', session, wait_seconds))
             return {'running': True}
         def look(session):
             seen.append(('look', session))
-            return {'running': len(seen) < 4}
+            return {'running': len(seen) < 6}
         self.background['stop'].side_effect = drain; self.background['status'].side_effect = look
-        with patch('comic_archive.account_export.request_stop') as pause, patch.object(registry.site_signin, 'close') as close, \
+        with patch('comic_archive.account_export.request_stop') as pause, \
+                patch.object(registry.site_signin, 'close', side_effect=lambda: seen.append('site sign-in closed')), \
+                patch.object(registry.cloud_signin, 'close', side_effect=lambda: seen.append('cloud sign-in closed')), \
                 patch('comic_archive.account_ui.interrupt', side_effect=lambda workspace: seen.append(workspace.library)), \
                 patch('comic_archive.app_runtime.end_downloader') as end:
             self.assertEqual(self.runtime.stop(), 'stopped')
-            pause.assert_not_called(); close.assert_called_once_with(); end.assert_not_called()
+            pause.assert_not_called(); end.assert_not_called()
         # Asked to leave before its batch is interrupted, so it goes without reading that batch's receipt.
-        self.assertEqual(seen, [('ask', session, -1, 0), self.root / 'Library', ('look', session), ('look', session)])
-        self.runtime.thread.join(5)
-        self.assertFalse(self.runtime.thread.is_alive())
-        with self.assertRaises(URLError): self.fetch(url)
+        self.assertEqual(seen, ['cloud sign-in closed', 'site sign-in closed', ('ask', session, 0), self.root / 'Library',
+                                ('look', session), ('look', session)])
         self.assertEqual(self.runtime.stop(), 'stopped_before')
         self.assertEqual(self.background['stop'].call_count, 1)
 
@@ -668,7 +621,6 @@ class AppRuntimeTests(unittest.TestCase):
             other.start()
             self.background['stop'].side_effect = failure
             self.assertEqual(other.stop(2), 'failed')
-            self.assertEqual(other.server.socket.fileno(), -1)
             self.assertTrue(other._launch.acquire(blocking=False)); other._launch.release()
             self.assertEqual(self.background['stop'].call_args.kwargs, {'wait_seconds': 0})
 
@@ -694,9 +646,9 @@ class AppRuntimeTests(unittest.TestCase):
         failing = app_runtime.Runtime(self.home / 'failing'); self.addCleanup(failing.stop, 0)
         with patch('comic_archive.account_ui.reopen', side_effect=sqlite3.OperationalError('PRIVATE')) as reopen, \
                 self.assertLogs(app_runtime.LOG, 'WARNING') as logs:
-            url = failing.start()
+            failing.start()
         reopen.assert_called_once()
-        self.assertEqual(self.fetch(url)[0], 200)
+        self.assertEqual(self.library(failing), self.home / 'failing/Library')
         self.assertNotIn('PRIVATE', ''.join(logs.output))
 
     def test_a_downloader_that_cannot_be_ended_is_reported_as_failed_and_the_launch_lock_is_released(self):

@@ -1,7 +1,7 @@
-"""The desktop app's own window: Qt shows the existing loopback dashboard.
+"""The desktop app's own window: the dashboard, Settings and the saved library, drawn by Qt (window_pages).
 
 Signing in to Tapas happens in the same window, on Tapas's own page, in a
-browser profile that shares nothing with the dashboard and keeps nothing.
+browser profile that shares nothing and keeps nothing.
 
 PySide6 is imported only inside functions, so the package and --version work
 without it. Decisions are plain functions; the Qt objects only carry them out.
@@ -24,7 +24,6 @@ from types import SimpleNamespace
 
 from . import app_runtime, osdep, sites
 from .app_runtime import LOG
-from .local_web import SESSION_SECONDS
 from .models import ArchiveError
 from .qt_engine import CookieRecords, common_agent, secure_qt_environment
 from .tapas_auth import identity
@@ -38,17 +37,17 @@ WINDOWS_APP_ID = 'ComicArchiver.Desktop'
 RAISE = b'raise\n'
 ENDING_SIGNALS = tuple(getattr(signal, name) for name in ('SIGTERM', 'SIGHUP') if hasattr(signal, name))
 SELF_TEST_SECONDS = 60
-SELF_TEST_SCRIPT = "document.querySelector('#account-download') !== null"
 SELF_TEST_COOKIE = 'comic_archive_self_test'
 SIGNIN_POLL_MS = 250
+# How often the pages read the library, and redraw their clocks in between.
+POLL_MS = 5000
+CLOCK_MS = 1000
 # How often the window checks whether a download is running, to keep the computer awake for it.
 AWAKE_CHECK_MS = 5000
 # How long closing waits to learn whether a download is running; a drive that is asleep can take longer.
 CLOSE_CHECK_SECONDS = 2
 # How often the window looks for a request from the system to end, since Qt holds Python's signal handlers back.
 END_CHECK_MS = 500
-# A crashed page is reloaded by itself at most once in this long; a page that keeps crashing is left for the person.
-CRASH_RELOAD_SECONDS = 3600
 SIGNIN_PROBE_MS = 500
 SIGNIN_OPEN_SECONDS = 20
 SIGNIN_BACK = 'Cancel sign-in'
@@ -58,27 +57,6 @@ SIGNIN_HINT = ('Sign in to {site} below. Comic Archiver carries on by itself onc
                'If that is how you sign in, first add a password to your {site} account: sign in to {site} in your '
                'usual web browser the way you always do, and set a password in its account settings.')
 SIGNIN_RETRY = 'Try again'
-SIGNIN_BAR_WIDTH = 1100  # .wrap in static/archive.css: the header's contents stay in a centred column.
-# The dashboard's own colours (static/archive.css), light then dark.
-THEME_COLOURS = {'page': ('#f4f6f2', '#111918'), 'surface': ('#fff', '#1a2523'), 'border': ('#d5dfd5', '#3d5149'),
-                 'text': ('#183331', '#e3ece8'), 'muted': ('#52695e', '#adbbb3'), 'surface-soft': ('#f0f5f1', '#23332f')}
-# The dashboard's own header, so the window keeps one bar from page to page.
-SIGNIN_STYLE = '''
-#signinHeader { background: %(surface)s; border-bottom: 1px solid %(border)s; }
-#signinHeader QLabel { color: %(muted)s; font-size: 14px; }
-#signinHeader QLabel#signinTitle { color: %(text)s; font-size: 18px; font-weight: 600; }
-#signinHeader QPushButton { min-height: 28px; padding: 8px 12px; border: none; border-radius: 6px;
-                            background: transparent; color: %(muted)s; font-size: 14px; font-weight: 500; }
-#signinHeader QPushButton:hover { color: %(text)s; background: %(surface-soft)s; }
-'''
-# Told to each dashboard page before it draws, so a look other than the computer's own never flashes.
-# The script runs before the page has its root element, so it waits for that one element.
-THEME_SCRIPT = '''(() => {
-  const tell = () => { if (document.documentElement) document.documentElement.dataset.theme = '%s'; return !!document.documentElement; };
-  if (tell()) return;
-  const watch = new MutationObserver(() => { if (tell()) watch.disconnect(); });
-  watch.observe(document, {childList: true});
-})();'''
 SIGNIN_OPENING = 'Opening the {site} sign-in page…'
 SIGNIN_OFFLINE = ('The {site} sign-in page could not be opened.\n\n'
                   'Check your internet connection, then choose "Try again".')
@@ -144,13 +122,14 @@ LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it
                      'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}\n\n'
                      'Your library page then shows only what is saved in this folder.')
 LOCATION_FAILED = 'The folder was not changed.\n\n{reason}'
+SITE_SWITCH = 'Switch to {site}? Your {open} episodes stay saved, and you can switch back any time.'
+SITE_SWITCHING = 'Switching to {site}…'
 SITE_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then switch to {site}.'
 SITE_FAILED = 'Comic Archiver stays on {site}.\n\n{reason}'
 LOCATION_MISSING = ('Comic Archiver cannot open the folder it saves to:\n{folder}\n\n'
                     'If it is on a drive that is not connected, choose No, connect the drive and open Comic Archiver again.\n\n'
                     'Save to the standard folder instead?\n{standard}')
 LOAD_FAILED = 'Comic Archiver could not show your library. Close this window and open Comic Archiver again.'
-RENDER_FAILED = 'The window stopped working. Close it and open Comic Archiver again.'
 CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and stop saving?\n\n'
                   'Saving stops right away. Everything saved so far is kept. The next time you open '
                   'Comic Archiver, press Go to continue.')
@@ -184,21 +163,6 @@ def version():
         return metadata.version('comic-archive')
     except metadata.PackageNotFoundError:
         return 'unknown'
-
-
-def navigation(scheme, host, port, app_port, main_frame=True):
-    """allow: load in the window; external: hand to the default browser; deny: drop."""
-    if scheme == 'http' and host == '127.0.0.1' and port == app_port:
-        return 'allow'
-    if main_frame and scheme in {'http', 'https'} and host:
-        return 'external'
-    return 'deny'
-
-
-def own_download(url, app_port):
-    """Only files the dashboard offers: its own addresses, or a report it built in the page."""
-    origin = f'http://127.0.0.1:{app_port}/'
-    return url.startswith((origin, 'blob:' + origin))
 
 
 def signin_navigation(scheme, host, path, main_frame=True, history=False):
@@ -288,12 +252,6 @@ def close_action(phase, busy):
     return 'confirm' if busy else 'finish'
 
 
-def session_stale(issued, now):
-    """The dashboard's local cookie lasts SESSION_SECONDS; the server renews it only while the page is in use."""
-    # A clock moved backwards leaves a cookie stamped in the future, which the server also rejects.
-    return issued is not None and not 0 <= now - issued <= SESSION_SECONDS + 60
-
-
 def raise_requested(message):
     return message == RAISE
 
@@ -304,7 +262,8 @@ def server_name(state):
 
 
 def self_test_result(loaded, found, timed_out=False, cookie=False):
-    """The one-line report and exit status of --self-test; 'cookie' is the sign-in cookie check."""
+    """The one-line report and exit status of --self-test: whether the dashboard read the library ('loaded') and
+    drew what it read ('found'); 'cookie' is the sign-in cookie check."""
     reason = ('timeout' if timed_out else 'dashboard_not_loaded' if not loaded
               else 'dashboard_incomplete' if found is not True
               else 'signin_cookie_check_failed' if cookie is not True else None)
@@ -341,8 +300,7 @@ def application(q):
     app.setDesktopFileName(DESKTOP_ID)
     if osdep.WINDOWS:
         windows_identity(q, app)
-    # The dashboard is on this computer and a system proxy must never see it.
-    # The setting is application-wide, so the Tapas sign-in page connects directly as well.
+    # The Tapas sign-in page connects directly, as the downloader's own engine does (qt_engine).
     q.QtNetwork.QNetworkProxyFactory.setUseSystemConfiguration(False)
     # Qt objects are torn down in a safe order only while the application outlives them.
     _application = app
@@ -409,25 +367,19 @@ def claim(q, lock, name):
     return False
 
 
-def signin_style(dark):
-    return SIGNIN_STYLE % {name: pair[bool(dark)] for name, pair in THEME_COLOURS.items()}
-
-
 class Shell:
     """One window around one runtime."""
 
     def __init__(self, q, app, runtime, log_path=None, probe=None):
         self.q, self.app, self.runtime, self.log_path, self.probe = q, app, runtime, log_path, probe
         self.phase = 'starting'
-        self.issued = None
-        self.renewing = False
-        self.crashed = None  # When a crashed page was last reloaded by itself.
+        self.pages = None
         self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
         self.ended = False
         self.window = self.channel = self.home = None
         # None, or what the sign-in panel shows: 'page', 'offline' or 'finishing'.
         self.signin_stage = self.signin_panel = self.cookie_check = None
-        self.theme_choice = self.theme_script = self.signin_header = None
+        self.theme_choice = None
         self.choosing = False
         self.signin_opening = self.signin_committed = self.signin_clearing = False
         self.signin_waiting = None
@@ -471,14 +423,12 @@ class Shell:
     def open(self):
         """Build and show the window; the dashboard itself arrives with load()."""
         q, shell = self.q, self
+        from .app_actions import Actions
+        from .window_pages import Pages
 
         class Window(q.QtWidgets.QMainWindow):
             def closeEvent(self, event):
                 shell.close_requested(event)
-
-        class Page(q.QtWebEngineCore.QWebEnginePage):
-            def acceptNavigationRequest(self, url, kind, main_frame):
-                return shell.navigate(url, main_frame)
 
         self.window = Window()
         self.window.setWindowTitle(APP_NAME)
@@ -486,26 +436,19 @@ class Shell:
         self.notice = q.QtWidgets.QLabel(STARTING)
         self.notice.setAlignment(q.QtCore.Qt.AlignmentFlag.AlignCenter)
         self.notice.setWordWrap(True)
-        # A profile without a storage name is off the record: only the local cookie, in memory.
-        self.profile = q.QtWebEngineCore.QWebEngineProfile(self.app)
-        self.profile.downloadRequested.connect(self.download)
-        self.page = Page(self.profile, self.window)
-        self.page.newWindowRequested.connect(self.new_window)
-        self.page.permissionRequested.connect(lambda permission: permission.deny())
-        self.page.loadFinished.connect(self.loaded)
-        self.page.renderProcessTerminated.connect(self.render_gone)
-        # Qt requires the page to be gone before its profile.
-        self.app.aboutToQuit.connect(self.page.deleteLater)
-        self.view = q.QtWebEngineWidgets.QWebEngineView(self.window)
-        self.view.setPage(self.page)
+        # The pages read whichever runtime the window has: a change of folder replaces it.
+        self.pages = Pages(q, self, Actions(lambda: self.runtime))
         self.stack = q.QtWidgets.QStackedWidget(self.window)
         self.stack.addWidget(self.notice)
-        self.stack.addWidget(self.view)
+        self.stack.addWidget(self.pages.widget)
         self.home = self.notice
         self.window.setCentralWidget(self.stack)
-        self.clock = q.QtCore.QTimer(self.window)
-        self.clock.setInterval(60_000)
-        self.clock.timeout.connect(self.renew)
+        self.poll_clock = q.QtCore.QTimer(self.window)
+        self.poll_clock.setInterval(POLL_MS)
+        self.poll_clock.timeout.connect(self.refresh)
+        self.tick_clock = q.QtCore.QTimer(self.window)
+        self.tick_clock.setInterval(CLOCK_MS)
+        self.tick_clock.timeout.connect(self.tick)
         self.signin_clock = q.QtCore.QTimer(self.window)
         self.signin_clock.setInterval(SIGNIN_POLL_MS)
         self.signin_clock.timeout.connect(self.signin_tick)
@@ -525,34 +468,26 @@ class Shell:
         return self.app.styleHints().colorScheme() == self.q.QtCore.Qt.ColorScheme.Dark
 
     def theme_apply(self):
-        """Give the window the look chosen in the dashboard: the computer's own, or always light or dark."""
+        """Give the window the look chosen in its header: the computer's own, or always light or dark."""
         q = self.q
         self.theme_choice = self.runtime.theme.get()
         theme = self.theme_choice if self.theme_choice in ('light', 'dark') else None
-        scripts = self.profile.scripts()
-        if self.theme_script is not None:
-            scripts.remove(self.theme_script)
-            self.theme_script = None
-        if theme:
-            kind = q.QtWebEngineCore.QWebEngineScript
-            self.theme_script = kind()
-            self.theme_script.setName('comic-archive-theme')
-            self.theme_script.setSourceCode(THEME_SCRIPT % theme)
-            self.theme_script.setInjectionPoint(kind.InjectionPoint.DocumentCreation)
-            self.theme_script.setWorldId(int(kind.ScriptWorldId.MainWorld))
-            scripts.insert(self.theme_script)
         scheme = q.QtCore.Qt.ColorScheme
         # Unknown hands the choice back to the computer's own setting.
         self.app.styleHints().setColorScheme({'light': scheme.Light, 'dark': scheme.Dark}.get(theme, scheme.Unknown))
         self.theme_paint()
 
     def theme_paint(self, *_):
-        """Colour what Qt draws itself; also called when the computer switches between light and dark."""
-        dark = self.dark()
-        # What shows through before a page has drawn.
-        self.page.setBackgroundColor(self.q.QtGui.QColor(THEME_COLOURS['page'][dark]))
-        if self.signin_header is not None:
-            self.signin_header.setStyleSheet(signin_style(dark))
+        """Colour the window; also called when the computer switches between light and dark."""
+        from .window_pages import paint
+        paint(self.q, self.window, self.dark())
+        if self.pages is not None:
+            self.pages.render()
+
+    def toggle_theme(self):
+        """The header's switch: the other look from the one showing, kept for the next start."""
+        self.runtime.theme.set('light' if self.dark() else 'dark')
+        self.theme_apply()
 
     def show(self, widget):
         """Put a dashboard widget on screen, or only remember it while sign-in has the window."""
@@ -579,79 +514,52 @@ class Shell:
         thread.start()
         timer.start()
 
+    def run(self, work, done):
+        """For the pages: work runs on a thread; done(value, error) runs back here, error being the words for the
+        person when the library refused or did not answer, else None."""
+        from .app_actions import Refused
+        from .dashboard_model import error_text
+        answer = []
+
+        def attempt():
+            try:
+                answer.append((work(), None))
+            except Refused as refused:
+                answer.append((None, str(refused)))
+        self.background(attempt, lambda: done(*(answer[0] if answer else (None, error_text('service_unavailable')))))
+
     def load(self):
         if self.phase != 'starting':
             return  # Closed while the downloader was starting.
         self.phase = 'open'
-        self.renewing = True
-        self.view.load(self.q.QtCore.QUrl(self.runtime.url))
-        self.clock.start()
+        self.show(self.pages.widget)
+        self.pages.reopened(self.answered if self.probe else None)
+        self.poll_clock.start()
+        self.tick_clock.start()
         self.signin_clock.start()
 
-    def loaded(self, ok):
-        if self.phase != 'open':
-            return
-        if ok:
-            if self.renewing:
-                self.renewing, self.issued = False, time.time()
-            self.show(self.view)
-        elif self.issued is None:
-            LOG.error('the dashboard did not load in the window')
-            self.show_notice(LOAD_FAILED)
-        if self.probe:
-            if ok:
-                self.page.runJavaScript(SELF_TEST_SCRIPT, 0, lambda found: self.probe(True, found))
-            else:
-                self.probe(False, None)
+    def answered(self, ok):
+        """--self-test: the first refresh has come back, and the dashboard drew it, or it did not."""
+        self.probe(ok, self.pages.drawn() if ok else None)
+
+    def refresh(self):
+        if self.phase == 'open':
+            self.pages.poll()
+
+    def tick(self):
+        if self.phase == 'open':
+            self.pages.render()
 
     def show_notice(self, text):
         self.notice.setText(text + (f'\n\nDetails are saved in:\n{self.log_path}' if self.log_path else ''))
 
-    def render_gone(self, status, code):
-        """The page's process died: say so, and try once to bring the dashboard back."""
-        normal = self.q.QtWebEngineCore.QWebEnginePage.RenderProcessTerminationStatus.NormalTerminationStatus
-        if self.phase != 'open' or status == normal:
-            return
-        LOG.error('the window process stopped: %s, exit code %s', getattr(status, 'name', status), code)
-        self.show_notice(RENDER_FAILED)
-        self.show(self.notice)
-        now = time.time()
-        if self.crashed is None or not 0 <= now - self.crashed <= CRASH_RELOAD_SECONDS:
-            self.crashed = now
-            self.view.reload()
+    def open_url(self, url):
+        """One of Backblaze's pages, in the computer's own browser."""
+        self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl(url))
 
-    def renew(self):
-        # Checked against the wall clock every minute, so a suspended laptop recovers on waking.
-        if self.phase == 'open' and session_stale(self.issued, time.time()):
-            self.renewing = True
-            # The launch address, not a reload: the page's own address no longer opens a session.
-            self.view.load(self.q.QtCore.QUrl(self.runtime.url))
-
-    def navigate(self, url, main_frame=True):
-        action = navigation(url.scheme(), url.host(), url.port(), self.runtime.port, main_frame)
-        if action == 'external':
-            self.q.QtGui.QDesktopServices.openUrl(url)
-        return action == 'allow'
-
-    def new_window(self, request):
-        url = request.requestedUrl()
-        if self.navigate(url):
-            request.openIn(self.page)
-
-    def download(self, item):
-        if not own_download(item.url().toString(), self.runtime.port):
-            LOG.warning('refused a download that did not come from the dashboard')
-            item.cancel()
-            return
-        paths = self.q.QtCore.QStandardPaths
-        folder = paths.writableLocation(paths.StandardLocation.DownloadLocation)
-        chosen, _ = self.q.QtWidgets.QFileDialog.getSaveFileName(self.window, 'Save file', str(Path(folder) / item.downloadFileName()))
-        if not chosen:
-            item.cancel()
-            return
-        item.setDownloadDirectory(str(Path(chosen).parent))
-        item.setDownloadFileName(Path(chosen).name)
-        item.accept()
+    def open_folder(self):
+        """The save folder, in the computer's own file manager; no path comes from the pages."""
+        self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(self.runtime.folder)))
 
     # Signing in to Tapas, in this window.
 
@@ -685,12 +593,12 @@ class Shell:
                     info.block(True)
 
         self.world = int(core.QWebEngineScript.ScriptWorldId.ApplicationWorld)
-        # Its own off-the-record profile: Tapas pages share no cookies or storage with the dashboard,
-        # and Qt saves none. state.json stays the only saved sign-in.
+        # An off-the-record profile: Tapas pages share no cookies or storage with anything, and Qt saves none.
+        # state.json stays the only saved sign-in.
         self.signin_profile = core.QWebEngineProfile(self.app)
         # Tapas sees one name for the sign-in and for the downloader that later uses it.
         self.signin_profile.setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))
-        # No web page may reach the dashboard's API. The profile does not own its interceptor.
+        # No web page may reach this computer or its network. The profile does not own its interceptor.
         self.signin_guard = Guard(self.signin_profile)
         self.signin_profile.setUrlRequestInterceptor(self.signin_guard)
         self.signin_profile.downloadRequested.connect(lambda item: item.cancel())
@@ -722,12 +630,11 @@ class Shell:
         header = widgets.QWidget(panel)
         header.setObjectName('signinHeader')
         header.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        header.setStyleSheet(signin_style(self.dark()))
-        self.signin_header = header
         self.title = widgets.QLabel(APP_NAME)
         self.title.setObjectName('signinTitle')
+        from .window_style import COLUMN
         strip = widgets.QWidget(header)
-        strip.setMaximumWidth(SIGNIN_BAR_WIDTH)
+        strip.setMaximumWidth(COLUMN)
         # The strip takes all the width it may have; only what is left over goes to the two sides.
         centred = widgets.QHBoxLayout(header)
         centred.setContentsMargins(0, 0, 0, 0)
@@ -735,7 +642,7 @@ class Shell:
         centred.addStretch(1)
         centred.addWidget(strip, 100000)
         centred.addStretch(1)
-        # Laid out as the dashboard's header is: the app's name on the left, what can be done on the right.
+        # Laid out as the pages' header is: the app's name on the left, what can be done on the right.
         bar = widgets.QHBoxLayout(strip)
         bar.setContentsMargins(24, 10, 24, 10)
         bar.setSpacing(12)
@@ -775,20 +682,6 @@ class Shell:
         """Pick up a sign-in the dashboard asked for, and notice one that ended without this window."""
         if self.phase != 'open':
             return
-        if self.runtime.theme.get() != self.theme_choice:
-            self.theme_apply()  # Changed in the dashboard's header.
-        asked = self.runtime.location.take()
-        if asked == 'open':
-            self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(self.runtime.location.get()))
-        elif asked == 'choose':
-            self.choose_location()
-            return
-        site = self.runtime.site_choice.take()
-        if site is not None and site.key != self.runtime.site.key:
-            self.choose_site(site)
-            return
-        if site is not None:
-            self.runtime.site_choice.settle()  # Already open.
         signin = self.runtime.signin
         if signin.take():
             # The network policy is checked off this thread, before any Tapas page is shown.
@@ -1027,7 +920,8 @@ class Shell:
     def finish(self):
         """Stop the runtime behind a 'Finishing up' notice, then quit."""
         self.phase = 'stopping'
-        self.clock.stop()
+        self.poll_clock.stop()
+        self.tick_clock.stop()
         self.signin_clock.stop()
         self.awake_clock.stop()
         self.stay_awake(False)
@@ -1058,9 +952,9 @@ class Shell:
             self.finish()
 
     def choose_location(self):
-        """Asked for in the dashboard: pick another library folder, in the computer's own folder dialog."""
-        if self.choosing:
-            return  # The window's clock keeps running under the dialogs below.
+        """Asked for in Settings: pick another library folder, in the computer's own folder dialog."""
+        if self.choosing or self.phase != 'open':
+            return  # The window's clocks keep running under the dialogs below.
         self.choosing = True
         try:
             self.choose_folder()
@@ -1089,36 +983,49 @@ class Shell:
         if self.phase == 'open' and not self.runtime.busy():
             self.relocate(root)
 
-    def choose_site(self, site):
-        """Asked for in the dashboard's list of sites: open that site's own library and sign-in behind the same page.
+    def choose_site(self, key):
+        """Asked for in the dashboard's list of sites: open that site's own library and sign-in in the same window.
 
-        The page stays in the window and reads the other site's library once the switch has settled.
+        The pages stay and read the other site's library once the switch has settled.
         """
-        choice = self.runtime.site_choice
+        site = sites.find(key)
+        if site is None or self.phase != 'open' or site.key == self.runtime.site.key:
+            return
+        widgets = self.q.QtWidgets
+        box, buttons = widgets.QMessageBox, widgets.QMessageBox.StandardButton
+        text = SITE_SWITCH.format(site=site.name, open=self.runtime.site.name)
+        if box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) != buttons.Yes:
+            return
+        if self.phase != 'open':
+            return  # The dialog lets time pass.
         if self.runtime.busy():
-            self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, SITE_BUSY.format(site=site.name))
-            choice.settle()  # The list shows the site still open.
+            box.information(self.window, APP_NAME, SITE_BUSY.format(site=site.name))
             return
         previous, outcome = self.runtime.site, []
         self.phase = 'moving'  # Closing waits, and no sign-in starts, until the switch is done.
+        from .dashboard_model import Message
+        state = self.pages.state
+        state.busy, state.message = True, Message(SITE_SWITCHING.format(site=site.name))
+        self.pages.render()
 
         def done():
             self.phase = 'open'
-            choice.settle()
             if not outcome:
                 self.phase = 'failed'
                 self.show_notice(LOAD_FAILED)
                 self.show(self.notice)
-            elif outcome[0]:
-                self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME,
-                                                         SITE_FAILED.format(site=previous.name, reason=outcome[0]))
+                return
+            if outcome[0]:
+                box.information(self.window, APP_NAME, SITE_FAILED.format(site=previous.name, reason=outcome[0]))
+            self.pages.reopened()
         self.background(lambda: outcome.append(self.runtime.change_site(site)), done)
 
     def relocate(self, root):
         """Carry the window over to another library folder; the dashboard comes back once that one is ready."""
         previous, moved = self.runtime, []
         self.phase = 'moving'
-        self.clock.stop()
+        self.poll_clock.stop()
+        self.tick_clock.stop()
         self.signin_clock.stop()
         self.notice.setText(MOVING)
         self.show(self.notice)
@@ -1130,12 +1037,9 @@ class Shell:
                 self.show_notice(LOAD_FAILED)
                 return
             self.runtime, problem = moved[0]
-            issued = self.issued
-            self.issued, self.phase = None, 'starting'
+            self.phase = 'starting'
             self.load()
             if problem:
-                # Back on the old folder, whose page cookie is still the one issued earlier.
-                self.issued, self.renewing = issued, issued is None
                 self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, LOCATION_FAILED.format(reason=problem))
         self.background(lambda: moved.append(app_runtime.move(previous, root)), done)
 
@@ -1232,7 +1136,7 @@ def raised_in(error):
 
 
 def self_test(q):
-    """Show the real dashboard and build the real sign-in panel: empty temporary library, no downloader, no Tapas."""
+    """Show the real pages and build the real sign-in panel: empty temporary library, no downloader, no Tapas."""
     for name, value in (('QT_QPA_PLATFORM', 'offscreen'), ('QT_QUICK_BACKEND', 'software'),
                         ('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')):
         os.environ.setdefault(name, value)
