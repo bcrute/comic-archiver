@@ -48,8 +48,9 @@ def main():
     entry = Path(sys.executable).parent / 'comic-archive'
     help_text = subprocess.check_output([str(entry), '--help'], text=True, timeout=30)
     # Compare whole subcommand names from the help's own list, never substrings of other help text.
-    listed = re.findall(r'^\s*\{([a-z0-9,-]+)\}$', help_text, re.M)
-    commands = set(listed[0].split(',')) if len(listed) == 1 else set()
+    # Before Python 3.14 a wrapped usage line repeats the list on a line of its own, so identical copies count once.
+    listed = set(re.findall(r'^\s*\{([a-z0-9,-]+)\}$', help_text, re.M))
+    commands = set(next(iter(listed)).split(',')) if len(listed) == 1 else set()
     for command in ('cloud-connect','cloud-test','cloud-upload','cloud-cleanup','storage-plan','preview-series','purge','network-policy','convert-comics'):
         if command not in commands:raise RuntimeError('Installed CLI is missing storage/cloud commands')
     space = json.loads(subprocess.check_output([str(entry),'storage-plan','--episodes','2'],text=True,timeout=30))
