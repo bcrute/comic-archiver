@@ -2946,10 +2946,10 @@
  {
   "id": "direct B2 upload ignores the remote checksum mismatch",
   "source": "comic_archive/cloud.py",
-  "old": "if self.transfer.sha1s(self.prefix) != {name: hashlib.sha1(data, usedforsecurity=False).hexdigest() for name, data in self.files}:",
-  "new": "if False:",
+  "old": "if listed.pop(name) != hashlib.sha1(data, usedforsecurity=False).hexdigest():",
+  "new": "if listed.pop(name) is None:",
   "test_file": "test_cloud_stream.py",
-  "test": "test_wrong_or_missing_remote_checksums_keep_a_verified_local_fallback_and_never_mark_uploaded"
+  "test": "test_wrong_remote_checksums_set_episodes_aside_for_retry_until_one_run_has_too_many"
  },
  {
   "id": "sign-in navigation can reach a private destination",
@@ -3014,5 +3014,69 @@
   "new": "_write(path, value)",
   "test_file": "test_cloud.py",
   "test": "test_a_connection_to_a_retired_provider_is_kept_but_never_used"
+ },
+ {
+  "id": "direct B2 upload accepts files it did not send",
+  "source": "comic_archive/cloud.py",
+  "old": "            if listed:\n                raise CloudTransferError('cloud_verification')",
+  "new": "            if False:\n                raise CloudTransferError('cloud_verification')",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_a_file_b2_lists_but_was_not_sent_fails_the_check"
+ },
+ {
+  "id": "direct B2 upload trusts a file with no SHA-1 unread",
+  "source": "comic_archive/cloud.py",
+  "old": "self.transfer.verify(self.prefix + '/' + name, hashlib.sha256(data).hexdigest())",
+  "new": "pass",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_an_upload_b2_lists_no_sha1_for_is_read_back_instead"
+ },
+ {
+  "id": "known-size cutoff rounded below the file by rclone",
+  "source": "comic_archive/cloud_stream.py",
+  "old": "return f'{size // 1024**2 + 1}Mi'",
+  "new": "return f'{size + 1}B'",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_known_size_cutoff_survives_rclone_keeping_three_decimals_of_it"
+ },
+ {
+  "id": "unconfirmed episodes set aside without limit",
+  "source": "comic_archive/publication.py",
+  "old": " or self._set_aside >= SET_ASIDE_LIMIT",
+  "new": "",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_wrong_remote_checksums_set_episodes_aside_for_retry_until_one_run_has_too_many"
+ },
+ {
+  "id": "unconfirmed episode pauses the whole run",
+  "source": "comic_archive/publication.py",
+  "old": "            self._set_aside += 1",
+  "new": "            raise",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_one_unconfirmed_episode_is_saved_here_and_the_next_still_goes_to_b2"
+ },
+ {
+  "id": "any cloud failure set aside",
+  "source": "comic_archive/publication.py",
+  "old": "error.cloud_code != 'cloud_verification' or ",
+  "new": "",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_only_an_unconfirmed_episode_saved_here_lets_the_run_go_on"
+ },
+ {
+  "id": "episode not saved here set aside",
+  "source": "comic_archive/publication.py",
+  "old": " or not uploading.kept",
+  "new": "",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_only_an_unconfirmed_episode_saved_here_lets_the_run_go_on"
+ },
+ {
+  "id": "cloud pause reason flattened",
+  "source": "comic_archive/batches.py",
+  "old": "else error_code if error_code in CLOUD_CODES else 'task_failed')",
+  "new": "else 'task_failed')",
+  "test_file": "test_failure_receipts.py",
+  "test": "test_a_cloud_upload_that_stopped_a_batch_pauses_with_its_own_reason"
  }
 ]

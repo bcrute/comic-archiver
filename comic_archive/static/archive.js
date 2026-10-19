@@ -634,6 +634,7 @@ function heldMessage(code, site, goWait, missing) {
   if (['network_unavailable','network_recovery_limit'].includes(code)) return `Paused: ${site} could not be reached several times in a row. ${safe} Check your internet connection, then hit Go to continue.`;
   if (['no_progress','scan_no_progress'].includes(code)) return `Paused: the last few tries saved nothing new. ${safe} Hit Go to try again; if it pauses again, ${site} may be having trouble, so try later.`;
   if (code === 'cancelled') return 'Paused. Hit Go to continue from saved progress.';
+  if (Object.hasOwn(cloudErrors, code)) return `Paused: an upload to cloud storage stopped. ${cloudErrors[code]} ${safe} Hit Go to continue.`;
   return `Paused: the download stopped unexpectedly. ${safe} Check that this disk has free space, then hit Go to try again.`;
 }
 const waitText = seconds => seconds >= 90 ? `about ${Math.round(seconds/60)} minutes` : seconds > 45 ? 'about a minute' : 'a few seconds';
