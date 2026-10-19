@@ -406,7 +406,13 @@ def simple_account_controls(page, registry, workspace, screenshot):
     page.evaluate('poll()')
     expect(page.locator('#site-signin')).to_be_visible()
     expect(page.locator('#account-go')).to_be_disabled()
-    signin=registry.site_signin
+    class ScriptedSignIn:
+        """The desktop window's site sign-in, reduced to the state this page reads."""
+        _state={'status':'idle'}
+        def status(self):return dict(self._state)
+        def start(self):return dict(self._state)
+        def close(self):pass
+    signin=registry.site_signin=ScriptedSignIn()
     with patch.object(signin,'start',return_value={'status':'running'}):
         signin._state={'status':'running'}
         page.locator('#site-signin').click()
