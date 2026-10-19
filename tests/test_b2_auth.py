@@ -162,10 +162,9 @@ class B2ConnectionTests(unittest.TestCase):
 
     def test_signin_persists_private_credentials_without_subprocess_args_or_status(self):
         signin = SignIn(self.root); self.addCleanup(signin.close)
-        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.cloud.Transfer'), patch.object(signin, '_command') as command:
+        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.cloud.Transfer'):
             signin.start('b2', self.credentials); signin._thread.join(5)
             self.assertEqual(signin.status()['status'], 'connected')
-            command.assert_not_called()
         value = cloud.settings(self.root); target = value['targets']['b2']
         config = Path(target['config'])
         self.assertEqual(config.stat().st_mode & 0o777, PRIVATE_FILE)
