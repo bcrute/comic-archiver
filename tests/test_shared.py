@@ -82,7 +82,7 @@ class SharedSettingsTests(unittest.TestCase):
         self.assertEqual(cloud.connection_folder(self.other), self.other / '.archive-state/cloud')
 
     def test_switching_shared_and_separate_keeps_cloud_only_files_in_the_catalog_and_inventory(self):
-        from comic_archive.hosted import Workspace
+        from comic_archive.workspace import Workspace
         from comic_archive.inventory import Inventory
         from comic_archive.saved_library import Catalog
         shared.link(self.tapas, self.store)

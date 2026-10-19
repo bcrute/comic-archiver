@@ -7,7 +7,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from comic_archive.hosted import Workspace
+from comic_archive.workspace import Workspace
 from comic_archive.models import ArchiveError
 from comic_archive.saved_library import Catalog, options
 
@@ -31,7 +31,7 @@ class SavedLibraryTests(unittest.TestCase):
         archive.with_suffix('.json').write_text(json.dumps(value))
         return archive, value
 
-    def cloud_copy(self, archive, value, provider='google', *, current=True, ids=None, extra=()):
+    def cloud_copy(self, archive, value, provider='b2', *, current=True, ids=None, extra=()):
         state = self.workspace.library/'.archive-state/cloud'; (state/'outbox'/provider).mkdir(parents=True, exist_ok=True)
         library_id, target_id = ids or (str(uuid.uuid4()), str(uuid.uuid4()))
         settings = {'schema_version':1, 'library_id':library_id, 'targets':{
@@ -71,7 +71,7 @@ class SavedLibraryTests(unittest.TestCase):
     def test_cloud_only_copies_remain_visible_without_provider_calls_or_false_local_download_links(self):
         archive, value = self.episode(1); self.cloud_copy(archive, value); archive.unlink()
         with patch('comic_archive.cloud.Transfer', side_effect=AssertionError('No cloud browsing')):
-            page = self.catalog.page(self.workspace, True, location='google')
+            page = self.catalog.page(self.workspace, True, location='b2')
         self.assertEqual(page['episode_count'], 1); self.assertEqual(page['total'], 3)
         self.assertEqual({r['kind'] for r in page['files']}, {'cbz','episode_metadata','series_metadata'})
         self.assertTrue(all(r['id'] is None and r['saved_at']=='2026-10-11T12:00:00+00:00' for r in page['files']))
@@ -80,18 +80,18 @@ class SavedLibraryTests(unittest.TestCase):
         self.assertEqual(next(g for g in local['locations'] if g['id']=='device')['episodes'], 0)
         self.assertNotIn('PRIVATE', json.dumps(page))
 
-    def test_dropbox_current_and_previous_receipts_are_visible_without_provider_reads(self):
+    def test_current_and_previous_receipts_are_visible_without_provider_reads(self):
         archive, value = self.episode(1)
-        receipt = self.cloud_copy(archive, value, 'dropbox'); archive.unlink()
+        receipt = self.cloud_copy(archive, value); archive.unlink()
         with patch('comic_archive.cloud.Transfer', side_effect=AssertionError('No cloud browsing')):
-            page = self.catalog.page(self.workspace, True, location='dropbox')
+            page = self.catalog.page(self.workspace, True, location='b2')
             self.assertEqual(page['total'], 3)
-            self.assertEqual(next(g for g in page['locations'] if g['id'] == 'dropbox')['label'], 'Dropbox')
+            self.assertEqual(next(g for g in page['locations'] if g['id'] == 'b2')['label'], 'Backblaze B2')
             settings_path = receipt.parent.parent.parent/'targets.json'
-            value = json.loads(settings_path.read_text()); value['targets']['dropbox']['target_id'] = str(uuid.uuid4())
+            value = json.loads(settings_path.read_text()); value['targets']['b2']['target_id'] = str(uuid.uuid4())
             settings_path.write_text(json.dumps(value))
             summary = self.catalog.page(self.workspace, True, summary=True, refresh=True)
-            previous = next(g for g in summary['locations'] if g['id'].startswith('dropbox-'))
+            previous = next(g for g in summary['locations'] if g['id'].startswith('b2-'))
             self.assertEqual(previous['episodes'], 1); self.assertFalse(previous['connected'])
             self.assertEqual(options('location='+previous['id'])['location'], previous['id'])
         self.assertTrue(all(row['id'] is None for row in page['files']))
@@ -100,11 +100,11 @@ class SavedLibraryTests(unittest.TestCase):
     def test_previous_cloud_connection_is_separate_and_unverified_or_changed_receipts_are_not_saved_copies(self):
         archive, value = self.episode(1); receipt = self.cloud_copy(archive, value, current=False)
         summary = self.catalog.page(self.workspace, True, summary=True)
-        previous = next(g for g in summary['locations'] if g['id'].startswith('google-'))
+        previous = next(g for g in summary['locations'] if g['id'].startswith('b2-'))
         self.assertEqual(previous['episodes'], 1); self.assertFalse(previous['connected'])
-        self.assertEqual(next(g for g in summary['locations'] if g['id']=='google')['episodes'], 0)
+        self.assertEqual(next(g for g in summary['locations'] if g['id']=='b2')['episodes'], 0)
         record = json.loads(receipt.read_text()); record['state']='pending'; receipt.write_text(json.dumps(record))
-        self.assertEqual(self.catalog.page(self.workspace, True, location='google', refresh=True)['total'], 0)
+        self.assertEqual(self.catalog.page(self.workspace, True, location='b2', refresh=True)['total'], 0)
         record['state']='verified'; receipt.write_text(json.dumps(record)); archive.with_suffix('.json').write_text('{}')
         self.assertEqual(sum(g['episodes'] for g in self.catalog.page(self.workspace, True, summary=True, refresh=True)['locations'] if g['id']!='device'), 0)
 
@@ -135,7 +135,8 @@ class SavedLibraryTests(unittest.TestCase):
         self.assertEqual(options(''), dict(location='all',query='',kind='all',sort='saved_desc',offset=0,limit=50,summary=False,refresh=False))
         self.assertEqual(options('q=hello+world&limit=200&offset=100&location=device')['query'],'hello world')
         for query in ('owner=PRIVATE','limit=10000','offset=-1','q=a&q=b','location=../../PRIVATE','kind=private',
-                      'summary=yes','sort=unknown','q='+'x'*201,'q=%FF','refresh=1&refresh=0'):
+                      'summary=yes','sort=unknown','q='+'x'*201,'q=%FF','refresh=1&refresh=0',
+                      'location=google','location=dropbox-0123456789abcdef','location=b2-0123'):
             with self.subTest(query=query), self.assertRaises(ArchiveError): options(query)
 
     def rows(self, **options):
@@ -196,12 +197,13 @@ class SavedLibraryTests(unittest.TestCase):
 
     def test_unknown_storage_location_is_refused_and_server_libraries_offer_no_cloud_locations(self):
         self.episode(1)
-        for local, location in ((True, 'google-0123456789abcdef'), (False, 'google'), (False, 'proton')):
+        # Google Drive, Dropbox and Proton Drive were offered by earlier versions; a library server has no cloud storage.
+        for local, location in ((True, 'google'), (True, 'google-0123456789abcdef'), (True, 'dropbox'), (False, 'b2'), (False, 'proton')):
             with self.subTest(local=local, location=location), self.assertRaises(ArchiveError):
                 self.catalog.page(self.workspace, local, location=location, refresh=True)
         # Cloud storage that is not set up is not listed.
         self.assertEqual([g['id'] for g in self.catalog.page(self.workspace, True, summary=True, refresh=True)['locations']], ['device'])
-        for location in ('b2', 'proton'):
+        for location in ('b2', 'b2-0123456789abcdef'):
             with self.subTest(location=location), self.assertRaises(ArchiveError):
                 self.catalog.page(self.workspace, True, location=location, refresh=True)
 
@@ -238,7 +240,7 @@ class SavedLibraryTests(unittest.TestCase):
         archive, value = self.episode(1); receipt = self.cloud_copy(archive, value)
         sidecar = archive.with_suffix('.json')
         def cloud_total():
-            page = self.catalog.page(self.workspace, True, location='google', refresh=True)
+            page = self.catalog.page(self.workspace, True, location='b2', refresh=True)
             return page['total'], len(self.catalog.page(self.workspace, True, location='device')['files'])
         self.assertEqual(cloud_total(), (3, 3))
         receipt.write_text('{ not json')
@@ -257,11 +259,11 @@ class SavedLibraryTests(unittest.TestCase):
             archive, value = self.episode(number)
             self.cloud_copy(archive, value, current=False, ids=(library_id, target), extra=extra if number == 1 else ())
         summary = self.catalog.page(self.workspace, True, summary=True, refresh=True)
-        previous = {g['label']:g for g in summary['locations'] if g['id'].startswith('google-')}
-        self.assertEqual(sorted(previous), ['Google Drive (previous connection 1)', 'Google Drive (previous connection 2)'])
+        previous = {g['label']:g for g in summary['locations'] if g['id'].startswith('b2-')}
+        self.assertEqual(sorted(previous), ['Backblaze B2 (previous connection 1)', 'Backblaze B2 (previous connection 2)'])
         self.assertEqual([previous[k]['episodes'] for k in sorted(previous)], [2, 1])
         self.assertFalse(any(g['connected'] for g in previous.values()))
-        files = self.catalog.page(self.workspace, True, location=previous['Google Drive (previous connection 1)']['id'])['files']
+        files = self.catalog.page(self.workspace, True, location=previous['Backblaze B2 (previous connection 1)']['id'])['files']
         self.assertEqual(sorted(r['kind'] for r in files),
                          sorted(['cbz', 'episode_metadata', 'series_metadata', 'cover', 'cbz', 'episode_metadata', 'series_metadata']))
         self.assertEqual({r['filename'] for r in files}, {'episode.cbz', 'episode.json', 'series.json', 'cover.png'})
