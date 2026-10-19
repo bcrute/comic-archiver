@@ -11,7 +11,6 @@ from .reader import ReaderHTML, ordered_sources, safe_primitives, json_shape
 from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from ..expiry import expiration, check_expiration
 from .pagination import EpisodeCountMismatch
-HTTP_ADAPTER_VERSION = 23
 
 
 def unsupported(message, code):
@@ -121,52 +120,6 @@ class TapasHTTPAdapter:
         access=access_state(info)
         return {"source_episode_id": match[1], "access_state": access,
                 'access_expires_at':expiration(info['closing_date'])}
-
-    def inspect_access(self, url):
-        """Metadata-only diagnosis, including unsupported access states."""
-        url=canonical_url(url)
-        match=re.fullmatch(r'https://tapas\.io/episode/([1-9][0-9]{0,19})',url or '')
-        if match is None:
-            raise ArchiveError('Use an exact observed Tapas episode URL.')
-        self.check_session()
-        info=self.json_get(f'/episode/{match[1]}/info')
-        if type(info.get('id')) is not int or str(info['id'])!=match[1]:
-            raise MetadataError('Episode metadata identifies a different episode.')
-        result={'authenticated':True,'source_episode_id':match[1],'source_url':url,
-                'reader_or_comic_pages_requested':False,
-                'authorization_flags':{key:info[key] for key in ('free','unlocked','must_pay','scheduled','book') if type(info.get(key)) is bool},
-                'closing_date_field_present':'closing_date' in info,
-                'closing_date_non_null':info.get('closing_date') is not None,
-                'closing_date_kind':type(info.get('closing_date')).__name__ if type(info.get('closing_date')) in {str,int,float,type(None)} else 'unsupported',
-                'positive_order_reported':type(info.get('scene')) is int and info['scene']>0}
-        try:
-            result.update(access_state=access_state(info),authorization_eligible=True,reason=None,
-                          access_expires_at=expiration(info['closing_date']))
-        except AccessDenied:
-            result.update(access_state='unavailable_or_unverified',authorization_eligible=False,reason='access_denied')
-        except UnsupportedContent as error:
-            result.update(access_state='unavailable_or_unverified',authorization_eligible=False,reason=error.code)
-        except MetadataError:
-            result.update(access_state='unavailable_or_unverified',authorization_eligible=False,reason='authorization_unknown')
-        return result
-
-    def inspect_episode_page_size(self, key, max_limit=50):
-        """One bounded metadata GET tests the already-observed page-size key."""
-        if type(max_limit) is not int or max_limit not in {20,50,100}:
-            raise ArchiveError('The metadata page-size experiment accepts 20, 50 or 100.')
-        self.check_session()
-        series=self.resolve_series(key)
-        data=self.json_get(f"/series/{series['id']}/episodes?"+urlencode({'page':1,'max_limit':max_limit}))
-        rows=data.get('episodes');pagination=data.get('pagination')
-        if not isinstance(rows,list) or not isinstance(pagination,dict) or len(rows)>100:
-            raise MetadataError('The metadata page-size response has an unexpected shape.')
-        ids=[row.get('id') for row in rows if isinstance(row,dict)]
-        if len(ids)!=len(rows) or any(type(key) is not int or key<1 for key in ids) or len(set(ids))!=len(ids):
-            raise MetadataError('The metadata page-size response has invalid or repeated episode identities.')
-        flags={key:value for key,value in pagination.items() if key in {'page','total','max_limit','limit','original_max_limit','has_next'} and type(value) in {int,bool}}
-        return {'authenticated':True,'source_series_id':str(series['id']),'requested_max_limit':max_limit,
-                'returned_episode_count':len(rows),'episode_ids':[str(key) for key in ids],
-                'pagination':flags,'complete':False,'reader_or_comic_pages_requested':False}
 
     def series_identity(self, key):
         self.check_session()

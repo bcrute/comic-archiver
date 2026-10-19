@@ -2,7 +2,6 @@
 import re
 from urllib.parse import parse_qsl,urlsplit
 
-LIBRARY_NAVIGATION_VERSION = 3
 
 
 def supplied_filter_location(url):

@@ -1,21 +1,16 @@
-from contextlib import closing, redirect_stdout
+from contextlib import redirect_stdout
 import io
 import json
 import os
 from pathlib import Path
-import sqlite3
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from support import PRIVATE_FILE
 from comic_archive import session
 from comic_archive.models import ArchiveError
-
-
-COLUMNS = 'name TEXT,value TEXT,host TEXT,path TEXT,expiry INTEGER,isSecure INTEGER,isHttpOnly INTEGER,originAttributes TEXT'
 
 
 class BrowserSessionTests(unittest.TestCase):
@@ -82,73 +77,6 @@ class BrowserSessionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             session.doctor('firefox')
         self.browser.close.assert_called_once_with()
-
-    def test_login_saves_only_tapas_state_privately_and_always_closes_the_browser(self):
-        context = self.browser.new_context.return_value
-        context.storage_state.return_value = {
-            'cookies': [{'domain': '.tapas.io', 'name': 'session', 'value': 'PRIVATE', 'expires': -1},
-                        {'domain': '.google.com', 'name': 'oauth', 'value': 'OTHER', 'expires': -1}],
-            'origins': [{'origin': 'https://tapas.io'}, {'origin': 'https://accounts.google.com'}]}
-        directory = self.root / 'session'
-        with patch('builtins.input', return_value=''), redirect_stdout(io.StringIO()):
-            session.login(directory, 'firefox')
-        context.new_page.return_value.goto.assert_called_once_with('https://tapas.io/account/signin')
-        saved = json.loads((directory / 'state.json').read_text())
-        self.assertEqual(([c['name'] for c in saved['cookies']], [o['origin'] for o in saved['origins']]),
-                         (['session'], ['https://tapas.io']))
-        self.assertEqual((directory / 'state.json').stat().st_mode & 0o777, PRIVATE_FILE)
-        self.browser.close.assert_called_once_with()
-        # Giving up at the prompt saves nothing and still closes the browser.
-        other = self.root / 'abandoned'; self.browser.reset_mock()
-        with patch('builtins.input', side_effect=EOFError), redirect_stdout(io.StringIO()):
-            with self.assertRaises(EOFError):
-                session.login(other, 'firefox')
-        self.assertFalse(other.exists())
-        self.browser.close.assert_called_once_with()
-
-    def database(self, profile, rows, columns=COLUMNS, check=False):
-        profile.mkdir(exist_ok=True)
-        names = [part.split()[0] for part in columns.split(',')]
-        with closing(sqlite3.connect(profile / 'cookies.sqlite')) as db:
-            db.execute(f'CREATE TABLE moz_cookies ({columns})')
-            if check:
-                db.execute('PRAGMA ignore_check_constraints=ON')
-            db.executemany(f'INSERT INTO moz_cookies ({",".join(names)}) VALUES ({",".join("?" * len(names))})', rows)
-            db.commit()
-
-    def test_firefox_import_without_a_write_ahead_log_or_same_site_column_leaves_the_profile_untouched(self):
-        profile, destination = self.root / 'firefox', self.root / 'session'
-        later = int(time.time()) + 3600
-        self.database(profile, [('session', 'PRIVATE', '.tapas.io', '/', later, 1, 1, ''),
-                                ('other', 'OTHER', '.example.com', '/', later, 1, 1, '')])
-        before = {path.name: path.read_bytes() for path in profile.iterdir()}
-        with redirect_stdout(io.StringIO()):
-            session.import_firefox(profile, destination)
-        self.assertEqual({path.name: path.read_bytes() for path in profile.iterdir()}, before)
-        cookies = json.loads((destination / 'state.json').read_text())['cookies']
-        self.assertEqual([(c['name'], c['sameSite'], c['expires'], c['secure'], c['httpOnly']) for c in cookies],
-                         [('session', 'Lax', later, True, True)])
-        self.assertEqual((destination / 'state.json').stat().st_mode & 0o777, PRIVATE_FILE)
-
-    def test_firefox_import_refuses_a_database_it_cannot_trust_and_saves_nothing(self):
-        later = int(time.time()) + 3600
-        cases = {
-            'a different cookie table': dict(columns='name TEXT,value TEXT,host TEXT', rows=[('a', 'b', '.tapas.io')],
-                                             fragment='Unsupported Firefox cookie database'),
-            'a damaged snapshot': dict(columns=COLUMNS.replace('expiry INTEGER', 'expiry INTEGER CHECK(expiry >= 0)'),
-                                       rows=[('session', 'PRIVATE', '.tapas.io', '/', -5, 1, 1, '')], check=True,
-                                       fragment='inconsistent'),
-            'only expired, foreign and container cookies': dict(columns=COLUMNS, fragment='No unexpired Tapas cookies', rows=[
-                ('old', 'EXPIRED', '.tapas.io', '/', 1, 1, 1, ''), ('other', 'OTHER', '.example.com', '/', later, 1, 1, ''),
-                ('box', 'CONTAINER', '.tapas.io', '/', later, 1, 1, '^userContextId=1')])}
-        for name, case in cases.items():
-            with self.subTest(name):
-                profile, destination = self.root / name.replace(' ', '-'), self.root / ('session-' + name.replace(' ', '-'))
-                self.database(profile, case['rows'], case['columns'], case.get('check', False))
-                with self.assertRaises(ArchiveError) as raised:
-                    session.import_firefox(profile, destination)
-                self.assertIn(case['fragment'], str(raised.exception)); self.assertNotIn('PRIVATE', str(raised.exception))
-                self.assertFalse(destination.exists())
 
     def test_a_saved_sign_in_is_on_disk_before_it_takes_the_old_ones_place_and_the_rename_reaches_the_disk(self):
         events, fsync, replace_file = [], os.fsync, session.replace_file

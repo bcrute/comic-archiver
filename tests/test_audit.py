@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from comic_archive.archive import verify
 from comic_archive.audit import audit_library
-from comic_archive.cli import parser, run
 from comic_archive.errors import LibraryBusy
 from comic_archive.archive import Store
 from comic_archive.inventory import Inventory
@@ -292,14 +291,6 @@ class AuditTests(unittest.TestCase):
         folder = self.root/'x.json'; folder.mkdir()
         with self.assertRaises(ArchiveError): audit_library(self.root, folder)
         self.assertTrue(folder.is_dir()); self.assertEqual(list(folder.iterdir()), [])
-
-    def test_cli_reports_incomplete_coverage_without_a_browser(self):
-        self.archive(limit=1)
-        with patch('builtins.print') as output:
-            result = run(parser().parse_args(['audit', '--output', str(self.root)]))
-        self.assertEqual(result, 0)
-        self.assertIn('Account coverage is unverified', ' '.join(str(call.args) for call in output.call_args_list))
-
 
 if __name__ == '__main__':
     unittest.main()

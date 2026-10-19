@@ -12,7 +12,7 @@ from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, split_episode
 from comic_archive.archive import verify
 from comic_archive.errors import AccessDenied, MetadataError, UnsupportedContent
 from comic_archive.inventory import Inventory
-from comic_archive.jobs import archive_watched_series
+from comic_archive.jobs import sync
 from comic_archive.models import ArchiveError
 from comic_archive.transport import Transport
 
@@ -123,7 +123,7 @@ class WebtoonTests(unittest.TestCase):
         with Inventory(self.root) as inventory:
             inventory.observe('7', 'Sample Series', [], 'fixture')
         with adapter:
-            result = archive_watched_series(adapter, '7', self.root)
+            result = sync(adapter, self.root, refresh_lists=False)
         self.assertEqual(sorted(result['archived_episode_ids']), ['7000001', '7000002', '7000004'])
         self.assertEqual(verify(self.root), [])
         saved = sorted(self.root.glob('**/*.cbz'))

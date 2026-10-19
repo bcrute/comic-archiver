@@ -2,11 +2,6 @@
 import json
 import math
 import os
-import shutil
-import sqlite3
-import tempfile
-import time
-from contextlib import closing
 from pathlib import Path
 from . import sites
 from .models import ArchiveError
@@ -129,64 +124,3 @@ def _private_write(path, text):
         os.fsync(f.fileno())
 
 
-def login(directory: Path, preferred="auto"):
-    with browser_api()() as p:
-        browser = launch_browser(p, preferred)
-        try:
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto("https://tapas.io/account/signin")
-            print('Use the same Facebook, Google or email login method you originally used for this Tapas account.')
-            input("Log in normally in the browser. When your account is visible, press Enter here: ")
-            save_session(context, directory)
-        finally:
-            browser.close()
-    print("Tapas browser state saved privately. Account identity is not yet machine-verified.")
-
-
-def import_firefox(profile: Path, directory: Path):
-    """Read standard Firefox Tapas cookies without modifying its running profile.
-
-    A private database/WAL copy avoids locks. The snapshot is best-effort; account
-    identity remains unverified. Exclude container/partitioned account contexts.
-    """
-    database = profile / "cookies.sqlite"
-    cookies = []
-    try:
-        with tempfile.TemporaryDirectory(prefix="tapas-firefox-session-") as work:
-            snapshot = Path(work) / "cookies.sqlite"
-            shutil.copyfile(database, snapshot)
-            snapshot.chmod(0o600)
-            wal = database.with_name(database.name + "-wal")
-            if wal.is_file():
-                copied_wal = snapshot.with_name(snapshot.name + "-wal")
-                shutil.copyfile(wal, copied_wal)
-                copied_wal.chmod(0o600)
-            with closing(sqlite3.connect(snapshot)) as db:
-                if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-                    raise ArchiveError("Firefox cookie snapshot is inconsistent; retry after browser activity settles.")
-                columns = {row[1] for row in db.execute("PRAGMA table_info(moz_cookies)")}
-                required = {"name", "value", "host", "path", "expiry", "isSecure", "isHttpOnly", "originAttributes"}
-                if not required <= columns:
-                    raise ArchiveError("Unsupported Firefox cookie database schema.")
-                same_site = "sameSite" if "sameSite" in columns else "1"
-                rows = db.execute(
-                    f"SELECT name,value,host,path,expiry,isSecure,isHttpOnly,{same_site} FROM moz_cookies "
-                    "WHERE host IN ('tapas.io','.tapas.io') AND originAttributes=''")
-                for name, value, host, path, expiry, secure, http_only, site in rows:
-                    expiry = cookie_expiry_seconds(expiry)
-                    if expiry != -1 and expiry <= time.time():
-                        continue
-                    cookies.append({"name": name, "value": value, "domain": host,
-                                    "path": path, "expires": expiry,
-                                    "httpOnly": bool(http_only), "secure": bool(secure),
-                                    "sameSite": {0: "None" if secure else "Lax", 1: "Lax", 2: "Strict"}.get(site, "Lax")})
-    except (OSError, sqlite3.Error):
-        raise ArchiveError("Cannot read Firefox's cookie snapshot. Check the profile path or retry after browser activity settles.") from None
-    if not cookies:
-        raise ArchiveError("No unexpired Tapas cookies in this standard Firefox profile. Container sessions and browser local storage are not imported.")
-    class CookieContext:
-        def storage_state(self):
-            return {"cookies": cookies, "origins": []}
-    save_session(CookieContext(), directory)
-    print(f"Imported {len(cookies)} Tapas cookies privately from Firefox. Account identity is not yet machine-verified.")

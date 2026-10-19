@@ -16,7 +16,7 @@ FAST_INTERVAL = 1 / 128
 FAST_METADATA_INTERVAL = 1 / 2
 FAST_WORKERS = 64
 FAST_DEFAULTS = {'limit': 200, 'max_pages': 1000, 'max_bytes': 8 * 1024**3, 'max_seconds': 900}
-FAST_OPERATIONS = {'archive_discovered', 'archive_watched_series', 'archive_series_url'}
+FAST_OPERATIONS = {'archive_discovered'}
 
 
 def validate_speed(value):

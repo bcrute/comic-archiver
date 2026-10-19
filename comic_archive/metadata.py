@@ -1,8 +1,5 @@
 """Optional public metadata enrichment; original episode archives stay portable."""
-from pathlib import Path
 from .archive import verify_series
-from .publication import PublicationStore as Store
-from .inventory import Inventory
 from .errors import MetadataError
 from .models import ArchiveError
 from .transport import ExpiredAsset
@@ -32,20 +29,3 @@ def enrich_with_store(adapter,key,store,refresh=False,cover_adapter=None):
             'cover_archived':cover is not None,'reader_or_comic_pages_requested':False}
 
 
-def enrich_series(adapter,key,output=Path('Library'),refresh=False):
-    if type(refresh) is not bool:
-        raise ArchiveError('Metadata refresh must be an explicit boolean.')
-    from .network import bind_adapter
-    bind_adapter(adapter,output)
-    with Inventory(output) as inventory:
-        identity=adapter.account_identity()
-        inventory.bind_account(identity)
-        adapter.expected_account_id=identity
-        store=Store(output)
-        try:
-            result=enrich_with_store(adapter,key,store,refresh)
-            # A public series link is an explicit watch entry, never access proof.
-            inventory.observe(result['source_series_id'],result['title'],[],'metadata')
-            return result
-        finally:
-            store.close()

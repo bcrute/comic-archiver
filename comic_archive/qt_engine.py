@@ -26,7 +26,6 @@ import threading
 import time
 from types import SimpleNamespace
 
-ENGINE = 'qt'
 VIEWPORT = (1280, 720)
 DEFAULT_TIMEOUT = 30000
 # Seconds between looks at the page while waiting for it.

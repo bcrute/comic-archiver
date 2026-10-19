@@ -10,7 +10,6 @@ import math
 from pathlib import Path
 import re
 import secrets
-import time
 
 from .archive import atomic_json
 from .archive_paths import directory
@@ -87,7 +86,7 @@ def _root(session,library,*,require_queue=True):
     if any(p.is_symlink() for path in (root/'requests',root/'responses') for p in (path,*path.parents)):
         raise ArchiveError('Consecutive import queue directories must not be symlinked.')
     if require_queue and (not (root/'requests').is_dir() or not (root/'responses').is_dir()):
-        raise ArchiveError('Start browser-worker in this project before running consecutive imports.')
+        raise ArchiveError('Start the downloader before running consecutive imports.')
     return root
 
 
@@ -254,7 +253,7 @@ def _start(root,values,resume,*,now=None):
         if not waiting:previous.update(status='running',code=None,network_retry_after=None,network_recovery_attempts=0)
         _save(root,previous);return previous
     if previous and previous['pending']:
-        raise ArchiveError('A previous batch is unresolved. Use run-backlog --resume to observe that same task first.')
+        raise ArchiveError('A previous batch is unresolved. Resume the download so it can finish first.')
     config=budgets(values)
     now=_now() if now is None else _instant(now.isoformat())
     if previous:
@@ -514,22 +513,3 @@ def step(session,library=Path('Library'),*,observe_only=False):
         return _public(state)
 
 
-def run(session,library=Path('Library'),values=None,*,resume=False,progress=print):
-    root=_root(session,library)
-    with LibraryLock(root/'.backlog-runtime'):
-        with LibraryLock(root/'.backlog-state'):_start(root,values,resume)
-        last=None
-        try:
-            while True:
-                result=step(session,library)
-                key=(result['status'],result['pending_task_id'],result['completed_batches'])
-                if key!=last:
-                    progress(json.dumps(result));last=key
-                if result['status']!='running' and not (result['status']=='paused'
-                        and (result['code']=='network_unavailable' and result['network_retry_after'] is not None
-                             or result['code']=='source_refused' and result['source_recovery_wait'] is not None)):return result
-                time.sleep(2)
-        except KeyboardInterrupt:
-            with LibraryLock(root/'.backlog-state'):
-                state=_load(root);state.update(status='interrupted',network_retry_after=None,source_recovery_wait=None);_save(root,state)
-            raise

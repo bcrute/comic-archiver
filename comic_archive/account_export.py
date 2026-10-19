@@ -118,7 +118,7 @@ def configure(session, library=Path('Library'), *, resume=False, window_budgets=
             _save(root, old)
             return _public(old)
         if old and old['status'] != 'finished':
-            raise ArchiveError('An unfinished account export exists; inspect account-status or use --resume.')
+            raise ArchiveError('An unfinished account export exists; resume it instead.')
         plan = completion.status(session, library)
         if plan.get('status') in {'paused', 'stopped'}:
             raise ArchiveError('Resolve the held backlog before starting account discovery.')

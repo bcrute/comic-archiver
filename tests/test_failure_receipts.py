@@ -43,9 +43,8 @@ class FailureReceiptTests(unittest.TestCase):
             with patch('comic_archive.worker.TapasAdapter', return_value=adapter), \
                     patch('comic_archive.jobs.archive_discovered', side_effect=archive), \
                     patch('comic_archive.completion.worker_tick'), \
-                    patch('comic_archive.daily.start_scheduler'), patch('comic_archive.daily.stop_scheduler'), \
                     patch('comic_archive.worker.time.sleep', side_effect=KeyboardInterrupt):
-                with self.assertRaises(KeyboardInterrupt): run_worker(session, reload_adapter=False)
+                with self.assertRaises(KeyboardInterrupt): run_worker(session)
             receipt = json.loads((root / 'responses' / (task + '.json')).read_text())
             self.assertEqual(receipt['status'], 'error')
             self.assertEqual(receipt['result']['downloaded_pages'], 2)

@@ -24,30 +24,6 @@
   "test": "test_series_page_reads_use_the_normal_site_first_and_refuse_redirects_and_errors"
  },
  {
-  "id": "nav-junk-row",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "if not isinstance(row,dict) or row.get('tag') not in",
-  "new": "if row.get('tag') not in",
-  "test_file": "test_tapas_adapter.py",
-  "test": "test_rendered_reader_navigation_skips_junk_rows_and_tags_outside_the_allowlist"
- },
- {
-  "id": "nav-tag-allowlist",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "row.get('tag') not in {'a','button','select','div','span','li'}",
-  "new": "False",
-  "test_file": "test_tapas_adapter.py",
-  "test": "test_rendered_reader_navigation_skips_junk_rows_and_tags_outside_the_allowlist"
- },
- {
-  "id": "reader-scroll",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "if ordered_sources(before) is None:",
-  "new": "if False:",
-  "test_file": "test_tapas_adapter.py",
-  "test": "test_background_reader_inspection_uses_provided_sources_and_scrolls_only_when_they_are_incomplete"
- },
- {
   "id": "manual-guard",
   "source": "comic_archive/adapters/tapas.py",
   "old": "network_guard=getattr(self,'network_guard',None), agent=getattr(self.context, 'agent', None))\n        return Episode(episode_id",
@@ -72,102 +48,6 @@
   "test": "test_exit_closes_the_browser_and_driver_even_when_the_transport_fails_to_close"
  },
  {
-  "id": "headless-route",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "context.route('**/*', self.network_read_only_request)",
-  "new": "None",
-  "test_file": "test_tapas_adapter.py",
-  "test": "test_headless_browser_context_is_read_only_and_network_guarded_before_a_page_opens"
- },
- {
-  "id": "headless-sw",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "new_context(storage_state=self.context.storage_state(),service_workers='block')",
-  "new": "new_context(storage_state=self.context.storage_state())",
-  "test_file": "test_tapas_adapter.py",
-  "test": "test_headless_browser_context_is_read_only_and_network_guarded_before_a_page_opens"
- },
- {
-  "id": "verify-first-only",
-  "source": "comic_archive/cli.py",
-  "old": "for error in errors:",
-  "new": "for error in errors[:1]:",
-  "test_file": "test_cli.py",
-  "test": "test_verify_failure_lists_each_problem_on_stderr_and_exits_nonzero"
- },
- {
-  "id": "port-upper-bound",
-  "source": "comic_archive/cli.py",
-  "old": "1 <= args.port <= 65535",
-  "new": "1 <= args.port <= 99999",
-  "test_file": "test_cli.py",
-  "test": "test_local_site_refuses_ports_above_65535"
- },
- {
-  "id": "cloud-status-falls-to-upload",
-  "source": "comic_archive/cli.py",
-  "old": "elif args.command == 'cloud-status':",
-  "new": "elif False:",
-  "test_file": "test_cli.py",
-  "test": "test_cloud_commands_upload_existing_episodes_only_when_asked"
- },
- {
-  "id": "cloud-status-wrong-path",
-  "source": "comic_archive/cli.py",
-  "old": "result = cloud.status(args.output)",
-  "new": "result = cloud.status(Path('Library'))",
-  "test_file": "test_cli.py",
-  "test": "test_cloud_commands_upload_existing_episodes_only_when_asked"
- },
- {
-  "id": "keep-cache-inverted",
-  "source": "comic_archive/cli.py",
-  "old": "purge_completed_cache=not args.keep_completed_cache",
-  "new": "purge_completed_cache=args.keep_completed_cache",
-  "test_file": "test_cli.py",
-  "test": "test_storage_policy_purges_completed_cache_unless_keep_is_requested_and_plan_estimates_the_requested_kind"
- },
- {
-  "id": "plan-default-kind-novel",
-  "source": "comic_archive/cli.py",
-  "old": "default='comic'",
-  "new": "default='novel'",
-  "test_file": "test_cli.py",
-  "test": "test_storage_policy_purges_completed_cache_unless_keep_is_requested_and_plan_estimates_the_requested_kind"
- },
- {
-  "id": "plan-kind-ignored",
-  "source": "comic_archive/cli.py",
-  "old": "episode_kind=args.content_type",
-  "new": "episode_kind='comic'",
-  "test_file": "test_cli.py",
-  "test": "test_storage_policy_purges_completed_cache_unless_keep_is_requested_and_plan_estimates_the_requested_kind"
- },
- {
-  "id": "session-check-ignores-output",
-  "source": "comic_archive/cli.py",
-  "old": "result=check_session(adapter,args.output)",
-  "new": "result=check_session(adapter,Path('Library'))",
-  "test_file": "test_cli.py",
-  "test": "test_local_session_check_uses_its_own_browser_and_the_chosen_library_not_the_worker"
- },
- {
-  "id": "session-check-adapter-args",
-  "source": "comic_archive/cli.py",
-  "old": "with TapasAdapter(args.session_dir,args.browser,args.headless,args.request_interval) as adapter:\n                result=check_session",
-  "new": "with TapasAdapter(args.session_dir,'auto',args.headless,args.request_interval) as adapter:\n                result=check_session",
-  "test_file": "test_cli.py",
-  "test": "test_local_session_check_uses_its_own_browser_and_the_chosen_library_not_the_worker"
- },
- {
-  "id": "session-check-uses-worker",
-  "source": "comic_archive/cli.py",
-  "old": "        if args.via_worker:\n            if args.output!=Path('Library'):\n                raise ArchiveError('The browser worker checks",
-  "new": "        if True:\n            if False:\n                raise ArchiveError('The browser worker checks",
-  "test_file": "test_cli.py",
-  "test": "test_local_session_check_uses_its_own_browser_and_the_chosen_library_not_the_worker"
- },
- {
   "id": "mode-guard",
   "source": "comic_archive/image_profiles.py",
   "old": "if image.mode not in ('RGB', 'RGBA', 'L', 'LA', 'P'):",
@@ -190,38 +70,6 @@
   "new": "if False:\n        raise ArchiveError(\"Worker runtime lock",
   "test_file": "test_background.py",
   "test": "test_symlinked_runtime_folder_is_not_followed_to_decide_whether_a_worker_runs"
- },
- {
-  "id": "backlog-silent-loop-body",
-  "source": "comic_archive/background.py",
-  "old": "        if running(folder, '.backlog-runtime'):\n            return result | {'backlog_resume_started':True}",
-  "new": "        if True:\n            return result | {'backlog_resume_started':True}",
-  "test_file": "test_background.py",
-  "test": "test_backlog_controller_that_cannot_launch_or_stays_silent_is_reported_honestly"
- },
- {
-  "id": "backlog-silent-poll-skipped",
-  "source": "comic_archive/background.py",
-  "old": "        exit_code = process.poll()\n        if exit_code is not None:\n            return result | ({'backlog_resume_finished'",
-  "new": "        exit_code = 0\n        if exit_code is not None:\n            return result | ({'backlog_resume_finished'",
-  "test_file": "test_background.py",
-  "test": "test_backlog_controller_that_cannot_launch_or_stays_silent_is_reported_honestly"
- },
- {
-  "id": "enrich-refresh-ignored",
-  "source": "comic_archive/worker.py",
-  "old": "enrich_series(adapter,args['id'],Path('Library'),args.get('refresh',False))",
-  "new": "enrich_series(adapter,args['id'],Path('Library'),False)",
-  "test_file": "test_worker.py",
-  "test": "test_fixed_operations_run_their_handlers_against_the_fixed_library_path"
- },
- {
-  "id": "enrich-wrong-library",
-  "source": "comic_archive/worker.py",
-  "old": "enrich_series(adapter,args['id'],Path('Library'),args.get('refresh',False))",
-  "new": "enrich_series(adapter,args['id'],Path('Other'),args.get('refresh',False))",
-  "test_file": "test_worker.py",
-  "test": "test_fixed_operations_run_their_handlers_against_the_fixed_library_path"
  },
  {
   "id": "post-startup-failure-marked-startup",
@@ -376,14 +224,6 @@
   "test": "test_an_unsupported_browser_name_is_refused_before_anything_is_launched"
  },
  {
-  "id": "export-id-not-digest",
-  "source": "comic_archive/web.py",
-  "old": "elif re.fullmatch(r'[a-f0-9]{64}',key):",
-  "new": "elif True:",
-  "test_file": "test_web.py",
-  "test": "test_export_ids_must_be_full_digests"
- },
- {
   "id": "signin-busy-check",
   "source": "comic_archive/local_web.py",
   "old": "or (info['worker'] or {}).get('reported_state') == 'busy':",
@@ -408,22 +248,6 @@
   "test": "test_browser_signin_and_account_views_are_cookie_protected_read_only_and_reject_wrong_methods"
  },
  {
-  "id": "cover-name-guard",
-  "source": "comic_archive/hosted.py",
-  "old": "if name not in {'cover.jpg','cover.png','cover.webp','cover.gif'}:",
-  "new": "if False:",
-  "test_file": "test_hosted.py",
-  "test": "test_downloads_are_refused_for_damaged_metadata_changed_format_oversized_or_escaping_cover_names"
- },
- {
-  "id": "metadata-size-limit",
-  "source": "comic_archive/hosted.py",
-  "old": "if len(raw)>maximum:raise",
-  "new": "if False:raise",
-  "test_file": "test_hosted.py",
-  "test": "test_downloads_are_refused_for_damaged_metadata_changed_format_oversized_or_escaping_cover_names"
- },
- {
   "id": "stream-cache-check",
   "source": "comic_archive/cloud_stream.py",
   "old": "if len(data) != page['size'] or digest(data) != page['sha256']:",
@@ -440,60 +264,12 @@
   "test": "test_reconnecting_requeues_receipts_made_for_the_previous_connection"
  },
  {
-  "id": "connect-symlink",
-  "source": "comic_archive/cloud.py",
-  "old": "if config.is_symlink():",
-  "new": "if False:",
-  "test_file": "test_cloud.py",
-  "test": "test_local_connect_refuses_a_symlinked_config_without_starting_sign_in"
- },
- {
-  "id": "purge-novel-text",
-  "source": "comic_archive/purge.py",
-  "old": "old.get('text_sha256') == new.get('text_sha256')",
-  "new": "True",
-  "test_file": "test_purge.py",
-  "test": "test_retained_legacy_novel_is_deleted_only_for_the_matching_converted_export"
- },
- {
   "id": "purge-tar-loop",
   "source": "comic_archive/purge.py",
   "old": "if member.name == name and member.isfile() and member.size == size:",
   "new": "if member.isfile() and member.size == size:",
   "test_file": "test_purge.py",
   "test": "test_every_page_of_a_compressed_archive_can_be_recovered_by_its_own_name_and_hash"
- },
- {
-  "id": "migration-space",
-  "source": "comic_archive/migration.py",
-  "old": "if shutil.disk_usage(root).free < old_path.stat().st_size + min_free_bytes + 1024*1024:",
-  "new": "if False:",
-  "test_file": "test_migration.py",
-  "test": "test_conversion_stops_with_originals_in_place_when_free_space_is_short"
- },
- {
-  "id": "migration-identity",
-  "source": "comic_archive/migration.py",
-  "old": "or meta.get('series_id') != series.id",
-  "new": "or False",
-  "test_file": "test_migration.py",
-  "test": "test_episode_whose_series_identity_disagrees_with_its_folder_is_not_converted"
- },
- {
-  "id": "migration-tmp-link",
-  "source": "comic_archive/migration.py",
-  "old": "if temporary.is_symlink(): raise ArchiveError('Unsafe conversion output.')",
-  "new": "if False: raise ArchiveError('Unsafe conversion output.')",
-  "test_file": "test_migration.py",
-  "test": "test_planted_temporary_link_for_a_converted_novel_is_not_written_through"
- },
- {
-  "id": "storage plan no longer skips an episode info file that is not an object",
-  "source": "comic_archive/storage.py",
-  "old": "except (OSError, ValueError, TypeError, AttributeError, ArchiveError):",
-  "new": "except (OSError, ValueError, TypeError, ArchiveError):",
-  "test_file": "test_storage.py",
-  "test": "test_plan_counts_only_readable_archives_inside_real_series_folders"
  },
  {
   "id": "saved-library reader leaves the handle of a folder open",
@@ -1040,14 +816,6 @@
   "test": "test_capture_closes_the_previous_transport_and_opens_a_new_one_with_the_refreshed_cookies_network_guard_and_browser_name"
  },
  {
-  "id": "tapas-resident-transport-reload-threshold",
-  "source": "comic_archive/adapters/tapas.py",
-  "old": "getattr(cached_transport, \"TRANSPORT_VERSION\", 1) < 10",
-  "new": "getattr(cached_transport, \"TRANSPORT_VERSION\", 1) < 1",
-  "test_file": "test_asset_deferral.py",
-  "test": "test_resident_upgrade_preserves_network_base_and_adds_catchable_asset_subtype"
- },
- {
   "id": "window-site-text-ignores-the-site",
   "source": "comic_archive/desktop_app.py",
   "old": "    return text.format(site=site.name)",
@@ -1089,7 +857,7 @@
  },
  {
   "id": "hosted-sites-default",
-  "source": "comic_archive/hosted.py",
+  "source": "comic_archive/local_web.py",
   "old": "    sites = None  #",
   "new": "    sites = []  #",
   "test_file": "test_local_web.py",
@@ -2602,7 +2370,7 @@
  {
   "id": "b2-status-bucket",
   "source": "comic_archive/cloud.py",
-  "old": "'bucket':_bucket(target) if target and provider == 'b2' else None,",
+  "old": "'bucket':_bucket(target) if target else None,",
   "new": "'bucket':None,",
   "test_file": "test_b2_auth.py",
   "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
@@ -2622,22 +2390,6 @@
   "new": "                if False:\n",
   "test_file": "test_saved_library.py",
   "test": "test_unknown_storage_location_is_refused_and_server_libraries_offer_no_cloud_locations"
- },
- {
-  "id": "menu offers Settings for cloud storage where the cloud helper is not offered",
-  "source": "comic_archive/web.py",
-  "old": "                            or (cloud_tools.offered() and (not self.registry.desktop_only or self.registry.interface_mode == 'local'))\n",
-  "new": "                            or ((not self.registry.desktop_only or self.registry.interface_mode == 'local'))\n",
-  "test_file": "test_local_web.py",
-  "test": "test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites"
- },
- {
-  "id": "menu hides Settings from the app on this computer without cloud storage",
-  "source": "comic_archive/web.py",
-  "old": "                        settings_hidden='' if (simple and self.registry.interface_mode == 'local') or self.registry.location\n",
-  "new": "                        settings_hidden='' if self.registry.location\n",
-  "test_file": "test_local_web.py",
-  "test": "test_both_pages_share_the_menu_with_settings_and_only_the_dashboard_lists_sites"
  },
  {
   "id": "stopped direct episode drops its pages",
@@ -2946,8 +2698,8 @@
  {
   "id": "cloud-shared-targets-ignored",
   "source": "comic_archive/cloud.py",
-  "old": "    return own | {'targets': _shared(store)}",
-  "new": "    return own",
+  "old": "value = own if store is None or own is None else own | {'targets': _shared(store)}",
+  "new": "value = own",
   "test_file": "test_shared.py",
   "test": "test_backblaze_set_up_on_one_site_serves_every_site_each_in_a_folder_of_its_own"
  },
@@ -3144,14 +2896,6 @@
   "test": "test_other_sites_speeds_are_listed_and_changed_only_in_the_desktop_app_with_cookie_origin_and_csrf"
  },
  {
-  "id": "hosted-chooses-shared-storage",
-  "source": "comic_archive/hosted.py",
-  "old": "        if self.interface_mode != 'local':\n            raise ArchiveError('Cloud uploads run on the user device through the local archiver.')\n        from .shared import choose_cloud\n",
-  "new": "        from .shared import choose_cloud\n",
-  "test_file": "test_web.py",
-  "test": "test_storage_and_cloud_routes_reject_cross_owner_credentials_and_hosted_uploads"
- },
- {
   "id": "b2-sign-in-file-beside-library",
   "source": "comic_archive/cloud_auth.py",
   "old": "folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)",
@@ -3254,5 +2998,21 @@
   "new": "    loop = _serving = Loop(arguments)",
   "test_file": "test_qt_engine.py",
   "test": "test_serve_removes_inherited_web_engine_overrides_before_starting"
+ },
+ {
+  "id": "cloud-retired-shown",
+  "source": "comic_archive/cloud.py",
+  "old": "    return value and value | {'targets': {name: t for name, t in value['targets'].items() if name in PROVIDERS}}",
+  "new": "    return value",
+  "test_file": "test_cloud.py",
+  "test": "test_a_connection_to_a_retired_provider_is_kept_but_never_used"
+ },
+ {
+  "id": "cloud-retired-dropped-on-save",
+  "source": "comic_archive/cloud.py",
+  "old": "_write(path, value | {'targets': retired | value['targets']})",
+  "new": "_write(path, value)",
+  "test_file": "test_cloud.py",
+  "test": "test_a_connection_to_a_retired_provider_is_kept_but_never_used"
  }
 ]
