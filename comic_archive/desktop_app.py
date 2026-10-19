@@ -213,19 +213,6 @@ def signin_navigation(scheme, host, path, main_frame=True, history=False):
     return not main_frame and scheme in {'data', 'blob'}
 
 
-def loopback(host):
-    """Names and addresses that mean this computer, where the dashboard's private API listens."""
-    name = host.strip('[]').rstrip('.').lower()
-    if name == 'localhost' or name.endswith('.localhost'):
-        return True
-    try:
-        address = ipaddress.ip_address(name)
-    except ValueError:
-        return False
-    address = getattr(address, 'ipv4_mapped', None) or address
-    return address.is_loopback or address.is_unspecified
-
-
 def private_destination(host):
     """A name or address that unambiguously stays off the public Internet.
 

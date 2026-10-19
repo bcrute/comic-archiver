@@ -17,7 +17,6 @@ from .archive_paths import directory
 from .models import ArchiveError
 from .osdep import replace_file, shortened, units
 
-PUBLICATION_VERSION = 4
 MAX_PAGE_BYTES = 100 * 1024 * 1024
 # What follows a title in a name: ' [' with twelve characters of the export id and ']', then the longest
 # ending a file gets while it is written ('.tar.zst.tmp').

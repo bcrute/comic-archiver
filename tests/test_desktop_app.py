@@ -591,14 +591,6 @@ class DesktopAppTests(unittest.TestCase):
         url = Url('about:blank')
         self.assertFalse(desktop_app.signin_navigation(url.scheme(), url.host(), url.path(), True, True))
 
-    def test_every_name_for_this_computer_is_loopback_and_no_web_host_is(self):
-        for host in ('localhost', 'LOCALHOST', 'localhost.', 'app.localhost', '127.0.0.1', '127.1.2.3', '127.255.255.254', '::1', '[::1]',
-                     '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', '0.0.0.0', '::'):
-            self.assertTrue(desktop_app.loopback(host), host)
-        for host in ('tapas.io', 'accounts.google.com', 'localhost.example.com', 'notlocalhost', '128.0.0.1', '126.255.255.255',
-                     '192.168.1.10', '::2', '2001:db8::1', '::ffff:8.8.8.8', '127.0.0.1.example.com', ''):
-            self.assertFalse(desktop_app.loopback(host), host)
-
     def test_private_destinations_include_local_names_and_every_non_public_ip_literal(self):
         for host in ('localhost', 'app.localhost.', 'local', 'printer.local', 'home.arpa', 'router.home.arpa.',
                      '0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1',

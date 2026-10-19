@@ -16,7 +16,6 @@ import re
 import secrets
 import sqlite3
 import stat
-import sys
 
 from .archive import verify_episode_contents, verify_series_contents, episode_archives, sidecar_path, archive_extension, archive_from_sidecar
 from .archive_paths import directory
@@ -398,16 +397,6 @@ class WorkspaceRegistry:
         last=data.get('last_run')
         result['last_run']={k:last[k] for k in ('id','started_at','finished_at','status')} if last else None
         return result
-
-    def worker_spec(self,owner,workspace_id,headless=True):
-        workspace=self.resolve(owner,workspace_id)
-        if type(headless) is not bool:
-            raise ArchiveError('Worker display mode must be an explicit boolean.')
-        args=[sys.executable,'-m','comic_archive','--browser','firefox']
-        if headless:
-            args.append('--headless')
-        args.extend(('browser-worker','--stable-code'))
-        return {'cwd':workspace.root,'argv':tuple(args)}  # Server-only launch data.
 
     def _exports(self,workspace):
         # A file that is a link, or gone since the folder was read, is left out; the rest of the library is still offered.

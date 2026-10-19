@@ -124,10 +124,6 @@ class HostedTests(unittest.TestCase):
                 self.registry.submit('website-user-a',self.a.id,operation,options)
         with self.assertRaises(ArchiveError):
             self.registry.submit('website-user-a',self.b.id,'sync',{'limit':1})
-        spec=self.registry.worker_spec('website-user-a',self.a.id)
-        self.assertEqual(spec['cwd'],self.a.root)
-        self.assertEqual(spec['argv'][-2:],('browser-worker','--stable-code'))
-        self.assertNotIn(str(self.b.root),repr(spec))
 
     def test_task_projection_omits_paths_credentials_and_diagnostics(self):
         self.prepare_queue(self.a)
@@ -415,12 +411,6 @@ class HostedTests(unittest.TestCase):
         outside=Path(self.work.name)/'outside.json';outside.write_text('PRIVATE_COOKIES')
         state.unlink();state.symlink_to(outside)
         with self.assertRaises(ArchiveError):self.registry.status('website-user-a',self.a.id)
-
-    def test_worker_launch_data_is_fixed_and_the_headless_choice_must_be_an_explicit_boolean(self):
-        self.assertNotIn('--headless',self.registry.worker_spec('website-user-a',self.a.id,headless=False)['argv'])
-        self.assertIn('--headless',self.registry.worker_spec('website-user-a',self.a.id)['argv'])
-        for bad in ('yes',1,None):
-            with self.assertRaises(ArchiveError):self.registry.worker_spec('website-user-a',self.a.id,headless=bad)
 
     def test_daily_schedule_keeps_lower_explicit_budgets_and_refuses_malformed_options(self):
         self.prepare_queue(self.a)
