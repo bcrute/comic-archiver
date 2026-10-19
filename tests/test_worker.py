@@ -124,7 +124,7 @@ class WorkerTests(unittest.TestCase):
             def __exit__(self,*args):pass
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'.comic-session';root=session/'worker'
-            (root/'requests').mkdir(parents=True);(root/'responses').mkdir()
+            (root/'requests').mkdir(parents=True);(root/'responses').mkdir();(root/'cancellations').mkdir(mode=0o700)
             private_json(root/'status.json',{'state':'ready'})
             task=submit_job(session,'sync',{'max_pages':1})['task_id']
             # A pause left for a task the worker had not yet started; worker restarts reach it still queued.
