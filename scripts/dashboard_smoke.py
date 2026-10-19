@@ -1041,6 +1041,16 @@ def b2_setup_controls(page, registry):
         enabled.append(True); page.evaluate('cloud()')
         expect(choice.nth(1)).to_be_checked()
         expect(page.locator('#cloud-choice-help')).to_contain_text('uploaded to Backblaze B2 as it downloads')
+        # While episodes download the choice is locked, and says why beside it; the folder too.
+        locked = page.evaluate("""() => { const saved = state.account; state.account = {...saved, status:'running'}; buttons();
+            const seen = {locked:[...$('storage-options').querySelectorAll('input')].every(input => input.disabled),
+                choice:$('cloud-choice-lock').hidden ? '' : $('cloud-choice-lock').textContent,
+                folder:$('change-folder-lock').hidden ? '' : $('change-folder-lock').textContent, own:!$('change-folder').hidden};
+            state.account = saved; buttons();
+            return {...seen, after:$('cloud-choice-lock').hidden && $('change-folder-lock').hidden}; }""")
+        assert locked['locked'] and locked['after'], locked
+        assert locked['choice'] == 'This can’t be changed while episodes are downloading. Press Pause on the dashboard first.', locked
+        assert ('Press Pause on the dashboard first' in locked['folder']) == locked['own'], locked
         # Choosing this device again turns the uploads off.
         with patch.object(registry, 'configure_cloud', return_value={}) as configure, page.expect_response(
                 lambda response: response.url.endswith('/cloud') and response.request.method == 'POST'):
