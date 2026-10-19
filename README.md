@@ -60,7 +60,7 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every release is checked on Core/Heavy before publication. About 1,800 automated tests run, and the app's pages are driven
+Every release is checked on Core/Heavy before publication. More than 1,500 automated tests run, and the app's pages are driven
 in a real browser at desktop and phone sizes. A mutation check then puts more than 300 deliberate faults into the code, one
 at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
 
