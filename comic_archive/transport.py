@@ -8,7 +8,6 @@ from . import sites
 from .errors import AssetReadUnavailable, NetworkUnavailable, RunLimit
 from .downloads import validate_request_interval
 from .transfer_metrics import TransferMetrics, network_failure_code
-TRANSPORT_VERSION = 10
 # How much of a refused request's answer is kept with its error.
 REFUSAL_BYTES = 4096
 

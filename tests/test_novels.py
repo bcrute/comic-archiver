@@ -12,13 +12,11 @@ from comic_archive.adapters.tapas_http import TapasHTTPAdapter, access_state
 from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import digest, verify, verify_episode, verify_episode_contents
 from comic_archive.audit import audit_library
-from comic_archive.backup import backup_library
 from comic_archive.errors import AccessDenied, UnsupportedContent
-from comic_archive.hosted import WorkspaceRegistry
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered, sync, DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Series
-from comic_archive.novels import EPUB_FILES, NovelHTML, epub_entries, epub_files, novel_structure
+from comic_archive.novels import EPUB_FILES, NovelHTML, epub_entries, epub_files
 from scripts.offline_restore import restore
 
 
@@ -128,36 +126,6 @@ class NovelTests(unittest.TestCase):
                     parser.text()
                 self.assertEqual(error.exception.code, 'novel_manifest_incomplete')
 
-    def test_structure_inspection_counts_only_requested_chapter_and_exports_no_prose(self):
-        result = novel_structure(HTML, '81')
-        self.assertTrue(result['supported_text_manifest'])
-        self.assertTrue(result['chapter_closed'])
-        self.assertEqual(result['episode_container_count'], 1)
-        self.assertEqual(result['chapter_container_count'], 1)
-        self.assertEqual(result['observed_tag_counts']['p'], 2)
-        self.assertFalse(result['media_requested'])
-        self.assertFalse(result['chapter_text_exported'])
-        for private in ('Words', 'Comments', 'account', 'https', 'secret', 'Other chapter'):
-            self.assertNotIn(private, json.dumps(result))
-
-    def test_structure_inspection_reports_first_unsupported_tag_without_values(self):
-        for tag, expected in (('img', 'img'), ('a', 'a'), ('private-session-token', 'other')):
-            html = HTML.replace('<strong>', f'<{tag} src="https://private/secret">PRIVATE</{tag}><strong>')
-            result = novel_structure(html, '81')
-            self.assertFalse(result['supported_text_manifest'])
-            self.assertEqual(result['first_unsupported_tag'], expected)
-            self.assertIsNone(result['text_character_count'])
-            self.assertNotIn('PRIVATE', json.dumps(result))
-            self.assertNotIn('private', json.dumps(result))
-
-    def test_structure_inspection_keeps_hidden_and_truncated_chapters_held(self):
-        result = novel_structure(HTML.replace('<strong>', '<strong style="display:none">'), '81')
-        self.assertFalse(result['supported_text_manifest'])
-        self.assertTrue(result['hidden_content_detected'])
-        result = novel_structure(HTML[:HTML.index('</div></article>')], '81')
-        self.assertFalse(result['supported_text_manifest'])
-        self.assertFalse(result['chapter_closed'])
-
     def test_embedded_illustrations_preserve_bytes_and_strikethrough_offline(self):
         from PIL import Image
         pixels = io.BytesIO()
@@ -205,10 +173,11 @@ class NovelTests(unittest.TestCase):
 
     def test_illustration_failure_diagnostics_explain_holds_without_payloads(self):
         html = HTML.replace('<strong>', '<img src="data:image/png;base64,SGVsbG8="/><strong>')
-        result = novel_structure(html, '81')
-        self.assertEqual(result['validation_failure'], 'illustration_format_incomplete')
-        self.assertNotIn('SGVsbG8', json.dumps(result))
-        self.assertNotIn('Hello', json.dumps(result))
+        with self.assertRaises(UnsupportedContent) as error:
+            self.fragment_of(html)
+        self.assertEqual(error.exception.novel_reason, 'illustration_format_incomplete')
+        self.assertNotIn('SGVsbG8', str(error.exception))
+        self.assertNotIn('Hello', str(error.exception))
 
     def test_mislabeled_embedded_bitmap_uses_its_original_verified_format(self):
         from PIL import Image
@@ -370,35 +339,12 @@ class NovelTests(unittest.TestCase):
             self.assertEqual(inventory.pending()[0]['error_code'], 'archive_corrupt')
 
     @patch('builtins.print')
-    def test_novel_audit_backup_and_independent_restore(self, output):
+    def test_novel_audit_verifies_every_saved_chapter(self, output):
         self.seed()
         archive_discovered(self.adapter, self.root)
         audit = audit_library(self.root)
         self.assertEqual(audit['verified_inventory_episode_count'], 2)
         self.assertTrue(audit['archive_integrity_passed'])
-        backup = Path(self.work.name) / 'backup'
-        self.assertEqual(backup_library(self.root, backup, reserve_bytes=0)['archive_count'], 2)
-        self.assertEqual(verify(backup), [])
-        report = restore(backup, Path(self.work.name)/'restore', decode=True)
-        self.assertEqual(report['novel_chapter_count'], 2)
-        self.assertEqual(report['image_count'], 0)
-        self.assertFalse(report['application_imported'])
-
-    @patch('builtins.print')
-    def test_novel_and_sidecar_downloads_are_verified_and_owner_scoped(self, output):
-        registry = WorkspaceRegistry(Path(self.work.name)/'hosted')
-        workspace = registry.create('owner')
-        self.root = workspace.library
-        self.seed()
-        archive_discovered(self.adapter, self.root, limit=1)
-        exports = registry.exports('owner', workspace.id)
-        for kind in ('epub', 'episode_metadata'):
-            export = next(item for item in exports if item['kind'] == kind)
-            with registry.open_export('owner', workspace.id, export['id']) as download:
-                data = download.stream.read()
-                self.assertEqual(len(data), export['size'])
-            with self.assertRaises(ArchiveError):
-                registry.open_export('another-owner', workspace.id, export['id'])
 
     def test_model_refuses_active_or_empty_text_and_mixed_comic_text(self):
         for text in ('', '<p></p>', '<script>bad()</script>', '<p onclick="bad()">Text</p>'):
@@ -444,7 +390,6 @@ class NovelTests(unittest.TestCase):
                     parser = NovelHTML('81')
                     parser.feed(html)
                 self.assertEqual(error.exception.novel_reason, reason)
-                self.assertEqual(novel_structure(html, '81')['validation_failure'], reason)
 
     def test_hidden_deeply_nested_or_mismatched_chapter_markup_holds_but_stray_outside_tags_do_not(self):
         container = '<div id="epub-81" class="ep-epub-content">'
@@ -471,18 +416,6 @@ class NovelTests(unittest.TestCase):
         with self.assertRaises(UnsupportedContent) as error:
             self.fragment_of(empty)
         self.assertEqual(error.exception.code, 'novel_manifest_incomplete')
-        result = novel_structure(empty, '81')
-        self.assertFalse(result['supported_text_manifest'])
-        self.assertTrue(result['chapter_closed'])
-
-    def test_structure_inspection_describes_tapas_hosted_images_by_shape_and_flags_hidden_attributes(self):
-        result = novel_structure(HTML.replace('<strong>', '<img src="https://us-a.tapas.io/pc/a.png?signature=PRIVATE"/><strong>'), '81')
-        self.assertEqual(result['scoped_image_source_shapes'],
-                         [{'host': 'us-a.tapas.io', 'has_query': True, 'source_attribute': 'src'}])
-        self.assertFalse(result['supported_text_manifest'])
-        self.assertFalse(result['hidden_content_detected'])
-        self.assertNotIn('PRIVATE', json.dumps(result))
-        self.assertTrue(novel_structure(HTML.replace('<strong>', '<strong hidden>'), '81')['hidden_content_detected'])
 
     def epub_parts(self):
         series = Series('42', 'Novel')

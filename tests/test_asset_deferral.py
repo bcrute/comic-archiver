@@ -1,7 +1,5 @@
 import json
 from datetime import datetime, timedelta, timezone
-import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,31 +15,6 @@ from test_jobs import AccountAdapter
 
 @patch('builtins.print')
 class AssetDeferralTests(unittest.TestCase):
-    def test_resident_upgrade_preserves_network_base_and_adds_catchable_asset_subtype(self,output):
-        script = '''
-import importlib
-import httpx
-from comic_archive import errors, transport
-from comic_archive.adapters import tapas
-original = errors.NetworkUnavailable
-del errors.AssetReadUnavailable
-transport.TRANSPORT_VERSION = 6
-importlib.reload(tapas)
-assert errors.NetworkUnavailable is original
-assert issubclass(errors.AssetReadUnavailable, original)
-class Client:
-    def stream(self, *args, **kwargs):
-        raise httpx.ReadTimeout('synthetic read timeout')
-transport.time.sleep = lambda seconds: None
-try:
-    transport.Transport(client=Client()).get('https://cdn.tapas.io/pc/synthetic.jpg')
-except original as failure:
-    assert isinstance(failure, errors.AssetReadUnavailable)
-else:
-    raise AssertionError('Asset failure was not catchable by the retained network base')
-'''
-        result=subprocess.run([sys.executable,'-c',script],capture_output=True,text=True,timeout=10)
-        self.assertEqual(result.returncode,0,result.stderr)
 
     def setUp(self):
         self.now = datetime(2026,10,8,14,tzinfo=timezone.utc)

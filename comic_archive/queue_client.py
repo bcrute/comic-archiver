@@ -9,21 +9,14 @@ from .archive import atomic_json
 from .archive_paths import directory
 from .models import ArchiveError, identifier
 
-QUEUE_CLIENT_VERSION = 16
 
 def submit_job(session, operation, options=None,*,_task_id=None):
     if operation == 'audit_account':
         if options:
             raise ArchiveError('Account audits accept no paths or source options.')
         return _submit(session, operation, {}, task_id=_task_id)
-    if operation=='enrich_series':
-        options=dict(options or {})
-        if (set(options)-{'id','refresh'} or not isinstance(options.get('id'),str)
-                or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',options['id']) or type(options.get('refresh',False)) is not bool):
-            raise ArchiveError('Series enrichment accepts an observed ID/slug and a refresh boolean.')
-        return _submit(session,operation,options,task_id=_task_id)
-    if operation not in {"archive_discovered", "sync", "archive_watched_series", "archive_series_url"}:
-        raise ArchiveError("Only fixed archive, selected-series, sync or metadata-enrichment jobs can be submitted.")
+    if operation not in {"archive_discovered", "sync"}:
+        raise ArchiveError("Only fixed archive or sync jobs can be submitted.")
     options = dict(options or {})
     allowed = {"limit", "max_pages", "max_bytes", "max_seconds", "free_only",'request_interval', 'download_workers'}
     if operation == 'archive_discovered':
@@ -40,14 +33,6 @@ def submit_job(session, operation, options=None,*,_task_id=None):
         raise ArchiveError('Fast imports save known or chosen series; refresh the collection first.')
     from .downloads import validate_download_workers
     validate_download_workers(options.get('download_workers', 1))
-    if operation == 'archive_series_url':
-        allowed.add('url')
-        from .selection import series_link
-        series_link(options.get('url'))
-    if operation == 'archive_watched_series':
-        allowed.add('id')
-        if not isinstance(options.get('id'),str) or not re.fullmatch(r'[1-9][0-9]{0,19}',options['id']):
-            raise ArchiveError('Selected-series jobs require an observed numeric source identity.')
     if operation == "sync":
         allowed.add('metadata_speed')
         validate_speed(options.get('metadata_speed', 'normal'))
@@ -90,72 +75,21 @@ def submit_job(session, operation, options=None,*,_task_id=None):
 
 def submit_inspection(session,operation,options=None):
     options = dict(options or {})
-    if operation == 'preview_series':
-        from .preflight import validate_options
-        validate_options(options)
-    elif operation in {'cloud_test', 'cloud_cleanup'}:
+    if operation in {'cloud_test', 'cloud_cleanup'}:
         from .cloud import validate_test_action
         validate_test_action(operation, options)
-    elif operation in {'check_session', 'purge_cache', 'cloud_upload'}:
+    elif operation == 'cloud_upload':
         if options:
-            raise ArchiveError('Session checks accept no account IDs, URLs, paths or credentials.')
-    elif operation=='configure_priority':
-        from .expiry import queue_priority
-        if set(options)!={'priority'}: raise ArchiveError('Queue order accepts only a priority choice.')
-        queue_priority(options['priority'])
-    elif operation=='inspect_account_navigation':
-        if options:
-            raise ArchiveError('Account navigation inspection accepts no URLs, account IDs or actions.')
-    elif operation=='inspect_episode_page_size':
-        if set(options)-{'id','max_limit'} or not isinstance(options.get('id'),str) or not re.fullmatch(r'[1-9][0-9]{0,19}',options['id']) or type(options.get('max_limit',50)) is not int or options.get('max_limit',50) not in {20,50,100}:
-            raise ArchiveError('Page-size inspection accepts an observed numeric series ID and size 20, 50 or 100.')
-    elif operation=='diagnose_headless':
-        if set(options)!={'url'} or not isinstance(options.get('url'),str) or not re.fullmatch(r'https://tapas\.io/episode/[1-9][0-9]{0,19}',options['url']):
-            raise ArchiveError('Background test requires an exact observed episode URL.')
-    elif operation=='inspect_episode':
-        if set(options)-{'url','details'} or not isinstance(options.get('url'),str) or not re.fullmatch(r'https://tapas\.io/episode/[1-9][0-9]{0,19}',options['url']) or type(options.get('details',False)) is not bool:
-            raise ArchiveError('Episode inspection accepts an observed exact URL and a details boolean.')
-    elif operation in {'inspect_reader_identity','inspect_episode_access'}:
-        if set(options)!={'url'} or not isinstance(options['url'],str) or not re.fullmatch(r'https://tapas\.io/episode/[1-9][0-9]{0,19}',options['url']):
-            raise ArchiveError('Reader identity inspection requires an observed exact episode URL.')
-    elif operation=='inspect_library_pages':
-        if set(options)-{'category','max_pages'} or options.get('category','subscribed') not in {'subscribed','recent','updated'} or type(options.get('max_pages',3)) is not int or not 1<=options.get('max_pages',3)<=200:
-            raise ArchiveError('Reading-list pagination accepts only a known category and page limit from 1 to 200.')
-    elif operation=='configure_daily':
-        from .daily import validate_configuration
-        options=validate_configuration(options)
-    elif operation=='inspect_library_filter':
-        if set(options)-{'category','content_type'} or type(options.get('category','subscribed')) is not str or type(options.get('content_type','comics')) is not str or options.get('category','subscribed') not in {'subscribed','recent','updated'} or options.get('content_type','comics') not in {'all','comics','novels'}:
-            raise ArchiveError('Library filter inspection accepts only a known category and content type.')
-    elif operation=='inspect_free_access':
-        if options:
-            raise ArchiveError('Free Access inspection accepts no URLs, menu IDs or actions.')
-    elif operation == 'inspect_transaction_history':
-        if (set(options)-{'max_pages','resume'} or type(options.get('max_pages',3)) is not int
-                or not 1 <= options.get('max_pages',3) <= 500 or type(options.get('resume',False)) is not bool):
-            raise ArchiveError('History inspection accepts a page limit from 1 to 500 and an explicit resume boolean.')
-    elif operation == 'inspect_library':
-        if (set(options)-{'category','details'} or options.get('category','subscribed') not in {'subscribed','recent','updated'}
-                or type(options.get('details',False)) is not bool):
-            raise ArchiveError('Library inspection accepts a known category and a boolean details option.')
-    elif operation=='inspect_series_metadata':
-        if (set(options)!={'id'} or not isinstance(options['id'],str)
-                or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',options['id'])):
-            raise ArchiveError('Series metadata inspection requires an observed series ID/slug.')
-    elif operation=='inspect_series':
-        if (set(options)-{'id','strict_order'} or not isinstance(options.get('id'),str)
-                or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',options['id'])
-                or type(options.get('strict_order',True)) is not bool):
-            raise ArchiveError('Series inspection accepts an observed ID/slug and an optional boolean ordering check.')
+            raise ArchiveError('Cloud uploads accept no account IDs, URLs, paths or credentials.')
     else:
-        raise ArchiveError('Only fixed source inspections can be submitted.')
+        raise ArchiveError('Only fixed cloud tasks can be submitted.')
     return _submit(session,operation,options)
 
 
 def _submit(session,operation,options,*,task_id=None):
     root = Path(session) / "worker"
     if not (root / "requests").is_dir():
-        raise ArchiveError("Start browser-worker from a normal terminal before submitting jobs.")
+        raise ArchiveError("Start the downloader before submitting jobs.")
     requests = directory(root / "requests")
     requests.chmod(0o700)
     reserved=task_id is not None

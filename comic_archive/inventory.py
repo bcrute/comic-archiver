@@ -17,7 +17,6 @@ from .estimate import pace
 from .locking import LibraryLock
 from .models import ArchiveError
 from .osdep import anchored
-INVENTORY_VERSION=22
 ASSET_RETRY_COOLDOWN_SECONDS = 300
 # An episode a job failed on this many times is held as failed, so the queue goes on past it.
 MAX_FAILED_ATTEMPTS = 3
@@ -248,13 +247,6 @@ class Inventory:
         row=self.db.execute("SELECT value FROM settings WHERE key='queue_priority'").fetchone()
         from .expiry import queue_priority
         return queue_priority(row[0] if row else 'expiring_first')
-
-    def set_queue_priority(self,value):
-        from .expiry import queue_priority
-        value=queue_priority(value)
-        self.db.execute("INSERT INTO settings VALUES ('queue_priority',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(value,))
-        self.db.commit()
-        return value
 
     def enable_novels(self):
         """Recheck old content holds without asserting that a chapter is readable."""

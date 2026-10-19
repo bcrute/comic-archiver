@@ -1,16 +1,14 @@
 import json
 import tempfile
-import sqlite3
 import time
 import io
 import logging
-from contextlib import closing
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 from support import PRIVATE_FILE, PRIVATE_FOLDER
 from comic_archive.models import ArchiveError
-from comic_archive.session import cookie_expiry_seconds, import_firefox, load_session, save_session
+from comic_archive.session import cookie_expiry_seconds, load_session, save_session
 from comic_archive.transport import Transport, ExpiredAsset, asset_url
 
 
@@ -227,41 +225,6 @@ class TransportTests(unittest.TestCase):
             stored = json.loads(file.read_text())
             self.assertEqual(len(stored["cookies"]), 1)
             self.assertEqual(len(stored["origins"]), 1)
-
-    def test_firefox_import_filters_hosts_expiry_containers_and_reads_wal(self):
-        with tempfile.TemporaryDirectory() as root:
-            profile = Path(root) / "firefox"
-            profile.mkdir()
-            file = profile / "cookies.sqlite"
-            with closing(sqlite3.connect(file)) as db:
-                db.execute("PRAGMA journal_mode=WAL")
-                db.execute("CREATE TABLE moz_cookies (name TEXT,value TEXT,host TEXT,path TEXT,expiry INTEGER,isSecure INTEGER,isHttpOnly INTEGER,originAttributes TEXT,sameSite INTEGER)")
-                expiry = int(time.time()) + 3600
-                rows = [
-                    ("session", "PRIVATE", ".tapas.io", "/", expiry * 1000, 1, 1, "", 2),
-                    ("other", "OTHER", ".google.com", "/", expiry, 1, 1, "", 1),
-                    ("container", "CONTAINER", ".tapas.io", "/", expiry, 1, 1, "^userContextId=1", 1),
-                    ("expired", "EXPIRED", ".tapas.io", "/", 1, 1, 1, "", 1),
-                    ("expired_ms", "EXPIRED_MS", ".tapas.io", "/", (int(time.time()) - 3600) * 1000, 1, 1, "", 1),
-                    ("subdomain", "SUBDOMAIN", "cdn.tapas.io", "/", expiry, 1, 1, "", 1)]
-                db.executemany("INSERT INTO moz_cookies VALUES (?,?,?,?,?,?,?,?,?)", rows)
-                db.commit()
-                before = file.stat().st_mtime_ns
-                destination = Path(root) / "session"
-                import_firefox(profile, destination)
-                self.assertEqual(file.stat().st_mtime_ns, before)
-                state = json.loads((destination / "state.json").read_text())
-                self.assertEqual(len(state["cookies"]), 1)
-                self.assertEqual(state["cookies"][0]["name"], "session")
-                self.assertEqual(state["cookies"][0]["sameSite"], "Strict")
-                self.assertEqual(state["cookies"][0]["expires"], expiry)
-                self.assertEqual(state["origins"], [])
-                self.assertEqual((destination / "state.json").stat().st_mode & 0o777, PRIVATE_FILE)
-
-    def test_firefox_missing_profile_is_safe_error(self):
-        with tempfile.TemporaryDirectory() as root:
-            with self.assertRaises(ArchiveError):
-                import_firefox(Path(root) / "missing", Path(root) / "session")
 
     def test_cookie_expiry_normalization(self):
         self.assertEqual(cookie_expiry_seconds(1790893649525), 1790893649.525)

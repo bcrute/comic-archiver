@@ -189,29 +189,6 @@ class TapasTests(unittest.TestCase):
             self.assertEqual(BrowserReadTransport(page,Mock()).get('https://tapas.io/episode/81/info'),b'{"ok":true}')
         page.goto.assert_called_once_with('https://tapas.io/',wait_until='domcontentloaded')
 
-    @patch('comic_archive.adapters.tapas.Transport')
-    def test_legacy_c_pages_are_blocked_from_browser_preload_without_blocking_covers(self,assets):
-        transport=BrowserReadTransport(Mock(),Mock())
-        for resource in ('image','fetch','xhr'):
-            for path,blocked in (('/c/aa/page.jpg',True),('/pc/aa/page.jpg',True),('/sa/cover.jpg',False)):
-                route=Mock();route.request.url='https://us-a.tapas.io'+path;route.request.resource_type=resource
-                transport.block_comic_preload(route)
-                self.assertEqual(route.abort.called,blocked)
-                self.assertEqual(route.continue_.called,not blocked)
-
-    @patch('builtins.input')
-    def test_reader_diagnostics_gate_access_before_navigation_scrolling_or_input(self,prompt):
-        for failure in (AccessDenied('Locked'),AuthenticationError('Login required'),MetadataError('Unknown authorization')):
-            for interactive in (True,False):
-                self.adapter.page.reset_mock()
-                self.adapter.episode_access.side_effect=failure
-                with self.assertRaises(type(failure)):
-                    self.adapter.inspect_episode('https://tapas.io/episode/81',interactive=interactive,details=True)
-                self.adapter.page.goto.assert_not_called()
-                self.adapter.page.locator.assert_not_called()
-                self.adapter.page.mouse.wheel.assert_not_called()
-                prompt.assert_not_called()
-
     def test_default_crawler_uses_the_validated_pager_and_keeps_partial_coverage_explicit(self):
         self.adapter.inspect_library_pages=Mock(return_value={'membership_verified':True,'complete':False,'series':[]})
         checkpoint=Mock()
@@ -271,292 +248,6 @@ class TapasTests(unittest.TestCase):
         page.evaluate.return_value={'status':'PRIVATE_SESSION','text':None}
         with self.assertRaises(ArchiveError) as error:transport.get('https://tapas.io/series/42')
         self.assertNotIn('PRIVATE',str(error.exception))
-
-    def test_reader_identity_diagnostics_gate_access_and_do_not_request_series_candidates(self):
-        api=Mock();api.episode_access.return_value={'source_episode_id':'81','access_state':'tapas_free'}
-        api.episode_url.return_value='https://tapas.io/episode/81'
-        api.transport.get.return_value=b'<script>var seriesId=42;</script><div data-series-id="99"></div><a href="/episode/82" rel="next">Next</a><a href="/episode/83?token=PRIVATE">PRIVATE</a><div id="episode-81"><img class="content__img" data-src="https://us-a.tapas.io/pc/page.jpg?signature=PRIVATE"></div>'
-        self.adapter.automatic_adapter=Mock(return_value=api)
-        result=self.adapter.inspect_reader_identity('https://tapas.io/episode/81')
-        self.assertEqual(result['inline_series_id_candidates'],[42])
-        self.assertEqual(result['data_series_ids'],[99])
-        self.assertEqual(result['scoped_page_count'],1)
-        self.assertFalse(result['series_metadata_requested']);self.assertFalse(result['comic_images_requested'])
-        navigation=result['provided_episode_navigation']
-        self.assertEqual([link['source_episode_id'] for link in navigation['links']],['82'])
-        self.assertFalse(navigation['authorization_evidence']);self.assertFalse(navigation['followed_links'])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        api.transport.get.assert_called_once_with('https://tapas.io/episode/81')
-        api.json_get.assert_not_called();api.retrieve.assert_not_called()
-        api.episode_access.side_effect=AccessDenied('locked');api.transport.reset_mock()
-        with self.assertRaises(AccessDenied):self.adapter.inspect_reader_identity('https://tapas.io/episode/81')
-        api.transport.get.assert_not_called()
-
-    def test_reader_identity_describes_held_novel_without_downloading_embedded_media(self):
-        api=Mock();api.episode_access.return_value={'source_episode_id':'81','access_state':'tapas_free'}
-        api.episode_url.return_value='https://tapas.io/episode/81'
-        api.transport.get.return_value=(b'<div id="episode-82"><div id="epub-82" class="ep-epub-content">'
-            b'<script>PRIVATE_ACCOUNT</script></div></div><div id="episode-81">'
-            b'<div id="epub-81" class="ep-epub-content"><p>PRIVATE_PROSE</p>'
-            b'<img src="https://private/secret?signature=PRIVATE"></div></div>')
-        self.adapter.automatic_adapter=Mock(return_value=api)
-        result=self.adapter.inspect_reader_identity('https://tapas.io/episode/81')
-        structure=result['novel_structure']
-        self.assertFalse(structure['supported_text_manifest'])
-        self.assertEqual(structure['first_unsupported_tag'],'img')
-        self.assertEqual(structure['observed_tag_counts'],{'img':1,'p':1})
-        self.assertFalse(structure['media_requested'])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        api.transport.get.assert_called_once_with('https://tapas.io/episode/81')
-        api.retrieve.assert_not_called()
-
-    def test_rendered_reader_navigation_filters_private_text_urls_and_ids(self):
-        url='https://tapas.io/episode/81';self.adapter.page.url=url
-        self.adapter.wait_normal=Mock();self.adapter.remaining_timeout=Mock(return_value=1000)
-        controls=self.adapter.page.locator.return_value
-        controls.evaluate_all.return_value={'truncated':False,'rows':[
-            {'tag':'a','visible':True,'label':'next episode','url':'https://tapas.io/episode/82','episode_id':'82','private':'PRIVATE'},
-            {'tag':'button','visible':True,'label':'episode list','episode_class_hint':True,'role':'button',
-             'attribute_value_types':{'data-id':'integer','data-target':'string','data-token':'PRIVATE','data-user-id':'integer','data-secret':'string','data-other':[]}},
-            {'tag':'a','visible':False,'label':'PRIVATE_ACCOUNT','url':'https://tapas.io/episode/83?token=PRIVATE','episode_id':'PRIVATE'},
-            {'tag':'select','visible':True,'label':'chapters','option_count':3},
-            {'tag':'a','visible':True,'label':'next','url':'https://tapas.io@evil.example/episode/84'},
-        ]}
-        result=self.adapter._reader_navigation(url)
-        self.assertTrue(result['available']);self.assertEqual(len(result['controls']),4)
-        self.assertEqual(result['controls'][0]['source_episode_id'],'82')
-        self.assertEqual(result['controls'][1]['attribute_value_types'],{'data-id':'integer','data-target':'string'})
-        self.assertEqual(result['controls'][2]['option_count'],3)
-        self.assertNotIn('PRIVATE',json.dumps(result));self.assertNotIn('evil',json.dumps(result))
-        self.assertFalse(result['controls_activated']);self.assertFalse(result['followed_links'])
-        controls.click.assert_not_called()
-
-    def test_rendered_reader_navigation_requires_unchanged_reader_and_bounds_results(self):
-        url='https://tapas.io/episode/81';self.adapter.page.url='https://tapas.io/episode/82'
-        self.adapter.wait_normal=Mock();self.adapter.remaining_timeout=Mock(return_value=1000)
-        self.assertFalse(self.adapter._reader_navigation(url)['available']);self.adapter.wait_normal.assert_not_called()
-        self.adapter.page.url=url
-        controls=self.adapter.page.locator.return_value
-        controls.evaluate_all.return_value={'truncated':True,'rows':[{'tag':'button','label':'episodes'}]*100}
-        result=self.adapter._reader_navigation(url)
-        self.assertEqual(len(result['controls']),80);self.assertTrue(result['truncated'])
-        self.adapter.wait_normal.side_effect=lambda _:setattr(self.adapter.page,'url','https://tapas.io/ink/purchase')
-        self.assertFalse(self.adapter._reader_navigation(url)['available'])
-
-    def test_rendered_reader_navigation_preserves_time_limit_and_suppresses_optional_error(self):
-        from comic_archive.errors import RunLimit
-        url='https://tapas.io/episode/81';self.adapter.page.url=url
-        self.adapter.wait_normal=Mock(side_effect=RuntimeError('PRIVATE_SESSION'))
-        self.assertFalse(self.adapter._reader_navigation(url)['available'])
-        self.adapter.wait_normal.side_effect=RunLimit('budget')
-        with self.assertRaises(RunLimit):self.adapter._reader_navigation(url)
-
-    def test_library_filter_uses_a_visible_reading_list_link_and_restores_selection(self):
-        self.adapter._inspect_library_details=Mock(return_value={'authenticated':True,'final_list_count':15})
-        self.adapter.page.url='https://tapas.io/reading-list?category=SUBSCRIBED'
-        self.adapter.wait_normal=Mock()
-        state={'active':'all'}
-        controls=Mock();controls.evaluate_all.return_value=[{'label':'all','selected':True},{'label':'comics','selected':False}]
-        targets={}
-        observed=json.loads((Path(__file__).parent/'fixtures/tapas-live-library-filter-observation.json').read_text())
-        for label in ('all','comics'):
-            target=Mock();target.count.return_value=1;target.is_visible.return_value=True
-            fragment=observed['provided_fragments'][label]
-            target.get_attribute.return_value='https://tapas.io/reading-list?category=SUBSCRIBED#'+fragment
-            target.click.side_effect=lambda label=label,**kwargs:state.update(active=label)
-            targets['^'+label+'$']=target
-        controls.filter.side_effect=lambda **kwargs:targets[kwargs['has_text'].pattern]
-        active=Mock();active.count.return_value=1;active.inner_text.side_effect=lambda:state['active']
-        rows=Mock();rows.count.return_value=13
-        rows.evaluate_all.return_value=[{'title':'S','url':'https://tapas.io/series/example?signature=PRIVATE'}]
-        free=Mock();free.count.return_value=1;free.is_visible.return_value=True
-        free.get_attribute.return_value='https://tapas.io/reading-list?category=FREE_EPISODES&type=COMICS'
-        filters=Mock();filters.filter.return_value=free
-        def locator(selector):
-            if selector=='nav.section-sort ul.sort-wrap li.sort-item a.item-title':return controls
-            if selector=='nav.section-sort ul.sort-wrap li.sort-item.on a.item-title':return active
-            if selector=='nav.section-filter li.filter-item a.item-title':return filters
-            return rows
-        self.adapter.page.locator.side_effect=locator
-        self.adapter.capture_automatic=Mock()
-        result=self.adapter.inspect_library_filter()
-        self.assertTrue(result['membership_verified'])
-        self.assertTrue(result['filter_restore_succeeded'])
-        self.assertEqual(result['final_list_count'],13)
-        self.assertEqual(state['active'],'all')
-        self.assertFalse(result['complete'])
-        self.assertEqual(result['provided_free_episode_links'],[{'category':'free_episodes','content_type':'comics','page':1,'activated':False}])
-        free.click.assert_not_called()
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        self.adapter.capture_automatic.assert_not_called()
-        free.get_attribute.return_value='https://tapas.io/reading-list?category=FREE_EPISODES&type=COMICS&token=PRIVATE'
-        result=self.adapter.inspect_library_filter()
-        self.assertEqual(result['provided_free_episode_links'],[])
-        self.assertNotIn('PRIVATE',json.dumps(result));free.click.assert_not_called()
-
-    def test_hidden_library_filter_is_not_forced_and_purchase_path_is_rejected(self):
-        self.adapter._inspect_library_details=Mock(return_value={'authenticated':True,'final_list_count':15})
-        self.adapter.page.url='https://tapas.io/reading-list?category=SUBSCRIBED'
-        controls=Mock();controls.evaluate_all.return_value=[{'label':'all','selected':True}]
-        target=controls.filter.return_value;target.count.return_value=1;target.is_visible.return_value=False
-        self.adapter.page.locator.return_value=controls
-        result=self.adapter.inspect_library_filter()
-        self.assertFalse(result['filter_clicked'])
-        target.click.assert_not_called()
-        target.is_visible.return_value=True;target.get_attribute.return_value='https://tapas.io/ink/purchase'
-        with self.assertRaises(ArchiveError):self.adapter.inspect_library_filter()
-        target.click.assert_not_called()
-        target.get_attribute.return_value='https://tapas.io/reading-list?category=SUBSCRIBED#!/reading-list?type=COMICS&token=PRIVATE'
-        with self.assertRaises(ArchiveError):self.adapter.inspect_library_filter()
-        target.click.assert_not_called()
-
-    def test_free_access_follows_only_provided_navigation_not_purchase_links(self):
-        self.adapter.automatic_adapter=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.wait_normal=Mock()
-        self.adapter.page.locator.return_value.evaluate_all.side_effect=[
-            [{'label':'home','url':'https://tapas.io/menu/1/subtab/1'},
-             {'label':'free access','url':'https://tapas.io/ink/purchase?token=PRIVATE'}],
-            [{'label':'free access','url':'https://tapas.io/menu/1/subtab/2?tracking=PRIVATE'}],
-            [{'title':'Comic','url':'https://tapas.io/series/known-comic?secret=PRIVATE'},
-             {'title':'Other','url':'https://elsewhere.test/series/unknown'}]]
-        result=self.adapter.inspect_free_access()
-        self.assertEqual([c.args[0] for c in self.adapter.page.goto.call_args_list],[
-            'https://tapas.io/','https://tapas.io/menu/1/subtab/1','https://tapas.io/menu/1/subtab/2?tracking=PRIVATE'])
-        self.assertTrue(result['free_access_link_followed'])
-        self.assertFalse(result['membership_verified'])
-        self.assertFalse(result['reader_or_comic_pages_requested'])
-        self.assertEqual(result['visible_series_candidates'],[{'url':'https://tapas.io/series/known-comic','title':'Comic'}])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        self.adapter.automatic_adapter.return_value.capture.assert_not_called()
-
-    def test_missing_free_access_link_reports_gap_without_probing_menu_ids(self):
-        self.adapter.automatic_adapter=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.wait_normal=Mock()
-        self.adapter.page.locator.return_value.evaluate_all.return_value=[]
-        result=self.adapter.inspect_free_access()
-        self.adapter.page.goto.assert_called_once()
-        self.assertFalse(result['free_access_link_followed'])
-        self.assertFalse(result['complete'])
-        self.adapter.page.mouse.wheel.assert_not_called()
-
-    def test_passive_free_access_label_does_not_become_a_control_or_entitlement(self):
-        self.adapter.automatic_adapter=Mock();self.adapter.wait_normal=Mock()
-        self.adapter.capture_automatic=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.page.locator.return_value.evaluate_all.side_effect=[[],[
-            {'tag':'SPAN','label':'free access','label_only':True},
-            {'tag':'DIV','label':'all','label_only':False},
-            {'tag':'SPAN','label':'PRIVATE_ACCOUNT_NAME','label_only':True}]]
-        result=self.adapter.inspect_free_access()
-        self.assertTrue(result['free_access_label_observed']);self.assertFalse(result['free_access_control_observed'])
-        self.assertFalse(result['free_access_link_followed']);self.assertFalse(result['membership_verified'])
-        self.assertEqual(result['visible_access_controls'],[
-            {'tag':'SPAN','label':'free access','label_only':True},{'tag':'DIV','label':'all'}])
-        self.assertNotIn('PRIVATE',json.dumps(result));self.adapter.page.mouse.wheel.assert_not_called()
-        self.adapter.capture_automatic.assert_not_called()
-
-    def test_catalog_dom_inspects_only_public_tapas_frames_and_projects_fixed_labels(self):
-        frame=Mock();frame.url='https://tapas.io/menu/2/subtab/7?tracking=PRIVATE'
-        frame.locator.return_value.evaluate.return_value={
-            'node_count':12,'visible_sample_node_count':8,'sample_truncated':False,
-            'labels':[{'label':'free access','tag':'DIV','role':'tab','secret':'PRIVATE'},
-                      {'label':'PRIVATE_ACCOUNT_NAME','tag':'SPAN'},
-                      {'label':'wuf','tag':'PRIVATE','role':'PRIVATE'}], 'secret':'PRIVATE'}
-        external=Mock();external.url='https://captcha.example/PRIVATE'
-        account=Mock();account.url='https://tapas.io/profile/PRIVATE'
-        self.adapter.page.frames=[frame,external,account];self.adapter.page.main_frame=frame
-        result=self.adapter._catalog_dom_observation()
-        self.assertEqual(result['frame_count'],3);self.assertEqual(result['skipped_frame_count'],2)
-        self.assertEqual(result['inspected_frames'][0]['labels'],[
-            {'label':'free access','tag':'DIV','role':'tab'},{'label':'wuf','tag':'other'}])
-        self.assertTrue(result['inspected_frames'][0]['main_frame'])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        external.locator.assert_not_called();account.locator.assert_not_called()
-        frame.goto.assert_not_called()
-
-    def test_catalog_dom_unavailable_frames_and_private_failures_do_not_trigger_requests(self):
-        frame=Mock();frame.url='https://tapas.io/'
-        frame.locator.return_value.evaluate.side_effect=RuntimeError('PRIVATE_SESSION_COOKIE')
-        self.adapter.page.frames=[frame]
-        result=self.adapter._catalog_dom_observation()
-        self.assertFalse(result['inspected_frames'][0]['inspection_succeeded'])
-        self.assertNotIn('PRIVATE',json.dumps(result));self.adapter.page.goto.assert_not_called()
-
-    def test_free_access_can_follow_the_supplied_comics_menu_after_home_has_no_link(self):
-        self.adapter.automatic_adapter=Mock();self.adapter.wait_normal=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.page.locator.return_value.evaluate_all.side_effect=[
-            [{'label':'home','url':'https://tapas.io/menu/1/subtab/1'},
-             {'label':'comics','url':'https://tapas.io/menu/2/subtab/7'}], [],
-            [{'label':'free access','url':'https://tapas.io/menu/2/subtab/99'}],
-            [{'url':'https://tapas.io/series/observed-comic','title':'Visible'}]]
-        result=self.adapter.inspect_free_access()
-        self.assertEqual([call.args[0] for call in self.adapter.page.goto.call_args_list],[
-            'https://tapas.io/','https://tapas.io/menu/1/subtab/1','https://tapas.io/menu/2/subtab/7',
-            'https://tapas.io/menu/2/subtab/99'])
-        self.assertTrue(result['free_access_link_followed'])
-        self.assertFalse(result['complete']);self.assertFalse(result['membership_verified'])
-        self.assertEqual(result['visible_series_candidates'],[{'url':'https://tapas.io/series/observed-comic','title':'Visible'}])
-        self.adapter.automatic_adapter.return_value.capture.assert_not_called()
-
-    @patch('comic_archive.adapters.tapas.Transport')
-    def test_free_access_blocks_comic_preloads_before_authentication_or_navigation(self,assets):
-        self.adapter.transport=BrowserReadTransport(self.adapter.page,self.adapter.context)
-        automatic=Mock();self.adapter.automatic_adapter=Mock(return_value=automatic)
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.wait_normal=Mock()
-        self.adapter.page.locator.return_value.evaluate_all.return_value=[]
-        automatic.check_session.side_effect=lambda:self.assertTrue(self.adapter.transport.blocking_preload)
-        self.adapter.inspect_free_access()
-        self.adapter.page.route.assert_any_call('**/*',self.adapter.transport.block_comic_preload)
-
-    def test_refused_catalog_navigation_does_not_try_comics_or_alternate_ids(self):
-        self.adapter.automatic_adapter=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=403
-        with self.assertRaises(ArchiveError):self.adapter.inspect_free_access()
-        self.adapter.page.goto.assert_called_once_with('https://tapas.io/',wait_until='domcontentloaded',timeout=self.adapter.remaining_timeout())
-        self.adapter.page.locator.assert_not_called()
-
-    def test_catalog_filter_observation_never_clicks_or_exports_arbitrary_control_text(self):
-        self.adapter.automatic_adapter=Mock();self.adapter.wait_normal=Mock()
-        self.adapter.page.url='https://tapas.io/'
-        self.adapter.page.goto.return_value.status=200
-        self.adapter.page.locator.return_value.evaluate_all.side_effect=[[],[
-            {'label':'free access','tag':'BUTTON'},{'label':'wait until free','tag':'DIV'},
-            {'label':'ACCOUNT_PRIVATE','tag':'BUTTON'},{'label':'free','tag':'PRIVATE'}]]
-        result=self.adapter.inspect_free_access()
-        self.assertTrue(result['free_access_control_observed'])
-        self.assertFalse(result['free_access_link_followed']);self.assertFalse(result['membership_verified'])
-        self.assertEqual(result['visible_access_controls'],[
-            {'label':'free access','tag':'BUTTON'},{'label':'wait until free','tag':'DIV'},{'label':'free','tag':'control'}])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        self.adapter.page.locator.return_value.click.assert_not_called()
-
-    def test_series_metadata_inspection_does_not_open_readers_or_expose_values(self):
-        transport_adapter = Mock()
-        transport_adapter.resolve_series.return_value = {'id':42,'title':'S','url':'series-slug',
-            'thumb_url':'https://us-a.tapas.io/cover/original.jpg?signature=PRIVATE',
-            'user_id':9000000001,'authorization':'PRIVATE','book':True,'comic':'PRIVATE'}
-        transport_adapter.transport.get.return_value = b'<html>synthetic metadata</html>'
-        self.adapter.automatic_adapter = Mock(return_value=transport_adapter)
-        self.adapter.page.locator.return_value.evaluate_all.return_value = []
-        result = self.adapter.inspect_series_metadata('42')
-        self.assertEqual(result['source_series_id'],'42')
-        self.assertEqual(result['series_content_flags'],{'book':True})
-        self.assertEqual(result['cover_candidate'],{'host':'us-a.tapas.io','path':'/cover/original.jpg','has_query':True})
-        self.assertFalse(result['reader_or_comic_pages_requested'])
-        transport_adapter.check_session.assert_called_once()
-        transport_adapter.transport.get.assert_called_once_with('https://tapas.io/series/series-slug/info')
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        self.assertNotIn('9000000001',json.dumps(result))
 
     def setUp(self):
         self.adapter = TapasAdapter(Path("unused-test-session"))
@@ -651,56 +342,6 @@ class TapasTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             self.capture()
 
-    @patch("builtins.input", return_value="")
-    def test_reader_inspection_redacts_tokens_and_excludes_other_images(self, prompt):
-        self.adapter.page.locator.return_value.evaluate_all.return_value = [
-            {"url": "https://us-a.tapas.io/pc/aa/page.jpg?__token__=PRIVATE", "loaded": True,
-             "width": 940, "height": 1000, "classes": ["content__img"]},
-            {"url": "https://us-a.tapas.io/pc/aa/next.jpg?__token__=PRIVATE2", "loaded": False,
-             "width": 0, "height": 0, "classes": ["content__img"]},
-            {"url": "https://us-a.tapas.io/cover.jpg?__token__=PRIVATE3", "loaded": True,
-             "width": 100, "height": 100, "classes": ["cover"]},
-            {"url": "https://evil.example/pc/asset.jpg", "loaded": True,
-             "width": 100, "height": 100, "classes": ["content__img"]}]
-        result = self.adapter.inspect_episode("https://tapas.io/episode/81")
-        self.assertEqual(result["page_candidate_count"], 2)
-        self.assertEqual(result["loaded_page_candidate_count"], 1)
-        self.assertEqual(result["selector_candidates"][0]["all_image_matches"], 3)
-        self.assertTrue(result["access_verified"])
-        self.assertEqual(result['access_state'],'tapas_free')
-        self.assertNotIn("PRIVATE", json.dumps(result))
-        self.assertNotIn("cover.jpg", json.dumps(result))
-
-    @patch("builtins.input", return_value="")
-    def test_reader_inspection_rejects_navigation(self, prompt):
-        self.adapter.page.url = "https://tapas.io/account/signin"
-        with self.assertRaises(ArchiveError):
-            self.adapter.inspect_episode("https://tapas.io/episode/81")
-
-    @patch("builtins.input", return_value="")
-    def test_scoped_reader_selectors_separate_adjacent_episodes(self, prompt):
-        rows = [
-            {"url": "https://us-a.tapas.io/pc/a/first.jpg?__token__=PRIVATE", "loaded": True,
-             "width": 940, "height": 1000, "classes": ["content__img"],
-             "ancestors": [{"tag": "div", "classes": ["episode"], "attributes": {"data-id": "81"}}]},
-            {"url": "https://us-a.tapas.io/pc/b/next.jpg?__token__=PRIVATE", "loaded": True,
-             "width": 940, "height": 1000, "classes": ["content__img"],
-             "ancestors": [{"tag": "div", "classes": ["episode"], "attributes": {"data-id": "82"}}]}]
-        def locate(selector):
-            locator = Mock()
-            if selector == "img":
-                locator.evaluate_all.return_value = rows
-            else:
-                self.assertEqual(selector, '[data-id="81"] img.content__img')
-                locator.evaluate_all.return_value = {"count": 1, "loaded": 1}
-            return locator
-        self.adapter.page.locator.side_effect = locate
-        result = self.adapter.inspect_episode("https://tapas.io/episode/81")
-        self.assertEqual(result["episode_scoped_selectors"], [{"selector": '[data-id="81"] img.content__img',
-            "matched_image_count": 1, "loaded_image_count": 1, "episode_id": "81"}])
-        self.assertEqual(len(result["container_structures"]), 2)
-        self.assertNotIn("PRIVATE", json.dumps(result))
-
     def test_worker_scroll_stops_at_episode_boundary(self):
         self.adapter.page.evaluate.return_value = {"scoped": True, "bottom": 1000, "viewportBottom": 1100}
         self.adapter.scroll_episode("https://tapas.io/episode/81")
@@ -769,26 +410,6 @@ class TapasTests(unittest.TestCase):
         self.assertEqual(page.evaluate.call_count, 1)
 
     @patch("comic_archive.adapters.tapas.Transport")
-    def test_preload_blocker_only_blocks_tapas_comic_images(self, assets):
-        transport = BrowserReadTransport(Mock(), Mock())
-        for url, kind, blocked in (
-            ("https://us-a.tapas.io/pc/a.jpg?signature=TEST", "image", True),
-            ("https://us-a.tapas.io/cover/a.jpg", "image", False),
-            ("https://us-a.tapas.io/pc/a.js", "script", False),
-            ("https://www.recaptcha.net/challenge.png", "image", False),
-            ("https://tapas.io.evil.test/pc/a.jpg", "image", False),
-        ):
-            route = Mock()
-            route.request.url, route.request.resource_type = url, kind
-            transport.block_comic_preload(route)
-            if blocked:
-                route.abort.assert_called_once()
-                route.continue_.assert_not_called()
-            else:
-                route.continue_.assert_called_once()
-                route.abort.assert_not_called()
-
-    @patch("comic_archive.adapters.tapas.Transport")
     def test_automatic_reader_get_uses_html_text_without_navigation_or_image_preload(self, assets):
         page = Mock(url="https://tapas.io/")
         page.evaluate.return_value={'status':200,'text':'<html>reader</html>'}
@@ -801,9 +422,7 @@ class TapasTests(unittest.TestCase):
         self.assertEqual(options['limit'],8388608)
         self.assertIn("credentials:'same-origin'",script)
         self.assertIn("redirect:'error'",script)
-        self.assertFalse(transport.blocking_preload)
         transport.close()
-        self.assertFalse(transport.blocking_preload)
         page.unroute_all.assert_called_once_with(behavior='wait')
 
     @patch('comic_archive.adapters.tapas.Transport')
@@ -819,16 +438,15 @@ class TapasTests(unittest.TestCase):
             assets.return_value.get.assert_not_called()
 
     @patch('comic_archive.adapters.tapas.Transport')
-    def test_imported_browser_requests_cannot_write_even_through_the_preload_route(self,assets):
+    def test_imported_browser_requests_cannot_write_through_the_read_only_route(self,assets):
         transport=BrowserReadTransport(Mock(),Mock())
-        for handler in (transport.read_only_request,transport.block_comic_preload):
-            for method in ('POST','PUT','PATCH','DELETE'):
-                route=Mock();route.request.method=method
-                route.request.url='https://tapas.io/observed?token=PRIVATE'
-                route.request.resource_type='xhr'
-                handler(route)
-                route.abort.assert_called_once();route.continue_.assert_not_called()
-        self.assertEqual(transport.blocked_mutations,8)
+        for method in ('POST','PUT','PATCH','DELETE'):
+            route=Mock();route.request.method=method
+            route.request.url='https://tapas.io/observed?token=PRIVATE'
+            route.request.resource_type='xhr'
+            transport.read_only_request(route)
+            route.abort.assert_called_once();route.continue_.assert_not_called()
+        self.assertEqual(transport.blocked_mutations,4)
 
     @patch('comic_archive.adapters.tapas.Transport')
     def test_read_only_browser_route_allows_normal_reads_and_preflights(self,assets):
@@ -867,7 +485,7 @@ class TapasTests(unittest.TestCase):
     def test_late_mutation_route_callback_never_continues_or_retries_the_request(self,assets):
         from comic_archive.adapters.tapas import read_only_source_request
         transport=BrowserReadTransport(Mock(),Mock())
-        for handler in (read_only_source_request,transport.read_only_request,transport.block_comic_preload):
+        for handler in (read_only_source_request,transport.read_only_request):
             route=Mock();route.request.method='POST'
             route.abort.side_effect=RuntimeError('Route.abort: Route is already handled!')
             handler(route)

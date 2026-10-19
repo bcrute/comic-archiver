@@ -282,14 +282,13 @@ class ContinuationSessionTests(unittest.TestCase):
     def test_worker_dispatch_uses_resident_pool_and_retains_fixed_caps(self):
         from comic_archive.worker import execute
         worker = SimpleNamespace(session=self.session, preferred_browser='firefox', headless=True)
-        def operation(adapter, name, options):
-            self.assertEqual(name, 'archive_discovered')
+        def operation(adapter, output, report, **options):
             self.assertEqual(options['download_workers'], 64)
             adapter.supports_series_metadata = False
             return archive_discovered(adapter, self.root, **options)
         request = {'operation': 'archive_discovered',
                    'args': {'speed': 'fast', 'max_pages': 1, 'max_bytes': 8*1024**3, 'max_seconds': 60}}
-        with FastWorkerSession(self.session) as pool, patch('comic_archive.worker._archive_operation', operation):
+        with FastWorkerSession(self.session) as pool, patch('comic_archive.jobs.archive_discovered', operation):
             first = execute(worker, request, fast_session=pool)
             second = execute(worker, request, fast_session=pool)
         self.assertEqual((first['downloaded_pages'], second['downloaded_pages']), (1, 1))
@@ -306,8 +305,7 @@ class ContinuationSessionTests(unittest.TestCase):
         for name in names:
             worker.private_json(requests / (name + '.json'), request)
         calls = []
-        def operation(adapter, name, options):
-            self.assertEqual(name, 'archive_discovered')
+        def operation(adapter, output, report, **options):
             adapter.supports_series_metadata = False
             result = archive_discovered(adapter, self.root, **options)
             calls.append(result)
@@ -327,11 +325,9 @@ class ContinuationSessionTests(unittest.TestCase):
         ordinary.interval = 1.0
         ordinary.__enter__.return_value = ordinary
         with patch.object(worker, 'TapasAdapter', return_value=ordinary), \
-                patch.object(worker, '_archive_operation', operation), \
-                patch('comic_archive.completion.worker_tick', tick), \
-                patch('comic_archive.daily.start_scheduler'), \
-                patch('comic_archive.daily.stop_scheduler'):
-            worker.run_worker(self.session, headless=True, reload_adapter=False)
+                patch('comic_archive.jobs.archive_discovered', operation), \
+                patch('comic_archive.completion.worker_tick', tick):
+            worker.run_worker(self.session, headless=True)
         receipts = [json.loads((self.session / 'worker/responses' / (name + '.json')).read_text())
                     for name in names]
         self.assertEqual([r['status'] for r in receipts], ['ok', 'ok'])

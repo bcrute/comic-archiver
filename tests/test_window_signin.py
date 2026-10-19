@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER
 from comic_archive.account_ui import DESKTOP_REQUEST_INTERVAL
-from comic_archive.hosted import Workspace
+from comic_archive.workspace import Workspace
 from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
 from comic_archive.network import NetworkPolicyHold
