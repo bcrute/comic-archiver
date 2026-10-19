@@ -722,15 +722,14 @@ class DirectUpload:
             for name, data in self.files:
                 self.transfer.upload_bytes(data, self.prefix + '/' + name)
             listed = self.transfer.sha1s(self.prefix)
-            for name, data in self.files:
-                if name in listed:
-                    if listed.pop(name) != hashlib.sha1(data, usedforsecurity=False).hexdigest():
-                        raise CloudTransferError('cloud_verification')
-                    continue
-                # A file B2 took in parts has no SHA-1 there: its bytes are read back instead.
-                self.transfer.verify(self.prefix + '/' + name, hashlib.sha256(data).hexdigest())
-            if listed:
+            if set(listed) - {name for name, _ in self.files}:
                 raise CloudTransferError('cloud_verification')
+            for name, data in self.files:
+                if name not in listed:
+                    # A file B2 took in parts has no SHA-1 there: its bytes are read back instead.
+                    self.transfer.verify(self.prefix + '/' + name, hashlib.sha256(data).hexdigest())
+                elif listed[name] != hashlib.sha1(data, usedforsecurity=False).hexdigest():
+                    raise CloudTransferError('cloud_verification')
         except BaseException as error:
             self.error = error
 

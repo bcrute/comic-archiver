@@ -555,7 +555,7 @@ class B2DirectTests(unittest.TestCase):
         self.assertFalse(self.intents())
         changed = replace(self.episode, id='84', order=4)
         with patch.object(StreamingTransfer, 'sha1s', return_value={}), \
-                patch.object(StreamingTransfer, 'verify', side_effect=ArchiveError('synthetic changed bytes')):
+                patch.object(StreamingTransfer, 'verify', side_effect=CloudTransferError('cloud_verification')):
             self.publish((changed,), MemoryAdapter())
         self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 1))
 
