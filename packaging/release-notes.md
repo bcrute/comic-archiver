@@ -1,20 +1,10 @@
 ## Changes in {version}
 
-- Go now carries on past a paused Wi-Fi rule, an unreadable receipt and episodes that keep failing. Failed episodes are
-  retried after the rest, and one that fails three times is set aside instead of holding up the queue.
-- A cloud upload that has been verified is never deleted, and one bad upload no longer stops the others from saving.
-- Episodes kept only in the cloud are recognised by checks and backups, and an interrupted save of series details no
-  longer damages them.
-- A site's rate limit no longer carries over into the next job. Tappytoon series and chapters that were taken down are set
-  aside with a message instead of failing the run.
-- Tapas image downloads stay within the job's time limit, and a reading list that could not be read in full is no
-  longer treated as complete.
-- The page inside the app window only opens with a secret made for that start of the app.
-- Webtoon access is judged only from your own account, and very long titles or oversized series details are cut down
-  safely.
-- The downloader keeps running past a request it cannot use, and every save writes through a fresh private file.
-- Command-line imports that pause or are cancelled now end with an error code.
-- Release downloads must match the checked list exactly before they are published.
+- Comic Archiver is now only the desktop app. The `comic-archive` command-line tool and the parts of the code written
+  for a browser-only version are removed; the app window, its downloads and your library work as before.
+- Backblaze B2 is the cloud storage, and new episodes still go straight to it without being kept on this computer.
+  Google Drive, Dropbox and Proton Drive, which the app never offered, are removed. A connection to one of them saved
+  by an earlier version is kept as it was, but not used.
 
 ## Download
 
