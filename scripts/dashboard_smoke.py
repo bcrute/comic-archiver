@@ -485,7 +485,7 @@ def saved_library_controls(context, site, registry, workspace, screenshot):
         assert page.locator('#files td:nth-child(7)').evaluate_all('cells => cells.every(cell => cell.hidden)')
         assert page.evaluate('[sizes(1536), sizes(3*1024*1024)]') == ['1.5 KB', '3.0 MB']
         expect(page.locator('#files a')).to_have_count(0)
-        assert page.locator('#files .file-action').evaluate_all('nodes => nodes.every(n => n.tagName === "BUTTON" && n.textContent === "Open"')
+        assert page.locator('#files .file-action').evaluate_all('nodes => nodes.every(n => n.tagName === "BUTTON" && n.textContent === "Open")')
         row=page.locator('#files tr').filter(has_text='.cbz').first
         button=row.locator('.file-action');feedback=row.locator('.file-action-status')
         downloads=[];page.on('download',lambda value:downloads.append(value))
