@@ -1,8 +1,7 @@
 """Required offline validation; run it on the CI hosts.
 
 Install the test extra first. --prepare obtains the Firefox runtime.
-No credentials, real libraries or Tapas requests are used. The parked phone
-version under parked/android has its own checks and is not part of this gate.
+No credentials, real libraries or Tapas requests are used.
 """
 import argparse
 import json
@@ -134,14 +133,14 @@ def main():
     # failed on disk, at a different step each time, and none of 8 in memory).
     memory = Path('/dev/shm')
     with tempfile.TemporaryDirectory(prefix='comic-validate-', dir=memory if os.access(memory, os.W_OK) else None) as scratch:
-        for flags in (['--local'], ['--local', '--mobile'], [], ['--mobile']):
-            name = 'dashboard-' + ('local' if '--local' in flags else 'hosted') + ('-mobile' if '--mobile' in flags else '-desktop')
+        for flags in ([], ['--mobile']):
+            name = 'dashboard-local' + ('-mobile' if '--mobile' in flags else '-desktop')
             command([sys.executable, 'scripts/dashboard_smoke.py', *flags, '--screenshot', OUT / (name + '.png')],
                     env=os.environ | {'TMPDIR': scratch})
     command([sys.executable, 'scripts/reading_filter_smoke.py'])
     command([sys.executable, 'scripts/cloud_tools_smoke.py'])
     installed_package()
-    summary.update(required_gates_passed=True, lint_and_security_rules=True, javascript_lint=True, dependency_audit=True, browser_dashboard_variants=4, saved_library_browser_variants=4,
+    summary.update(required_gates_passed=True, lint_and_security_rules=True, javascript_lint=True, dependency_audit=True, browser_dashboard_variants=2, saved_library_browser_variants=2,
                    reading_filter_smoke=True, pinned_cloud_helper_install=True, fresh_wheel_install=True,
                    real_second_account_onboarding_verified=False,
                    windows_verified=False, macos_verified=False)

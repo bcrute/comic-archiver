@@ -407,14 +407,10 @@ class RequestRuleTests(EngineCase):
         comic = request(ORIGIN + '/pc/a.jpg', 'GET', 'image')
         site_image = request(ORIGIN + '/static/logo.png', 'GET', 'image')
         post = request(ORIGIN + '/api/save', 'POST', 'fetch')
-        for rule in ('reading', 'blocking comic preloads'):
-            if rule == 'blocking comic preloads':
-                page.route('**/*', transport.block_comic_preload)
-            with self.subTest(rule):
-                self.assertFalse(self.context_.refuses(request()))
-                self.assertFalse(self.context_.refuses(site_image))
-                self.assertTrue(self.context_.refuses(post))
-                self.assertEqual(self.context_.refuses(comic), rule == 'blocking comic preloads')
+        self.assertFalse(self.context_.refuses(request()))
+        self.assertFalse(self.context_.refuses(site_image))
+        self.assertTrue(self.context_.refuses(post))
+        self.assertFalse(self.context_.refuses(comic))
         adapter.network_guard.check.side_effect = NetworkPolicyHold('Wi-Fi only: transfers held.')
         transport.network_guard = adapter.network_guard
         self.assertTrue(self.context_.refuses(request()))

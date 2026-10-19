@@ -91,7 +91,7 @@ class BackgroundTests(unittest.TestCase):
                 nonlocal runtime
                 self.assertEqual(command, [sys.executable, "-m", "comic_archive", "--session-dir", str(session),
                     "--browser", "firefox", "--headless", "--request-interval", "0.5",
-                    "browser-worker", "--stable-code"])
+                    "browser-worker"])
                 self.assertEqual(kwargs, kwargs | osdep.detached())  # Its own session: it outlives the app.
                 self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
                 self.assertEqual(kwargs["cwd"], Path(work))
@@ -161,18 +161,17 @@ class BackgroundTests(unittest.TestCase):
             requests.mkdir()
             names = ["job-" + f"{number:024x}" for number in (1, 2)]
             for name in names:
-                worker.private_json(requests / f"{name}.json", {"operation": "check_session", "args": {}})
+                worker.private_json(requests / f"{name}.json", {"operation": "cloud_upload", "args": {}})
             adapter = Mock()
             adapter.__enter__ = Mock(return_value=adapter)
             adapter.__exit__ = Mock(return_value=False)
             def execute(*args, **kwargs):
                 self.assertTrue(background.stop(session)["stop_requested"])
-                return {"authenticated": True}
+                return {"uploaded": 0}
             with patch.object(worker, "TapasAdapter", return_value=adapter), \
                     patch.object(worker, "execute", side_effect=execute) as task, \
-                    patch("comic_archive.daily.start_scheduler"), patch("comic_archive.daily.stop_scheduler"), \
                     patch("builtins.print"):
-                worker.run_worker(session, headless=True, reload_adapter=False)
+                worker.run_worker(session, headless=True)
             self.assertEqual(task.call_count, 1)
             self.assertTrue((root / "responses" / f"{names[0]}.json").is_file())
             self.assertFalse((requests / f"{names[0]}.json").exists())
@@ -186,8 +185,7 @@ class BackgroundTests(unittest.TestCase):
             adapter = Mock()
             adapter.__enter__ = Mock(side_effect=ArchiveError("Safe startup failure"))
             adapter.__exit__ = Mock()
-            with patch.object(worker, "TapasAdapter", return_value=adapter), \
-                    patch("comic_archive.daily.stop_scheduler"):
+            with patch.object(worker, "TapasAdapter", return_value=adapter):
                 with self.assertRaises(ArchiveError):
                     worker.run_worker(session, headless=True)
             result = background.status(session)
@@ -205,7 +203,7 @@ class OfflineAdapter:
     def __enter__(self): return self
     def __exit__(self, *args): pass
 worker.TapasAdapter = OfflineAdapter
-worker.run_worker(Path(sys.argv[1]), headless=True, reload_adapter=False)
+worker.run_worker(Path(sys.argv[1]), headless=True)
 '''
         with tempfile.TemporaryDirectory() as work, tempfile.TemporaryFile() as log:
             session = Path(work) / ".comic-session"
@@ -241,117 +239,6 @@ worker.run_worker(Path(sys.argv[1]), headless=True, reload_adapter=False)
                         process.kill()
                         process.wait(timeout=30)
 
-    def test_background_probe_rejects_credentials_paths_and_non_episode_urls_before_queueing(self):
-        from comic_archive.queue_client import submit_inspection
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            requests = session / 'worker/requests'
-            requests.mkdir(parents=True)
-            for options in ({'url':'https://example.com/episode/81'},
-                    {'url':'https://tapas.io/episode/81?token=PRIVATE'},
-                    {'url':'https://user:PRIVATE@tapas.io/episode/81'},
-                    {'url':'https://tapas.io/episode/81','cookies':'PRIVATE'},
-                    {'url':'https://tapas.io/episode/81','output':'/tmp/outside'}):
-                with self.subTest(options=options), self.assertRaises(ArchiveError):
-                    submit_inspection(session,'diagnose_headless',options)
-            self.assertEqual(list(requests.iterdir()),[])
-            adapter = Mock()
-            with self.assertRaises(ArchiveError):
-                worker.execute(adapter,{'operation':'diagnose_headless','args':{'url':'https://example.com/'}})
-            adapter.diagnose_headless.assert_not_called()
-
-    def test_saved_backlog_resume_uses_fixed_resume_command_and_preserves_checkpoint(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            checkpoint = root / 'backlog.json'
-            checkpoint.write_text('ORIGINAL BUDGETS')
-            process = Mock()
-            process.poll.return_value = None
-            controller = LibraryLock(root / '.backlog-runtime')
-            def launch_controller(*args, **kwargs):
-                controller.__enter__()
-                return process
-            try:
-                with LibraryLock(root / '.runtime'), \
-                        patch.object(background.subprocess,'Popen',side_effect=launch_controller) as launch, \
-                        patch('comic_archive.batches.status',return_value={'configured':True}):
-                    result = background.start(session,resume=True)
-            finally:
-                controller.__exit__(None,None,None)
-            self.assertTrue(result['backlog_resume_started'])
-            launch.assert_called_once()
-            self.assertEqual(launch.call_args.args[0],[sys.executable,'-m','comic_archive',
-                '--session-dir',str(session),'run-backlog','--resume'])
-            self.assertEqual(launch.call_args.kwargs, launch.call_args.kwargs | osdep.detached())
-            self.assertEqual(checkpoint.read_text(),'ORIGINAL BUDGETS')
-
-    def test_failed_controller_launch_is_not_reported_as_a_successful_resume(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            process = Mock()
-            process.poll.return_value = 1
-            with LibraryLock(root / '.runtime'), \
-                    patch.object(background.subprocess,'Popen',return_value=process), \
-                    patch('comic_archive.batches.status',return_value={'configured':True}):
-                result = background.start(session,resume=True)
-            self.assertTrue(result['running'])
-            self.assertTrue(result['backlog_resume_failed'])
-            self.assertNotIn('backlog_resume_started',result)
-
-    def test_real_detached_controller_accepts_project_absolute_session_and_keeps_expired_budget(self):
-        from datetime import datetime,timedelta,timezone
-        from comic_archive import batches
-        with tempfile.TemporaryDirectory() as work:
-            project = Path(work)
-            session = project / '.comic-session'
-            root = self.record(session,worker_version=36)
-            for name in ('requests','responses'):
-                (root / name).mkdir()
-            state = batches._start(root,None,False)
-            expired = datetime.now(timezone.utc)-timedelta(minutes=1)
-            state['submit_before'] = expired.isoformat()
-            state['started_at'] = (expired-timedelta(seconds=state['budgets']['max_seconds'])).isoformat()
-            state['status'] = 'stopped'
-            state['stop_requested'] = True
-            batches._save(root,state)
-            processes = []
-            popen = subprocess.Popen
-            def launch(*args, **kwargs):
-                child = popen(*args,**kwargs)
-                processes.append(child)
-                return child
-            try:
-                with LibraryLock(root / '.runtime'), \
-                        patch.object(background.subprocess,'Popen',side_effect=launch):
-                    result = background.start(session,resume=True)
-                    self.assertTrue(result.get('backlog_resume_started') or result.get('backlog_resume_finished'))
-                    self.assertEqual(processes[0].wait(timeout=5),0)
-                saved = batches.status(session,project / 'Library')
-                self.assertEqual(saved['status'],'budget_reached')
-                self.assertEqual(saved['started_at'],state['started_at'])
-                self.assertEqual(saved['submit_before'],state['submit_before'])
-                self.assertEqual(saved['budgets'],state['budgets'])
-                self.assertEqual(saved['submitted_batches'],0)
-                self.assertEqual(list((root / 'requests').iterdir()),[])
-            finally:
-                for process in processes:
-                    if process.poll() is None:
-                        process.terminate()
-                        process.wait(timeout=5)
-
-    def test_resume_does_not_create_a_second_backlog_controller(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            with LibraryLock(root / '.runtime'), LibraryLock(root / '.backlog-runtime'), \
-                    patch.object(background.subprocess,'Popen') as launch, \
-                    patch('comic_archive.batches.status',return_value={'configured':True}):
-                result = background.start(session,resume=True)
-            self.assertTrue(result['backlog_controller_already_running'])
-            launch.assert_not_called()
-
     def test_real_worker_restart_waits_for_the_old_lock_and_launches_a_new_headless_process(self):
         code='''
 import sys
@@ -363,7 +250,7 @@ class OfflineAdapter:
     def __enter__(self): return self
     def __exit__(self,*args): pass
 worker.TapasAdapter=OfflineAdapter
-worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
+worker.run_worker(Path(sys.argv[1]),headless=True)
 '''
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'.comic-session'
@@ -393,7 +280,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                 self.assertTrue(result['running'])
                 self.assertTrue(result['headless'])
                 self.assertFalse(result['already_running'])
-                self.assertIn('--stable-code',start.call_args.args[0])
+                self.assertEqual(start.call_args.args[0][-1],'browser-worker')
                 self.assertEqual(checkpoint.read_text(),'UNCHANGED CHECKPOINT')
                 observed=json.loads((session/'worker/status.json').read_text())
                 self.assertEqual(observed['pid'],processes[1].pid)
@@ -406,15 +293,14 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                         process.terminate()
                         process.wait(timeout=5)
 
-    def test_start_does_not_resume_backlog_while_a_stop_is_draining_the_worker(self):
+    def test_start_does_not_launch_while_a_stop_is_draining_the_worker(self):
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'.comic-session'
             root=self.record(session,worker_version=37)
             with LibraryLock(root/'.runtime'):
                 background.stop(session)
-                with patch.object(background.subprocess,'Popen') as launch, \
-                        patch('comic_archive.batches.status',return_value={'configured':True}):
-                    result=background.start(session,resume=True)
+                with patch.object(background.subprocess,'Popen') as launch:
+                    result=background.start(session)
             self.assertTrue(result['start_deferred'])
             self.assertEqual(result['reason'],'worker_draining')
             launch.assert_not_called()
@@ -501,17 +387,6 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
                 self.assertFalse((root / 'drain.json').exists())
                 runtime.__exit__(None, None, None)  # Before the folder goes: Windows keeps a locked file in place.
 
-    def test_resume_needs_a_saved_backlog_and_starts_nothing_without_one(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            (root / 'requests').mkdir()
-            (root / 'responses').mkdir()
-            with patch.object(background.subprocess, 'Popen') as launch:
-                with self.assertRaisesRegex(ArchiveError, 'No saved backlog'):
-                    background.start(session, resume=True)
-            launch.assert_not_called()
-
     def test_restart_that_cannot_see_the_old_worker_leave_reports_it_as_draining(self):
         with tempfile.TemporaryDirectory() as work:
             session = Path(work) / '.comic-session'
@@ -567,39 +442,6 @@ worker.run_worker(Path(sys.argv[1]),headless=True,reload_adapter=False)
             self.assertTrue(result['startup_pending'])
             self.assertIs(result['running'], False)
             self.assertNotIn('already_running', result)
-
-    def test_backlog_resume_is_only_attempted_for_a_running_worker_and_never_through_a_symlinked_log(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            stopped = {'running': False, 'state': 'stopped'}
-            with patch.object(background.subprocess, 'Popen') as launch:
-                self.assertEqual(background.resume_backlog(root, stopped), stopped)
-                outside = Path(work) / 'outside.log'
-                outside.write_text('KEEP')
-                (root / 'background.log').symlink_to(outside)
-                with self.assertRaises(ArchiveError):
-                    background.resume_backlog(root, {'running': True})
-            launch.assert_not_called()
-            self.assertEqual(outside.read_text(), 'KEEP')
-
-    def test_backlog_controller_that_cannot_launch_or_stays_silent_is_reported_honestly(self):
-        with tempfile.TemporaryDirectory() as work:
-            session = Path(work) / '.comic-session'
-            root = self.record(session)
-            with patch.object(background.subprocess, 'Popen', side_effect=OSError('PRIVATE')):
-                with self.assertRaises(ArchiveError) as caught:
-                    background.resume_backlog(root, {'running': True})
-            self.assertNotIn('PRIVATE', str(caught.exception))
-            silent = Mock()
-            silent.poll.return_value = None
-            # A small step lets the wait loop run before the window closes.
-            with patch.object(background, 'time', JumpingClock(2)), \
-                    patch.object(background.subprocess, 'Popen', return_value=silent):
-                result = background.resume_backlog(root, {'running': True})
-            silent.poll.assert_called()
-            self.assertEqual(result, {'running': True, 'backlog_startup_pending': True})
-
 
 if __name__ == "__main__":
     unittest.main()

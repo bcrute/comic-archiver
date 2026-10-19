@@ -27,9 +27,6 @@ class CloudErrorTests(unittest.TestCase):
             ('no_write_permission', 'cloud_permission'),
             ('userRateLimitExceeded', 'cloud_rate_limited'),
             ('rateLimitExceeded', 'cloud_rate_limited'),
-            ('invalid_client', 'cloud_client_required'),
-            ('unauthorized_client', 'cloud_client_required'),
-            ('accessNotConfigured', 'cloud_client_required'),
             ('authError', 'cloud_login_required'),
             ('invalid_grant', 'cloud_login_required'),
             ('invalid_token', 'cloud_login_required'),
@@ -71,12 +68,12 @@ class CloudErrorTests(unittest.TestCase):
             options['stderr'].write(b'PRIVATE_PATH PRIVATE_TOKEN storageQuotaExceeded')
             return subprocess.CompletedProcess(command,7)
         with patch('comic_archive.cloud.subprocess.run',side_effect=failure):
-            with self.assertRaises(CloudTransferError) as caught:transfer.run('copyto','PRIVATE','google:PRIVATE')
+            with self.assertRaises(CloudTransferError) as caught:transfer.run('copyto','PRIVATE','b2:PRIVATE')
             self.assertEqual(safe_code(caught.exception),'cloud_space')
             self.assertNotIn('PRIVATE',str(caught.exception))
         with patch('comic_archive.cloud.subprocess.run',side_effect=OSError('PRIVATE')):
             with self.assertRaises(CloudTransferError) as caught:transfer.run('listremotes')
             self.assertEqual(safe_code(caught.exception),'cloud_connection')
-        transfer.provider='proton';transfer.target={'remote':'proton'};transfer.run=Mock(return_value=b'b'*64)
+        transfer.provider='b2';transfer.target={'remote':'b2'};transfer.run=Mock(return_value=b'b'*64)
         with self.assertRaises(CloudTransferError) as caught:transfer.verify('own/episode.cbz','a'*64)
         self.assertEqual(safe_code(caught.exception),'cloud_verification')

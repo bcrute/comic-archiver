@@ -202,39 +202,4 @@ class NetworkRecoveryTests(unittest.TestCase):
                 with self.assertRaises(ArchiveError):self.step()
                 self.assertEqual(list((self.root/'requests').iterdir()),[])
 
-    def test_cli_persists_recovery_option_without_adding_source_request_options(self):
-        from comic_archive.cli import parser,run
-        args=parser().parse_args(['run-backlog','--recover-network','--archive-only'])
-        with patch('comic_archive.batches.run',return_value={'status':'budget_reached'}) as runner,patch('builtins.print'):
-            self.assertEqual(run(args),0)
-        self.assertTrue(runner.call_args.kwargs['values']['recover_network'])
-
-    def test_real_controller_loop_waits_then_consumes_a_new_receipt_and_finishes(self):
-        values=batches._load(self.root)['budgets']
-        started=self.now
-        tasks=[];progress=[]
-        def tick(seconds):
-            self.now+=timedelta(seconds=seconds)
-            for path in (self.root/'requests').glob('*.json'):
-                task=path.stem;tasks.append(task)
-                first=len(tasks)==1
-                result={'status':'paused' if first else 'finished','downloaded_pages':1,
-                    'downloaded_bytes':2,'archived_episode_ids':[] if first else ['81'],
-                    'pending_episode_count':1 if first else 0,'inventory':{'scan_remaining_series_count':0}}
-                if first:result.update(pause_reason='network_unavailable',source_http_status=503)
-                atomic_json(self.root/'responses'/f'{task}.json',{'task_id':task,'status':'ok','result':result})
-                path.unlink()
-        with patch('comic_archive.batches.time.sleep',side_effect=tick):
-            result=batches.run(self.session,self.library,values,progress=progress.append)
-        self.assertEqual(result['status'],'known_backlog_drained')
-        self.assertEqual(result['completed_batches'],2)
-        self.assertEqual(result['downloaded_pages'],2)
-        # The batch after the wait saved an episode, so the recovery it took no longer counts.
-        self.assertEqual(result['network_recovery_attempts'],0)
-        self.assertEqual(len(set(tasks)),2)
-        self.assertGreaterEqual((self.now-started).total_seconds(),60)
-        self.assertEqual(result['submit_before'],(started+timedelta(seconds=600)).isoformat())
-        self.assertTrue(any(json.loads(line)['network_retry_after'] for line in progress))
-
-
 if __name__=='__main__':unittest.main()

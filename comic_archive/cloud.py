@@ -27,14 +27,15 @@ from .publication import valid_export_id, validate_public_metadata
 from .storage import safe_root
 from .cloud_errors import CloudTransferError, CloudCleanupError, MESSAGES, safe_code, transfer_failure
 
-PROVIDERS = {'google': 'drive', 'proton': 'protondrive', 'dropbox': 'dropbox', 'b2': 'b2'}
-STREAM_PROVIDERS = ('google', 'dropbox', 'b2')
-OAUTH_PROVIDERS = ('google', 'dropbox')
-LABELS = {'google': 'Google Drive', 'dropbox': 'Dropbox', 'proton': 'Proton Drive', 'b2': 'Backblaze B2'}
+PROVIDERS = {'b2': 'b2'}
+STREAM_PROVIDERS = ('b2',)
+# Providers earlier versions could connect. A library that saved one keeps its entry, but nothing uses it.
+RETIRED = ('google', 'dropbox', 'proton')
+LABELS = {'b2': 'Backblaze B2'}
 REMOTE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}')
 CLOUD_ROOT = 'Comic-Archive'
 # Failures every upload to the connection would meet; the others are one episode's own.
-CONNECTION_FAILURES = {'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket', 'cloud_client_required',
+CONNECTION_FAILURES = {'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket',
                        'cloud_login_required', 'cloud_space', 'cloud_cap', 'cloud_rate_limited',
                        'cloud_connection', 'cloud_permission', 'cloud_network_held'}
 
@@ -80,7 +81,7 @@ def _own(root):
 
 
 def _check_targets(targets):
-    if not isinstance(targets, dict) or set(targets) - set(PROVIDERS):
+    if not isinstance(targets, dict) or set(targets) - set(PROVIDERS) - set(RETIRED):
         raise ArchiveError('Cloud settings are invalid; local episodes are retained.')
     for target in targets.values():
         if (not isinstance(target, dict) or set(target) != {'remote','config','enabled','tested','target_id'}
@@ -108,9 +109,8 @@ def settings(root):
     from .shared import cloud_folder
     root = safe_root(root)
     own, store = _own(root), cloud_folder(root)
-    if store is None or own is None:
-        return own
-    return own | {'targets': _shared(store)}
+    value = own if store is None or own is None else own | {'targets': _shared(store)}
+    return value and value | {'targets': {name: t for name, t in value['targets'].items() if name in PROVIDERS}}
 
 
 def _save(root, value, provider):
@@ -122,7 +122,8 @@ def _save(root, value, provider):
     from .shared import cloud_folder
     path, store = root / '.archive-state/cloud/targets.json', cloud_folder(root)
     if store is None:
-        _write(path, value)
+        retired = {name: t for name, t in (_own(root) or {'targets': {}})['targets'].items() if name not in PROVIDERS}
+        _write(path, value | {'targets': retired | value['targets']})
         return
     if not path.exists():
         _write(path, value | {'targets': {}})
@@ -242,7 +243,7 @@ class Transfer:
         names = self.run('listremotes', '--long').decode('utf-8', errors='replace')
         found = dict(re.findall(r'^([A-Za-z0-9_-]+):\s+(\S+)\s*$', names, re.M))
         if found.get(target['remote']) != PROVIDERS[provider]:
-            raise ArchiveError('Cloud connection does not match the selected provider. Run cloud-connect again.')
+            raise ArchiveError('Cloud connection does not match the selected provider. Sign in to it again.')
 
     def run(self, *arguments, missing_ok=False, size=0):
         timeout = transfer_timeout(size)
@@ -288,22 +289,6 @@ class Transfer:
     def verify(self, remote_path, expected, *, source=None):
         destination = self.remote(remote_path)
         actual = None
-        if self.provider == 'dropbox' and source is not None and not getattr(self, 'full_readback', False):
-            # Dropbox exposes a hash of 4 MiB block hashes, not a plain SHA256.
-            # Compare its native checksum without downloading the comic again.
-            combined, whole = hashlib.sha256(), hashlib.sha256()
-            with Path(source).open('rb') as data:
-                while block := data.read(4 * 1024**2):
-                    whole.update(block)
-                    combined.update(hashlib.sha256(block).digest())
-            if whole.hexdigest() != expected:
-                raise CloudTransferError('cloud_verification')
-            actual = self.run('hashsum', 'DropboxHash', destination).split()
-            if actual and actual[0] != b'UNSUPPORTED':
-                if actual[0].decode('ascii', errors='replace') != combined.hexdigest():
-                    raise CloudTransferError('cloud_verification')
-                return
-            actual = None
         if self.provider == 'b2' and source is not None and not getattr(self, 'full_readback', False):
             # B2 keeps the SHA-1 it checked on arrival; compare it instead of downloading the file again.
             whole, sha1 = hashlib.sha256(), hashlib.sha1(usedforsecurity=False)  # B2 lists SHA-1; SHA-256 is the check that counts
@@ -317,15 +302,6 @@ class Transfer:
                 if next(iter(listed.values())) != sha1.hexdigest():
                     raise CloudTransferError('cloud_verification')
                 return
-        if self.provider == 'google' and not getattr(self, 'full_readback', False):
-            try:
-                actual = self.run('hashsum', 'SHA256', destination).split()
-            except ArchiveError as error:
-                from .network import NetworkPolicyHold
-                if isinstance(error, NetworkPolicyHold):
-                    raise
-            if actual and actual[0] == b'UNSUPPORTED':
-                actual = None
         if not actual:
             actual = self.run('hashsum', 'SHA256', destination, '--download', size=_size(source) if source else 0).split()
         if not actual or actual[0].decode('ascii', errors='replace') != expected:
@@ -365,11 +341,8 @@ class Transfer:
         return listed
 
     def delete_test_file(self, remote_path):
-        if self.provider == 'b2':
-            from .b2_cleanup import cleanup_file
-            cleanup_file(self, remote_path)
-            return
-        self.run('deletefile', self.remote(remote_path))
+        from .b2_cleanup import cleanup_file
+        cleanup_file(self, remote_path)
 
 
 def transfer_for(root, provider, target, *, full_readback=False):
@@ -407,60 +380,6 @@ def configure_target(root, provider, *, remote=None, config=None):
         value['targets'][provider] = target
         _save(root, value, provider)
     return status(root)
-
-
-def connect(root, provider):
-    """Interactive local terminal only. Never accept credentials over the web."""
-    if provider not in PROVIDERS:
-        raise ArchiveError('Choose a supported cloud provider.')
-    root = safe_root(root)
-    if provider in (*OAUTH_PROVIDERS, 'b2'):
-        from .cloud_auth import SignIn
-        signin = SignIn(root)
-        shown = None
-        try:
-            credentials = {}
-            if provider == 'b2':
-                import getpass
-                credentials = {'key_id': getpass.getpass('Backblaze keyID: '),
-                               'application_key': getpass.getpass('Backblaze applicationKey: ')}
-            try:
-                state = signin.start(provider, credentials)
-            finally:
-                credentials.clear()
-            while state['status'] == 'running':
-                if state.get('auth_url') and state['auth_url'] != shown:
-                    shown = state['auth_url']
-                    print('Complete ' + LABELS[provider] + ' sign-in in your browser: ' + shown, flush=True)
-                signin._thread.join(timeout=.2)
-                state = signin.status()
-            if state['status'] != 'connected':
-                raise CloudTransferError(state.get('code', 'cloud_login_required'))
-            return status(root)
-        finally:
-            signin.close()
-    executable = _binary()
-    with LibraryLock(root):
-        folder = directory(root / '.archive-state/cloud');folder.chmod(0o700)
-        config = folder / 'rclone.conf'
-        if config.is_symlink():
-            raise ArchiveError('Cloud authentication must not be symlinked.')
-        if not config.exists():
-            config.touch(mode=0o600)
-        _config(config)
-        args = [executable, '--config', str(config), 'config', 'create', provider, PROVIDERS[provider],
-                '--all', '--no-output']
-        # Questions/passwords belong to the user's terminal. The final config,
-        # which can contain refresh tokens, is explicitly suppressed.
-        try:
-            result = subprocess.run(args, env=_environment(), check=False)
-        except OSError:
-            raise ArchiveError('Cloud sign-in could not start.') from None
-        finally:
-            config.chmod(0o600)
-        if result.returncode:
-            raise ArchiveError('Cloud sign-in was not completed.')
-        return configure_target(root, provider, config=config)
 
 
 def enable(root, provider, enabled):
@@ -511,8 +430,8 @@ def status(root):
                     code = code if isinstance(code, str) and code in MESSAGES else 'cloud_unknown'
                     failures[code] = failures.get(code, 0) + 1
         targets.append({'provider':provider, 'connected':bool(target), 'enabled':bool(target and target['enabled']),
-                        'tested':bool(target and target['tested']), 'experimental':provider=='proton',
-                        'bucket':_bucket(target) if target and provider == 'b2' else None,
+                        'tested':bool(target and target['tested']),
+                        'bucket':_bucket(target) if target else None,
                         'failure_reasons':failures, **counts})
     cleanup = []
     folder = safe_root(root / '.archive-state/cloud/tests')
@@ -857,21 +776,6 @@ def keep_here(root, archive, data, code=None):
         _write(receipt, _json(receipt) | {'state':'failed', 'error_code':code})
 
 
-def upload_existing(root, *, limit, provider=None):
-    if type(limit) is not int or not 1 <= limit <= 100:
-        raise ArchiveError('Existing-episode uploads need an explicit limit of 1–100.')
-    root = safe_root(root)
-    with LibraryLock(root):
-        count = 0
-        for folder in sorted(root.iterdir()):
-            if not folder.is_dir() or folder.name.startswith('.'):continue
-            for archive in episode_archives(folder):
-                queue_episode(root, archive, provider=provider)
-                count += 1
-                if count >= limit:return upload_pending(root, limit=limit, provider=provider)
-        return upload_pending(root, limit=limit, provider=provider)
-
-
 def validate_test_action(operation, options):
     """Dashboard tasks can test two episodes or replay one exact cleanup receipt."""
     if operation == 'cloud_test' and set(options) == {'provider'} and isinstance(options['provider'], str) and options['provider'] in PROVIDERS:
@@ -915,25 +819,13 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
                         record['files'].append(remote_path)
                         _write(receipt, record)
                         source = root / item['path']
-                        if stream and item == bundle['files'][0] and provider == 'b2':
+                        if stream and item == bundle['files'][0]:
                             # New episodes go to B2 whole from memory: B2's own SHA-1 is
                             # checked as for them, then the bytes are read back as well.
                             data = source.read_bytes()
                             transfer.upload_bytes(data, remote_path)
                             if transfer.sha1s(remote_path) != {item['name']: hashlib.sha1(data, usedforsecurity=False).hexdigest()}:
                                 raise CloudTransferError('cloud_verification')
-                            transfer.verify(remote_path, item['sha256'])
-                        elif stream and item == bundle['files'][0]:
-                            # Exercise the same bounded pipe used during CBZ
-                            # assembly, without deleting the saved original.
-                            pipe = transfer.start_stream(remote_path)
-                            try:
-                                with source.open('rb') as data:
-                                    while chunk := data.read(65536):
-                                        pipe.write(chunk)
-                                pipe.finish()
-                            finally:
-                                pipe.close()
                             transfer.verify(remote_path, item['sha256'])
                         else:
                             transfer.upload(source, remote_path, item['sha256'])
@@ -990,8 +882,7 @@ def cleanup_test(root, test_id, *, transfer=None):
             transfer = transfer or transfer_for(root, record['provider'], target, full_readback=True)
             for remote_path in files:
                 parent, filename = remote_path.rsplit('/', 1)
-                before = transfer.run('lsf', transfer.remote(parent), '--files-only', missing_ok=True).decode().splitlines()
-                if filename in before or record['provider'] == 'b2':transfer.delete_test_file(remote_path)
+                transfer.delete_test_file(remote_path)
                 # The provider may use its trash; this verifies the uploaded
                 # file is absent from the test folder, without emptying trash.
                 listing = transfer.run('lsf', transfer.remote(parent), '--files-only', missing_ok=True).decode().splitlines()

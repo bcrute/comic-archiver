@@ -261,8 +261,7 @@ class DownloadWorkersTests(unittest.TestCase):
             self.assertEqual(request.fetch(), png(1))
         self.assertIsNone(adapter.asset_request(replace(page, location='https://tapas.io/episode/81')))
 
-    def test_queue_and_cli_accept_two_workers_and_reject_noninteger_limits(self):
-        from comic_archive.cli import parser
+    def test_queue_accepts_two_workers_and_rejects_noninteger_limits(self):
         from comic_archive.queue_client import submit_job
         session = Path(self.temp.name) / 'session'
         (session / 'worker/requests').mkdir(parents=True)
@@ -272,10 +271,6 @@ class DownloadWorkersTests(unittest.TestCase):
         for invalid in (0, 5, True, 2.0, '2'):
             with self.subTest(workers=invalid), self.assertRaises(ArchiveError):
                 submit_job(session, 'archive_discovered', {'download_workers': invalid})
-        for command in ('archive-discovered', 'sync'):
-            self.assertEqual(parser().parse_args([command, '--download-workers', '2']).download_workers, 2)
-        self.assertEqual(parser().parse_args(['archive-episode', 'https://tapas.io/episode/81',
-                                             '--download-workers', '2']).download_workers, 2)
 
     @patch('builtins.print')
     def test_two_worker_job_rechecks_queued_unlock_before_any_asset_submission(self, output):

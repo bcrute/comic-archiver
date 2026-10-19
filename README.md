@@ -60,8 +60,8 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every release is checked on Core/Heavy before publication. About 1,800 automated tests run, and the app's pages are driven
-in a real browser in four layouts. A mutation check then puts more than 300 deliberate faults into the code, one
+Every release is checked on Core/Heavy before publication. More than 1,500 automated tests run, and the app's pages are driven
+in a real browser at desktop and phone sizes. A mutation check then puts more than 300 deliberate faults into the code, one
 at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
 
 ## Run it from this folder
@@ -151,7 +151,6 @@ the draft. It performs no builds or suites.
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
 | `scripts/` | The checks above and the helpers they use. |
 | `tests/` | Unit tests, and `mutations.json` for the mutation check. |
-| `parked/` | Work that is set aside and not part of the app or its checks. Currently the Android prototype. |
 
 ## Licence
 

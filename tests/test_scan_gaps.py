@@ -7,7 +7,7 @@ from unittest.mock import patch
 from comic_archive.adapters.pagination import EpisodeCountMismatch
 from comic_archive.audit import audit_library
 from comic_archive.inventory import Inventory
-from comic_archive.jobs import archive_watched_series, sync
+from comic_archive.jobs import sync
 from comic_archive.models import ArchiveError
 from test_jobs import AccountAdapter
 
@@ -130,33 +130,6 @@ class ScanGapTests(unittest.TestCase):
             self.assertEqual([row['id'] for row in inventory.pending()],['81'])
             self.assertIsNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
             self.assertEqual(inventory.status()['series_scan_gap_count'],1)
-
-    @patch('builtins.print')
-    def test_selected_gapped_series_rechecks_access_and_does_not_guess_missing_episode(self,output):
-        self.adapter.inspect_series=self.partial_inspection;self.adapter.denied={'82'}
-        result=archive_watched_series(self.adapter,'42',self.root,limit=2)
-        self.assertEqual(result['archived_episode_ids'],['81'])
-        self.assertEqual(result['unavailable_episode_ids'],['82'])
-        self.assertEqual(self.adapter.downloads,[1,2])
-        self.assertEqual(result['refresh']['state'],'partial');self.assertFalse(result['inventory_complete'])
-        with Inventory(self.root,read_only=True) as inventory:
-            self.assertEqual(inventory.status()['episode_count'],2)
-            self.assertEqual(inventory.status()['series_scan_gap_count'],1)
-            self.assertIsNone(inventory.status()['last_completed_scan'])
-
-    @patch('builtins.print')
-    def test_partial_payload_for_a_different_series_is_rejected_before_queueing_or_retrieval(self,output):
-        def wrong(key,strict_order=False):
-            try:self.partial_inspection(key,strict_order)
-            except EpisodeCountMismatch as error:
-                error.partial_inspection['source_series_id']='999'
-                raise
-        self.adapter.inspect_series=wrong
-        with self.assertRaises(ArchiveError):archive_watched_series(self.adapter,'42',self.root,limit=1)
-        with Inventory(self.root,read_only=True) as inventory:
-            self.assertEqual(inventory.status()['episode_count'],0)
-            self.assertEqual(inventory.scan_gaps(),[])
-        self.assertEqual(self.adapter.downloads,[])
 
     def setUp(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)

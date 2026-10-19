@@ -75,46 +75,37 @@ class StreamingTransfer(FakeTransfer):
     def run(self, command, path, *args, **kwargs):
         if command == 'moveto':
             self.files[(self.provider,args[0])] = self.files.pop((self.provider,path)); return b''
-        if command == 'deletefile': self.files.pop((self.provider,path),None); return b''
         return super().run(command,path,*args,**kwargs)
 
 
 class CloudStreamTests(unittest.TestCase):
-    def test_stream_smoke_uses_pipe_readback_and_exact_cleanup_without_local_eviction(self):
-        cloud.enable(self.root, 'google', False)
-        original = next(self.root.glob('*/*.cbz'))
-        before = original.read_bytes()
-        StreamingTransfer.copies = []
-        StreamingTransfer.files[('google', 'unrelated/keep')] = b'keep'
-        result = cloud.smoke_test(self.root, 'google', episodes=1, stream=True)
-        self.assertEqual(result['streamed_episodes'], 1)
-        self.assertTrue(result['test_files_deleted'])
-        self.assertNotIn('.cbz', StreamingTransfer.copies)
-        self.assertTrue(StreamingTransfer.started.is_set())
-        self.assertEqual(StreamingTransfer.files, {('google', 'unrelated/keep'): b'keep'})
-        self.assertEqual(original.read_bytes(), before)
-        self.assertFalse(cloud.settings(self.root)['targets']['google']['enabled'])
-
     def test_stream_smoke_failure_cleans_recorded_files_and_keeps_original(self):
         original = next(self.root.glob('*/*.cbz')); before = original.read_bytes()
-        StreamingTransfer.fail_stream = True
-        with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'google', episodes=1, stream=True)
+        with patch.object(StreamingTransfer, 'upload_bytes', side_effect=CloudTransferError('cloud_connection')):
+            with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'b2', episodes=1, stream=True)
         self.assertEqual(original.read_bytes(), before)
         self.assertFalse(StreamingTransfer.files)
         self.assertFalse(cloud.status(self.root)['pending_test_cleanup'])
-        StreamingTransfer.fail_stream = False
-        self.assertEqual(cloud.smoke_test(self.root, 'google', episodes=1, stream=True)['streamed_episodes'], 1)
+        self.assertEqual(cloud.smoke_test(self.root, 'b2', episodes=1, stream=True)['streamed_episodes'], 1)
 
     def test_stream_smoke_rejects_unbounded_or_wrong_provider_options_before_network(self):
         with patch('comic_archive.cloud.transfer_for') as connect:
-            for provider, options in [('proton', {'stream': True}), ('google', {'stream': 1}), ('google', {'stream': True, 'episodes': 4})]:
+            for provider, options in [('google', {'stream': True}), ('proton', {'stream': True}),
+                                      ('b2', {'stream': 1}), ('b2', {'stream': True, 'episodes': 4})]:
                 with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, provider, **options)
             connect.assert_not_called()
 
     def setUp(self):
+        self.connect()
+        # These follow a comic streamed to B2 while it is also saved here. A new comic goes to B2
+        # straight from memory instead, which B2DirectTests covers.
+        direct = patch.object(cloud,'direct_target',return_value=None);direct.start();self.addCleanup(direct.stop)
+        self.streams = self.root/'.archive-state/cloud/streams/b2'
+
+    def connect(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name); self.root = self.base/'Library'
-        self.config = self.base/'config'; self.config.write_text('[google]\ntype=drive\n'); self.config.chmod(0o600)
+        self.config = self.base/'config'; self.config.write_text('[b2]\ntype=b2\n'); self.config.chmod(0o600)
         StreamingTransfer.files = {}; StreamingTransfer.fail_provider = None; StreamingTransfer.fail_delete = False
         StreamingTransfer.fail_upload = False; StreamingTransfer.fail_stream = False; StreamingTransfer.copies = []
         StreamingTransfer.pipe_failure = None
@@ -123,8 +114,8 @@ class CloudStreamTests(unittest.TestCase):
         self.series = Series('42','Synthetic',source='tapas')
         seed = Episode('80','42','Seed',1,(Page(1,'https://cdn.test/seed',False),),'tapas_free')
         self.publish((seed,), MemoryAdapter())
-        cloud.configure_target(self.root,'google',config=self.config)
-        cloud.smoke_test(self.root,'google',episodes=1); cloud.enable(self.root,'google',True)
+        cloud.configure_target(self.root,'b2',config=self.config)
+        cloud.smoke_test(self.root,'b2',episodes=1,stream=True); cloud.enable(self.root,'b2',True)
         StreamingTransfer.copies = []; StreamingTransfer.started.clear()
         self.pages = tuple(Page(i,f'https://cdn.test/{i}',False) for i in (1,2))
         self.episode = Episode('81','42','New',2,self.pages,'tapas_free')
@@ -146,7 +137,7 @@ class CloudStreamTests(unittest.TestCase):
         self.assertEqual(len(uploads), 1)
         self.assertNotIn('.cbz', StreamingTransfer.copies)
         self.assertFalse(any('/.staging/' in p for _,p in StreamingTransfer.files))
-        receipts = list((self.root/'.archive-state/cloud/streams').glob('*.json')); self.assertEqual(receipts, [])
+        receipts = list(self.streams.glob('*.json')); self.assertEqual(receipts, [])
         metadata = next(json.loads(v) for (_,p),v in StreamingTransfer.files.items() if p.endswith('episode.json'))
         from comic_archive.archive import verify_episode_contents
         import io
@@ -169,7 +160,7 @@ class CloudStreamTests(unittest.TestCase):
         with patch('comic_archive.cloud_stream.shutil.disk_usage',side_effect=available),self.assertRaises(RunLimit):
             self.publish((self.episode,),MemoryAdapter())
         self.assertTrue((self.root/'.archive-cache'/hashlib.sha256(png(1)).hexdigest()).is_file())
-        receipt=next((self.root/'.archive-state/cloud/streams').glob('*.json'))
+        receipt=next(self.streams.glob('*.json'))
         self.assertEqual(json.loads(receipt.read_text())['state'],'streaming')
         adapter=MemoryAdapter();adapter.retrieve=Mock(return_value=png(2))
         self.publish((self.episode,),adapter)
@@ -180,14 +171,14 @@ class CloudStreamTests(unittest.TestCase):
     def test_source_failure_keeps_resume_pages_and_cleans_only_own_stage_on_retry(self):
         adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=[png(1),ArchiveError('source held')])
         with self.assertRaises(ArchiveError): self.publish((self.episode,), adapter)
-        receipt = next((self.root/'.archive-state/cloud/streams').glob('*.json'))
+        receipt = next(self.streams.glob('*.json'))
         self.assertEqual(json.loads(receipt.read_text())['state'], 'streaming')
         self.assertTrue((self.root/'.archive-cache'/hashlib.sha256(png(1)).hexdigest()).exists())
-        StreamingTransfer.files[('google','unrelated/keep')] = b'keep'
+        StreamingTransfer.files[('b2','unrelated/keep')] = b'keep'
         adapter = MemoryAdapter(); adapter.retrieve = Mock(return_value=png(2))
         self.publish((self.episode,), adapter)
         self.assertEqual(adapter.retrieve.call_count, 1)
-        self.assertEqual(StreamingTransfer.files[('google','unrelated/keep')], b'keep')
+        self.assertEqual(StreamingTransfer.files[('b2','unrelated/keep')], b'keep')
         self.assertFalse(any('/.staging/' in p for _,p in StreamingTransfer.files))
 
     def test_multi_episode_upload_finishes_before_next_source_episode(self):
@@ -208,36 +199,27 @@ class CloudStreamTests(unittest.TestCase):
             stream.close()
             receipt = json.loads(stream.receipt.read_text()); receipt['remote_path'] = 'unrelated/keep'
             stream.receipt.write_text(json.dumps(receipt))
-            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'])
-        with self.assertRaises(ArchiveError): _stage(self.root,'../../keep')
-
-    def test_google_metadata_checksum_and_fallback_readback_require_exact_hash(self):
-        transfer = object.__new__(RealTransfer); transfer.provider='google'; transfer.target={'remote':'google'}
-        expected = 'a'*64
-        transfer.run = Mock(return_value=expected.encode()+b'  episode.cbz')
-        transfer.verify('own/episode.cbz',expected)
-        self.assertNotIn('--download', transfer.run.call_args.args)
-        transfer.run = Mock(side_effect=[b'', expected.encode()])
-        transfer.verify('own/episode.cbz',expected)
-        self.assertIn('--download',transfer.run.call_args.args)
-        transfer.run = Mock(return_value=b'b'*64)
-        with self.assertRaises(ArchiveError): transfer.verify('own/episode.cbz',expected)
-        transfer.full_readback=True; transfer.run=Mock(return_value=expected.encode())
-        transfer.verify('own/episode.cbz',expected)
-        self.assertIn('--download',transfer.run.call_args.args)
+            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'b2')
+            # A record must name the provider it was staged with, and only B2 stages.
+            receipt = json.loads(stream.receipt.read_text()); self.assertEqual(receipt.pop('provider'),'b2')
+            stream.receipt.write_text(json.dumps(receipt))
+            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'b2')
+            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'google')
+        self.assertEqual(stream.receipt.parent,self.streams)
+        with self.assertRaises(ArchiveError): _stage(self.root,'../../keep','b2')
 
     def test_real_bounded_pipe_child_receives_exact_bytes_and_uses_small_buffers(self):
         self.transfer_patch.stop()
         script = helper_program(self.base/'rclone-fixture', 'import sys,pathlib,json\np=pathlib.Path(sys.argv[sys.argv.index("--config")+1]).parent/"received"\np.write_bytes(sys.stdin.buffer.read())\np.with_suffix(".args").write_text(json.dumps(sys.argv))\n')
-        transfer = Mock(binary=str(script),config=self.config); transfer.guard=Mock(); transfer.remote=lambda p:'google:'+p
+        transfer = Mock(binary=str(script),config=self.config,provider='b2'); transfer.guard=Mock(); transfer.remote=lambda p:'b2:'+p
         data = b'content'*50000
         pipe = PipeUpload(transfer,'Comic-Archive/test/episode.cbz')
         pipe.write(data); pipe.finish(); pipe.close()
         self.assertEqual((self.base/'received').read_bytes(), data)
         arguments = json.loads((self.base/'received.args').read_text())
-        for flag, value in [('--drive-chunk-size', '4Mi'), ('--dropbox-chunk-size', '4Mi'),
-                            ('--dropbox-batch-mode', 'off'), ('--streaming-upload-cutoff', '256Ki')]:
+        for flag, value in [('--b2-chunk-size', '5Mi'), ('--b2-upload-concurrency', '1'), ('--streaming-upload-cutoff', '256Ki')]:
             self.assertEqual(arguments[arguments.index(flag) + 1], value)
+        self.assertIn('--b2-hard-delete', arguments)
         self.assertNotIn('--size', arguments)
         self.assertTrue(transfer.guard.check.called)
 
@@ -248,7 +230,7 @@ class CloudStreamTests(unittest.TestCase):
     def test_real_pipe_failure_projects_only_fixed_reason_and_reaps_owned_child(self):
         from comic_archive.cloud_errors import CloudTransferError, safe_code
         script = helper_program(self.base/'rclone-failure-fixture', 'import sys\nsys.stdin.buffer.read()\nsys.stderr.write("PRIVATE_PATH PRIVATE_TOKEN storageQuotaExceeded\\n")\nsys.exit(7)\n')
-        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'google:'+path
+        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'b2:'+path
         pipe=PipeUpload(transfer,'own/episode.cbz')
         try:
             pipe.write(b'episode bytes')
@@ -261,7 +243,7 @@ class CloudStreamTests(unittest.TestCase):
     def test_pipe_that_exits_before_write_uses_safe_authentication_hint(self):
         from comic_archive.cloud_errors import CloudTransferError, safe_code
         script = helper_program(self.base/'rclone-auth-fixture', 'import sys\nsys.stderr.write("PRIVATE_TOKEN invalid_grant\\n")\nsys.exit(7)\n')
-        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'google:'+path
+        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'b2:'+path
         pipe=PipeUpload(transfer,'own/episode.cbz')
         try:
             pipe.process.wait(timeout=5)
@@ -281,7 +263,7 @@ class CloudStreamTests(unittest.TestCase):
             return real(command, *args, **kwargs)
         wrapper = patch('comic_archive.cloud_stream.subprocess.Popen', side_effect=spawn)
         wrapper.start(); self.addCleanup(wrapper.stop)
-        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'google:'+path
+        transfer = Mock(binary=str(script),config=self.config);transfer.guard=Mock();transfer.remote=lambda path:'b2:'+path
         return transfer
 
     def test_upload_that_cannot_start_leaves_no_child_or_open_input_behind(self):
@@ -347,37 +329,37 @@ class CloudStreamTests(unittest.TestCase):
             _, stream = self.stream_for(store,self.episode)
             stream.close()
         remote = stream.record['remote_path']; episode_id = stream.record['episode_id']
-        StreamingTransfer.files[('google',remote)] = b'staged'
-        cloud.configure_target(self.root,'google',config=self.config)  # a new connection identity
-        transfer = StreamingTransfer('google',{})
+        StreamingTransfer.files[('b2',remote)] = b'staged'
+        cloud.configure_target(self.root,'b2',config=self.config)  # a new connection identity
+        transfer = StreamingTransfer('b2',{})
         with self.assertRaises(ArchiveError): cleanup_stage(self.root,transfer,episode_id)
         bundle = {'episode_id':episode_id,'files':[{'path':'Synthetic/episode.cbz','sha256':'a'*64}]}
         self.assertFalse(promote_stream(self.root,transfer,bundle,'dest/episode.cbz'))
         self.assertTrue(stream.receipt.is_file())
-        self.assertEqual(StreamingTransfer.files[('google',remote)],b'staged')
+        self.assertEqual(StreamingTransfer.files[('b2',remote)],b'staged')
 
     def test_promotion_never_adopts_changed_staging_bytes_and_never_hides_a_network_hold(self):
-        value = cloud.settings(self.root); target = value['targets']['google']
+        value = cloud.settings(self.root); target = value['targets']['b2']
         episode_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
         sha = hashlib.sha256(b'episode').hexdigest()
         remote = f"Comic-Archive/{value['library_id']}/.staging/{run_id}/episode.cbz"
-        receipt = self.root/'.archive-state/cloud/streams'/(episode_id+'.json')
+        receipt = self.streams/(episode_id+'.json')
         cloud._write(receipt,{'schema_version':1,'library_id':value['library_id'],'target_id':target['target_id'],
             'episode_id':episode_id,'run_id':run_id,'archive':'Synthetic/episode.cbz','remote_path':remote,
-            'state':'uploaded','sha256':sha})
+            'state':'uploaded','sha256':sha,'provider':'b2'})
         bundle = {'episode_id':episode_id,'files':[{'path':'Synthetic/episode.cbz','sha256':sha}]}
-        transfer = StreamingTransfer('google',target)
+        transfer = StreamingTransfer('b2',target)
         with patch.object(StreamingTransfer,'verify',side_effect=NetworkPolicyHold('held')):
             with self.assertRaises(NetworkPolicyHold): promote_stream(self.root,transfer,bundle,'dest/episode.cbz')
         self.assertTrue(receipt.is_file())
-        StreamingTransfer.files[('google',remote)] = b'someone else'
+        StreamingTransfer.files[('b2',remote)] = b'someone else'
         self.assertFalse(promote_stream(self.root,transfer,bundle,'dest/episode.cbz'))
         self.assertFalse(receipt.exists())
-        self.assertNotIn(('google',remote),StreamingTransfer.files)
-        self.assertNotIn(('google','dest/episode.cbz'),StreamingTransfer.files)
+        self.assertNotIn(('b2',remote),StreamingTransfer.files)
+        self.assertNotIn(('b2','dest/episode.cbz'),StreamingTransfer.files)
 
-    def test_streaming_starts_only_for_an_enabled_google_target_and_a_missing_comic_archive(self):
-        streams = self.root/'.archive-state/cloud/streams'
+    def test_streaming_starts_only_for_an_enabled_target_and_a_missing_comic_archive(self):
+        streams = self.streams
         with closing(PublicationStore(self.root)) as store:
             folder = store.series_folder(self.series)
             archive = store.episode_path(self.series,self.episode,folder)
@@ -385,7 +367,7 @@ class CloudStreamTests(unittest.TestCase):
             archive.parent.mkdir(parents=True,exist_ok=True); archive.write_bytes(b'existing')
             self.assertIsNone(StreamingEpisode.create(store,self.series,self.episode,archive))
             self.assertEqual(archive.read_bytes(),b'existing')
-        cloud.enable(self.root,'google',False)
+        cloud.enable(self.root,'b2',False)
         archive.unlink()
         with closing(PublicationStore(self.root)) as store:
             self.assertIsNone(StreamingEpisode.create(store,self.series,self.episode,archive))
@@ -446,10 +428,10 @@ class CloudStreamTests(unittest.TestCase):
                 self.assertEqual(StreamingTransfer.copies.count('.cbz'),index+1)
                 self.assertFalse(any('/.staging/' in p for _,p in StreamingTransfer.files))
                 self.assertEqual(cloud.status(self.root)['targets'][0]['verified'],index+1)
-                self.assertEqual(list((self.root/'.archive-state/cloud/streams').glob('*.json')),[])
+                self.assertEqual(list(self.streams.glob('*.json')),[])
 
     def test_network_policy_hold_while_streaming_stops_publication_and_the_retry_recovers(self):
-        streams = self.root/'.archive-state/cloud/streams'
+        streams = self.streams
         for mode in ('start-hold','write-hold','finish-hold'):
             with self.subTest(mode=mode):
                 StreamingTransfer.pipe_failure = mode
@@ -464,105 +446,38 @@ class CloudStreamTests(unittest.TestCase):
         self.assertEqual(list(streams.glob('*.json')),[])
 
 
-class DropboxStreamTests(unittest.TestCase):
-    provider = 'dropbox'
+class B2StreamTests(unittest.TestCase):
+    """B2's trial and its staging cleanup. New episodes go to B2 from memory instead (B2DirectTests)."""
     publish = CloudStreamTests.publish
-
-    def setUp(self):
-        CloudStreamTests.setUp(self)
-        cloud.enable(self.root, 'google', False)
-        self.config.write_text('[google]\ntype=drive\n[' + self.provider + ']\ntype=' + self.provider + '\n')
-        cloud.configure_target(self.root, self.provider, config=self.config)
-        cloud.smoke_test(self.root, self.provider, episodes=1, stream=True)
-        cloud.enable(self.root, self.provider, True)
-        StreamingTransfer.copies = []; StreamingTransfer.started.clear()
+    setUp = CloudStreamTests.connect
 
     def target(self):
-        return next(t for t in cloud.status(self.root)['targets'] if t['provider'] == self.provider)
-
-    def test_unknown_size_cbz_overlaps_retrieval_and_promotes_without_second_upload(self):
-        def retrieve(page):
-            if page.order == 2:
-                self.assertTrue(StreamingTransfer.started.wait(5))
-            return photo() if page.order == 1 else png(2)
-        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
-        folder = self.publish((self.episode,), adapter)
-        self.assertEqual(len(episode_archives(folder)), 1)
-        cbzs = [data for (provider, path), data in StreamingTransfer.files.items() if path.endswith('episode.cbz')]
-        self.assertEqual(len(cbzs), 1)
-        self.assertNotIn('.cbz', StreamingTransfer.copies)
-        self.assertEqual(self.target()['verified'], 1)
-        self.assertTrue(all(provider == self.provider for provider, _ in StreamingTransfer.files))
-        self.assertFalse(list((self.root/('.archive-state/cloud/streams/' + self.provider)).glob('*.json')))
-        self.assertFalse(any('/.staging/' in path for _, path in StreamingTransfer.files))
-        from comic_archive.archive import verify_episode_contents
-        import io
-        metadata = next(json.loads(data) for (_, path), data in StreamingTransfer.files.items() if path.endswith('episode.json'))
-        self.assertEqual([p['file'] for p in metadata['content_hashes']], ['0001.png', '0002.png'])
-        self.assertEqual(verify_episode_contents(io.BytesIO(cbzs[0]), metadata), [])
-
-    def test_failed_pipe_falls_back_to_one_completed_episode(self):
-        StreamingTransfer.fail_stream = True
-        self.publish((self.episode,), MemoryAdapter())
-        self.assertIn('.cbz', StreamingTransfer.copies)
-        self.assertEqual(self.target()['verified'], 1)
-
-    def test_source_retry_reuses_pages_and_deletes_only_its_provider_stage(self):
-        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=[png(1), ArchiveError('held')])
-        with self.assertRaises(ArchiveError): self.publish((self.episode,), adapter)
-        path = next((self.root/('.archive-state/cloud/streams/' + self.provider)).glob('*.json'))
-        record = json.loads(path.read_text())
-        self.assertEqual(record['provider'], self.provider)
-        # Identical remote paths on another provider must never be touched.
-        StreamingTransfer.files[('google', record['remote_path'])] = b'other account'
-        StreamingTransfer.files[(self.provider, 'unrelated/keep')] = b'keep'
-        adapter.retrieve = Mock(return_value=png(2))
-        self.publish((self.episode,), adapter)
-        self.assertEqual(adapter.retrieve.call_count, 1)
-        self.assertEqual(StreamingTransfer.files[('google', record['remote_path'])], b'other account')
-        self.assertEqual(StreamingTransfer.files[(self.provider, 'unrelated/keep')], b'keep')
-        self.assertFalse(path.exists())
+        return next(t for t in cloud.status(self.root)['targets'] if t['provider'] == 'b2')
 
     def test_changed_connection_preserves_old_stage_without_deleting_remote_bytes(self):
         with closing(PublicationStore(self.root)) as store:
             folder = store.series_folder(self.series)
             stream = StreamingEpisode.create(store, self.series, self.episode, store.episode_path(self.series, self.episode, folder))
             stream.close(); record = json.loads(stream.receipt.read_text())
-        StreamingTransfer.files[(self.provider, record['remote_path'])] = b'old account'
-        replacement = self.base/'replacement.conf'; replacement.write_text('[' + self.provider + ']\ntype=' + self.provider + '\n'); replacement.chmod(0o600)
-        cloud.configure_target(self.root, self.provider, config=replacement)
-        transfer = StreamingTransfer(self.provider, {})
+        StreamingTransfer.files[('b2', record['remote_path'])] = b'old account'
+        replacement = self.base/'replacement.conf'; replacement.write_text('[b2]\ntype=b2\n'); replacement.chmod(0o600)
+        cloud.configure_target(self.root, 'b2', config=replacement)
+        transfer = StreamingTransfer('b2', {})
         with self.assertRaises(ArchiveError): cleanup_stage(self.root, transfer, record['episode_id'])
-        self.assertEqual(StreamingTransfer.files[(self.provider, record['remote_path'])], b'old account')
+        self.assertEqual(StreamingTransfer.files[('b2', record['remote_path'])], b'old account')
         self.assertTrue(stream.receipt.exists())
 
-    def test_secondary_provider_failure_preserves_local_episode_until_all_targets_verified(self):
-        cloud.enable(self.root, 'google', True)
-        failed_provider = self.provider
-        StreamingTransfer.fail_provider = failed_provider
-        with self.assertRaises(ArchiveError): self.publish((self.episode,), MemoryAdapter())
-        folder = next(self.root.glob('Synthetic*'))
-        self.assertEqual(len(episode_archives(folder)), 2)
-        targets = {t['provider']:t for t in cloud.status(self.root)['targets']}
-        self.assertEqual(targets[failed_provider]['failed'], 1)
-        other = self.provider if failed_provider == 'google' else 'google'
-        self.assertEqual(targets[other]['verified'], 1)
-        StreamingTransfer.fail_provider = None
-        cloud.upload_pending(self.root)
-        self.assertEqual(len(episode_archives(folder)), 1)
-        self.assertEqual(self.target()['verified'], 1)
-
     def test_two_episode_stream_pilot_deletes_exact_test_copies_and_keeps_originals(self):
-        cloud.enable(self.root, self.provider, False)
+        cloud.enable(self.root, 'b2', False)
         self.publish((self.episode,), MemoryAdapter())
         originals = {p: p.read_bytes() for p in self.root.glob('*/*.cbz')}
-        StreamingTransfer.files[(self.provider, 'unrelated/keep')] = b'keep'
+        StreamingTransfer.files[('b2', 'unrelated/keep')] = b'keep'
         StreamingTransfer.copies = []
-        result = cloud.smoke_test(self.root, self.provider, episodes=2, stream=True)
+        result = cloud.smoke_test(self.root, 'b2', episodes=2, stream=True)
         self.assertEqual(result['streamed_episodes'], 2)
         self.assertTrue(result['test_files_deleted'])
         self.assertNotIn('.cbz', StreamingTransfer.copies)
-        self.assertEqual(StreamingTransfer.files, {(self.provider, 'unrelated/keep'): b'keep'})
+        self.assertEqual(StreamingTransfer.files, {('b2', 'unrelated/keep'): b'keep'})
         self.assertEqual({p: p.read_bytes() for p in originals}, originals)
         self.assertFalse(self.target()['enabled'])
 
@@ -575,22 +490,14 @@ class DropboxStreamTests(unittest.TestCase):
             store.archive(Manifest(series, episodes), MemoryAdapter(), progress=lambda _: None)
         originals = {p: p.read_bytes() for p in root.glob('*/*.epub')}
         self.assertEqual(len(originals), 2)
-        cloud.configure_target(root, self.provider, config=self.config)
+        cloud.configure_target(root, 'b2', config=self.config)
         StreamingTransfer.copies = []
-        result = cloud.smoke_test(root, self.provider, episodes=2, stream=True)
+        result = cloud.smoke_test(root, 'b2', episodes=2, stream=True)
         self.assertEqual(result['streamed_episodes'], 2)
         self.assertTrue(result['test_files_deleted'])
         self.assertNotIn('.epub', StreamingTransfer.copies)
         self.assertEqual({p: p.read_bytes() for p in originals}, originals)
         self.assertFalse(StreamingTransfer.files)
-
-
-class B2StreamTests(DropboxStreamTests):
-    """B2's trial and its staging cleanup. New episodes go to B2 from memory instead (B2DirectTests)."""
-    provider = 'b2'
-    test_unknown_size_cbz_overlaps_retrieval_and_promotes_without_second_upload = None
-    test_failed_pipe_falls_back_to_one_completed_episode = None
-    test_source_retry_reuses_pages_and_deletes_only_its_provider_stage = None
 
 
 class Crash(BaseException):
@@ -600,8 +507,8 @@ class Crash(BaseException):
 class B2DirectTests(unittest.TestCase):
     provider = 'b2'
     publish = CloudStreamTests.publish
-    setUp = DropboxStreamTests.setUp
-    target = DropboxStreamTests.target
+    setUp = CloudStreamTests.connect
+    target = B2StreamTests.target
 
     def b2(self):
         return {path: data for (provider, path), data in StreamingTransfer.files.items() if provider == 'b2'}

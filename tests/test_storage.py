@@ -2,23 +2,19 @@ from contextlib import closing
 import io
 import json
 from pathlib import Path
-import shutil
 import tempfile
 import random
 from dataclasses import replace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from PIL import Image
 
-from support import PRIVATE_FILE
-from comic_archive.archive import Store, digest, episode_archives, sidecar_path, verify, verify_episode
-from comic_archive.inventory import Inventory
-from comic_archive.migration import migrate_exports
+from comic_archive.archive import digest, episode_archives, sidecar_path, verify, verify_episode
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore, import_metadata
-from comic_archive.purge import purge_library, archive_page
-from comic_archive.storage import DEFAULTS, configure, policy, storage_plan
+from comic_archive.purge import archive_page, evict_episode
+from comic_archive.storage import DEFAULTS, policy
 from comic_archive.image_profiles import compress_image
 from test_archive import MemoryAdapter, png
 
@@ -29,6 +25,13 @@ def photo(width=512, height=512):
     stream = io.BytesIO()
     image.save(stream, 'PNG')
     return stream.getvalue()
+
+
+def set_policy(root, **changes):
+    # Nothing in the app writes these settings any more; a library may still hold them.
+    path = Path(root) / '.archive-state/storage-policy.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(DEFAULTS | changes))
 
 
 class StorageTests(unittest.TestCase):
@@ -59,31 +62,12 @@ class StorageTests(unittest.TestCase):
         self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
         self.assertEqual(verify(self.root), [])
 
-    def test_measured_episode_statistics_separate_formats_and_do_not_assume_compression(self):
-        comic=self.publish()
-        novel=replace(self.episode,id='82',order=2,pages=(),content_type='novel',text_html='<p>Sample chapter.</p>')
-        store=PublicationStore(self.root)
-        try:
-            folder=store.archive(Manifest(self.series,(novel,)),MemoryAdapter(),progress=lambda _:None)
-            epub=store.episode_path(self.series,novel,folder)
-        finally:store.close()
-        report=storage_plan(self.root,episode_count=3)
-        self.assertEqual(report['saved_archive_formats'],{'cbz':1,'tar.zst':0,'epub':1})
-        for kind,path in (('comic',comic),('novel',epub)):
-            sample=report['episode_size_statistics'][kind]
-            self.assertEqual(sample['sample_count'],1)
-            self.assertEqual(sample['mean_bytes'],path.stat().st_size)
-            self.assertEqual(sample['p10_bytes'],path.stat().st_size)
-            self.assertEqual(sample['p90_bytes'],path.stat().st_size)
-        self.assertEqual(report['estimated_additional_archive_bytes'],3*comic.stat().st_size)
-        self.assertFalse(report['compression_savings_verified'])
-
     def test_quality_switch_affects_new_episodes_and_preserves_existing_full_quality_exports(self):
         image = photo()
         adapter = MemoryAdapter();adapter.retrieve = Mock(return_value=image)
         archive = self.publish(adapter=adapter)
         before = archive.read_bytes(),sidecar_path(archive).read_bytes()
-        configure(self.root,image_profile='small')
+        set_policy(self.root,image_profile='small')
         self.publish(adapter=adapter)
         self.assertEqual((archive.read_bytes(),sidecar_path(archive).read_bytes()),before)
         self.assertEqual(json.loads(sidecar_path(archive).read_text())['image_profile'],'original')
@@ -91,7 +75,7 @@ class StorageTests(unittest.TestCase):
     def test_local_episode_ids_reused_in_different_series_keep_independent_quality_choices(self):
         image = photo();adapter = MemoryAdapter();adapter.retrieve = Mock(return_value=image)
         original = self.publish(adapter=adapter)
-        configure(self.root,image_profile='small')
+        set_policy(self.root,image_profile='small')
         store = PublicationStore(self.root)
         try:
             store.archive(self.manifest,adapter,progress=lambda _:None)
@@ -105,80 +89,17 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(verify_episode(compact),[])
         finally:store.close()
 
-    def test_purge_preview_and_apply_preserve_partial_media_private_state_and_ids(self):
-        configure(self.root, purge_completed_cache=False)
-        archive = self.publish()
-        incomplete = self.root / '.archive-cache' / digest(png(2))
-        incomplete.write_bytes(png(2))
-        original = archive.read_bytes(), sidecar_path(archive).read_bytes()
-        preview = purge_library(self.root)
-        self.assertFalse(preview['applied'])
-        self.assertEqual(preview['cache_files'], 1)
-        self.assertTrue((self.root / '.archive-cache' / digest(png(1))).is_file())
-        result = purge_library(self.root, apply=True)
-        self.assertGreater(result['removed_bytes'], 0)
-        self.assertTrue(incomplete.is_file())
-        self.assertTrue((self.root / '.archive-cache/index.sqlite3').is_file())
-        self.assertTrue((self.root / '.archive-state/provenance').is_dir())
-        self.assertEqual((archive.read_bytes(), sidecar_path(archive).read_bytes()), original)
-        self.assertEqual(purge_library(self.root, apply=True)['cache_files'], 0)
-
-    def test_corrupt_export_stops_before_any_cache_or_legacy_deletion(self):
-        configure(self.root, purge_completed_cache=False)
-        archive = self.publish()
-        blob = self.root / '.archive-cache' / digest(png(1))
-        archive.write_bytes(b'corrupt')
-        with self.assertRaises(ArchiveError):
-            purge_library(self.root, apply=True, include_legacy=True)
-        self.assertEqual(blob.read_bytes(), png(1))
-
-    def test_symlinked_cache_and_library_are_rejected_without_deletion(self):
-        configure(self.root, purge_completed_cache=False)
-        self.publish()
-        outside = self.root.parent / 'outside'
-        outside.write_bytes(b'keep')
-        blob = self.root / '.archive-cache' / digest(png(1))
-        blob.unlink(); blob.symlink_to(outside)
-        with self.assertRaises(ArchiveError):
-            purge_library(self.root, apply=True)
-        alias = self.root.parent / 'alias'; alias.symlink_to(self.root, target_is_directory=True)
-        with self.assertRaises(ArchiveError):
-            storage_plan(alias)
-        self.assertEqual(outside.read_bytes(), b'keep')
-
-    def test_converted_legacy_is_deleted_only_when_equivalent_export_is_verified(self):
-        self.publish(cls=Store)
-        migrate_exports(self.root)
-        retired = next((self.root / '.archive-state/legacy-exports').glob('*/*.cbz'))
-        self.assertTrue(retired.is_file())
-        report = purge_library(self.root, include_legacy=True)
-        self.assertEqual(report['legacy_files'], 2)
-        self.assertTrue(retired.is_file())
-        purge_library(self.root, include_legacy=True, apply=True)
-        self.assertFalse(retired.exists())
-        self.assertEqual(verify(self.root), [])
-
-    def test_unmatched_or_different_legacy_is_retained(self):
-        self.publish(cls=Store)
-        migrate_exports(self.root)
-        retired = next((self.root / '.archive-state/legacy-exports').glob('*/*.cbz'))
-        sidecar = sidecar_path(retired)
-        metadata = json.loads(sidecar.read_text()); metadata['title'] = 'Different title'
-        sidecar.write_text(json.dumps(metadata))
-        result = purge_library(self.root, include_legacy=True, apply=True)
-        self.assertEqual(result['retained_legacy_episodes'], 1)
-        self.assertTrue(retired.is_file())
-
     def test_evicted_shared_page_remains_recoverable_for_another_incomplete_import(self):
-        configure(self.root, purge_completed_cache=False)
-        self.publish()
+        set_policy(self.root, purge_completed_cache=False)
+        archive = self.publish()
         second = replace(self.episode, id='82')
         store = PublicationStore(self.root)
         try:
             store.remember_page('local', second, second.pages[0], png(1))
+            evict_episode(store, archive, import_metadata(sidecar_path(archive)))
         finally:
             store.close()
-        purge_library(self.root, apply=True)
+        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
         store = PublicationStore(self.root)
         try:
             self.assertEqual(store.cached_page('local', second, second.pages[0]), png(1))
@@ -208,45 +129,23 @@ class StorageTests(unittest.TestCase):
             self.assertEqual([r[1] for r in store.db.execute('PRAGMA table_info(archived_pages)') if r[5]],['hash','path','member'])
         finally:store.close()
 
-    def test_fresh_estimate_is_read_only_and_never_claims_unseen_inventory_complete(self):
-        with patch('comic_archive.storage.shutil.disk_usage', return_value=Mock(free=10*1024**3)):
-            plan = storage_plan(self.root, episode_count=100)
-        self.assertFalse(self.root.exists())
-        self.assertFalse(plan['inventory_complete'])
-        self.assertEqual(plan['estimate_basis'], 'rough_reference_sample')
-        self.assertEqual(plan['estimated_additional_archive_bytes'], 100*20_586_261)
-        self.assertTrue(plan['fits_estimate'])
-        with patch('comic_archive.storage.shutil.disk_usage', return_value=Mock(free=1024)):
-            self.assertEqual(storage_plan(self.root, episode_count=100)['recommendation'], 'compress_or_use_pc')
-        for value in (True, -1, 10_000_001):
-            with self.assertRaises(ArchiveError):storage_plan(self.root, episode_count=value)
-
-    def test_estimate_uses_current_archive_bytes_and_known_pending_only(self):
-        archive = self.publish()
-        with Inventory(self.root) as inventory:
-            inventory.observe('42', 'Synthetic', [{'id':'82','title':'Next','order':2,'access_state':'tapas_free'}], 'test')
-        plan = storage_plan(self.root)
-        self.assertEqual(plan['saved_episode_count'], 1)
-        self.assertEqual(plan['saved_archive_bytes'], archive.stat().st_size)
-        self.assertEqual(plan['known_pending_episode_count'], 1)
-        self.assertEqual(plan['estimated_additional_archive_bytes'], archive.stat().st_size)
-
-    def test_quality_preferences_are_explicit_and_private_and_bad_settings_hold(self):
+    def test_quality_preferences_are_read_from_saved_settings_and_bad_settings_hold(self):
         self.assertEqual(policy(self.root)['image_profile'], 'original')
-        configure(self.root, image_profile='small')
+        set_policy(self.root, image_profile='small')
         self.assertEqual(policy(self.root)['image_profile'], 'small')
         settings = self.root / '.archive-state/storage-policy.json'
-        self.assertEqual(settings.stat().st_mode & 0o777, PRIVATE_FILE)
         for value in ('unknown', {}, None):
-            with self.assertRaises(ArchiveError):configure(self.root, image_profile=value)
-        with self.assertRaises(ArchiveError):configure(self.root, purge_completed_cache='true')
+            set_policy(self.root, image_profile=value)
+            with self.subTest(value), self.assertRaises(ArchiveError):policy(self.root)
+        set_policy(self.root, purge_completed_cache='true')
+        with self.assertRaises(ArchiveError):policy(self.root)
         settings.write_text('{broken')
         with self.assertRaises(ArchiveError):policy(self.root)
 
     def test_compact_import_changes_images_only_after_explicit_choice_and_verifies_new_hashes(self):
         data = photo()
         adapter = Mock(); adapter.retrieve.return_value = data
-        configure(self.root, image_profile='small')
+        set_policy(self.root, image_profile='small')
         archive = self.publish(adapter=adapter)
         meta = import_metadata(sidecar_path(archive))
         self.assertTrue(meta['images_recompressed'])
@@ -284,7 +183,6 @@ class StorageTests(unittest.TestCase):
         target.write_text(json.dumps(DEFAULTS))
         path.symlink_to(target)
         with self.assertRaises(ArchiveError): policy(self.root)
-        with self.assertRaises(ArchiveError): configure(self.root, image_profile='small')
         self.assertEqual(json.loads(target.read_text()), DEFAULTS)
         path.unlink()
         path.write_text(json.dumps(DEFAULTS) + ' ' * 4096)
@@ -297,28 +195,3 @@ class StorageTests(unittest.TestCase):
         path.write_text(json.dumps(DEFAULTS))
         self.assertEqual(policy(self.root), DEFAULTS)
 
-    def test_plan_counts_only_readable_archives_inside_real_series_folders(self):
-        archive = self.publish()
-        folder = archive.parent
-        sidecar = sidecar_path(archive)
-        (folder / 'garbled.cbz').write_bytes(b'x' * 10)
-        (folder / 'garbled.json').write_text('{nope')
-        (folder / 'listed.cbz').write_bytes(b'x' * 10)
-        (folder / 'listed.json').write_text('[1]')
-        (folder / 'audio.cbz').write_bytes(b'x' * 10)
-        (folder / 'audio.json').write_text(json.dumps({'content_type': 'audio'}))
-        (folder / 'huge.cbz').write_bytes(b'x' * 10)
-        with (folder / 'huge.json').open('wb') as output:
-            output.truncate(16 * 1024 ** 2 + 1)
-        (folder / 'linked.cbz').symlink_to(archive)
-        shutil.copy(sidecar, folder / 'linked.json')
-        (folder / 'linked-sidecar.cbz').write_bytes(b'x' * 10)
-        (folder / 'linked-sidecar.json').symlink_to(sidecar)
-        (self.root / 'alias').symlink_to(folder, target_is_directory=True)
-        plan = storage_plan(self.root)
-        self.assertEqual(plan['saved_episode_count'], 1)
-        self.assertEqual(plan['saved_archive_bytes'], archive.stat().st_size)
-        self.assertEqual(plan['saved_archive_formats'], {'cbz': 1, 'tar.zst': 0, 'epub': 0})
-        self.assertEqual(plan['episode_size_statistics']['comic']['sample_count'], 1)
-        for kind in ('audio', None):
-            with self.assertRaises(ArchiveError): storage_plan(self.root, episode_kind=kind)

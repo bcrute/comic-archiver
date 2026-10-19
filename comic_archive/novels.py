@@ -5,7 +5,6 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from urllib.parse import urlsplit
 import base64
 import binascii
 
@@ -195,81 +194,6 @@ class NovelHTML(HTMLParser):
         except ArchiveError:
             raise incomplete() from None
         return fragment
-
-
-def novel_structure(html, episode_id):
-    """Describe only the requested chapter up to the parser's first rejection.
-
-    Counts and fixed tag names explain holds without exporting prose, URLs,
-    attributes or unrelated account/reader content. This grants no new support.
-    """
-    known = TEXT_TAGS | {'a', 'img', 'table', 'thead', 'tbody', 'tr', 'td', 'th',
-                         'script', 'style', 'iframe', 'svg', 'video', 'audio',
-                         'font', 'small', 'center', 'code', 'pre', 'figure', 'figcaption',
-                         'o:p', 'ins', 'strike', 'tt', 'cite', 'q'}
-
-    class Structure(NovelHTML):
-        def __init__(self):
-            super().__init__(episode_id)
-            self.tags = {}
-            self.rejected_tag = None
-            self.hidden_content = False
-            self.media_shapes = []
-
-        def handle_starttag(self, tag, attrs):
-            if self.body_depth is not None:
-                safe_tag = tag if tag in known else 'other'
-                self.tags[safe_tag] = self.tags.get(safe_tag, 0) + 1
-                if tag not in TEXT_TAGS and self.rejected_tag is None:
-                    self.rejected_tag = safe_tag
-                values = dict(attrs)
-                if tag == 'img':
-                    from .transport import asset_url
-                    try:
-                        source = asset_url(values.get('src', ''))
-                        parsed = urlsplit(source)
-                        self.media_shapes.append({'host': parsed.hostname,
-                                                  'has_query': bool(parsed.query),
-                                                  'source_attribute': 'src'})
-                    except (ArchiveError, ValueError, TypeError):
-                        source = values.get('src', '')
-                        kind = ('embedded_image' if source.startswith('data:image/') else
-                                'https_external' if source.startswith('https://') else
-                                'protocol_relative' if source.startswith('//') else
-                                'missing' if not source else 'other')
-                        self.media_shapes.append({'source_supported': False, 'source_kind': kind})
-                if 'hidden' in values:
-                    self.hidden_content = True
-                try:
-                    safe_style(values.get('style'))
-                except UnsupportedContent:
-                    self.hidden_content = True
-            super().handle_starttag(tag, attrs)
-
-    parser = Structure()
-    supported = False
-    failure = None
-    characters = size = None
-    try:
-        parser.feed(html)
-        fragment = parser.text()
-        characters = len(''.join(validate_fragment(fragment, tuple(parser.illustrations)).itertext()))
-        size = len(fragment.encode('utf-8'))
-        supported = True
-    except UnsupportedContent as error:
-        failure = error.novel_reason
-    return {'episode_container_count': parser.episode_count,
-            'chapter_container_count': parser.body_count,
-            'chapter_closed': parser.closed, 'supported_text_manifest': supported,
-            'first_unsupported_tag': None if supported else parser.rejected_tag,
-            'hidden_content_detected': parser.hidden_content,
-            'observed_tag_counts': dict(sorted(parser.tags.items())),
-            'scoped_image_source_shapes': parser.media_shapes,
-            'text_character_count': characters, 'text_utf8_bytes': size,
-            'embedded_illustration_count': len(parser.illustrations),
-            'validation_failure': failure,
-            'observation_scope': 'requested_chapter_until_first_rejection',
-            'media_requested': False, 'chapter_text_exported': False}
 
 
 def epub_entries(series, episode, modified, *, export_id=None):

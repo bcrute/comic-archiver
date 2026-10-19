@@ -12,31 +12,6 @@ def envelope(value):
 
 
 class TapasHTTPTests(unittest.TestCase):
-    def test_storage_preview_uses_authenticated_metadata_without_reader_or_asset_requests(self):
-        import tempfile
-        from comic_archive.preflight import preview_series
-        from comic_archive.storage import NOVEL_BYTES
-        for novel in (False, True):
-            self.transport.get.reset_mock()
-            self.transport.get.side_effect = [envelope({'user': {'id':123}}),
-                envelope({'user': {'id':123}}),
-                envelope({'id':42, 'title':'PRIVATE', 'book':novel, 'comic':not novel}),
-                envelope({'episodes':[self.info | {'book':novel},
-                    self.info | {'id':82, 'scene':2, 'book':novel, 'free':False, 'unlocked':False}],
-                    'pagination':{'page':1, 'total':2, 'has_next':False}})]
-            with tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)/'Library'
-                result = preview_series(self.adapter, 'https://tapas.io/series/42/info', root)['storage_preview']
-                self.assertFalse(root.exists())
-            self.assertEqual(result['observed_episode_count'],2)
-            self.assertEqual(result['planned_episode_count'],1)
-            self.assertEqual(result['content_type'],'novel' if novel else 'comic')
-            self.assertTrue(result['content_type_verified'])
-            if novel:self.assertEqual(result['estimated_additional_archive_bytes'],NOVEL_BYTES)
-            self.assertNotIn('PRIVATE',json.dumps(result))
-            self.assertEqual([call.args[0] for call in self.transport.get.call_args_list],[
-                'https://tapas.io/who-am-i','https://tapas.io/who-am-i',
-                'https://tapas.io/series/42','https://tapas.io/series/42/episodes?page=1&max_limit=20'])
 
     def test_comic_only_scan_holds_explicit_novel_before_episode_pagination(self):
         self.transport.get.side_effect=[envelope({'user':{'id':123}}),
@@ -104,31 +79,6 @@ class TapasHTTPTests(unittest.TestCase):
                 self.assertEqual([row['order'] for row in partial['episodes']],[1,2])
                 self.assertNotIn('PRIVATE',json.dumps(caught.exception.__dict__))
             self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20')
-
-    def test_page_size_probe_uses_one_normal_metadata_page_and_safe_projection(self):
-        self.transport.get.side_effect=[envelope({'user':{'id':123}}),envelope({'id':42,'title':'S'}),
-            envelope({'episodes':[self.info|{'id':key} for key in range(1,51)],
-                'pagination':{'page':2,'total':100,'has_next':True,'limit':50,'token':'PRIVATE'},'body':'PRIVATE'})]
-        result=self.adapter.inspect_episode_page_size('42',50)
-        self.assertEqual(result['returned_episode_count'],50)
-        self.assertFalse(result['complete']);self.assertFalse(result['reader_or_comic_pages_requested'])
-        self.assertNotIn('PRIVATE',json.dumps(result))
-        self.assertEqual([c.args[0] for c in self.transport.get.call_args_list],[
-            'https://tapas.io/who-am-i','https://tapas.io/series/42',
-            'https://tapas.io/series/42/episodes?page=1&max_limit=50'])
-
-    def test_metadata_diagnostics_report_denial_and_unsupported_reasons_without_reader_requests(self):
-        for change,reason in (({},None),({'free':False,'unlocked':False},'access_denied'),
-                ({'book':True},None),({'closing_date':'SESSION_PRIVATE'},'temporary_access'),
-                ({'free':'SESSION_PRIVATE'},'authorization_unknown')):
-            self.transport.reset_mock();self.responses(info=self.info|change)
-            result=self.adapter.inspect_access('https://tapas.io/episode/81')
-            self.assertEqual(result['reason'],reason)
-            self.assertEqual(result['authorization_eligible'],reason is None)
-            self.assertFalse(result['reader_or_comic_pages_requested'])
-            self.assertNotIn('PRIVATE',json.dumps(result))
-            self.assertEqual([c.args[0] for c in self.transport.get.call_args_list],
-                             ['https://tapas.io/who-am-i','https://tapas.io/episode/81/info'])
 
     def test_unsupported_metadata_has_specific_safe_reason_without_requesting_a_reader(self):
         for change,code in (({'scheduled':True},'scheduled'),
@@ -422,36 +372,16 @@ class TapasHTTPTests(unittest.TestCase):
             self.adapter.check_session()
 
     def test_access_checks_accept_only_exact_episode_urls_and_metadata_for_the_same_episode(self):
-        for method in (self.adapter.episode_access, self.adapter.inspect_access):
-            self.transport.reset_mock()
-            for url in ('https://tapas.io/series/42/info', 'https://tapas.io/episode/abc',
-                        'https://tapas.io/episode/81/unlock', 'https://example.com/episode/81',
-                        'http://tapas.io/episode/81', None):
-                with self.subTest(url=url), self.assertRaises(ArchiveError):
-                    method(url)
-            self.transport.get.assert_not_called()
-            self.transport.reset_mock()
-            self.responses(info=self.info | {'id': 82})
-            with self.assertRaises(MetadataError):
-                method('https://tapas.io/episode/81')
-            self.assertEqual(self.transport.get.call_count, 2)
-        self.transport.reset_mock()
-        with self.assertRaisesRegex(ArchiveError, 'exact observed'):
-            self.adapter.inspect_access('https://tapas.io/episode/081')
+        for url in ('https://tapas.io/series/42/info', 'https://tapas.io/episode/abc',
+                    'https://tapas.io/episode/81/unlock', 'https://example.com/episode/81',
+                    'http://tapas.io/episode/81', None):
+            with self.subTest(url=url), self.assertRaises(ArchiveError):
+                self.adapter.episode_access(url)
         self.transport.get.assert_not_called()
-
-    def test_page_size_probe_refuses_unsupported_limits_and_malformed_or_repeated_episode_lists(self):
-        for limit in (10, 0, True, '50', 101, None):
-            with self.subTest(limit=limit), self.assertRaises(ArchiveError):
-                self.adapter.inspect_episode_page_size('42', limit)
-        self.transport.get.assert_not_called()
-        for episodes, pagination in (('x', {}), ([], None), ([self.info | {'id': key} for key in range(1, 102)], {}),
-                ([{'id': 0}], {}), ([{'id': True}], {}), (['row'], {}), ([{'title': 'no id'}], {}),
-                ([{'id': 5}, {'id': 5}], {})):
-            self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope({'id': 42, 'title': 'S'}),
-                envelope({'episodes': episodes, 'pagination': pagination})]
-            with self.subTest(episodes=str(episodes)[:40]), self.assertRaises(MetadataError):
-                self.adapter.inspect_episode_page_size('42', 100)
+        self.responses(info=self.info | {'id': 82})
+        with self.assertRaises(MetadataError):
+            self.adapter.episode_access('https://tapas.io/episode/81')
+        self.assertEqual(self.transport.get.call_count, 2)
 
     def test_series_identity_reports_only_the_id_and_title(self):
         self.transport.get.side_effect = [envelope({'user': {'id': 123}}),

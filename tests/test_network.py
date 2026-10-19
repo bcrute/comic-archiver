@@ -199,32 +199,3 @@ class NetworkTests(unittest.TestCase):
         client.stream.return_value.__exit__ = Mock(return_value=False)
         with self.assertRaises(NetworkPolicyHold): transport.get('https://cdn.tapas.io/a.png')
 
-    def test_selected_library_policy_applies_before_metadata_or_single_episode_capture(self):
-        from comic_archive.cli import parser,run
-        from comic_archive.importer import archive_series
-        from comic_archive.metadata import enrich_series
-        from comic_archive.models import Series
-        from test_jobs import AccountAdapter
-        selected=self.root/'Chosen'
-        configure(selected,False)
-        wrong=self.root/'Other'
-        with patch('comic_archive.network.probe',return_value={'connection':'cellular','metered':True}),patch('builtins.print'):
-            adapter=Mock();adapter.network_guard=NetworkGuard(wrong)
-            def inspect(*args,**kwargs):
-                adapter.network_guard.check()
-                return {'complete':True,'authenticated':True,'episodes':[],'source_series_id':'42','title':'Synthetic','episode_count':0}
-            adapter.inspect_series.side_effect=inspect
-            self.assertEqual(archive_series(adapter,'42',selected)['imported_episode_ids'],[])
-            adapter.network_guard.root=wrong
-            def identity():adapter.network_guard.check();return '11'
-            adapter.account_identity.side_effect=identity
-            adapter.series_metadata.return_value=Series('42','Synthetic',source='tapas',platform_id='42')
-            self.assertFalse(enrich_series(adapter,'42',selected)['reader_or_comic_pages_requested'])
-            source=AccountAdapter();source.network_guard=NetworkGuard(wrong)
-            capture=source.capture_automatic
-            def guarded(url,*args):source.network_guard.check();return capture(url)
-            source.capture_automatic=guarded
-            context=Mock();context.__enter__=Mock(return_value=source);context.__exit__=Mock(return_value=False)
-            with patch('comic_archive.adapters.tapas.TapasAdapter',return_value=context):
-                self.assertEqual(run(parser().parse_args(['archive-episode','https://tapas.io/episode/81','--output',str(selected)])),0)
-            self.assertEqual(source.network_guard.root,selected.absolute())

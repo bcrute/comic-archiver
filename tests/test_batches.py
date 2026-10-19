@@ -9,7 +9,6 @@ from unittest.mock import patch
 from support import PRIVATE_FILE, PRIVATE_FOLDER
 from comic_archive import batches
 from comic_archive.archive import atomic_json
-from comic_archive.cli import parser,run
 from comic_archive.errors import LibraryBusy
 from comic_archive.locking import LibraryLock
 from comic_archive.models import ArchiveError
@@ -392,13 +391,6 @@ class BatchTests(unittest.TestCase):
         self.assertFalse(batches._load(self.root)['budgets']['archive_only'])
         _,request=self.publish();self.assertEqual(request['operation'],'sync')
 
-    def test_archive_only_cli_disables_discovery_without_starting_another_browser(self):
-        args=parser().parse_args(['run-backlog','--archive-only'])
-        with patch('comic_archive.batches.run',return_value={'status':'budget_reached'}) as runner,patch('builtins.print'):
-            self.assertEqual(run(args),0)
-        values=runner.call_args.kwargs['values']
-        self.assertTrue(values['archive_only']);self.assertFalse(values['refresh_lists'])
-
     def test_older_sync_checkpoint_resumes_without_an_operation_field(self):
         self.start();reserved=self.step()
         state=batches._load(self.root);state['pending'].pop('operation');batches._save(self.root,state)
@@ -453,19 +445,6 @@ class BatchTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):batches.status(self.session,self.library)
         self.assertFalse((self.project/'outside').exists())
 
-    def test_only_one_runtime_consumes_each_controller_and_ctrl_c_checkpoint_remains(self):
-        entered=threading.Event();result=[]
-        thread=threading.Thread(target=lambda:result.append(batches.run(self.session,self.library,
-            progress=lambda _:entered.set())))
-        thread.start();self.addCleanup(lambda:thread.join(5))
-        self.assertTrue(entered.wait(5))
-        with self.assertRaises(LibraryBusy):batches.run(self.session,self.library,progress=lambda _:None)
-        batches.request_stop(self.session,self.library);thread.join(5)
-        self.assertFalse(thread.is_alive());self.assertEqual(result[0]['status'],'stopped')
-        with patch('comic_archive.batches.time.sleep',side_effect=KeyboardInterrupt):
-            with self.assertRaises(KeyboardInterrupt):batches.run(self.session,self.library,progress=lambda _:None)
-        self.assertEqual(batches.status(self.session,self.library)['status'],'interrupted')
-
     def test_symlinked_queue_directories_are_rejected_before_reading_or_writing(self):
         for name in ('requests','responses'):
             with self.subTest(directory=name):
@@ -473,18 +452,8 @@ class BatchTests(unittest.TestCase):
                 original=self.root/name;original.rmdir();original.symlink_to(target,target_is_directory=True)
                 try:
                     with self.assertRaises(ArchiveError):batches.status(self.session,self.library)
-                    with self.assertRaises(ArchiveError):batches.run(self.session,self.library,progress=lambda _:None)
                     self.assertEqual(list(target.iterdir()),[])
                 finally:original.unlink();original.mkdir()
-
-    def test_cli_routes_to_controller_without_starting_another_browser(self):
-        args=parser().parse_args(['--request-interval','.5','run-backlog','--max-batches','2','--watched-only'])
-        with patch('comic_archive.batches.run',return_value={'status':'budget_reached'}) as runner,patch('builtins.print'):
-            self.assertEqual(run(args),0)
-        self.assertEqual(runner.call_args.kwargs['values']['request_interval'],.5)
-        self.assertFalse(runner.call_args.kwargs['values']['refresh_lists'])
-        self.assertEqual(runner.call_args.kwargs['values']['max_batches'],2)
-        with self.assertRaises(ArchiveError):run(parser().parse_args(['--session-dir','Other','backlog-status']))
 
     def test_new_bounded_window_preserves_previous_counters_deadline_and_sanitized_history(self):
         self.start({'refresh_lists':False})

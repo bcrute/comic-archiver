@@ -201,13 +201,6 @@ def _credit(value,window):
     record.update({key:window.get(key,0) for key in METRICS});return True
 
 
-def _daily_waiting(root):
-    from .daily import _load as load_daily
-    daily=load_daily(root)
-    return bool(daily and daily['enabled'] and not daily['pause_reason'] and (
-        daily['pending'] is not None or batches._instant(daily['next_due'])<=batches._now()))
-
-
 def _waiting(window):
     return bool(window['network_retry_after'] or window['source_recovery_wait'])
 
@@ -289,11 +282,10 @@ def _advance(root,session,library,value):
             if window['code'] is not None:
                 value.update(status='paused',code=window['code']);return
         elif window['status']=='running' or _waiting(window):
-            if not _daily_waiting(root):batches.step(session,library)
+            batches.step(session,library)
             _credit(value,batches._load(root));return
     if cap['max_windows'] is not None and len(value['windows'])>=cap['max_windows']:
         value.update(status='budget_reached',code=None);return
-    if _daily_waiting(root):return
     config=dict(value['window_budgets'])
     for key,metric,reservation in (('max_pages','downloaded_pages','unreported_reserved_pages'),
                                    ('max_bytes','downloaded_bytes','unreported_reserved_bytes')):

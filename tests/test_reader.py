@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock
 from comic_archive.adapters.reader import (
     ReaderHTML, ReaderObservation, json_shape, ordered_sources, safe_primitives,
-    script_routes, source_summary, public_script_contexts, navigation_fragment_shape, public_access_filters,
+    script_routes, public_script_contexts, navigation_fragment_shape, public_access_filters,
 )
 from comic_archive.errors import MetadataError
 from comic_archive.models import ArchiveError
@@ -84,7 +84,6 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(ordered_sources(parser.images),[
             'https://us-a.tapas.io/c/aa/page-one.jpg?signature=TEST1',
             'https://us-a.tapas.io/c/bb/page-two.jpg?signature=TEST2'])
-        self.assertEqual(source_summary(parser.images)['data-src']['comic_asset_count'],2)
         self.assertIsNone(ordered_sources([{'tag':'IMG','sources':{'data-src':'https://evil.test/c/aa/page.jpg'}}]))
         self.assertIsNone(ordered_sources([{'tag':'IMG','sources':{'data-src':'https://us-a.tapas.io/cover/page.jpg'}}]))
 
@@ -142,11 +141,6 @@ class ReaderTests(unittest.TestCase):
             "https://us-a.tapas.io/pc/a/first.jpg?__token__=TEST&version=v4",
             "https://us-a.tapas.io/pc/b/second.jpg?__token__=TEST2"])
         self.assertEqual(parser.attributes, {"data-episode-id": "81"})
-        summary = source_summary(parser.images)
-        self.assertEqual(summary["data-src"]["comic_asset_count"], 2)
-        self.assertEqual(summary["src"]["comic_asset_count"], 0)
-        self.assertNotIn("TEST", json.dumps(summary))
-        self.assertNotIn("PRIVATE", json.dumps(summary))
 
     def test_complete_manifest_required_and_invalid_lazy_source_cannot_escape_host(self):
         valid = {"tag": "IMG", "url": "https://us-a.tapas.io/pc/a.jpg", "sources": {}}

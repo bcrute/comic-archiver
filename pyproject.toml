@@ -17,9 +17,6 @@ validation = ["Pillow>=10"]
 desktop = ["PySide6>=6.11.2,<6.12"]
 test = ["Pillow>=10", "playwright>=1.45,<2", "coverage>=7,<8", "build>=1.5,<2", "ruff>=0.6,<1", "pip-audit>=2.7,<3"]
 
-[project.scripts]
-comic-archive = "comic_archive.cli:main"
-
 [project.gui-scripts]
 comic-archiver = "comic_archive.desktop_app:main"
 
@@ -27,11 +24,10 @@ comic-archiver = "comic_archive.desktop_app:main"
 include = ["comic_archive*"]
 
 [tool.setuptools.package-data]
-comic_archive = ["static/*.html", "static/*.css", "static/*.js", "oauth-clients.json"]
+comic_archive = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.ruff]
 target-version = "py311"
-extend-exclude = ["parked"]
 
 [tool.ruff.lint]
 # Mistakes (F, E9), likely bugs (B) and security rules (S, the checks Bandit makes).

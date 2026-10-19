@@ -222,14 +222,4 @@ class SourceRecoveryTests(unittest.TestCase):
         self.assertNotIn('PRIVATE',json.dumps(shown))
         self.assertEqual((self.root/'backlog.json').read_bytes(),before)
 
-    def test_cli_can_disable_source_recovery_without_changing_network_limits(self):
-        from comic_archive.cli import parser,run
-        args=parser().parse_args(['complete-backlog','--no-source-recovery','--max-source-recoveries','0'])
-        with patch('comic_archive.completion.configure',return_value={'status':'running'}) as configure,patch('builtins.print'):
-            self.assertEqual(run(args),0)
-        self.assertFalse(configure.call_args.kwargs['window_budgets']['recover_source'])
-        self.assertEqual(configure.call_args.kwargs['values']['max_source_recoveries'],0)
-        self.assertEqual(configure.call_args.kwargs['values']['max_network_recoveries'],4)
-
-
 if __name__ == '__main__': unittest.main()

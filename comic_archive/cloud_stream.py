@@ -1,4 +1,4 @@
-"""Bounded Drive/Dropbox uploads while assembling one recoverable episode."""
+"""Bounded B2 uploads while assembling one recoverable episode."""
 import hashlib
 import os
 from pathlib import Path
@@ -37,8 +37,7 @@ class PipeUpload:
                 transfer.binary, '--config', str(transfer.config), '--ask-password=false',
                 '--log-level', 'ERROR', '--stats', '0', '--retries', '1',
                 '--low-level-retries', '2', '--contimeout', '30s', '--timeout', '60s',
-                '--drive-chunk-size', '4Mi', '--dropbox-chunk-size', '4Mi',
-                '--dropbox-batch-mode', 'off', '--streaming-upload-cutoff', '256Ki' if size is None else f'{size + 1}B',
+                '--streaming-upload-cutoff', '256Ki' if size is None else f'{size + 1}B',
                 *(['--b2-chunk-size', '5Mi', '--b2-upload-concurrency', '1', '--b2-hard-delete']
                   if transfer.provider == 'b2' else []),
                 'rcat', transfer.remote(remote_path)], stdin=subprocess.PIPE,
@@ -115,23 +114,21 @@ class PipeUpload:
         for log in self.logs: log.close()
 
 
-def _stage(root, episode_id, provider='google'):
+def _stage(root, episode_id, provider):
     from .cloud import _json
     from .publication import valid_export_id
     from .storage import safe_root
     from .cloud import STREAM_PROVIDERS, CLOUD_ROOT
     if not valid_export_id(episode_id) or provider not in STREAM_PROVIDERS:
         raise ArchiveError('Invalid streaming episode identity.')
-    folder = Path(root) / '.archive-state/cloud/streams'
-    # Preserve existing Google receipts; Dropbox has its own namespace.
-    if provider != 'google': folder /= provider
+    folder = Path(root) / '.archive-state/cloud/streams' / provider
     path = safe_root(folder / (episode_id + '.json'))
     if not path.exists(): return path, None
     record = _json(path)
     required = {'schema_version', 'library_id', 'target_id', 'episode_id', 'run_id',
                 'remote_path', 'archive', 'state', 'sha256'}
     if (set(record) not in (required, required | {'provider'})
-            or record.get('provider', 'google') != provider
+            or record.get('provider') != provider
             or type(record['schema_version']) is not int or record['schema_version'] != 1
             or any(not valid_export_id(record[k]) for k in ('library_id', 'target_id', 'episode_id', 'run_id'))
             or record['episode_id'] != episode_id or record['state'] not in {'streaming', 'uploaded'}
@@ -148,7 +145,7 @@ def _stage(root, episode_id, provider='google'):
 def _matching(root, transfer, record):
     from .cloud import settings
     value = settings(root)
-    provider = record.get('provider', 'google')
+    provider = record.get('provider')
     target = value and value['targets'].get(provider)
     return bool(target and transfer.provider == provider and record['library_id'] == value['library_id']
                 and record['target_id'] == target['target_id'])
@@ -159,10 +156,7 @@ def cleanup_stage(root, transfer, episode_id):
     if record is None: return
     if not _matching(root, transfer, record):
         raise ArchiveError('Streaming cleanup belongs to a previous connection; recovery state is retained.')
-    if transfer.provider == 'b2':
-        transfer.delete_test_file(record['remote_path'])
-    else:
-        transfer.run('deletefile', transfer.remote(record['remote_path']), missing_ok=True)
+    transfer.delete_test_file(record['remote_path'])
     path.unlink()
 
 

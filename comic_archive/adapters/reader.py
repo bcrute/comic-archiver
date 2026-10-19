@@ -1,14 +1,12 @@
 """Tapas reader HTML observations; raw HTML and signed URLs stay in memory."""
 import json
 import re
-from collections import Counter
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlsplit, unquote, urljoin
 from ..models import ArchiveError
 from ..errors import MetadataError
 from ..transport import asset_url
 
-RESEARCH_VERSION = 18
 COMIC_PATH_PREFIXES = ('/pc/', '/c/')
 
 
@@ -87,21 +85,6 @@ class ReaderHTML(HTMLParser):
     def handle_data(self, data):
         if self.in_script:
             self.inline.append(data)
-
-    def navigation_summary(self):
-        return {'links':list(self.episode_links.values()),'truncated':self.episode_links_truncated,
-                'visibility_verified':False,'series_membership_verified':False,
-                'authorization_evidence':False,'followed_links':False}
-
-
-def source_summary(rows):
-    result = {"image_count": len(rows)}
-    for name in ("current", "src", "data-src"):
-        values = [row.get("url", "") if name == "current" else row.get("sources", {}).get(name, "") for row in rows]
-        result[name] = {"comic_asset_count": sum(comic_asset(value) is not None for value in values),
-                        "schemes": dict(Counter(urlsplit(value).scheme or "empty" for value in values))}
-    return result
-
 
 def ordered_sources(rows):
     """All-or-nothing DOM order; lazy attributes do not imply account access."""
