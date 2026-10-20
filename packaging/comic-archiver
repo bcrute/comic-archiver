@@ -14,6 +14,16 @@ register_entry() {
     entry="$apps/comic-archiver.desktop"
     icon="$here/share/icons/hicolor/scalable/apps/comic-archiver.svg"
     mkdir -p -- "$apps" 2>/dev/null || return 0
+    # The copy the menu entry started until now, for the app to offer to remove when it is older.
+    if [ -f "$entry" ]; then
+        while IFS= read -r line; do
+            case $line in 'Exec="'*'/comic-archiver"')
+                previous=${line#Exec=\"}; previous=${previous%/comic-archiver\"}
+                [ "$previous" != "$here" ] && export COMIC_ARCHIVER_PREVIOUS="$previous"
+                break;;
+            esac
+        done < "$entry"
+    fi
     tmp="$entry.$$"
     while IFS= read -r line; do
         case $line in

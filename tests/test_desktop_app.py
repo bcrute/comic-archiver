@@ -1783,6 +1783,35 @@ class DesktopAppTests(unittest.TestCase):
             self.assertEqual(desktop_app.main(['--uninstall']), 3)
         self.assertEqual([call.args[1] for call in uninstall.call_args_list], [True, False]); run.assert_called_once()
 
+    # Older copies.
+
+    def test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window(self):
+        older = [self.home / 'old', self.home / 'zip']
+        with patch('comic_archive.uninstall.older_copies', return_value=older), \
+                patch('comic_archive.uninstall.remove_copy', side_effect=[False]) as remove:
+            self.box.question.side_effect = [1, 2]
+            desktop_app.remove_older_copies(self.q)
+        self.assertEqual([call.args for call in self.box.question.call_args_list],
+                         [(None, 'Comic Archiver', desktop_app.OLD_COPY.format(folder=folder), 3, 1) for folder in older])
+        remove.assert_called_once_with(self.home / 'old')
+        self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.OLD_COPY_LEFT.format(folder=self.home / 'old'))
+        self.box.question.reset_mock(side_effect=True); self.box.warning.reset_mock()
+        with patch('comic_archive.uninstall.older_copies', return_value=older[:1]), \
+                patch('comic_archive.uninstall.remove_copy', return_value=True), self.assertLogs('comic_archive.desktop', 'INFO'):
+            self.box.question.return_value = 1
+            desktop_app.remove_older_copies(self.q)
+        self.box.warning.assert_not_called()
+        with patch('comic_archive.uninstall.older_copies', side_effect=ArchiveError('PRIVATE')), \
+                self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
+            desktop_app.remove_older_copies(self.q)
+        self.assertNotIn('PRIVATE', logs.output[0]); self.assertEqual(self.box.question.call_count, 1)
+        with patch('comic_archive.desktop_app.remove_older_copies') as offer:
+            self.assertEqual(desktop_app.run(self.q, None), 0)
+            offer.assert_called_once_with(self.q)
+            self.held_lock(answered=True, stale=False)
+            self.assertEqual(desktop_app.run(self.q, None), 0)
+            offer.assert_called_once_with(self.q)
+
     # Uninstalling.
 
     def removal(self, forgotten=True, removed=True, folder=None):

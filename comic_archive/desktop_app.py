@@ -148,6 +148,9 @@ UNINSTALL_FAILED = ('Comic Archiver could not remove everything it keeps for sig
 UNINSTALL_DONE = ('Comic Archiver is signed out of every site and removed from your applications menu.\n\n'
                   'Your saved episodes are still in\n{library}')
 UNINSTALL_FOLDER = '\n\nTo finish, delete this folder:\n{folder}'
+OLD_COPY = ('An older copy of Comic Archiver is still on this computer, in\n{folder}\n\nRemove it? Your sign-in and '
+            'saved episodes stay.')
+OLD_COPY_LEFT = 'Some of the older copy could not be removed. You can delete this folder yourself:\n{folder}'
 # The uninstaller's exit status: done, not done, and not done because the window is open.
 UNINSTALLED, UNINSTALL_INCOMPLETE, UNINSTALL_BLOCKED = 0, 1, 3
 # The raw import error is for the terminal and the log only; people get TOOLKIT_BROKEN.
@@ -336,6 +339,25 @@ def uninstall(q, quiet):
         return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
     text = UNINSTALL_DONE.format(library=library) + ('' if folder is None else UNINSTALL_FOLDER.format(folder=folder))
     return tell(UNINSTALLED, text)
+
+
+def remove_older_copies(q):
+    """Offer to delete each copy of the app this one replaces, so only one stays on the computer."""
+    from . import uninstall as removal
+    box = q.QtWidgets.QMessageBox
+    buttons = box.StandardButton
+    try:
+        copies = removal.older_copies()
+    except (ArchiveError, OSError) as error:
+        LOG.warning('older copies could not be looked for: %s', app_runtime.describe(error))
+        return
+    for folder in copies:
+        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
+            continue
+        if removal.remove_copy(folder):
+            LOG.info('an older copy was removed')
+        else:
+            box.warning(None, APP_NAME, OLD_COPY_LEFT.format(folder=folder))
 
 
 def failure_text(error, log_path):
@@ -1139,6 +1161,7 @@ def run(q, project_root):
         name = server_name(state)
         if not claim(q, lock, name):
             return 0
+        remove_older_copies(q)
         chosen = None if project_root else app_runtime.saved_root()
         missing = chosen is not None and not app_runtime.present(chosen)
         if missing:
