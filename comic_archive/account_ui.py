@@ -109,10 +109,21 @@ def _cancelled(session, task):
     return value['status'] == 'ok' and isinstance(result, dict) and result.get('status') == 'cancelled'
 
 
+def _plan(session, library):
+    """The status of the plan that works through the backlog; none before a downloader has made its queue."""
+    return completion._public(completion._load(batches._root(session, library, require_queue=False)))
+
+
 def pause(workspace):
     """Stop further batches and the one in progress, which left alone runs for up to half an hour."""
     session, library = workspace.session, workspace.library
-    account_export.request_stop(session, library)
+    configured = account_export.status(session, library).get('configured')
+    if not (configured or _plan(session, library).get('configured')):
+        return  # Nothing has downloaded here yet.
+    if configured:
+        account_export.request_stop(session, library)  # The plan stops with it, unless the download had finished.
+    if _plan(session, library).get('status') in {'running', 'paused'}:
+        completion.request_stop(session, library)
     tasks = {account_export.status(session, library).get('pending_task_id'),
              batches.status(session, library).get('pending_task_id')} - {None}
     deadline = time.monotonic() + PAUSE_WAIT_SECONDS
@@ -143,13 +154,13 @@ def reopen(workspace, *, idle=True):
     """
     from .task_cancellation import end_unstarted
     session, library = workspace.session, workspace.library
-    state = account_export.status(session, library)
-    if not state.get('configured'):
+    state, plan = account_export.status(session, library), _plan(session, library)
+    if not (state.get('configured') or plan.get('configured')):
         return False
     running = state.get('status') == 'running'
     # The plan that works through the backlog goes on by itself after the account's download was held or
-    # finished, so it waits for Go as well.
-    continuing = completion.status(session, library).get('status') == 'running'
+    # finished, or without one (an older version's, or the command line's), so it waits for Go as well.
+    continuing = plan.get('status') == 'running'
     if running:
         account_export.request_stop(session, library)  # The plan stops with it.
     elif continuing:
@@ -197,6 +208,15 @@ def status(workspace, since=None):
                            'archive_incomplete', 'list_checkpoint_incomplete', 'scan_no_progress', 'task_result_invalid'})]:
         if state.get(key) in choices:
             result[key] = state.get(key)
+    try:
+        saving = _plan(workspace.session, workspace.library).get('status') == 'running'
+    except ArchiveError:
+        saving = False  # A plan that cannot be read cannot run either.
+    if saving and result.get('status') != 'running':
+        # The plan is saving episodes although the account's download is not: the page says it is working,
+        # Pause stops it, and nothing that waits for a pause goes ahead.
+        result['status'] = 'running'
+        result.pop('code', None)
     checks = state.get('list_checks')
     if isinstance(checks, list):
         categories = account_export.lists(workspace.session)

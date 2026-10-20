@@ -284,12 +284,14 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(resumed['downloaded_bytes'],original['downloaded_bytes'])
         self.assertEqual(completion.status(self.workspace.session,self.workspace.library)['status'],'running')
 
-    def running_batch(self):
-        """A download batch the downloader has started: published request, busy worker, recorded run."""
+    def running_batch(self,account=True):
+        """A download batch the downloader has started: published request, busy worker, recorded run.
+
+        Without `account`, the plan runs on its own, as an older version or the command line left it."""
         session,library=self.workspace.session,self.workspace.library
         with Inventory(library) as inventory:
             inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':'tapas_free'}],'fixture')
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        if account:self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         completion.continue_discovered(session,library)
         for _ in range(5):
             completion.worker_tick(session,library)
@@ -455,11 +457,7 @@ class AccountUITests(unittest.TestCase):
 
     def test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held(self):
         session,library=self.workspace.session,self.workspace.library
-        task,run=self.running_batch()
-        # The account's own controller fails and holds; the plan under it goes on downloading.
-        with patch.object(account_export,'_advance',side_effect=RuntimeError):account_export.worker_tick(session,library)
-        self.assertEqual(account_export.status(session,library)['status'],'held')
-        self.assertEqual(completion.status(session,library)['status'],'running')
+        task,run=self.held_while_the_plan_runs()
         # The app closed between batches: the last one ended on its own, with more left to save.
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'limited',**self.CANCELLED}})
         self.assertTrue(account_ui.reopen(self.workspace))
@@ -473,6 +471,78 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual((window['status'],window['code']),('running',None))
         self.assertNotIn(window['pending_task_id'],(None,task))
         self.assertEqual(completion.status(session,library)['status'],'running')
+
+    def held_while_the_plan_runs(self):
+        """A batch out, the plan running, and the account's own download held by a failure of its controller."""
+        session,library=self.workspace.session,self.workspace.library
+        task,run=self.running_batch()
+        with patch.object(account_export,'_advance',side_effect=RuntimeError):account_export.worker_tick(session,library)
+        self.assertEqual((account_export.status(session,library)['status'],completion.status(session,library)['status']),
+                         ('held','running'))
+        return task,run
+
+    def test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held(self):
+        from comic_archive.errors import LibraryBusy
+        session,library=self.workspace.session,self.workspace.library
+        self.held_while_the_plan_runs()
+        shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
+        self.assertEqual(shown['status'],'running')
+        self.assertNotIn('code',shown)  # The hold's reason is not what is happening now.
+        with self.assertRaisesRegex(LibraryBusy,'Pause the download'):self.registry.sign_out_site(LOCAL_OWNER,self.workspace.id)
+        with self.assertRaises(LibraryBusy):self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
+        self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')  # Go changes nothing.
+        self.assertEqual(account_export.status(session,library)['status'],'held')
+        with patch.object(account_ui.time,'sleep'):
+            self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
+        self.assertEqual(completion.status(session,library)['status'],'stopped')
+        self.assertTrue(batches.status(session,library)['stop_requested'])
+
+    def test_the_page_shows_the_hold_again_once_the_plan_has_nothing_left_to_save(self):
+        session,library=self.workspace.session,self.workspace.library
+        self.held_while_the_plan_runs()
+        root=batches._root(session,library);plan=completion._load(root)
+        plan['status']='known_backlog_drained';completion._save(root,plan)
+        shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
+        self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
+
+    def test_the_page_still_shows_the_download_when_the_plan_file_is_damaged(self):
+        self.held_while_the_plan_runs()
+        (self.queue/'completion.json').write_text('{"schema_version": 1}')
+        shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
+        self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
+
+    def test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download(self):
+        session,library=self.workspace.session,self.workspace.library
+        self.running_batch(account=False)
+        self.assertFalse(account_export.status(session,library)['configured'])
+        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
+        with patch.object(account_ui.time,'sleep'):self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
+        self.assertEqual(completion.status(session,library)['status'],'stopped')
+        self.assertTrue(batches.status(session,library)['stop_requested'])
+        self.assertNotIn('status',self.registry.account_status(LOCAL_OWNER,self.workspace.id))
+
+    def test_a_start_of_the_app_sets_a_plan_without_an_account_download_to_wait_for_go_and_go_continues_it(self):
+        session,library=self.workspace.session,self.workspace.library
+        task,run=self.running_batch(account=False)
+        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'limited',**self.CANCELLED}})
+        self.assertTrue(account_ui.reopen(self.workspace))
+        self.assertEqual(completion.status(session,library)['status'],'stopped')
+        self.ticks()
+        self.assertEqual(list((self.queue/'requests').iterdir()),[])
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        self.ticks()
+        window=batches.status(session,library)
+        self.assertEqual((window['status'],window['code']),('running',None))
+        self.assertNotIn(window['pending_task_id'],(None,task))
+        self.assertEqual((account_export.status(session,library)['status'],completion.status(session,library)['status']),
+                         ('running','running'))
+
+    def test_pause_and_a_start_of_the_app_leave_a_library_that_has_never_downloaded_alone(self):
+        for name in ('requests','responses'):(self.queue/name).rmdir()  # No downloader has run here yet.
+        self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
+        self.assertFalse(account_ui.reopen(self.workspace))
+        for name in ('requests','account-export.json','completion.json','backlog.json'):
+            self.assertFalse((self.queue/name).exists(),name)
 
     def test_a_start_of_the_app_sets_an_interrupted_check_of_the_lists_to_wait_for_go_which_queues_it_again(self):
         session,library=self.workspace.session,self.workspace.library
