@@ -333,7 +333,8 @@ def view(s, now):
     v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)
     v['signout_help'] = ('Pause the download to sign out.' if running or batch_running else
                          f'Comic Archiver keeps your {site} sign-in on this computer so it can download. '
-                         'Signing out removes it. Your saved episodes stay.')
+                         f'Signing out removes it from Comic Archiver only. Your {site} account, and anywhere else '
+                         'you use it, aren\'t affected. Your saved episodes stay.')
     v['network_visible'] = net is not None
     v['network_checked'] = (net or {}).get('wifi_only') is False
     v['network_enabled'] = not s.busy and net is not None

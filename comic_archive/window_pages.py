@@ -12,8 +12,9 @@ from .dashboard_model import SPEED_NAMES, SPEEDS, State
 
 ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2')
 TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'))
-SIGN_OUT = ('Sign out of {site}?\n\nComic Archiver forgets your {site} sign-in on this computer. Your saved episodes '
-            'stay where they are.\n\nTo download again, sign in again.')
+SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
+            '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
+            '\n\nYour saved episodes stay where they are. To download again, sign in again.')
 FOOTER = 'Only episodes your account can already read, free or bought, are saved. Nothing is bought for you.'
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
 B2_PAGES = {

@@ -21,7 +21,8 @@ goes into a folder called `Comic Archiver` in your user folder, one folder per s
 - **What the app keeps, and where.** Once you're signed in, the site hands back a sign-in cookie, the same thing
   that keeps you logged in in a web browser. The app keeps it on your computer so it can download your episodes,
   and only ever sends it back to that same site. Signing out in **Settings → Downloads** removes it from your
-  computer.
+  computer. That signs out only the app: your account on the site, and anywhere else you're signed in, aren't
+  affected.
 - **Who the app talks to.** The comic site you picked, and the servers it keeps its images on. That's it. If you
   choose to back up to your own Backblaze B2 cloud storage, the app also talks to Backblaze, using the key you give
   it, and downloads a small helper program (rclone) from its official page once, checking that it's the genuine file.
