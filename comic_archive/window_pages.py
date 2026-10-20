@@ -534,6 +534,7 @@ class Settings:
         row = kit.w.QVBoxLayout(self.signout_row)
         row.setContentsMargins(0, 8, 0, 0)
         row.setSpacing(6)
+        row.addWidget(kit.label('Sign-in', 'strong'))
         row.addWidget(self.signout_help)
         row.addWidget(kit.row(self.signout))
         box.addWidget(self.signout_row)
