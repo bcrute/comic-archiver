@@ -3370,8 +3370,8 @@
  {
   "id": "signin-busy-check",
   "source": "comic_archive/local_library.py",
-  "old": "or (info['worker'] or {}).get('reported_state') == 'busy':",
-  "new": "or False:",
+  "old": "or (info['worker'] or {}).get('reported_state') == 'busy':\n                raise LibraryBusy('Pause the download before reconnecting Tapas.')",
+  "new": "or False:\n                raise LibraryBusy('Pause the download before reconnecting Tapas.')",
   "test_file": "test_local_library.py",
   "test": "test_browser_signin_is_refused_while_the_downloader_is_busy_and_does_not_start"
  },
