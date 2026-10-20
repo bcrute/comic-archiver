@@ -328,6 +328,12 @@ def view(s, now):
                           'help': f"Used the next time you hit Go on {item['name']}.", 'enabled': not s.busy}
                          for item in others]
     v['signin_note_visible'] = not signed_in and not others
+    v['signout_visible'] = signed_in
+    v['signout_text'] = f'Sign out of {site}'
+    v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)
+    v['signout_help'] = ('Pause the download to sign out.' if running or batch_running else
+                         f'Comic Archiver keeps your {site} sign-in on this computer so it can download. '
+                         'Signing out removes it. Your saved episodes stay.')
     v['network_visible'] = net is not None
     v['network_checked'] = (net or {}).get('wifi_only') is False
     v['network_enabled'] = not s.busy and net is not None

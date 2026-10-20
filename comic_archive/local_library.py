@@ -37,6 +37,9 @@ class NoSignIn:
     def start(self):
         raise ArchiveError('Sign in from the desktop app.')
 
+    def sign_out(self):
+        raise ArchiveError('Sign out from the desktop app.')
+
     def close(self):
         pass
 
@@ -233,6 +236,15 @@ class LocalWorkspaceRegistry:
             if self.account_status(owner, workspace_id).get('status') == 'running' or (info['worker'] or {}).get('reported_state') == 'busy':
                 raise LibraryBusy('Pause the download before reconnecting Tapas.')
             return self.site_signin.start()
+
+    def sign_out_site(self, owner, workspace_id):
+        from .errors import LibraryBusy
+        workspace = self.resolve(owner, workspace_id)
+        with LibraryLock(workspace.session / '.account-ui'):
+            info = self.status(owner, workspace_id)
+            if self.account_status(owner, workspace_id).get('status') == 'running' or (info['worker'] or {}).get('reported_state') == 'busy':
+                raise LibraryBusy('Pause the download before signing out.')
+            return self.site_signin.sign_out()
 
     def account_status(self, owner, workspace_id):
         from .account_ui import status

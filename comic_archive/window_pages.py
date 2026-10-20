@@ -12,6 +12,8 @@ from .dashboard_model import SPEED_NAMES, SPEEDS, State
 
 ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2')
 TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'))
+SIGN_OUT = ('Sign out of {site}?\n\nComic Archiver forgets your {site} sign-in on this computer. Your saved episodes '
+            'stay where they are.\n\nTo download again, sign in again.')
 FOOTER = 'Only episodes your account can already read, free or bought, are saved. Nothing is bought for you.'
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
 B2_PAGES = {
@@ -526,6 +528,15 @@ class Settings:
         row.addWidget(self.network)
         row.addWidget(self.network_help)
         box.addWidget(self.network_row)
+        self.signout = kit.button('Sign out', pages.sign_out, 'secondary')
+        self.signout_help = kit.label('', 'muted')
+        self.signout_row = kit.w.QWidget()
+        row = kit.w.QVBoxLayout(self.signout_row)
+        row.setContentsMargins(0, 8, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(self.signout_help)
+        row.addWidget(kit.row(self.signout))
+        box.addWidget(self.signout_row)
         return card
 
     def _storage(self, kit, pages):
@@ -789,6 +800,10 @@ class Settings:
             self.network.blockSignals(blocked)
         self.network.setEnabled(v['network_enabled'])
         self.network_help.setText(v['network_help'])
+        self.signout_row.setVisible(v['signout_visible'])
+        self.signout.setText(v['signout_text'])
+        self.signout.setEnabled(v['signout_enabled'])
+        self.signout_help.setText(v['signout_help'])
         # Storage.
         choice = storage_model.storage_choice(s)
         self.choice.setVisible(choice['visible'])
@@ -1224,6 +1239,18 @@ class Pages:
 
     def signin(self):
         self.account_act(self.actions.signin, lambda value: self.state.received_site_auth(value, self.now()))
+
+    def sign_out(self):
+        s = self.state
+        if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):
+            return
+
+        def signed_out(value):
+            # Said at once; the next refresh reads the same from the library.
+            s.status = dict(s.status or {}, session_configured=False)
+            s.received_site_auth({'status': 'idle'}, self.now())
+            self.poll_soon()
+        self.account_act(self.actions.sign_out, signed_out)
 
     def go(self):
         def started(value):

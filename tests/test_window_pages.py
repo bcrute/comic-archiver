@@ -114,6 +114,11 @@ class FakeActions:
         self.reading['site_auth'] = {'status': 'running'}
         return {'status': 'running'}
 
+    def sign_out(self):
+        self.record('sign_out')
+        self.reading['status']['session_configured'] = False
+        return {'status': 'signed_out'}
+
     def speed(self, value):
         self.record('speed', value)
         return self.account(speed=value)
@@ -179,7 +184,7 @@ class Shell:
     window's own steps."""
 
     def __init__(self):
-        self.calls, self.held, self.is_dark = [], None, False
+        self.calls, self.held, self.is_dark, self.answer = [], None, False, True
 
     def run(self, work, done):
         if self.held is not None:
@@ -219,6 +224,10 @@ class Shell:
 
     def choose_location(self):
         self.calls.append(('choose_location',))
+
+    def ask(self, text):
+        self.calls.append(('ask', text))
+        return self.answer
 
 
 class PagesCase(unittest.TestCase):
@@ -523,6 +532,52 @@ class DownloadSettingsTests(PagesCase):
         self.pages.reopened()
         self.assertEqual(list(s.speed_rows), [])
         self.assertEqual(s.speed_label.text(), 'Speed')
+
+    def test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again(self):
+        self.open('settings/downloads')
+        s = self.settings
+        self.assertTrue(s.signout_row.isVisible() and s.signout.isEnabled())
+        self.assertEqual(s.signout.text(), 'Sign out of Tapas')
+        self.assertIn('Signing out removes it. Your saved episodes stay.', s.signout_help.text())
+        question = ('ask', window_pages.SIGN_OUT.format(site='Tapas'))
+        self.assertIn('forgets your Tapas sign-in on this computer', question[1])
+        self.shell.answer = False
+        s.signout.click()
+        self.assertEqual((self.shell.calls, self.actions.named('sign_out')), ([question], []))
+        self.shell.answer = True
+        s.signout.click()
+        self.assertEqual(self.shell.calls, [question, question])
+        self.assertEqual(len(self.actions.named('sign_out')), 1)
+        # Said at once, before the library is read again.
+        self.assertFalse(self.pages.state.status['session_configured'])
+        self.assertEqual(self.pages.state.site_auth, {'status': 'idle'})
+        self.assertFalse(s.signout_row.isVisible())
+        polls = len(self.actions.named('poll'))
+        settle()
+        self.assertGreater(len(self.actions.named('poll')), polls)
+        self.assertFalse(s.signout_row.isVisible())
+        self.pages.go_to('dashboard')
+        self.assertTrue(self.dashboard.signin.isVisible() and self.dashboard.signin.isEnabled())
+
+    def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
+        self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}
+        self.open('settings/downloads')
+        s = self.settings
+        self.assertFalse(s.signout.isEnabled())
+        self.assertEqual(s.signout_help.text(), 'Pause the download to sign out.')
+        self.actions.reading['account']['status'] = 'stopped'
+        self.actions.refused['sign_out'] = 'Pause the download first.'
+        self.open('settings/downloads')
+        s.signout.click()
+        self.assertEqual(len(self.actions.named('sign_out')), 1)
+        self.assertTrue(self.pages.state.status['session_configured'])
+        self.assertTrue(s.signout_row.isVisible())
+        self.assertIn('Pause the download first.', s.status.text())
+        # While another change runs, nothing is asked.
+        self.pages.state.busy = True
+        self.shell.calls.clear()
+        self.pages.sign_out()
+        self.assertEqual(self.shell.calls, [])
 
     def test_another_site_with_no_speed_saved_shows_the_first_one(self):
         self.actions.site_settings[1]['speed'] = None

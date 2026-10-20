@@ -561,6 +561,11 @@ class Shell:
         """The save folder, in the computer's own file manager; no path comes from the pages."""
         self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(self.runtime.folder)))
 
+    def ask(self, text):
+        """A question about something the person chose to do: No unless they choose Yes."""
+        box, buttons = self.q.QtWidgets.QMessageBox, self.q.QtWidgets.QMessageBox.StandardButton
+        return box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes
+
     # Signing in to Tapas, in this window.
 
     def build_signin(self):

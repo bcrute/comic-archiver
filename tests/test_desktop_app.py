@@ -279,6 +279,13 @@ class DesktopAppTests(unittest.TestCase):
         shell.close_requested(Mock())
         back.stop.assert_called_once_with()
 
+    def test_a_question_is_asked_over_the_window_and_only_yes_agrees(self):
+        shell = self.opened()
+        for answer, agreed in ((1, True), (2, False), (None, False)):
+            self.box.question.return_value = answer
+            self.assertIs(shell.ask('Sign out of Tapas?'), agreed)
+            self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', 'Sign out of Tapas?', 3, 2))
+
     def test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
         hidden = replace(sites.DEFAULT, key='hidden', name='Hidden', available=False)

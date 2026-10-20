@@ -108,6 +108,9 @@ class Actions:
     def signin(self):
         return self._call('start_site_signin')
 
+    def sign_out(self):
+        return self._call('sign_out_site')
+
     def speed(self, value):
         return self._call('choose_speed', value)
 

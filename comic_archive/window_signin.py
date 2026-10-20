@@ -10,10 +10,10 @@ import time
 from . import background, sites, tapas_auth
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .app_runtime import LOG, describe
-from .errors import AuthenticationError
+from .errors import AuthenticationError, LibraryBusy
 from .models import ArchiveError
 from .network import NetworkGuard, NetworkPolicyHold
-from .session import cookie_expiry_seconds, store_session
+from .session import cookie_expiry_seconds, forget_session, store_session
 
 SIGNIN_SECONDS = 900
 CODES = {'network_held', 'account_mismatch', 'signin_failed', 'signin_incomplete'}
@@ -101,6 +101,21 @@ class WindowSignIn:
                 self._pending = True
                 self._deadline = time.monotonic() + SIGNIN_SECONDS
             return dict(self._state)
+
+    def sign_out(self):
+        """Blocking: stop the downloader, then forget the saved sign-in. Refused while a sign-in is open or saving."""
+        with self._lock:
+            if self._waiting() or self._finishing:
+                raise LibraryBusy('Finish signing in before signing out.')
+        # The runtime's start-up launch and a finishing sign-in hold the same lock: neither starts in between.
+        with self._launch:
+            if background.stop(self.workspace.session, wait_seconds=35).get('running') is not False:
+                raise ArchiveError('The downloader is still stopping.')
+            forget_session(self.workspace.session)
+        with self._lock:
+            self._state = {'status': 'idle'}
+        LOG.info('signed out')
+        return {'status': 'signed_out'}
 
     def take(self):
         """True once for each new request: the window should now show the sign-in page."""

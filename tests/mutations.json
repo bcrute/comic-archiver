@@ -3566,5 +3566,189 @@
   "new": "{flat(text)}",
   "test_file": "test_window_pages.py",
   "test": "test_rich_text_has_its_lines_spaced_for_reading"
+ },
+ {
+  "id": "signout-ignores-open-signin",
+  "source": "comic_archive/window_signin.py",
+  "old": "if self._waiting() or self._finishing:\n                raise LibraryBusy('Finish",
+  "new": "if self._finishing:\n                raise LibraryBusy('Finish",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop"
+ },
+ {
+  "id": "signout-downloader-still-running",
+  "source": "comic_archive/window_signin.py",
+  "old": ".get('running') is not False:\n                raise ArchiveError('The downloader is still stopping.')",
+  "new": ".get('running') is None:\n                raise ArchiveError('The downloader is still stopping.')",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop"
+ },
+ {
+  "id": "signout-outside-launch-lock",
+  "source": "comic_archive/window_signin.py",
+  "old": "        with self._launch:\n            if background.stop(self.workspace.session",
+  "new": "        with threading.Lock():\n            if background.stop(self.workspace.session",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
+ },
+ {
+  "id": "signout-keeps-sign-in",
+  "source": "comic_archive/window_signin.py",
+  "old": "            forget_session(self.workspace.session)\n",
+  "new": "",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
+ },
+ {
+  "id": "signout-keeps-connected",
+  "source": "comic_archive/window_signin.py",
+  "old": "            self._state = {'status': 'idle'}\n        LOG.info('signed out')",
+  "new": "            pass\n        LOG.info('signed out')",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
+ },
+ {
+  "id": "forget-keeps-half-written",
+  "source": "comic_archive/session.py",
+  "old": "for name in (\"state.json\", \"state.tmp\"):",
+  "new": "for name in (\"state.json\",):",
+  "test_file": "test_session.py",
+  "test": "test_the_saved_sign_in_goes_and_a_link_goes_without_what_it_points_to"
+ },
+ {
+  "id": "forget-unsynced",
+  "source": "comic_archive/session.py",
+  "old": "  # A link goes, never what it points to.\n    sync_directory(directory)",
+  "new": "  # A link goes, never what it points to.\n    pass",
+  "test_file": "test_session.py",
+  "test": "test_the_saved_sign_in_goes_and_a_link_goes_without_what_it_points_to"
+ },
+ {
+  "id": "signout-while-account-running",
+  "source": "comic_archive/local_library.py",
+  "old": "if self.account_status(owner, workspace_id).get('status') == 'running' or (info['worker'] or {}).get('reported_state') == 'busy':\n                raise LibraryBusy('Pause the download before signing out.')",
+  "new": "if (info['worker'] or {}).get('reported_state') == 'busy':\n                raise LibraryBusy('Pause the download before signing out.')",
+  "test_file": "test_local_library.py",
+  "test": "test_signing_out_is_refused_while_downloading_and_otherwise_asks_the_sign_in_to_forget_itself"
+ },
+ {
+  "id": "signout-while-worker-busy",
+  "source": "comic_archive/local_library.py",
+  "old": "or (info['worker'] or {}).get('reported_state') == 'busy':\n                raise LibraryBusy('Pause the download before signing out.')",
+  "new": ":\n                raise LibraryBusy('Pause the download before signing out.')",
+  "test_file": "test_local_library.py",
+  "test": "test_signing_out_is_refused_while_downloading_and_otherwise_asks_the_sign_in_to_forget_itself"
+ },
+ {
+  "id": "signout-offered-signed-out",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "v['signout_visible'] = signed_in",
+  "new": "v['signout_visible'] = True",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
+ },
+ {
+  "id": "signout-during-batch",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)",
+  "new": "v['signout_enabled'] = not (s.busy or running or signing_in)",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
+ },
+ {
+  "id": "signout-during-signin",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)",
+  "new": "v['signout_enabled'] = not (s.busy or running or batch_running)",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
+ },
+ {
+  "id": "signout-while-busy",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)",
+  "new": "v['signout_enabled'] = not (running or batch_running or signing_in)",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
+ },
+ {
+  "id": "signout-help-ignores-batch",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "('Pause the download to sign out.' if running or batch_running else",
+  "new": "('Pause the download to sign out.' if running else",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
+ },
+ {
+  "id": "signout-without-asking",
+  "source": "comic_archive/window_pages.py",
+  "old": "if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):",
+  "new": "if s.busy:",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
+ },
+ {
+  "id": "signout-asks-while-busy",
+  "source": "comic_archive/window_pages.py",
+  "old": "if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):",
+  "new": "if not self.shell.ask(SIGN_OUT.format(site=s.site())):",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_waits_for_a_download_and_a_refusal_is_said"
+ },
+ {
+  "id": "signout-shown-late",
+  "source": "comic_archive/window_pages.py",
+  "old": "            s.status = dict(s.status or {}, session_configured=False)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
+ },
+ {
+  "id": "signout-not-reread",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self.poll_soon()\n        self.account_act(self.actions.sign_out, signed_out)",
+  "new": "        self.account_act(self.actions.sign_out, signed_out)",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
+ },
+ {
+  "id": "signout-row-always-shown",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.signout_row.setVisible(v['signout_visible'])",
+  "new": "self.signout_row.setVisible(True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
+ },
+ {
+  "id": "signout-always-enabled",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.signout.setEnabled(v['signout_enabled'])",
+  "new": "self.signout.setEnabled(True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_sign_out_waits_for_a_download_and_a_refusal_is_said"
+ },
+ {
+  "id": "question-defaults-to-yes",
+  "source": "comic_archive/desktop_app.py",
+  "old": "buttons.Yes | buttons.No, buttons.No) == buttons.Yes\n\n    # Signing in",
+  "new": "buttons.Yes | buttons.No, buttons.Yes) == buttons.Yes\n\n    # Signing in",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_question_is_asked_over_the_window_and_only_yes_agrees"
+ },
+ {
+  "id": "question-anything-but-no-agrees",
+  "source": "comic_archive/desktop_app.py",
+  "old": "buttons.Yes | buttons.No, buttons.No) == buttons.Yes\n\n    # Signing in",
+  "new": "buttons.Yes | buttons.No, buttons.No) != buttons.No\n\n    # Signing in",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_question_is_asked_over_the_window_and_only_yes_agrees"
+ },
+ {
+  "id": "sign-out-reaches-another-call",
+  "source": "comic_archive/app_actions.py",
+  "old": "return self._call('sign_out_site')",
+  "new": "return self._call('start_site_signin')",
+  "test_file": "test_app_actions.py",
+  "test": "test_each_call_goes_to_the_open_library_as_its_local_owner"
  }
 ]

@@ -223,6 +223,21 @@ class ButtonTests(unittest.TestCase):
         signed_out = view(status={'worker': {'reported_state': 'ready'}})
         self.assertTrue(signed_out['signin_note_visible'] and not signed_out['speed_visible'])
 
+    def test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in(self):
+        idle = view()
+        self.assertTrue(idle['signout_visible'] and idle['signout_enabled'])
+        self.assertEqual(idle['signout_text'], 'Sign out of Tapas')
+        self.assertEqual(idle['signout_help'], 'Comic Archiver keeps your Tapas sign-in on this computer so it can download. '
+                                               'Signing out removes it. Your saved episodes stay.')
+        for waiting in (view(account=account()),
+                        view(status={'session_configured': True, 'worker': {'reported_state': 'busy'}})):
+            self.assertFalse(waiting['signout_enabled'])
+            self.assertEqual(waiting['signout_help'], 'Pause the download to sign out.')
+        signing_in = view(site_auth={'status': 'running'})
+        self.assertFalse(signing_in['signout_enabled']); self.assertIn('Signing out removes it.', signing_in['signout_help'])
+        self.assertFalse(view(busy=True)['signout_enabled'])
+        self.assertFalse(view(status={'worker': {'reported_state': 'ready'}})['signout_visible'])
+
     def test_the_connection_choice_says_what_saving_does_on_each_kind_of_connection(self):
         self.assertFalse(view(network=None)['network_visible'] or view(network=None)['network_enabled'])
         anything = view(network={'wifi_only': False, 'allowed': True})
