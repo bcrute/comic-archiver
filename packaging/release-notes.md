@@ -52,11 +52,12 @@ later starts are quick.
 `C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
 Comics are saved as CBZ files and novels as EPUB files, which open in comic and e-book reader apps.
 
-Uninstalling removes only the app: your saved episodes and your sign-in are kept. Sign out first if you'd like
-the sign-in gone too.
+Uninstalling signs Comic Archiver out of every site and removes your Backblaze key from this computer; your saved
+episodes are kept.
 
 **Linux.** Unpack the file, open the folder and double-click `comic-archiver` (choose "Run" if asked). After the
-first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above.
+first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above. To
+uninstall, right-click Comic Archiver in the applications menu, choose **Uninstall**, then delete the folder.
 
 `SHA256SUMS.txt` lists each file's SHA-256, to check a download against. These files were built and self-tested
 from the tagged source. `release-evidence.json` records the validation results and download

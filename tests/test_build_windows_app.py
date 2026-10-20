@@ -130,6 +130,21 @@ class PackagingTests(WorkspaceCase):
         self.assertIn(f'#define AppModelId "{desktop_app.WINDOWS_APP_ID}"', installer)
         self.assertEqual(installer.count('AppUserModelID: "{#AppModelId}"'), 2)
 
+    def test_uninstalling_has_the_app_forget_every_sign_in_before_any_file_goes_and_never_while_it_is_open(self):
+        installer = (PACKAGING / 'comic-archiver.iss').read_text('utf-8').replace('\r\n', '\n')
+        self.assertIn('\n#define UninstallParameters StartParameters + " --uninstall --quiet"\n', installer)
+        options = desktop_app.arguments(['--uninstall', '--quiet'])
+        self.assertTrue(options.uninstall and options.quiet)
+        code = installer.split('\n[Code]\n', 1)[1]
+        self.assertIn('function InitializeUninstall(): Boolean;', code)
+        self.assertIn("Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters}', ExpandConstant('{app}'), SW_HIDE,", code)
+        self.assertIn('ewWaitUntilTerminated, Code)', code)
+        self.assertIn(f'Result := Code = {desktop_app.UNINSTALLED};', code)
+        self.assertIn(f'if Code = {desktop_app.UNINSTALL_BLOCKED} then', code)
+        self.assertIn(f"SuppressibleMsgBox('{desktop_app.UNINSTALL_OPEN}', mbError, MB_OK, IDOK)", code)
+        # Silently, as when a newer version's installer removes this one, a failure stops the uninstall.
+        self.assertIn('MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;', code)
+
     def test_the_icon_holds_every_size_windows_asks_for(self):
         data = (PACKAGING / 'comic-archiver.ico').read_bytes()
         self.assertEqual(data[:4], b'\0\0\1\0')

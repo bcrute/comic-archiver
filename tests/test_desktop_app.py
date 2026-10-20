@@ -129,7 +129,7 @@ def fake_qt():
         'QtWidgets': module('QtWidgets', QApplication=kind('QApplication', instance=Mock(return_value=None), exec=Mock(return_value=0)),
             QMainWindow=kind('QMainWindow'), QLabel=kind('QLabel'), QStackedWidget=kind('QStackedWidget'),
             QWidget=kind('QWidget'), QPushButton=kind('QPushButton'), QHBoxLayout=kind('QHBoxLayout'), QVBoxLayout=kind('QVBoxLayout'),
-            QMessageBox=kind('QMessageBox', critical=Mock(), information=Mock(), question=Mock(),
+            QMessageBox=kind('QMessageBox', critical=Mock(), information=Mock(), question=Mock(), warning=Mock(),
                              StandardButton=SimpleNamespace(Yes=1, No=2)),
             QFileDialog=kind('QFileDialog', getExistingDirectory=Mock(return_value=''))),
         'QtWebEngineCore': module('QtWebEngineCore', QWebEngineProfile=kind('QWebEngineProfile', httpUserAgent=Mock(return_value=QT_AGENT)), QWebEnginePage=kind('QWebEnginePage',
@@ -1778,6 +1778,83 @@ class DesktopAppTests(unittest.TestCase):
             check.assert_called_once(); run.assert_not_called()
             self.assertEqual(desktop_app.main(['--project-root', '/library']), 7)
             self.assertEqual(run.call_args.args[1], '/library')
+        with patch('comic_archive.desktop_app.uninstall', return_value=3) as uninstall:
+            self.assertEqual(desktop_app.main(['--uninstall', '--quiet']), 3)
+            self.assertEqual(desktop_app.main(['--uninstall']), 3)
+        self.assertEqual([call.args[1] for call in uninstall.call_args_list], [True, False]); run.assert_called_once()
+
+    # Uninstalling.
+
+    def removal(self, forgotten=True, removed=True, folder=None):
+        """The uninstall step's own work, recorded in the order it happens alongside the lock's."""
+        order = Mock()
+        self.lock.unlock = order.unlock
+        for name, value in (('forget_all', forgotten), ('remove_app_folders', removed), ('app_folder', folder)):
+            wrapper = patch('comic_archive.uninstall.' + name, getattr(order, name))
+            getattr(order, name).return_value = value
+            wrapper.start(); self.addCleanup(wrapper.stop)
+        wrapper = patch('comic_archive.uninstall.remove_menu_entry', order.remove_menu_entry)
+        wrapper.start(); self.addCleanup(wrapper.stop)
+        return order
+
+    def test_uninstalling_asks_first_then_forgets_everything_and_says_where_the_saved_episodes_are(self):
+        order = self.removal(folder=self.home / 'App')
+        self.box.question.return_value = 2
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_INCOMPLETE)
+        self.assertEqual(self.box.question.call_args.args[:3], (None, 'Comic Archiver', desktop_app.UNINSTALL_ASK))
+        self.assertEqual((self.lock.made, order.mock_calls), ([], []))
+        self.box.question.return_value = 1
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALLED)
+        self.assertEqual([name for name, *_ in order.mock_calls],
+                         ['forget_all', 'unlock', 'remove_app_folders', 'app_folder', 'remove_menu_entry'])
+        order.remove_menu_entry.assert_called_once_with(self.home / 'App')
+        lock, = self.lock.made
+        self.assertEqual(lock.args, (str(self.state / 'desktop.lock'),)); lock.setStaleLockTime.assert_called_once_with(0)
+        self.box.information.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_DONE.format(
+            library=self.home / 'Comic Archiver') + desktop_app.UNINSTALL_FOLDER.format(folder=self.home / 'App'))
+        self.assertIn(f'{self.home / "Comic Archiver"}\n\nTo finish, delete this folder:\n{self.home / "App"}',
+                      self.box.information.call_args.args[2])
+        self.box.warning.assert_not_called()
+
+    def test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status(self):
+        order = self.removal()
+        with patch('comic_archive.desktop_app.app_runtime.saved_root', return_value=self.home / 'Elsewhere'):
+            self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALLED)
+        order.remove_menu_entry.assert_not_called()
+        self.assertEqual(self.widgets.QApplication.made, [])
+        for shown in (self.box.question, self.box.information, self.box.warning):
+            shown.assert_not_called()
+        order.forget_all.return_value = False
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_INCOMPLETE)
+        order.forget_all.return_value, order.remove_app_folders.return_value = True, False
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_INCOMPLETE)
+        self.box.question.return_value = 1
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_INCOMPLETE)
+        self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_FAILED)
+        self.box.information.assert_not_called()
+        self.assertEqual(order.remove_app_folders.call_count, 3)  # The app's folders go even when a sign-in stayed.
+        self.assertEqual((desktop_app.UNINSTALLED, desktop_app.UNINSTALL_INCOMPLETE, desktop_app.UNINSTALL_BLOCKED), (0, 1, 3))
+
+    def test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used(self):
+        order = self.removal()
+        self.held_lock(answered=True, stale=False)
+        self.lock.tryLock = Mock(return_value=False)
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_BLOCKED)
+        self.box.question.return_value = 1
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_BLOCKED)
+        self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_OPEN)
+        self.box.warning.reset_mock()
+        self.lock.removeStaleLockFile = Mock(return_value=True)
+        self.lock.tryLock = Mock(side_effect=[False, True])  # Left by a crash: the window is not open.
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALLED)
+        order.forget_all.assert_called_once_with(); order.forget_all.reset_mock()
+        self.lock.tryLock = Mock(return_value=False); self.lock.error = Mock(return_value=self.lock.LockError.PermissionError)
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_INCOMPLETE)
+        self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_FAILED)
+        self.lock.removeStaleLockFile.assert_called_once_with()
+        self.state_dir.side_effect = ArchiveError('Comic Archiver cannot create its settings folder in your home folder.')
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_INCOMPLETE)
+        order.forget_all.assert_not_called(); order.remove_app_folders.assert_called_once_with()
 
 
 class WindowsIdentityTests(unittest.TestCase):

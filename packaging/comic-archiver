@@ -17,6 +17,7 @@ register_entry() {
     tmp="$entry.$$"
     while IFS= read -r line; do
         case $line in
+            Exec=*--uninstall) printf 'Exec="%s/comic-archiver" --uninstall\n' "$here";;
             Exec=*) printf 'Exec="%s/comic-archiver"\n' "$here";;
             Icon=*) printf 'Icon=%s\n' "$icon";;
             *) printf '%s\n' "$line";;
@@ -58,7 +59,7 @@ $text"
 
 register=1
 for arg in "$@"; do
-    case $arg in --self-test|--version) register=0;; esac
+    case $arg in --self-test|--version|--uninstall) register=0;; esac
 done
 if [ "$register" = 1 ]; then register_entry; fi
 

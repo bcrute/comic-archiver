@@ -119,6 +119,28 @@ def remember_root(root):
         LOG.warning('the library folder choice could not be saved; it lasts until the app closes')
 
 
+def opened_libraries():
+    """The library folders the app has opened, oldest first, as noted by remember_library."""
+    try:
+        text = (state_dir() / 'libraries').read_text(encoding='utf-8')
+    except (ArchiveError, OSError, ValueError):
+        return []
+    return [Path(line) for line in text.splitlines() if line and '\0' not in line and Path(line).is_absolute()]
+
+
+def remember_library(root):
+    """Note a library folder the app opened, so uninstalling finds every sign-in kept in one."""
+    known = opened_libraries()
+    if root in known:
+        return
+    try:
+        folder = state_dir()
+        (folder / 'libraries.new').write_text(''.join(f'{path}\n' for path in [*known, root]), encoding='utf-8')
+        osdep.replace_file(folder / 'libraries.new', folder / 'libraries')
+    except (ArchiveError, OSError, ValueError):
+        LOG.warning('the library folder could not be noted for uninstalling')
+
+
 def share(place, folder):
     """Every site's library uses the library folder's cloud storage and connection rule. If linking fails,
     the library keeps its own for now and linking is tried again the next time it is opened."""
@@ -286,6 +308,7 @@ class Runtime:
             LOG.error('library cannot be opened: %s', describe(error))
             raise ArchiveError(UNWRITABLE) from None
         self.root = root
+        remember_library(root)
         self._serve(registry, session, state)
         LOG.info('the library is open')
 
