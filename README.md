@@ -60,9 +60,10 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every release is checked on Core/Heavy before publication. More than 1,500 automated tests run, and the window's pages are
-drawn by Qt off-screen and clicked through. A mutation check then puts more than 300 deliberate faults into the code, one
-at a time, and the tests must catch every one. The Windows package and its installer are tested on Windows 11.
+Every release is checked on the project's own build machines before publication. More than 1,500 automated tests
+run, and the window's pages are drawn by Qt off-screen and clicked through. A mutation check then puts more than 300
+deliberate faults into the code, one at a time, and the tests must catch every one. The Windows package and its
+installer are tested on Windows 11.
 
 ## Run it from this folder
 
@@ -113,8 +114,8 @@ Many of them make symlinks, which an ordinary Windows account may do only with D
 ## Check a change
 
 Run these commands through the shared CI fleet helper, using its private host configuration. All automated
-suites and builds run on Core/Heavy, including the Windows VM; unavailable capacity leaves checks pending.
-Install the test and desktop extras and uv in that remote environment first.
+suites and builds run on the project's build machines, including a Windows VM; unavailable capacity leaves checks
+pending. Install the test and desktop extras and uv in that remote environment first.
 
 ```sh
 python3 scripts/validate.py --prepare      # tests, coverage floors, Firefox checks, a fresh install
