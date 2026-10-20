@@ -538,9 +538,9 @@ class DownloadSettingsTests(PagesCase):
         s = self.settings
         self.assertTrue(s.signout_row.isVisible() and s.signout.isEnabled())
         self.assertEqual(s.signout.text(), 'Sign out of Tapas')
-        self.assertIn('Signing out removes it. Your saved episodes stay.', s.signout_help.text())
+        self.assertIn('Signing out removes it from Comic Archiver only.', s.signout_help.text())
         question = ('ask', window_pages.SIGN_OUT.format(site='Tapas'))
-        self.assertIn('forgets your Tapas sign-in on this computer', question[1])
+        self.assertIn('This signs out only Comic Archiver, on this computer.', question[1])
         self.shell.answer = False
         s.signout.click()
         self.assertEqual((self.shell.calls, self.actions.named('sign_out')), ([question], []))

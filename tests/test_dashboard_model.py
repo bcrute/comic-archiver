@@ -228,13 +228,16 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(idle['signout_visible'] and idle['signout_enabled'])
         self.assertEqual(idle['signout_text'], 'Sign out of Tapas')
         self.assertEqual(idle['signout_help'], 'Comic Archiver keeps your Tapas sign-in on this computer so it can download. '
-                                               'Signing out removes it. Your saved episodes stay.')
+                                               'Signing out removes it from Comic Archiver only. Your Tapas account, '
+                                               'and anywhere else you use it, aren\'t affected. Your saved episodes '
+                                               'stay.')
         for waiting in (view(account=account()),
                         view(status={'session_configured': True, 'worker': {'reported_state': 'busy'}})):
             self.assertFalse(waiting['signout_enabled'])
             self.assertEqual(waiting['signout_help'], 'Pause the download to sign out.')
         signing_in = view(site_auth={'status': 'running'})
-        self.assertFalse(signing_in['signout_enabled']); self.assertIn('Signing out removes it.', signing_in['signout_help'])
+        self.assertFalse(signing_in['signout_enabled'])
+        self.assertIn('Signing out removes it from Comic Archiver only.', signing_in['signout_help'])
         self.assertFalse(view(busy=True)['signout_enabled'])
         self.assertFalse(view(status={'worker': {'reported_state': 'ready'}})['signout_visible'])
 
