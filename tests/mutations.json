@@ -2394,8 +2394,8 @@
  {
   "id": "tappytoon-signin-unrecognised",
   "source": "comic_archive/desktop_app.py",
-  "old": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}",
-  "new": "IDENTITIES = {'tapas': identity}",
+  "old": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account, 'webtoon': webtoon_account}",
+  "new": "IDENTITIES = {'tapas': identity, 'webtoon': webtoon_account}",
   "test_file": "test_sites.py",
   "test": "test_a_tappytoon_page_names_its_account_as_the_downloader_reads_it"
  },
@@ -3750,5 +3750,149 @@
   "new": "return self._call('start_site_signin')",
   "test_file": "test_app_actions.py",
   "test": "test_each_call_goes_to_the_open_library_as_its_local_owner"
+ },
+ {
+  "id": "webtoon-signin-unrecognised",
+  "source": "comic_archive/desktop_app.py",
+  "old": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account, 'webtoon': webtoon_account}",
+  "new": "IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}",
+  "test_file": "test_sites.py",
+  "test": "test_the_window_asks_only_the_sites_own_page_and_never_takes_a_site_it_cannot_ask_as_signed_in"
+ },
+ {
+  "id": "webtoon-asks-tapas-question",
+  "source": "comic_archive/desktop_app.py",
+  "old": "WEBTOON_ASK = SIGNIN_ASK.replace(\"fetch('/who-am-i'\", f\"fetch('{USER_INFO}'\")",
+  "new": "WEBTOON_ASK = SIGNIN_ASK",
+  "test_file": "test_sites.py",
+  "test": "test_the_window_asks_only_the_sites_own_page_and_never_takes_a_site_it_cannot_ask_as_signed_in"
+ },
+ {
+  "id": "webtoon-visitor-signed-in",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "return key if signed is True and isinstance(key, str)",
+  "new": "return key if isinstance(key, str)",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
+ },
+ {
+  "id": "webtoon-account-any-text",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "and len(key) <= 200 and key == key.strip() else None",
+  "new": "and len(key) <= 200 else None",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
+ },
+ {
+  "id": "webtoon-account-any-length",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "and key and len(key) <= 200 and",
+  "new": "and key and",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
+ },
+ {
+  "id": "webtoon-account-may-change",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "if named is None or self._account is not None and named != self._account:",
+  "new": "if named is None:",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
+ },
+ {
+  "id": "webtoon-account-not-json-unexplained",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "        except ValueError:\n            raise MetadataError('Webtoon gave an unexpected answer about who is signed in.') from None",
+  "new": "        except KeyError:\n            raise MetadataError('Webtoon gave an unexpected answer about who is signed in.') from None",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
+ },
+ {
+  "id": "webtoon-subscriptions-unchecked-account",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "        self.account_identity()\n        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))",
+  "new": "        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
+ },
+ {
+  "id": "webtoon-subscriptions-any-list",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "if category not in SITE.lists:\n            raise ArchiveError('Webtoon has no such list.')",
+  "new": "if False:\n            raise ArchiveError('Webtoon has no such list.')",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "webtoon-subscriptions-without-list",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "if page.subscriptions is None:",
+  "new": "if False:",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
+ },
+ {
+  "id": "webtoon-subscriptions-links-outside",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "elif tag == 'a' and 'link' in classes and self._within('my_list'):",
+  "new": "elif tag == 'a' and 'link' in classes and self.subscriptions is not None:",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "webtoon-subscriptions-titles-outside",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "elif tag == 'p' and 'subj' in classes and self.subscriptions and self._within('my_list'):",
+  "new": "elif tag == 'p' and 'subj' in classes and self.subscriptions:",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "webtoon-subscriptions-other-host",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "if (parts.scheme, parts.netloc) != ('https', SITE.host) or match is None or not title:",
+  "new": "if match is None or not title:",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
+ },
+ {
+  "id": "webtoon-subscriptions-untitled",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "if (parts.scheme, parts.netloc) != ('https', SITE.host) or match is None or not title:",
+  "new": "if (parts.scheme, parts.netloc) != ('https', SITE.host) or match is None:",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
+ },
+ {
+  "id": "webtoon-subscriptions-episode-taken",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "            if episode_no is not None:\n                raise MetadataError('Webtoon gave a subscriptions list of an unexpected shape.')",
+  "new": "            if False:\n                raise MetadataError('Webtoon gave a subscriptions list of an unexpected shape.')",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
+ },
+ {
+  "id": "webtoon-subscriptions-canvas-as-original",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "key = series_key(title_no, match[1] == 'canvas')",
+  "new": "key = series_key(title_no, False)",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "webtoon-subscriptions-last-repeat-wins",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "found.setdefault(key, {'source_series_id': key, 'title': title})",
+  "new": "found[key] = {'source_series_id': key, 'title': title}",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "webtoon-subscriptions-title-unspaced",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "parts, title = urlsplit(link), ' '.join(' '.join(text).split())",
+  "new": "parts, title = urlsplit(link), ''.join(text).strip()",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
  }
 ]

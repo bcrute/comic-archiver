@@ -1,6 +1,6 @@
 """The sites Comic Archiver saves from, and everything about each one that the code outside its reader needs.
 
-Tapas and Tappytoon work today; Webtoon is named so people know it is coming.
+Tapas, Webtoon and Tappytoon all work today. A site that is named but not yet working is shown as coming later.
 """
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -56,7 +56,7 @@ class Site:
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',
          ('subscribed', 'updated', 'recent', 'free_episodes')),
-    Site('webtoon', 'Webtoon', False, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
+    Site('webtoon', 'Webtoon', True, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
          ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed',)),
     Site('tappytoon', 'Tappytoon', True, 'https://www.tappytoon.com', ('tappytoon.com', 'www.tappytoon.com'),
          ('www.tappytoon.com', 'api-global.tappytoon.com', 'content-repository-cdn.tappytoon.com'), ('tappytoon.com',),

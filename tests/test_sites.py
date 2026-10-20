@@ -68,10 +68,16 @@ class SiteProfileTests(unittest.TestCase):
         self.assertTrue(desktop_app.on_site('https', 'www.webtoons.com', WEBTOON))
         for scheme, host in (('https', 'account.webtoon.com'), ('https', 'tapas.io'), ('http', 'www.webtoons.com')):
             self.assertFalse(desktop_app.on_site(scheme, host, WEBTOON))
-        # A Tapas-shaped answer from the Webtoon page proves nothing: how Webtoon names its account is not known yet.
+        # A Tapas-shaped answer from the Webtoon page proves nothing: Webtoon names its account its own way.
         answer = json.dumps({'origin': 'https://www.webtoons.com', 'answer': '{"data":{"user":{"id":11}}}', 'storage': []})
         self.assertTrue(desktop_app.page_spoke(answer, WEBTOON))
         self.assertIsNone(desktop_app.signed_in(answer, WEBTOON))
+        named = json.dumps({'origin': 'https://www.webtoons.com', 'answer': '{"loginUser":true,"loginId":"reader"}', 'storage': []})
+        self.assertEqual(desktop_app.signed_in(named, WEBTOON), ('reader', []))
+        self.assertIsNone(desktop_app.signed_in(named.replace('true', 'false'), WEBTOON))
+        # The page asks what Webtoon's own pages ask, instead of Tapas's question.
+        self.assertIn("fetch('/en/member/userInfo'", desktop_app.ASKS['webtoon'])
+        self.assertNotIn('/who-am-i', desktop_app.ASKS['webtoon'])
         self.assertIsNone(desktop_app.signed_in(answer.replace('https://www.webtoons.com', 'https://tapas.io'), WEBTOON))
         self.assertEqual(desktop_app.signed_in(answer.replace('https://www.webtoons.com', 'https://tapas.io')), ('11', []))
 

@@ -28,6 +28,7 @@ from .models import ArchiveError
 from .qt_engine import CookieRecords, common_agent, secure_qt_environment
 from .tapas_auth import identity
 from .adapters.tappytoon import account as tappytoon_account
+from .adapters.webtoon import USER_INFO, account as webtoon_account
 from .window_signin import storage_state
 
 APP_NAME = 'Comic Archiver'
@@ -103,10 +104,12 @@ TAPPYTOON_ASK = SIGNIN_ASK.replace(
       box.answer = JSON.stringify({oauth2: {user: {id: user ? user.id : null}}});
       box.busy = false;
     }""")
+# Webtoon's pages ask who is signed in as Tapas's do, at an address of their own.
+WEBTOON_ASK = SIGNIN_ASK.replace("fetch('/who-am-i'", f"fetch('{USER_INFO}'")
 # How each site's own page tells who is signed in: the question its ask puts, and how its answer names the account.
 # A site without one is never taken as signed in, so its sign-in cannot finish.
-IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account}
-ASKS = {'tapas': SIGNIN_ASK, 'tappytoon': TAPPYTOON_ASK}
+IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account, 'webtoon': webtoon_account}
+ASKS = {'tapas': SIGNIN_ASK, 'tappytoon': TAPPYTOON_ASK, 'webtoon': WEBTOON_ASK}
 SIGNIN_FORGET = "(() => { try { window.localStorage.clear(); window.sessionStorage.clear(); } catch (error) {} })()"
 STARTING = 'Starting Comic Archiver…\n\nThe first start can take up to a minute.'
 FINISHING = 'Finishing up. Everything saved so far is kept.\n\nThis window closes by itself in a moment.'

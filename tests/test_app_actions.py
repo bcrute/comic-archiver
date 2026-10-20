@@ -1,3 +1,4 @@
+import dataclasses
 import threading
 from types import SimpleNamespace
 import unittest
@@ -80,10 +81,12 @@ class ActionsTests(unittest.TestCase):
         self.assertEqual(context, {'sites': sites.choices(sites.DEFAULT), 'site_settings': self.settings.list.return_value,
                                    'library_folder': '/library folder', 'cloud_offered': False, 'workspace_id': LIBRARY})
         self.assertEqual([(site['key'], site['available'], site['current']) for site in context['sites']],
-                         [('tapas', True, True), ('webtoon', False, False), ('tappytoon', True, False)])
+                         [('tapas', True, True), ('webtoon', True, False), ('tappytoon', True, False)])
         # Only a site that works can be chosen.
-        self.assertIsNone(sites.find('webtoon')); self.assertIsNone(sites.find('nowhere'))
-        self.assertIs(sites.find('tapas'), sites.DEFAULT)
+        later = dataclasses.replace(sites.named('webtoon'), key='later', available=False)
+        with patch.object(sites, 'SITES', sites.SITES + (later,)):
+            self.assertIsNone(sites.find('later')); self.assertIsNone(sites.find('nowhere'))
+            self.assertIs(sites.find('tapas'), sites.DEFAULT); self.assertIs(sites.find('webtoon'), sites.named('webtoon'))
         self.settings.list.side_effect = OSError('PRIVATE settings')
         with self.assertLogs('comic_archive.desktop', 'WARNING') as logged:
             self.assertEqual(self.actions.context()['site_settings'], [])
