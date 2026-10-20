@@ -20,7 +20,8 @@ goes into a folder called `Comic Archiver` in your user folder, one folder per s
   browser. The app never reads it and never saves it.
 - **What the app keeps, and where.** Once you're signed in, the site hands back a sign-in cookie, the same thing
   that keeps you logged in in a web browser. The app keeps it on your computer so it can download your episodes,
-  and only ever sends it back to that same site.
+  and only ever sends it back to that same site. Signing out in **Settings → Downloads** removes it from your
+  computer.
 - **Who the app talks to.** The comic site you picked, and the servers it keeps its images on. That's it. If you
   choose to back up to your own Backblaze B2 cloud storage, the app also talks to Backblaze, using the key you give
   it, and downloads a small helper program (rclone) from its official page once, checking that it's the genuine file.
@@ -52,7 +53,8 @@ the date the rental ends.
 If you'd like a copy in the cloud as well, the app can also save to your own Backblaze B2 storage. Settings walks
 you through setting it up.
 
-Uninstalling removes only the app. Your saved episodes stay where they are.
+Uninstalling removes only the app. Your saved episodes and your sign-in stay, so sign out first if you'd like the
+sign-in gone too.
 
 ## What works
 

@@ -116,6 +116,14 @@ def store_session(state, directory: Path, site=sites.DEFAULT):
     sync_directory(directory)
 
 
+def forget_session(directory: Path):
+    """Remove the saved sign-in, so nothing on this computer signs in with it again. The account stays signed in
+    at the site itself: only this computer's copy goes."""
+    for name in ("state.json", "state.tmp"):
+        (directory / name).unlink(missing_ok=True)  # A link goes, never what it points to.
+    sync_directory(directory)
+
+
 def _private_write(path, text):
     with os.fdopen(open_exclusive(path), "w") as f:
         f.write(text)

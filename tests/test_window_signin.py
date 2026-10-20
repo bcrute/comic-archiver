@@ -13,6 +13,7 @@ from comic_archive.workspace import Workspace
 from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
 from comic_archive.network import NetworkPolicyHold
+from comic_archive.errors import LibraryBusy
 from comic_archive.session import load_session, store_session
 from comic_archive.window_signin import WindowSignIn, storage_state
 
@@ -139,6 +140,44 @@ class WindowSignInTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', ''.join(logs.output)); self.assertIn('sign-in ended: connected', logs.output[-1])
         # A finished sign-in can be followed by a new one.
         self.assertEqual(self.signin.start(), RUNNING); self.assertTrue(self.signin.take())
+
+    def test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else(self):
+        self.signin.start(); self.signin.take(); self.finish()
+        (self.session / 'state.tmp').write_text('HALF_WRITTEN_PRIVATE')
+        self.stop.reset_mock(); self.start.reset_mock()
+        order = []
+        self.stop.side_effect = lambda *args, **kwargs: order.append((self.state.exists(), self.launch.locked())) or {'running': False}
+        with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
+            self.assertEqual(self.signin.sign_out(), {'status': 'signed_out'})
+        # Stopped first, holding the launch lock, so no downloader starts with the sign-in that is going.
+        self.assertEqual(order, [(True, True)])
+        self.stop.assert_called_once_with(self.session, wait_seconds=35); self.start.assert_not_called()
+        self.assertEqual(sorted(path.name for path in self.session.iterdir()), ['site'])
+        self.assertEqual(self.signin.status(), {'status': 'idle'})
+        self.assertFalse(self.launch.locked())
+        self.assertNotIn('PRIVATE', ''.join(logs.output)); self.assertIn('signed out', logs.output[-1])
+        # Nothing left to forget is no failure, and signing in again works as before.
+        self.assertEqual(self.signin.sign_out(), {'status': 'signed_out'})
+        self.assertEqual(self.signin.start(), RUNNING); self.assertTrue(self.signin.take())
+
+    def test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop(self):
+        self.signin.start()
+        with self.assertRaises(LibraryBusy): self.signin.sign_out()
+        self.stop.assert_not_called(); self.untouched()
+
+        def stopping(*args, **kwargs):
+            # The sign-in is being saved and holds the launch lock: refused at once, never waiting for it.
+            with self.assertRaises(LibraryBusy): self.signin.sign_out()
+            return {'running': False}
+        self.stop.side_effect = stopping
+        self.assertEqual(self.finish(), {'status': 'connected'})
+        self.stop.side_effect = None
+        for answer in ({'running': True}, {'running': None}, {}):
+            self.stop.return_value = answer
+            with self.assertRaises(ArchiveError): self.signin.sign_out()
+            self.assertTrue(self.state.is_file())
+            self.assertEqual(self.signin.status(), {'status': 'connected'})
+        self.assertFalse(self.launch.locked())
 
     def test_another_account_keeps_the_saved_session_and_the_running_downloader(self):
         with Inventory(self.workspace.library) as inventory: inventory.bind_account('22')

@@ -265,6 +265,7 @@ class LocalLibraryTests(unittest.TestCase):
         signin = NoSignIn()
         self.assertEqual(signin.status(), {'status': 'idle'})
         with self.assertRaises(ArchiveError): signin.start()
+        with self.assertRaises(ArchiveError): signin.sign_out()
         signin.close()
         self.assertIsInstance(self.registry.site_signin, NoSignIn)
 
@@ -280,6 +281,26 @@ class LocalLibraryTests(unittest.TestCase):
         with patch.object(self.registry.site_signin, 'start', return_value={'status': 'running'}) as start:
             self.assertEqual(self.actions.signin(), {'status': 'running'})
         start.assert_called_once_with()
+
+    def test_signing_out_is_refused_while_downloading_and_otherwise_asks_the_sign_in_to_forget_itself(self):
+        worker = self.workspace.session / 'worker'; worker.mkdir(parents=True)
+        (worker / 'status.json').write_text('{"state":"busy"}')
+        with patch.object(self.registry.site_signin, 'sign_out', return_value={'status': 'signed_out'}) as sign_out:
+            with self.assertRaises(Refused) as refused: self.actions.sign_out()
+            self.assertEqual(refused.exception.code, 'library_busy')
+            (worker / 'status.json').write_text('{"state":"ready"}')
+            with patch.object(self.registry, 'account_status', return_value={'status': 'running'}):
+                with self.assertRaises(Refused) as refused: self.actions.sign_out()
+            self.assertEqual(refused.exception.code, 'library_busy')
+            sign_out.assert_not_called()
+            with patch.object(self.registry, 'account_status', return_value={'status': 'stopped'}):
+                self.assertEqual(self.actions.sign_out(), {'status': 'signed_out'})
+            sign_out.assert_called_once_with()
+            with self.assertRaises(ArchiveError): self.registry.sign_out_site('someone-else', self.workspace.id)
+            sign_out.assert_called_once_with()
+        # Before the window supplies its sign-in there is none to sign out of.
+        with self.assertRaises(Refused) as refused: self.actions.sign_out()
+        self.assertEqual(refused.exception.code, 'request_unavailable')
 
     def test_vanished_or_symlinked_library_is_reported_unavailable_and_never_recreated(self):
         self.assertTrue(self.actions.poll(cloud=False, network=False)['status'])

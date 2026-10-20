@@ -13,6 +13,21 @@ from comic_archive import session
 from comic_archive.models import ArchiveError
 
 
+class ForgetSessionTests(unittest.TestCase):
+    def test_the_saved_sign_in_goes_and_a_link_goes_without_what_it_points_to(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name); folder = root / 'session'; folder.mkdir()
+        elsewhere = root / 'elsewhere.json'; elsewhere.write_text('KEEP')
+        (folder / 'state.json').symlink_to(elsewhere); (folder / 'state.tmp').write_text('PRIVATE')
+        (folder / 'site').write_text('tapas'); (folder / 'speed').write_text('fast')
+        with patch('comic_archive.session.sync_directory') as synced:
+            session.forget_session(folder)
+        synced.assert_called_once_with(folder)
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ['site', 'speed'])
+        self.assertEqual(elsewhere.read_text(), 'KEEP')
+        session.forget_session(folder)  # Nothing to remove.
+
+
 class BrowserSessionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)

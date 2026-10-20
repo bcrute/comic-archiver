@@ -33,7 +33,8 @@ class ActionsTests(unittest.TestCase):
 
     def test_each_call_goes_to_the_open_library_as_its_local_owner(self):
         for name, method, args in (('go', 'start_account', ()), ('pause', 'pause_account', ()), ('signin', 'start_site_signin', ()),
-                                   ('speed', 'choose_speed', ('slow',)), ('cloud_enable', 'configure_cloud', ('b2', True)),
+                                   ('sign_out', 'sign_out_site', ()), ('speed', 'choose_speed', ('slow',)),
+                                   ('cloud_enable', 'configure_cloud', ('b2', True)),
                                    ('cloud_cancel', 'cancel_cloud_signin', ()), ('cloud_upload', 'upload_cloud', ()),
                                    ('wifi_only', 'configure_network', (False,)), ('cloud_storage', 'choose_cloud_storage', ('separate',)),
                                    ('cloud_test', 'test_cloud', ('b2',)), ('task', 'task', (TASK,))):
