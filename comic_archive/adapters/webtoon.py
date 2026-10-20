@@ -24,6 +24,10 @@ from .site_reader import SiteReader
 SITE = sites.named('webtoon')
 HOME = SITE.home
 LIST_API = 'https://m.webtoons.com/api/v1/{kind}/{title}/episodes'
+# What Webtoon's own pages ask to learn who is signed in.
+USER_INFO = '/en/member/userInfo'
+# The account's subscriptions, all on one page.
+SUBSCRIPTIONS = '/en/favorite'
 CANVAS = 10 ** 12
 EPISODES = 10 ** 6
 PAGE_SIZE = 100
@@ -33,6 +37,15 @@ MAX_DOCUMENT = 4 * 1024 * 1024
 # Webtoon's own reader path: /<language>/<genre or canvas>/<series>/<episode>/viewer, and the series list beside it.
 VIEWER = re.compile(r'/[a-z]{2}(?:-[A-Za-z]{2,4})?/([a-z0-9-]{1,60})/([A-Za-z0-9_-]{1,100})/[A-Za-z0-9_%-]{1,200}/viewer')
 LIST = re.compile(r'/[a-z]{2}(?:-[A-Za-z]{2,4})?/([a-z0-9-]{1,60})/([A-Za-z0-9_-]{1,100})/list')
+
+
+def account(info):
+    """The signed-in account's sign-in name in Webtoon's answer about the visitor, or None for a visitor."""
+    try:
+        signed, key = info['loginUser'], info['loginId']
+    except (TypeError, KeyError):
+        return None
+    return key if signed is True and isinstance(key, str) and key and len(key) <= 200 and key == key.strip() else None
 
 
 def series_key(title_no, canvas):
@@ -97,6 +110,8 @@ class Document(HTMLParser):
         self.meta, self.links, self.images = {}, {}, []
         self.series_link = None
         self.texts = {'episode': [], 'title': [], 'authors': [], 'summary': []}
+        # The subscriptions page's list: each series' (page address, [its name's text]); None without one.
+        self.subscriptions = None
         self._open = []  # (tag, which text it collects, or None)
 
     def handle_starttag(self, tag, attrs):
@@ -110,10 +125,16 @@ class Document(HTMLParser):
             self.images.append(attrs.get('data-url', ''))
         elif tag == 'a' and 'subj' in classes and self.series_link is None:
             self.series_link = (attrs.get('href', ''), attrs.get('title', ''))
+        elif tag == 'a' and 'link' in classes and self._within('my_list'):
+            self.subscriptions.append((attrs.get('href', ''), []))
         if tag in {'meta', 'link', 'img', 'br', 'input'}:
             return
         collects = None
-        if tag == 'h1' and 'subj_episode' in classes:
+        if tag == 'ul' and 'my_list' in classes and self.subscriptions is None:
+            self.subscriptions, collects = [], 'my_list'
+        elif tag == 'p' and 'subj' in classes and self.subscriptions and self._within('my_list'):
+            collects = 'subscription'
+        elif tag == 'h1' and 'subj_episode' in classes:
             collects = 'episode'
         elif tag in {'h1', 'h3'} and 'subj' in classes:
             collects = 'title'  # An Original's page has it in h1, a Canvas series' in h3.
@@ -135,6 +156,11 @@ class Document(HTMLParser):
         collecting = next((kind for _, kind in reversed(self._open) if kind is not None), None)
         if collecting in self.texts:
             self.texts[collecting].append(data)
+        elif collecting == 'subscription':
+            self.subscriptions[-1][1].append(data)
+
+    def _within(self, kind):
+        return any(collects == kind for _, collects in self._open)
 
     def text(self, kind):
         return ' '.join(' '.join(self.texts[kind]).split())
@@ -165,13 +191,23 @@ class WebtoonAdapter(SiteReader):
         self.transport = transport
         # Where each episode's page is, as Webtoon names it, learnt from the series' episode list.
         self.viewers = {}
+        self._account = None
 
-    # Signed in: how Webtoon names the account and lists its subscriptions is learnt with an account's owner.
     def account_identity(self):
-        raise AuthenticationError('Signing in to Webtoon is not supported yet.')
+        """The signed-in account, as Webtoon's own pages name it. Once one is seen, it must stay the same: a
+        sign-in that has run out would otherwise read on as a visitor."""
+        data = self.transport.get(HOME + USER_INFO)
+        try:
+            named = account(json.loads(data))
+        except ValueError:
+            raise MetadataError('Webtoon gave an unexpected answer about who is signed in.') from None
+        if named is None or self._account is not None and named != self._account:
+            raise AuthenticationError('Sign in to Webtoon again.')
+        self._account = named
+        return named
 
     def signed_in(self):
-        """Whether the account's own evidence is available. It never is yet, so nothing may claim access.
+        """Whether the account's own evidence is available.
 
         Access marks are earned from evidence, never assumed: an unsigned-in reader reports
         episodes as listed-but-unverified and refuses captures, instead of asserting they are free.
@@ -183,7 +219,26 @@ class WebtoonAdapter(SiteReader):
         return True
 
     def inspect_library(self, details=False, category='subscribed', on_page=None):
-        raise AuthenticationError('Signing in to Webtoon is not supported yet.')
+        """The series the account subscribes to, from its own subscriptions page."""
+        if category not in SITE.lists:
+            raise ArchiveError('Webtoon has no such list.')
+        self.account_identity()
+        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))
+        if page.subscriptions is None:
+            raise MetadataError('Webtoon gave a subscriptions page without its list.')
+        found = {}
+        for link, text in page.subscriptions:
+            parts, title = urlsplit(link), ' '.join(' '.join(text).split())
+            match = LIST.fullmatch(parts.path)
+            if (parts.scheme, parts.netloc) != ('https', SITE.host) or match is None or not title:
+                raise MetadataError('Webtoon gave a subscriptions list of an unexpected shape.')
+            title_no, episode_no = numbers(link)
+            if episode_no is not None:
+                raise MetadataError('Webtoon gave a subscriptions list of an unexpected shape.')
+            key = series_key(title_no, match[1] == 'canvas')
+            found.setdefault(key, {'source_series_id': key, 'title': title})
+        return {'authenticated': True, 'membership_verified': True, 'scope': category, 'complete': True,
+                'boundary_observed': True, 'series': list(found.values())}
 
     def episode_list(self, key):
         """Every episode the website shows in a series, in Webtoon's order: (number, title, page address)."""
@@ -294,7 +349,7 @@ class WebtoonAdapter(SiteReader):
     def capture_automatic(self, url):
         # Like every reader, capture needs an account whose evidence it can check first.
         if not self.signed_in():
-            raise AuthenticationError('Signing in to Webtoon is not supported yet.')
+            raise AuthenticationError('Sign in to Webtoon again.')
         title_no, episode_no = numbers(url)
         path = urlsplit(url).path
         match = VIEWER.fullmatch(path)

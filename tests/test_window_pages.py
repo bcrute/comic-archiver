@@ -79,7 +79,8 @@ class FakeActions:
         self.record('context')
         return {'sites': [{'key': 'tapas', 'name': 'Tapas', 'available': True, 'current': True},
                           {'key': 'tappytoon', 'name': 'Tappytoon', 'available': True, 'current': False},
-                          {'key': 'webtoon', 'name': 'Webtoon', 'available': False, 'current': False}],
+                          {'key': 'webtoon', 'name': 'Webtoon', 'available': True, 'current': False},
+                          {'key': 'later', 'name': 'Elsewhere', 'available': False, 'current': False}],
                 'site_settings': copy.deepcopy(self.site_settings), 'library_folder': FOLDER,
                 'cloud_offered': self.cloud_offered, 'workspace_id': '0123456789abcdef0123456789abcdef'}
 
@@ -422,8 +423,8 @@ class DashboardTests(PagesCase):
     def test_the_site_list_asks_the_window_to_switch_and_waits_while_saving(self):
         self.open()
         site = self.dashboard.site
-        self.assertEqual([site.itemText(i) for i in range(site.count())], ['Tapas', 'Tappytoon', 'Webtoon — coming later'])
-        self.assertFalse(site.model().item(2).isEnabled())
+        self.assertEqual([site.itemText(i) for i in range(site.count())], ['Tapas', 'Tappytoon', 'Webtoon', 'Elsewhere — coming later'])
+        self.assertTrue(site.model().item(2).isEnabled()); self.assertFalse(site.model().item(3).isEnabled())
         site.activated.emit(1)
         self.assertEqual(self.shell.calls, [('choose_site', 'tappytoon')])
         self.assertEqual(site.currentData(), 'tapas')

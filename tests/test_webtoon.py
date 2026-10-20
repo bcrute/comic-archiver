@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from test_archive import png
 from comic_archive import sites, worker
-from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, split_episode, split_series
+from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, account, split_episode, split_series
 from comic_archive.archive import verify
-from comic_archive.errors import AccessDenied, MetadataError, UnsupportedContent
+from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import sync
 from comic_archive.models import ArchiveError
@@ -19,6 +19,8 @@ from comic_archive.transport import Transport
 HOME = 'https://www.webtoons.com'
 IMAGES = 'https://webtoon-phinf.pstatic.net/20200101_1'
 LIST_API = 'https://m.webtoons.com/api/v1/{kind}/{title}/episodes?pageSize=100'
+USER_INFO = HOME + '/en/member/userInfo'
+SUBSCRIPTIONS = HOME + '/en/favorite'
 
 
 def viewer_link(genre, slug, title_no, number):
@@ -54,6 +56,26 @@ def list_page(genre, slug, title_no, heading='h1'):
 <div class="detail_body"><p class="summary">A story made up for tests &amp; nothing else.</p></div></body></html>'''.encode()
 
 
+def who(name=None):
+    """Webtoon's answer about the visitor: a signed-in account by its sign-in name, or a visitor."""
+    return json.dumps({'loginUser': name is not None, 'loginId': name, 'nickname': None, 'adFree': False}).encode()
+
+
+def subscription(link, title):
+    return f'''<li class="item"><a href="{link}" class="link"><div class="image_wrap"><img src="x.jpg" alt=""></div>
+<div class="info"><p class="subj">{title}</p><p class="author">Someone</p><span class="update">UP</span></div></a>
+<span class="check_area"><label for="0" class="label_check">Delete</label></span></li>'''
+
+
+def subscriptions_page(*items, listed=True):
+    """The account's subscriptions page, its list between links that are not in it."""
+    body = f'<ul class="my_list _card_list">{"".join(items)}</ul>' if listed else '<p class="empty">Nothing here</p>'
+    return f'''<!DOCTYPE html><html><body><a href="{HOME}/en/originals" class="link">Originals</a>
+<a href="{HOME}/en/romance/elsewhere/list?title_no=99" class="link"><p class="subj">Recommended</p></a>
+<div class="my_area">{body}</div><p class="subj">Recommended for you</p>
+<a href="{HOME}/en/action/popular/list?title_no=98" class="link">Popular</a></body></html>'''.encode()
+
+
 class Response:
     def __init__(self, data, code=200):
         self.status_code, self.data, self.headers = code, data, {}
@@ -86,7 +108,7 @@ class Site:
 
 
 class SignedIn(WebtoonAdapter):
-    # How Webtoon names a signed-in account is learnt with an account's owner; the job needs one name.
+    # For tests about anything but the sign-in, the account is taken as checked.
     def account_identity(self):
         return '1'
 
@@ -173,17 +195,69 @@ class WebtoonTests(unittest.TestCase):
     def test_without_an_account_no_episode_is_claimed_readable_and_nothing_is_captured(self, sleep):
         # Access marks are earned from evidence: a reader that cannot check an account reports
         # the list it saw without asserting any episode may be read, and captures nothing.
-        adapter, client = reader(series_pages())
+        adapter, client = reader(series_pages() | {USER_INFO: who()})
         listing = adapter.inspect_series('7')
         self.assertFalse(listing['authenticated'])
         self.assertEqual(listing['accessible_episode_count'], 0)
         self.assertEqual({e['access_state'] for e in listing['episodes']}, {None})
         self.assertEqual({e['authorization_reason'] for e in listing['episodes']}, {'webtoon_access_unverified'})
-        from comic_archive.errors import AuthenticationError
         with self.assertRaises(AuthenticationError):
             adapter.capture_automatic(adapter.episode_url('7000001'))
         # No episode page or picture is asked for: capture without an account reads nothing.
         self.assertFalse([url for url, _ in client.calls if '/viewer' in url or url.startswith(IMAGES)])
+
+    def test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same(self, sleep):
+        self.assertEqual(account(json.loads(who('reader@example.com'))), 'reader@example.com')
+        for value in (json.loads(who()), {'loginUser': False, 'loginId': 'reader'}, {'loginUser': 'true', 'loginId': 'reader'},
+                      {'loginUser': True, 'loginId': ''}, {'loginUser': True, 'loginId': ' reader'}, {'loginUser': True, 'loginId': 5},
+                      {'loginUser': True, 'loginId': 'r' * 201}, {'loginUser': True}, [], None):
+            with self.subTest(value=value):
+                self.assertIsNone(account(value))
+        adapter, client = reader({USER_INFO: who('reader')})
+        self.assertEqual(adapter.account_identity(), 'reader')
+        self.assertTrue(adapter.signed_in())
+        # A sign-in that has run out, or a different account, is not read on as if nothing changed.
+        for answer in (who('another'), who()):
+            client.pages[USER_INFO] = answer
+            with self.subTest(answer=answer), self.assertRaisesRegex(AuthenticationError, 'Sign in to Webtoon again'):
+                adapter.account_identity()
+            self.assertFalse(adapter.signed_in())
+        client.pages[USER_INFO] = b'<html>Not JSON</html>'
+        with self.assertRaisesRegex(MetadataError, 'who is signed in'):
+            adapter.account_identity()
+        self.assertEqual({url for url, _ in client.calls}, {USER_INFO})
+
+    def test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it(self, sleep):
+        page = subscriptions_page(subscription(f'{HOME}/en/fantasy/sample-series/list?title_no=7', ' Sample\n  Series '),
+                                  subscription(f'{HOME}/en/fantasy/sample-series/list?title_no=7', 'Listed twice'),
+                                  subscription(f'{HOME}/en/canvas/small-story/list?title_no=5', 'Small &amp; Story'))
+        adapter, client = reader({USER_INFO: who('reader'), SUBSCRIPTIONS: page})
+        self.assertEqual(adapter.inspect_library(), {
+            'authenticated': True, 'membership_verified': True, 'scope': 'subscribed', 'complete': True, 'boundary_observed': True,
+            'series': [{'source_series_id': '7', 'title': 'Sample Series'},
+                       {'source_series_id': str(CANVAS + 5), 'title': 'Small & Story'}]})
+        # Who is signed in is checked before the list, which is all on one page.
+        self.assertEqual([url for url, _ in client.calls], [USER_INFO, SUBSCRIPTIONS])
+        with self.assertRaisesRegex(ArchiveError, 'no such list'):
+            adapter.inspect_library(category='unlocked')
+
+    def test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none(self, sleep):
+        adapter, client = reader({USER_INFO: who()})
+        with self.assertRaisesRegex(AuthenticationError, 'Sign in to Webtoon again'):
+            adapter.inspect_library()
+        self.assertEqual([url for url, _ in client.calls], [USER_INFO])
+        good = subscription(f'{HOME}/en/fantasy/sample-series/list?title_no=7', 'Sample Series')
+        for name, page, error in (
+                ('no list', subscriptions_page(listed=False), 'without its list'),
+                ('another site', subscriptions_page(good, subscription('https://example.com/en/fantasy/x/list?title_no=3', 'X')), 'unexpected shape'),
+                ('plain http', subscriptions_page(subscription('http://www.webtoons.com/en/fantasy/x/list?title_no=3', 'X')), 'unexpected shape'),
+                ('not a series', subscriptions_page(subscription(f'{HOME}/en/originals', 'X')), 'unexpected shape'),
+                ('an episode', subscriptions_page(subscription(f'{HOME}/en/fantasy/x/list?title_no=3&episode_no=2', 'X')), 'unexpected shape'),
+                ('no title', subscriptions_page(subscription(f'{HOME}/en/fantasy/x/list?title_no=3', ' ')), 'unexpected shape'),
+                ('no number', subscriptions_page(subscription(f'{HOME}/en/fantasy/x/list', 'X')), 'series number')):
+            adapter, _ = reader({USER_INFO: who('reader'), SUBSCRIPTIONS: page})
+            with self.subTest(name), self.assertRaisesRegex(MetadataError, error):
+                adapter.inspect_library()
 
     def test_a_canvas_series_has_its_own_numbers_addresses_and_library_name(self, sleep):
         key = str(CANVAS + 5)

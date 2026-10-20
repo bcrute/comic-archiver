@@ -1,6 +1,6 @@
 # Comic Archiver
 
-Comic Archiver saves the comics and novels you can read on Tapas and Tappytoon to your own computer, so you have
+Comic Archiver saves the comics and novels you can read on Tapas, Tappytoon and Webtoon to your own computer, so you have
 your own copy of what you've bought and unlocked.
 
 You sign in to the site inside the app, press **Go**, and it works through your library. You can stop it whenever
@@ -15,7 +15,7 @@ goes into a folder called `Comic Archiver` in your user folder, one folder per s
 
 - **No tracking of any kind.** No analytics, no usage statistics, no crash reports, no ads. The app never contacts
   me or any server of mine. There isn't one.
-- **Your password goes straight to the comic site.** When you sign in, you're typing into Tapas's or Tappytoon's
+- **Your password goes straight to the comic site.** When you sign in, you're typing into the comic site's
   own sign-in page, shown inside the app's window. Your password goes to the site, just as it would in your web
   browser. The app never reads it and never saves it.
 - **What the app keeps, and where.** Once you're signed in, the site hands back a sign-in cookie, the same thing
@@ -44,12 +44,15 @@ the warnings Windows shows because the app isn't signed yet.
 3. Press **Go**.
 
 If you normally sign in with Google or Facebook, those buttons may not work inside the app. Set a password on your
-Tapas or Tappytoon account first (sign in the usual way in your web browser and look in the site's account
+account first (sign in the usual way in your web browser and look in the site's account
 settings), then sign in to the app with your email and that password. Copying and pasting from a password manager
 works; browser extensions don't run inside the app.
 
 On Tappytoon it saves free chapters and the ones you've bought or are renting. A rented chapter is labelled with
 the date the rental ends.
+
+On Webtoon it saves the series you subscribe to, every episode the website shows. Episodes Webtoon only lets you
+read in its phone app, such as Daily Pass and Fast Pass ones, aren't on the website, so they aren't saved.
 
 If you'd like a copy in the cloud as well, the app can also save to your own Backblaze B2 storage. Settings walks
 you through setting it up.
@@ -63,7 +66,7 @@ sign-in gone too.
 |---|---|
 | Tapas | Works |
 | Tappytoon | Works |
-| Webtoon | Coming later |
+| Webtoon | Works |
 | Windows 10 and 11 | Works |
 | Linux | Works |
 | Mac | Not planned yet |

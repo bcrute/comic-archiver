@@ -83,7 +83,9 @@ site's reader.
   signed-in look shows what the website gives an account that bought episodes.
 - Done: the reader lists a series' episodes from Webtoon's episode list and saves each episode's original
   pictures (not the reduced copies the page shows) with the series' details, for Originals and Canvas series.
-  Still to come: sign-in and the subscription list, with the account's owner at the window.
+- Done, with the account's owner at the window: sign-in, recognised by the answer Webtoon's own pages get from
+  /en/member/userInfo, and the subscriptions list, read from the account's subscriptions page, which holds the
+  whole list. Tests use made-up pages in the same shape; nothing from the account is recorded.
 
 ### 5. Tappytoon
 
