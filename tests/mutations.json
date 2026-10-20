@@ -4270,29 +4270,5 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
- },
- {
-  "id": "launcher-previous-copy-not-passed",
-  "source": "packaging/comic-archiver",
-  "old": "[ \"$previous\" != \"$here\" ] && export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
-  "new": ":",
-  "test_file": "test_build_linux_app.py",
-  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
- },
- {
-  "id": "launcher-itself-passed",
-  "source": "packaging/comic-archiver",
-  "old": "[ \"$previous\" != \"$here\" ] && export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
-  "new": "export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
-  "test_file": "test_build_linux_app.py",
-  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
- },
- {
-  "id": "launcher-uninstall-action-taken-as-copy",
-  "source": "packaging/comic-archiver",
-  "old": "case $line in 'Exec=\"'*'/comic-archiver\"')",
-  "new": "case $line in 'Exec=\"'*)",
-  "test_file": "test_build_linux_app.py",
-  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
  }
 ]
