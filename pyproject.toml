@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "comic-archive"
-version = "0.2.1"
+version = "0.2.2"
 description = "Personal comic and novel preservation: CBZ, EPUB, and source-neutral JSON"
 requires-python = ">=3.11"
 license = "MIT"
