@@ -433,7 +433,7 @@ class LauncherBehaviourTests(WorkspaceCase):
         shutil.copy2(PROJECT / 'packaging/comic-archiver', app / 'comic-archiver')
         (app / 'share/applications').mkdir(parents=True)
         shutil.copy2(PROJECT / 'packaging/comic-archiver.desktop', app / 'share/applications/comic-archiver.desktop')
-        script(app / 'python/bin/python3', '#!/bin/sh\nprintf "%s\\n" "$PYTHONNOUSERSITE" "${PYTHONPATH-unset}" "$PYTHONSAFEPATH" "$@" > "$RECORD"\n'
+        script(app / 'python/bin/python3', '#!/bin/sh\nprintf "%s\\n" "$PYTHONNOUSERSITE" "${PYTHONPATH-unset}" "$PYTHONSAFEPATH" "${COMIC_ARCHIVER_PREVIOUS-unset}" "$@" > "$RECORD"\n'
                                            'sleep "${FAKE_SLEEP:-0}"\nexit "${FAKE_STATUS:-0}"\n')
         return app
 
@@ -453,7 +453,7 @@ class LauncherBehaviourTests(WorkspaceCase):
         done = self.launch(app, '--project-root', 'a b')
         self.assertEqual(done.returncode, 0)
         self.assertEqual(self.record.read_text().splitlines(),
-                         ['1', 'unset', '1',
+                         ['1', 'unset', '1', 'unset',
                           '-m', 'comic_archive.desktop_app', '--project-root', 'a b'])
 
     def test_registers_a_menu_entry_with_absolute_paths_and_repairs_a_stale_one(self):
@@ -468,6 +468,18 @@ class LauncherBehaviourTests(WorkspaceCase):
         self.launch(app)
         self.assertEqual(self.entry.read_text(), text)
         self.assertEqual([p.name for p in self.entry.parent.iterdir()], ['comic-archiver.desktop'])
+
+    def test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app(self):
+        old, new = self.install('Old'), self.install('New')
+        self.launch(old)
+        self.assertEqual(self.record.read_text().splitlines()[3], 'unset')
+        self.launch(new)
+        self.assertEqual(self.record.read_text().splitlines()[3], str(old))
+        self.launch(new)
+        self.assertEqual(self.record.read_text().splitlines()[3], 'unset')  # Itself is no older copy.
+        self.entry.write_text(f'[Desktop Action uninstall]\nExec="{old}/comic-archiver" --uninstall\n')
+        self.launch(new)
+        self.assertEqual(self.record.read_text().splitlines()[3], 'unset')
 
     def test_version_self_test_and_uninstall_runs_do_not_write_a_menu_entry(self):
         app = self.install()

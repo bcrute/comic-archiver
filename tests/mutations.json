@@ -4134,5 +4134,165 @@
   "new": "        if True:\n            (box.information",
   "test_file": "test_desktop_app.py",
   "test": "test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status"
+ },
+ {
+  "id": "older-copy-version-as-text",
+  "source": "comic_archive/uninstall.py",
+  "old": "return tuple(int(part) for part in text.split('.')) if",
+  "new": "return tuple(text.split('.')) if",
+  "test_file": "test_uninstall.py",
+  "test": "test_versions_are_compared_as_numbers_and_anything_else_is_no_version"
+ },
+ {
+  "id": "older-copy-version-any-text",
+  "source": "comic_archive/uninstall.py",
+  "old": "if re.fullmatch(r'[0-9]{1,6}(\\.[0-9]{1,6}){0,3}', text) else None",
+  "new": "if re.match(r'[0-9]', text) else None",
+  "test_file": "test_uninstall.py",
+  "test": "test_versions_are_compared_as_numbers_and_anything_else_is_no_version"
+ },
+ {
+  "id": "older-copy-source-run-counts",
+  "source": "comic_archive/uninstall.py",
+  "old": "    if copy_version(folder) is None or not any((folder / name).is_file() for name in LAUNCHERS):\n        return None\n    return folder",
+  "new": "    return folder",
+  "test_file": "test_uninstall.py",
+  "test": "test_running_from_the_source_offers_nothing_and_notes_nothing"
+ },
+ {
+  "id": "older-copy-newer-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if theirs is not None and theirs > mine:\n            newest = False\n            continue",
+  "new": "        if theirs is not None and theirs > mine:\n            newest = False",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_newer_copy_is_never_offered_and_stays_the_one_noted"
+ },
+ {
+  "id": "older-copy-newer-replaced-in-record",
+  "source": "comic_archive/uninstall.py",
+  "old": "    if newest:\n        (record.parent",
+  "new": "    if True:\n        (record.parent",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_newer_copy_is_never_offered_and_stays_the_one_noted"
+ },
+ {
+  "id": "older-copy-record-not-written",
+  "source": "comic_archive/uninstall.py",
+  "old": "        replace_file(record.parent / 'app.new', record)\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+ },
+ {
+  "id": "older-copy-record-ignored",
+  "source": "comic_archive/uninstall.py",
+  "old": "        candidates.append(record.read_text(encoding='utf-8').strip())",
+  "new": "        pass",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+ },
+ {
+  "id": "older-copy-menu-copy-ignored",
+  "source": "comic_archive/uninstall.py",
+  "old": "    candidates = [os.environ.get(PREVIOUS) or '']",
+  "new": "    candidates = ['']",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+ },
+ {
+  "id": "older-copy-relative-path-taken",
+  "source": "comic_archive/uninstall.py",
+  "old": "if not text or '\\0' in text or not folder.is_absolute():",
+  "new": "if not text or '\\0' in text:",
+  "test_file": "test_uninstall.py",
+  "test": "test_an_installed_copy_one_holding_a_library_or_this_one_is_never_offered"
+ },
+ {
+  "id": "older-copy-installed-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "and not (folder / 'unins000.exe').exists())",
+  "new": ")",
+  "test_file": "test_uninstall.py",
+  "test": "test_an_installed_copy_one_holding_a_library_or_this_one_is_never_offered"
+ },
+ {
+  "id": "older-copy-symlink-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "        return (not folder.is_symlink() and copy_version",
+  "new": "        return (copy_version",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_symlink_to_a_copy_is_never_offered"
+ },
+ {
+  "id": "older-copy-library-inside-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "        inside = [here, *libraries()]",
+  "new": "        inside = [here]",
+  "test_file": "test_uninstall.py",
+  "test": "test_an_installed_copy_one_holding_a_library_or_this_one_is_never_offered"
+ },
+ {
+  "id": "older-copy-around-this-one-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "folder in path.parents or path in folder.parents",
+  "new": "folder in path.parents",
+  "test_file": "test_uninstall.py",
+  "test": "test_an_installed_copy_one_holding_a_library_or_this_one_is_never_offered"
+ },
+ {
+  "id": "older-copy-not-deleted",
+  "source": "comic_archive/uninstall.py",
+  "old": "    shutil.rmtree(folder, ignore_errors=True)\n    return not folder.exists()",
+  "new": "    return not folder.exists()",
+  "test_file": "test_uninstall.py",
+  "test": "test_an_older_copy_is_deleted_whole"
+ },
+ {
+  "id": "older-copy-not-asked",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:\n            continue",
+  "new": "        pass",
+  "test_file": "test_desktop_app.py",
+  "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
+ },
+ {
+  "id": "older-copy-failure-silent",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            box.warning(None, APP_NAME, OLD_COPY_LEFT.format(folder=folder))",
+  "new": "            pass",
+  "test_file": "test_desktop_app.py",
+  "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
+ },
+ {
+  "id": "older-copy-never-offered",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        remove_older_copies(q)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
+ },
+ {
+  "id": "launcher-previous-copy-not-passed",
+  "source": "packaging/comic-archiver",
+  "old": "[ \"$previous\" != \"$here\" ] && export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
+  "new": ":",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
+ },
+ {
+  "id": "launcher-itself-passed",
+  "source": "packaging/comic-archiver",
+  "old": "[ \"$previous\" != \"$here\" ] && export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
+  "new": "export COMIC_ARCHIVER_PREVIOUS=\"$previous\"",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
+ },
+ {
+  "id": "launcher-uninstall-action-taken-as-copy",
+  "source": "packaging/comic-archiver",
+  "old": "case $line in 'Exec=\"'*'/comic-archiver\"')",
+  "new": "case $line in 'Exec=\"'*)",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_the_copy_the_menu_entry_started_until_now_is_passed_on_to_the_app"
  }
 ]

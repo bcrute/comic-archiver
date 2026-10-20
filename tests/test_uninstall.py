@@ -198,12 +198,117 @@ class UninstallTests(unittest.TestCase):
     def test_the_unpacked_linux_app_is_found_beside_its_python_and_windows_has_none(self):
         app = self.home / 'App'
         (app / 'python').mkdir(parents=True)
+        (app / 'comic-archiver').write_text('launcher')
         with patch.object(uninstall.sys, 'prefix', str(app / 'python')), patch('comic_archive.uninstall.WINDOWS', False):
+            self.assertIsNone(uninstall.app_folder())  # Run from its source: no VERSION.
+            (app / 'VERSION').write_text('0.2.2\n')
+            self.assertEqual(uninstall.app_folder(), app)
+            (app / 'comic-archiver').unlink()
             self.assertIsNone(uninstall.app_folder())
             (app / 'comic-archiver').write_text('launcher')
-            self.assertEqual(uninstall.app_folder(), app)
             with patch('comic_archive.uninstall.WINDOWS', True):
                 self.assertIsNone(uninstall.app_folder())
+
+
+def app_copy(folder, version, launcher='comic-archiver', installed=False):
+    (folder / 'python').mkdir(parents=True)
+    (folder / launcher).write_text('launcher')
+    (folder / 'VERSION').write_text(version + '\n')
+    if installed:
+        (folder / 'unins000.exe').write_bytes(b'uninstaller')
+    return folder
+
+
+class OlderCopyTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name).resolve()
+        self.record = self.home / 'state/comic-archiver/app'
+        self.here = app_copy(self.home / 'new', '0.2.10')
+        for wrapper in (patch.dict(os.environ, home_environment(self.home, self.home / 'state')),
+                        patch.object(uninstall.sys, 'prefix', str(self.here / 'python'))):
+            wrapper.start(); self.addCleanup(wrapper.stop)
+        os.environ.pop(uninstall.PREVIOUS, None)
+
+    def previous(self, folder):
+        return patch.dict(os.environ, {uninstall.PREVIOUS: str(folder)})
+
+    def test_versions_are_compared_as_numbers_and_anything_else_is_no_version(self):
+        self.assertEqual(uninstall.copy_version(self.here), (0, 2, 10))
+        self.assertGreater(uninstall.copy_version(self.here), uninstall.copy_version(app_copy(self.home / 'a', '0.2.9')))
+        for text in ('', 'abc', '1.2.3.4.5', '1..2', '0.2.1-beta', '1234567'):
+            (self.here / 'VERSION').write_text(text)
+            self.assertIsNone(uninstall.copy_version(self.here))
+        self.assertIsNone(uninstall.copy_version(self.home / 'missing'))
+
+    def test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer(self):
+        old, same, windows = app_copy(self.home / 'old', '0.2.1'), app_copy(self.home / 'same', '0.2.10'), \
+            app_copy(self.home / 'zip', '0.1.9', 'Comic Archiver.cmd')
+        self.assertEqual(uninstall.older_copies(), [])
+        self.assertEqual(self.record.read_text(), f'{self.here}\n')
+        with self.previous(old):
+            self.assertEqual(uninstall.older_copies(), [old])
+        for folder in (same, windows):
+            self.record.write_text(f'{folder}\n')
+            self.assertEqual(uninstall.older_copies(), [folder])
+            self.assertEqual(self.record.read_text(), f'{self.here}\n')  # Asked once: this copy is noted now.
+        self.record.write_text(f'{old}\n')
+        with self.previous(old):
+            self.assertEqual(uninstall.older_copies(), [old])
+        self.record.write_text(f'{windows}\n')
+        with self.previous(old):
+            self.assertEqual(uninstall.older_copies(), [old, windows])
+
+    def test_a_newer_copy_is_never_offered_and_stays_the_one_noted(self):
+        newer = app_copy(self.home / 'newer', '0.3.0')
+        self.record.parent.mkdir(parents=True); self.record.write_text(f'{newer}\n')
+        with self.previous(newer):
+            self.assertEqual(uninstall.older_copies(), [])
+        self.assertEqual(self.record.read_text(), f'{newer}\n')
+        self.assertTrue((newer / 'VERSION').exists())
+
+    def test_an_installed_copy_one_holding_a_library_or_this_one_is_never_offered(self):
+        installed = app_copy(self.home / 'installed', '0.2.1', 'Comic Archiver.cmd', installed=True)
+        holding, around = app_copy(self.home / 'holding', '0.2.1'), app_copy(self.home / 'around', '0.2.1')
+        inner = app_copy(self.here / 'inner', '0.2.1')
+        app_runtime.remember_library(holding / 'Comic Archiver')
+        for folder in (installed, holding, inner, self.here, self.home / 'gone', self.home / 'notacopy'):
+            with self.previous(folder):
+                self.assertEqual(uninstall.older_copies(), [], folder)
+        self.record.unlink()  # This copy, noted by now: the copy around 'here' below may be offered nothing else.
+        with patch.object(uninstall.sys, 'prefix', str(around / 'here/python')):
+            app_copy(around / 'here', '0.2.10')
+            with self.previous(around):
+                self.assertEqual(uninstall.older_copies(), [])
+        self.record.unlink()
+        (self.home / 'notacopy').mkdir()
+        app_copy(self.home / 'relative', '0.2.1')
+        folder = os.getcwd(); os.chdir(self.home); self.addCleanup(os.chdir, folder)
+        for text in ('relative', ''):
+            with patch.dict(os.environ, {uninstall.PREVIOUS: text}):
+                self.assertEqual(uninstall.older_copies(), [])
+
+    @unittest.skipIf(os.name == 'nt', 'Making a symlink on Windows needs a privilege.')
+    def test_a_symlink_to_a_copy_is_never_offered(self):
+        old = app_copy(self.home / 'old', '0.2.1')
+        (self.home / 'link').symlink_to(old)
+        with self.previous(self.home / 'link'):
+            self.assertEqual(uninstall.older_copies(), [])
+
+    def test_running_from_the_source_offers_nothing_and_notes_nothing(self):
+        (self.here / 'VERSION').unlink()
+        with self.previous(app_copy(self.home / 'old', '0.2.1')):
+            self.assertEqual(uninstall.older_copies(), [])
+        self.assertFalse(self.record.exists())
+
+    def test_an_older_copy_is_deleted_whole(self):
+        old = app_copy(self.home / 'old', '0.2.1')
+        (old / 'python/lib').mkdir(); (old / 'python/lib/module.py').write_text('x')
+        self.assertTrue(uninstall.remove_copy(old))
+        self.assertFalse(old.exists())
+        old = app_copy(self.home / 'old', '0.2.1')
+        with patch('comic_archive.uninstall.shutil.rmtree'):
+            self.assertFalse(uninstall.remove_copy(old))
 
 
 class LibraryRecordTests(unittest.TestCase):

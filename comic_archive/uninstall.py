@@ -7,6 +7,7 @@ on Linux the menu entry's Uninstall does. The window must be closed first (deskt
 """
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -15,11 +16,15 @@ import time
 from . import app_runtime, background, cloud, shared, sites
 from .app_runtime import LOG
 from .models import ArchiveError
-from .osdep import WINDOWS
+from .osdep import WINDOWS, replace_file
 from .session import forget_session
 from .state_paths import private_path
 from .storage import safe_root
 
+# The file that starts a copy of the app, on Linux and on Windows; each copy also has a VERSION file.
+LAUNCHERS = ('comic-archiver', 'Comic Archiver.cmd')
+# Set by the Linux launcher: the folder of the copy the menu entry started before this one.
+PREVIOUS = 'COMIC_ARCHIVER_PREVIOUS'
 # How long a downloader left running is given to stop when asked, before it is ended.
 STOP_SECONDS = 10
 
@@ -145,10 +150,76 @@ def remove_app_folders():
     return complete
 
 
-def app_folder():
-    """The unpacked Linux app this runs from, or None: its launcher sits beside the bundled Python."""
+def copy_version(folder):
+    """The version a copy of the app says it is, as numbers to compare, or None."""
+    try:
+        text = (folder / 'VERSION').read_text(encoding='ascii').strip()
+    except (OSError, ValueError):
+        return None
+    return tuple(int(part) for part in text.split('.')) if re.fullmatch(r'[0-9]{1,6}(\.[0-9]{1,6}){0,3}', text) else None
+
+
+def this_copy():
+    """The folder of the copy of the app running now, or None when it runs from its source."""
     folder = Path(sys.prefix).parent
-    return folder if not WINDOWS and (folder / 'comic-archiver').is_file() else None
+    if copy_version(folder) is None or not any((folder / name).is_file() for name in LAUNCHERS):
+        return None
+    return folder
+
+
+def app_folder():
+    """The unpacked Linux app this runs from, or None."""
+    return None if WINDOWS else this_copy()
+
+
+def unpacked(folder):
+    """True for a copy of the app that was unpacked, not installed, so deleting its folder removes it."""
+    try:
+        return (not folder.is_symlink() and copy_version(folder) is not None and (folder / 'python').is_dir()
+                and any((folder / name).is_file() for name in LAUNCHERS) and not (folder / 'unins000.exe').exists())
+    except (OSError, ValueError):
+        return False
+
+
+def older_copies():
+    """Copies of the app started on this computer before this one, of this version or older, that may be deleted.
+
+    Each start notes the copy that ran. On Linux the launcher also passes the copy the menu entry started until
+    now (COMIC_ARCHIVER_PREVIOUS), which finds copies from before copies were noted. A newer copy is never
+    offered, nor an installed one (its uninstaller would forget the sign-ins), nor one with a library inside.
+    """
+    here = this_copy()
+    if here is None:
+        return []
+    mine, record = copy_version(here), app_runtime.state_dir() / 'app'
+    candidates = [os.environ.get(PREVIOUS) or '']
+    try:
+        candidates.append(record.read_text(encoding='utf-8').strip())
+    except (OSError, ValueError):
+        pass
+    found, newest = [], True
+    for text in dict.fromkeys(candidates):
+        folder = Path(text)
+        if not text or '\0' in text or not folder.is_absolute():
+            continue
+        theirs = copy_version(folder)
+        if theirs is not None and theirs > mine:
+            newest = False
+            continue
+        inside = [here, *libraries()]
+        if unpacked(folder) and not any(path == folder or folder in path.parents or path in folder.parents
+                                        for path in inside):
+            found.append(folder)
+    if newest:
+        (record.parent / 'app.new').write_text(f'{here}\n', encoding='utf-8')
+        replace_file(record.parent / 'app.new', record)
+    return found
+
+
+def remove_copy(folder):
+    """Delete an older copy found by older_copies. False if some of it stayed."""
+    shutil.rmtree(folder, ignore_errors=True)
+    return not folder.exists()
 
 
 def remove_menu_entry(folder):
