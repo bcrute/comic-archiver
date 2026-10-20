@@ -2882,8 +2882,8 @@
  {
   "id": "download-goes-on-by-itself-at-a-start",
   "source": "comic_archive/account_ui.py",
-  "old": "    if running:\n        account_export.request_stop(session, library)\n    if idle:",
-  "new": "    if idle:",
+  "old": "    if running:\n        account_export.request_stop(session, library)  # The plan stops with it.\n    elif continuing:",
+  "new": "    if continuing:",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_sets_a_download_that_was_running_to_wait_for_go_and_go_continues_it"
  },
@@ -4286,5 +4286,69 @@
   "new": "",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held"
+ },
+ {
+  "id": "status-ignores-a-saving-plan",
+  "source": "comic_archive/account_ui.py",
+  "old": "        result['status'] = 'running'\n        result.pop('code', None)\n",
+  "new": "        result.pop('code', None)\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held"
+ },
+ {
+  "id": "status-keeps-the-hold-reason-while-saving",
+  "source": "comic_archive/account_ui.py",
+  "old": "        result.pop('code', None)\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held"
+ },
+ {
+  "id": "status-shows-a-drained-plan-as-saving",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if saving and result.get('status') != 'running':\n",
+  "new": "    if result.get('status') != 'running':\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_page_shows_the_hold_again_once_the_plan_has_nothing_left_to_save"
+ },
+ {
+  "id": "status-fails-on-a-damaged-plan",
+  "source": "comic_archive/account_ui.py",
+  "old": "        saving = False  # A plan that cannot be read cannot run either.\n",
+  "new": "        raise\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_the_page_still_shows_the_download_when_the_plan_file_is_damaged"
+ },
+ {
+  "id": "pause-leaves-a-plan-without-an-account-download",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if _plan(session, library).get('status') in {'running', 'paused'}:\n        completion.request_stop(session, library)\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download"
+ },
+ {
+  "id": "pause-needs-an-account-download",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if configured:\n        account_export.request_stop(session, library)  # The plan stops with it, unless the download had finished.\n",
+  "new": "    account_export.request_stop(session, library)\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download"
+ },
+ {
+  "id": "pause-on-a-library-that-never-downloaded",
+  "source": "comic_archive/account_ui.py",
+  "old": "        return  # Nothing has downloaded here yet.\n",
+  "new": "        pass\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_pause_and_a_start_of_the_app_leave_a_library_that_has_never_downloaded_alone"
+ },
+ {
+  "id": "reopen-skips-a-plan-without-an-account-download",
+  "source": "comic_archive/account_ui.py",
+  "old": "    if not (state.get('configured') or plan.get('configured')):\n        return False\n",
+  "new": "    if not state.get('configured'):\n        return False\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_sets_a_plan_without_an_account_download_to_wait_for_go_and_go_continues_it"
  }
 ]
