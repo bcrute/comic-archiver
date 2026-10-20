@@ -77,6 +77,16 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 Notes for building the app, checking a change and making a release are in
 [docs/development.md](docs/development.md).
 
+## Who made this
+
+I'm a software engineer with more than 15 years of experience. I decide how Comic Archiver works and what goes into
+it, and I use AI tools to build it faster, not in place of knowing what I'm doing.
+
+It's tested heavily. More than 1,600 automated tests cover about 97% of the code. Before every release, a separate
+check deliberately breaks the code in hundreds of places to make sure the tests catch every one, and the app is
+built, installed, started and uninstalled on Windows 11 and built and started on Linux. A release goes out only when
+all of that passes. This isn't something thrown together in the hope that it works.
+
 ## Licence
 
 MIT; see [LICENSE](LICENSE). Bundled components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
