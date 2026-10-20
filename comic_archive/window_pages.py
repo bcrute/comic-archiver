@@ -87,6 +87,12 @@ def flat(text):
             .replace('</li>', ''))
 
 
+def prose(text):
+    """Rich text as a label shows it: lists as lines, and the lines spaced apart for reading."""
+    from .window_style import LINE_HEIGHT
+    return f'<div style="line-height: {LINE_HEIGHT}%">{flat(text)}</div>'
+
+
 def clean_key(text):
     """A copied key often carries a space or line break at its ends, or inside: none belongs in it."""
     return ''.join(text.split())
@@ -95,11 +101,14 @@ def clean_key(text):
 def paint(q, window, dark):
     """Give the window the look for light or dark: its style sheet, and the colour of links in its text."""
     from .window_style import colours, stylesheet
-    window.setStyleSheet(stylesheet(dark))
-    palette = window.palette()
+    # The link colour goes on the application's palette: the style sheet gives each widget a palette of its own,
+    # made from that one, so a colour set on the window alone does not reach the labels.
+    app = q.QtWidgets.QApplication.instance()
+    palette = app.palette()
     for role in (q.QtGui.QPalette.ColorRole.Link, q.QtGui.QPalette.ColorRole.LinkVisited):
         palette.setColor(role, q.QtGui.QColor(colours(dark)['accent']))
-    window.setPalette(palette)
+    app.setPalette(palette)
+    window.setStyleSheet(stylesheet(dark))
 
 
 class Kit:
@@ -112,7 +121,7 @@ class Kit:
         label = self.w.QLabel()
         flags = self.q.QtCore.Qt
         label.setTextFormat(flags.TextFormat.RichText if rich else flags.TextFormat.PlainText)
-        label.setText(flat(text) if rich else text)
+        label.setText(prose(text) if rich else text)
         label.setWordWrap(wrap)
         if name:
             label.setObjectName(name)
@@ -161,22 +170,13 @@ class Kit:
         return combo
 
     def scroll(self, content):
-        """A page that scrolls, in a centred column as wide as the dashboard's."""
-        from .window_style import COLUMN
+        """A page that scrolls, as wide as the window."""
         w = self.w
         area = w.QScrollArea()
         area.setWidgetResizable(True)
         area.setFrameShape(w.QFrame.Shape.NoFrame)
-        page = w.QWidget()
-        page.setObjectName('page')
-        outer = w.QHBoxLayout(page)
-        outer.setContentsMargins(0, 0, 0, 0)
-        content.setObjectName('column')
-        content.setMaximumWidth(COLUMN)
-        outer.addStretch(1)
-        outer.addWidget(content, 100000)
-        outer.addStretch(1)
-        area.setWidget(page)
+        content.setObjectName('page')
+        area.setWidget(content)
         return area
 
 
@@ -223,16 +223,8 @@ class Header:
         self.widget = w.QWidget()
         self.widget.setObjectName('header')
         self.widget.setAttribute(kit.q.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        from .window_style import COLUMN
-        strip = w.QWidget()
-        strip.setMaximumWidth(COLUMN)
-        centred = w.QHBoxLayout(self.widget)
-        centred.setContentsMargins(0, 0, 0, 0)
-        centred.addStretch(1)
-        centred.addWidget(strip, 100000)
-        centred.addStretch(1)
-        bar = w.QHBoxLayout(strip)
-        bar.setContentsMargins(24, 10, 24, 10)
+        bar = w.QHBoxLayout(self.widget)
+        bar.setContentsMargins(32, 10, 32, 10)
         bar.setSpacing(4)
         bar.addWidget(kit.label('Comic Archiver', 'brand', wrap=False))
         bar.addSpacing(16)
@@ -267,7 +259,7 @@ class Dashboard:
         w, self.kit, self.pages = kit.w, kit, pages
         content = w.QWidget()
         column = w.QVBoxLayout(content)
-        column.setContentsMargins(24, 24, 24, 24)
+        column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(20)
         top = w.QHBoxLayout()
         title, _ = heading(kit, 'Dashboard')
@@ -460,7 +452,7 @@ class Settings:
         w, self.kit, self.pages = kit.w, kit, pages
         content = w.QWidget()
         column = w.QVBoxLayout(content)
-        column.setContentsMargins(24, 24, 24, 24)
+        column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(20)
         top = w.QHBoxLayout()
         title, _ = heading(kit, 'Settings')
@@ -491,8 +483,14 @@ class Settings:
         panels.addWidget(self.status)
         # Only the open tab takes room, so a short one is not as tall as the longest.
         self.panels = {'downloads': self._downloads(kit, pages), 'storage': self._storage(kit, pages), 'b2': self._b2(kit, pages)}
+        from .window_style import READING
         for panel in self.panels.values():
             panels.addWidget(panel)
+            # The cards fill the page; what is read in them, and typed, keeps to a width that reads easily.
+            # A state box's words fill the box they sit in beside its label.
+            for part in (*panel.findChildren(w.QLabel), *panel.findChildren(w.QLineEdit)):
+                if not isinstance(part, w.QLabel) or (part.wordWrap() and part.parent().objectName() != 'state'):
+                    part.setMaximumWidth(READING)
         panels.addStretch(1)
         layout.addLayout(panels, 1)
         column.addLayout(layout)
@@ -835,7 +833,7 @@ class Settings:
         bucket = storage_model.bucket_name(s.bucket_draft, b2['bucket'], s.workspace_id or '')
         if self.bucket.text() != bucket:
             self.bucket.setText(bucket)
-        self.step3.setText(flat(B2_STEP3 % html.escape(bucket or 'the one from step 2')))
+        self.step3.setText(prose(B2_STEP3 % html.escape(bucket or 'the one from step 2')))
         self.setup.setVisible(not b2['folded'])
         self.fold_row.setVisible(b2['fold_visible'])
         self.fold.setText(b2['fold_text'])
@@ -860,7 +858,7 @@ class Library:
         self.request, self.busy, self.value, self.desktop_only = 0, False, None, False
         content = w.QWidget()
         column = w.QVBoxLayout(content)
-        column.setContentsMargins(24, 24, 24, 24)
+        column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(14)
         self.notice = kit.label(library_model.LOADING, 'notice')
         column.addWidget(self.notice)

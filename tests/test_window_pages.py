@@ -267,6 +267,10 @@ class HelperTests(unittest.TestCase):
                          '<br>&nbsp;&nbsp;•&nbsp;One<br>&nbsp;&nbsp;•&nbsp;Two<br>After')
         self.assertEqual(window_pages.clean_key(' K001 abc\n\tdef '), 'K001abcdef')
 
+    def test_rich_text_has_its_lines_spaced_for_reading(self):
+        self.assertEqual(window_pages.prose('<ul><li>One</li></ul>'),
+                         f'<div style="line-height: {window_style.LINE_HEIGHT}%"><br>&nbsp;&nbsp;•&nbsp;One<br></div>')
+
     def test_painting_sets_the_style_sheet_and_the_colour_of_links(self):
         setUpModule()
         window = QtWidgets.QWidget()
@@ -274,8 +278,9 @@ class HelperTests(unittest.TestCase):
         for dark in (True, False):
             window_pages.paint(Q, window, dark)
             self.assertEqual(window.styleSheet(), window_style.stylesheet(dark))
+            # On the application's palette, which the style sheet builds every widget's own from.
             for role in (QtGui.QPalette.ColorRole.Link, QtGui.QPalette.ColorRole.LinkVisited):
-                self.assertEqual(window.palette().color(role).name(), window_style.colours(dark)['accent'])
+                self.assertEqual(APP.palette().color(role).name(), window_style.colours(dark)['accent'])
 
 
 class DashboardTests(PagesCase):
@@ -625,6 +630,20 @@ class B2SettingsTests(PagesCase):
     def setUp(self):
         super().setUp()
         self.actions.reading['cloud']['targets'] = []
+
+    def test_a_wide_window_is_filled_and_the_steps_keep_a_width_that_reads_easily(self):
+        self.window.resize(1900, 900)
+        self.open('settings/b2')
+        settle()
+        s = self.settings
+        self.assertGreater(s.panels['b2'].width(), window_style.READING + 400)
+        for part in (s.step3, s.bucket, s.key_id, s.application_key, s.cloud_status):
+            self.assertEqual(part.maximumWidth(), window_style.READING)
+            self.assertLessEqual(part.width(), window_style.READING)
+        # A state box's words sit beside its label and take what the box has.
+        words = [label for label in s.b2_state.findChildren(QtWidgets.QLabel) if label.wordWrap()]
+        self.assertTrue(words)
+        self.assertTrue(all(label.maximumWidth() > window_style.READING for label in words))
 
     def test_a_mistyped_key_is_named_before_anything_is_sent(self):
         self.open('settings/b2')

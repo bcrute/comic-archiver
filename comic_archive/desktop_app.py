@@ -632,19 +632,9 @@ class Shell:
         header.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.title = widgets.QLabel(APP_NAME)
         self.title.setObjectName('signinTitle')
-        from .window_style import COLUMN
-        strip = widgets.QWidget(header)
-        strip.setMaximumWidth(COLUMN)
-        # The strip takes all the width it may have; only what is left over goes to the two sides.
-        centred = widgets.QHBoxLayout(header)
-        centred.setContentsMargins(0, 0, 0, 0)
-        centred.setSpacing(0)
-        centred.addStretch(1)
-        centred.addWidget(strip, 100000)
-        centred.addStretch(1)
         # Laid out as the pages' header is: the app's name on the left, what can be done on the right.
-        bar = widgets.QHBoxLayout(strip)
-        bar.setContentsMargins(24, 10, 24, 10)
+        bar = widgets.QHBoxLayout(header)
+        bar.setContentsMargins(32, 10, 32, 10)
         bar.setSpacing(12)
         bar.addWidget(self.title)
         bar.addWidget(self.where)

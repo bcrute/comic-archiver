@@ -919,16 +919,15 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual((shell.back.args, shell.retry.args, shell.where.args), (('Cancel sign-in',), ('Try again',), ('',)))
         shell.hint.setText.assert_called_once_with(desktop_app.site_text(desktop_app.SIGNIN_HINT))
         self.assertTrue(shell.hint.setText.call_args.args[0].startswith('Sign in to Tapas below. Comic Archiver carries on by itself once you are signed in.\n'))
-        centred, bar = self.widgets.QHBoxLayout.made
+        bar, = self.widgets.QHBoxLayout.made
         column, = self.widgets.QVBoxLayout.made
         # The same bar as the dashboard's header: the app's name on the left, what can be done on the right.
         self.assertEqual([call.args[0] for call in bar.addWidget.call_args_list], [shell.title, shell.where, shell.hint, shell.retry, shell.back])
         self.assertEqual(shell.title.args, ('Comic Archiver',))
-        panel, header, strip = self.widgets.QWidget.made
-        self.assertEqual((panel, header.args, strip.args, column.args), (shell.signin_panel, (panel,), (header,), (panel,)))
-        # Its contents stay in the pages' centred column however wide the window is.
-        self.assertEqual((centred.args, bar.args), ((header,), (strip,))); strip.setMaximumWidth.assert_called_once_with(window_style.COLUMN)
-        centred.addWidget.assert_called_once_with(strip, 100000); self.assertEqual(centred.addStretch.call_count, 2)
+        panel, header = self.widgets.QWidget.made
+        self.assertEqual((panel, header.args, column.args), (shell.signin_panel, (panel,), (panel,)))
+        # As wide as the window, with the pages' own side margins.
+        self.assertEqual(bar.args, (header,)); bar.setContentsMargins.assert_called_once_with(32, 10, 32, 10)
         # Coloured by the window's own style sheet, light or dark, as the pages' header is: nothing of its own.
         header.setStyleSheet.assert_not_called(); header.setAttribute.assert_called_once_with('styled', True)
         header.setObjectName.assert_called_once_with('signinHeader'); shell.title.setObjectName.assert_called_once_with('signinTitle')
@@ -1161,7 +1160,7 @@ class DesktopAppTests(unittest.TestCase):
         shell.signin_profile.clearHttpCache.assert_called_once_with()
         emit(shell.signin_profile.clearHttpCacheCompleted)
         self.request_signin(shell)
-        self.assertEqual((len(self.q.QtWebEngineCore.QWebEngineProfile.made), len(self.widgets.QWidget.made)), (1, 3))
+        self.assertEqual((len(self.q.QtWebEngineCore.QWebEngineProfile.made), len(self.widgets.QWidget.made)), (1, 2))
         self.assertEqual(self.loads(shell.signin_view), [SIGNIN, 'about:blank', SIGNIN])
         self.assertEqual((shell.signin_stage, store.deleteAllCookies.call_count), ('page', 3))
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
