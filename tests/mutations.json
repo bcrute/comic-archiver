@@ -4270,5 +4270,21 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
+ },
+ {
+  "id": "reopen-leaves-a-running-plan",
+  "source": "comic_archive/account_ui.py",
+  "old": "    elif continuing:\n        completion.request_stop(session, library)\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held"
+ },
+ {
+  "id": "reopen-reports-a-held-plan-as-idle",
+  "source": "comic_archive/account_ui.py",
+  "old": "    running = running or continuing\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held"
  }
 ]

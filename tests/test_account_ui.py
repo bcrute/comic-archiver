@@ -453,6 +453,27 @@ class AccountUITests(unittest.TestCase):
         self.assertNotIn(window['pending_task_id'],(None,task))
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
 
+    def test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held(self):
+        session,library=self.workspace.session,self.workspace.library
+        task,run=self.running_batch()
+        # The account's own controller fails and holds; the plan under it goes on downloading.
+        with patch.object(account_export,'_advance',side_effect=RuntimeError):account_export.worker_tick(session,library)
+        self.assertEqual(account_export.status(session,library)['status'],'held')
+        self.assertEqual(completion.status(session,library)['status'],'running')
+        # The app closed between batches: the last one ended on its own, with more left to save.
+        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'limited',**self.CANCELLED}})
+        self.assertTrue(account_ui.reopen(self.workspace))
+        self.assertEqual(completion.status(session,library)['status'],'stopped')
+        self.ticks()
+        self.assertEqual(list((self.queue/'requests').iterdir()),[])  # Nothing for the downloader to work through.
+        self.assertFalse(account_ui.reopen(self.workspace))  # It waits already.
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        self.ticks()
+        window=batches.status(session,library)
+        self.assertEqual((window['status'],window['code']),('running',None))
+        self.assertNotIn(window['pending_task_id'],(None,task))
+        self.assertEqual(completion.status(session,library)['status'],'running')
+
     def test_a_start_of_the_app_sets_an_interrupted_check_of_the_lists_to_wait_for_go_which_queues_it_again(self):
         session,library=self.workspace.session,self.workspace.library
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
