@@ -1,11 +1,11 @@
 ## Changes in {version}
 
-- **Webtoon works.** Choose Webtoon in the Site list, sign in, and press **Go**: it saves the series you subscribe
-  to, every episode the website shows. Episodes Webtoon only lets you read in its phone app, such as Daily Pass and
-  Fast Pass ones, aren't on the website, so they aren't saved.
-- **Sign out.** **Settings → Downloads** now has a **Sign out** button. It makes Comic Archiver forget your sign-in
-  on this computer. It signs out only the app: your account on the site, and anywhere else you're signed in, aren't
-  affected. Your saved episodes stay where they are.
+- **Uninstalling removes your sign-ins.** Uninstalling now signs Comic Archiver out of every site and removes your
+  Backblaze key from this computer, along with the app's own settings. Your saved episodes stay. On Windows, close
+  Comic Archiver before uninstalling it.
+- **Uninstall on Linux.** Right-click Comic Archiver in your applications menu and choose **Uninstall**.
+- **One copy at a time.** When you start a new version on Linux, or from the Windows zip, it offers to remove the
+  older copy. The Windows installer already replaces the older version by itself.
 
 ## Download
 
