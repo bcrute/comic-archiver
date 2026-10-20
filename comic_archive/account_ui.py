@@ -147,8 +147,14 @@ def reopen(workspace, *, idle=True):
     if not state.get('configured'):
         return False
     running = state.get('status') == 'running'
+    # The plan that works through the backlog goes on by itself after the account's download was held or
+    # finished, so it waits for Go as well.
+    continuing = completion.status(session, library).get('status') == 'running'
     if running:
-        account_export.request_stop(session, library)
+        account_export.request_stop(session, library)  # The plan stops with it.
+    elif continuing:
+        completion.request_stop(session, library)
+    running = running or continuing
     if idle:
         for task in sorted({state.get('pending_task_id'), batches.status(session, library).get('pending_task_id')} - {None}):
             end_unstarted(session, library, task)
