@@ -1,4 +1,4 @@
-# Builds and automated suites run on Core/Heavy. GitHub only publishes their attested downloads.
+# Builds and automated suites run on the project's own build machines. GitHub only publishes their attested downloads.
 name: Release
 
 on:
