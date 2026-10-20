@@ -72,6 +72,9 @@ class SiteProfileTests(unittest.TestCase):
         answer = json.dumps({'origin': 'https://www.webtoons.com', 'answer': '{"data":{"user":{"id":11}}}', 'storage': []})
         self.assertTrue(desktop_app.page_spoke(answer, WEBTOON))
         self.assertIsNone(desktop_app.signed_in(answer, WEBTOON))
+        # A site the window has no way to recognise is never taken as signed in, whatever its page answers.
+        elsewhere = dataclasses.replace(WEBTOON, key='elsewhere')
+        self.assertIsNone(desktop_app.signed_in(answer, elsewhere))
         named = json.dumps({'origin': 'https://www.webtoons.com', 'answer': '{"loginUser":true,"loginId":"reader"}', 'storage': []})
         self.assertEqual(desktop_app.signed_in(named, WEBTOON), ('reader', []))
         self.assertIsNone(desktop_app.signed_in(named.replace('true', 'false'), WEBTOON))
