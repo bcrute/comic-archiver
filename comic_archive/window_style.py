@@ -14,12 +14,14 @@ COLOURS = {
     'button-text': ('#ffffff', '#122d22'), 'disabled-text': ('#5d706a', '#a0afa6'), 'disabled-bg': ('#e2e9e4', '#2d3d35'),
     'error': ('#914416', '#ffbc8d'),
 }
-# The page's own width: what the window holds stays in a centred column this wide.
-COLUMN = 1100
+# The pages fill the window. Text that is read, not glanced at, stays within this width, about 90 characters: longer
+# lines are hard to follow back to their start. Its lines are spaced this much (percent of the font's height).
+READING = 820
+LINE_HEIGHT = 135
 
 SHEET = '''
 QWidget { color: %(text)s; font-size: 15px; }
-QMainWindow, QStackedWidget, QScrollArea, QWidget#page, QWidget#column { background: %(page)s; }
+QMainWindow, QStackedWidget, QScrollArea, QWidget#page { background: %(page)s; }
 QToolTip { color: %(text)s; background: %(surface)s; border: 1px solid %(border)s; }
 
 QWidget#header, QWidget#signinHeader { background: %(surface)s; border-bottom: 1px solid %(border)s; }

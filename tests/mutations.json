@@ -2704,14 +2704,6 @@
   "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
  },
  {
-  "id": "signin-header-full-width",
-  "source": "comic_archive/desktop_app.py",
-  "old": "        strip.setMaximumWidth(COLUMN)\n",
-  "new": "",
-  "test_file": "test_desktop_app.py",
-  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
- },
- {
   "id": "runtime-is-library",
   "source": "comic_archive/app_runtime.py",
   "old": "for site in sites.SITES)\n    except (OSError, ValueError):",
@@ -3534,5 +3526,45 @@
   "new": "now - state.network_at >= NETWORK_SECONDS",
   "test_file": "test_app_actions.py",
   "test": "test_what_a_refresh_reads_besides_the_dashboard_is_due_by_its_own_clock"
+ },
+ {
+  "id": "signin-header-margins-unlike-pages",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        bar.setContentsMargins(32, 10, 32, 10)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_sign_in_opens_inside_the_window_on_tapas_own_page_in_a_separate_private_profile"
+ },
+ {
+  "id": "settings-text-runs-full-width",
+  "source": "comic_archive/window_pages.py",
+  "old": "                    part.setMaximumWidth(READING)\n",
+  "new": "                    pass\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_wide_window_is_filled_and_the_steps_keep_a_width_that_reads_easily"
+ },
+ {
+  "id": "state-box-words-squeezed",
+  "source": "comic_archive/window_pages.py",
+  "old": " and part.parent().objectName() != 'state'",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_wide_window_is_filled_and_the_steps_keep_a_width_that_reads_easily"
+ },
+ {
+  "id": "links-coloured-on-window-only",
+  "source": "comic_archive/window_pages.py",
+  "old": "    app.setPalette(palette)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_painting_sets_the_style_sheet_and_the_colour_of_links"
+ },
+ {
+  "id": "rich-text-lines-unspaced",
+  "source": "comic_archive/window_pages.py",
+  "old": "<div style=\"line-height: {LINE_HEIGHT}%\">{flat(text)}</div>",
+  "new": "{flat(text)}",
+  "test_file": "test_window_pages.py",
+  "test": "test_rich_text_has_its_lines_spaced_for_reading"
  }
 ]
