@@ -1,11 +1,12 @@
 ## Changes in {version}
 
-- **Uninstalling removes your sign-ins.** Uninstalling now signs Comic Archiver out of every site and removes your
-  Backblaze key from this computer, along with the app's own settings. Your saved episodes stay. On Windows, close
-  Comic Archiver before uninstalling it.
-- **Uninstall on Linux.** Right-click Comic Archiver in your applications menu and choose **Uninstall**.
-- **One copy at a time.** When you start a new version on Linux, or from the Windows zip, it offers to remove the
-  older copy. The Windows installer already replaces the older version by itself.
+- **Nothing downloads until you press Go.** Opening Comic Archiver could carry on saving episodes from an earlier
+  download by itself, without Go. It now waits for **Go**, and Go picks up where the download left off.
+- **The window shows a download that is still saving.** When a download stopped on a problem, episodes could keep
+  saving while the window showed it as stopped. The window now shows the download as working until it has nothing
+  left to save, and **Pause** stops it.
+- **Pause stops a download left by an older version.** Before, Pause could fail with "No account export is
+  configured" and the download went on.
 
 ## Download
 
