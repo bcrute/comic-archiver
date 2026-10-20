@@ -1,10 +1,11 @@
 ## Changes in {version}
 
-- The window is now a normal desktop window drawn by the app itself, not a web page shown inside it. The app no
-  longer runs a small web server on your computer. Signing in to the comic site still happens in a web page in
-  the window, as before.
-- Pages fill the window instead of keeping to a narrow column down the middle. Longer explanations, such as the
-  Backblaze B2 setup steps, keep to an easy reading width and have more space between their lines.
+- **Webtoon works.** Choose Webtoon in the Site list, sign in, and press **Go**: it saves the series you subscribe
+  to, every episode the website shows. Episodes Webtoon only lets you read in its phone app, such as Daily Pass and
+  Fast Pass ones, aren't on the website, so they aren't saved.
+- **Sign out.** **Settings → Downloads** now has a **Sign out** button. It makes Comic Archiver forget your sign-in
+  on this computer. It signs out only the app: your account on the site, and anywhere else you're signed in, aren't
+  affected. Your saved episodes stay where they are.
 
 ## Download
 
@@ -42,16 +43,17 @@ later starts are quick.
 1. Choose your site in the Site list.
 2. Choose **Sign in**, and sign in on the site's own page in the window with your email and password.
    Google and Facebook sign-in buttons may not work in that window. If that is how you normally sign in, first add
-   a password to your account on the comic site itself (Tapas or Tappytoon, not Google or Facebook): sign in to the
+   a password to your account on the comic site itself (Tapas, Tappytoon or Webtoon, not Google or Facebook): sign in to the
    comic site in your usual web browser the way you always do, open your account settings, and set a password
    there. Then sign in to Comic Archiver with your account's email and that password.
 3. Press **Go**.
 
 **Where your files go.** Into the folder `Comic Archiver` in your user folder (on Windows
-`C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, one folder per series.
+`C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
 Comics are saved as CBZ files and novels as EPUB files, which open in comic and e-book reader apps.
 
-Uninstalling removes only the app: your saved episodes and your sign-in are kept.
+Uninstalling removes only the app: your saved episodes and your sign-in are kept. Sign out first if you'd like
+the sign-in gone too.
 
 **Linux.** Unpack the file, open the folder and double-click `comic-archiver` (choose "Run" if asked). After the
 first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above.
