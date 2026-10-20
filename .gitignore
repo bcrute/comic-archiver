@@ -14,3 +14,5 @@ parked/android/build/
 .validation/
 /build/
 /dist/
+# Planning notes stay on this computer.
+/ROADMAP.md

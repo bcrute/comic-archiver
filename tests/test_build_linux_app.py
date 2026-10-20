@@ -125,6 +125,9 @@ class PackagingTests(WorkspaceCase):
         entry = parser['Desktop Entry']
         self.assertEqual((entry['Type'], entry['Name'], entry['Exec'], entry['Icon'], entry['Terminal']),
                          ('Application', 'Comic Archiver', 'comic-archiver', 'comic-archiver', 'false'))
+        self.assertEqual(entry['Actions'], 'uninstall;')
+        action = parser['Desktop Action uninstall']
+        self.assertEqual((action['Name'], action['Exec']), ('Uninstall', 'comic-archiver --uninstall'))
         self.assertTrue(ElementTree.parse(PROJECT / 'packaging/comic-archiver.svg').getroot().tag.endswith('svg'))
 
     def test_install_packaging_lays_out_launcher_icon_and_licences(self):
@@ -458,6 +461,7 @@ class LauncherBehaviourTests(WorkspaceCase):
         self.launch(app)
         text = self.entry.read_text()
         self.assertIn(f'Exec="{app}/comic-archiver"\n', text)
+        self.assertIn(f'[Desktop Action uninstall]\nName=Uninstall\nExec="{app}/comic-archiver" --uninstall\n', text)
         self.assertIn(f'Icon={app}/share/icons/hicolor/scalable/apps/comic-archiver.svg\n', text)
         self.assertIn('Name=Comic Archiver\n', text)
         self.entry.write_text('stale')
@@ -465,10 +469,11 @@ class LauncherBehaviourTests(WorkspaceCase):
         self.assertEqual(self.entry.read_text(), text)
         self.assertEqual([p.name for p in self.entry.parent.iterdir()], ['comic-archiver.desktop'])
 
-    def test_version_and_self_test_runs_do_not_write_outside_the_app(self):
+    def test_version_self_test_and_uninstall_runs_do_not_write_a_menu_entry(self):
         app = self.install()
-        for flag in ('--version', '--self-test'):
+        for flag in ('--version', '--self-test', '--uninstall'):
             self.assertEqual(self.launch(app, flag).returncode, 0)
+            self.assertEqual(self.record.read_text().splitlines()[-1], flag)
         self.assertFalse(self.data.exists())
 
     def test_paths_the_desktop_format_cannot_quote_get_no_entry_but_still_run(self):

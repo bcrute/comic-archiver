@@ -139,6 +139,17 @@ CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and sto
 CLOSE_SIGNIN = 'Signing in to {site} is not finished. Close anyway?\n\nYou will need to sign in again.'
 ALREADY_RUNNING = ('Comic Archiver is already open or still starting. The first start can take up to a minute; '
                    'its window then appears by itself.')
+UNINSTALL_ASK = ('Uninstall Comic Archiver?\n\nThis signs Comic Archiver out of every comic site and removes your '
+                 'Backblaze B2 key from this computer. Your accounts aren\'t changed, and your saved episodes stay where '
+                 'they are.')
+UNINSTALL_OPEN = 'Comic Archiver is open. Close it, then uninstall again.'
+UNINSTALL_FAILED = ('Comic Archiver could not remove everything it keeps for signing in. Restart your computer, '
+                    'then uninstall again.')
+UNINSTALL_DONE = ('Comic Archiver is signed out of every site and removed from your applications menu.\n\n'
+                  'Your saved episodes are still in\n{library}')
+UNINSTALL_FOLDER = '\n\nTo finish, delete this folder:\n{folder}'
+# The uninstaller's exit status: done, not done, and not done because the window is open.
+UNINSTALLED, UNINSTALL_INCOMPLETE, UNINSTALL_BLOCKED = 0, 1, 3
 # The raw import error is for the terminal and the log only; people get TOOLKIT_BROKEN.
 MISSING_QT = ('Comic Archiver needs the PySide6 window toolkit, which is missing or cannot load.\n'
               'When installed with pip: pip install "comic-archive[desktop]"')
@@ -158,6 +169,9 @@ def arguments(argv=None):
     parser.add_argument('--self-test', action='store_true',
                         help='load the window off-screen with an empty temporary library, report JSON and exit')
     parser.add_argument('--version', action='store_true', help='print the version and exit')
+    parser.add_argument('--uninstall', action='store_true',
+                        help='forget every sign-in and cloud key and remove the app\'s settings; saved episodes stay')
+    parser.add_argument('--quiet', action='store_true', help='with --uninstall: ask nothing and show nothing')
     return parser.parse_args(argv)
 
 
@@ -280,6 +294,48 @@ def standard_instead(q, folder):
     buttons = box.StandardButton
     text = LOCATION_MISSING.format(folder=folder, standard=app_runtime.default_root())
     return box.question(None, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes
+
+
+def uninstall(q, quiet):
+    """Forget every sign-in and cloud key the app saved, and remove its own folders; saved episodes stay.
+
+    Asked first unless quiet: the Windows uninstaller has asked already, and reads the exit status. Never while
+    the window is open, which could save a sign-in again.
+    """
+    from . import uninstall as removal
+    box = q.QtWidgets.QMessageBox
+    if not quiet:
+        application(q)
+        buttons = box.StandardButton
+        if box.question(None, APP_NAME, UNINSTALL_ASK, buttons.Yes | buttons.No, buttons.No) != buttons.Yes:
+            return UNINSTALL_INCOMPLETE
+
+    def tell(code, text):
+        if not quiet:
+            (box.information if code == UNINSTALLED else box.warning)(None, APP_NAME, text)
+        return code
+    try:
+        lock = q.QtCore.QLockFile(str(app_runtime.state_dir() / 'desktop.lock'))
+    except ArchiveError:
+        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
+    lock.setStaleLockTime(0)
+    failed = q.QtCore.QLockFile.LockError.LockFailedError
+    if not (lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0))):
+        return tell(*((UNINSTALL_BLOCKED, UNINSTALL_OPEN) if lock.error() == failed
+                      else (UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)))
+    try:
+        library = app_runtime.saved_root() or app_runtime.default_root()
+        complete = removal.forget_all()
+    finally:
+        lock.unlock()
+    complete = removal.remove_app_folders() and complete
+    folder = removal.app_folder()
+    if folder is not None:
+        removal.remove_menu_entry(folder)
+    if not complete:
+        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
+    text = UNINSTALL_DONE.format(library=library) + ('' if folder is None else UNINSTALL_FOLDER.format(folder=folder))
+    return tell(UNINSTALLED, text)
 
 
 def failure_text(error, log_path):
@@ -1197,6 +1253,8 @@ def main(argv=None):
         q = qt()
     except ImportError as error:
         return toolkit_missing(error, args.self_test)
+    if args.uninstall:
+        return uninstall(q, args.quiet)
     return self_test(q) if args.self_test else run(q, args.project_root)
 
 

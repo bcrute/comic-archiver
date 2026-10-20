@@ -3894,5 +3894,245 @@
   "new": "parts, title = urlsplit(link), ''.join(text).strip()",
   "test_file": "test_webtoon.py",
   "test": "test_the_subscriptions_are_read_from_the_accounts_own_list_and_nothing_around_it"
+ },
+ {
+  "id": "uninstall-chosen-library-skipped",
+  "source": "comic_archive/uninstall.py",
+  "old": "found = [app_runtime.default_root(), app_runtime.saved_root(), *app_runtime.opened_libraries()]",
+  "new": "found = [app_runtime.default_root(), *app_runtime.opened_libraries()]",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-opened-libraries-skipped",
+  "source": "comic_archive/uninstall.py",
+  "old": "found = [app_runtime.default_root(), app_runtime.saved_root(), *app_runtime.opened_libraries()]",
+  "new": "found = [app_runtime.default_root(), app_runtime.saved_root()]",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-sign-in-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "            forget_session(session)\n",
+  "new": "            pass\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-other-sites-skipped",
+  "source": "comic_archive/uninstall.py",
+  "old": "    for site in sites.SITES:\n        try:",
+  "new": "    for site in sites.SITES[:1]:\n        try:",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-own-cloud-keys-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "        forget_connections(library / '.archive-state/cloud')\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-shared-cloud-keys-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "        forget_connections(private_path(root, 'shared') / 'cloud')",
+  "new": "        pass",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-linked-cloud-keys-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if linked is not None:\n            forget_connections(linked)",
+  "new": "        if linked is None:\n            forget_connections(linked)",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_library_linked_to_shared_settings_elsewhere_has_those_connections_forgotten"
+ },
+ {
+  "id": "uninstall-connection-records-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "cloud._write(record, value | {'targets': {}})",
+  "new": "cloud._write(record, value)",
+  "test_file": "test_uninstall.py",
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
+ },
+ {
+  "id": "uninstall-unreadable-record-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "            record.unlink(missing_ok=True)\n",
+  "new": "            pass\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_library_never_signed_in_and_an_unreadable_connection_record_are_cleared_too"
+ },
+ {
+  "id": "uninstall-symlinked-cloud-followed",
+  "source": "comic_archive/uninstall.py",
+  "old": "        folder = safe_root(folder)\n    except ArchiveError:\n        return",
+  "new": "        folder = Path(folder)\n    except ArchiveError:\n        return",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_symlinked_folder_is_never_followed"
+ },
+ {
+  "id": "uninstall-downloader-not-asked",
+  "source": "comic_archive/uninstall.py",
+  "old": "            background.stop(session)\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_downloader_still_running_is_asked_to_stop_then_ended_and_the_sign_in_goes_regardless"
+ },
+ {
+  "id": "uninstall-downloader-not-ended",
+  "source": "comic_archive/uninstall.py",
+  "old": "        app_runtime.end_downloader(session)\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_downloader_still_running_is_asked_to_stop_then_ended_and_the_sign_in_goes_regardless"
+ },
+ {
+  "id": "uninstall-running-downloader-ignored",
+  "source": "comic_archive/uninstall.py",
+  "old": "    return idle(session, app_runtime.END_WAIT_SECONDS)",
+  "new": "    return True",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_downloader_still_running_is_asked_to_stop_then_ended_and_the_sign_in_goes_regardless"
+ },
+ {
+  "id": "uninstall-stopped-result-dropped",
+  "source": "comic_archive/uninstall.py",
+  "old": "            stopped = stop_downloader(session) and stopped",
+  "new": "            stop_downloader(session)",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_downloader_still_running_is_asked_to_stop_then_ended_and_the_sign_in_goes_regardless"
+ },
+ {
+  "id": "uninstall-broken-library-stops-the-rest",
+  "source": "comic_archive/uninstall.py",
+  "old": "        except (ArchiveError, OSError) as error:\n            LOG.warning('uninstall could not clear a library folder: %s', app_runtime.describe(error))\n            complete = False",
+  "new": "        except ArchiveError as error:\n            LOG.warning('uninstall could not clear a library folder: %s', app_runtime.describe(error))\n            complete = False",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_library_folder_that_cannot_be_read_is_reported_and_the_others_are_still_cleared"
+ },
+ {
+  "id": "uninstall-app-folder-left",
+  "source": "comic_archive/uninstall.py",
+  "old": "            shutil.rmtree(folder, ignore_errors=True)\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_apps_own_folders_go_and_nothing_beside_them"
+ },
+ {
+  "id": "uninstall-app-folder-failure-hidden",
+  "source": "comic_archive/uninstall.py",
+  "old": "            complete = complete and not folder.exists()",
+  "new": "            complete = complete",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_apps_own_folders_go_and_nothing_beside_them"
+ },
+ {
+  "id": "uninstall-backup-helper-kept",
+  "source": "comic_archive/uninstall.py",
+  "old": "home / '.local/share/comic-archive',\n",
+  "new": "\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_apps_own_folders_go_and_nothing_beside_them"
+ },
+ {
+  "id": "uninstall-symlinked-app-folder-followed",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if folder.is_symlink():\n            folder.unlink()\n        elif folder.exists():",
+  "new": "        if folder.exists():",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_symlinked_app_folder_is_removed_as_a_link_only"
+ },
+ {
+  "id": "uninstall-any-menu-entry-removed",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if f'Exec=\"{folder}/comic-archiver\"' in entry.read_text(encoding='utf-8').splitlines():",
+  "new": "        if entry.exists():",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_linux_menu_entry_goes_only_when_it_starts_this_copy"
+ },
+ {
+  "id": "uninstall-library-record-repeats",
+  "source": "comic_archive/app_runtime.py",
+  "old": "    if root in known:\n        return\n",
+  "new": "",
+  "test_file": "test_uninstall.py",
+  "test": "test_each_library_folder_opened_is_noted_once_and_a_bad_record_is_ignored"
+ },
+ {
+  "id": "uninstall-library-record-relative",
+  "source": "comic_archive/app_runtime.py",
+  "old": "if line and '\\0' not in line and Path(line).is_absolute()]",
+  "new": "if line and '\\0' not in line]",
+  "test_file": "test_uninstall.py",
+  "test": "test_each_library_folder_opened_is_noted_once_and_a_bad_record_is_ignored"
+ },
+ {
+  "id": "uninstall-library-not-noted",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        remember_library(root)\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins"
+ },
+ {
+  "id": "uninstall-not-asked",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if box.question(None, APP_NAME, UNINSTALL_ASK, buttons.Yes | buttons.No, buttons.No) != buttons.Yes:",
+  "new": "        if False:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_uninstalling_asks_first_then_forgets_everything_and_says_where_the_saved_episodes_are"
+ },
+ {
+  "id": "uninstall-while-window-open",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        return tell(*((UNINSTALL_BLOCKED, UNINSTALL_OPEN) if lock.error() == failed",
+  "new": "        return tell(*((UNINSTALL_INCOMPLETE, UNINSTALL_OPEN) if lock.error() == failed",
+  "test_file": "test_desktop_app.py",
+  "test": "test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used"
+ },
+ {
+  "id": "uninstall-stale-lock-blocks",
+  "source": "comic_archive/desktop_app.py",
+  "old": "(lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0))",
+  "new": "(lock.error() == failed and lock.removeStaleLockFile() and False)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used"
+ },
+ {
+  "id": "uninstall-folders-before-unlock",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    finally:\n        lock.unlock()\n    complete = removal.remove_app_folders() and complete",
+  "new": "        complete = removal.remove_app_folders() and complete\n    finally:\n        lock.unlock()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_uninstalling_asks_first_then_forgets_everything_and_says_where_the_saved_episodes_are"
+ },
+ {
+  "id": "uninstall-failure-reported-as-done",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if not complete:\n        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)",
+  "new": "    if False:\n        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status"
+ },
+ {
+  "id": "uninstall-menu-entry-kept",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        removal.remove_menu_entry(folder)",
+  "new": "        pass",
+  "test_file": "test_desktop_app.py",
+  "test": "test_uninstalling_asks_first_then_forgets_everything_and_says_where_the_saved_episodes_are"
+ },
+ {
+  "id": "uninstall-quiet-shows-dialogs",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if not quiet:\n            (box.information",
+  "new": "        if True:\n            (box.information",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status"
  }
 ]

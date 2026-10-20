@@ -97,6 +97,10 @@ class AppRuntimeTests(unittest.TestCase):
         with patch.object(Path, 'iterdir', side_effect=PermissionError('PRIVATE')):
             self.assertEqual(pick(str(empty)), empty / 'Comic Archiver')
 
+    def test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins(self):
+        self.runtime.start()
+        self.assertEqual(app_runtime.opened_libraries(), [self.root])
+
     def test_the_chosen_library_folder_is_kept_for_the_next_start_and_the_standard_one_needs_no_record(self):
         saved, drive = self.state / 'comic-archiver/library', self.home / 'drive/Comic Archiver'
         self.assertIsNone(app_runtime.saved_root())
