@@ -57,5 +57,5 @@ Uninstalling removes only the app: your saved episodes and your sign-in are kept
 first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above.
 
 `SHA256SUMS.txt` lists each file's SHA-256, to check a download against. These files were built and self-tested
-on Core/Heavy from the tagged source. `release-evidence.json` records the validation results and download
+from the tagged source. `release-evidence.json` records the validation results and download
 hashes checked by the Release workflow before publication.
