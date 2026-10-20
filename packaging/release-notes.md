@@ -1,13 +1,10 @@
 ## Changes in {version}
 
-- Episodes larger than 5 MB now go to Backblaze B2 in one piece. B2 sent about half of them in parts before, kept no
-  checksum for them, and the check after each upload then failed and paused the download.
-- If B2 can't confirm an episode's upload, that episode is saved on this computer for the retry button in the cloud
-  settings, and the download carries on. It still pauses if that happens to several episodes in one run, or if the
-  problem is with cloud storage itself.
-- A download paused by a cloud upload now says why on the dashboard.
-- The cloud settings now say why the storage choice and the library folder can't be changed while episodes are
-  downloading.
+- The window is now a normal desktop window drawn by the app itself, not a web page shown inside it. The app no
+  longer runs a small web server on your computer. Signing in to the comic site still happens in a web page in
+  the window, as before.
+- Pages fill the window instead of keeping to a narrow column down the middle. Longer explanations, such as the
+  Backblaze B2 setup steps, keep to an easy reading width and have more space between their lines.
 
 ## Download
 
