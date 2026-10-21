@@ -76,6 +76,12 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 | Linux | Works |
 | Mac | Not planned yet |
 
+## Planned
+
+Nothing in this section works today. A built-in reader for the CBZ and EPUB files the app saves, and an
+optional, private connection so your own library appears in your the web reader account on your other devices,
+are planned; see [docs/reader-and-connected-library-roadmap.md](docs/reader-and-connected-library-roadmap.md).
+
 ## Other ways to save your comics
 
 Since Tapas announced its closing, community guides often point to Mihon, HaruNeko and Suwayomi. Those are good
