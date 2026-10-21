@@ -76,3 +76,13 @@ class AndroidTransport(Transport):
                          network_guard=network_guard, agent=agent, site=site,
                          cookie_source=source.header_for, cookie_sink=source.apply)
         self.store = source
+
+    @property
+    def assets(self):
+        """The pipeline's asset reader: this transport itself.
+
+        MetadataPipeline.retrieve reads a non-site page as `transport.assets.get(...)`; the
+        canonical request path already refuses the site's cookies to every other origin, so
+        the one live transport is the whole answer and no second client exists.
+        """
+        return self
