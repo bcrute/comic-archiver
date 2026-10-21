@@ -776,8 +776,30 @@ def phase_build(paths, wheels):
                            for part in reqs.namelist()):
                         wheel_abis.append(match.group(1))
         wheel_abis = sorted(set(wheel_abis))
+    artifact = None
+    artifact_sha256 = None
+    if ok:
+        # The executor retires repo/ as soon as the job completes, taking the built APK
+        # with it; the job's artifacts/ sibling survives cleanup. Preserve the exact APK
+        # (and its digest, computed over the copy as it is written) so the point leaves
+        # retrievable evidence instead of a path that dies with the repo.
+        digest = hashlib.sha256()
+        try:
+            artifacts_dir = REPO.parent / "artifacts"
+            artifacts_dir.mkdir(exist_ok=True)
+            artifact = artifacts_dir / APK.name
+            with APK.open("rb") as source, artifact.open("wb") as sink:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    sink.write(chunk)
+            artifact_sha256 = digest.hexdigest()
+        except OSError:
+            artifact = None
+            artifact_sha256 = None
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
+           apk_artifact=str(artifact) if artifact else None,
+           apk_sha256=artifact_sha256, apk_bytes=APK.stat().st_size if APK.is_file() else None,
            pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
     return ok
 
