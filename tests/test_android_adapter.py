@@ -175,7 +175,7 @@ class AndroidTapasAdapterDiscoveryTests(unittest.TestCase):
         # every one of them the site's own page with the live session header.
         self.assertEqual([url for url, _ in transport.fetched], [WHO_AM_I, LIST_1, LIST_2])
         self.assertTrue(all(cookie == 'session=GOLDEN' for _, cookie in transport.fetched))
-        self.assertTrue(all(url.startswith('https://tapas.io/') for url in transport.fetched))
+        self.assertTrue(all(url.startswith('https://tapas.io/') for url, _ in transport.fetched))
 
     def test_a_card_without_one_verified_identity_leaves_the_list_incomplete(self):
         transport = SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: AMBIGUOUS})
