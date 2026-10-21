@@ -7,10 +7,21 @@ from comic_archive.models import ArchiveError
 from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
 
 
+class Headers(dict):
+    """httpx-shaped headers: plain mapping plus the Set-Cookie list the transport reads."""
+
+    def __init__(self, values=None, set_cookies=()):
+        super().__init__(values or {})
+        self._set_cookies = list(set_cookies)
+
+    def get_list(self, name):
+        return list(self._set_cookies) if name.lower() == 'set-cookie' else []
+
+
 class Response:
     def __init__(self, code=200, data=b"image", headers=None, set_cookies=()):
-        self.status_code, self.data, self.headers = code, data, headers or {}
-        self._set_cookies = list(set_cookies)
+        self.status_code, self.data = code, data
+        self.headers = Headers(headers, set_cookies)
 
     def __enter__(self):
         return self
@@ -20,9 +31,6 @@ class Response:
 
     def iter_bytes(self):
         yield self.data
-
-    def get_list(self, name):
-        return list(self._set_cookies) if name.lower() == 'set-cookie' else []
 
 
 class Client:
