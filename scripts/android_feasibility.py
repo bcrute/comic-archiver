@@ -757,7 +757,10 @@ def phase_build(paths, wheels):
             # recompress it); the wheel's compiled backend lives inside that zip, not
             # under lib/. Attempt 19's APK probe scanned lib/ and reported nothing.
             for name in archive.namelist():
-                match = re.fullmatch(r"assets/chaquopy/requirements-([^-]+)\.imy", name)
+                # Android ABI names mix separators (arm64-v8a dashes, x86_64
+                # underscores); accept either rather than only the underscored kind
+                # (attempt 20's [^-]+ silently dropped arm64-v8a).
+                match = re.fullmatch(r"assets/chaquopy/requirements-(.+)\.imy", name)
                 if not match:
                     continue
                 with zipfile.ZipFile(io.BytesIO(archive.read(name))) as reqs:
