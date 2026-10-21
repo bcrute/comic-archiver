@@ -236,6 +236,60 @@ def _install_sdk_package(name, details, sdk):
     return True, details["sha1"]
 
 
+def _jvm_net_options(java):
+    """-D flags that let a JVM reach the network on this fleet: the proxy from the
+    environment (Java ignores http_proxy/https_proxy) and a truststore holding the
+    system's CA set. The proxy re-signs TLS with a CA the system OpenSSL store trusts —
+    every Python download works — while the JDK's own cacerts does not (observed:
+    sdkmanager fetching no manifests on attempts 4-5; Gradle resolving no plugin from
+    google/mavenCentral for 48 minutes on attempt 10). Only raw-JVM downloads need
+    these; cibuildwheel's Python-side Maven fetch worked without them.
+    """
+    from urllib.parse import urlsplit
+    flags = ["-Djava.net.preferIPv4Stack=true"]
+    for name, scheme in (("http_proxy", "http"), ("https_proxy", "https")):
+        value = os.environ.get(name) or os.environ.get(name.upper())
+        if value:
+            parsed = urlsplit(value if "//" in value else "//" + value)
+            if parsed.hostname:
+                flags.append(f"-D{scheme}.proxyHost={parsed.hostname}")
+                if parsed.port:
+                    flags.append(f"-D{scheme}.proxyPort={parsed.port}")
+    truststore, store_type = _jvm_truststore(java)
+    if truststore is not None:
+        flags.append(f"-Djavax.net.ssl.trustStore={truststore}")
+        flags.append(f"-Djavax.net.ssl.trustStoreType={store_type}")
+        flags.append("-Djavax.net.ssl.trustStorePassword=changeit")
+    return flags
+
+
+def _jvm_truststore(java):
+    """A JVM-readable copy of the system CA set: the distro's own java cacerts when it
+    exists, else one built with the pinned JDK's keytool from /etc/ssl/certs. The store
+    type is read from the file's magic (JKS starts FEEDFEED; PKCS12 is an ASN.1
+    SEQUENCE). None when nothing to build from — the flags are then simply omitted
+    and the failure remains the JVM's own words in the receipt."""
+    system = pathlib.Path("/etc/ssl/certs/java/cacerts")
+    if system.is_file():
+        return str(system), ("JKS" if system.read_bytes()[:4] == b"\xfe\xed\xfe\xed" else "PKCS12")
+    target = TOOLS_DIR / "jssecacerts"
+    if target.is_file():
+        return str(target), "JKS"
+    certs = sorted(pathlib.Path("/etc/ssl/certs").glob("*.pem"))
+    if not certs or java is None:
+        return None, None
+    keytool = pathlib.Path(java).parent / "keytool"
+    if not keytool.is_file():
+        return None, None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.unlink(missing_ok=True)
+    for index, cert in enumerate(certs):
+        run_tool([str(keytool), "-importcert", "-noprompt", "-storetype", "JKS",
+                  f"-alias", f"fleet-{index}", "-file", str(cert),
+                  "-keystore", str(target), "-storepass", "changeit"], timeout=120)
+    return (str(target), "JKS") if target.is_file() else (None, None)
+
+
 def phase_provision():
     """Provision job-private JDK, Android SDK tools, Gradle, host CPython 3.13 and cibuildwheel.
 
@@ -536,10 +590,16 @@ def phase_build(paths, wheels):
     if not paths.get("gradle"):
         record("build", "pending", reason="no gradle available")
         return False
-    env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent)}
+    # Gradle's JVM is the one remaining raw-JVM downloader (the plugins and Chaquopy's
+    # own artifacts); hand it the proxy and the system-CA truststore via GRADLE_OPTS,
+    # which the launcher forwards to the single-use daemon it forks for --no-daemon.
+    jvm_flags = _jvm_net_options(paths["java"])
+    env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
+           "GRADLE_OPTS": " ".join(jvm_flags)}
     result = run_tool([paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), "assembleDebug",
                        f"-PzstandardWheels={wheels}",
-                       f"-PbuildPython={paths['buildpython']}"], timeout=3600, env_extra=env)
+                       f"-PbuildPython={paths['buildpython']}"], timeout=3600, env_extra=env,
+                      keep_bytes=8000)
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
     classification = None
@@ -551,7 +611,7 @@ def phase_build(paths, wheels):
             wheel_abis = sorted({name.split("/")[1] for name in archive.namelist()
                                  if name.startswith("lib/") and "zstandard" in name.lower()})
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
-           apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis,
+           apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
            buildpython=paths.get("buildpython"), tail=tail)
     return ok
 
