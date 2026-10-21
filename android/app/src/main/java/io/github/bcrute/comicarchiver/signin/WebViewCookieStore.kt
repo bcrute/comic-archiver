@@ -113,6 +113,21 @@ class WebViewCookieStore(
         }
     }
 
+    /**
+     * Load the WebView cookie provider on the main thread, before any worker thread can ask
+     * the store a question. Idempotent; a provider that is not ready yet stays the store's
+     * own UNREADY answer, never a crash. The engine calls this from load(siteKey).
+     */
+    fun prepare() {
+        main.post {
+            try {
+                store().setAcceptCookie(true)
+            } catch (_: Exception) {
+                // The provider loads when the app initializes WebView; preparing early is best effort.
+            }
+        }
+    }
+
     /** Run [block] with the store on the main thread, waiting no longer than [timeoutMs]. */
     private fun <T> onMain(block: (CookieManager) -> T): T {
         if (Looper.myLooper() == Looper.getMainLooper()) {
