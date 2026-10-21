@@ -5,14 +5,14 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 
 /**
- * Reports the sign-in pages' progress to [SignInSessionController].
+ * Reports the sign-in pages' progress to [WebViewSignInEngine].
  *
  * The site's own pages and the sign-in providers it sends the person to load in the WebView;
  * only other schemes (mailto:, tel:, intent:) are refused. This client installs no
  * JavaScript interface and evaluates no script: nothing in the page can call the app, the
  * downloader or Python. Nothing is logged.
  */
-class SignInWebViewClient(private val controller: SignInSessionController) : WebViewClient() {
+class SignInWebViewClient(private val engine: WebViewSignInEngine) : WebViewClient() {
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         // Load web pages in the WebView; leave every other scheme to the system, not to us.
@@ -21,6 +21,6 @@ class SignInWebViewClient(private val controller: SignInSessionController) : Web
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        controller.onPageFinished(url)
+        engine.onPageFinished(url)
     }
 }

@@ -1,49 +1,17 @@
-"""The Android transport seam against synthetic stores and clients: no network, no device."""
+"""The Android bridge/adapter against synthetic native seam objects: no network, no device.
+
+These check only what this line owns — WebViewCookieSource's bridge validation and
+sanitization, and AndroidTransport's thin wiring. The canonical request behaviour of the
+cookie_source/cookie_sink seams themselves (per-request and per-attempt asking, CDN and
+cross-origin isolation, raw sink forwarding) is covered by tests/test_android_seams.py on
+the merged core; these tests need that merged core (Transport's cookie_source/cookie_sink
+constructor seams) to run.
+"""
 import json
 import unittest
-from unittest.mock import patch
 
 from comic_archive.models import ArchiveError
 from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
-
-
-class Headers(dict):
-    """httpx-shaped headers: plain mapping plus the Set-Cookie list the transport reads."""
-
-    def __init__(self, values=None, set_cookies=()):
-        super().__init__(values or {})
-        self._set_cookies = list(set_cookies)
-
-    def get_list(self, name):
-        return list(self._set_cookies) if name.lower() == 'set-cookie' else []
-
-
-class Response:
-    def __init__(self, code=200, data=b"image", headers=None, set_cookies=()):
-        self.status_code, self.data = code, data
-        self.headers = Headers(headers, set_cookies)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-    def iter_bytes(self):
-        yield self.data
-
-
-class Client:
-    def __init__(self, responses):
-        self.responses = iter(responses)
-        self.calls = []
-
-    def stream(self, method, url, headers):
-        self.calls.append((url, headers))
-        return next(self.responses)
-
-    def close(self):
-        pass
 
 
 class Store:
@@ -53,153 +21,109 @@ class Store:
         self.headers = dict(headers or {})
         self.asked, self.given = [], []
 
-    def cookie_header(self, url):
+    def headerFor(self, url):
         self.asked.append(url)
-        return self.headers.get(url, '')
+        return self.headers.get(url)
 
-    def set_session_cookies(self, url, values):
+    def apply(self, url, values):
         self.given.append((url, tuple(values)))
-        return True
 
 
-def transport(store, client, **kwargs):
-    return AndroidTransport(WebViewCookieSource(store), interval=0.25, client=client, **kwargs)
+class Capturing(AndroidTransport):
+    """The real adapter with the network call replaced; the Cookie header recorded per URL."""
+
+    def __init__(self, store, **kwargs):
+        super().__init__(store, interval=1.0, client=object(), **kwargs)
+        self.interval = 0.0
+        self.sent = {}
+
+    def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
+        self.sent[url] = headers.get("Cookie")
+        return b"golden"
 
 
-class SourceTests(unittest.TestCase):
+class WebViewCookieSourceTests(unittest.TestCase):
     def test_the_bridge_is_validated_without_echoing_its_failure(self):
-        for bridge in (object(), type('Half', (), {'cookie_header': lambda self, url: ''})()):
+        for bridge in (object(), type('Half', (), {'headerFor': lambda self, url: None})()):
             with self.assertRaises(ArchiveError) as error:
                 WebViewCookieSource(bridge)
             self.assertNotIn('PRIVATE', str(error.exception))
 
-    def test_a_failing_or_unusable_store_answer_is_replaced_by_a_safe_fixed_message(self):
+    def test_a_failing_or_unusable_header_answer_is_replaced_by_a_safe_fixed_message(self):
         for answer in (RuntimeError('value=PRIVATE'), 7, 'fine\r\nHost: evil', 'v\0'):
             store = Store()
             if isinstance(answer, BaseException):
                 def fail(url, error=answer):
                     raise error
-                store.cookie_header = fail
+                store.headerFor = fail
             else:
-                store.cookie_header = lambda url, value=answer: value
+                store.headerFor = lambda url, value=answer: value
             with self.assertRaises(ArchiveError) as error:
-                transport(store, Client([])).get('https://tapas.io/who-am-i')
+                WebViewCookieSource(store).header_for('https://tapas.io/x')
             self.assertNotIn('PRIVATE', str(error.exception))
 
-    def test_raw_set_cookie_strings_pass_through_unchanged_and_refusals_are_quiet(self):
-        raw = 'sid=NEW; Path=/reader; Secure; HttpOnly'
+    def test_no_answer_is_an_empty_header_and_raw_values_pass_through_unchanged(self):
+        store = Store()
+        source = WebViewCookieSource(store)
+        self.assertEqual(source.header_for('https://tapas.io/x'), '')
+        raw = ('sid=NEW; Path=/reader; Secure; HttpOnly', 'other=3; Max-Age=0')
+        source.apply('https://tapas.io/reader', list(raw))
+        self.assertEqual(store.given, [('https://tapas.io/reader', raw)])
+        source.apply('https://tapas.io/reader', [])  # Nothing to take is not a store question.
+        self.assertEqual(len(store.given), 1)
+
+    def test_a_store_that_cannot_take_values_is_left_as_it_is(self):
         store = Store()
 
         def refuse(url, values):
-            store.given.append((url, tuple(values)))
-            return False
-        store.set_session_cookies = refuse
-        source = WebViewCookieSource(store)
-        self.assertFalse(source.set_session_cookies('https://tapas.io/x', [raw]))
-        self.assertEqual(store.given, [('https://tapas.io/x', (raw,))])
-        self.assertTrue(source.set_session_cookies('https://tapas.io/x', []))
+            raise RuntimeError('PRIVATE_COOKIE')
+        store.apply = refuse
+        WebViewCookieSource(store).apply('https://tapas.io/reader', ['sid=NEW'])  # No raise.
 
 
 class AndroidTransportTests(unittest.TestCase):
-    @patch('comic_archive.transport.time.sleep')
-    def test_the_cookie_header_is_asked_live_per_request_with_the_full_url(self, sleep):
-        store = Store({'https://tapas.io/a': 'session=ONE', 'https://tapas.io/b': 'session=TWO'})
-        t = transport(store, Client([Response(), Response()]))
-        t.get('https://tapas.io/a')
-        t.get('https://tapas.io/b')
-        self.assertEqual(store.asked, ['https://tapas.io/a', 'https://tapas.io/b'])
-        self.assertEqual([call[1]['Cookie'] for call in t.client.calls], ['session=ONE', 'session=TWO'])
-        # No jar was built: the transport holds nothing the store did not answer itself.
-        self.assertEqual(t.cookies, ())
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_no_cookie_and_no_question_for_a_cdn_and_nothing_reaches_another_origin(self, sleep):
-        store = Store({'https://cdn.tapas.io/x': 'session=PRIVATE'})
-        t = transport(store, Client([Response()]))
-        t.get('https://cdn.tapas.io/x')
-        self.assertNotIn('Cookie', t.client.calls[0][1])
-        self.assertEqual(store.asked, [])
-        for url in ('https://evil.test/a', 'http://tapas.io/a'):
-            with self.assertRaises(ArchiveError):
-                t.get(url)
-        self.assertEqual(len(t.client.calls), 1)
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_a_redirect_hop_is_a_fresh_url_scoped_question_and_carries_nothing_over(self, sleep):
-        store = Store({'https://tapas.io/hop': 'session=FIRST'})
-        client = Client([Response(302), Response()])
-        t = transport(store, client)
-        with self.assertRaises(ArchiveError):
-            t.get('https://tapas.io/hop')  # The site's own redirect is followed by the caller.
-        t.get('https://cdn.tapas.io/landing')
-        self.assertEqual(store.asked, ['https://tapas.io/hop'])
-        self.assertNotIn('Cookie', client.calls[1][1])
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_each_retry_rereads_the_store_because_a_refusal_may_have_rotated_the_session(self, sleep):
-        store = Store({'https://tapas.io/a': 'session=ROTATED'})
-        t = transport(store, Client([Response(503), Response()]))
-        self.assertEqual(t.get('https://tapas.io/a'), b'image')
-        self.assertEqual(store.asked, ['https://tapas.io/a', 'https://tapas.io/a'])
-        self.assertEqual([call[1]['Cookie'] for call in t.client.calls[-1:]], ['session=ROTATED'])
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_the_site_key_travels_only_to_the_site_itself(self, sleep):
-        t = transport(Store(), Client([Response()]))
-        t.get('https://tapas.io/api', authorization='key=PRIVATE')
-        self.assertEqual(t.client.calls[0][1]['Authorization'], 'key=PRIVATE')
-        for url in ('https://cdn.tapas.io/x',):
-            with self.assertRaises(ArchiveError) as error:
-                t.get(url, authorization='key=PRIVATE')
-            self.assertNotIn('PRIVATE', str(error.exception))
-        for value in ('key\nx', 'key\x7f'):
-            with self.assertRaises(ArchiveError):
-                t.get('https://tapas.io/api', authorization=value)
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_response_set_cookie_strings_reach_the_store_verbatim_and_only_from_cookie_hosts(self, sleep):
-        raw = 'sid=NEW; Domain=tapas.io; Path=/; Secure; Expires=Wed, 21 Oct 2026 12:00:00 GMT'
-        store = Store()
-        t = transport(store, Client([Response(set_cookies=[raw]), Response(set_cookies=['cdn=1'])]))
-        t.get('https://tapas.io/reader', take_cookies=True)
-        t.get('https://cdn.tapas.io/img', take_cookies=True)
-        self.assertEqual(store.given, [('https://tapas.io/reader', (raw,))])
-        self.assertEqual(t.cookies, ())  # The transport never becomes the jar; the store stays the authority.
-
-    @patch('comic_archive.transport.time.sleep')
-    def test_set_cookie_observed_before_a_later_budget_failure_still_reaches_the_store(self, sleep):
-        from comic_archive.errors import RunLimit
-        store = Store()
-        t = transport(store, Client([Response(data=b'PRIVATE_BYTES', set_cookies=['sid=NEW'])]))
-        with self.assertRaises(RunLimit):
-            t.get('https://tapas.io/reader', max_bytes=3, take_cookies=True)
-        self.assertEqual(store.given, [('https://tapas.io/reader', ('sid=NEW',))])
+    def test_the_adapter_wires_the_store_in_and_keeps_no_jar(self):
+        store = Store({'https://tapas.io/x': 'session=GOLDEN'})
+        transport = AndroidTransport(store, interval=0.25, client=object())
+        source = transport.store
+        self.assertIs(transport.cookie_source, source.header_for)
+        self.assertIs(transport.cookie_sink, source.apply)
+        self.assertEqual(transport.cookies, ())
+        # A raw bridge is wrapped; a wrapped source passes through unchanged.
+        self.assertIsInstance(AndroidTransport(Store(), client=object()).store, WebViewCookieSource)
+        self.assertIs(AndroidTransport(source, client=object()).store, source)
 
     def test_inherited_gates_stay_binding(self):
-        from comic_archive.errors import RunLimit
-        t = transport(Store(), Client([Response()]))
-        self.assertEqual(t.get('https://tapas.io/a'), b'image')
-        for max_bytes in (0, 'x'):
-            with self.assertRaises(RunLimit):
-                t.get('https://tapas.io/a', max_bytes=max_bytes)
         for interval in (0.24, float('nan'), True):
             with self.assertRaises(ArchiveError):
-                AndroidTransport(WebViewCookieSource(Store()), interval=interval, client=Client([]))
-        for source in (object(), None):
+                AndroidTransport(Store(), interval=interval, client=object())
+        for bridge in (object(), None):
             with self.assertRaises(ArchiveError):
-                AndroidTransport(source, client=Client([]))
+                AndroidTransport(bridge, client=object())
 
-    @patch('comic_archive.transport.time.sleep')
-    def test_the_tapas_adapter_runs_on_the_injected_transport_without_a_session_file(self, sleep):
+    def test_the_live_header_travels_to_the_site_host_only_through_the_canonical_path(self):
+        store = Store({'https://tapas.io/who-am-i': 'session=GOLDEN'})
+        transport = Capturing(store)
+        self.assertEqual(transport.get('https://tapas.io/who-am-i'), b'golden')
+        self.assertEqual(transport.get('https://us-a.tapas.io/pc/golden/0001.png'), b'golden')
+        self.assertEqual(store.asked, ['https://tapas.io/who-am-i'])
+        self.assertEqual(transport.sent, {'https://tapas.io/who-am-i': 'session=GOLDEN',
+                                          'https://us-a.tapas.io/pc/golden/0001.png': None})
+
+    def test_the_tapas_adapter_accepts_the_injected_transport_without_a_session_file(self):
         from comic_archive.adapters.tapas_http import TapasHTTPAdapter
         body = json.dumps({'data': {'user': {'id': 7}}}).encode()
-        client = Client([Response(data=body), Response(data=body)])
-        with TapasHTTPAdapter(transport=transport(Store({'https://tapas.io/who-am-i': 'session=PRIVATE'}),
-                                                 client)) as adapter:
+
+        class WhoAmI(Capturing):
+            def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
+                self.sent[url] = headers.get("Cookie")
+                return body
+
+        transport = WhoAmI(Store({'https://tapas.io/who-am-i': 'session=GOLDEN'}))
+        with TapasHTTPAdapter(transport=transport) as adapter:
             self.assertTrue(adapter.check_session())
             self.assertEqual(adapter.account_identity(), '7')
-        self.assertEqual(client.calls[0][0], 'https://tapas.io/who-am-i')
-        self.assertEqual(client.calls[0][1]['Cookie'], 'session=PRIVATE')
+        self.assertEqual(transport.sent['https://tapas.io/who-am-i'], 'session=GOLDEN')
 
 
 if __name__ == '__main__':

@@ -1,40 +1,42 @@
-"""The Android HTTP seam: cookies asked live from the app's WebView store, never stored here.
+"""The Android HTTP seam: the app's WebView cookie store, wired into the canonical Transport.
 
-The desktop Transport carries a cookie jar it read from the saved session. On Android the
-app's WebView cookie store stays the only authority: this transport asks it, for each request
-and each redirect hop, for exactly the Cookie header a browser would send to that full URL,
-and hands raw Set-Cookie strings back for the store's own parser. No cookie domain, path,
-expiry or security attribute is ever reconstructed on this side, and nothing here logs a
-URL, cookie value or account detail.
+The core Transport (since the frozen beta contracts) itself asks a live cookie_source for the
+Cookie header of each request — after policy admission, per attempt, only for the site's own
+cookie hosts — and forwards own-origin raw Set-Cookie strings to a cookie_sink instead of its
+jar. This module is only the bridge to the native seam object and a thin constructor: the
+Kotlin WebViewCookieStore behind the frozen CookieHeaderSource/SetCookieSink interfaces. The
+store stays the single cookie authority; no domain, path, expiry or security attribute is
+ever reconstructed or persisted on this side, and nothing here logs a URL, cookie value or
+account detail.
 """
-import threading
-from urllib.parse import urlsplit
 from . import sites
-from .errors import RunLimit
 from .models import ArchiveError
-from .transport import Transport, asset_url, _RetryRequest  # The retry signal is the package's own.
+from .transport import Transport
 
 
 class WebViewCookieSource:
     """The app's WebView cookie store, reached through the native seam object.
 
-    'bridge' is whatever the app hands the embedded Python: a WebViewCookieStore. It must
-    offer cookie_header(url) and set_session_cookies(url, values); both are called from
-    worker threads, and the native side marshals them to the main thread with a bound.
+    'bridge' is whatever the app hands the embedded Python: a WebViewCookieStore implementing
+    the frozen Kotlin interfaces (headerFor/apply). Both are called from worker threads; the
+    native side marshals to the main thread and answers within a bound.
     """
 
     def __init__(self, bridge, site=sites.DEFAULT):
-        for name in ('cookie_header', 'set_session_cookies'):
+        for name in ('headerFor', 'apply'):
             if not callable(getattr(bridge, name, None)):
                 raise ArchiveError('The app sign-in store is not wired to the downloader.')
         self._bridge, self.site = bridge, site
 
-    def cookie_header(self, url):
-        """The Cookie request header for this exact URL, live from the store; '' when none."""
+    def header_for(self, url):
+        """cookie_source for the core Transport: the live Cookie header for this exact URL.
+
+        The core asks per request and per attempt and never for a CDN; see Transport.get.
+        """
         try:
-            value = self._bridge.cookie_header(url)
+            value = self._bridge.headerFor(url)
         except Exception:
-            # Class-free text only: the store's own message may hold a URL or credential.
+            # Fixed text only: the store's own message may hold a URL or credential.
             raise ArchiveError('The app sign-in store is unavailable; sign in again.') from None
         if value is None:
             return ''
@@ -42,88 +44,35 @@ class WebViewCookieSource:
             raise ArchiveError('The app sign-in store returned an unusable cookie header.')
         return value
 
-    def set_session_cookies(self, url, values):
-        """Hand raw Set-Cookie strings to the store unchanged; its parser reads the attributes.
+    def apply(self, url, values):
+        """cookie_sink for the core Transport: raw Set-Cookie strings to the store's own parser.
 
-        True when the store took them; a refusal leaves the store as the sign-in left it.
+        Values pass through verbatim; the store alone reads their attributes. A store that
+        cannot take them stays as it is — the authoritative store's own later refusal of a
+        stale cookie is the honest failure, never a reconstructed one here.
         """
         if not values:
-            return True
+            return
         try:
-            return self._bridge.set_session_cookies(url, list(values)) is True
+            self._bridge.apply(url, list(values))
         except Exception:
-            return False
+            pass
 
 
 class AndroidTransport(Transport):
-    """A Transport whose Cookie header is asked live, per URL, from the app's WebView store.
+    """The canonical Transport constructed for Android: the live store wired in, no jar.
 
-    Constructed by the app and injected into the existing adapters (TapasHTTPAdapter takes
-    a transport), so no session file is read and no cookie jar is built here. The inherited
-    pacing, refusal, retry, budget and redirect behaviour is kept; only the cookie header
-    differs: it is re-read from the store for every request and every retry, and it goes
-    only to the site's own cookie hosts — never to a CDN or another origin.
+    Every request behaviour — pacing, admission, retries, refusals, byte budgets, redirect
+    hops, the site-key boundary — is the core Transport's own (see transport.py); this class
+    adds nothing but the bridge validation and the cookie_source/cookie_sink wiring, so there
+    is exactly one implementation of the request path.
     """
 
     def __init__(self, cookie_source, interval=1.0, client=None, metrics=None, network_guard=None,
                  agent=None, site=sites.DEFAULT):
-        for name in ('cookie_header', 'set_session_cookies'):
-            if not callable(getattr(cookie_source, name, None)):
-                raise ArchiveError('The Android transport needs the app live cookie source.')
+        source = cookie_source if isinstance(cookie_source, WebViewCookieSource) else \
+            WebViewCookieSource(cookie_source, site)
         super().__init__(cookies=(), interval=interval, client=client, metrics=metrics,
-                         network_guard=network_guard, agent=agent, site=site)
-        self.cookie_source = cookie_source
-        # Set-Cookie strings a response handed over, per thread, until the request is done.
-        self._observed = threading.local()
-
-    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False):
-        """A page's bytes, with a live cookie header; see Transport.get for the rest."""
-        if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
-            raise RunLimit("The download byte budget is exhausted.")
-        asset_url(url, self.site)
-        host = urlsplit(url).hostname
-        headers = {"Referer": self.site.referer}
-        if self.agent:
-            headers["User-Agent"] = self.agent
-        if authorization is not None:
-            # The key goes only where the site's own cookies may go, never to a CDN.
-            if (host not in self.site.cookie_hosts or not isinstance(authorization, str) or not authorization.isascii()
-                    or not authorization.isprintable()):
-                raise ArchiveError(f"The {self.site.name} key may be sent only to {self.site.name} itself.")
-            headers["Authorization"] = authorization
-        self._observed.values = []
-        try:
-            for attempt in range(3):
-                self._pace()
-                # Re-read for every attempt as well: a refused request may have rotated
-                # the session between tries, and the store's answer is the only authority.
-                cookie = self.cookie_header_for(url, host)
-                if cookie:
-                    headers["Cookie"] = cookie
-                else:  # No header at all, never an empty one, when the store has none for this URL.
-                    headers.pop("Cookie", None)
-                try:
-                    return self._request(url, headers, max_bytes, attempt, take_cookies)
-                except _RetryRequest as retry:
-                    self._wait(retry.delay)
-        finally:
-            self._forward_observed(url)
-
-    def cookie_header_for(self, url, host):
-        """The live Cookie header for this full URL — the site's own hosts only, never a CDN."""
-        if host not in self.site.cookie_hosts:
-            return ''
-        return self.cookie_source.cookie_header(url)
-
-    def _take_cookies(self, values, host):
-        """Keep only the raw Set-Cookie strings a cookie host set; nothing is parsed or stored."""
-        if host in self.site.cookie_hosts and values:
-            observed = getattr(self._observed, 'values', None)
-            self._observed.values = [*observed, *values] if observed else list(values)
-
-    def _forward_observed(self, url):
-        """Give the finished request's Set-Cookie strings to the app's store, verbatim."""
-        values = getattr(self._observed, 'values', None)
-        self._observed.values = []
-        if values:
-            self.cookie_source.set_session_cookies(url, values)
+                         network_guard=network_guard, agent=agent, site=site,
+                         cookie_source=source.header_for, cookie_sink=source.apply)
+        self.store = source

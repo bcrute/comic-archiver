@@ -8,15 +8,21 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
+/** The cookie store failed or is not ready; the message carries no URL, value or account detail. */
+class CookieSourceException(message: String) : Exception(message)
+
 /**
- * The app's authoritative WebView cookie store behind [CookieHeaderProvider].
+ * The app's authoritative WebView cookie store behind the frozen CookieHeaderSource and
+ * SetCookieSink seams (baseline 2a829ea).
  *
  * Every CookieManager call is marshalled to the main thread and waited for with a bound, so
- * worker threads (the embedded Python downloader) can never block forever and never touch
- * WebView off the main thread. Only the site's own HTTPS cookie hosts are ever asked: a URL
- * for a CDN or any other origin gets an empty header, so credentials cannot cross origins
- * through this seam. Cookies persist in WebView's own app-private store; [flush] after a
- * sign-in settles or cookies are taken makes that persistence immediate.
+ * worker threads (the embedded Python Transport) can never block forever and never touch
+ * WebView off the main thread. [headerFor] answers only the site's own HTTPS cookie hosts —
+ * every other origin gets null, so credentials cannot cross origins through this seam — and
+ * is asked again for every request, never cached. [apply] hands raw Set-Cookie strings to
+ * the store's own parser, unchanged, and completes before returning, so the next request
+ * reads the updated store. Cookies persist in WebView's own app-private store; [flush]
+ * after a sign-in settles makes that persistence immediate.
  *
  * Nothing here logs a cookie value, URL or account detail: fixed, class-free messages only.
  *
@@ -27,30 +33,35 @@ import java.util.concurrent.atomic.AtomicReference
 class WebViewCookieStore(
     private val cookieHosts: Set<String>,
     private val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-) : CookieHeaderProvider {
+) : CookieHeaderSource, SetCookieSink {
 
     private val main = Handler(Looper.getMainLooper())
 
-    override fun cookieHeader(url: String): String = onMain { manager ->
-        if (!isSiteUrl(url)) "" else manager.getCookie(url) ?: ""
+    /** The live Cookie header for exactly this URL, or null when the store would send none. */
+    override fun headerFor(url: String): String? = onMain { manager ->
+        if (!isSiteUrl(url)) null else manager.getCookie(url)
     }
 
-    override fun setSessionCookies(url: String, setCookieValues: List<String>): Boolean =
+    /** Raw Set-Cookie values for a site URL to the store's own parser; complete before returning. */
+    override fun apply(url: String, setCookieValues: List<String>) {
+        if (setCookieValues.isEmpty() || !isSiteUrl(url)) return
         onMain { manager ->
-            if (!isSiteUrl(url) || setCookieValues.isEmpty()) {
-                return@onMain false
-            }
             // The store's own parser reads each string's attributes; this side never edits
             // or rebuilds them, and keeps no copy.
-            var taken = false
             for (raw in setCookieValues) {
-                if (manager.setCookie(url, raw)) taken = true
+                manager.setCookie(url, raw)
             }
             manager.flush()
-            taken
         }
+    }
 
-    override fun clearAll(): Boolean {
+    /**
+     * Remove every cookie the store holds for this app, bounded in time. The WebView store
+     * keeps every site's cookies together, so a sign-out or a site switch clears all of it:
+     * OAuth and other-site state never survives. Must be called off the main thread; the
+     * main thread uses [clearAllAsync] so it never waits on its own callback.
+     */
+    fun clearAll(): Boolean {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             // The main thread would be waiting for a callback it must deliver itself.
             throw CookieSourceException("The cookie store is cleared asynchronously on the main thread.")
@@ -85,7 +96,7 @@ class WebViewCookieStore(
         }
     }
 
-    /** Whether the store holds any cookie for this URL; used for sign-in settle detection. */
+    /** Whether the store holds any cookie for this URL; used for settle detection. No auth claim. */
     fun hasCookies(url: String): Boolean = onMain { manager ->
         !isSiteUrl(url) || manager.hasCookies(url)
     }
