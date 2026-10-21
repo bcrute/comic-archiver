@@ -1,4 +1,6 @@
-"""The bridge envelope contract: shapes, unknown ops and public-safe failures."""
+"""The bridge envelope contract: shapes, unknown ops, the frozen cookie-store ABI and the
+lifecycle/listing ops against real throwaway workspaces (no network is touched)."""
+import hashlib
 import importlib.util
 import json
 import os
@@ -35,11 +37,16 @@ class BridgeEnvelopeTests(unittest.TestCase):
         self.assertFalse(value["ok"])
         self.assertEqual(value["code"], "bad_request")
 
-    def test_scaffold_ops_answer_not_implemented_with_public_safe_words(self):
-        value = self.call('{"v":1,"op":"enqueue_sync","args":{}}')
-        self.assertFalse(value["ok"])
-        self.assertEqual(value["code"], "not_implemented")
-        self.assertNotIn("/", value["message"])
+    def test_every_op_in_the_envelope_vocabulary_answers(self):
+        # Every §2 op (and the flagged native-line extensions) is a real op now: each one
+        # answers its own envelope, never the scaffold's not_implemented.
+        for op in ("enqueue_sync", "library_listing", "export_manifest", "export_status",
+                   "signin_probe", "signout_record"):
+            with self.subTest(op):
+                value = self.call(json.dumps({"v": 1, "op": op, "args": {}}))
+                self.assertFalse(value["ok"])
+                self.assertNotEqual(value["code"], "not_implemented")
+                self.assertNotIn("/", value["message"])
 
 
 class BridgeLifecycleTests(unittest.TestCase):
@@ -52,7 +59,8 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.addCleanup(self._cleanup)
         self.root = Path(self._tmp.name)
         app_bridge._workspace["root"] = None
-        app_bridge._seams.update(cookie_source=None, cookie_sink=None)
+        app_bridge._seams.update(store=None, cookie_source=None, cookie_sink=None)
+        app_bridge._export_cache.update(root=None, facts=None, summary=None)
 
     def _cleanup(self):
         from comic_archive import network_android
@@ -130,20 +138,126 @@ class BridgeLifecycleTests(unittest.TestCase):
         with self.assertRaises(app_bridge._BridgeError):
             app_bridge.set_cookie_seams("not callable")
 
-    def test_the_kotlin_cookie_store_object_is_accepted_as_both_seams(self):
+    def test_the_kotlin_cookie_store_registers_by_its_frozen_names(self):
+        # Chaquopy performs no snake_case conversion, so the store Python sees carries its
+        # frozen camelCase methods; registration keeps the store itself (the adapter wraps
+        # it at use time) and the worker then fails on the missing sign-in, not the seams.
         class Store:
-            def cookie_header(self, url):
+            def headerFor(self, url):
                 return "session=1"
 
-            def set_session_cookies(self, url, values):
-                return True
+            def apply(self, url, values):
+                return None
 
-        app_bridge.set_cookie_seams(Store(), Store())
-        source, sink = app_bridge._seams["cookie_source"], app_bridge._seams["cookie_sink"]
-        self.assertEqual(source("https://tapas.io/x"), "session=1")
-        sink("https://tapas.io/x", ["a=1"])  # A quiet refusal path, not a crash.
+        store = Store()
+        app_bridge.set_cookie_seams(store)
+        self.assertIs(app_bridge._seams["store"], store)
+        self.assertIsNone(app_bridge._seams["cookie_source"])
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("worker_start", {"session_root": str(self.root / ".comic-session"),
+                                           "library_root": str(self.root / "Library"),
+                                           "network_status_path": str(self.root / "net.json")})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
+        self.assertIn("Sign in", value["message"])
 
-    def test_an_object_without_store_methods_is_refused(self):
+    def test_a_store_without_the_frozen_methods_is_refused_not_swallowed(self):
+        class HalfStore:
+            def headerFor(self, url):
+                return None
+
+        with self.assertRaises(app_bridge._BridgeError):
+            app_bridge.set_cookie_seams(HalfStore())
         with self.assertRaises(app_bridge._BridgeError):
             app_bridge.set_cookie_seams(object())
+
+    def test_signin_probe_without_seams_is_an_honest_missing(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("signin_probe", {"session_root": str(self.root / ".comic-session")})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "cookie_seams_missing")
+
+    def test_signout_record_forgets_the_written_sign_in(self):
+        from comic_archive import android_session
+        session = self.root / ".comic-session"
+        session.mkdir()
+        android_session.mark_signed_in(session)
+        value = self.call("signout_record", {"session_root": str(session)})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(android_session.is_signed_in(session))
+
+    def test_enqueue_sync_needs_the_sign_in_first(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("enqueue_sync", {"session_root": str(self.root / ".comic-session")})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
+        self.assertIn("Sign in", value["message"])
+
+    def _export_library(self):
+        comic = self.root / "Library" / "Sample Comic"
+        comic.mkdir(parents=True)
+        (comic / "series.json").write_text(json.dumps(
+            {"source_series_id": "123", "title": "Sample Comic", "episode_count": 2}))
+        (comic / "episode-1.cbz").write_bytes(b"data")
+        (comic / "episode-1.json").write_text(json.dumps(
+            {"source": "tapas", "source_series_id": "123", "source_episode_id": "456",
+             "content_type": "comic", "format": "cbz", "title": "One"}))
+        # Contract §5: tar.zst is not exportable. It still counts as saved for the listing,
+        # and the sidecar-less cbz is offered nowhere at all.
+        (comic / "episode-2.tar.zst").write_bytes(b"")
+        (comic / "episode-2.json").write_text(json.dumps(
+            {"source": "tapas", "source_series_id": "123", "source_episode_id": "789",
+             "content_type": "comic", "format": "tar.zst", "title": "Two"}))
+        (comic / "episode-3.cbz").write_bytes(b"no sidecar")
+        novel = self.root / "Library" / "Sample Novel"
+        novel.mkdir(parents=True)
+        (novel / "series.json").write_text(json.dumps(
+            {"source_series_id": "999", "title": "Sample Novel"}))
+        (novel / "chapter-1.epub").write_bytes(b"novel")
+        (novel / "chapter-1.json").write_text(json.dumps(
+            {"source": "tapas", "source_series_id": "999", "source_episode_id": "1000",
+             "content_type": "novel", "format": "epub", "title": "Chapter"}))
+
+    def test_library_listing_offers_series_by_the_cores_rules(self):
+        self._export_library()
+        value = self.call("library_listing", {"root": str(self.root)})
+        self.assertTrue(value["ok"], value)
+        self.assertEqual(value["result"], [
+            {"seriesId": "123", "title": "Sample Comic", "kind": "comic",
+             "episodeCount": 2, "savedCount": 2},
+            {"seriesId": "999", "title": "Sample Novel", "kind": "novels",
+             "episodeCount": 1, "savedCount": 1}])
+
+    def test_export_manifest_digests_the_originals_and_skips_tar_zst(self):
+        self._export_library()
+        value = self.call("export_manifest", {"root": str(self.root)})
+        self.assertTrue(value["ok"], value)
+        entries = value["result"]["entries"]
+        self.assertEqual([entry["filename"] for entry in entries],
+                         ["episode-1.cbz", "chapter-1.epub"])
+        self.assertEqual({entry["kind"] for entry in entries}, {"CBZ", "EPUB"})
+        comic = entries[0]
+        self.assertEqual(comic["sha256"], hashlib.sha256(b"data").hexdigest())
+        self.assertEqual(comic["bytes"], 4)
+        self.assertEqual(comic["episodeId"], "456")
+        self.assertEqual(comic["seriesId"], "123")
+        self.assertEqual(comic["relpath"], "Sample Comic/episode-1.cbz")
+        self.assertRegex(value["result"]["manifest_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_export_status_answers_the_summary_and_follows_changes(self):
+        self._export_library()
+        first = self.call("export_status", {"root": str(self.root)})
+        self.assertTrue(first["ok"], first)
+        self.assertEqual(first["result"]["entries"], 2)
+        self.assertEqual(first["result"]["bytes"], 9)
+        manifest = self.call("export_manifest", {"root": str(self.root)})["result"]
+        self.assertEqual(first["result"]["manifest_sha256"], manifest["manifest_sha256"])
+        extra = self.root / "Library" / "Sample Comic"
+        (extra / "episode-4.cbz").write_bytes(b"more")
+        (extra / "episode-4.json").write_text(json.dumps(
+            {"source": "tapas", "source_series_id": "123", "source_episode_id": "457",
+             "content_type": "comic", "format": "cbz", "title": "Four"}))
+        second = self.call("export_status", {"root": str(self.root)})
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(second["result"]["entries"], 3)
 

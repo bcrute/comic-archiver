@@ -10,7 +10,13 @@ The bridge module stays standalone: comic_archive is imported inside handlers on
 and the selfcheck answer even before the core is importable. Core refusals (ArchiveError)
 carry their public-safe words across the envelope as code "refused"; raw exceptions never
 reach the Kotlin side.
+
+The library and export listings walk the workspace by the core library's own offering
+rules (see local_library._exports): a series is offered with a whole sidecar beside every
+archive or not at all, nothing that is a link or has vanished is named, and export digests
+are computed over the original files as they stand.
 """
+import hashlib
 import json
 import os
 import platform
@@ -19,13 +25,20 @@ from pathlib import Path
 VERSION = 1
 
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
-                 "go", "pause", "enqueue_sync", "library_listing", "export_manifest", "export_status"})
+                 "go", "pause", "enqueue_sync", "library_listing", "export_manifest",
+                 "export_status", "signin_probe", "signout_record"})
+# worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
+# op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
+# have no §2 name yet, and the beta cannot run without them.
 
 # The one workspace the beta app runs, and the WebView cookie seams the Kotlin side
 # registers once at startup through set_cookie_seams (Chaquopy hands the same store
 # object to the sign-in engine, so there is one cookie authority).
 _workspace = {"root": None}
-_seams = {"cookie_source": None, "cookie_sink": None}
+_seams = {"store": None, "cookie_source": None, "cookie_sink": None}
+# The export summary's stat identity, so export_status polling does not re-digest a
+# library whose files have not changed. Keyed to one root: the beta has exactly one.
+_export_cache = {"root": None, "facts": None, "summary": None}
 
 
 class _BridgeError(Exception):
@@ -37,49 +50,43 @@ class _BridgeError(Exception):
         self.message = message
 
 
-def _store_header_source(store):
-    """Adapt the Kotlin cookie store to the callable the core Transport asks for.
-
-    Chaquopy exposes the store's cookieHeader/setSessionCookies as snake_cased methods; the
-    store itself already scopes answers to the site's own hosts and bounds its wait. A store
-    that cannot answer gets the same fixed, credential-free answer as an empty one, so a
-    refused or slow store can never leak or wedge a request.
-    """
-    def cookie_header(url):
-        try:
-            return str(store.cookie_header(url))
-        except Exception:
-            return ""
-    return cookie_header
-
-
-def _store_cookie_sink(store):
-    def apply(url, values):
-        try:
-            store.set_session_cookies(url, list(values))
-        except Exception:
-            pass  # A refused forward is dropped; the store stays the sole authority.
-    return apply
-
-
 def set_cookie_seams(cookie_source, cookie_sink=None):
     """Register the app's live cookie seams once at startup (frozen contract §4).
 
-    Accepts either Python callables or the Kotlin cookie store object (whose
-    cookieHeader/setSessionCookies methods Chaquopy exposes as cookie_header and
-    set_session_cookies); the store itself stays with Kotlin, which keeps it the single
-    cookie authority — this only holds the adapters the worker's Transport calls.
+    The Kotlin cookie store object is registered as itself. Chaquopy performs no
+    snake_case conversion (its rule is a trailing underscore for Python reserved words
+    only), so the store is recognised by its frozen camelCase methods, headerFor and
+    apply, and is refused here when either is missing: a half-wired store must fail
+    loudly at registration, never answer later requests as an empty one. Plain callables
+    (the tests' seams) pass through as the seams themselves. The core's own
+    WebViewCookieSource wraps the store at use time; the store stays with Kotlin, which
+    keeps it the single cookie authority.
     """
     if not callable(cookie_source):
-        if not hasattr(cookie_source, "cookie_header"):
-            raise _BridgeError("bad_request", "The cookie seams must be callables from the cookie store.")
-        cookie_source = _store_header_source(cookie_source)
+        header = next((getattr(cookie_source, name) for name in ("headerFor", "header_for")
+                       if callable(getattr(cookie_source, name, None))), None)
+        if header is None or not callable(getattr(cookie_source, "apply", None)):
+            raise _BridgeError("bad_request",
+                               "The cookie seams must be the app's sign-in store or its callables.")
+        _seams.update(store=cookie_source, cookie_source=None, cookie_sink=None)
+        return
     if cookie_sink is not None and not callable(cookie_sink):
-        if not hasattr(cookie_sink, "set_session_cookies"):
-            raise _BridgeError("bad_request", "The cookie seams must be callables from the cookie store.")
-        cookie_sink = _store_cookie_sink(cookie_sink)
-    _seams["cookie_source"] = cookie_source
-    _seams["cookie_sink"] = cookie_sink
+        raise _BridgeError("bad_request",
+                           "The cookie seams must be the app's sign-in store or its callables.")
+    _seams.update(store=None, cookie_source=cookie_source, cookie_sink=cookie_sink)
+
+
+def _cookie_seams():
+    """The registered seams as the core wants them: the store itself when the app
+    registered the Kotlin object — android_adapter then takes its AndroidTransport route,
+    the one request path with the asset reader the metadata pipeline needs — else the
+    registered callables. A missing registration is an honest refusal, never an empty
+    header standing in for the live store."""
+    if _seams["store"] is not None:
+        return _seams["store"], None
+    if _seams["cookie_source"] is None:
+        raise _BridgeError("cookie_seams_missing", "The WebView cookie store is not connected yet.")
+    return _seams["cookie_source"], _seams["cookie_sink"]
 
 
 def _core(action):
@@ -148,13 +155,11 @@ def _worker_start(args):
     session = _path_arg(args, "session_root")
     library = _path_arg(args, "library_root")
     status_path = _path_arg(args, "network_status_path")
-    if _seams["cookie_source"] is None:
-        raise _BridgeError("cookie_seams_missing", "The WebView cookie store is not connected yet.")
 
     def start(ArchiveError):
         from comic_archive import worker_host
-        return worker_host.start_in_process(session, library, _seams["cookie_source"],
-                                            _seams["cookie_sink"], status_path)
+        source, sink = _cookie_seams()
+        return worker_host.start_in_process(session, library, source, sink, status_path)
 
     return _core(start)
 
@@ -188,11 +193,213 @@ def _account_ui_op(name):
     return handler
 
 
-def _native_line(op):
-    def handler(args):
-        raise _BridgeError("not_implemented",
-                           "This operation is implemented by the native line before the integration build.")
-    return handler
+def _signin_probe(args):
+    """The settle-time truth op (native line; §4 wording): the core's own who-am-i through
+    the live seams decides, and only a verified answer writes the sign-in record that
+    worker_start gates on. Cookie presence alone can never produce signed_in here."""
+    session = _path_arg(args, "session_root")
+
+    def probe(ArchiveError):
+        from comic_archive import android_adapter, android_session
+        source, sink = _cookie_seams()
+        answer = android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink)
+        if answer["signed_in"]:
+            # Written only after the verified answer; the compatibility state is empty on
+            # purpose — no cookie ever leaves the store.
+            android_session.mark_signed_in(session, compatibility_state=True)
+        return answer
+
+    return _core(probe)
+
+
+def _signout_record(args):
+    """The last leg of the sign-out order (drain, then the store's own clear, then this):
+    remove the session record so a restart can never resume a cleared sign-in."""
+    session = _path_arg(args, "session_root")
+
+    def forget(ArchiveError):
+        from comic_archive import android_session
+        android_session.forget(session)
+        return {}
+
+    return _core(forget)
+
+
+def _enqueue_sync(args):
+    """Queue the fixed library-sync job on the running worker; fixed words only (§2)."""
+    session = _path_arg(args, "session_root")
+
+    def enqueue(ArchiveError):
+        from comic_archive import android_session, sites, worker_host
+        from comic_archive.queue_client import submit_job
+        if not android_session.is_signed_in(session):
+            raise ArchiveError("Sign in before syncing the library.")
+        site = android_session.signed_in_site(session)
+        if site is None or site.key != sites.DEFAULT.key:
+            raise ArchiveError("The Android beta syncs from Tapas only.")
+        if not worker_host.status(session)["running"]:
+            raise ArchiveError("Start the downloader before syncing the library.")
+        task = submit_job(session, "sync", {})
+        return {"task_id": task["task_id"], "status": task["status"]}
+
+    return _core(enqueue)
+
+
+def _series_folders(root):
+    """The workspace's exported series by the core library's offering rules: a series
+    folder with at least one archive whose whole sidecar exists, or not at all."""
+    from comic_archive.archive import episode_archives, sidecar_path
+
+    def safe(path):
+        return path.is_file() and not any(p.is_symlink() for p in (path, *path.parents))
+
+    library = root / "Library"
+    if not library.is_dir() or library.is_symlink():
+        return []
+    series = []
+    for folder in sorted(p for p in library.iterdir()
+                         if p.is_dir() and not p.is_symlink() and not p.name.startswith(".")):
+        episodes = []
+        for archive in episode_archives(folder):
+            sidecar = sidecar_path(archive)
+            if not (safe(archive) and safe(sidecar)):
+                continue
+            try:
+                metadata = json.loads(sidecar.read_text())
+            except (OSError, ValueError):
+                continue  # An episode is offered with its details or not at all.
+            if not isinstance(metadata, dict):
+                continue
+            episodes.append((archive, metadata))
+        if not episodes:
+            continue
+        meta = {}
+        if safe(folder / "series.json"):
+            try:
+                value = json.loads((folder / "series.json").read_text())
+                if isinstance(value, dict):
+                    meta = value
+            except (OSError, ValueError):
+                meta = {}
+        series.append((folder, meta, episodes))
+    return series
+
+
+def _series_identity(folder, meta, episodes):
+    """The series' public identity: the recorded source id, else the episodes' one
+    consistent id, else the folder name — never a guess about a different series."""
+    for key in ("source_series_id", "library_series_id"):
+        value = meta.get(key)
+        if isinstance(value, str) and value:
+            return value
+    ids = {m.get("source_series_id") for _, m in episodes
+           if isinstance(m.get("source_series_id"), str) and m.get("source_series_id")}
+    return ids.pop() if len(ids) == 1 else folder.name
+
+
+def _library_listing(args):
+    root = _path_arg(args, "root")
+
+    def listing(ArchiveError):
+        result = []
+        for folder, meta, episodes in _series_folders(root):
+            count = meta.get("episode_count")
+            kinds = {m.get("content_type") for _, m in episodes}
+            result.append({
+                "seriesId": _series_identity(folder, meta, episodes),
+                "title": meta.get("title") if isinstance(meta.get("title"), str) else folder.name,
+                # The site's own two shelves: novels when every offered episode is one.
+                "kind": "novels" if kinds == {"novel"} else "comic",
+                "episodeCount": count if isinstance(count, int) and count >= 0 else len(episodes),
+                "savedCount": len(episodes),
+            })
+        return result
+
+    return _core(listing)
+
+
+def _digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def _manifest(series, library):
+    """The exportable manifest (contract §5: CBZ and EPUB only), digests computed over the
+    original files as they stand — nothing is re-derived from metadata."""
+    entries = []
+    for folder, meta, episodes in series:
+        identity = _series_identity(folder, meta, episodes)
+        for archive, sidecar in episodes:
+            if archive.name.endswith(".tar.zst"):
+                continue
+            episode = sidecar.get("source_episode_id")
+            if not (isinstance(episode, str) and episode):
+                episode = archive.name  # A local identity for an export the core itself made.
+            entries.append({
+                "seriesId": identity,
+                "episodeId": episode,
+                "kind": "EPUB" if archive.suffix == ".epub" else "CBZ",
+                "filename": archive.name,
+                "bytes": archive.stat().st_size,
+                "sha256": _digest(archive),
+                "relpath": archive.relative_to(library).as_posix(),
+            })
+    return entries
+
+
+def _stat_facts(series, library):
+    """The cheap identity of the offered files: relpath, size and mtime of each."""
+    facts = []
+    for _folder, _meta, episodes in series:
+        for archive, _sidecar in episodes:
+            if archive.name.endswith(".tar.zst"):
+                continue
+            observed = archive.stat()
+            facts.append((archive.relative_to(library).as_posix(), observed.st_size,
+                          observed.st_mtime_ns))
+    return tuple(facts)
+
+
+def _summary(entries):
+    canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+    return {"entries": len(entries), "bytes": sum(entry["bytes"] for entry in entries),
+            "manifest_sha256": hashlib.sha256(canonical).hexdigest()}
+
+
+def _export_manifest(args):
+    root = _path_arg(args, "root")
+
+    def manifest(ArchiveError):
+        library = root / "Library"
+        series = _series_folders(root)
+        entries = _manifest(series, library)
+        _export_cache.update(root=str(root), facts=_stat_facts(series, library),
+                             summary=_summary(entries))
+        return {"entries": entries,
+                "manifest_sha256": _export_cache["summary"]["manifest_sha256"]}
+
+    return _core(manifest)
+
+
+def _export_status(args):
+    """The polling answer over the same manifest: the cached summary while the offered
+    files are unchanged, real digests again the moment they are not."""
+    root = _path_arg(args, "root")
+
+    def status(ArchiveError):
+        library = root / "Library"
+        series = _series_folders(root)
+        facts = _stat_facts(series, library)
+        if (_export_cache["root"] != str(root) or _export_cache["facts"] != facts
+                or _export_cache["summary"] is None):
+            _export_cache.update(root=str(root), facts=facts,
+                                 summary=_summary(_manifest(series, library)))
+        return _export_cache["summary"]
+
+    return _core(status)
 
 
 HANDLERS = {"ping": _ping,
@@ -201,8 +408,13 @@ HANDLERS = {"ping": _ping,
             "worker_start": _worker_start,
             "worker_stop": _worker_stop,
             "go": _account_ui_op("start"),
-            "pause": _account_ui_op("pause")}
-HANDLERS.update({op: _native_line(op) for op in OPS if op not in HANDLERS})
+            "pause": _account_ui_op("pause"),
+            "signin_probe": _signin_probe,
+            "signout_record": _signout_record,
+            "enqueue_sync": _enqueue_sync,
+            "library_listing": _library_listing,
+            "export_manifest": _export_manifest,
+            "export_status": _export_status}
 
 
 def dispatch(request):

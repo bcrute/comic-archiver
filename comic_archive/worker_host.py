@@ -19,21 +19,23 @@ from .state_paths import SESSION_NAME
 _thread = {"value": None}
 
 
-def android_adapter_factory(cookie_source, cookie_sink):
-    """One adapter per worker start, built on the core Transport seams and nothing else.
+def android_adapter_factory(cookie_source, cookie_sink=None):
+    """One adapter per worker start, on the engine line's AndroidTapasAdapter.
 
-    The live WebView provider and the own-origin Set-Cookie forwarder are handed to the
-    canonical Transport, so retry, pacing, host and privacy rules exist once. No separate
-    Android get loop is constructed here; that duplication is exactly what this avoids.
+    The full worker surface — the fail-closed who-am-i admission, library discovery and
+    prefetch — over one canonical transport. The app's store object itself takes the
+    AndroidTransport route (the request path the metadata pipeline's asset reader needs);
+    plain callables, as the tests register them, take the bare Transport seams. No
+    separate Android get loop is constructed here; that duplication is what this avoids.
     """
-    if not callable(cookie_source) or (cookie_sink is not None and not callable(cookie_sink)):
+    if not callable(getattr(cookie_source, "headerFor", None)) and not callable(cookie_source):
+        raise ArchiveError("The Android reader needs the app sign-in store or its live transport.")
+    if callable(cookie_source) and cookie_sink is not None and not callable(cookie_sink):
         raise ArchiveError("The WebView cookie seams must be callables supplied by the app.")
 
     def build():
-        from .adapters.tapas_http import TapasHTTPAdapter
-        from .transport import Transport
-        transport = Transport(cookies=(), cookie_source=cookie_source, cookie_sink=cookie_sink)
-        return TapasHTTPAdapter(transport=transport)
+        from .android_adapter import AndroidTapasAdapter
+        return AndroidTapasAdapter(cookie_source=cookie_source, cookie_sink=cookie_sink)
 
     return build
 
@@ -50,7 +52,8 @@ def request_stop(session_root, *, wait_seconds: float = 0) -> dict:
 
 def start_in_process(session_root, library_root, cookie_source, cookie_sink, network_status_path) -> dict:
     """Start the embedded worker against explicit roots (native line, before the integration
-    build). ``cookie_source`` is the live per-URL provider and ``cookie_sink`` the own-origin
+    build). ``cookie_source`` is the app's store object (the AndroidTapasAdapter route with
+    the asset reader) or the live per-URL provider, with ``cookie_sink`` then the own-origin
     Set-Cookie forwarder (see Transport.cookie_source / Transport.cookie_sink); the platform
     store stays the single cookie authority. ``network_status_path`` feeds
     comic_archive.network_android. Only a whole Android sign-in record in the session can

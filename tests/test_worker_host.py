@@ -23,13 +23,31 @@ def _set_cookies(url, values):
 
 
 class AdapterFactoryTests(unittest.TestCase):
-    def test_the_factory_builds_one_adapter_on_the_core_transport_seams(self):
+    def test_the_factory_builds_one_android_adapter_on_the_transport_seams(self):
         source, sink = _cookie_header, _set_cookies
-        with worker_host.android_adapter_factory(source, sink)() as adapter:
-            self.assertIs(adapter.transport.cookie_source, source)
-            self.assertIs(adapter.transport.cookie_sink, sink)
-            self.assertEqual(adapter.transport.cookies, ())  # no jar beside the live source
-            self.assertIn('tapas.io', adapter.transport.site.cookie_hosts)
+        # No `with`: the adapter's enter runs the core's who-am-i (a network call); the
+        # worker's job path calls it per job, never at worker start.
+        adapter = worker_host.android_adapter_factory(source, sink)()
+        self.assertIs(adapter.transport.cookie_source, source)
+        self.assertIs(adapter.transport.cookie_sink, sink)
+        self.assertEqual(adapter.transport.cookies, ())  # no jar beside the live source
+        self.assertIn('tapas.io', adapter.transport.site.cookie_hosts)
+
+    def test_the_factory_takes_the_kotlin_store_on_its_android_transport_route(self):
+        class Store:
+            def headerFor(self, url):
+                return None
+
+            def apply(self, url, values):
+                return None
+
+        from comic_archive.android_adapter import AndroidTapasAdapter
+        from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
+        adapter = worker_host.android_adapter_factory(Store())()
+        self.assertIsInstance(adapter, AndroidTapasAdapter)
+        self.assertIsInstance(adapter.transport, AndroidTransport)
+        self.assertIsInstance(adapter.transport.store, WebViewCookieSource)
+        self.assertIs(adapter.transport.assets, adapter.transport)  # the pipeline's reader
 
     def test_non_callable_seams_are_refused(self):
         for source, sink in (("no", None), (None, None), (lambda url: "", "no")):
