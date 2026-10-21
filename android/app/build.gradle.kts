@@ -76,4 +76,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
+    // JVM unit tests for the UI/export line's exporter and models.
+    testImplementation(libs.junit)
 }
