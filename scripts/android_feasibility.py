@@ -286,7 +286,7 @@ def _jvm_truststore(java):
     target.unlink(missing_ok=True)
     for index, cert in enumerate(certs):
         run_tool([str(keytool), "-importcert", "-noprompt", "-storetype", "JKS",
-                  f"-alias", f"fleet-{index}", "-file", str(cert),
+                  "-alias", f"fleet-{index}", "-file", str(cert),
                   "-keystore", str(target), "-storepass", "changeit"], timeout=120)
     return (str(target), "JKS") if target.is_file() else (None, None)
 
