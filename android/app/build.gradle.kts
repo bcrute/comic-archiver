@@ -45,15 +45,30 @@ android {
 chaquopy {
     defaultConfig {
         version = "3.13"
+        // buildPython must match the embedded 3.13 in major.minor
+        // (chaquo.com/chaquopy/doc/current/android.html#buildpython). The feasibility
+        // runner provisions a task-private CPython 3.13 and passes it as -PbuildPython=...;
+        // the host's own default python3 (3.14) must never be picked up implicitly.
+        providers.gradleProperty("buildPython").orNull?.let { buildPython(it) }
         pip {
-            // Pure-Python dependencies only. zstandard stays >=0.25,<1: the pinned sdist
-            // (packaging/android/zstandard-wheel/, digest in sdist.sha256) is fetched and
-            // verified by scripts/android_feasibility.py, passed here as an absolute path
-            // through -PzstandardSdist=..., and built for Android by Chaquopy's toolchain.
-            // Never installed from the Chaquopy repository (it stops at 0.23) and never
-            // downgraded.
+            // zstandard is a cp313 Android wheel, not a pure-Python requirement: Chaquopy
+            // does not cross-build native sdsts. The wheels are built on the fleet from the
+            // pinned 0.25.0 sdist with cibuildwheel (packaging/android/zstandard-wheel/),
+            // and the wheel directory arrives here as -PzstandardWheels=... The exact
+            // requirement plus --find-links means pip resolves to those wheels only; the
+            // Chaquopy repository (which stops at 0.23) is never consulted and the floor
+            // is never downgraded.
             install("httpx>=0.27,<1")
-            providers.gradleProperty("zstandardSdist").orNull?.let { install(java.io.File(it)) }
+            // A build without the wheel directory fails here rather than silently shipping
+            // an APK with no zstandard in it.
+            val wheelDir = providers.gradleProperty("zstandardWheels")
+            if (!wheelDir.isPresent) {
+                throw GradleException(
+                    "zstandardWheels must name the cibuildwheel cp313 Android wheel directory " +
+                    "(see packaging/android/zstandard-wheel/RECIPE.md)")
+            }
+            options("--find-links", wheelDir.get())
+            install("zstandard==0.25.0")
         }
     }
     sourceSets {

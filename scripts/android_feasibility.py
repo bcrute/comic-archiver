@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Android feasibility point: toolchain preflight (with job-private provisioning), pinned
-zstandard sdist, whole-app build (the sdist cross-compiled for Android by Chaquopy's NDK
-toolchain), and the in-app self-check on a job-owned emulator. Runs ONLY on a fleet host
-through the CI fleet helper, never locally.
+zstandard sdist, cp313 Android wheels built from that sdist with cibuildwheel (the builder
+Chaquopy's own documentation names for Python 3.13+), whole-app Gradle build installing the
+wheels through --find-links plus an exact requirement, and the in-app self-check on a
+job-owned emulator. Runs ONLY on a fleet host through the CI fleet helper, never locally.
+
+Inputs: every downloaded archive is pinned in packaging/android/toolchain-pins.json with a
+committed sha256 that is verified before extraction. The host buildPython is a task-private
+CPython 3.13 matching the app's embedded 3.13 major.minor (Chaquopy requirement), wired to
+Gradle explicitly; the host's own 3.14 is never used.
 
 Isolation: any missing tool is provisioned under android/.fleet-sdk (gitignored, job-private,
 never host-global). The emulator phase creates its own AVD under a job-private
@@ -24,21 +30,25 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 import zipfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SDIST_DIR = REPO / "packaging/android/zstandard-wheel"
-PINNED_SDIST = "zstandard-0.25.0.tar.gz"
-PINNED_SHA256 = "7713e1179d162cf5c7906da876ec2ccb9c3a9dcbdffef0cc7f70c3667a205f0b"
-PYPI_JSON = "https://pypi.org/pypi/zstandard/0.25.0/json"
+PINS = json.loads((REPO / "packaging/android/toolchain-pins.json").read_text())
+for _name, _pin in PINS.items():
+    if isinstance(_pin, dict) and "sha256" in _pin \
+            and not re.fullmatch(r"[0-9a-f]{64}", _pin["sha256"]):
+        raise SystemExit(f"toolchain-pins.json: {_name} has no usable sha256 digest")
+PINNED_SDIST = PINS["zstandard"]["sdist"]
+PINNED_SHA256 = PINS["zstandard"]["sha256"]
+PYPI_JSON = PINS["zstandard"]["pypi_json"]
+WHEEL_ABI_ARCHS = ("arm64_v8a", "x86_64")
 APK = REPO / "android/app/build/outputs/apk/debug/app-debug.apk"
 JOB_DIR = REPO / "android/.fleet-job"
 TOOLS_DIR = REPO / "android/.fleet-sdk"
-GRADLE_PIN = ("gradle", "8.13", "https://services.gradle.org/distributions/gradle-8.13-bin.zip")
-CMDLINE_TOOLS_ZIP = "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-ADOPTIUM = "https://api.adoptium.net/v3/binary/latest/17/ga/linux/{arch}/jdk/hotspot/normal/eclipse"
 SELF_IDENTITY = "comic-archiver/android-selfcheck/1"
 SELF_TAG = "ComicArchiverSelfcheck"
 APP_ACTIVITY = "io.github.bcrute.comicarchiver/.MainActivity"
@@ -78,6 +88,26 @@ def _download(url, target, timeout=1800):
         return False
 
 
+def _fetch_pinned(name, target):
+    """Download one pinned input and verify its committed sha256 BEFORE any extraction.
+
+    An already-downloaded bundle is re-verified too, so a cached file is as pinned as a
+    fresh one. The digest mismatch case is an observed failure with the digest seen.
+    """
+    pin = PINS[name]
+    try:
+        if not target.is_file():
+            if not _download(pin["url"], target):
+                return False, "download failed"
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    except OSError:
+        return False, "read failed"
+    if digest != pin["sha256"]:
+        target.unlink(missing_ok=True)
+        return False, f"sha256 mismatch: {digest}"
+    return True, pin["sha256"]
+
+
 def _extract(archive, destination):
     destination.mkdir(parents=True, exist_ok=True)
     try:
@@ -87,23 +117,43 @@ def _extract(archive, destination):
         return False
 
 
+def _extract_tar_data(archive, destination):
+    """Unpack an untrusted tarball with the data filter: no absolute paths, links out, or devices."""
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        with tarfile.open(archive) as bundle:
+            bundle.extractall(destination, filter="data")
+        return True
+    except (OSError, tarfile.TarError, ValueError):
+        return False
+
+
 def phase_provision():
-    """Provision job-private JDK, Android SDK tools and Gradle when the host lacks them.
+    """Provision job-private JDK, Android SDK tools, Gradle, host CPython 3.13 and cibuildwheel.
 
     Everything lands under android/.fleet-sdk and is thrown away with the job; no host-global
-    toolchain is created or modified. Missing pieces are reported, never fatal here.
+    toolchain is created or modified. Every archive's committed sha256 is verified before it
+    is extracted. Missing pieces are reported, never fatal here.
     """
     steps = {}
-    arch = {"x86_64": "x64", "aarch64": "aarch64"}.get(os.uname().machine, "x64")
+    if os.uname().machine != "x86_64":
+        # The pinned JDK and host-Python bundles are linux x86_64 artifacts; another host
+        # architecture is a capability gap to report, never a silent substitution.
+        record("provision", "pending", reason="pinned bundles are linux x86_64 only",
+               machine=os.uname().machine)
+        return None
+
     jdk = TOOLS_DIR / "jdk"
     if shutil.which("java") is None and not (jdk / "bin/java").is_file():
         bundle = TOOLS_DIR / "downloads/jdk17.tar.gz"
-        ok = _download(ADOPTIUM.format(arch=arch), bundle) and _extract(bundle, TOOLS_DIR / "downloads/jdk")
+        ok, digest = _fetch_pinned("jdk", bundle)
+        ok = ok and _extract_tar_data(bundle, TOOLS_DIR / "downloads/jdk")
         if ok:
             inner = next((path for path in (TOOLS_DIR / "downloads/jdk").iterdir() if path.is_dir()), None)
             if inner is not None and inner != jdk:
                 inner.rename(jdk)
-        steps["jdk"] = "installed" if (jdk / "bin/java").is_file() else "unavailable"
+        steps["jdk"] = {"status": "installed" if (jdk / "bin/java").is_file() else "unavailable",
+                        "version": PINS["jdk"]["version"], "sha256": digest if ok else None}
     java = shutil.which("java") or (str(jdk / "bin/java") if (jdk / "bin/java").is_file() else None)
     java_home = str(pathlib.Path(java).parent.parent) if java else None
 
@@ -111,23 +161,55 @@ def phase_provision():
     manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
     if not manager.is_file():
         bundle = TOOLS_DIR / "downloads/commandlinetools.zip"
-        if _download(CMDLINE_TOOLS_ZIP, bundle):
+        ok, digest = _fetch_pinned("android_commandline_tools", bundle)
+        if ok:
             with zipfile.ZipFile(bundle) as archive:
                 archive.extractall(str(TOOLS_DIR / "downloads/cmdline-tools"))
             inner = TOOLS_DIR / "downloads/cmdline-tools/cmdline-tools"
             (sdk / "cmdline-tools").mkdir(parents=True, exist_ok=True)
             inner.rename(sdk / "cmdline-tools/latest")
-        steps["cmdline_tools"] = "installed" if manager.is_file() else "unavailable"
+        steps["cmdline_tools"] = {"status": "installed" if manager.is_file() else "unavailable",
+                                  "version": PINS["android_commandline_tools"]["version"],
+                                  "sha256": digest if ok else None}
 
     gradle = shutil.which("gradle")
     if gradle is None and not (TOOLS_DIR / "gradle/bin/gradle").is_file():
         bundle = TOOLS_DIR / "downloads/gradle.zip"
-        if _download(GRADLE_PIN[2], bundle) and _extract(bundle, TOOLS_DIR / "downloads/gradle-x"):
+        ok, digest = _fetch_pinned("gradle", bundle)
+        ok = ok and _extract(bundle, TOOLS_DIR / "downloads/gradle-x")
+        if ok:
             inner = next((path for path in (TOOLS_DIR / "downloads/gradle-x").iterdir() if path.is_dir()), None)
             if inner is not None:
                 inner.rename(TOOLS_DIR / "gradle")
-        steps["gradle"] = "installed" if (TOOLS_DIR / "gradle/bin/gradle").is_file() else "unavailable"
+        steps["gradle"] = {"status": "installed" if (TOOLS_DIR / "gradle/bin/gradle").is_file() else "unavailable",
+                           "version": PINS["gradle"]["version"], "sha256": digest if ok else None}
     gradle = gradle or (str(TOOLS_DIR / "gradle/bin/gradle") if (TOOLS_DIR / "gradle/bin/gradle").is_file() else None)
+
+    # Task-private CPython 3.13: it must match the app's embedded 3.13 major.minor to serve
+    # as Chaquopy's buildPython, whatever python3 the host itself ships (the executor has 3.14).
+    python313 = TOOLS_DIR / "python/bin/python3.13"
+    venv_python = TOOLS_DIR / "cibw-venv/bin/python"
+    if not python313.is_file():
+        bundle = TOOLS_DIR / "downloads/host-python.tar.gz"
+        ok, digest = _fetch_pinned("host_python", bundle)
+        ok = ok and _extract_tar_data(bundle, TOOLS_DIR / "downloads/python-x")
+        if ok:
+            inner = next((path for path in (TOOLS_DIR / "downloads/python-x").iterdir()
+                          if path.is_dir() and (path / "bin/python3.13").is_file()), None)
+            if inner is not None:
+                inner.rename(TOOLS_DIR / "python")
+        steps["host_python"] = {"status": "installed" if python313.is_file() else "unavailable",
+                                "version": PINS["host_python"]["version"], "sha256": digest if ok else None}
+    host_version = run_tool([python313, "--version"], timeout=120)["tail"].strip() if python313.is_file() else None
+    if python313.is_file() and not venv_python.is_file():
+        wheel = TOOLS_DIR / "downloads/cibuildwheel.whl"
+        ok, digest = _fetch_pinned("cibuildwheel", wheel)
+        created = run_tool([python313, "-m", "venv", str(TOOLS_DIR / "cibw-venv")], timeout=300)
+        installed = run_tool([venv_python, "-m", "pip", "install", "--no-index", str(wheel)], timeout=600) \
+            if created["returncode"] == 0 and ok else {"returncode": 1, "tail": "wheel unavailable"}
+        steps["cibuildwheel"] = {"status": "installed" if installed["returncode"] == 0 else "unavailable",
+                                 "version": PINS["cibuildwheel"]["version"], "sha256": digest if ok else None,
+                                 "tail": installed["tail"][-500:] if installed["returncode"] else None}
 
     if manager.is_file() and java:
         # Accept licenses, then install what the build and emulator phases need; package
@@ -158,8 +240,14 @@ def phase_provision():
 
     tools = {"java": java,
              "sdk": str(sdk) if manager.is_file() else os.environ.get("ANDROID_HOME"),
-             "gradle": gradle}
-    record("provision", "passed" if all(tools.values()) else "pending", steps=steps, tools=tools)
+             "gradle": gradle,
+             "python313": str(python313) if python313.is_file() else None,
+             "cibuildwheel": str(TOOLS_DIR / "cibw-venv/bin/cibuildwheel")
+             if (TOOLS_DIR / "cibw-venv/bin/cibuildwheel").is_file() else None,
+             "host_python_version": host_version}
+    record("provision", "passed" if all(tools[key] for key in ("java", "sdk", "gradle", "python313",
+                                                               "cibuildwheel")) else "pending",
+           steps=steps, tools=tools)
     return tools
 
 
@@ -203,6 +291,14 @@ def phase_preflight(tools):
     if gradle is None:
         missing.add("gradle")
 
+    # Chaquopy's buildPython must match the app's embedded Python 3.13 in major.minor; the
+    # host's default python3 (3.14 on the executor) is not a substitute.
+    buildpython = (tools.get("python313") if tools else None) or str(TOOLS_DIR / "python/bin/python3.13")
+    probe = run_tool([buildpython, "--version"], timeout=120) if pathlib.Path(buildpython).is_file() else {}
+    buildpython_version = probe.get("tail", "").strip() or None
+    if not (buildpython_version or "").startswith("Python 3.13."):
+        missing.add("buildpython_3_13")
+
     images = []
     images_root = sdk_path / "system-images"
     if images_root.is_dir():
@@ -213,8 +309,9 @@ def phase_preflight(tools):
     required_ok = not missing
     record("preflight", "passed" if required_ok else "pending", missing=sorted(missing), java=version,
            gradle=gradle_version, sdk=str(sdk_path), system_images=images,
+           buildpython=buildpython_version, buildpython_path=buildpython,
            kvm=pathlib.Path("/dev/kvm").exists())
-    return required_ok, {"sdk": sdk_path, "gradle": gradle, "java": java}
+    return required_ok, {"sdk": sdk_path, "gradle": gradle, "java": java, "buildpython": buildpython}
 
 
 def phase_sdist():
@@ -238,28 +335,76 @@ def phase_sdist():
     return target
 
 
-def phase_build(paths, sdist):
+def phase_wheels(paths, sdist):
+    """Build the cp313 Android wheels from the pinned sdist with cibuildwheel on this host.
+
+    Chaquopy 17 does not cross-build native sdsts; per chaquo/chaquopy server/pypi/README.md
+    the supported builder for Python 3.13+ is cibuildwheel, run here against the job-private
+    SDK with the 'build' frontend (Android does not support the pip frontend). Wheel tests
+    stay off here: emulator qualification is the in-app phase's own evidence.
+    """
+    cibw = TOOLS_DIR / "cibw-venv/bin/cibuildwheel"
     if sdist is None:
-        record("build", "skipped", reason="verified sdist unavailable")
+        record("wheels", "skipped", reason="verified sdist unavailable")
+        return None
+    if not cibw.is_file() or not paths.get("buildpython"):
+        record("wheels", "pending", reason="no pinned cibuildwheel/host Python available")
+        return None
+    source = JOB_DIR / "zstandard-src"
+    JOB_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(source, ignore_errors=True)
+    try:
+        with tarfile.open(sdist) as bundle:
+            bundle.extractall(source, filter="data")
+        project = next(path for path in source.iterdir() if path.is_dir())
+    except (OSError, tarfile.TarError, StopIteration, ValueError):
+        record("wheels", "failed", reason="pinned sdist could not be unpacked")
+        return None
+    output = JOB_DIR / "wheels"
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True, exist_ok=True)
+    env = {"ANDROID_HOME": str(paths["sdk"]),
+           "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
+           "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
+           "CIBW_BUILD": "cp313-*",
+           "CIBW_BUILD_FRONTEND": "build"}
+    result = run_tool([str(cibw), "--platform", "android", "--arch", "arm64-v8a,x86_64",
+                       "--output-dir", str(output), str(project)], timeout=3600, env_extra=env,
+                      keep_bytes=8000)
+    built = sorted(path.name for path in output.glob("zstandard-*.whl"))
+    archs_seen = sorted({re.search(r"android_\d+_(.+)\.whl$", name).group(1)
+                         for name in built if re.search(r"android_\d+_(.+)\.whl$", name)})
+    ok = result["returncode"] == 0 and all(arch in archs_seen for arch in WHEEL_ABI_ARCHS) \
+        and all(name.startswith("zstandard-0.25.0-cp313-") for name in built) and len(built) == 2
+    record("wheels", "passed" if ok else "failed", minutes=result["minutes"], wheels=built,
+           archs=archs_seen, returncode=result["returncode"], tail=result["tail"])
+    return output if ok else None
+
+
+def phase_build(paths, wheels):
+    if wheels is None:
+        record("build", "skipped", reason="verified Android wheels unavailable")
         return False
     if not paths.get("gradle"):
         record("build", "pending", reason="no gradle available")
         return False
     env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent)}
     result = run_tool([paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), "assembleDebug",
-                       f"-PzstandardSdist={sdist}"], timeout=3600, env_extra=env)
+                       f"-PzstandardWheels={wheels}",
+                       f"-PbuildPython={paths['buildpython']}"], timeout=3600, env_extra=env)
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
     classification = None
     if not ok and re.search(r"zstandard|chaquopy.*pip|error: (command|link|compile)", tail, re.IGNORECASE):
-        classification = "wheel_cross_build_failed"
+        classification = "wheel_install_failed"
     wheel_abis = []
     if APK.is_file():
         with zipfile.ZipFile(APK) as archive:
             wheel_abis = sorted({name.split("/")[1] for name in archive.namelist()
                                  if name.startswith("lib/") and "zstandard" in name.lower()})
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
-           apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, tail=tail)
+           apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis,
+           buildpython=paths.get("buildpython"), tail=tail)
     return ok
 
 
@@ -380,7 +525,7 @@ def _json_ok(text):
         return False
 
 
-REQUIRED_PHASES = ("provision", "preflight", "sdist", "build", "in_app")
+REQUIRED_PHASES = ("provision", "preflight", "sdist", "wheels", "build", "in_app")
 
 
 def _verdict():
@@ -411,11 +556,13 @@ def main():
             # The sdist digest is cheap and independent; it always runs in the full phase.
             sdist = phase_sdist()
             if preflight is not None and preflight[0]:
-                if phase_build(preflight[1], sdist):
+                wheels = phase_wheels(preflight[1], sdist)
+                if phase_build(preflight[1], wheels):
                     phase_in_app(preflight[1])
                 else:
                     record("in_app", "skipped", reason="build did not pass")
             else:
+                record("wheels", "skipped", reason="preflight did not pass")
                 record("build", "skipped", reason="preflight did not pass")
                 record("in_app", "skipped", reason="preflight did not pass")
     finally:
