@@ -209,8 +209,12 @@ def _install_sdk_package(name, details, sdk):
         return True, "cached"
     bundle = TOOLS_DIR / f"downloads/{name.replace(';', '-')}.zip"
     try:
+        # One retry: the 1.5 GB system-image zip has been lost to a single reset mid-run
+        # (observed attempt 9), and a re-fetch is cheaper than re-running the job.
         if not _download(details["url"], bundle):
-            return False, "download failed"
+            bundle.unlink(missing_ok=True)
+            if not _download(details["url"], bundle):
+                return False, "download failed"
         # SHA-1 is the repository's own integrity digest, not a security primitive here.
         digest = hashlib.sha1(bundle.read_bytes(), usedforsecurity=False).hexdigest()
     except OSError:
@@ -511,7 +515,7 @@ def phase_wheels(paths, sdist):
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
            "CIBW_BUILD": "cp313-*",
            "CIBW_BUILD_FRONTEND": "build"}
-    result = run_tool([str(cibw), "--platform", "android", "--archs", "arm64-v8a,x86_64",
+    result = run_tool([str(cibw), "--platform", "android", "--archs", "arm64_v8a,x86_64",
                        "--config-file", str(config),
                        "--output-dir", str(output), str(project)], timeout=3600, env_extra=env,
                       keep_bytes=8000)
