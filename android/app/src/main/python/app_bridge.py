@@ -99,6 +99,10 @@ def _core(action):
         return action(ArchiveError)
     except ArchiveError as error:
         raise _BridgeError("refused", str(error)) from None
+    except ImportError:
+        # A broken core module inside the action crosses as the app's public "core
+        # missing" refusal, never as a raw traceback over the bridge.
+        raise _BridgeError("core_missing", "The archiver core is not available.") from None
 
 
 def _path_arg(args, name):
@@ -200,8 +204,8 @@ def _signin_probe(args):
     session = _path_arg(args, "session_root")
 
     def probe(ArchiveError):
-        from comic_archive import android_adapter, android_session
         source, sink = _cookie_seams()
+        from comic_archive import android_adapter, android_session
         answer = android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink)
         if answer["signed_in"]:
             # Written only after the verified answer; the compatibility state is empty on

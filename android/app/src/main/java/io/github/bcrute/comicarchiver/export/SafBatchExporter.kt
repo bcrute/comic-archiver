@@ -85,10 +85,12 @@ class SafBatchExporter(
             if (previous != null &&
                 previous.state == JournalState.VERIFIED &&
                 previous.bytes == entry.bytes &&
-                previous.sha256.equals(entry.sha256, ignoreCase = true)
+                previous.sha256.equals(entry.sha256, ignoreCase = true) &&
+                recordedCopyStillExists(previous)
             ) {
                 // Only skip when the verified copy is of the archive the manifest now
-                // describes; a re-saved episode (new bytes/digest) is exported again.
+                // describes AND that copy is still in the tree; a re-saved episode (new
+                // bytes/digest) or a user-deleted document is exported again.
                 already++
                 continue
             }
@@ -134,6 +136,23 @@ class SafBatchExporter(
         object GrantLost : OneResult()
         object Stopped : OneResult()
         data class FailedResult(val entry: JournalEntry) : OneResult()
+    }
+
+    /**
+     * A VERIFIED journal line is only trustworthy while its copy still exists: the user
+     * may have deleted the exported document (or revoked its tree) after the run. Probing
+     * the recorded URI must succeed before an entry may be skipped as already verified;
+     * any probe failure — deleted, stale grant, or otherwise — falls through to the normal
+     * resume path, which recreates the target and re-verifies real bytes.
+     */
+    private fun recordedCopyStillExists(previous: JournalEntry): Boolean {
+        val uri = previous.targetUri ?: return false
+        return try {
+            documents.displayNameFor(DocumentsFile(uri))
+            true
+        } catch (_: DocumentsException) {
+            false
+        }
     }
 
     private fun exportOne(

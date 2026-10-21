@@ -88,7 +88,10 @@ class ResolveOriginalTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val library get() = tmp.newFolder("Library")
+    // newFolder throws IOException when the folder already exists and the getter runs
+    // more than once per test; mkdirs is the idempotent form of the same fixture.
+    private val library: File
+        get() = File(tmp.root, "Library").apply { mkdirs() }
 
     @Test
     fun `resolves a file under the library`() {

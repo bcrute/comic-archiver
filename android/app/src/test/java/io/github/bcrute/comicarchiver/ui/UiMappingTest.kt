@@ -215,6 +215,8 @@ class UiMappingTest {
     @Test
     fun `fixtures are labelled and built on the frozen DTOs`() {
         assertTrue(UiFixtures.LABEL.contains("FIXTURE"))
-        assertTrue(UiFixtures.running.download is DownloadsViewUi.Running)
+        // The fixtures carry the controller's frozen DTOs (the UI types are only what
+        // UiMapping produces from them at render time).
+        assertTrue(UiFixtures.running.download is DownloadState.Running)
     }
 }

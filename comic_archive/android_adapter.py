@@ -26,7 +26,7 @@ from urllib.parse import urljoin, urlsplit
 from . import sites
 from .android_transport import AndroidTransport
 from .errors import AuthenticationError
-from .library_navigation import reading_list_location
+from .adapters.library_navigation import reading_list_location
 from .models import ArchiveError
 from .transport import Transport
 

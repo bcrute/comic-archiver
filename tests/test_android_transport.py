@@ -14,6 +14,13 @@ from comic_archive.models import ArchiveError
 from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
 
 
+class CloseableClient:
+    """The least client seam: Transport.close() calls client.close(), nothing else."""
+
+    def close(self):
+        pass
+
+
 class Store:
     """A stand-in for the native WebViewCookieStore: records what it was asked, never logs."""
 
@@ -33,7 +40,7 @@ class Capturing(AndroidTransport):
     """The real adapter with the network call replaced; the Cookie header recorded per URL."""
 
     def __init__(self, store, **kwargs):
-        super().__init__(store, interval=1.0, client=object(), **kwargs)
+        super().__init__(store, interval=1.0, client=CloseableClient(), **kwargs)
         self.interval = 0.0
         self.sent = {}
 
@@ -53,12 +60,14 @@ class WebViewCookieSourceTests(unittest.TestCase):
         # Chaquopy exposes the same Kotlin method under camelCase and snake_case; the seam
         # takes either spelling of headerFor so the bridge wiring cannot fail on naming alone.
         for header_name in ('headerFor', 'header_for'):
-            members = {header_name: lambda url: None,
-                       'apply': lambda url, values: None}
+            # Plain functions in a type() dict become bound methods (self arrives as the
+            # first argument); staticmethod keeps the store-shaped signatures.
+            members = {header_name: staticmethod(lambda url: None),
+                       'apply': staticmethod(lambda url, values: None)}
             self.assertEqual(WebViewCookieSource(type('Bridge', (), members)())
                              .header_for('https://tapas.io/x'), '')
         with self.assertRaises(ArchiveError):
-            WebViewCookieSource(type('NoHeader', (), {'apply': lambda url, values: None})())
+            WebViewCookieSource(type('NoHeader', (), {'apply': staticmethod(lambda url, values: None)})())
 
     def test_a_failing_or_unusable_header_answer_is_replaced_by_a_safe_fixed_message(self):
         for answer in (RuntimeError('value=PRIVATE'), 7, 'fine\r\nHost: evil', 'v\0'):
@@ -95,22 +104,24 @@ class WebViewCookieSourceTests(unittest.TestCase):
 class AndroidTransportTests(unittest.TestCase):
     def test_the_adapter_wires_the_store_in_and_keeps_no_jar(self):
         store = Store({'https://tapas.io/x': 'session=GOLDEN'})
-        transport = AndroidTransport(store, interval=0.25, client=object())
+        transport = AndroidTransport(store, interval=0.25, client=CloseableClient())
         source = transport.store
-        self.assertIs(transport.cookie_source, source.header_for)
-        self.assertIs(transport.cookie_sink, source.apply)
+        # Bound methods do not have stable identity across accesses; same underlying
+        # function on the same instance is what "wired to the store's own seams" means.
+        self.assertEqual(transport.cookie_source, source.header_for)
+        self.assertEqual(transport.cookie_sink, source.apply)
         self.assertEqual(transport.cookies, ())
         # A raw bridge is wrapped; a wrapped source passes through unchanged.
-        self.assertIsInstance(AndroidTransport(Store(), client=object()).store, WebViewCookieSource)
-        self.assertIs(AndroidTransport(source, client=object()).store, source)
+        self.assertIsInstance(AndroidTransport(Store(), client=CloseableClient()).store, WebViewCookieSource)
+        self.assertIs(AndroidTransport(source, client=CloseableClient()).store, source)
 
     def test_inherited_gates_stay_binding(self):
         for interval in (0.24, float('nan'), True):
             with self.assertRaises(ArchiveError):
-                AndroidTransport(Store(), interval=interval, client=object())
+                AndroidTransport(Store(), interval=interval, client=CloseableClient())
         for bridge in (object(), None):
             with self.assertRaises(ArchiveError):
-                AndroidTransport(bridge, client=object())
+                AndroidTransport(bridge, client=CloseableClient())
 
     def test_the_live_header_travels_to_the_site_host_only_through_the_canonical_path(self):
         store = Store({'https://tapas.io/who-am-i': 'session=GOLDEN'})
