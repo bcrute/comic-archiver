@@ -698,13 +698,10 @@ def phase_wheels(paths, sdist):
     return output if ok else None
 
 
-def phase_build(paths, wheels):
-    if wheels is None:
-        record("build", "skipped", reason="verified Android wheels unavailable")
-        return False
-    if not paths.get("gradle"):
-        record("build", "pending", reason="no gradle available")
-        return False
+def _gradle_invocation(paths, task, wheels):
+    """One Gradle invocation's environment and argv: the same proxy/truststore JVM flags,
+    job-private SDK and buildPython, verified wheels and mirror index for every Gradle
+    task this point runs (the build and the JVM suites)."""
     # Gradle's JVM is the one remaining raw-JVM downloader (the plugins and Chaquopy's
     # own artifacts); hand it the proxy and the system-CA truststore via GRADLE_OPTS,
     # which the launcher forwards to the single-use daemon it forks for --no-daemon.
@@ -731,10 +728,21 @@ def phase_build(paths, wheels):
         if line.strip().startswith("http"):
             index_url = line.strip()
             break
-    argv = [paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), "assembleDebug",
+    argv = [paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), task,
             f"-PzstandardWheels={wheels}", f"-PbuildPython={paths['buildpython']}"]
     if index_url:
         argv.append(f"-PpipIndexUrl={index_url}")
+    return env, argv, jvm_flags, index_url
+
+
+def phase_build(paths, wheels):
+    if wheels is None:
+        record("build", "skipped", reason="verified Android wheels unavailable")
+        return False
+    if not paths.get("gradle"):
+        record("build", "pending", reason="no gradle available")
+        return False
+    env, argv, jvm_flags, index_url = _gradle_invocation(paths, "assembleDebug", wheels)
     result = run_tool(argv, timeout=3600, env_extra=env, keep_bytes=8000)
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
@@ -772,6 +780,27 @@ def phase_build(paths, wheels):
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
            pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
     return ok
+
+
+def phase_jvm_tests(paths, wheels):
+    """The app's JVM unit suites (the UI/export line's exporter and mapping tests) on the
+    same wired Gradle invocation as the build: unit-test compilation still runs Chaquopy's
+    packaging, so the buildPython/wheels/index properties are as required here."""
+    if wheels is None:
+        record("jvm_tests", "skipped", reason="verified Android wheels unavailable")
+        return False
+    if not paths.get("gradle"):
+        record("jvm_tests", "pending", reason="no gradle available")
+        return False
+    env, argv, _jvm_flags, _index_url = _gradle_invocation(paths, "testDebugUnitTest", wheels)
+    result = run_tool(argv, timeout=1800, env_extra=env, keep_bytes=8000)
+    tail = result["tail"]
+    failed_tasks = re.findall(r"> Task :(\S+) FAILED", tail)
+    classification = f"task_failed:{failed_tasks[-1]}" if failed_tasks else (
+        "tests_failed" if result["returncode"] != 0 else None)
+    record("jvm_tests", "passed" if result["returncode"] == 0 else "failed",
+           minutes=result["minutes"], classification=classification, tail=tail)
+    return result["returncode"] == 0
 
 
 def _free_port():
@@ -891,7 +920,7 @@ def _json_ok(text):
         return False
 
 
-REQUIRED_PHASES = ("provision", "preflight", "sdist", "wheels", "build", "in_app")
+REQUIRED_PHASES = ("provision", "preflight", "sdist", "wheels", "build", "jvm_tests", "in_app")
 
 
 def _verdict():
@@ -924,12 +953,17 @@ def main():
             if preflight is not None and preflight[0]:
                 wheels = phase_wheels(preflight[1], sdist)
                 if phase_build(preflight[1], wheels):
-                    phase_in_app(preflight[1])
+                    if phase_jvm_tests(preflight[1], wheels):
+                        phase_in_app(preflight[1])
+                    else:
+                        record("in_app", "skipped", reason="jvm tests did not pass")
                 else:
+                    record("jvm_tests", "skipped", reason="build did not pass")
                     record("in_app", "skipped", reason="build did not pass")
             else:
                 record("wheels", "skipped", reason="preflight did not pass")
                 record("build", "skipped", reason="preflight did not pass")
+                record("jvm_tests", "skipped", reason="preflight did not pass")
                 record("in_app", "skipped", reason="preflight did not pass")
     finally:
         code = _verdict()
