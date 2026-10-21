@@ -30,6 +30,7 @@ fun DownloadsScreen(
     state: DownloadsScreenUi,
     onGo: () -> Unit,
     onPause: () -> Unit,
+    onDismissNotice: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -47,20 +48,18 @@ fun DownloadsScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        state.notice?.let { NoticeCard(it) }
+        state.notice?.let { NoticeCard(it, onDismiss = onDismissNotice) }
 
         Spacer(Modifier.height(4.dp))
-        val canGo = state.download is DownloadsViewUi.Held ||
-            state.download is DownloadsViewUi.Finished
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = onGo,
-                enabled = canGo,
+                enabled = state.download.goEnabled(),
                 modifier = Modifier.weight(1f),
             ) { Text("Go") }
             OutlinedButton(
                 onClick = onPause,
-                enabled = state.download is DownloadsViewUi.Running,
+                enabled = state.download.pauseEnabled(),
                 modifier = Modifier.weight(1f),
             ) { Text("Pause") }
         }
