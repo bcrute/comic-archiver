@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import tomllib
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -530,6 +531,51 @@ def phase_sdist():
     return target
 
 
+def _cibw_required_ndk(sdk, packages):
+    """Install, over the Python network path, the NDK version cibuildwheel's pinned
+    CPython Android build hard-requires. That build's android-env.sh runs the JVM
+    sdkmanager — the network path broken on this fleet (observed attempts 4, 5, 11) —
+    whenever $ANDROID_HOME/ndk/<version>/package.xml is missing, so the NDK is
+    provisioned before cibuildwheel starts. The requirement is read from the pinned
+    CPython artifact itself, its sha256 verified against the pinned builder's own
+    resource table, keeping the version transitively pinned instead of hardcoded.
+    """
+    resources = TOOLS_DIR / ("cibw-venv/lib/python3.13/site-packages/"
+                             "cibuildwheel/resources/build-platforms.toml")
+    try:
+        builds = tomllib.loads(resources.read_text())["android"]["python_configurations"]
+        build = next(item for item in builds if item.get("identifier") == "cp313-android_x86_64")
+    except (OSError, KeyError, StopIteration, ValueError):
+        return None, "pinned builder's android table unreadable"
+    bundle = TOOLS_DIR / "downloads/cpython-android.tar.gz"
+    try:
+        if not _download(build["url"], bundle):
+            return None, "cpython android build download failed"
+        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    except OSError:
+        return None, "cpython android build unreadable"
+    if digest != build["sha256"]:
+        bundle.unlink(missing_ok=True)
+        return None, f"cpython android build sha256 mismatch: {digest}"
+    try:
+        with tarfile.open(bundle) as archive:
+            member = archive.extractfile("./android-env.sh")
+            text = member.read().decode("utf-8", "replace") if member else ""
+    except (OSError, tarfile.TarError):
+        return None, "android-env.sh unreadable in the pinned build"
+    match = re.search(r"^ndk_version=([0-9.]+)$", text, re.MULTILINE)
+    if not match:
+        return None, "android-env.sh states no ndk_version"
+    version = match.group(1)
+    if (sdk / "ndk" / version / "package.xml").is_file():
+        return version, "present"
+    name = f"ndk;{version}"
+    if name not in (packages or {}):
+        return version, "required ndk not offered by the repository"
+    ok, note = _install_sdk_package(name, packages[name], sdk)
+    return version, "present" if ok else f"ndk install failed: {note}"
+
+
 def phase_wheels(paths, sdist):
     """Build the cp313 Android wheels from the pinned sdist with cibuildwheel on this host.
 
@@ -564,6 +610,9 @@ def phase_wheels(paths, sdist):
     # so the Android build runs exactly the pinned builder's defaults, tests off.
     config = JOB_DIR / "cibw-config.toml"
     config.write_text('[tool.cibuildwheel]\nbuild-frontend = "build"\n')
+    # The pinned CPython Android build's android-env.sh hard-requires one specific NDK
+    # and otherwise installs it with the JVM sdkmanager (broken on this fleet).
+    ndk_version, ndk_note = _cibw_required_ndk(paths["sdk"], _sdk_repository_packages())
     env = {"ANDROID_HOME": str(paths["sdk"]),
            "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
@@ -579,7 +628,8 @@ def phase_wheels(paths, sdist):
     ok = result["returncode"] == 0 and all(arch in archs_seen for arch in WHEEL_ABI_ARCHS) \
         and all(name.startswith("zstandard-0.25.0-cp313-") for name in built) and len(built) == 2
     record("wheels", "passed" if ok else "failed", minutes=result["minutes"], wheels=built,
-           archs=archs_seen, returncode=result["returncode"], tail=result["tail"])
+           archs=archs_seen, returncode=result["returncode"],
+           required_ndk={"version": ndk_version, "note": ndk_note}, tail=result["tail"])
     return output if ok else None
 
 
