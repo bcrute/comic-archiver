@@ -79,8 +79,9 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 ## Planned
 
 Nothing in this section works today. A built-in reader for the CBZ and EPUB files the app saves, and an
-optional, private connection so your own library appears in your the web reader account on your other devices,
-are planned; see [docs/reader-and-connected-library-roadmap.md](docs/reader-and-connected-library-roadmap.md).
+optional, private connection so your own library appears in your the web reader account on your other devices —
+streamed from this computer while it's online, or mirrored to your own Backblaze B2 bucket — are planned;
+see [docs/reader-and-connected-library-roadmap.md](docs/reader-and-connected-library-roadmap.md).
 
 ## Other ways to save your comics
 
