@@ -109,7 +109,16 @@ def _path_arg(args, name):
     value = args.get(name)
     if not isinstance(value, str) or not value.startswith("/") or "\x00" in value:
         raise _BridgeError("bad_request", f"{name} must be an absolute filesystem path.")
-    return Path(value)
+    path = Path(value)
+    # The app's storage path is systematically symlinked in Android's per-user mount
+    # view (the platform's own links, not an attacker's), so the core's parent-symlink
+    # defenses would refuse every real workspace. Resolve at the boundary: the final
+    # path itself must never be a link (that could redirect outside app storage —
+    # observed live as a permanent workspace refusal on the phone), and the resolved
+    # canonical path the core then sees has no symlinked components at all.
+    if path.is_symlink():
+        raise _BridgeError("bad_request", f"{name} must not be a symlink.")
+    return path.resolve()
 
 
 def _ping(args):
@@ -130,14 +139,6 @@ def _prepare_workspace(args):
         from comic_archive.archive_paths import directory
         from comic_archive.state_paths import private_folder
         from comic_archive.workspace import Workspace
-        # The workspace root itself must be a real directory we create and own — a
-        # symlink there could redirect the archive outside app storage. Parent
-        # symlinks are NOT refused: Android hands the app a per-user mount view in
-        # which the platform's own storage path is systematically symlinked (the
-        # first real launch refused every workspace on that scan; the workspace
-        # directory itself was a plain directory the whole time).
-        if root.is_symlink():
-            raise ArchiveError("Refusing a symlinked workspace root.")
         library = directory(root / "Library")
         session = private_folder(root, "session")
         if worker_host.status(session)["running"]:

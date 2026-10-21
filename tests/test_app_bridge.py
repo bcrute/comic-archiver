@@ -84,7 +84,8 @@ class BridgeLifecycleTests(unittest.TestCase):
         os.symlink(self.root / "real", link)
         value = self.call("prepare_workspace", {"root": str(link)})
         self.assertFalse(value["ok"])
-        self.assertEqual(value["code"], "refused")
+        # Refused at the bridge boundary (every path arg is), before the core sees it.
+        self.assertEqual(value["code"], "bad_request")
 
     def test_worker_status_reads_the_protocol_file(self):
         self.call("prepare_workspace", {"root": str(self.root)})
