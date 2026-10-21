@@ -112,7 +112,7 @@ class FileJournalStore(private val file: File) : JournalStore {
         for (line in lines.drop(1)) {
             parseEntry(line)?.let { entries[it.episodeId] = it }
         }
-        return ExportJournal(entries)
+        return ExportJournal.of(entries.values.toList())
     }
 
     override fun save(journal: ExportJournal) {
