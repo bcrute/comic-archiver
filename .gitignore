@@ -14,5 +14,15 @@ parked/android/build/
 .validation/
 /build/
 /dist/
+# Android build outputs and fetched pinned sources; never committed binaries.
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.fleet-job/
+android/.fleet-sdk/
+android-feasibility.json
+packaging/android/zstandard-wheel/cache/
+packaging/android/zstandard-wheel/dist/
 # Planning notes stay on this computer.
 /ROADMAP.md

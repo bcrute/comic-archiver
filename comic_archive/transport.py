@@ -58,7 +58,7 @@ def cookie_matches(domain, host):
 
 class Transport:
     def __init__(self, cookies=(), interval=1.0, client=None, metrics=None, profile='normal', network_guard=None,
-                 agent=None, site=sites.DEFAULT):
+                 agent=None, site=sites.DEFAULT, cookie_source=None, cookie_sink=None):
         validate_request_interval(interval, profile)
         self.site = site
         if client is None:
@@ -73,6 +73,22 @@ class Transport:
         self.cookies = tuple((c["domain"], f"{c['name']}={c['value']}") for c in cookies if site.keeps_cookie(c["domain"]))
         # What the browser that reads the pages calls itself; without one the HTTP client gives its own name.
         self.agent = agent if isinstance(agent, str) and agent.isascii() and agent.isprintable() and agent.strip() else None
+        # A live per-URL Cookie header source (the Android WebView cookie store). It is asked
+        # for every request, never cached, and only for the hosts the site's own cookies may
+        # reach; the cookie jar above stays empty, so credentials never reach a CDN or
+        # another origin. The jar (cookies=...) and this source are mutually exclusive in
+        # practice: Android passes no jar at all.
+        if cookie_source is not None and not callable(cookie_source):
+            raise ArchiveError("The live cookie source must be callable.")
+        self.cookie_source = cookie_source
+        # Own-origin Set-Cookie forwarding (Android): raw response header values for the
+        # site's own hosts go to the platform cookie store, which alone parses attributes
+        # (rotation, deletion, expiry); nothing is inferred here. The sink must complete
+        # before the next request, and the jar above is not updated when one is present,
+        # leaving exactly one cookie authority.
+        if cookie_sink is not None and not callable(cookie_sink):
+            raise ArchiveError("The platform cookie sink must be callable.")
+        self.cookie_sink = cookie_sink
         self.interval = interval
         self.last = 0.0
         self._spacing_lock = threading.Lock()
@@ -116,9 +132,12 @@ class Transport:
         headers = {"Referer": self.site.referer}
         if self.agent:
             headers["User-Agent"] = self.agent
-        cookie = self.cookie_header(host)
-        if cookie:
-            headers["Cookie"] = cookie
+        # Jar cookies (the desktop path) are attached once; a live source is consulted per
+        # attempt below, after policy admission, and never mixes with the jar.
+        if host in self.site.cookie_hosts and self.cookie_source is None:
+            cookie = self.cookie_header(host)
+            if cookie:
+                headers["Cookie"] = cookie
         if authorization is not None:
             # The key goes only where the site's own cookies may go, never to a CDN.
             if (host not in self.site.cookie_hosts or not isinstance(authorization, str) or not authorization.isascii()
@@ -127,6 +146,16 @@ class Transport:
             headers["Authorization"] = authorization
         for attempt in range(3):
             self._pace()
+            if self.cookie_source is not None:
+                # Asked after policy/cancellation admission on every attempt, so a cookie
+                # that changed or disappeared between attempts (or on a redirect hop, which
+                # is a new request) is never reused. Jar cookies never take this path.
+                headers.pop("Cookie", None)
+                if host in self.site.cookie_hosts:
+                    value = self.cookie_source(url)
+                    cookie = value if isinstance(value, str) else ''
+                    if cookie:
+                        headers["Cookie"] = cookie
             try:
                 return self._request(url, headers, max_bytes, attempt, take_cookies)
             except _RetryRequest as retry:
@@ -249,7 +278,15 @@ class Transport:
                         error.source_answer = bytes(answer[:REFUSAL_BYTES])
                         raise error
                     if take_cookies:
-                        self._take_cookies(response.headers.get_list('set-cookie'), urlsplit(url).hostname)
+                        values = response.headers.get_list('set-cookie')
+                        response_host = urlsplit(url).hostname
+                        if self.cookie_sink is not None:
+                            # Raw values, site's own hosts only; the platform store parses
+                            # attributes itself. CDNs and other origins never reach the sink.
+                            if response_host in self.site.cookie_hosts:
+                                self.cookie_sink(url, values)
+                        else:
+                            self._take_cookies(values, response_host)
                     for chunk in response.iter_bytes():
                         self._check_budget()
                         data.extend(chunk)
