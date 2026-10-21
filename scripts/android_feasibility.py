@@ -22,6 +22,7 @@ as on success.
 """
 import argparse
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -751,8 +752,19 @@ def phase_build(paths, wheels):
     wheel_abis = []
     if APK.is_file():
         with zipfile.ZipFile(APK) as archive:
-            wheel_abis = sorted({name.split("/")[1] for name in archive.namelist()
-                                 if name.startswith("lib/") and "zstandard" in name.lower()})
+            # Chaquopy packs each ABI's pip requirements as a NESTED zip asset,
+            # requirements-<abi>.imy (Common.assetZip renames .zip so aapt2 will not
+            # recompress it); the wheel's compiled backend lives inside that zip, not
+            # under lib/. Attempt 19's APK probe scanned lib/ and reported nothing.
+            for name in archive.namelist():
+                match = re.fullmatch(r"assets/chaquopy/requirements-([^-]+)\.imy", name)
+                if not match:
+                    continue
+                with zipfile.ZipFile(io.BytesIO(archive.read(name))) as reqs:
+                    if any(part.startswith("zstandard/") and part.endswith(".so")
+                           for part in reqs.namelist()):
+                        wheel_abis.append(match.group(1))
+        wheel_abis = sorted(set(wheel_abis))
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
            pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
