@@ -129,12 +129,10 @@ class WebViewCookieStore(
         if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw CookieSourceException(TIMED_OUT)
         }
-        return answer.get().fold(
-            onSuccess = { it },
-            onFailure = { error ->
-                if (error is CookieSourceException) error else CookieSourceException(FAILED)
-            },
-        )
+        return answer.get().getOrElse { error ->
+            if (error is CookieSourceException) throw error
+            throw CookieSourceException(FAILED)
+        }
     }
 
     private fun store(): CookieManager = try {
