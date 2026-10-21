@@ -3,6 +3,9 @@
 Notes for building the app, checking a change and making a release. Using the app is covered in the
 [README](../README.md) and on the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest).
 
+Android is the next planned platform. Its implementation blocks, feasibility gates and release criteria are in
+the [Android delivery roadmap](android-roadmap.md). The commands below cover the existing desktop app.
+
 ## Why the history here is short
 
 This GitHub repository is a public mirror. Comic Archiver is developed in a private, self-hosted Gitea server,
