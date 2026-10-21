@@ -130,7 +130,13 @@ def _prepare_workspace(args):
         from comic_archive.archive_paths import directory
         from comic_archive.state_paths import private_folder
         from comic_archive.workspace import Workspace
-        if root.is_symlink() or any(p.is_symlink() for p in root.parents):
+        # The workspace root itself must be a real directory we create and own — a
+        # symlink there could redirect the archive outside app storage. Parent
+        # symlinks are NOT refused: Android hands the app a per-user mount view in
+        # which the platform's own storage path is systematically symlinked (the
+        # first real launch refused every workspace on that scan; the workspace
+        # directory itself was a plain directory the whole time).
+        if root.is_symlink():
             raise ArchiveError("Refusing a symlinked workspace root.")
         library = directory(root / "Library")
         session = private_folder(root, "session")
