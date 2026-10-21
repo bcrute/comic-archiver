@@ -23,11 +23,24 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
+from . import sites
 from .android_transport import AndroidTransport
 from .errors import AuthenticationError
 from .library_navigation import reading_list_location
 from .models import ArchiveError
 from .transport import Transport
+
+
+def site_addresses():
+    """The sites table for the native engine's constructor, as plain public-safe values.
+
+    The Kotlin WebViewSignInEngine takes its site map as explicit caller input; this hands
+    the bridge the real table (comic_archive.sites) so no second site list exists anywhere.
+    Only each site's addresses travel — never anything about a saved sign-in.
+    """
+    return [{'key': site.key, 'home': site.home, 'signInPath': site.signin_path,
+             'cookieHosts': list(site.cookie_hosts)}
+            for site in sites.SITES if site.available]
 
 
 # The account lists the HTTP reading-list route itself verifies (reading_list_location).

@@ -288,6 +288,15 @@ class AndroidTapasAdapterConstructionTests(unittest.TestCase):
 
 
 class SignedInProbeTests(unittest.TestCase):
+    def test_the_sites_table_for_the_native_engine_is_the_real_one(self):
+        from comic_archive.android_adapter import site_addresses
+        table = site_addresses()
+        tapas = next(entry for entry in table if entry['key'] == 'tapas')
+        self.assertEqual(tapas, {'key': 'tapas', 'home': 'https://tapas.io',
+                                 'signInPath': '/account/signin', 'cookieHosts': ['tapas.io']})
+        self.assertTrue(all(set(entry) == {'key', 'home', 'signInPath', 'cookieHosts'}
+                            for entry in table))
+
     def test_only_the_verified_who_am_i_reports_signed_in(self):
         self.assertEqual(signed_in_probe(transport=library_transport()),
                          {'signed_in': True, 'verified': True, 'reason': None})
