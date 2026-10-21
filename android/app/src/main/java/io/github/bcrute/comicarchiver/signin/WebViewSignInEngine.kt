@@ -150,6 +150,7 @@ class WebViewSignInEngine(
     /** Called by [SignInWebViewClient] on the main thread for every page that finished. */
     fun onPageFinished(url: String) {
         val site = address ?: return
+        if (!synchronized(this) { sessionOpen }) return  // A closed sign-in accepts no settle.
         val current = _state.value
         if (current !is SignInState.Page && current !is SignInState.Settling) return
         if (!isSiteUrl(url, site)) return
