@@ -49,6 +49,17 @@ class WebViewCookieSourceTests(unittest.TestCase):
                 WebViewCookieSource(bridge)
             self.assertNotIn('PRIVATE', str(error.exception))
 
+    def test_the_chaquopy_snake_case_name_is_accepted_too(self):
+        # Chaquopy exposes the same Kotlin method under camelCase and snake_case; the seam
+        # takes either spelling of headerFor so the bridge wiring cannot fail on naming alone.
+        for header_name in ('headerFor', 'header_for'):
+            members = {header_name: lambda url: None,
+                       'apply': lambda url, values: None}
+            self.assertEqual(WebViewCookieSource(type('Bridge', (), members)())
+                             .header_for('https://tapas.io/x'), '')
+        with self.assertRaises(ArchiveError):
+            WebViewCookieSource(type('NoHeader', (), {'apply': lambda url, values: None})())
+
     def test_a_failing_or_unusable_header_answer_is_replaced_by_a_safe_fixed_message(self):
         for answer in (RuntimeError('value=PRIVATE'), 7, 'fine\r\nHost: evil', 'v\0'):
             store = Store()

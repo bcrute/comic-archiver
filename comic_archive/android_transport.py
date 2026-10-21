@@ -18,14 +18,21 @@ class WebViewCookieSource:
     """The app's WebView cookie store, reached through the native seam object.
 
     'bridge' is whatever the app hands the embedded Python: a WebViewCookieStore implementing
-    the frozen Kotlin interfaces (headerFor/apply). Both are called from worker threads; the
-    native side marshals to the main thread and answers within a bound.
+    the frozen Kotlin interfaces. headerFor/apply are called from worker threads; the native
+    side marshals them to the main thread and answers within a bound. Chaquopy exposes the
+    same Kotlin methods under their camelCase and snake_case names, so either spelling of
+    headerFor is accepted here — the frozen ABI itself is unchanged.
     """
 
     def __init__(self, bridge, site=sites.DEFAULT):
-        for name in ('headerFor', 'apply'):
-            if not callable(getattr(bridge, name, None)):
-                raise ArchiveError('The app sign-in store is not wired to the downloader.')
+        for name in ('headerFor', 'header_for'):
+            if callable(getattr(bridge, name, None)):
+                self._header = getattr(bridge, name)
+                break
+        else:
+            raise ArchiveError('The app sign-in store is not wired to the downloader.')
+        if not callable(getattr(bridge, 'apply', None)):
+            raise ArchiveError('The app sign-in store is not wired to the downloader.')
         self._bridge, self.site = bridge, site
 
     def header_for(self, url):
@@ -34,7 +41,7 @@ class WebViewCookieSource:
         The core asks per request and per attempt and never for a CDN; see Transport.get.
         """
         try:
-            value = self._bridge.headerFor(url)
+            value = self._header(url)
         except Exception:
             # Fixed text only: the store's own message may hold a URL or credential.
             raise ArchiveError('The app sign-in store is unavailable; sign in again.') from None
