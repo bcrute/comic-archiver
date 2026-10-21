@@ -738,8 +738,16 @@ def phase_build(paths, wheels):
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
     classification = None
-    if not ok and re.search(r"zstandard|chaquopy.*pip|error: (command|link|compile)", tail, re.IGNORECASE):
-        classification = "wheel_install_failed"
+    if not ok:
+        # The last task Gradle marked FAILED, when present, is the truthful failure
+        # point. The earlier bare "zstandard" match mislabelled attempt 17 as a wheel
+        # failure because Chaquopy's SUCCESSFUL pip output names zstandard; keep the
+        # wheel-install heuristic only for failures that stop before any task runs.
+        failed_tasks = re.findall(r"> Task :(\S+) FAILED", tail)
+        if failed_tasks:
+            classification = f"task_failed:{failed_tasks[-1]}"
+        elif re.search(r"zstandard|chaquopy.*pip|error: (command|link|compile)", tail, re.IGNORECASE):
+            classification = "wheel_install_failed"
     wheel_abis = []
     if APK.is_file():
         with zipfile.ZipFile(APK) as archive:

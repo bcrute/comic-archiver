@@ -33,6 +33,15 @@ android {
         }
     }
 
+    compileOptions {
+        // The Kotlin/Compose toolchain compiles at JVM 17 while AGP's javac default is
+        // 1.8, and Gradle's target validation rejects that mix (observed on the fleet:
+        // "Inconsistent JVM-target compatibility ... compileDebugJavaWithJavac (1.8)
+        // and compileDebugKotlin (17)"). Align javac with Kotlin on the pinned JDK 17.
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildTypes {
         release {
             // Release hygiene (signing, shrinking) is native-line work after the beta scope
