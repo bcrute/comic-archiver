@@ -1,11 +1,14 @@
 package io.github.bcrute.comicarchiver.controller
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.app
 import io.github.bcrute.comicarchiver.signin.SignInEngine
 import io.github.bcrute.comicarchiver.worker.DefaultDownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHost
+import io.github.bcrute.comicarchiver.worker.DownloadHostService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
@@ -23,9 +27,7 @@ import org.json.JSONObject
  * exactly as on the desktop; the controller only maps public state, never policy.
  *
  * The UI attaches its sign-in WebView before [startSignIn] through [attachSignInWebView]
- * (the frozen interface deliberately carries no WebView parameter). Still unimplemented
- * bridge ops (library/export listing) surface as their public-safe notices instead of
- * silent successes.
+ * (the frozen interface deliberately carries no WebView parameter).
  */
 class DefaultAppController(
     private val context: Context,
@@ -78,8 +80,25 @@ class DefaultAppController(
     override fun cancelSignIn() = engine.cancelSignIn()
 
     override fun signOut() {
-        downloads.checkpointAndStop("sign_out")  // The downloader stops before the session goes.
-        engine.signOut()
+        scope.launch(Dispatchers.IO) {
+            // Contract §3 order, awaited end to end: the downloader drains before any
+            // cookie or record goes, so no in-flight request races the cleared store; the
+            // engine closes the session and clears the jar on the main thread; only then
+            // is the sign-in record forgotten, so a restart can never resume it.
+            bridge.dispatch("pause", JSONObject().put("root", workspaceRoot).toString())
+            bridge.dispatch("worker_stop", JSONObject().put("session_root", sessionRoot)
+                .put("wait_seconds", 15).toString())
+            withContext(Dispatchers.Main) { engine.signOut() }
+            bridge.dispatch("signout_record", JSONObject().put("session_root", sessionRoot).toString())
+            val intent = Intent(context, DownloadHostService::class.java)
+                .setAction(DownloadHostService.ACTION_STOP)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+            else @Suppress("DEPRECATION") context.startService(intent)
+            admitted = false
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(download = DownloadState.Held)
+            }
+        }
     }
 
     override fun go() {
@@ -119,7 +138,10 @@ class DefaultAppController(
     }
 
     override fun openNotice(notice: Notice) {
-        _state.value = _state.value.copy(notice = notice)
+        // The UI's "Got it" calls this with the shown notice: asserting the same notice
+        // again clears it (dismiss semantics); a different one replaces it.
+        _state.value = if (_state.value.notice == notice) _state.value.copy(notice = null)
+        else _state.value.copy(notice = notice)
     }
 
     private suspend fun prepareWorkspace() {
@@ -135,9 +157,13 @@ class DefaultAppController(
 
     private fun startPolling() {
         poll?.cancel()
-        poll = scope.launch {
+        // The poll's bridge calls block on Python: keep them off the main thread.
+        poll = scope.launch(Dispatchers.IO) {
+            var tick = 0
             while (isActive) {
                 mapWorkerStatus()
+                if (tick % 5 == 0) refreshLibrary()  // Cheap stat walk; the manifest ops carry the digests.
+                tick += 1
                 delay(2000)
             }
         }
@@ -158,5 +184,24 @@ class DefaultAppController(
             else -> DownloadState.Planning
         }
         _state.value = _state.value.copy(download = download)
+    }
+
+    private suspend fun refreshLibrary() {
+        val envelope = JSONObject(bridge.dispatch(
+            "library_listing", JSONObject().put("root", workspaceRoot).toString()))
+        if (!envelope.optBoolean("ok")) return
+        val entries = envelope.optJSONArray("result") ?: return
+        val library = (0 until entries.length()).mapNotNull { index ->
+            val item = entries.optJSONObject(index) ?: return@mapNotNull null
+            LibraryEntry(
+                seriesId = item.optString("seriesId"),
+                title = item.optString("title"),
+                kind = if (item.optString("kind") == "novels") LibraryKind.NOVELS
+                       else LibraryKind.COMIC,
+                episodeCount = item.optInt("episodeCount", 0),
+                savedCount = item.optInt("savedCount", 0),
+            )
+        }
+        _state.value = _state.value.copy(library = library)
     }
 }

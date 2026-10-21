@@ -102,13 +102,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * NATIVE SEAM (published in control-dir/ui-next-handoff.md): the engine's onSettle
-     * body must run the embedded core's verified who-am-i check through the bridge and
-     * call WebViewSignInEngine.verified() / verificationFailed(code) — cookie presence
-     * alone never yields SignedIn. Until native supplies that runner (a whoami bridge op
-     * or equivalent), a settled sign-in truthfully stays in Settling; nothing here may
-     * fabricate a sign-in.
+     * NATIVE SEAM (published in control-dir/ui-next-handoff.md), now filled: the engine's
+     * onSettle body runs the embedded core's verified who-am-i through the bridge
+     * (app.signInProbe — cookie presence alone never yields SignedIn), and the site table
+     * comes from the core's own sites module (app.signInSites).
      */
-    private fun createSignInEngine(app: App): SignInEngine =
-        WebViewSignInEngine(app.cookieStore, onSettle = { /* native seam, see ui-next-handoff */ })
+    private fun createSignInEngine(app: App): SignInEngine {
+        lateinit var engine: WebViewSignInEngine
+        engine = WebViewSignInEngine(
+            app.cookieStore,
+            onSettle = { app.signInProbe.settled(engine) },
+            sites = app.signInSites,
+        )
+        return engine
+    }
 }

@@ -119,6 +119,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
-    // JVM unit tests for the UI/export line's exporter and models.
+    // JVM unit tests for the UI/export line's exporter and models; org.json stands in for
+    // the platform's copy that only exists on a device (UI line's test-only ask).
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }

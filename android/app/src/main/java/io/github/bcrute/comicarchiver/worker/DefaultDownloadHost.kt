@@ -32,21 +32,18 @@ class DefaultDownloadHost(
     }
 
     override fun start() {
-        val intent = Intent(context, DownloadHostService::class.java)
-            .setAction(DownloadHostService.ACTION_START)
-        // startForegroundService whenever it exists: a background Go (notification, engine)
-        // must still bring the service up, and the service then reaches startForeground.
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-        else @Suppress("DEPRECATION") context.startService(intent)
-        call("worker_start", JSONObject()
-            .put("session_root", sessionRoot)
-            .put("library_root", libraryRoot)
-            .put("network_status_path", networkStatusPath).toString())
+        scope.launch(Dispatchers.IO) { startWorker() }
     }
 
     override fun go() {
-        start()
-        call("go", JSONObject().put("root", workspaceRoot()).toString())
+        scope.launch(Dispatchers.IO) {
+            // Go only after the worker's queue exists, in this one coroutine: unordered
+            // dispatches let the plan arrive before the queue and be refused by the core
+            // ("Start the downloader before submitting jobs"), which the UI would show
+            // as a silent no-op.
+            startWorker()
+            JSONObject(bridge.dispatch("go", JSONObject().put("root", workspaceRoot()).toString()))
+        }
     }
 
     override fun pause() {
@@ -55,14 +52,31 @@ class DefaultDownloadHost(
 
     override fun checkpointAndStop(reason: String) {
         // One stop path (user Stop, notification action, onTimeout): pause the plan, then
-        // drain the worker through the existing protocol; the service stops itself after.
-        call("pause", JSONObject().put("root", workspaceRoot()).toString())
-        call("worker_stop", JSONObject().put("session_root", sessionRoot)
-            .put("wait_seconds", 15).toString())
+        // drain the worker through the existing protocol — in order, so the drain cannot
+        // overtake the pause — and the service stops itself after.
+        scope.launch(Dispatchers.IO) {
+            JSONObject(bridge.dispatch("pause",
+                JSONObject().put("root", workspaceRoot()).toString()))
+            JSONObject(bridge.dispatch("worker_stop",
+                JSONObject().put("session_root", sessionRoot).put("wait_seconds", 15).toString()))
+            val intent = Intent(context, DownloadHostService::class.java)
+                .setAction(DownloadHostService.ACTION_STOP)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+            else @Suppress("DEPRECATION") context.startService(intent)
+        }
+    }
+
+    private fun startWorker() {
         val intent = Intent(context, DownloadHostService::class.java)
-            .setAction(DownloadHostService.ACTION_STOP)
+            .setAction(DownloadHostService.ACTION_START)
+        // startForegroundService whenever it exists: a background Go (notification, engine)
+        // must still bring the service up, and the service then reaches startForeground.
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
         else @Suppress("DEPRECATION") context.startService(intent)
+        JSONObject(bridge.dispatch("worker_start", JSONObject()
+            .put("session_root", sessionRoot)
+            .put("library_root", libraryRoot)
+            .put("network_status_path", networkStatusPath).toString()))
     }
 
     override fun isRunning(): Boolean {
