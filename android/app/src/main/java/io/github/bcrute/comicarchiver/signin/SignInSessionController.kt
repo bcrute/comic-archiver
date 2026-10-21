@@ -3,7 +3,6 @@ package io.github.bcrute.comicarchiver.signin
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebView
-import java.util.concurrent.TimeUnit
 
 /**
  * The sign-in leaf the app wires to its WebView screen.
@@ -85,9 +84,15 @@ class SignInSessionController(
     /** Called by [SignInWebViewClient] on the main thread for every page that finished. */
     fun onPageFinished(url: String) {
         var announce = false
+        // A store that cannot answer simply has not settled; the wait's bound decides the rest.
+        val hasCookies = try {
+            cookieStore.hasCookies(url)
+        } catch (_: Exception) {
+            false
+        }
         synchronized(lock) {
             if (waiting() && !state.settled && isSiteUrl(url)) {
-                if (cookieStore.hasCookies(url)) {
+                if (hasCookies) {
                     state = state.copy(settled = true)
                     if (!settleAnnounced) {
                         settleAnnounced = true
@@ -115,8 +120,8 @@ class SignInSessionController(
     }
 
     companion object {
-        /** The desktop sign-in window's limit, kept the same here. */
-        const val SIGNIN_SECONDS = TimeUnit.MINUTES.toSeconds(15)
+        /** The desktop sign-in window's 900-second limit, kept the same here. */
+        const val SIGNIN_SECONDS = 900L
 
         /**
          * The sign-in page's own needs only: its scripts and its storage on, every surface
