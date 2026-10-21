@@ -28,6 +28,7 @@ import pathlib
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
@@ -126,8 +127,9 @@ def _extract_tar_data(archive, destination):
 
 def _extract_zip_data(archive, destination):
     """Unpack the pinned zip member by member: every name is kept inside destination, no
-    extractall, and the SDK's bin/ scripts keep an executable mode even when the archive
-    records none (the observed failure: sdkmanager spawned EACCES at mode 0o644)."""
+    extractall, the SDK's bin/ scripts keep an executable mode even when the archive
+    records none (the observed failure: sdkmanager spawned EACCES at mode 0o644), and
+    symlinks are restored as links with relative, contained targets."""
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     try:
@@ -140,9 +142,24 @@ def _extract_zip_data(archive, destination):
                     resolved.mkdir(parents=True, exist_ok=True)
                     continue
                 resolved.parent.mkdir(parents=True, exist_ok=True)
+                stored = member.external_attr >> 16
+                if stat.S_ISLNK(stored):
+                    # A zip symlink's content is its target path. The NDK is full of
+                    # them (bin/clang -> clang-18; observed attempt 13: flattened to an
+                    # 8-byte text file, bash "ran" it, the cross-compile died at
+                    # "clang-18: command not found"). Absolute or escaping targets are
+                    # refused like any member that would write outside destination.
+                    target_text = bundle.read(member).decode("utf-8", "replace")
+                    normalized = os.path.normpath(
+                        os.path.join(os.path.dirname(member.filename), target_text))
+                    if not target_text or os.path.isabs(target_text) \
+                            or normalized.startswith(".." + os.path.sep) or normalized == "..":
+                        return False
+                    resolved.unlink(missing_ok=True)
+                    os.symlink(target_text, resolved)
+                    continue
                 with bundle.open(member) as source, open(resolved, "wb") as target:
                     shutil.copyfileobj(source, target)
-                stored = member.external_attr >> 16
                 executable = "bin" in resolved.parts and resolved.suffix not in {".jar", ".txt"}
                 os.chmod(resolved, stored if stored & 0o111 else 0o755 if executable else 0o644)
         return True
