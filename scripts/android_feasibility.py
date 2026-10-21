@@ -573,7 +573,33 @@ def _cibw_required_ndk(sdk, packages):
     if name not in (packages or {}):
         return version, "required ndk not offered by the repository"
     ok, note = _install_sdk_package(name, packages[name], sdk)
-    return version, "present" if ok else f"ndk install failed: {note}"
+    ndk = sdk / "ndk" / version
+    if not ok or not ndk.is_dir():
+        return version, f"ndk install failed: {note}"
+    marker = ndk / "package.xml"
+    if marker.is_file():
+        return version, "installed (zip carried package.xml)"
+    # Google's plain NDK zip ships source.properties but no package.xml — that file is
+    # written by sdkmanager when IT installs (observed attempt 12: android-env.sh probes
+    # for the file's existence and otherwise reaches for the JVM sdkmanager, the network
+    # path broken on this fleet, even though the sha1-verified NDK sits right there). The
+    # zip's sha1 was checked against Google's own listing before extraction; cross-check
+    # the version it ships, then write the marker android-env.sh looks for, stating this.
+    properties = ndk / "source.properties"
+    try:
+        shipped = f"Pkg.Revision = {version}" in properties.read_text()
+    except OSError:
+        shipped = False
+    if not shipped:
+        return version, "ndk zip does not declare the required version"
+    marker.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<!-- Installed from Google's sha1-verified repository zip by\n"
+        "     scripts/android_feasibility.py. The zip ships source.properties but no\n"
+        "     package.xml; the pinned CPython Android build's android-env.sh checks for\n"
+        "     this file's existence and would otherwise invoke the JVM sdkmanager. -->\n"
+        f'<package path="ndk;{version}" revision="{version}"/>\n')
+    return version, "installed; package.xml marker written (zip ships source.properties only)"
 
 
 def phase_wheels(paths, sdist):
