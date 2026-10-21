@@ -170,7 +170,9 @@ def _sdk_repository_packages():
     for listing in REPOSITORY_XMLS:
         try:
             with urllib.request.urlopen(listing, timeout=120) as response:
-                root = ET.fromstring(response.read())
+                # The listing is dl.google.com over TLS and every artifact it names is
+                # sha1-verified before use; only path/sha1/url are read from it.
+                root = ET.fromstring(response.read())  # noqa: S314 - fixed origin, verified artifacts
         except (OSError, ET.ParseError):
             return None
         folder = listing.rsplit("/", 1)[0]
@@ -209,7 +211,8 @@ def _install_sdk_package(name, details, sdk):
     try:
         if not _download(details["url"], bundle):
             return False, "download failed"
-        digest = hashlib.sha1(bundle.read_bytes()).hexdigest()
+        # SHA-1 is the repository's own integrity digest, not a security primitive here.
+        digest = hashlib.sha1(bundle.read_bytes(), usedforsecurity=False).hexdigest()
     except OSError:
         return False, "read failed"
     if digest != details["sha1"]:
@@ -404,14 +407,23 @@ def phase_preflight(tools):
     gradle, gradle_version = None, None
     candidates = [value for value in ((tools.get("gradle") if tools else None), shutil.which("gradle"),
                                       str(TOOLS_DIR / "gradle/bin/gradle")) if value]
+    gradle_probes = []
     for candidate in candidates:
-        probe = run_tool([candidate, "--version"], timeout=300)
+        # Attempt 6's probe inherited neither JAVA_HOME nor a java on PATH, and the bare
+        # host has none; the launcher refuses to run in that state. Hand it ours and keep
+        # the probe's own words so a still-failing launcher says why in the receipt.
+        probe = run_tool([candidate, "--version"], timeout=300,
+                         env_extra={"JAVA_HOME": str(pathlib.Path(java).parent.parent),
+                                    "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"}
+                         if java else None)
         match = re.search(r"^Gradle (\d+(?:\.\d+)?)", probe["tail"], re.MULTILINE)
         if match:
             digits = tuple(int(piece) for piece in match[1].split(".")[:2])
             if digits >= (8, 10):
                 gradle, gradle_version = candidate, match[1]
                 break
+        gradle_probes.append({"candidate": candidate, "returncode": probe["returncode"],
+                              "tail": probe["tail"][-300:]})
     if gradle is None:
         missing.add("gradle")
 
@@ -433,6 +445,7 @@ def phase_preflight(tools):
     required_ok = not missing
     record("preflight", "passed" if required_ok else "pending", missing=sorted(missing), java=version,
            gradle=gradle_version, sdk=str(sdk_path), system_images=images,
+           gradle_probes=gradle_probes if gradle is None else None,
            buildpython=buildpython_version, buildpython_path=buildpython,
            kvm=pathlib.Path("/dev/kvm").exists())
     return required_ok, {"sdk": sdk_path, "gradle": gradle, "java": java, "buildpython": buildpython}
