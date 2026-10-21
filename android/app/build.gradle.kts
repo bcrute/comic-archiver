@@ -51,6 +51,12 @@ chaquopy {
         // the host's own default python3 (3.14) must never be picked up implicitly.
         providers.gradleProperty("buildPython").orNull?.let { buildPython(it) }
         pip {
+            // When the build network can only reach an allowlisted mirror, it arrives as
+            // -PpipIndexUrl=... and replaces pip's index entirely: Chaquopy omits its own
+            // chaquo.com repository exactly when a user --index-url is present
+            // (pip_install.py in 17.1.0), and the pinned zstandard wheels still come from
+            // --find-links below.
+            providers.gradleProperty("pipIndexUrl").orNull?.let { options("--index-url", it) }
             // zstandard is a cp313 Android wheel, not a pure-Python requirement: Chaquopy
             // does not cross-build native sdsts. The wheels are built on the fleet from the
             // pinned 0.25.0 sdist with cibuildwheel (packaging/android/zstandard-wheel/),

@@ -689,10 +689,24 @@ def phase_build(paths, wheels):
     jvm_flags = _jvm_net_options(paths["java"])
     env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "GRADLE_OPTS": " ".join(jvm_flags)}
-    result = run_tool([paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), "assembleDebug",
-                       f"-PzstandardWheels={wheels}",
-                       f"-PbuildPython={paths['buildpython']}"], timeout=3600, env_extra=env,
-                      keep_bytes=8000)
+    # Chaquopy's pip block consults chaquo.com/pypi-13.1 unless a user --index-url is
+    # passed (verified in the pinned 17.1.0's pip_install.py — it also disables pip config
+    # files, so only a command-line option reaches it); this fleet's proxy refuses that
+    # host (observed attempt 14: CONNECT tunnel 403 for every httpx dependency) while the
+    # mirror every other pip here uses is allowlisted. Hand the build the same index pip
+    # itself would discover, and let the Gradle property apply it.
+    index_url = os.environ.get("PIP_INDEX_URL", "").strip() or None
+    probe = run_tool([paths["buildpython"], "-m", "pip", "config", "get", "global.index-url"],
+                     timeout=120)
+    for line in reversed((probe.get("tail") or "").splitlines()):
+        if line.strip().startswith("http"):
+            index_url = line.strip()
+            break
+    argv = [paths["gradle"], "--no-daemon", "-p", str(REPO / "android"), "assembleDebug",
+            f"-PzstandardWheels={wheels}", f"-PbuildPython={paths['buildpython']}"]
+    if index_url:
+        argv.append(f"-PpipIndexUrl={index_url}")
+    result = run_tool(argv, timeout=3600, env_extra=env, keep_bytes=8000)
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
     classification = None
@@ -705,7 +719,7 @@ def phase_build(paths, wheels):
                                  if name.startswith("lib/") and "zstandard" in name.lower()})
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
-           buildpython=paths.get("buildpython"), tail=tail)
+           pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
     return ok
 
 
