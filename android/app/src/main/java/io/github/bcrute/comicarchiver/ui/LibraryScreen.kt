@@ -58,9 +58,7 @@ fun LibraryScreen(
                     Column(Modifier.padding(12.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${item.episodeCount} episodes" +
-                                (if (item.cbzCount > 0) " · ${item.cbzCount} CBZ" else "") +
-                                (if (item.epubCount > 0) " · ${item.epubCount} EPUB" else ""),
+                            "${item.savedCount} of ${item.episodeCount} saved · ${item.formatLabel}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

@@ -16,15 +16,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Tapas sign-in entry. The screen owns no sign-in logic: it renders the controller's
- * signed-out shape and hands the single action to the caller. The real sign-in surface is
- * the WebView/session line's engine, slotted in through [signInContent] by app assembly;
- * this file never constructs a WebView itself.
+ * Tapas sign-in entry. The screen owns no sign-in logic: it renders [SignInScreenUi]
+ * (derived from the controller's `AppState`) and hands the single action to the caller.
+ * The real sign-in surface is the WebView/session line's `SignInEngine`, which drives a
+ * UI-owned WebView slotted in through [signInContent] by app assembly; this file never
+ * constructs a WebView itself.
  */
 @Composable
 fun SignInScreen(
-    busy: Boolean,
-    notice: NoticeUi?,
+    state: SignInScreenUi,
     onStartSignIn: () -> Unit,
     signInContent: @Composable () -> Unit = {},
 ) {
@@ -38,8 +38,8 @@ fun SignInScreen(
                 "before the site closes.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        notice?.let { NoticeCard(it) }
-        if (!busy) {
+        state.notice?.let { NoticeCard(it) }
+        if (!state.busy) {
             Button(onClick = onStartSignIn, modifier = Modifier.fillMaxWidth()) {
                 Text("Sign in to Tapas")
             }

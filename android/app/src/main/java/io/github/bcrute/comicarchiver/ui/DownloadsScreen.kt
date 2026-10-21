@@ -19,14 +19,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Go/Pause and progress. Renders [DownloadsStateUi]; owns no download policy — the Go
- * button asks the controller to go, the Pause button asks it to pause, and every hold,
- * admission and metering decision stays in the controller. Held (for any reason) is the
- * only shape in which Go is offered, so nothing here can admit a download by itself.
+ * Go/Pause and progress. Renders [DownloadsScreenUi], derived from the controller's
+ * `AppState`; it owns no download policy — the Go button asks the controller to go, the
+ * Pause button asks it to pause, and every hold, admission and metering decision stays in
+ * the controller. Go is offered only while held or finished, so nothing here can admit a
+ * download by itself.
  */
 @Composable
 fun DownloadsScreen(
-    state: DownloadsStateUi,
+    state: DownloadsScreenUi,
     onGo: () -> Unit,
     onPause: () -> Unit,
 ) {
@@ -36,42 +37,30 @@ fun DownloadsScreen(
     ) {
         Text("Saving", style = MaterialTheme.typography.headlineSmall)
 
-        HoldBanner(state)
-        state.active?.let { active ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(active.label, style = MaterialTheme.typography.titleSmall)
-                    if (active.totalUnits > 0) {
-                        LinearProgressIndicator(
-                            progress = { active.doneUnits.toFloat() / active.totalUnits },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    Text(
-                        "${active.doneUnits} of ${active.totalUnits} saved",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
+        PhaseBanner(state.download)
+        if (state.download is DownloadsViewUi.Running) {
+            ProgressCard(state.download)
         }
-        if (state.queueDepth > 0) {
+        if (state.remaining > 0) {
             Text(
-                "${state.queueDepth} more in the queue",
+                "${state.remaining} more to save",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
         state.notice?.let { NoticeCard(it) }
 
         Spacer(Modifier.height(4.dp))
+        val canGo = state.download is DownloadsViewUi.Held ||
+            state.download is DownloadsViewUi.Finished
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = onGo,
-                enabled = !state.running,
+                enabled = canGo,
                 modifier = Modifier.weight(1f),
             ) { Text("Go") }
             OutlinedButton(
                 onClick = onPause,
-                enabled = state.running,
+                enabled = state.download is DownloadsViewUi.Running,
                 modifier = Modifier.weight(1f),
             ) { Text("Pause") }
         }
@@ -79,22 +68,42 @@ fun DownloadsScreen(
 }
 
 @Composable
-private fun HoldBanner(state: DownloadsStateUi) {
-    val text = when (state.holdReason) {
-        HoldReasonUi.NOT_STARTED ->
-            "Nothing downloads until you press Go."
-        HoldReasonUi.PAUSED_BY_USER ->
-            "Paused. Press Go to continue."
-        HoldReasonUi.METERED_OR_UNKNOWN_NETWORK ->
-            "Held: this network may be metered. Saving waits for an unmetered connection."
-        HoldReasonUi.CONNECTION_UNVERIFIED ->
-            "Held: the connection could not be verified. Press Go to try again."
-        HoldReasonUi.RESTARTED_HELD_FOR_GO ->
-            "Held after a restart. Nothing continues until you press Go."
-        null ->
-            "Saving."
+private fun PhaseBanner(download: DownloadsViewUi) {
+    val text = when (download) {
+        is DownloadsViewUi.Held -> when (download.reason) {
+            HoldReasonUi.NOT_STARTED -> "Nothing downloads until you press Go."
+            HoldReasonUi.PAUSED_BY_USER -> "Paused. Press Go to continue."
+            HoldReasonUi.METERED_OR_UNKNOWN_NETWORK ->
+                "Held: this network may be metered. Saving waits for an unmetered connection."
+            HoldReasonUi.CONNECTION_UNVERIFIED ->
+                "Held: the connection could not be verified. Press Go to try again."
+            HoldReasonUi.FAILED -> "Stopped. Press Go to try again."
+        }
+        is DownloadsViewUi.Running ->
+            if (download.totalUnits == 0) "Preparing…" else "Saving."
+        is DownloadsViewUi.Finished -> "Finished. ${download.summary}"
     }
     Card(Modifier.fillMaxWidth()) {
         Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun ProgressCard(running: DownloadsViewUi.Running) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (running.totalUnits > 0) {
+                LinearProgressIndicator(
+                    progress = { running.doneUnits.toFloat() / running.totalUnits },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "${running.doneUnits} of ${running.totalUnits} saved",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Text("Getting ready", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
