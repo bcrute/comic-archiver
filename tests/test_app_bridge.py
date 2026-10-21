@@ -55,6 +55,8 @@ class BridgeLifecycleTests(unittest.TestCase):
         app_bridge._seams.update(cookie_source=None, cookie_sink=None)
 
     def _cleanup(self):
+        from comic_archive import network_android
+        network_android.configure(None)  # Process-global probe state never leaks to later tests.
         os.chdir(self._previous)
         self._tmp.cleanup()
 
@@ -107,9 +109,14 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(value["ok"], value)
         self.assertFalse(value["result"]["running"])
 
-    def test_go_and_pause_answer_through_the_envelope(self):
+    def test_go_needs_the_downloader_and_pause_answers_quietly(self):
         self.call("prepare_workspace", {"root": str(self.root)})
-        self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
+        # Go before any worker runs is the core's own refusal: consecutive imports need
+        # the downloader's queue first. The app wires worker_start before go, so this is
+        # exactly the envelope a premature Go must produce.
+        value = self.call("go", {"root": str(self.root)})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
         self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
 
     def test_path_arguments_are_validated_without_detail(self):

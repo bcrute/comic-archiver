@@ -220,7 +220,9 @@ def phase_provision():
                                 "version": PINS["host_python"]["version"], "sha256": digest if ok else None}
     host_version = run_tool([python313, "--version"], timeout=120)["tail"].strip() if python313.is_file() else None
     if python313.is_file() and not venv_python.is_file():
-        wheel = TOOLS_DIR / "downloads/cibuildwheel.whl"
+        # pip requires the file's name to be a valid wheel name, so the pinned wheel keeps
+        # its published one (observed attempt-4 failure: "Invalid wheel filename").
+        wheel = TOOLS_DIR / f"downloads/cibuildwheel-{PINS['cibuildwheel']['version']}-py3-none-any.whl"
         ok, digest = _fetch_pinned("cibuildwheel", wheel)
         created = run_tool([python313, "-m", "venv", str(TOOLS_DIR / "cibw-venv")], timeout=300)
         installed = run_tool([venv_python, "-m", "pip", "install", "--no-index", str(wheel)], timeout=600) \
@@ -233,9 +235,25 @@ def phase_provision():
         # Accept licenses, then install what the build and emulator phases need; package
         # versions are chosen from the repository's own listing, never guessed pins. The
         # listing is kept whole: its package table is far larger than the default log tail.
-        sdk_env = {"JAVA_HOME": java_home, "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"}
-        listing = run_tool([str(manager), f"--sdk_root={sdk}", "--list"], timeout=900, keep_bytes=2_000_000,
-                           env_extra=sdk_env)
+        # Java does not read the environment's proxy settings the way Python does, so any
+        # http(s)_proxy is handed to the JVM explicitly, and IPv4 is preferred: the
+        # observed failure mode was sdkmanager fetching no manifests at all while urllib
+        # reached the same host fine.
+        from urllib.parse import urlsplit
+        java_options = ["-Djava.net.preferIPv4Stack=true"]
+        for name, scheme in (("http_proxy", "http"), ("https_proxy", "https")):
+            value = os.environ.get(name) or os.environ.get(name.upper())
+            if value:
+                parsed = urlsplit(value if "//" in value else "//" + value)
+                if parsed.hostname:
+                    java_options.append(f"-D{scheme}.proxyHost={parsed.hostname}")
+                    if parsed.port:
+                        java_options.append(f"-D{scheme}.proxyPort={parsed.port}")
+        sdk_env = {"JAVA_HOME": java_home, "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}",
+                   "_JAVA_OPTIONS": " ".join(java_options)}
+        steps["sdkmanager_env"] = {"java_options": java_options}
+        listing = run_tool([str(manager), f"--sdk_root={sdk}", "--list", "--verbose"], timeout=900,
+                           keep_bytes=2_000_000, env_extra=sdk_env)
         names = {match.strip() for match in
                  re.findall(r"^\s*((?:platforms|ndk|build-tools|system-images|emulator|platform-tools)[;\w.]*)\s*\|",
                             listing["tail"], re.MULTILINE)}

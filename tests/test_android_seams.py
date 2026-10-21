@@ -103,6 +103,12 @@ class PlatformCookieSinkTests(unittest.TestCase):
 
 
 class AndroidMeteringProbeTests(unittest.TestCase):
+    def setUp(self):
+        # The probe is process-global state: reset before and after, or a configured file
+        # here changes network.probe() for every later test in the same run.
+        network_android.configure(None)
+        self.addCleanup(network_android.configure, None)
+
     def test_an_unconfigured_or_unusable_status_file_is_unknown_which_holds(self):
         network_android.configure(None)
         self.assertEqual(network_android.probe(), {"connection": "unknown", "metered": None})
