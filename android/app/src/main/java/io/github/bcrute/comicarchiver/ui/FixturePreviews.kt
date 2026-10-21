@@ -11,35 +11,49 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
 /**
- * Preview gallery over [UiFixtures]. Every preview renders the fixture label on screen
- * so a screenshot can never be mistaken for the working app. Preview-only; excluded
- * from release behaviour by usage, not by build flags — nothing here is referenced by
- * screens or wiring.
+ * Preview gallery over [UiFixtures], mapped through the same [UiMapping.kt] the working
+ * app uses. Every preview renders the fixture label on screen so a screenshot can never
+ * be mistaken for the working app. Preview-only; nothing here is referenced by screens
+ * or wiring.
  */
 @Preview(name = "Sign-in (fixture)", showBackground = true)
 @Composable
 fun SignInScreenFixturePreview() {
-    FixtureScaffold { SignInScreen(busy = false, notice = null, onStartSignIn = {}) }
+    FixtureScaffold {
+        SignInScreen(UiFixtures.coldStart.toSignInScreenUi(), onStartSignIn = {})
+    }
 }
 
 @Preview(name = "Downloads held (fixture)", showBackground = true)
 @Composable
 fun DownloadsHeldFixturePreview() {
     FixtureScaffold {
-        DownloadsScreen(UiFixtures.heldAfterRestart, onGo = {}, onPause = {})
+        DownloadsScreen(UiFixtures.heldAfterRestart.toDownloadsScreenUi(), onGo = {}, onPause = {})
     }
 }
 
 @Preview(name = "Downloads metered hold (fixture)", showBackground = true)
 @Composable
 fun DownloadsMeteredFixturePreview() {
-    FixtureScaffold { DownloadsScreen(UiFixtures.meteredHold, onGo = {}, onPause = {}) }
+    FixtureScaffold {
+        DownloadsScreen(UiFixtures.meteredHold.toDownloadsScreenUi(), onGo = {}, onPause = {})
+    }
 }
 
 @Preview(name = "Downloads running (fixture)", showBackground = true)
 @Composable
 fun DownloadsRunningFixturePreview() {
-    FixtureScaffold { DownloadsScreen(UiFixtures.running, onGo = {}, onPause = {}) }
+    FixtureScaffold {
+        DownloadsScreen(UiFixtures.running.toDownloadsScreenUi(), onGo = {}, onPause = {})
+    }
+}
+
+@Preview(name = "Downloads failed (fixture)", showBackground = true)
+@Composable
+fun DownloadsFailedFixturePreview() {
+    FixtureScaffold {
+        DownloadsScreen(UiFixtures.failed.toDownloadsScreenUi(), onGo = {}, onPause = {})
+    }
 }
 
 @Preview(name = "Library export running (fixture)", showBackground = true)
@@ -47,7 +61,7 @@ fun DownloadsRunningFixturePreview() {
 fun LibraryExportRunningFixturePreview() {
     FixtureScaffold {
         LibraryScreen(
-            UiFixtures.librarySeries,
+            UiFixtures.library,
             UiFixtures.exportRunning,
             onPickFolder = {},
             onStartExport = {},
@@ -61,7 +75,7 @@ fun LibraryExportRunningFixturePreview() {
 fun LibraryExportGrantLostFixturePreview() {
     FixtureScaffold {
         LibraryScreen(
-            UiFixtures.librarySeries,
+            UiFixtures.library,
             UiFixtures.exportGrantLost,
             onPickFolder = {},
             onStartExport = {},

@@ -1,43 +1,52 @@
 package io.github.bcrute.comicarchiver.ui
 
+import io.github.bcrute.comicarchiver.controller.AppState
+import io.github.bcrute.comicarchiver.controller.BetaCodes
+import io.github.bcrute.comicarchiver.controller.DownloadState
+import io.github.bcrute.comicarchiver.controller.LibraryEntry
+import io.github.bcrute.comicarchiver.controller.LibraryKind
+import io.github.bcrute.comicarchiver.controller.Notice
+import io.github.bcrute.comicarchiver.controller.SignInState
+
 /**
- * Sample states for previews and tests ONLY. Every value here is a labelled fixture:
- * nothing in this object is wired into the working app, and no screen may read these as
- * live data. The working app renders controller state supplied by app assembly.
+ * Sample controller states and their mapped screen states, for previews and tests ONLY.
+ * Every value here is a labelled fixture built on the frozen DTOs: nothing in this object
+ * is wired into the working app, and no screen may read these as live data. The working
+ * app maps real `AppState` values through [UiMapping.kt].
  */
 object UiFixtures {
 
     const val LABEL = "FIXTURE — sample data, not a live app"
 
-    val signedOut = DownloadsStateUi.coldStart()
+    private val comic = LibraryEntry("s1", "Sample Comic", LibraryKind.COMIC, 3, 3)
+    private val novel = LibraryEntry("s2", "Sample Novel", LibraryKind.NOVELS, 5, 2)
 
-    val heldAfterRestart = DownloadsStateUi.coldStart(signedIn = true).copy(
-        queueDepth = 12,
-        notice = NoticeUi(PublicIssue.WORKER_OFFLINE),
-    )
-
-    val meteredHold = DownloadsStateUi(
-        signedIn = true,
-        running = false,
-        holdReason = HoldReasonUi.METERED_OR_UNKNOWN_NETWORK,
-        queueDepth = 4,
-        active = null,
+    val coldStart = AppState(
+        site = "tapas",
+        signIn = SignInState.SignedOut,
+        download = DownloadState.Held,
+        library = emptyList(),
         notice = null,
     )
 
-    val running = DownloadsStateUi(
-        signedIn = true,
-        running = true,
-        holdReason = null,
-        queueDepth = 27,
-        active = ActiveTransferUi("Episode 12", doneUnits = 34, totalUnits = 80),
-        notice = null,
+    val heldAfterRestart = coldStart.copy(
+        signIn = SignInState.SignedIn("tapas"),
+        library = listOf(comic, novel),
     )
 
-    val librarySeries = listOf(
-        LibrarySeriesUi("s1", "Sample Comic", episodeCount = 3, cbzCount = 3, epubCount = 0),
-        LibrarySeriesUi("s2", "Sample Novel", episodeCount = 5, cbzCount = 0, epubCount = 5),
+    val meteredHold = heldAfterRestart.copy(
+        download = DownloadState.Paused(BetaCodes.METERED_HOLD),
     )
+
+    val running = heldAfterRestart.copy(
+        download = DownloadState.Running(done = 34, total = 80),
+    )
+
+    val failed = heldAfterRestart.copy(
+        download = DownloadState.Failed(BetaCodes.WORKER_OFFLINE),
+    )
+
+    val library = listOf(comic, novel).map { it.toSeriesUi() }
 
     val exportNotPicked = ExportPanelStateUi(ExportPhaseUi.NOT_PICKED)
 
@@ -56,4 +65,6 @@ object UiFixtures {
         ExportPhaseUi.ALL_VERIFIED,
         ExportProgressUi(verified = 7, failed = 0, alreadyVerified = 2, total = 9),
     )
+
+    val noticeSample = Notice(BetaCodes.STORAGE_LOW, "Not enough room to finish writing.")
 }

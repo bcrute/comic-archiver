@@ -3,9 +3,9 @@ package io.github.bcrute.comicarchiver.ui
 import io.github.bcrute.comicarchiver.export.ExportSummary
 
 /**
- * The beta's public issue codes, exactly the frozen contract's set (docs/
- * android-beta-contracts.md section 7): one UI notice and one recovery action each, and
- * none is ever reported as success.
+ * The beta's public issue codes, exactly the frozen contract's set — wire-identical to
+ * controller `BetaCodes` (docs/android-beta-contracts.md section 7): one UI notice and
+ * one recovery action each, and none is ever reported as success.
  */
 enum class PublicIssue(val wireName: String) {
     LOGIN_REQUIRED("login_required"),
@@ -30,6 +30,31 @@ enum class PublicIssue(val wireName: String) {
  */
 data class NoticeUi(val issue: PublicIssue, val detail: String? = null)
 
+/**
+ * What the downloads screen renders, derived from the controller's `AppState` by
+ * [io.github.bcrute.comicarchiver.ui.toDownloadsScreenUi]. The UI renders controller
+ * state; it owns no download policy — Go, Pause, holds and admission all live in the
+ * controller.
+ */
+data class DownloadsScreenUi(
+    val signedIn: Boolean,
+    val download: DownloadsViewUi,
+    /** Episodes the library still lacks, in aggregate; 0 when everything is saved. */
+    val remaining: Int,
+    val notice: NoticeUi?,
+)
+
+/** The download phase as the screen shows it: held (for any reason), running, or finished. */
+sealed interface DownloadsViewUi {
+    data class Held(val reason: HoldReasonUi) : DownloadsViewUi
+
+    /** In flight; `totalUnits == 0` means still preparing, before any unit exists. */
+    data class Running(val doneUnits: Int, val totalUnits: Int) : DownloadsViewUi
+
+    /** The run ended; [summary] is the controller's user-visible words. */
+    data class Finished(val summary: String) : DownloadsViewUi
+}
+
 /** Why downloads are held. Held is the only shape a cold start, restart or update can produce. */
 enum class HoldReasonUi {
     /** The app has never been told to go. */
@@ -44,61 +69,25 @@ enum class HoldReasonUi {
     /** The connection could not be verified as the site's own. */
     CONNECTION_UNVERIFIED,
 
-    /** The process restarted (death or update); nothing resumes without Go. */
-    RESTARTED_HELD_FOR_GO,
+    /** The run failed; pressing Go tries again. */
+    FAILED,
 }
 
-/** The one transfer in flight, in plain words and coarse numbers. */
-data class ActiveTransferUi(
-    val label: String,
-    val doneUnits: Int,
-    val totalUnits: Int,
+/** What the sign-in screen renders, derived from `AppState` by [toSignInScreenUi]. */
+data class SignInScreenUi(
+    /** A sign-in page or settle wait is in flight. */
+    val busy: Boolean,
+    val notice: NoticeUi?,
 )
 
-/**
- * What the downloads screen renders. The UI renders controller state; it owns no download
- * policy — Go, Pause, holds and admission all live in the controller.
- *
- * ADAPTATION SEAM (native line): map the frozen `com.comicarchive.app.controller`
- * AppController DTOs onto this class at assembly; this file must not grow policy.
- */
-data class DownloadsStateUi(
-    val signedIn: Boolean,
-    val running: Boolean,
-    val holdReason: HoldReasonUi?,
-    val queueDepth: Int,
-    val active: ActiveTransferUi?,
-    val notice: NoticeUi?,
-) {
-    init {
-        require(running == (holdReason == null)) {
-            "exactly one of running or a hold reason must describe the state"
-        }
-    }
-
-    companion object {
-        /**
-         * The only state an app start may construct: signed out or not, downloads held,
-         * nothing in flight. Every transition into running is the Go action elsewhere.
-         */
-        fun coldStart(signedIn: Boolean = false): DownloadsStateUi = DownloadsStateUi(
-            signedIn = signedIn,
-            running = false,
-            holdReason = HoldReasonUi.RESTARTED_HELD_FOR_GO,
-            queueDepth = 0,
-            active = null,
-            notice = null,
-        )
-    }
-}
-
-/** One series row in the library: finished archives the controller reports. */
+/** One series row in the library: what the controller reports as finished. */
 data class LibrarySeriesUi(
     val seriesId: String,
     val title: String,
+    /** The archive format this series exports as, shown as words ("CBZ" / "EPUB"). */
+    val formatLabel: String,
     val episodeCount: Int,
-    val cbzCount: Int,
-    val epubCount: Int,
+    val savedCount: Int,
 )
 
 /** Where the export panel stands. No phase here means success on its own. */
