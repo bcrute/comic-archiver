@@ -423,6 +423,14 @@ def phase_provision():
             images = [name for name in images if "ps16k" not in name] or images
             wanted = ["platform-tools", "emulator"]
             wanted += [group[-1] for group in (platforms, ndks, build_tools, images) if group]
+            # The Android Gradle Plugin pins its OWN default build-tools revision and
+            # fails the build on nothing else but that exact one (observed attempt 15:
+            # "Failed to find Build Tools revision 35.0.0" with 37.0.0 installed), then
+            # its sdkmanager fallback dies on the executor's read-only $HOME. The latest
+            # AND the AGP-pinned revision are therefore both installed up front.
+            agp_build_tools = "build-tools;35.0.0"
+            if agp_build_tools in names and agp_build_tools not in wanted:
+                wanted.append(agp_build_tools)
             installed, failures = [], {}
             for name in wanted:
                 ok, note = (_install_sdk_package(name, packages[name], sdk) if name in packages
@@ -609,13 +617,25 @@ def _cibw_required_ndk(sdk, packages):
         shipped = False
     if not shipped:
         return version, "ndk zip does not declare the required version"
+    revision = "".join(f"<{part}>{int(piece)}</{part}>"
+                       for part, piece in zip(("major", "minor", "micro"), version.split(".")))
     marker.write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<?xml version='1.0' encoding='utf-8'?>\n"
         "<!-- Installed from Google's sha1-verified repository zip by\n"
         "     scripts/android_feasibility.py. The zip ships source.properties but no\n"
-        "     package.xml; the pinned CPython Android build's android-env.sh checks for\n"
-        "     this file's existence and would otherwise invoke the JVM sdkmanager. -->\n"
-        f'<package path="ndk;{version}" revision="{version}"/>\n')
+        "     package.xml; this mirrors what sdkmanager itself writes on install: the\n"
+        "     repository2-03 schema qualifies only the root element — children are\n"
+        "     unqualified — and the package body is the listing's own definition with\n"
+        "     the remote-only parts (channelRef, archives) dropped. -->\n"
+        '<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03"'
+        ' xmlns:generic="http://schemas.android.com/repository/android/generic/02"'
+        ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+        f'  <localPackage path="ndk;{version}">\n'
+        '    <type-details xsi:type="generic:genericDetailsType"/>\n'
+        f"    <revision>{revision}</revision>\n"
+        f'    <display-name>NDK (Side by side) {version}</display-name>\n'
+        "  </localPackage>\n"
+        "</sdk:sdk-repository>\n")
     return version, "installed; package.xml marker written (zip ships source.properties only)"
 
 
@@ -686,9 +706,16 @@ def phase_build(paths, wheels):
     # Gradle's JVM is the one remaining raw-JVM downloader (the plugins and Chaquopy's
     # own artifacts); hand it the proxy and the system-CA truststore via GRADLE_OPTS,
     # which the launcher forwards to the single-use daemon it forks for --no-daemon.
+    # JAVA_TOOL_OPTIONS carries the same flags to every JVM the build spawns — the
+    # launcher only processes GRADLE_OPTS itself, and AGP's sdkmanager fallback died on
+    # the fleet's MITM proxy even after Gradle itself could download (attempt 15's
+    # traceback: manifests unfetchable, ~/.android read-only). ANDROID_USER_HOME moves
+    # that cache somewhere writable, job-private as everything else here.
     jvm_flags = _jvm_net_options(paths["java"])
     env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
-           "GRADLE_OPTS": " ".join(jvm_flags)}
+           "ANDROID_USER_HOME": str(TOOLS_DIR / "android-user"),
+           "GRADLE_OPTS": " ".join(jvm_flags),
+           "JAVA_TOOL_OPTIONS": " ".join(jvm_flags)}
     # Chaquopy's pip block consults chaquo.com/pypi-13.1 unless a user --index-url is
     # passed (verified in the pinned 17.1.0's pip_install.py — it also disables pip config
     # files, so only a command-line option reaches it); this fleet's proxy refuses that

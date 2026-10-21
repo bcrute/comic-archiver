@@ -26,6 +26,10 @@ android {
         versionName = "0.3.0-beta1"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
+            // Pin AGP to the NDK the pinned CPython 3.13 Android build itself requires
+            // (its android-env.sh hard-codes 27.3.13750724): without this AGP hunts its
+            // own default revision, which a job-private SDK may not carry.
+            ndkVersion = "27.3.13750724"
         }
     }
 
