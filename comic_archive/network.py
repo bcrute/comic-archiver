@@ -80,6 +80,9 @@ def probe():
     Do not report addresses, SSIDs, connection names or interface identifiers.
     """
     unknown = {'connection': 'unknown', 'metered': None}
+    from .network_android import configured as android_configured, probe as android_probe
+    if android_configured():  # The app's own metering facts replace the desktop route probe.
+        return android_probe()
     if sys.platform == 'win32':
         try:
             from .network_windows import probe as windows_probe

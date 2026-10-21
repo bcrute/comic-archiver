@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Comic Archiver</string>
+    <string name="download_channel_name">Downloads</string>
+    <string name="download_notification_title">Saving your library</string>
+    <string name="download_notification_stop">Stop</string>
+</resources>

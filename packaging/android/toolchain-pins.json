@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "notes": "Every archive the Android feasibility point downloads is pinned to an exact version with a committed sha256 that is verified before extraction; nothing is installed host-global. Digests were taken from each vendor's own publication (Adoptium release metadata, services.gradle.org .sha256, python-build-standalone SHA256SUMS, PyPI JSON) except the command-line tools zip, whose sha256 was computed over the artifact Google's repository XML names and cross-checked against Google's published sha1. The fleet hosts are linux x86_64; hosts of another architecture are reported pending, never silently substituted.",
+  "host_python": {
+    "purpose": "Task-private CPython 3.13: runs cibuildwheel and is wired to Gradle as Chaquopy buildPython, whose major.minor must match the app's embedded Python 3.13 (chaquo.com/chaquopy/doc/current/android.html#buildpython).",
+    "version": "3.13.16+20261020",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261020/cpython-3.13.16%2B20261020-x86_64-unknown-linux-gnu-install_only.tar.gz",
+    "sha256": "0ad293ecda8ea93a28e4a6b5e9cc20ae74be15aafed75be04418b8f82bd0d0da"
+  },
+  "jdk": {
+    "version": "17.0.20.1+1",
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz",
+    "sha256": "3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e"
+  },
+  "gradle": {
+    "version": "8.13",
+    "url": "https://services.gradle.org/distributions/gradle-8.13-bin.zip",
+    "sha256": "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+  },
+  "android_commandline_tools": {
+    "version": "19.0 (build 13114758)",
+    "url": "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip",
+    "sha256": "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee",
+    "google_repository_sha1": "5fdcc763663eefb86a5b8879697aa6088b041e70"
+  },
+  "cibuildwheel": {
+    "purpose": "Builds the Android cp313 wheels from the pinned zstandard sdist on the fleet, per chaquo/chaquopy server/pypi/README.md (the supported builder for Python 3.13+; Chaquopy 17 does not cross-build native sdists, and its pip block accepts local wheels only through --find-links plus an exact requirement).",
+    "version": "4.3.3",
+    "url": "https://files.pythonhosted.org/packages/60/d6/cd86c31e07f02bacab3499013c7119e7aa2ce6cd33bd9a9994886dcabdfa/cibuildwheel-4.3.3-py3-none-any.whl",
+    "sha256": "c6dd74bbf639feb39177618b4cfd51d906300e1621b2cdf0ce68e933ead36987"
+  },
+  "zstandard": {
+    "version": "0.25.0",
+    "sdist": "zstandard-0.25.0.tar.gz",
+    "pypi_json": "https://pypi.org/pypi/zstandard/0.25.0/json",
+    "sha256": "7713e1179d162cf5c7906da876ec2ccb9c3a9dcbdffef0cc7f70c3667a205f0b"
+  }
+}

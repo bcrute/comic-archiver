@@ -96,9 +96,10 @@ class WebViewCookieStore(
         }
     }
 
-    /** Whether the store holds any cookie for this URL; used for settle detection. No auth claim. */
+    /** Whether the store holds any cookie for this URL; used for settle detection. No auth claim.
+     * CookieManager.hasCookies() takes no URL: the per-URL question is getCookie(url) != null. */
     fun hasCookies(url: String): Boolean = onMain { manager ->
-        !isSiteUrl(url) || manager.hasCookies(url)
+        !isSiteUrl(url) || manager.getCookie(url) != null
     }
 
     /** Make the store's already-private persistence immediate; called when a sign-in settles. */
