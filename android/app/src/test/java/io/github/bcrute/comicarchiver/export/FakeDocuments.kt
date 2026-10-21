@@ -32,6 +32,10 @@ class FakeDocuments : DocumentsAdapter {
     var refuseCreate = false
     var writeFailure: IOException? = null
 
+    /** Documents whose grant is gone (e.g. recorded under a revoked PREVIOUS tree):
+     *  every operation on exactly these URIs reports GRANT_LOST, the tree stays alive. */
+    val staleUris = HashSet<String>()
+
     /** Hook invoked on every source-read call, so tests can flip the stop flag mid-copy. */
     var onSourceRead: (() -> Unit)? = null
 
@@ -40,8 +44,8 @@ class FakeDocuments : DocumentsAdapter {
 
     fun grantLost() = DocumentsException(DocumentsCode.GRANT_LOST, "grant revoked (fake)")
 
-    private fun checkGrant() {
-        if (grantRevoked) throw grantLost()
+    private fun checkGrant(uriString: String? = null) {
+        if (grantRevoked || (uriString != null && uriString in staleUris)) throw grantLost()
     }
 
     private fun newUri(): String = "content://fake/tree/doc-${nextId++}"
@@ -97,17 +101,17 @@ class FakeDocuments : DocumentsAdapter {
     }
 
     override fun displayNameFor(file: DocumentsFile): String {
-        checkGrant()
+        checkGrant(file.uriString)
         return doc(file.uriString).name
     }
 
     override fun sizeBytes(file: DocumentsFile): Long {
-        checkGrant()
+        checkGrant(file.uriString)
         return doc(file.uriString).bytes?.size?.toLong() ?: -1L
     }
 
     override fun openOutput(file: DocumentsFile): OutputStream {
-        checkGrant()
+        checkGrant(file.uriString)
         doc(file.uriString) // NOT_FOUND if absent
         return object : ByteArrayOutputStream() {
             override fun write(b: ByteArray, off: Int, len: Int) {
@@ -123,7 +127,7 @@ class FakeDocuments : DocumentsAdapter {
     }
 
     override fun openInput(file: DocumentsFile): InputStream {
-        checkGrant()
+        checkGrant(file.uriString)
         val bytes = doc(file.uriString).bytes ?: ByteArray(0)
         return ByteArrayInputStream(bytes)
     }

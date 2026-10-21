@@ -82,7 +82,13 @@ class SafBatchExporter(
                 break
             }
             val previous = journal.get(entry.episodeId)
-            if (previous?.state == JournalState.VERIFIED) {
+            if (previous != null &&
+                previous.state == JournalState.VERIFIED &&
+                previous.bytes == entry.bytes &&
+                previous.sha256.equals(entry.sha256, ignoreCase = true)
+            ) {
+                // Only skip when the verified copy is of the archive the manifest now
+                // describes; a re-saved episode (new bytes/digest) is exported again.
                 already++
                 continue
             }
@@ -209,6 +215,17 @@ class SafBatchExporter(
      * duplicates), otherwise a freshly created file in the series folder. When the
      * recorded document has disappeared (user deleted it), falls back to creating a
      * fresh one — a refusal of that shape is recoverable, not fatal.
+     *
+     * A recorded target can also live under a PREVIOUS tree whose grant was revoked
+     * after the user re-picked a different folder: probing it raises GRANT_LOST even
+     * though the tree being exported to now is fine. Such a probe failure therefore
+     * falls through to a fresh create instead of aborting; a genuinely dead current
+     * grant re-surfaces at ensureSubfolder/createFile below and aborts the batch there.
+     *
+     * Known, accepted window: a crash between createFile and the COPYING journal save
+     * leaves an orphan document. The next run cannot know its URI, so it creates a
+     * sibling; the provider's unique rename (recorded in the journal) keeps both files
+     * intact rather than risking an overwrite of a document we cannot identify.
      */
     private fun acquireTarget(
         root: DocumentsFolder,
@@ -222,11 +239,12 @@ class SafBatchExporter(
             try {
                 return TargetResult.Granted(recorded, documents.displayNameFor(recorded))
             } catch (e: DocumentsException) {
-                if (e.code == DocumentsCode.GRANT_LOST) return TargetResult.GrantLost
-                if (e.code != DocumentsCode.NOT_FOUND) {
-                    return TargetResult.Refused(previous.targetUri)
+                when (e.code) {
+                    // Stale target (deleted, or under a revoked previous tree): the
+                    // current grant is checked by the create path below.
+                    DocumentsCode.NOT_FOUND, DocumentsCode.GRANT_LOST -> Unit
+                    else -> return TargetResult.Refused(previous.targetUri)
                 }
-                // NOT_FOUND: fall through and create a fresh document.
             }
         }
         val folder = try {

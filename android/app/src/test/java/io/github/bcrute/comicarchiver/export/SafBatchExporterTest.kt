@@ -270,6 +270,61 @@ class SafBatchExporterTest {
     }
 
     @Test
+    fun `stale target under a revoked previous tree does not poison a re-picked run`() {
+        val bytes = ByteArray(10) { 1 }
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        val store = FileJournalStore(tmp.newFile("journal.txt"))
+
+        // Run 1 interrupted mid-copy: the journal records a target document T1.
+        val first = SafBatchExporter(source, documents, store)
+        source.onRead = { first.requestStop() }
+        assertFalse(first.exportBatch(target, entries).complete)
+        source.onRead = null
+        val t1 = store.load().get("ep1")!!.targetUri!!
+
+        // The user revokes THAT tree's grant and re-picks a folder (fresh grant, same
+        // fake tree): probing the recorded T1 now reports GRANT_LOST, but the run must
+        // recover by creating a fresh document instead of aborting forever.
+        documents.staleUris.add(t1)
+        val rerun = SafBatchExporter(source, documents, store).exportBatch(target, entries)
+
+        assertTrue(rerun.complete)
+        assertFalse(rerun.grantLost)
+        assertEquals(1, rerun.verified)
+        val done = store.load().get("ep1")!!
+        assertEquals(JournalState.VERIFIED, done.state)
+        assertNotEquals(t1, done.targetUri)
+        // T1 still exists as an orphan sibling; the provider's rename kept both intact.
+        assertEquals("ep1 (1).cbz", done.actualName)
+    }
+
+    @Test
+    fun `a re-saved episode with new bytes is exported again, not skipped`() {
+        val bytes = ByteArray(10) { 1 }
+        source.originals["ep1"] = bytes
+        val store = FileJournalStore(tmp.newFile("journal.txt"))
+        SafBatchExporter(source, documents, store).exportBatch(target, listOf(entry("ep1", bytes)))
+
+        // The episode is re-saved: same id, new content and digest in the manifest.
+        val resaved = ByteArray(10) { 2 }
+        source.originals["ep1"] = resaved
+        val rerun = SafBatchExporter(source, documents, store).exportBatch(
+            target, listOf(entry("ep1", resaved)),
+        )
+
+        assertTrue(rerun.complete)
+        assertEquals(1, rerun.verified)
+        assertEquals(0, rerun.alreadyVerified)
+        val done = store.load().get("ep1")!!
+        assertEquals(sha256(resaved), done.sha256)
+        // Same episode, same file: the copy is rewritten in place, not duplicated.
+        assertEquals("ep1.cbz", done.actualName)
+        val copied = documents.docs.values.first { !it.isDir && it.name == "ep1.cbz" }
+        assertTrue(resaved.contentEquals(copied.bytes))
+    }
+
+    @Test
     fun `entry whose filename disagrees with its kind is manifest-invalid`() {
         val bytes = ByteArray(5) { 2 }
         source.originals["ep1"] = bytes

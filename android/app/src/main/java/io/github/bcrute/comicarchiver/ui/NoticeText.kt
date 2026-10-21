@@ -68,3 +68,10 @@ fun publicIssueFor(failure: ExportFailure): PublicIssue = when (failure) {
     ExportFailure.INTERRUPTED -> PublicIssue.EXPORT_INTERRUPTED
     ExportFailure.MANIFEST_INVALID -> PublicIssue.JOB_FAILED
 }
+
+/**
+ * A public wire code (bridge envelope or controller) to its issue; an unknown code still
+ * renders, as job_failed — never as success and never with the raw code shown.
+ */
+fun exportIssueFromWireCode(code: String): PublicIssue =
+    PublicIssue.fromWireName(code) ?: PublicIssue.JOB_FAILED

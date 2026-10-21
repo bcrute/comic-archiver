@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -50,9 +51,14 @@ fun SignInScreen(
     }
 }
 
-/** One plain-words notice plus its single recovery action. */
+/** One plain-words notice plus its single recovery action; [onDismiss], when given,
+ *  acknowledges the notice through the caller (the controller's openNotice action). */
 @Composable
-fun NoticeCard(notice: NoticeUi, modifier: Modifier = Modifier) {
+fun NoticeCard(
+    notice: NoticeUi,
+    modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
+) {
     val words = NoticeText.wordsFor(notice.issue)
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -64,6 +70,9 @@ fun NoticeCard(notice: NoticeUi, modifier: Modifier = Modifier) {
             )
             notice.detail?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+            if (onDismiss != null) {
+                TextButton(onClick = onDismiss) { Text("Got it") }
             }
         }
     }
