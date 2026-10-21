@@ -9,6 +9,7 @@ import io.github.bcrute.comicarchiver.runtime.PythonRuntime
 import io.github.bcrute.comicarchiver.runtime.SignInProbe
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
+import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
 
 /**
  * Starts the embedded Python runtime once per process (native line; the bootstrap form is
@@ -24,8 +25,11 @@ class App : Application() {
 
     val bridge: PythonBridge by lazy { ChaquopyBridge() }
 
-    /** The engine's site table, fed from the core's own sites module (no second list). */
-    val signInSites: Map<String, SiteAddress> by lazy { PythonRuntime.siteAddresses() }
+    /** The engine's site table, fed from the core's own sites module (no second list);
+     * the beta minimum stands in only if that feed answers nothing usable. */
+    val signInSites: Map<String, SiteAddress> by lazy {
+        PythonRuntime.siteAddresses().ifEmpty { WebViewSignInEngine.BETA_SITES }
+    }
 
     /** The onSettle runner: the core's verified who-am-i, wired into the engine by the UI. */
     val signInProbe: SignInProbe by lazy {

@@ -49,11 +49,17 @@ object PythonRuntime {
             .callAttr("site_addresses").asList()
         val table = mutableMapOf<String, SiteAddress>()
         for (row in rows) {
-            table[row["key"].toString()] = SiteAddress(
-                home = row["home"].toString(),
-                signInPath = row["signInPath"].toString(),
-                cookieHosts = row["cookieHosts"].asList().map { it.toString() }.toSet(),
-            )
+            // PyObject's map access answers nullable; a row without every field is not a
+            // site (the caller keeps the beta fallback rather than an entry that cannot
+            // open a sign-in page).
+            val key = row["key"]?.toString()
+            val home = row["home"]?.toString()
+            val signInPath = row["signInPath"]?.toString()
+            val hosts = row["cookieHosts"]?.asList()?.map { it.toString() }
+            if (key == null || home == null || signInPath == null || hosts.isNullOrEmpty()) {
+                continue
+            }
+            table[key] = SiteAddress(home, signInPath, hosts.toSet())
         }
         return table
     }
