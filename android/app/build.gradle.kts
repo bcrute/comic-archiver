@@ -92,6 +92,15 @@ tasks.named("preBuild") {
     dependsOn(syncCorePython)
 }
 
+// Chaquopy's per-variant Python source merge consumes the directory syncCorePython
+// writes; Gradle's task-dependency validation rejects that as an implicit dependency
+// (observed: ":app:mergeDebugPythonSources uses this output of task ':app:syncCorePython'
+// without declaring an explicit or implicit dependency"), so declare it on the merge
+// tasks themselves.
+tasks.matching { it.name.endsWith("PythonSources") }.configureEach {
+    dependsOn(syncCorePython)
+}
+
 dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))

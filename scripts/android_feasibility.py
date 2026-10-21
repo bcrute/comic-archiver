@@ -617,8 +617,9 @@ def _cibw_required_ndk(sdk, packages):
         shipped = False
     if not shipped:
         return version, "ndk zip does not declare the required version"
-    revision = "".join(f"<{part}>{int(piece)}</{part}>"
-                       for part, piece in zip(("major", "minor", "micro"), version.split(".")))
+    pieces = version.split(".")
+    revision = "".join(f"<{part}>{int(pieces[index])}</{part}>"
+                       for index, part in enumerate(("major", "minor", "micro")))
     marker.write_text(
         "<?xml version='1.0' encoding='utf-8'?>\n"
         "<!-- Installed from Google's sha1-verified repository zip by\n"
