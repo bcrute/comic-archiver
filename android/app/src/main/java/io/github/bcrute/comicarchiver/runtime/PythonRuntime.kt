@@ -2,7 +2,7 @@ package io.github.bcrute.comicarchiver.runtime
 
 import android.content.Context
 import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPython
+import com.chaquo.python.android.AndroidPlatform
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
 
 /**
@@ -21,7 +21,7 @@ object PythonRuntime {
         if (!Python.isStarted()) {
             synchronized(this) {
                 if (!Python.isStarted()) {
-                    Python.start(AndroidPython(context.applicationContext))
+                    Python.start(AndroidPlatform(context.applicationContext))
                 }
             }
         }

@@ -42,12 +42,12 @@ class WebViewCookieStore(
             }
             // The store's own parser reads each string's attributes; this side never edits
             // or rebuilds them, and keeps no copy.
-            var taken = false
+            // CookieManager.setCookie returns nothing; every raw string is delivered as-is.
             for (raw in setCookieValues) {
-                if (manager.setCookie(url, raw)) taken = true
+                manager.setCookie(url, raw)
             }
             manager.flush()
-            taken
+            true
         }
 
     override fun clearAll(): Boolean {
@@ -87,7 +87,7 @@ class WebViewCookieStore(
 
     /** Whether the store holds any cookie for this URL; used for sign-in settle detection. */
     fun hasCookies(url: String): Boolean = onMain { manager ->
-        !isSiteUrl(url) || manager.hasCookies(url)
+        !isSiteUrl(url) || !manager.getCookie(url).isNullOrEmpty()
     }
 
     /** Make the store's already-private persistence immediate; called when a sign-in settles. */

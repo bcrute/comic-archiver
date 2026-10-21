@@ -8,9 +8,11 @@ import java.io.OutputStream
  * A folder inside the user's SAF tree, identified by its document URI string. Opaque;
  * no POSIX semantics (no rename, no overwrite, no atomicity) may be assumed for it.
  */
+@JvmInline
 value class DocumentsFolder(val uriString: String)
 
 /** A single document inside the user's SAF tree, identified by its document URI string. */
+@JvmInline
 value class DocumentsFile(val uriString: String)
 
 /** Why a SAF operation failed; each maps to one recoverable public state in the UI. */

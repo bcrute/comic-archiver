@@ -107,6 +107,21 @@ class SignInSessionController(
         }
     }
 
+    /**
+     * Whether a sign-in request is still open, called with [lock] held. A wait past its
+     * bound closes the request itself — an abandoned WebView must never leave the session
+     * RUNNING forever — reporting the desktop window's incomplete code.
+     */
+    private fun waiting(): Boolean {
+        if (state.status != SignInStatus.RUNNING) return false
+        val elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000L
+        if (elapsedSeconds >= timeoutSeconds) {
+            state = SignInStatus(SignInStatus.ERROR, "signin_incomplete")
+            return false
+        }
+        return true
+    }
+
     /** A finished page on the site's own cookie hosts only; nothing else can settle a sign-in. */
     private fun isSiteUrl(url: String): Boolean {
         val address = try {
