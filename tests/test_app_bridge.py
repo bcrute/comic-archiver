@@ -120,7 +120,7 @@ class BridgeLifecycleTests(unittest.TestCase):
                 self.assertEqual(value["code"], "bad_request")
 
     def test_cookie_seams_must_be_callables(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(app_bridge._BridgeError):
             app_bridge.set_cookie_seams("not callable")
 
     def test_the_kotlin_cookie_store_object_is_accepted_as_both_seams(self):
@@ -137,6 +137,6 @@ class BridgeLifecycleTests(unittest.TestCase):
         sink("https://tapas.io/x", ["a=1"])  # A quiet refusal path, not a crash.
 
     def test_an_object_without_store_methods_is_refused(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(app_bridge._BridgeError):
             app_bridge.set_cookie_seams(object())
 

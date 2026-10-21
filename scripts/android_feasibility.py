@@ -73,6 +73,9 @@ def run_tool(argv, cwd=None, timeout=2400, env_extra=None, input_bytes=None, kee
     except FileNotFoundError:
         # A missing executable (spawn ENOENT) is an observed tool failure, never a crash.
         code, out = 127, "executable not found: " + str(argv[0])
+    except OSError as error:
+        # A spawn refusal (permissions) is an observed tool failure too, not a crash.
+        code, out = 126, f"cannot run {argv[0]}: {error}"
     return {"argv": [str(piece) for piece in argv], "minutes": round((time.monotonic() - started) / 60, 1),
             "returncode": code, "tail": out[-keep_bytes:]}
 
@@ -108,15 +111,6 @@ def _fetch_pinned(name, target):
     return True, pin["sha256"]
 
 
-def _extract(archive, destination):
-    destination.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.unpack_archive(str(archive), str(destination))
-        return True
-    except (OSError, shutil.Error, ValueError):
-        return False
-
-
 def _extract_tar_data(archive, destination):
     """Unpack an untrusted tarball with the data filter: no absolute paths, links out, or devices."""
     destination.mkdir(parents=True, exist_ok=True)
@@ -125,6 +119,32 @@ def _extract_tar_data(archive, destination):
             bundle.extractall(destination, filter="data")
         return True
     except (OSError, tarfile.TarError, ValueError):
+        return False
+
+
+def _extract_zip_data(archive, destination):
+    """Unpack the pinned zip member by member: every name is kept inside destination, no
+    extractall, and the SDK's bin/ scripts keep an executable mode even when the archive
+    records none (the observed failure: sdkmanager spawned EACCES at mode 0o644)."""
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            for member in bundle.infolist():
+                resolved = (destination / member.filename).resolve()
+                if resolved != root and root not in resolved.parents:
+                    return False
+                if member.is_dir():
+                    resolved.mkdir(parents=True, exist_ok=True)
+                    continue
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(member) as source, open(resolved, "wb") as target:
+                    shutil.copyfileobj(source, target)
+                stored = member.external_attr >> 16
+                executable = "bin" in resolved.parts and resolved.suffix not in {".jar", ".txt"}
+                os.chmod(resolved, stored if stored & 0o111 else 0o755 if executable else 0o644)
+        return True
+    except (OSError, zipfile.BadZipFile, ValueError):
         return False
 
 
@@ -162,9 +182,7 @@ def phase_provision():
     if not manager.is_file():
         bundle = TOOLS_DIR / "downloads/commandlinetools.zip"
         ok, digest = _fetch_pinned("android_commandline_tools", bundle)
-        if ok:
-            with zipfile.ZipFile(bundle) as archive:
-                archive.extractall(str(TOOLS_DIR / "downloads/cmdline-tools"))
+        if ok and _extract_zip_data(bundle, TOOLS_DIR / "downloads/cmdline-tools"):
             inner = TOOLS_DIR / "downloads/cmdline-tools/cmdline-tools"
             (sdk / "cmdline-tools").mkdir(parents=True, exist_ok=True)
             inner.rename(sdk / "cmdline-tools/latest")
@@ -176,7 +194,7 @@ def phase_provision():
     if gradle is None and not (TOOLS_DIR / "gradle/bin/gradle").is_file():
         bundle = TOOLS_DIR / "downloads/gradle.zip"
         ok, digest = _fetch_pinned("gradle", bundle)
-        ok = ok and _extract(bundle, TOOLS_DIR / "downloads/gradle-x")
+        ok = ok and _extract_zip_data(bundle, TOOLS_DIR / "downloads/gradle-x")
         if ok:
             inner = next((path for path in (TOOLS_DIR / "downloads/gradle-x").iterdir() if path.is_dir()), None)
             if inner is not None:
