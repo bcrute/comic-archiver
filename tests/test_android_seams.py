@@ -39,7 +39,9 @@ class LiveCookieSourceTests(unittest.TestCase):
         transport = _HeaderCapture(cookie_source=lambda url: next(answers))
         transport.get("https://tapas.io/who-am-i")
         transport.get("https://tapas.io/who-am-i")
-        self.assertEqual(list(transport.sent.values()), [["golden-session=1"], [None]])
+        # Both requests hit the same URL: one key, two entries, in order.
+        self.assertEqual(transport.sent["https://tapas.io/who-am-i"],
+                         ["golden-session=1", None])
 
     def test_a_source_that_returns_something_else_than_text_sends_no_header(self):
         transport = _HeaderCapture(cookie_source=lambda url: 7)

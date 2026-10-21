@@ -505,7 +505,7 @@ def phase_wheels(paths, sdist):
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
            "CIBW_BUILD": "cp313-*",
            "CIBW_BUILD_FRONTEND": "build"}
-    result = run_tool([str(cibw), "--platform", "android", "--arch", "arm64-v8a,x86_64",
+    result = run_tool([str(cibw), "--platform", "android", "--archs", "arm64-v8a,x86_64",
                        "--output-dir", str(output), str(project)], timeout=3600, env_extra=env,
                       keep_bytes=8000)
     built = sorted(path.name for path in output.glob("zstandard-*.whl"))
