@@ -18,8 +18,8 @@ from pathlib import Path
 
 VERSION = 1
 
-OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "go", "pause",
-                 "enqueue_sync", "library_listing", "export_manifest", "export_status"})
+OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
+                 "go", "pause", "enqueue_sync", "library_listing", "export_manifest", "export_status"})
 
 # The one workspace the beta app runs, and the WebView cookie seams the Kotlin side
 # registers once at startup through set_cookie_seams (Chaquopy hands the same store
@@ -37,16 +37,47 @@ class _BridgeError(Exception):
         self.message = message
 
 
+def _store_header_source(store):
+    """Adapt the Kotlin cookie store to the callable the core Transport asks for.
+
+    Chaquopy exposes the store's cookieHeader/setSessionCookies as snake_cased methods; the
+    store itself already scopes answers to the site's own hosts and bounds its wait. A store
+    that cannot answer gets the same fixed, credential-free answer as an empty one, so a
+    refused or slow store can never leak or wedge a request.
+    """
+    def cookie_header(url):
+        try:
+            return str(store.cookie_header(url))
+        except Exception:
+            return ""
+    return cookie_header
+
+
+def _store_cookie_sink(store):
+    def apply(url, values):
+        try:
+            store.set_session_cookies(url, list(values))
+        except Exception:
+            pass  # A refused forward is dropped; the store stays the sole authority.
+    return apply
+
+
 def set_cookie_seams(cookie_source, cookie_sink=None):
     """Register the app's live cookie seams once at startup (frozen contract §4).
 
-    ``cookie_source(url)`` answers the WebView store's cookie header for that URL live;
-    ``cookie_sink(url, values)`` forwards raw own-origin Set-Cookie lines back into it.
-    The store itself stays with Kotlin; this only keeps the callables the worker's
-    Transport needs.
+    Accepts either Python callables or the Kotlin cookie store object (whose
+    cookieHeader/setSessionCookies methods Chaquopy exposes as cookie_header and
+    set_session_cookies); the store itself stays with Kotlin, which keeps it the single
+    cookie authority — this only holds the adapters the worker's Transport calls.
     """
-    if not callable(cookie_source) or (cookie_sink is not None and not callable(cookie_sink)):
-        raise _BridgeError("bad_request", "The cookie seams must be callables from the cookie store.")
+    if not callable(cookie_source):
+        if not hasattr(cookie_source, "cookie_header"):
+            raise _BridgeError("bad_request", "The cookie seams must be callables from the cookie store.")
+        cookie_source = _store_header_source(cookie_source)
+    if cookie_sink is not None and not callable(cookie_sink):
+        if not hasattr(cookie_sink, "set_session_cookies"):
+            raise _BridgeError("bad_request", "The cookie seams must be callables from the cookie store.")
+        cookie_sink = _store_cookie_sink(cookie_sink)
     _seams["cookie_source"] = cookie_source
     _seams["cookie_sink"] = cookie_sink
 
@@ -128,6 +159,21 @@ def _worker_start(args):
     return _core(start)
 
 
+def _worker_stop(args):
+    """The service's checkpoint path (contract §3): pause, then drain through the existing
+    stop protocol. Native-line extension of the §2 op list, flagged for review."""
+    session = _path_arg(args, "session_root")
+    wait = args.get("wait_seconds", 0)
+    if type(wait) not in (int, float) or not 0 <= wait <= 120:
+        raise _BridgeError("bad_request", "wait_seconds must be a small number of seconds.")
+
+    def stop(ArchiveError):
+        from comic_archive import worker_host
+        return worker_host.request_stop(session, wait_seconds=wait)
+
+    return _core(stop)
+
+
 def _account_ui_op(name):
     def handler(args):
         root = _path_arg(args, "root")
@@ -153,6 +199,7 @@ HANDLERS = {"ping": _ping,
             "prepare_workspace": _prepare_workspace,
             "worker_status": _worker_status,
             "worker_start": _worker_start,
+            "worker_stop": _worker_stop,
             "go": _account_ui_op("start"),
             "pause": _account_ui_op("pause")}
 HANDLERS.update({op: _native_line(op) for op in OPS if op not in HANDLERS})

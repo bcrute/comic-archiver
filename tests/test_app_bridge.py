@@ -100,6 +100,13 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(value["code"], "refused")
         self.assertIn("Sign in", value["message"])
 
+    def test_worker_stop_answers_through_the_envelope_when_no_worker_runs(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("worker_stop", {"session_root": str(self.root / ".comic-session"),
+                                          "wait_seconds": 0})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(value["result"]["running"])
+
     def test_go_and_pause_answer_through_the_envelope(self):
         self.call("prepare_workspace", {"root": str(self.root)})
         self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
@@ -115,4 +122,21 @@ class BridgeLifecycleTests(unittest.TestCase):
     def test_cookie_seams_must_be_callables(self):
         with self.assertRaises(Exception):
             app_bridge.set_cookie_seams("not callable")
+
+    def test_the_kotlin_cookie_store_object_is_accepted_as_both_seams(self):
+        class Store:
+            def cookie_header(self, url):
+                return "session=1"
+
+            def set_session_cookies(self, url, values):
+                return True
+
+        app_bridge.set_cookie_seams(Store(), Store())
+        source, sink = app_bridge._seams["cookie_source"], app_bridge._seams["cookie_sink"]
+        self.assertEqual(source("https://tapas.io/x"), "session=1")
+        sink("https://tapas.io/x", ["a=1"])  # A quiet refusal path, not a crash.
+
+    def test_an_object_without_store_methods_is_refused(self):
+        with self.assertRaises(Exception):
+            app_bridge.set_cookie_seams(object())
 
