@@ -500,12 +500,19 @@ def phase_wheels(paths, sdist):
     output = JOB_DIR / "wheels"
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True, exist_ok=True)
+    # The sdist's own [tool.cibuildwheel] table names enable groups this pinned builder
+    # version removed (observed attempt 8: "Unknown enable group: cpython-freethreading")
+    # plus desktop-only pytest test-commands and a yum before-all; this config replaces it
+    # so the Android build runs exactly the pinned builder's defaults, tests off.
+    config = JOB_DIR / "cibw-config.toml"
+    config.write_text('[tool.cibuildwheel]\nbuild-frontend = "build"\n')
     env = {"ANDROID_HOME": str(paths["sdk"]),
            "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
            "CIBW_BUILD": "cp313-*",
            "CIBW_BUILD_FRONTEND": "build"}
     result = run_tool([str(cibw), "--platform", "android", "--archs", "arm64-v8a,x86_64",
+                       "--config-file", str(config),
                        "--output-dir", str(output), str(project)], timeout=3600, env_extra=env,
                       keep_bytes=8000)
     built = sorted(path.name for path in output.glob("zstandard-*.whl"))
