@@ -18,6 +18,11 @@ def configure(path) -> None:
     _path["value"] = str(Path(path)) if path is not None else None
 
 
+def configured() -> bool:
+    """Whether the app registered its status file; until then the desktop probe applies."""
+    return _path.get("value") is not None
+
+
 def _status_file(path: Path):
     if any(part.is_symlink() for part in (path, *path.parents)):
         return None

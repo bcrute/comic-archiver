@@ -1,6 +1,7 @@
 """The bridge envelope contract: shapes, unknown ops and public-safe failures."""
 import importlib.util
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -35,7 +36,83 @@ class BridgeEnvelopeTests(unittest.TestCase):
         self.assertEqual(value["code"], "bad_request")
 
     def test_scaffold_ops_answer_not_implemented_with_public_safe_words(self):
-        value = self.call('{"v":1,"op":"worker_status","args":{}}')
+        value = self.call('{"v":1,"op":"enqueue_sync","args":{}}')
         self.assertFalse(value["ok"])
         self.assertEqual(value["code"], "not_implemented")
         self.assertNotIn("/", value["message"])
+
+
+class BridgeLifecycleTests(unittest.TestCase):
+    """The lifecycle ops against a real throwaway workspace (no network is touched)."""
+
+    def setUp(self):
+        import tempfile
+        self._previous = Path.cwd()
+        self._tmp = tempfile.TemporaryDirectory(prefix="bridge-workspace-")
+        self.addCleanup(self._cleanup)
+        self.root = Path(self._tmp.name)
+        app_bridge._workspace["root"] = None
+        app_bridge._seams.update(cookie_source=None, cookie_sink=None)
+
+    def _cleanup(self):
+        os.chdir(self._previous)
+        self._tmp.cleanup()
+
+    def call(self, op, args):
+        return json.loads(app_bridge.dispatch(json.dumps({"v": 1, "op": op, "args": args})))
+
+    def test_prepare_workspace_makes_folders_holds_for_go_and_sets_the_cwd(self):
+        value = self.call("prepare_workspace", {"root": str(self.root)})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(value["result"]["held"])
+        self.assertEqual(Path.cwd(), self.root)
+        self.assertTrue((self.root / "Library").is_dir())
+        self.assertTrue((self.root / ".comic-session").is_dir())
+
+    def test_prepare_workspace_refuses_a_symlinked_root(self):
+        link = Path(self._tmp.name) / "link"
+        os.symlink(self.root / "real", link)
+        value = self.call("prepare_workspace", {"root": str(link)})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
+
+    def test_worker_status_reads_the_protocol_file(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("worker_status", {"session_root": str(self.root / ".comic-session")})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(value["result"]["running"])
+
+    def test_worker_start_needs_the_cookie_seams_before_anything_else(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("worker_start", {"session_root": str(self.root / ".comic-session"),
+                                           "library_root": str(self.root / "Library"),
+                                           "network_status_path": str(self.root / "net.json")})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "cookie_seams_missing")
+
+    def test_worker_start_needs_a_whole_sign_in_record(self):
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("worker_start", {"session_root": str(self.root / ".comic-session"),
+                                           "library_root": str(self.root / "Library"),
+                                           "network_status_path": str(self.root / "net.json")})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
+        self.assertIn("Sign in", value["message"])
+
+    def test_go_and_pause_answer_through_the_envelope(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
+        self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
+
+    def test_path_arguments_are_validated_without_detail(self):
+        for bad in ({}, {"root": "Library"}, {"root": None}, {"session_root": "/tmp/a\0b"}):
+            with self.subTest(bad):
+                value = self.call("prepare_workspace", bad)
+                self.assertFalse(value["ok"])
+                self.assertEqual(value["code"], "bad_request")
+
+    def test_cookie_seams_must_be_callables(self):
+        with self.assertRaises(Exception):
+            app_bridge.set_cookie_seams("not callable")
+

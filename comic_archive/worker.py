@@ -201,15 +201,15 @@ def reader(site):
     raise ArchiveError(f'Saving from {site.name} is not available yet.')
 
 
-def run_worker(session, preferred="firefox", headless=False, interval=1.0):
+def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None):
     from .locking import LibraryLock
     # One process consumes each private queue; separate user workers remain independent.
     root=directory(Path(session)/'worker')
     with LibraryLock(root/'.runtime'):
-        return _run_worker(session,preferred,headless,interval)
+        return _run_worker(session,preferred,headless,interval,adapter_factory)
 
 
-def _run_worker(session, preferred="firefox", headless=False, interval=1.0):
+def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None):
     root = directory(session / "worker")
     root.chmod(0o700)
     requests = directory(root / "requests")
@@ -227,11 +227,19 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0):
     from .background import drain_requested
     try:
         publish({"state": "starting"})
-        from .fast_import import FastWorkerSession
         site = sites.of_session(session)
-        # The faster second engine is Tapas's own; other sites read with the one adapter.
-        with reader(site)(session, preferred, headless=headless, interval=interval) as adapter, \
-                (FastWorkerSession(session, preferred, headless=headless) if site == sites.DEFAULT else nullcontext()) as fast_session:
+        if adapter_factory is not None:
+            # The embedded host supplies one transport-backed adapter; no browser engine and
+            # no faster second session exist there, and the factory owns every credential rule.
+            adapter_source = nullcontext(adapter_factory())
+            fast_source = nullcontext()
+        else:
+            from .fast_import import FastWorkerSession
+            # The faster second engine is Tapas's own; other sites read with the one adapter.
+            adapter_source = reader(site)(session, preferred, headless=headless, interval=interval)
+            fast_source = (FastWorkerSession(session, preferred, headless=headless)
+                           if site == sites.DEFAULT else nullcontext())
+        with adapter_source as adapter, fast_source as fast_session:
             publish({"state": "ready"})
             startup_complete = True
             print(f"Browser worker v{WORKER_VERSION} ready. Stop with stop-worker or Ctrl+C.", flush=True)
