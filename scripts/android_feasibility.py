@@ -33,6 +33,7 @@ import sys
 import tarfile
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -148,6 +149,86 @@ def _extract_zip_data(archive, destination):
         return False
 
 
+REPOSITORY_XMLS = (
+    # The main repository carries tools, platforms and the NDK; system images live only in
+    # their own listings, whose artifact URLs are relative to the listing's own folder.
+    # Digest and URL shapes verified against the live XMLs, 21 October 2026.
+    "https://dl.google.com/android/repository/repository2-3.xml",
+    "https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml",
+    "https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml",
+)
+
+
+def _sdk_repository_packages():
+    """The repository's own stable package table, fetched over the same TLS path every
+    pinned input already uses. Two fleet attempts (4 and 5) showed sdkmanager's JVM
+    fetching no manifests at all on this network even with explicit proxy properties,
+    while urllib reached dl.google.com without complaint; so the JVM is never used to
+    fetch. Each package's published sha1 is returned for verification before extraction.
+    """
+    packages = {}
+    for listing in REPOSITORY_XMLS:
+        try:
+            with urllib.request.urlopen(listing, timeout=120) as response:
+                root = ET.fromstring(response.read())
+        except (OSError, ET.ParseError):
+            return None
+        folder = listing.rsplit("/", 1)[0]
+        for package in root.findall("{*}remotePackage"):
+            path = package.get("path", "")
+            channel = package.find("{*}channelRef")
+            if channel is not None and channel.get("ref") not in (None, "channel-0"):
+                continue  # Stable channel only; preview packages are never selected silently.
+            for archive in package.findall("{*}archives/{*}archive"):
+                host = archive.find("{*}host-os")
+                if host is not None and (host.text or "").strip() != "linux":
+                    continue
+                # The main listing types its digest checksum[type=sha1]; the sys-img
+                # listings carry it untyped (sha1 by definition of the schema).
+                sha1 = archive.find("{*}complete/{*}checksum[@type='sha1']")
+                if sha1 is None:
+                    sha1 = archive.find("{*}complete/{*}checksum")
+                artifact = archive.find("{*}complete/{*}url")
+                if sha1 is not None and artifact is not None:
+                    packages[path] = {"sha1": sha1.text.strip(),
+                                      "url": f"{folder}/{artifact.text.strip()}"}
+                    break
+    return packages
+
+
+def _install_sdk_package(name, details, sdk):
+    """Install one repository package: download over the Python network path, verify the
+    repository's own sha1 before extraction, unpack with the validated extractor, and
+    rename the archive's single top-level folder to the package's canonical SDK path
+    (the zips' root folder names — android-37, android-ndk-r29, x86_64 — have never
+    matched the install path; package;path segments do)."""
+    target = sdk.joinpath(*name.split(";"))
+    if target.is_dir():
+        return True, "cached"
+    bundle = TOOLS_DIR / f"downloads/{name.replace(';', '-')}.zip"
+    try:
+        if not _download(details["url"], bundle):
+            return False, "download failed"
+        digest = hashlib.sha1(bundle.read_bytes()).hexdigest()
+    except OSError:
+        return False, "read failed"
+    if digest != details["sha1"]:
+        bundle.unlink(missing_ok=True)
+        return False, f"sha1 mismatch: {digest}"
+    staging = TOOLS_DIR / f"downloads/unpack-{name.replace(';', '-')}"
+    shutil.rmtree(staging, ignore_errors=True)
+    if not _extract_zip_data(bundle, staging):
+        return False, "unpack refused"
+    inner = [path for path in staging.iterdir() if path.is_dir()]
+    if len(inner) != 1:
+        return False, "unexpected archive layout"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(target, ignore_errors=True)
+    inner[0].rename(target)
+    shutil.rmtree(staging, ignore_errors=True)
+    return True, details["sha1"]
+
+
 def phase_provision():
     """Provision job-private JDK, Android SDK tools, Gradle, host CPython 3.13 and cibuildwheel.
 
@@ -225,54 +306,61 @@ def phase_provision():
         wheel = TOOLS_DIR / f"downloads/cibuildwheel-{PINS['cibuildwheel']['version']}-py3-none-any.whl"
         ok, digest = _fetch_pinned("cibuildwheel", wheel)
         created = run_tool([python313, "-m", "venv", str(TOOLS_DIR / "cibw-venv")], timeout=300)
-        installed = run_tool([venv_python, "-m", "pip", "install", "--no-index", str(wheel)], timeout=600) \
+        # The pinned wheel stays the only entry point; its dependencies (bashlex, bracex,
+        # pydantic, ...) resolve from the package index over the same Python/proxy path
+        # the validate venv itself uses. --no-index was the attempt-5 failure: nothing
+        # local provides them. What actually landed is recorded via pip freeze so the
+        # builder's full input set is in the receipt, not just its pinned entry point.
+        installed = run_tool([venv_python, "-m", "pip", "install", str(wheel)], timeout=900) \
             if created["returncode"] == 0 and ok else {"returncode": 1, "tail": "wheel unavailable"}
+        frozen = run_tool([venv_python, "-m", "pip", "freeze"], timeout=120) \
+            if installed["returncode"] == 0 else {"tail": ""}
         steps["cibuildwheel"] = {"status": "installed" if installed["returncode"] == 0 else "unavailable",
                                  "version": PINS["cibuildwheel"]["version"], "sha256": digest if ok else None,
-                                 "tail": installed["tail"][-500:] if installed["returncode"] else None}
+                                 "tail": installed["tail"][-500:] if installed["returncode"] else None,
+                                 "environment": frozen["tail"][-1500:]}
 
     if manager.is_file() and java:
-        # Accept licenses, then install what the build and emulator phases need; package
-        # versions are chosen from the repository's own listing, never guessed pins. The
-        # listing is kept whole: its package table is far larger than the default log tail.
-        # Java does not read the environment's proxy settings the way Python does, so any
-        # http(s)_proxy is handed to the JVM explicitly, and IPv4 is preferred: the
-        # observed failure mode was sdkmanager fetching no manifests at all while urllib
-        # reached the same host fine.
-        from urllib.parse import urlsplit
-        java_options = ["-Djava.net.preferIPv4Stack=true"]
-        for name, scheme in (("http_proxy", "http"), ("https_proxy", "https")):
-            value = os.environ.get(name) or os.environ.get(name.upper())
-            if value:
-                parsed = urlsplit(value if "//" in value else "//" + value)
-                if parsed.hostname:
-                    java_options.append(f"-D{scheme}.proxyHost={parsed.hostname}")
-                    if parsed.port:
-                        java_options.append(f"-D{scheme}.proxyPort={parsed.port}")
-        sdk_env = {"JAVA_HOME": java_home, "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}",
-                   "_JAVA_OPTIONS": " ".join(java_options)}
-        steps["sdkmanager_env"] = {"java_options": java_options}
-        listing = run_tool([str(manager), f"--sdk_root={sdk}", "--list", "--verbose"], timeout=900,
-                           keep_bytes=2_000_000, env_extra=sdk_env)
-        names = {match.strip() for match in
-                 re.findall(r"^\s*((?:platforms|ndk|build-tools|system-images|emulator|platform-tools)[;\w.]*)\s*\|",
-                            listing["tail"], re.MULTILINE)}
-        platforms = sorted((name for name in names if re.fullmatch(r"platforms;android-\d+", name)),
-                           key=lambda name: int(name.rsplit("-", 1)[1]))
-        ndks = sorted((name for name in names if re.fullmatch(r"ndk;\d+(\.\d+)+", name)),
-                      key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
-        build_tools = sorted((name for name in names if re.fullmatch(r"build-tools;\d+(\.\d+){1,2}", name)),
-                             key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
-        images = sorted(name for name in names
-                        if re.fullmatch(r"system-images;android-\d+;[a-z0-9_]+;x86_64", name))
-        wanted = ["platform-tools", "emulator"]
-        wanted += [group[-1] for group in (platforms, ndks, build_tools, images) if group]
-        run_tool([str(manager), f"--sdk_root={sdk}", "--licenses"], timeout=600, input_bytes="y\n" * 20,
-                 env_extra=sdk_env)
-        install = run_tool([str(manager), f"--sdk_root={sdk}", "--install", *wanted], timeout=2400,
-                           env_extra=sdk_env)
-        steps["sdk_packages"] = {"installed": wanted, "returncode": install["returncode"],
-                                 "tail": install["tail"][-1500:]}
+        # Install what the build and emulator phases need, driven by the repository's own
+        # stable package table (never guessed pins) over the Python network path; the JVM
+        # never fetches. sdkmanager stays for the one thing it does offline: writing the
+        # accepted-license records Gradle and avdmanager check for.
+        packages = _sdk_repository_packages()
+        if packages is None:
+            steps["sdk_packages"] = {"status": "unavailable",
+                                     "reason": "repository listing unfetchable over the Python path"}
+        else:
+            names = set(packages)
+            platforms = sorted((name for name in names if re.fullmatch(r"platforms;android-\d+", name)),
+                               key=lambda name: int(name.rsplit("-", 1)[1]))
+            ndks = sorted((name for name in names if re.fullmatch(r"ndk;\d+(\.\d+)+", name)),
+                          key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
+            build_tools = sorted((name for name in names if re.fullmatch(r"build-tools;\d+(\.\d+){1,2}", name)),
+                                 key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
+            images = sorted(name for name in names
+                            if re.fullmatch(r"system-images;android-\d+;[a-z0-9_]+;x86_64", name))
+            # A plain-tag image boots the emulator for the self-check; the 16 KB-page
+            # variants are a separate qualification, not this phase's default.
+            images = [name for name in images if "ps16k" not in name] or images
+            wanted = ["platform-tools", "emulator"]
+            wanted += [group[-1] for group in (platforms, ndks, build_tools, images) if group]
+            installed, failures = [], {}
+            for name in wanted:
+                ok, note = (_install_sdk_package(name, packages[name], sdk) if name in packages
+                            else (False, "not offered for linux by the repository"))
+                if ok:
+                    installed.append({"package": name, "sha1": note})
+                else:
+                    failures[name] = note
+            licenses = run_tool([str(manager), f"--sdk_root={sdk}", "--licenses"], timeout=600,
+                                input_bytes="y\n" * 20,
+                                env_extra={"JAVA_HOME": java_home,
+                                           "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
+            steps["sdk_packages"] = {"source": list(REPOSITORY_XMLS),
+                                     "installed": installed,
+                                     "failed": failures,
+                                     "licenses": {"returncode": licenses["returncode"],
+                                                  "tail": licenses["tail"][-400:]}}
 
     tools = {"java": java,
              "sdk": str(sdk) if manager.is_file() else os.environ.get("ANDROID_HOME"),
