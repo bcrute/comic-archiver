@@ -1,5 +1,9 @@
 # Comic Archiver
 
+> **Tapas closes on 31 March 2027.** Tapas says what you've unlocked there cannot be moved to another app, and
+> purchases are not refunded. If you've paid for comics or novels on Tapas, this app saves them to your own
+> computer before they're gone.
+
 Comic Archiver saves the comics and novels you can read on Tapas, Tappytoon and Webtoon to your own computer, so you have
 your own copy of what you've bought and unlocked.
 
@@ -71,6 +75,17 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 | Windows 10 and 11 | Works |
 | Linux | Works |
 | Mac | Not planned yet |
+
+## Other ways to save your comics
+
+Since Tapas announced its closing, community guides often point to Mihon, HaruNeko and Suwayomi. Those are good
+tools, and if you already read in one of them, keep using it. Comic Archiver is different:
+
+- It saves **novels as well as comics**. Novels come out as EPUB files that open in any e-book reader. If you've
+  bought novels on Tapas, check that the tool you choose saves them; not all do.
+- It's one program you install and press Go. No extension repositories to add, no phone, no Docker.
+- It saves what your account has bought or unlocked on Tapas, Tappytoon and Webtoon, and picks up where it left
+  off.
 
 ## Building it yourself
 
