@@ -10,7 +10,7 @@ from comic_archive.transport import Transport
 
 
 class _HeaderCapture(Transport):
-    """The real request path with the network call replaced; headers recorded per URL."""
+    """The real request path with the network call replaced; every request recorded."""
 
     def __init__(self, **kwargs):
         super().__init__(client=object(), **kwargs)
@@ -18,7 +18,8 @@ class _HeaderCapture(Transport):
         self.sent = {}
 
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
-        self.sent[url] = headers.get("Cookie")
+        # One entry per request, not per URL: repeats and retries are what these tests observe.
+        self.sent.setdefault(url, []).append(headers.get("Cookie"))
         return b"golden"
 
 
@@ -30,27 +31,27 @@ class LiveCookieSourceTests(unittest.TestCase):
         self.assertEqual(transport.get("https://us-a.tapas.io/pc/golden/0001.png"), b"golden")
         # The site's own host got the live header; the CDN host got none and was never asked.
         self.assertEqual(asked, ["https://tapas.io/series/7"])
-        self.assertEqual(transport.sent, {"https://tapas.io/series/7": "golden-session=1",
-                                          "https://us-a.tapas.io/pc/golden/0001.png": None})
+        self.assertEqual(transport.sent, {"https://tapas.io/series/7": ["golden-session=1"],
+                                          "https://us-a.tapas.io/pc/golden/0001.png": [None]})
 
     def test_each_request_sees_the_current_answer_and_none_sends_no_header(self):
         answers = iter(["golden-session=1", None])
         transport = _HeaderCapture(cookie_source=lambda url: next(answers))
         transport.get("https://tapas.io/who-am-i")
         transport.get("https://tapas.io/who-am-i")
-        self.assertEqual(list(transport.sent.values()), ["golden-session=1", None])
+        self.assertEqual(list(transport.sent.values()), [["golden-session=1"], [None]])
 
     def test_a_source_that_returns_something_else_than_text_sends_no_header(self):
         transport = _HeaderCapture(cookie_source=lambda url: 7)
         transport.get("https://tapas.io/episode/81")
-        self.assertEqual(transport.sent, {"https://tapas.io/episode/81": None})
+        self.assertEqual(transport.sent, {"https://tapas.io/episode/81": [None]})
 
     def test_a_source_must_be_callable_and_the_jar_path_is_unchanged_without_one(self):
         with self.assertRaises(ArchiveError):
             Transport(client=object(), cookie_source="golden-session=1")
         transport = _HeaderCapture()
         transport.get("https://tapas.io/series/7")
-        self.assertEqual(transport.sent, {"https://tapas.io/series/7": None})
+        self.assertEqual(transport.sent, {"https://tapas.io/series/7": [None]})
 
     def test_a_retry_asks_the_source_again_after_admission_instead_of_reusing_the_header(self):
         from comic_archive.transport import _RetryRequest
@@ -66,7 +67,8 @@ class LiveCookieSourceTests(unittest.TestCase):
 
         transport._request = flaky
         self.assertEqual(transport.get("https://tapas.io/who-am-i"), b"golden")
-        self.assertEqual(list(transport.sent.values()), ["golden-session=1", "golden-session=2"])
+        self.assertEqual(transport.sent["https://tapas.io/who-am-i"],
+                         ["golden-session=1", "golden-session=2"])
 
 
 class PlatformCookieSinkTests(unittest.TestCase):
@@ -118,7 +120,7 @@ class AndroidMeteringProbeTests(unittest.TestCase):
             for broken in (None, json.dumps({"connection": "subway", "metered": False}),
                            json.dumps({"connection": "wifi", "metered": "no"})):
                 if broken is None:
-                    status.unlink()
+                    status.unlink(missing_ok=True)  # The first pass removes a file never written.
                 else:
                     status.write_text(broken)
                 self.assertEqual(network_android.probe(), {"connection": "unknown", "metered": None})
