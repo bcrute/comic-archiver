@@ -20,6 +20,7 @@ import stat
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from scripts import android_feasibility as feasibility
 
@@ -201,6 +202,76 @@ class GeneratedKeyTests(DebugSigningTestCase):
         self.assertIsNone(result)
         self.assertEqual(self.recorded()["status"], "pending")
         self.assertFalse(self.keystore.exists())
+
+
+class ApkCertificateTests(DebugSigningTestCase):
+    OTHER_FINGERPRINT = "cd" * 32
+
+    def setUp(self):
+        super().setUp()
+        self.apk = self.root / "app-debug.apk"
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            archive.writestr("AndroidManifest.xml", "")
+        self.sdk = self.root / "sdk"
+        tools = self.sdk / "build-tools/35.0.0"
+        tools.mkdir(parents=True)
+        (tools / "apksigner").write_text("#!/bin/sh\n")
+        (tools / "apksigner").chmod(0o755)
+        feasibility.report["phases"].pop("build", None)
+        self.addCleanup(feasibility.report["phases"].pop, "build", None)
+        feasibility.report["phases"]["debug_signing"] = {"status": "passed",
+                                                        "cert_sha256": FINGERPRINT}
+
+    def apksigner_fake(self, digest, returncode=0):
+        def run(argv, timeout=None, env_extra=None, **kwargs):
+            if "--print-certs" in argv:
+                return {"returncode": returncode, "tail": (
+                    "Signer #1 certificate DN: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
+                    f"Signer #1 certificate SHA-256 digest: {digest}\n"
+                    "Signer #1 certificate SHA-1 digest: 0000000000000000000000000000000000000000\n")}
+            return {"returncode": 0, "minutes": 0.1, "tail": ""}
+
+        return run
+
+    def run_build(self, digest, returncode=0):
+        paths = {"sdk": self.sdk, "gradle": "gradle", "java": self.java,
+                 "buildpython": "python3", "debug_keystore": str(self.keystore)}
+        with patch.object(feasibility, "run_tool", self.apksigner_fake(digest, returncode)), \
+                patch.object(feasibility, "APK", self.apk), \
+                patch.object(feasibility, "REPO", self.root / "repo"):
+            ok = feasibility.phase_build(paths, "wheels")
+        return ok, feasibility.report["phases"]["build"]
+
+    def test_parser_reads_signer_one_sha256_only(self):
+        digest = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT.upper()))
+        self.assertEqual(digest, FINGERPRINT)
+
+    def test_parser_rejects_failed_or_absent_apksigner(self):
+        self.assertIsNone(feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT, returncode=1)))
+        self.assertIsNone(feasibility._apk_signer_cert_sha256(
+            self.root / "no-build-tools", self.java, self.apk, self.apksigner_fake(FINGERPRINT)))
+
+    def test_matching_certificate_passes_the_build(self):
+        ok, phase = self.run_build(FINGERPRINT)
+        self.assertTrue(ok)
+        self.assertEqual(phase["status"], "passed")
+        self.assertEqual(phase["apk_cert_sha256"], FINGERPRINT)
+        self.assertIsNone(phase["classification"])
+
+    def test_mismatched_certificate_fails_the_build(self):
+        ok, phase = self.run_build(self.OTHER_FINGERPRINT)
+        self.assertFalse(ok)
+        self.assertEqual(phase["status"], "failed")
+        self.assertEqual(phase["classification"], "signing_certificate_mismatch")
+        self.assertEqual(phase["apk_cert_sha256"], self.OTHER_FINGERPRINT)
+
+    def test_unprovable_certificate_fails_the_build(self):
+        ok, phase = self.run_build(None, returncode=1)
+        self.assertFalse(ok)
+        self.assertEqual(phase["status"], "failed")
+        self.assertEqual(phase["classification"], "signing_certificate_mismatch")
 
 
 class ReceiptHygieneTests(DebugSigningTestCase):

@@ -533,11 +533,12 @@ def phase_debug_signing(tools, env=None, runner=run_tool, keystore_path=None,
     must never be stranded behind an accidental new identity. With nothing injected,
     a NEW dedicated project debug key is generated here with the pinned JDK's
     keytool (never locally) and retained as a 0600 private artifact so the owner can
-    store it in private config and inject it on every future job; exporting this
-    newly generated key is explicitly authorized, unlike any older, release or
-    account material. An optional expected certificate SHA-256 pins the identity on
-    both paths. Gradle later receives only the file's path, via a debug-only
-    property; the release build type keeps no signing config.
+    store it in private config and inject it on every future job. That artifact is a
+    dedicated debug-only keystore; release keys and account material are handled
+    elsewhere and never pass through this path. An optional expected certificate
+    SHA-256 pins the identity on both paths. Gradle later receives only the
+    file's path, via a debug-only property; the release build type keeps no
+    signing config.
     """
     env = os.environ if env is None else env
     keystore = DEBUG_KEYSTORE if keystore_path is None else pathlib.Path(keystore_path)
@@ -881,6 +882,30 @@ def _gradle_invocation(paths, task, wheels):
     return env, argv, jvm_flags, index_url
 
 
+def _apk_signer_cert_sha256(sdk, java, apk, runner):
+    """The APK's actual signing certificate digest, via the job's provisioned
+    apksigner (newest installed build-tools revision). Pinning the keystore alone
+    does not prove Gradle used it, so the shipped artifact's own certificate is
+    read back; only the public digest is ever retained."""
+    build_tools = pathlib.Path(sdk) / "build-tools"
+    apksigner = None
+    if build_tools.is_dir():
+        installed = sorted(tool for tool in build_tools.iterdir()
+                           if tool.is_dir() and (tool / "apksigner").is_file())
+        apksigner = installed[-1] / "apksigner" if installed else None
+    if apksigner is None:
+        return None
+    result = runner([str(apksigner), "verify", "--print-certs", str(apk)], timeout=300,
+                    env_extra={"PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
+    # The SHA-1 line must not satisfy the SHA-256 match; Signer #1 is the identity
+    # the platform checks for update compatibility.
+    match = re.search(r"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)$",
+                      result["tail"], re.MULTILINE)
+    if result["returncode"] != 0 or not match:
+        return None
+    return match.group(1).lower()
+
+
 def phase_build(paths, wheels):
     if wheels is None:
         record("build", "skipped", reason="verified Android wheels unavailable")
@@ -893,6 +918,17 @@ def phase_build(paths, wheels):
     ok = result["returncode"] == 0 and APK.is_file()
     tail = result["tail"]
     classification = None
+    apk_cert = None
+    if ok:
+        # The managed identity must be proven in the shipped APK itself: Gradle
+        # could have fallen back to another keystore (the observed per-job
+        # signature mismatch), so an unproven or differing certificate fails the
+        # build rather than shipping an APK no install would accept as an update.
+        expected_cert = report["phases"].get("debug_signing", {}).get("cert_sha256")
+        apk_cert = _apk_signer_cert_sha256(paths["sdk"], paths["java"], APK, run_tool)
+        if apk_cert != expected_cert:
+            ok = False
+            classification = "signing_certificate_mismatch"
     if not ok:
         # The last task Gradle marked FAILED, when present, is the truthful failure
         # point. The earlier bare "zstandard" match mislabelled attempt 17 as a wheel
@@ -944,6 +980,7 @@ def phase_build(paths, wheels):
             artifact_sha256 = None
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
+           apk_cert_sha256=apk_cert,
            apk_artifact=str(artifact) if artifact else None,
            apk_sha256=artifact_sha256, apk_bytes=APK.stat().st_size if APK.is_file() else None,
            pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
