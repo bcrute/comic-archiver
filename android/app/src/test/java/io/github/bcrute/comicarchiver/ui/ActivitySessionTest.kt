@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
 import android.os.Looper
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
@@ -47,7 +48,7 @@ class ActivitySessionTest {
                 shadowOf(Looper.getMainLooper()).idle()
                 condition()
             }
-        } catch (failure: AssertionError) {
+        } catch (failure: ComposeTimeoutException) {
             throw AssertionError("Controller did not settle: download=${app.controller.state.value.download}, " +
                 "restore=${app.fake.count("signin_restore")}, worker=${app.fake.count("worker_start")}, " +
                 "go=${app.fake.count("go")}, status=${app.fake.count("download_status")}", failure)
