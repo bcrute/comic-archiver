@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver
 
 import android.os.Bundle
 import android.util.Log
+import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -117,7 +118,14 @@ class MainActivity : ComponentActivity() {
                                 val webView = signInWebView
                                 if (webView != null) {
                                     AndroidView(
-                                        factory = { webView },
+                                        // A remount (retry, back-and-forth) never fights
+                                        // a stale parent: hand the one instance over
+                                        // detached.
+                                        factory = { _ ->
+                                            webView.also {
+                                                (it.parent as? ViewGroup)?.removeView(it)
+                                            }
+                                        },
                                         modifier = Modifier.fillMaxWidth().height(360.dp),
                                     )
                                 }
@@ -130,10 +138,15 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // The activity-owned sign-in surface goes with the activity. The cookie store —
-        // the app's cookie authority — is deliberately untouched here.
-        signInWebView?.stopLoading()
-        signInWebView?.destroy()
+        // The activity-owned sign-in surface goes with the activity — including on
+        // rotation, where the cookie store (the app's cookie authority) is deliberately
+        // untouched: no signout, no cookie clearing. Detach from any Compose-view parent
+        // BEFORE destroy(); destroying a still-attached WebView throws.
+        signInWebView?.let { webView ->
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.stopLoading()
+            webView.destroy()
+        }
         signInWebView = null
         super.onDestroy()
     }
