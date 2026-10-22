@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver
 
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -18,7 +19,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.viewinterop.AndroidView
 import com.chaquo.python.Python
 import io.github.bcrute.comicarchiver.controller.AppController
@@ -79,6 +84,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appState by controller.state.collectAsState()
             ComicArchiverTheme(appState.theme) {
+                val background = MaterialTheme.colorScheme.background
+                SideEffect {
+                    val light = background.luminance() > 0.5f
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = light
+                        isAppearanceLightNavigationBars = light
+                    }
+                    // Older supported Android versions draw opaque system bars;
+                    // API 35+ supplies the enforced edge-to-edge surface instead.
+                    if (Build.VERSION.SDK_INT < 35) {
+                        window.statusBarColor = background.toArgb()
+                        window.navigationBarColor = background.toArgb()
+                    }
+                }
                 val panel by exports.panel.collectAsState()
                 val pickFolder = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocumentTree(),
