@@ -12,7 +12,10 @@ data class AppState(
     val settingsBusy: Boolean = false,
     val settingsNotice: Notice? = null,
     val catalog: CatalogState = CatalogState(),
+    val theme: AppTheme = AppTheme.SYSTEM,
 )
+
+enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 
 data class SpeedChoice(val key: String, val label: String, val available: Boolean)
 

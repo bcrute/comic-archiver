@@ -22,6 +22,13 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import io.github.bcrute.comicarchiver.controller.AppTheme
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.controller.CatalogChoice
 import io.github.bcrute.comicarchiver.controller.CatalogState
@@ -176,8 +183,8 @@ class RenderedScreensTest {
         val mobile = compose.onNodeWithContentDescription("Also save on metered and mobile connections")
         mobile.assertIsOff().performClick()
         mobile.assertIsOn()
-        compose.onNodeWithText("Slow").performClick().assertIsSelected()
-        compose.onNodeWithText("Fast").assertIsNotEnabled()
+        compose.onNodeWithText("Slow").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Fast").performScrollTo().assertIsNotEnabled()
         assertEquals(false, controller.state.value.settings?.wifiOnly)
         assertEquals("slow", controller.state.value.settings?.speed)
         assertEquals(0, controller.goCalls)
@@ -187,7 +194,7 @@ class RenderedScreensTest {
         controller.state.value = controller.state.value.copy(download = DownloadState.Planning)
         show()
         compose.onNode(hasText("Settings") and hasClickAction()).performClick()
-        compose.onNodeWithText("Slow").assertIsNotEnabled()
+        compose.onNodeWithText("Slow").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Pause saving to change the speed.").assertIsDisplayed()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsEnabled()
     }
@@ -200,6 +207,25 @@ class RenderedScreensTest {
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertDoesNotExist()
         compose.onNodeWithText("Retry settings").performClick()
         assertEquals(1, controller.settingsRefreshes)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun appearanceChangesThePaletteEvenWhenDownloadSettingsAreUnavailable() {
+        controller.state.value = controller.state.value.copy(settings = null)
+        var background: Color? = null
+        compose.setContent {
+            val state by controller.state.collectAsState()
+            ComicArchiverTheme(state.theme) {
+                val color = MaterialTheme.colorScheme.background
+                SideEffect { background = color }
+                ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+            }
+        }
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("Dark").performClick().assertIsSelected()
+        compose.runOnIdle { assertEquals(darkColorScheme().background, background) }
+        compose.onNodeWithText("Light").performClick().assertIsSelected()
+        compose.runOnIdle { assertEquals(lightColorScheme().background, background) }
         assertEquals(0, controller.goCalls)
     }
 
@@ -315,6 +341,7 @@ private class ScreenController : AppController {
         state.value = state.value.copy(catalog = state.value.catalog.copy(query = query))
     }
     override fun openSavedFile(id: String) { openRequests.add(id) }
+    override fun setTheme(value: AppTheme) { state.value = state.value.copy(theme = value) }
     override fun refreshSettings() { settingsRefreshes++ }
     override fun setWifiOnly(value: Boolean) {
         state.value = state.value.copy(settings = state.value.settings?.copy(wifiOnly = value))

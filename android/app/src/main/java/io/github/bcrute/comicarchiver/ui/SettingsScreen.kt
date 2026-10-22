@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.Notice
+import io.github.bcrute.comicarchiver.controller.AppTheme
 
 /** Stored core policy, not local toggle state. No settings action admits a transfer. */
 @Composable
@@ -33,12 +34,25 @@ fun SettingsScreen(
     onWifiOnly: (Boolean) -> Unit,
     onSpeed: (String) -> Unit,
     onRefresh: () -> Unit,
+    theme: AppTheme = AppTheme.SYSTEM,
+    onTheme: (AppTheme) -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppTheme.entries.forEach { choice ->
+                        FilterChip(selected = choice == theme, onClick = { onTheme(choice) },
+                            label = { Text(choice.label) })
+                    }
+                }
+            }
+        }
         notice?.let { NoticeCard(it.toNoticeUi()) }
         if (settings == null) {
             Text(if (notice == null) "Loading download settings…" else "Download settings are unavailable.")
@@ -96,7 +110,7 @@ fun SettingsScreen(
                 Text(if (saving) "Pause saving to change the speed."
                      else "The stored choice applies when you press Go. It never starts saving on its own.")
                 if (settings.speeds.any { !it.available })
-                    Text("Fast mode is not available with this Android reader yet.")
+                    Text("Fast mode is not available in this Android version yet.")
             }
         }
     }

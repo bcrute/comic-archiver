@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import io.github.bcrute.comicarchiver.App
 import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.controller.DownloadState
@@ -90,12 +91,12 @@ class ActivitySessionTest {
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
         awaitState { app.controller.state.value.settings?.wifiOnly == false &&
             !app.controller.state.value.settingsBusy }
-        compose.onNodeWithText("Slow").performClick()
+        compose.onNodeWithText("Slow").performScrollTo().performClick()
         awaitState { app.controller.state.value.settings?.speed == "slow" &&
             !app.controller.state.value.settingsBusy }
         compose.activityRule.scenario.recreate()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsOn()
-        compose.onNodeWithText("Slow").assertIsSelected()
+        compose.onNodeWithText("Slow").performScrollTo().assertIsSelected()
         assertEquals(0, app.fake.count("go"))
         assertEquals(2, app.fake.count("configure_settings"))
     }
@@ -142,6 +143,17 @@ class ActivitySessionTest {
         assertEquals("One", app.controller.state.value.catalog.query.query)
         assertEquals(0, app.fake.count("go"))
         assertEquals(0, app.fake.count("worker_start"))
+    }
+
+    @Test fun appearancePersistsAndSurvivesActivityRecreationWithoutGo() {
+        ready()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("Dark").performClick().assertIsSelected()
+        assertEquals("DARK", app.getSharedPreferences("comicarchiver_appearance", 0).getString("theme", null))
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText("Dark").assertIsSelected()
+        assertEquals(0, app.fake.count("go"))
+        assertEquals(0, app.fake.count("configure_settings"))
     }
 
     @Test fun failedCatalogRefreshShowsFailureRatherThanAnEmptyOrStaleResult() {

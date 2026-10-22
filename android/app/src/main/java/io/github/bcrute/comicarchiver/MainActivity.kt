@@ -25,6 +25,7 @@ import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.DefaultAppController
 import io.github.bcrute.comicarchiver.export.SafExportRuntime
 import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
+import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
 
 /**
  * The app's one activity (UI/export line): mounts the Compose root over the real
@@ -76,7 +77,8 @@ class MainActivity : ComponentActivity() {
         exports = app.exports
 
         setContent {
-            MaterialTheme {
+            val appState by controller.state.collectAsState()
+            ComicArchiverTheme(appState.theme) {
                 val panel by exports.panel.collectAsState()
                 val pickFolder = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocumentTree(),

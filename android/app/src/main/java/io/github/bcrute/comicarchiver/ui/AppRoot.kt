@@ -95,6 +95,8 @@ fun ComicArchiverAppRoot(
                     onStopExport = onStopExport,
                 )
                 AppTab.SETTINGS -> SettingsScreen(
+                    theme = state.theme,
+                    onTheme = controller::setTheme,
                     settings = state.settings,
                     busy = state.settingsBusy,
                     saving = state.download is DownloadState.Running ||

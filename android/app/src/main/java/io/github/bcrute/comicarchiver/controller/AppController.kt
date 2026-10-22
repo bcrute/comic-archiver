@@ -29,6 +29,7 @@ interface AppController {
     fun setDownloadSpeed(value: String)
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
+    fun setTheme(value: AppTheme)
 
     fun requestExport(folderUri: String)
     fun cancelExport()

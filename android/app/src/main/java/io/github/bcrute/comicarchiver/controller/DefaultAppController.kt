@@ -55,10 +55,13 @@ class DefaultAppController(
     private val settingsActions = Mutex()
     private var catalogVersion = 0L
     private val viewer = ArchiveViewer(context, context.filesDir.resolve("workspace/Library"))
+    private val preferences = context.getSharedPreferences("comicarchiver_appearance", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
         AppState(site = "tapas", signIn = SignInState.SignedOut, download = DownloadState.Held,
-                 library = emptyList(), notice = null))
+                 library = emptyList(), notice = null,
+                 theme = AppTheme.entries.firstOrNull { it.name == preferences.getString("theme", null) }
+                     ?: AppTheme.SYSTEM))
     override val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
@@ -175,6 +178,11 @@ class DefaultAppController(
 
     override fun refreshSettings() {
         scope.launch(Dispatchers.IO) { readSettings() }
+    }
+
+    override fun setTheme(value: AppTheme) {
+        preferences.edit().putString("theme", value.name).apply()
+        _state.value = _state.value.copy(theme = value)
     }
 
     override fun setWifiOnly(value: Boolean) {
