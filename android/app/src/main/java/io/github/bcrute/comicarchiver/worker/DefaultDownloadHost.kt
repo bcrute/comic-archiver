@@ -5,9 +5,14 @@ import android.content.Intent
 import android.os.Build
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
+import io.github.bcrute.comicarchiver.controller.BetaCodes
 import org.json.JSONObject
 
 /**
@@ -24,30 +29,36 @@ class DefaultDownloadHost(
     private val scope: CoroutineScope,
 ) : DownloadHost {
 
-    private fun call(op: String, args: String, onResult: (JSONObject) -> Unit = {}) {
-        scope.launch(Dispatchers.IO) {
-            val envelope = JSONObject(bridge.dispatch(op, args))
-            withContext(Dispatchers.Main) { onResult(envelope) }
-        }
-    }
+    private val actions = Mutex()
 
     override fun start() {
         scope.launch(Dispatchers.IO) { startWorker() }
     }
 
-    override fun go() {
-        scope.launch(Dispatchers.IO) {
-            // Go only after the worker's queue exists, in this one coroutine: unordered
-            // dispatches let the plan arrive before the queue and be refused by the core
-            // ("Start the downloader before submitting jobs"), which the UI would show
-            // as a silent no-op.
-            startWorker()
-            JSONObject(bridge.dispatch("go", JSONObject().put("root", workspaceRoot()).toString()))
+    override fun go(onResult: (String?) -> Unit) {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val error = actions.withLock {
+                withContext(Dispatchers.IO) { try {
+                    startService()
+                    DownloadCommands(bridge, workspaceRoot(), workerArgs()).go()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    BetaCodes.JOB_FAILED
+                } }
+            }
+            withContext(Dispatchers.Main) { onResult(error) }
         }
     }
 
     override fun pause() {
-        call("pause", JSONObject().put("root", workspaceRoot()).toString())
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            actions.withLock {
+                withContext(Dispatchers.IO) {
+                    bridge.dispatch("pause", JSONObject().put("root", workspaceRoot()).toString())
+                }
+            }
+        }
     }
 
     override fun checkpointAndStop(reason: String) {
@@ -66,17 +77,22 @@ class DefaultDownloadHost(
         }
     }
 
+    private fun workerArgs(): String = JSONObject()
+        .put("session_root", sessionRoot).put("library_root", libraryRoot)
+        .put("network_status_path", networkStatusPath).toString()
+
     private fun startWorker() {
+        startService()
+        JSONObject(bridge.dispatch("worker_start", workerArgs()))
+    }
+
+    private fun startService() {
         val intent = Intent(context, DownloadHostService::class.java)
             .setAction(DownloadHostService.ACTION_START)
         // startForegroundService whenever it exists: a background Go (notification, engine)
         // must still bring the service up, and the service then reaches startForeground.
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
         else @Suppress("DEPRECATION") context.startService(intent)
-        JSONObject(bridge.dispatch("worker_start", JSONObject()
-            .put("session_root", sessionRoot)
-            .put("library_root", libraryRoot)
-            .put("network_status_path", networkStatusPath).toString()))
     }
 
     override fun isRunning(): Boolean {

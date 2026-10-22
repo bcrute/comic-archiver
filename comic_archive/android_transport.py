@@ -9,6 +9,7 @@ store stays the single cookie authority; no domain, path, expiry or security att
 ever reconstructed or persisted on this side, and nothing here logs a URL, cookie value or
 account detail.
 """
+import re
 from dataclasses import replace
 from urllib.parse import urlsplit
 
@@ -122,6 +123,16 @@ class AndroidTransport(Transport):
         if self.site == ANDROID_TAPAS and parsed.netloc == 'tapas.io':
             url = parsed._replace(netloc=self.site.host).geturl()
         return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies)
+
+    def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
+        # Tapas serves navigation redirects for mobile API paths unless the
+        # request identifies the same JSON/XHR mode as its own reader. This is
+        # separate from browser identity: keep the actual WebView user agent.
+        parsed = urlsplit(url)
+        if self.site == ANDROID_TAPAS and parsed.netloc == self.site.host and re.fullmatch(
+                r'/(?:series/[1-9][0-9]*(?:/episodes)?|episode/[1-9][0-9]*/info)', parsed.path):
+            headers = {**headers, 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}
+        return super()._request(url, headers, max_bytes, attempt, take_cookies)
 
     @property
     def assets(self):

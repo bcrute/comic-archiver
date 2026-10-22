@@ -197,3 +197,39 @@ class AndroidTransportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MobileJsonModeTests(unittest.TestCase):
+    def test_numeric_api_requests_use_observed_xhr_mode_without_changing_browser_identity(self):
+        import httpx
+        requests = []
+
+        class Store:
+            def browserUserAgent(self):
+                return 'Actual WebView Agent'
+
+            def headerFor(self, url):
+                return 'session=fixture'
+
+            def apply(self, url, values):
+                pass
+
+        def respond(request):
+            requests.append(request)
+            if request.url.path == '/series/1001' and request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+                return httpx.Response(302, headers={'Location': '/series/fixture/info'})
+            return httpx.Response(200, json={'data': {'id': 1001}})
+
+        from comic_archive.android_transport import AndroidTransport
+        client = httpx.Client(transport=httpx.MockTransport(respond))
+        with client:
+            transport = AndroidTransport(Store(), client=client)
+            transport.interval = 0
+            for path in ['/series/1001', '/series/1001/episodes?page=1&max_limit=20',
+                         '/episode/9001/info', '/reading-list?category=SUBSCRIBED',
+                         '/series/fixture/info', '/episode/9001']:
+                transport.get('https://tapas.io' + path)
+        self.assertTrue(all(r.headers['User-Agent'] == 'Actual WebView Agent' for r in requests))
+        self.assertTrue(all(r.headers.get('X-Requested-With') == 'XMLHttpRequest' for r in requests[:3]))
+        self.assertTrue(all('X-Requested-With' not in r.headers for r in requests[3:]))
+        self.assertTrue(all(r.url.host == 'm.tapas.io' for r in requests))

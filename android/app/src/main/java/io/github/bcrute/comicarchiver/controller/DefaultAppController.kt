@@ -9,6 +9,7 @@ import io.github.bcrute.comicarchiver.signin.SignInEngine
 import io.github.bcrute.comicarchiver.worker.DefaultDownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHostService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,6 +47,7 @@ class DefaultAppController(
     private var siteLoaded: String? = null
     /** The last user admission: downloads never report Running without it. */
     @Volatile private var admitted = false
+    private var admissionVersion = 0L
 
     private val _state = MutableStateFlow(
         AppState(site = "tapas", signIn = SignInState.SignedOut, download = DownloadState.Held,
@@ -96,6 +98,8 @@ class DefaultAppController(
     }
 
     override fun signOut() {
+        admissionVersion++
+        admitted = false
         scope.launch(Dispatchers.IO) {
             // Contract §3 order, awaited end to end: the downloader drains before any
             // cookie or record goes, so no in-flight request races the cleared store; the
@@ -118,13 +122,21 @@ class DefaultAppController(
     }
 
     override fun go() {
-        admitted = true
-        _state.value = _state.value.copy(download = DownloadState.Planning)
-        downloads.go()
-        startPolling()
+        val version = ++admissionVersion
+        admitted = false
+        poll?.cancel()
+        _state.value = _state.value.copy(download = DownloadState.Planning, notice = null)
+        downloads.go result@{ error ->
+            if (version != admissionVersion) return@result
+            admitted = error == null
+            _state.value = _state.value.copy(download =
+                if (error == null) DownloadState.Planning else DownloadState.Failed(error))
+            if (error == null) startPolling()
+        }
     }
 
     override fun pause() {
+        admissionVersion++
         admitted = false
         downloads.pause()
         _state.value = _state.value.copy(download = DownloadState.Paused("user"))
@@ -132,6 +144,7 @@ class DefaultAppController(
     }
 
     override fun stop() {
+        admissionVersion++
         admitted = false
         downloads.checkpointAndStop("user")
         _state.value = _state.value.copy(download = DownloadState.Held)
@@ -200,20 +213,21 @@ class DefaultAppController(
     }
 
     private suspend fun mapWorkerStatus() {
-        val envelope = JSONObject(bridge.dispatch(
-            "worker_status", JSONObject().put("session_root", sessionRoot).toString()))
-        if (!envelope.optBoolean("ok")) return
-        val result = envelope.getJSONObject("result")
-        val running = result.optBoolean("running", false)
-        val workerState = result.optString("state", "unknown")
-        val download = when {
-            !running || !admitted -> _state.value.download.let {
-                if (!admitted && it is DownloadState.Running) DownloadState.Held else it
-            }
-            workerState == "busy" -> DownloadState.Running(0, 0)  // Counts arrive with the manifest ops.
-            else -> DownloadState.Planning
+        if (!admitted) return
+        val envelope = try {
+            JSONObject(bridge.dispatch("download_status", JSONObject().put("root", workspaceRoot).toString()))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            JSONObject()
         }
-        _state.value = _state.value.copy(download = download)
+        withContext(Dispatchers.Main) {
+            if (!admitted) return@withContext
+            val download = DownloadStatus.fromEnvelope(envelope)
+            if (download is DownloadState.Failed || download is DownloadState.Finished ||
+                download is DownloadState.Paused) admitted = false
+            _state.value = _state.value.copy(download = download)
+        }
     }
 
     private suspend fun refreshLibrary() {
@@ -232,6 +246,8 @@ class DefaultAppController(
                 savedCount = item.optInt("savedCount", 0),
             )
         }
-        _state.value = _state.value.copy(library = library)
+        withContext(Dispatchers.Main) {
+            _state.value = _state.value.copy(library = library)
+        }
     }
 }

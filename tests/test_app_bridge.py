@@ -128,6 +128,22 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(value["code"], "refused")
         self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
 
+    def test_download_status_reports_durable_plan_separately_from_worker_liveness(self):
+        self.call("prepare_workspace", {"root": str(self.root)})
+        queue = self.root / ".comic-session/worker"
+        (queue / "requests").mkdir(parents=True)
+        (queue / "responses").mkdir()
+        self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
+        value = self.call("download_status", {"root": str(self.root)})
+        self.assertTrue(value["ok"])
+        self.assertEqual(set(value["result"]), {"account", "worker"})
+        self.assertEqual(value["result"]["account"]["status"], "running")
+        self.assertEqual(value["result"]["account"]["phase"], "lists")
+        self.assertFalse(value["result"]["worker"]["running"])
+        self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
+        value = self.call("download_status", {"root": str(self.root)})
+        self.assertEqual(value["result"]["account"]["status"], "stopped")
+
     def test_path_arguments_are_validated_without_detail(self):
         for bad in ({}, {"root": "Library"}, {"root": None}, {"session_root": "/tmp/a\0b"}):
             with self.subTest(bad):

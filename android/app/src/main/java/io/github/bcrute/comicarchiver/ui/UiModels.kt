@@ -49,7 +49,7 @@ sealed interface DownloadsViewUi {
     data class Held(val reason: HoldReasonUi) : DownloadsViewUi
 
     /** In flight; `totalUnits == 0` means still preparing, before any unit exists. */
-    data class Running(val doneUnits: Int, val totalUnits: Int) : DownloadsViewUi
+    data class Running(val doneUnits: Int, val totalUnits: Int, val description: String? = null) : DownloadsViewUi
 
     /** The run ended; [summary] is the controller's user-visible words. */
     data class Finished(val summary: String) : DownloadsViewUi

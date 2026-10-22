@@ -79,7 +79,7 @@ private fun PhaseBanner(download: DownloadsViewUi) {
             HoldReasonUi.FAILED -> "Stopped. Press Go to try again."
         }
         is DownloadsViewUi.Running ->
-            if (download.totalUnits == 0) "Preparing…" else "Saving."
+            download.description ?: if (download.totalUnits == 0) "Preparing…" else "Saving."
         is DownloadsViewUi.Finished -> "Finished. ${download.summary}"
     }
     Card(Modifier.fillMaxWidth()) {
@@ -101,7 +101,7 @@ private fun ProgressCard(running: DownloadsViewUi.Running) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
-                Text("Getting ready", style = MaterialTheme.typography.bodySmall)
+                Text(running.description ?: "Getting ready", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

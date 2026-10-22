@@ -41,7 +41,7 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
 private fun AppState.downloadView(): DownloadsViewUi = when (val d = download) {
     DownloadState.Held -> DownloadsViewUi.Held(HoldReasonUi.NOT_STARTED)
     DownloadState.Planning -> DownloadsViewUi.Running(doneUnits = 0, totalUnits = 0)
-    is DownloadState.Running -> DownloadsViewUi.Running(d.done, d.total)
+    is DownloadState.Running -> DownloadsViewUi.Running(d.done, d.total, d.description)
     is DownloadState.Paused -> DownloadsViewUi.Held(holdReasonOf(d.reason))
     is DownloadState.Finished -> DownloadsViewUi.Finished(d.summary)
     is DownloadState.Failed -> DownloadsViewUi.Held(HoldReasonUi.FAILED)

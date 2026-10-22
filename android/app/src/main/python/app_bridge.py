@@ -25,7 +25,7 @@ from pathlib import Path
 VERSION = 1
 
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
-                 "go", "pause", "enqueue_sync", "library_listing", "export_manifest",
+                 "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signout_record"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
@@ -197,7 +197,15 @@ def _account_ui_op(name):
         def call(ArchiveError):
             from comic_archive import account_ui
             from comic_archive.workspace import Workspace
-            getattr(account_ui, name)(Workspace(id="default", root=root))
+            workspace = Workspace(id="default", root=root)
+            if name == "start":
+                from comic_archive import android_download
+                android_download.start(workspace)
+                return {}
+            value = getattr(account_ui, name)(workspace)
+            if name == "status":
+                from comic_archive import worker_host
+                return {"account": value, "worker": worker_host.status(workspace.session)}
             return {}
 
         return _core(call)
@@ -420,6 +428,7 @@ HANDLERS = {"ping": _ping,
             "worker_stop": _worker_stop,
             "go": _account_ui_op("start"),
             "pause": _account_ui_op("pause"),
+            "download_status": _account_ui_op("status"),
             "signin_probe": _signin_probe,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,

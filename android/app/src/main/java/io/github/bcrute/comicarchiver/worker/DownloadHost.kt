@@ -14,7 +14,7 @@ interface DownloadHost {
     fun start()
 
     /** The only transition into downloads running. */
-    fun go()
+    fun go(onResult: (String?) -> Unit = {})
 
     fun pause()
 

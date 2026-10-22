@@ -86,15 +86,29 @@ class ReadingListHTML(HTMLParser):
         self.page_links = []
         self._stack = []
         self._card = None
+        self._card_depth = None
+        self.mobile_page = None
+        self.mobile_list = False
 
     def handle_starttag(self, tag, attrs):
         if tag in self.VOID:
             return
         attributes = {key: value for key, value in attrs if isinstance(key, str)}
         self._stack.append((tag, attributes))
-        if tag != 'a':
+        classes = set((attributes.get('class') or '').split())
+        in_mobile_list = any('page-reading-list' in (frame.get('class') or '').split()
+                             for _, frame in self._stack)
+        if in_mobile_list and 'js-pageable-list' in classes:
+            self.mobile_list = True
+        if in_mobile_list and 'data-has-next' in attributes:
+            page, more = attributes.get('data-page-num'), attributes.get('data-has-next')
+            if isinstance(page, str) and re.fullmatch(r'[1-9][0-9]{0,3}', page) and more in {'true', 'false'}:
+                self.mobile_page = {'next_page': int(page), 'has_next': more == 'true'}
+        mobile_card = tag == 'li' and in_mobile_list and any(
+            'js-pageable-list' in (frame.get('class') or '').split() for _, frame in self._stack[:-1])
+        if tag != 'a' and not mobile_card:
             return
-        href = attributes.get('href')
+        href = attributes.get('data-href') if mobile_card else attributes.get('href')
         if not isinstance(href, str):
             return
         url = _canonical_page_url(urljoin(self.page_url, href))
@@ -110,9 +124,11 @@ class ReadingListHTML(HTMLParser):
         # as the rendered-DOM walk collects; anything else leaves the identity unresolved.
         ids = []
         for _tag, frame in self._stack[-5:]:
-            value = frame.get('data-tiara-event-meta-series-id')
-            if isinstance(value, str) and re.fullmatch(r'[1-9][0-9]{0,19}', value):
-                ids.append(value)
+            for name in ('data-tiara-event-meta-series-id', 'data-series-id'):
+                value = frame.get(name)
+                if isinstance(value, str) and re.fullmatch(r'[1-9][0-9]{0,19}', value):
+                    ids.append(value)
+        self._card_depth = len(self._stack)
         self._card = {'source_series_id': ids[0] if len(set(ids)) == 1 else None,
                       'title': [], 'source_url': series_url}
 
@@ -123,12 +139,15 @@ class ReadingListHTML(HTMLParser):
     def handle_endtag(self, tag):
         if tag in self.VOID:
             return
+        closed_card = False
         for index in range(len(self._stack) - 1, -1, -1):
             if self._stack[index][0] == tag:
+                closed_card = self._card_depth is not None and index < self._card_depth
                 del self._stack[index:]
                 break
-        if tag == 'a' and self._card is not None:
+        if closed_card and self._card is not None:
             card, self._card = self._card, None
+            self._card_depth = None
             self.cards.append({'source_series_id': card['source_series_id'],
                                'title': ''.join(card['title']).strip()[:200],
                                'source_url': card['source_url']})
@@ -251,15 +270,17 @@ class AndroidTapasAdapter:
         if details:
             raise ArchiveError('Detailed library research is a desktop-browser flow; '
                                'the Android worker lists the reading list only.')
-        if category == 'free_episodes':
+        if category in {'free_episodes', 'recent'}:
             self._sync_state()
             self._http.check_session()
-            return {'authenticated': True, 'membership_verified': True, 'scope': 'free_episodes',
+            return {'authenticated': True, 'membership_verified': True, 'scope': category,
                     'complete': False, 'account_inventory_complete': False, 'pages': [], 'series': [],
                     'boundary_observed': False, 'restore_succeeded': None,
                     'reader_or_comic_pages_requested': False, 'duplicate_series_on_later_pages': 0,
-                    'blocker': 'The Free Episodes filter is a visible browser control; '
-                               'the Android worker did not request it.'}
+                    'blocker': ('The Recent list is unavailable on the mobile reading-list surface; '
+                                'the Android worker did not request it.' if category == 'recent' else
+                                'The Free Episodes filter is a visible browser control; '
+                                'the Android worker did not request it.')}
         return self.inspect_library_pages(category, 200, on_page=on_page)
 
     def inspect_library_pages(self, category='subscribed', max_pages=3, on_page=None):
@@ -317,6 +338,15 @@ class AndroidTapasAdapter:
                          'pages': list(result['pages'])})
             adjacent = next((link for link in parser.page_links
                              if link['page'] == page + 1 and link['category'] == category), None)
+            mobile = parser.mobile_page
+            if parser.mobile_list:
+                if mobile is None or mobile['has_next'] and mobile['next_page'] != page + 1:
+                    result['blocker'] = 'Mobile list pagination did not match the requested page.'
+                    break
+                if mobile['has_next']:
+                    # The mobile More control supplies the adjacent page number;
+                    # keep the same verified list scope. Repeated pages fail below.
+                    adjacent = {'page': page + 1, 'category': category}
             if adjacent is None:
                 result['boundary_observed'] = True
                 if result['duplicate_series_on_later_pages']:

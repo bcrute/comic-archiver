@@ -337,3 +337,50 @@ class SignedInProbeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MobileMarkupTests(unittest.TestCase):
+    @staticmethod
+    def mobile(series_id='1001', slug='golden-comic', next_page=2, more='true'):
+        return (f'<section class="page-section page-reading-list">'
+                f'<ul class="section-list mod-subscription js-pageable-list">'
+                f'<li data-href="/series/{slug}" data-series-id="{series_id}" '
+                f'data-tiara-event-meta-series-id="{series_id}"><span>Golden Comic</span>'
+                f'<a href="#">Details</a></li></ul><div class="yellow" data-page-num="{next_page}" '
+                f'data-has-next="{more}"></div></section>').encode()
+
+    def test_mobile_cards_and_more_control_are_read_to_the_observed_boundary(self):
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: self.mobile(),
+                                       LIST_2: self.mobile('2002', 'silver-novel', 3, 'false')})
+        result = AndroidTapasAdapter(transport=transport).inspect_library(category='subscribed')
+        self.assertEqual(result['observed_series_count'], 2)
+        self.assertTrue(result['complete'])
+        self.assertTrue(result['boundary_observed'])
+        self.assertEqual([u for u, _ in transport.fetched], [WHO_AM_I, LIST_1, LIST_2])
+        self.assertEqual([s['source_series_id'] for s in result['series']], ['1001', '2002'])
+
+    def test_mobile_identity_conflicts_do_not_become_verified_cards(self):
+        parser = ReadingListHTML(LIST_1)
+        parser.feed(self.mobile(more='false').decode().replace('data-series-id="1001"', 'data-series-id="2002"'))
+        self.assertIsNone(parser.cards[0]['source_series_id'])
+
+    def test_missing_mobile_pagination_and_repeated_pages_stay_partial(self):
+        raw = self.mobile().replace(b'data-has-next="true"', b'data-has-next="unknown"')
+        result = AndroidTapasAdapter(transport=SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: raw})).inspect_library()
+        self.assertFalse(result['complete'])
+        self.assertFalse(result['boundary_observed'])
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: self.mobile(), LIST_2: self.mobile()})
+        result = AndroidTapasAdapter(transport=transport).inspect_library()
+        self.assertFalse(result['complete'])
+
+    def test_recent_is_explicitly_partial_without_requesting_the_refused_endpoint(self):
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN})
+        result = AndroidTapasAdapter(transport=transport).inspect_library(category='recent')
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['scope'], 'recent')
+        self.assertEqual([u for u, _ in transport.fetched], [WHO_AM_I])
+
+    def test_data_href_outside_mobile_library_is_not_a_card(self):
+        parser = ReadingListHTML(LIST_1)
+        parser.feed('<li data-href="/series/recommendation" data-series-id="1001">No</li>')
+        self.assertEqual(parser.cards, [])
