@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -64,6 +65,7 @@ fun ComicArchiverAppRoot(
     }
 
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
+    val tabState = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab.ordinal) {
             AppTab.entries.forEach { candidate ->
@@ -74,28 +76,30 @@ fun ComicArchiverAppRoot(
                 )
             }
         }
-        when (tab) {
-            AppTab.SAVING -> DownloadsScreen(
-                state = state.toDownloadsScreenUi(),
-                onGo = controller::go,
-                onPause = controller::pause,
-                onDismissNotice = state.notice?.let { notice ->
-                    { controller.openNotice(notice) }
-                },
-            )
-            AppTab.LIBRARY -> LibraryScreen(
-                series = state.toLibraryUi(),
-                exportState = exportState,
-                onPickFolder = onPickFolder,
-                onStartExport = onStartExport,
-                onStopExport = onStopExport,
-            )
-            AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
-                LimitationsScreen()
-                OutlinedButton(
-                    onClick = controller::signOut,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                ) { Text("Sign out of Tapas") }
+        tabState.SaveableStateProvider(tab) {
+            when (tab) {
+                AppTab.SAVING -> DownloadsScreen(
+                    state = state.toDownloadsScreenUi(),
+                    onGo = controller::go,
+                    onPause = controller::pause,
+                    onDismissNotice = state.notice?.let { notice ->
+                        { controller.openNotice(notice) }
+                    },
+                )
+                AppTab.LIBRARY -> LibraryScreen(
+                    series = state.toLibraryUi(),
+                    exportState = exportState,
+                    onPickFolder = onPickFolder,
+                    onStartExport = onStartExport,
+                    onStopExport = onStopExport,
+                )
+                AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
+                    LimitationsScreen()
+                    OutlinedButton(
+                        onClick = controller::signOut,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    ) { Text("Sign out of Tapas") }
+                }
             }
         }
     }
