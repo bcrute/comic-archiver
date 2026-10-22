@@ -190,8 +190,8 @@ class WebViewSignInEngine(
         if (current !is SignInState.Page && current !is SignInState.Settling) return
         if (!isSiteUrl(url, site)) return
         // The settle question is asked about the site's canonical home, a cookie host: the
-        // store answers about any other URL vacuously, which would settle a page that holds
-        // no evidence of the site's cookies at all.
+        // store answers only for its exact cookie hosts, and the journey's landing hosts
+        // are deliberately not cookie hosts.
         val settled = try {
             store.hasCookies(site.home)
         } catch (_: Exception) {

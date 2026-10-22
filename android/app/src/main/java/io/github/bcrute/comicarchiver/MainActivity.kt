@@ -140,9 +140,10 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         // An unfinished sign-in attempt ends with the activity, so the settle-time probe
         // stops asking for a surface nobody is looking at. This is a cancel, never a
-        // signOut: the owner's cookies are untouched, and a finished sign-in survives
-        // recreation (the controller only cancels an attempt in flight).
-        controller.cancelSignIn()
+        // signOut: the cookie store keeps the owner's cookies, and a completed sign-in is
+        // not an attempt — nothing here ends it. Guarded for a start that failed before
+        // the controller existed.
+        if (this::controller.isInitialized) controller.cancelSignIn()
         // The activity-owned sign-in surface goes with the activity — including on
         // rotation, where the cookie store (the app's cookie authority) is deliberately
         // untouched: no signout, no cookie clearing. Detach from any Compose-view parent

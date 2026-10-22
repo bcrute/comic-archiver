@@ -87,10 +87,11 @@ class DefaultAppController(
     }
 
     override fun cancelSignIn() {
-        // A cancel only speaks to an attempt in flight (the Back handler's case); a
-        // finished sign-in is real state that survives cancels — the activity's own
-        // destruction calls this too, and a rotation must not end a signed-in session.
-        val signIn = _state.value.signIn
+        // The engine's own live state decides — not this controller's collected copy,
+        // which can lag — so a cancel only ever speaks to an attempt in flight (the Back
+        // handler's case). A completed sign-in is not an attempt and is never ended here;
+        // the activity's own destruction calls this too, and cookies are never touched.
+        val signIn = engine.state.value
         if (signIn is SignInState.Page || signIn is SignInState.Settling) engine.cancelSignIn()
     }
 

@@ -7,6 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -16,7 +18,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * session is gone or the engine left the sign-in screens; a bridge that cannot ask
  * fails terminally once; and a replacement loop never puts a second network probe in
  * flight. What these tests cannot cover — the engine's own rejection of a stale answer
- * — is its main-thread session check, reviewed in source and exercised on the phone.
+ * — is its main-thread session check, reviewed in source; a build carrying this code
+ * has not run yet, so nothing here claims device verification.
  */
 class SignInProbeTest {
 
@@ -27,10 +30,12 @@ class SignInProbeTest {
 
     /** Answers pop in order; an exhausted queue repeats its last element; a null answer
      *  stands for a bridge that throws. Only one dispatch is ever in flight (the probe
-     *  serialises them), so the deque needs no more than its own lock. */
+     *  serialises them), so the deque needs no more than its own lock. [entered] and
+     *  [hold] let a test prove a dispatch has entered and hold it open. */
     private class FakeBridge(
         vararg scripted: String?,
-        private val blockMs: Long = 0,
+        private val entered: CountDownLatch? = null,
+        private val hold: CountDownLatch? = null,
         private val onDispatch: (Int) -> Unit = {},
     ) : PythonBridge {
         private val answers = ArrayDeque(listOf(*scripted))
@@ -45,8 +50,9 @@ class SignInProbeTest {
             }
             try {
                 dispatches.incrementAndGet()
+                entered?.countDown()
                 onDispatch(dispatches.get())
-                if (blockMs > 0) Thread.sleep(blockMs)
+                hold?.await()
                 val answer = synchronized(answers) { answers.removeFirstOrNull() } ?: last
                     ?: error("no scripted answer")
                 if (answer == null) throw IllegalStateException("bridge unavailable")
@@ -57,13 +63,15 @@ class SignInProbeTest {
         }
     }
 
-    /** The engine surface the probe talks to, mutable from the tests. */
+    /** The engine surface the probe talks to, mutable from the tests. The probe's loop
+     *  reads and writes cross threads, so the mutable state is volatile and the recorded
+     *  answers are thread-safe lists. */
     private class FakeEngine(
-        var session: Long = 1L,
-        var state: SignInState = SignInState.Settling,
+        @Volatile var session: Long = 1L,
+        @Volatile var state: SignInState = SignInState.Settling,
     ) : SignInVerification {
-        val verifiedSessions = mutableListOf<Long>()
-        val failures = mutableListOf<Pair<String, Long>>()
+        val verifiedSessions = CopyOnWriteArrayList<Long>()
+        val failures = CopyOnWriteArrayList<Pair<String, Long>>()
 
         override fun currentSession(): Long = session
         override fun signInState(): SignInState = state
@@ -140,9 +148,9 @@ class SignInProbeTest {
 
     @Test
     fun the_loop_stops_when_the_engine_left_the_sign_in_screens() {
-        val bridge = FakeBridge(notYet)
         val engine = FakeEngine()
-        val bounded = FakeBridge(notYet, onDispatch = { engine.state = SignInState.Failed("signin_incomplete") })
+        val bounded =
+            FakeBridge(notYet, onDispatch = { engine.state = SignInState.Failed("signin_incomplete") })
         probe(bounded).settled(engine)
         await({ bounded.dispatches.get() >= 1 }, "first dispatch")
         Thread.sleep(100)
@@ -153,18 +161,23 @@ class SignInProbeTest {
     }
 
     @Test
-    fun a_replacement_loop_never_puts_a_second_probe_in_flight() {
-        // A slow bridge holds each dispatch open; the second settle arrives while the
-        // first question is still completing.
-        val bridge = FakeBridge(notYet, verified, blockMs = 60)
+    fun a_replacement_loop_waits_for_the_held_probe_and_never_overlaps() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val bridge = FakeBridge(notYet, verified, entered = entered, hold = release)
         val engine = FakeEngine()
         val probe = probe(bridge)
         probe.settled(engine)
-        Thread.sleep(20)
+        // Prove the first dispatch has entered and is held open, not merely slept past.
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(1, bridge.inFlight.get())
         engine.session = 2L
         probe.settled(engine)
+        // The replacement loop joins the held dispatch before asking anything of its own.
+        Thread.sleep(100)
+        assertEquals("replacement waited: still only the held dispatch", 1, bridge.dispatches.get())
+        release.countDown()
         await({ engine.verifiedSessions == listOf(2L) }, "second loop verified")
-        Thread.sleep(150)
         assertTrue("at most one probe in flight", bridge.maxInFlight.get() <= 1)
     }
 }
