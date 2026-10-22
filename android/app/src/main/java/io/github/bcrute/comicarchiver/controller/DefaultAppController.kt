@@ -60,7 +60,13 @@ class DefaultAppController(
         // no site and crashed (observed IllegalStateException "Load a site before signing
         // in."). A site the engine does not offer surfaces as a notice, never a crash.
         loadSite(_state.value.site)
-        scope.launch { prepareWorkspace() }
+        scope.launch {
+            withContext(Dispatchers.IO) { prepareWorkspace() }
+            // The saved library is useful while held, too. Reading it must not depend
+            // on Go (and this poll cannot admit downloads: mapWorkerStatus checks
+            // admitted before consulting live worker state).
+            startPolling()
+        }
         scope.launch {
             engine.state.collect { value -> _state.value = _state.value.copy(signIn = value) }
         }
