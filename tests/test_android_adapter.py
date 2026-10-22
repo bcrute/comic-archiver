@@ -293,9 +293,13 @@ class SignedInProbeTests(unittest.TestCase):
         table = site_addresses()
         tapas = next(entry for entry in table if entry['key'] == 'tapas')
         self.assertEqual(tapas, {'key': 'tapas', 'home': 'https://tapas.io',
-                                 'signInPath': '/account/signin', 'cookieHosts': ['tapas.io']})
-        self.assertTrue(all(set(entry) == {'key', 'home', 'signInPath', 'cookieHosts'}
+                                 'signInPath': '/account/signin', 'cookieHosts': ['tapas.io'],
+                                 'signinHosts': ['m.tapas.io']})
+        self.assertTrue(all(set(entry) == {'key', 'home', 'signInPath', 'cookieHosts', 'signinHosts'}
                             for entry in table))
+        # Landing hosts are navigation hosts, never cookie targets: the mobile mirror
+        # appears in signinHosts only, and cookieHosts stays the downloader's exact list.
+        self.assertEqual(tapas['cookieHosts'], ['tapas.io'])
 
     def test_only_the_verified_who_am_i_reports_signed_in(self):
         self.assertEqual(signed_in_probe(transport=library_transport()),

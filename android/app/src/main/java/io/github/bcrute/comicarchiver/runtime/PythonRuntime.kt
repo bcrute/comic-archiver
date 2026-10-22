@@ -56,10 +56,13 @@ object PythonRuntime {
             val home = row["home"]?.toString()
             val signInPath = row["signInPath"]?.toString()
             val hosts = row["cookieHosts"]?.asList()?.map { it.toString() }
+            // The sign-in journey's extra landing hosts (the mobile mirror); a row without
+            // them still loads — its journey simply never leaves the cookie hosts.
+            val landing = row["signinHosts"]?.asList()?.map { it.toString() } ?: emptyList()
             if (key == null || home == null || signInPath == null || hosts.isNullOrEmpty()) {
                 continue
             }
-            table[key] = SiteAddress(home, signInPath, hosts.toSet())
+            table[key] = SiteAddress(home, signInPath, hosts.toSet(), landing.toSet())
         }
         return table
     }

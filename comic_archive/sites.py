@@ -23,6 +23,10 @@ class Site:
     signin_path: str
     # The account lists the Go button reads, in order.
     lists: tuple[str, ...]
+    # Hosts the site's own sign-in journey may travel besides home and cookie_hosts (its
+    # mobile mirror): the sign-in surface may finish pages there. NOT cookie targets — the
+    # downloader never sends cookies to a host outside cookie_hosts.
+    signin_hosts: tuple[str, ...]
 
     @property
     def host(self):
@@ -55,12 +59,12 @@ class Site:
 
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',
-         ('subscribed', 'updated', 'recent', 'free_episodes')),
+         ('subscribed', 'updated', 'recent', 'free_episodes'), ('m.tapas.io',)),
     Site('webtoon', 'Webtoon', True, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
-         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed',)),
+         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed',), ()),
     Site('tappytoon', 'Tappytoon', True, 'https://www.tappytoon.com', ('tappytoon.com', 'www.tappytoon.com'),
          ('www.tappytoon.com', 'api-global.tappytoon.com', 'content-repository-cdn.tappytoon.com'), ('tappytoon.com',),
-         '/en/login', ('unlocked', 'subscribed', 'recent')),
+         '/en/login', ('unlocked', 'subscribed', 'recent'), ()),
 )
 # The site the app opens on until another is chosen.
 DEFAULT = SITES[0]

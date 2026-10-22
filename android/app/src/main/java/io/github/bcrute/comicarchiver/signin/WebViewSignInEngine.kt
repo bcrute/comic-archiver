@@ -10,10 +10,29 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** One site the engine can load: its own pages, sign-in path and exact cookie hosts.
- * The runtime feeds this from the Python sites module through the bridge at construction;
- * BETA_SITES is only the beta minimum until that wiring exists. */
-data class SiteAddress(val home: String, val signInPath: String, val cookieHosts: Set<String>)
+/** One site the engine can load: its own pages, sign-in path, exact cookie hosts and the
+ * extra landing hosts its sign-in journey may travel (its mobile mirror). The runtime feeds
+ * this from the Python sites module through the bridge at construction; BETA_SITES is only
+ * the beta minimum until that wiring exists. */
+data class SiteAddress(
+    val home: String,
+    val signInPath: String,
+    val cookieHosts: Set<String>,
+    val signInHosts: Set<String> = emptySet(),
+)
+
+/** The sign-in journey's landing-host rule, kept pure so its boundary is testable off-device:
+ * a finished page settles only on the site's own hosts, over HTTPS, by exact match. Landing
+ * hosts are navigation hosts only — never cookie targets; the cookie seams keep answering
+ * for [SiteAddress.cookieHosts] alone. */
+object SignInLanding {
+    /** Whether a finished page's scheme/host belongs to the site's own sign-in journey. */
+    fun admits(host: String?, https: Boolean, site: SiteAddress): Boolean {
+        if (!https || host == null) return false
+        val name = host.lowercase()
+        return name in site.cookieHosts || name in site.signInHosts
+    }
+}
 
 /**
  * The frozen [SignInEngine] contract implemented over the WebView cookie
@@ -22,11 +41,14 @@ data class SiteAddress(val home: String, val signInPath: String, val cookieHosts
  * Cookie presence is never treated as an authenticated sign-in: [Settling] only says the
  * store holds the site's cookies. [SignedIn] is produced exclusively by [verified], and
  * only while a sign-in session this engine started is still open inside its bound — so a
- * real verified probe must have answered, in time, for the state to exist at all. The
- * runtime's wiring (see the engine handoff): on [onSettle] it runs the embedded core's
- * signed_in_probe through the live transport and reports back through [verified] or
- * [verificationFailed]. An unwired probe leaves the session to end Failed(signin_incomplete)
- * at the bound; it can never become SignedIn. The engine never reads account details itself.
+ * real verified probe must have answered, in time, for the state to exist at all, and an
+ * answer tagged with any earlier session authenticates nothing. The runtime's wiring
+ * (see the engine handoff): on [onSettle] it keeps running the embedded core's
+ * signed_in_probe through the live transport, one question in flight at a time, and
+ * reports back through [verified] or [verificationFailed] — a "not yet signed in"
+ * answer never ends the session. An unwired probe leaves the session to end
+ * Failed(signin_incomplete) at the bound; it can never become SignedIn. The engine never
+ * reads account details itself.
  *
  * The site address table is caller-supplied ([sites]), so there is no second sites table
  * here once the bridge feeds it from the Python sites module; [BETA_SITES] is the beta
@@ -42,7 +64,9 @@ data class SiteAddress(val home: String, val signInPath: String, val cookieHosts
  *
  * @param store the app's live cookie store, shared with the downloader's Transport.
  * @param onSettle called at most once per started sign-in, when the site's cookies first
- * appear; the runtime then runs the core verification.
+ * appear (usually while the person is still typing: the site's anonymous cookies already
+ * settle the store); the runtime then keeps asking the core's verification question
+ * within the session's bound until a verified answer or the bound itself ends it.
  * @param timeoutMs the sign-in wait's bound, as the desktop sign-in window's 900 seconds.
  * @param sites the sites this app can load, by site key.
  */
@@ -61,6 +85,7 @@ class WebViewSignInEngine(
     private var address: SiteAddress? = null
     private var settleAnnounced = false
     private var sessionOpen = false
+    private var sessionId = 0L
     private var startedAtMillis = 0L
     private val timeout = Runnable { finish(SignInState.Failed("signin_incomplete")) }
 
@@ -106,6 +131,7 @@ class WebViewSignInEngine(
         synchronized(this) {
             settleAnnounced = false
             sessionOpen = true
+            sessionId += 1
             startedAtMillis = SystemClock.elapsedRealtime()
         }
         val page = site.home + site.signInPath
@@ -134,16 +160,21 @@ class WebViewSignInEngine(
         }
     }
 
+    /** The sign-in session this engine is running now, or 0 while none is open. The probe
+     *  compares it so an answer from an earlier session can never settle a later one. */
+    fun currentSession(): Long = synchronized(this) { if (sessionOpen) sessionId else 0L }
+
     /** Only the embedded core's verified who-am-i success may produce SignedIn, and only
-     * while this engine's own sign-in session is open inside its bound. */
-    fun verified() {
-        if (!sessionInProgress()) return
+     * while this engine's own sign-in session [session] is open inside its bound — a
+     * stale answer from an earlier session authenticates nothing. */
+    fun verified(session: Long) {
+        if (!sessionInProgress(session)) return
         finish(SignInState.SignedIn(synchronized(this) { siteKey } ?: return))
     }
 
-    /** The core's verification failed; its fixed code is the honest report. */
-    fun verificationFailed(code: String) {
-        if (!sessionInProgress()) return
+    /** The core's verification failed for [session]; its fixed code is the honest report. */
+    fun verificationFailed(code: String, session: Long) {
+        if (!sessionInProgress(session)) return
         finish(SignInState.Failed(code))
     }
 
@@ -154,9 +185,11 @@ class WebViewSignInEngine(
         val current = _state.value
         if (current !is SignInState.Page && current !is SignInState.Settling) return
         if (!isSiteUrl(url, site)) return
-        // A store that cannot answer simply has not settled; the wait's bound decides the rest.
+        // The settle question is asked about the site's canonical home, a cookie host: the
+        // store answers about any other URL vacuously, which would settle a page that holds
+        // no evidence of the site's cookies at all.
         val settled = try {
-            store.hasCookies(url)
+            store.hasCookies(site.home)
         } catch (_: Exception) {
             false
         }
@@ -175,14 +208,15 @@ class WebViewSignInEngine(
     }
 
     /**
-     * Whether a sign-in this engine started is still open and inside its bound, checked
-     * atomically with the session flags. A session past its bound closes itself here —
-     * an abandoned WebView or a late probe answer must never extend it — reporting the
-     * desktop window's incomplete code.
+     * Whether the engine's sign-in session [session] is still the open one and inside its
+     * bound, checked atomically with the session flags. A session past its bound closes
+     * itself here — an abandoned WebView or a late probe answer must never extend it —
+     * reporting the desktop window's incomplete code.
      */
-    private fun sessionInProgress(): Boolean {
-        val (open, started) = synchronized(this) { sessionOpen to startedAtMillis }
-        if (!open) return false
+    private fun sessionInProgress(session: Long): Boolean {
+        val (open, current, started) =
+            synchronized(this) { Triple(sessionOpen, sessionId, startedAtMillis) }
+        if (!open || current != session) return false
         if (SystemClock.elapsedRealtime() - started >= timeoutMs) {
             finish(SignInState.Failed("signin_incomplete"))
             return false
@@ -196,16 +230,19 @@ class WebViewSignInEngine(
         _state.value = next
     }
 
-    /** A finished page on the site's own cookie hosts only; nothing else settles a sign-in. */
+    /** A finished page on the site's own sign-in journey only (its hosts, HTTPS, exact
+     *  match — see [SignInLanding]); nothing else settles a sign-in. */
     private fun isSiteUrl(url: String, site: SiteAddress): Boolean {
         val parsed = try {
             Uri.parse(url)
         } catch (_: Exception) {
             return false
         } ?: return false
-        if (!parsed.scheme.equals("https", ignoreCase = true)) return false
-        val host = parsed.host?.lowercase() ?: return false
-        return host in site.cookieHosts
+        return SignInLanding.admits(
+            parsed.host,
+            parsed.scheme.equals("https", ignoreCase = true),
+            site,
+        )
     }
 
     companion object {
@@ -214,7 +251,10 @@ class WebViewSignInEngine(
 
         /** The beta minimum; the integrated runtime feeds [sites] from the Python sites module. */
         val BETA_SITES: Map<String, SiteAddress> = mapOf(
-            "tapas" to SiteAddress("https://tapas.io", "/account/signin", setOf("tapas.io")),
+            "tapas" to SiteAddress(
+                "https://tapas.io", "/account/signin",
+                setOf("tapas.io"), setOf("m.tapas.io"),
+            ),
         )
     }
 }

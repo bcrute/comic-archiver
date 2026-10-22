@@ -39,7 +39,7 @@ def site_addresses():
     Only each site's addresses travel — never anything about a saved sign-in.
     """
     return [{'key': site.key, 'home': site.home, 'signInPath': site.signin_path,
-             'cookieHosts': list(site.cookie_hosts)}
+             'cookieHosts': list(site.cookie_hosts), 'signinHosts': list(site.signin_hosts)}
             for site in sites.SITES if site.available]
 
 
