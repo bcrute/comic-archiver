@@ -903,12 +903,16 @@ def _apk_signer_cert_sha256(sdk, java, apk, runner):
                     keep_bytes=16000,
                     env_extra={"JAVA_HOME": str(pathlib.Path(java).parent.parent),
                                "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
-    # The SHA-1 line must not satisfy the SHA-256 match; Signer #1 is the identity
-    # the platform checks for update compatibility.
-    match = re.search(r"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$",
-                      result["tail"], re.MULTILINE)
-    if result["returncode"] == 0 and match:
-        return match.group(1).lower(), None
+    # SDK 37 prints "V2 Signer:" where older tools printed "Signer #1".
+    # Match signing certificates only (never public-key hashes or source stamps).
+    # This debug-key path has no rotation or multiple identities: every reported
+    # signer must agree, rather than accepting the first of conflicting digests.
+    digests = re.findall(
+        r"^(?:Signer #\d+|V[123] Signer:) certificate SHA-256 digest: "
+        r"([0-9a-fA-F]{64})[ \t]*$", result["tail"], re.MULTILINE)
+    identities = {digest.lower() for digest in digests}
+    if result["returncode"] == 0 and len(identities) == 1:
+        return identities.pop(), None
     # The verifier failed itself (job 35: the run's code and output were discarded,
     # leaving the cause unknowable). apksigner --print-certs emits only public
     # certificate data and warnings, so a bounded tail of it is safe to retain and

@@ -19,7 +19,7 @@ import shutil
 import stat
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 from scripts import android_feasibility as feasibility
@@ -222,7 +222,7 @@ class ApkCertificateTests(DebugSigningTestCase):
         feasibility.report["phases"]["debug_signing"] = {"status": "passed",
                                                         "cert_sha256": FINGERPRINT}
 
-    def apksigner_fake(self, digest, returncode=0, warnings=False):
+    def apksigner_fake(self, digest, returncode=0, warnings=False, label="Signer #1"):
         def run(argv, timeout=None, env_extra=None, **kwargs):
             if "--print-certs" in argv:
                 # The wrapper script is handed the pinned JDK both ways.
@@ -232,9 +232,9 @@ class ApkCertificateTests(DebugSigningTestCase):
                           "PKIX path building failed (proxy CA)\n" * 8) if warnings else ""
                 return {"returncode": returncode, "tail": (
                     banner
-                    + "Signer #1 certificate DN: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
-                    f"Signer #1 certificate SHA-256 digest: {digest}\n"
-                    "Signer #1 certificate SHA-1 digest: 0000000000000000000000000000000000000000\n"
+                    + f"{label} certificate DN: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
+                    f"{label} certificate SHA-256 digest: {digest}\n"
+                    f"{label} certificate SHA-1 digest: 0000000000000000000000000000000000000000\n"
                     + banner)}
             # A successful Gradle run whose Chaquopy pip tail names zstandard — job
             # 35's exact shape that the old heuristic misread as a wheel failure.
@@ -259,6 +259,31 @@ class ApkCertificateTests(DebugSigningTestCase):
             self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT.upper()))
         self.assertEqual(digest, FINGERPRINT)
         self.assertIsNone(diagnostics)
+
+    def test_sdk37_scheme_label_from_job36(self):
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk,
+            self.apksigner_fake(FINGERPRINT, label="V2 Signer:"))
+        self.assertEqual(digest, FINGERPRINT)
+        self.assertIsNone(diagnostics)
+
+    def test_conflicting_signers_cannot_qualify_as_one_debug_identity(self):
+        output = (f"Signer #1 certificate SHA-256 digest: {FINGERPRINT}\n"
+                  f"Signer #2 certificate SHA-256 digest: {self.OTHER_FINGERPRINT}\n")
+        runner = Mock(return_value={"returncode": 0, "tail": output})
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, runner)
+        self.assertIsNone(digest)
+        self.assertIsNotNone(diagnostics)
+
+    def test_source_stamp_and_public_key_digests_are_not_signer_certificates(self):
+        output = (f"V2 Signer: public key SHA-256 digest: {FINGERPRINT}\n"
+                  f"Source Stamp Signer certificate SHA-256 digest: {FINGERPRINT}\n")
+        runner = Mock(return_value={"returncode": 0, "tail": output})
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, runner)
+        self.assertIsNone(digest)
+        self.assertIsNotNone(diagnostics)
 
     def test_parser_reads_through_verifier_warnings(self):
         digest, diagnostics = feasibility._apk_signer_cert_sha256(
