@@ -19,15 +19,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.lifecycleScope
 import com.chaquo.python.Python
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.DefaultAppController
 import io.github.bcrute.comicarchiver.export.SafExportRuntime
-import io.github.bcrute.comicarchiver.signin.SignInEngine
-import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
 import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
-import java.io.File
 
 /**
  * The app's one activity (UI/export line): mounts the Compose root over the real
@@ -69,19 +65,14 @@ class MainActivity : ComponentActivity() {
             }.start()
         }
 
-        controller = DefaultAppController(this, createSignInEngine(app), lifecycleScope)
+        controller = app.controller
         // The sign-in WebView is activity-owned and created up front, attached to the
         // controller BEFORE any Sign in can run, so the engine always drives this one
         // instance; the UI mounts it only while a sign-in is in flight (see
         // SignInScreen). No unloaded WebView ever sits in the entry tree.
         signInWebView = WebView(this)
             .also { (controller as DefaultAppController).attachSignInWebView(it) }
-        exports = SafExportRuntime(
-            context = this,
-            bridge = app.bridge,
-            workspaceRoot = File(filesDir, "workspace"),
-            scope = lifecycleScope,
-        )
+        exports = app.exports
 
         setContent {
             MaterialTheme {
@@ -143,12 +134,13 @@ class MainActivity : ComponentActivity() {
         // signOut: the cookie store keeps the owner's cookies, and a completed sign-in is
         // not an attempt — nothing here ends it. Guarded for a start that failed before
         // the controller existed.
-        if (this::controller.isInitialized) controller.cancelSignIn()
         // The activity-owned sign-in surface goes with the activity — including on
         // rotation, where the cookie store (the app's cookie authority) is deliberately
         // untouched: no signout, no cookie clearing. Detach from any Compose-view parent
         // BEFORE destroy(); destroying a still-attached WebView throws.
         signInWebView?.let { webView ->
+            if (this::controller.isInitialized)
+                (controller as DefaultAppController).detachSignInWebView(webView)
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.stopLoading()
             webView.destroy()
@@ -157,19 +149,4 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    /**
-     * NATIVE SEAM (published in control-dir/ui-next-handoff.md), now filled: the engine's
-     * onSettle body runs the embedded core's verified who-am-i through the bridge
-     * (app.signInProbe — cookie presence alone never yields SignedIn), and the site table
-     * comes from the core's own sites module (app.signInSites).
-     */
-    private fun createSignInEngine(app: App): SignInEngine {
-        lateinit var engine: WebViewSignInEngine
-        engine = WebViewSignInEngine(
-            app.cookieStore,
-            onSettle = { app.signInProbe.settled(engine) },
-            sites = app.signInSites,
-        )
-        return engine
-    }
 }

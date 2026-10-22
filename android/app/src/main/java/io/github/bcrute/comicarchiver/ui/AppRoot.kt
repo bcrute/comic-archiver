@@ -34,8 +34,8 @@ import io.github.bcrute.comicarchiver.controller.SignInState
  * - every transition toward Running remains the controller's `go()`.
  *
  * No navigation framework: an internal tab (saved across recomposition and process
- * restoration) chooses Saving / Library / About, and the sign-in screen replaces all of
- * it while signed out, settling, or after a failed sign-in.
+ * restoration) chooses Saving / Library / About. Sign-in replaces only the Saving
+ * content; local library browsing and export work offline and while signed out.
  */
 @Composable
 fun ComicArchiverAppRoot(
@@ -48,24 +48,13 @@ fun ComicArchiverAppRoot(
 ) {
     val state by controller.state.collectAsState()
 
-    if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
-        // System Back while a sign-in is in flight cancels it — the engine's wait closes
-        // honestly and the WebView slot unmounts back to the entry screen — instead of
-        // finishing the activity over an attached surface. Outside a flight Back keeps
-        // its system default.
-        BackHandler(
-            enabled = state.signIn is SignInState.Page || state.signIn is SignInState.Settling,
-        ) { controller.cancelSignIn() }
-        SignInScreen(
-            state = state.toSignInScreenUi(),
-            onStartSignIn = controller::startSignIn,
-            signInContent = signInContent,
-        )
-        return
-    }
-
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     val tabState = rememberSaveableStateHolder()
+    val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
+        state.signIn is SignInState.Restoring
+    BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
+        if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
+    }
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab.ordinal) {
             AppTab.entries.forEach { candidate ->
@@ -78,14 +67,22 @@ fun ComicArchiverAppRoot(
         }
         tabState.SaveableStateProvider(tab) {
             when (tab) {
-                AppTab.SAVING -> DownloadsScreen(
-                    state = state.toDownloadsScreenUi(),
-                    onGo = controller::go,
-                    onPause = controller::pause,
-                    onDismissNotice = state.notice?.let { notice ->
-                        { controller.openNotice(notice) }
-                    },
-                )
+                AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
+                    SignInScreen(
+                        state = state.toSignInScreenUi(),
+                        onStartSignIn = controller::startSignIn,
+                        signInContent = signInContent,
+                    )
+                } else {
+                    DownloadsScreen(
+                        state = state.toDownloadsScreenUi(),
+                        onGo = controller::go,
+                        onPause = controller::pause,
+                        onDismissNotice = state.notice?.let { notice ->
+                            { controller.openNotice(notice) }
+                        },
+                    )
+                }
                 AppTab.LIBRARY -> LibraryScreen(
                     series = state.toLibraryUi(),
                     exportState = exportState,
@@ -96,20 +93,25 @@ fun ComicArchiverAppRoot(
                 AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                     LimitationsScreen(modifier = Modifier.weight(1f))
                     OutlinedButton(
-                        onClick = controller::signOut,
+                        onClick = {
+                            if (state.signIn is SignInState.SignedIn) controller.signOut()
+                            else tab = AppTab.SAVING
+                        },
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    ) { Text("Sign out of Tapas") }
+                    ) {
+                        Text(if (state.signIn is SignInState.SignedIn) "Sign out of Tapas"
+                             else "Go to sign in")
+                    }
                 }
             }
         }
     }
 }
 
-/** Which top-level surface the root shows. */
+/** Which surface the Saving tab shows. */
 internal enum class RootRoute { SIGN_IN, APP }
 
-/** Signed-in is the only state that reaches the app tabs; every other sign-in shape,
- *  including a failed sign-in, stays on the sign-in screen with its notice. */
+/** Only verified sign-in offers download controls. Local library access is independent. */
 internal fun routeFor(signIn: SignInState): RootRoute =
     if (signIn is SignInState.SignedIn) RootRoute.APP else RootRoute.SIGN_IN
 

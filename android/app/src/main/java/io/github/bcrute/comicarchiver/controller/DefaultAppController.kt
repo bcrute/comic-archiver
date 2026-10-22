@@ -75,6 +75,15 @@ class DefaultAppController(
     /** The UI's composable-hosted WebView; attach before startSignIn. Not part of the frozen interface. */
     fun attachSignInWebView(webView: WebView) {
         signInWebView = webView
+        engine.restoreSignIn(webView)
+    }
+
+    /** Release the activity surface; verified auth and download admission live on. */
+    fun detachSignInWebView(webView: WebView) {
+        if (signInWebView !== webView) return
+        val signIn = engine.state.value
+        if (signIn is SignInState.Page || signIn is SignInState.Settling) engine.cancelSignIn()
+        signInWebView = null
     }
 
     override fun selectSite(key: String) {
@@ -100,7 +109,8 @@ class DefaultAppController(
         // handler's case). A completed sign-in is not an attempt and is never ended here;
         // the activity's own destruction calls this too, and cookies are never touched.
         val signIn = engine.state.value
-        if (signIn is SignInState.Page || signIn is SignInState.Settling) engine.cancelSignIn()
+        if (signIn is SignInState.Page || signIn is SignInState.Settling ||
+            signIn is SignInState.Restoring) engine.cancelSignIn()
     }
 
     override fun signOut() {

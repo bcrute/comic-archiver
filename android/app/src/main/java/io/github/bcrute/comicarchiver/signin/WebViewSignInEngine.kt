@@ -75,6 +75,7 @@ class WebViewSignInEngine(
     private val onSettle: () -> Unit = {},
     private val timeoutMs: Long = SIGNIN_TIMEOUT_MS,
     private val sites: Map<String, SiteAddress> = BETA_SITES,
+    private val onRestore: () -> Unit = {},
 ) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
@@ -87,7 +88,12 @@ class WebViewSignInEngine(
     private var sessionOpen = false
     private var sessionId = 0L
     private var startedAtMillis = 0L
-    private val timeout = Runnable { finish(SignInState.Failed("signin_incomplete")) }
+    private var boundMs = timeoutMs
+    private var restoreAttempted = false
+    private val timeout = Runnable {
+        finish(if (_state.value is SignInState.Restoring) SignInState.SignedOut
+               else SignInState.Failed("signin_incomplete"))
+    }
 
     /** Point the engine at one site key; the previously loaded in-memory state goes. */
     override fun load(siteKey: String) {
@@ -96,6 +102,7 @@ class WebViewSignInEngine(
             this.siteKey = siteKey
             address = next
             settleAnnounced = false
+            restoreAttempted = false
         }
         // The platform store initialises on the main thread, before any worker asks it.
         store.prepare()
@@ -134,12 +141,34 @@ class WebViewSignInEngine(
             sessionOpen = true
             sessionId += 1
             startedAtMillis = SystemClock.elapsedRealtime()
+            boundMs = timeoutMs
         }
         val page = site.home + site.signInPath
         _state.value = SignInState.Page(page)
         webView.loadUrl(page)
         main.removeCallbacks(timeout)
         main.postDelayed(timeout, timeoutMs)
+    }
+
+    override fun restoreSignIn(webView: WebView) {
+        if (address == null || restoreAttempted || _state.value !is SignInState.SignedOut) return
+        restoreAttempted = true
+        store.rememberBrowserUserAgent(webView.settings.userAgentString)
+        synchronized(this) {
+            sessionOpen = true
+            sessionId += 1
+            startedAtMillis = SystemClock.elapsedRealtime()
+            boundMs = minOf(timeoutMs, 15_000L)
+        }
+        _state.value = SignInState.Restoring
+        main.removeCallbacks(timeout)
+        main.postDelayed(timeout, boundMs)
+        onRestore()
+    }
+
+    override fun restoreNotVerified(session: Long) {
+        if (_state.value is SignInState.Restoring && sessionInProgress(session))
+            finish(SignInState.SignedOut)
     }
 
     /** The person went back, or the app is closing; an unfinished sign-in is stopped. */
@@ -222,8 +251,9 @@ class WebViewSignInEngine(
         val (open, current, started) =
             synchronized(this) { Triple(sessionOpen, sessionId, startedAtMillis) }
         if (!open || current != session) return false
-        if (SystemClock.elapsedRealtime() - started >= timeoutMs) {
-            finish(SignInState.Failed("signin_incomplete"))
+        if (SystemClock.elapsedRealtime() - started >= boundMs) {
+            finish(if (_state.value is SignInState.Restoring) SignInState.SignedOut
+                   else SignInState.Failed("signin_incomplete"))
             return false
         }
         return true

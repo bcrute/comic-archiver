@@ -10,6 +10,12 @@ import io.github.bcrute.comicarchiver.runtime.SignInProbe
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
+import io.github.bcrute.comicarchiver.controller.DefaultAppController
+import io.github.bcrute.comicarchiver.export.SafExportRuntime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /**
  * Starts the embedded Python runtime once per process (native line; the bootstrap form is
@@ -19,15 +25,36 @@ import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
  * net.json writer whose facts the core's network hold reads. The beta loads exactly one
  * site, tapas.
  */
-class App : Application() {
+open class App : Application() {
     lateinit var cookieStore: WebViewCookieStore
         private set
 
-    val bridge: PythonBridge by lazy { ChaquopyBridge() }
+    open val bridge: PythonBridge by lazy { ChaquopyBridge() }
+
+    private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    // Activity recreation reattaches a surface, not a new worker/admission/session.
+    // A new OS process creates these afresh and its controller always starts Held.
+    val signInEngine: WebViewSignInEngine by lazy {
+        lateinit var engine: WebViewSignInEngine
+        engine = WebViewSignInEngine(
+            cookieStore,
+            onSettle = { signInProbe.settled(engine) },
+            sites = signInSites,
+            onRestore = { signInProbe.settled(engine) },
+        )
+        engine
+    }
+    val controller: DefaultAppController by lazy {
+        DefaultAppController(this, signInEngine, processScope)
+    }
+    val exports: SafExportRuntime by lazy {
+        SafExportRuntime(this, bridge, filesDir.resolve("workspace"), processScope)
+    }
 
     /** The engine's site table, fed from the core's own sites module (no second list);
      * the beta minimum stands in only if that feed answers nothing usable. */
-    val signInSites: Map<String, SiteAddress> by lazy {
+    open val signInSites: Map<String, SiteAddress> by lazy {
         PythonRuntime.siteAddresses().ifEmpty { WebViewSignInEngine.BETA_SITES }
     }
 
@@ -39,9 +66,19 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         cookieStore = WebViewCookieStore(WebViewSignInEngine.BETA_SITES.getValue("tapas").cookieHosts)
+        startRuntime()
+    }
+
+    /** The host bootstrap seam: screen/lifecycle tests supply a synthetic bridge. */
+    protected open fun startRuntime() {
         PythonRuntime.ensureStarted(this, cookieStore)
         // The core holds every download until its status file speaks; start writing it now.
         NetworkStatusWriter.start(this, filesDir.resolve("workspace/net.json"))
+    }
+
+    override fun onTerminate() {
+        processScope.cancel()
+        super.onTerminate()
     }
 }
 

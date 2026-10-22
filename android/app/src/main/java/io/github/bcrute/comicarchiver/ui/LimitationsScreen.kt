@@ -28,8 +28,8 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
             Limitation("Only Tapas is supported — comics and novels, no other site yet.")
             Limitation("Saving only runs on Wi-Fi or another unmetered connection.")
             Limitation(
-                "Nothing downloads on its own: after opening the app, an update, or a " +
-                    "restart, saving waits until you press Go.",
+                "After an app update or process restart, saving waits until you press Go. " +
+                    "Returning to an active save keeps its progress visible.",
             )
             Limitation(
                 "Export copies files into one folder you choose; your originals stay in " +

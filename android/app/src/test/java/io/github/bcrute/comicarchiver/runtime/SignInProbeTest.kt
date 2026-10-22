@@ -72,7 +72,9 @@ class SignInProbeTest {
     ) : SignInVerification {
         val verifiedSessions = CopyOnWriteArrayList<Long>()
         val failures = CopyOnWriteArrayList<Pair<String, Long>>()
+        val notRestored = CopyOnWriteArrayList<Long>()
 
+        override fun restoreNotVerified(session: Long) { notRestored.add(session) }
         override fun currentSession(): Long = session
         override fun signInState(): SignInState = state
         override fun verified(session: Long) { verifiedSessions.add(session) }
@@ -90,6 +92,31 @@ class SignInProbeTest {
             if (System.nanoTime() > deadline) fail("timed out waiting for: $what")
             Thread.sleep(10)
         }
+    }
+
+    @Test
+    fun restoration_is_a_single_probe_not_an_interactive_retry_loop() {
+        val bridge = FakeBridge(notYet)
+        val engine = FakeEngine(state = SignInState.Restoring)
+        probe(bridge).settled(engine)
+        await({ engine.notRestored == listOf(1L) }, "restore ended signed out")
+        assertEquals(1, bridge.dispatches.get())
+        assertTrue(engine.verifiedSessions.isEmpty())
+        assertTrue(engine.failures.isEmpty())
+    }
+
+    @Test
+    fun restoration_verifies_once_and_tags_answers_with_the_original_session() {
+        val engine = FakeEngine(state = SignInState.Restoring)
+        val bridge = FakeBridge(verified)
+        probe(bridge).settled(engine)
+        await({ engine.verifiedSessions == listOf(1L) }, "restored")
+        assertEquals(1, bridge.dispatches.get())
+        val replacement = FakeEngine(state = SignInState.Restoring)
+        val replacing = FakeBridge(verified, onDispatch = { replacement.session = 2L })
+        probe(replacing).settled(replacement)
+        // Delivery carries the original id; the concrete engine must reject it.
+        await({ replacement.verifiedSessions == listOf(1L) }, "tagged original session")
     }
 
     @Test

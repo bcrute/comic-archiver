@@ -37,6 +37,14 @@ class UiMappingTest {
     ) = AppState("tapas", signIn, download, library, notice)
 
     @Test
+    fun restoring_session_shows_status_without_mounting_a_blank_signin_page() {
+        val ui = UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toSignInScreenUi()
+        assertTrue(ui.restoring)
+        assertFalse(ui.busy)
+        assertFalse(UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toDownloadsScreenUi().signedIn)
+    }
+
+    @Test
     fun `the public issue set is exactly the frozen contract set`() {
         assertEquals(
             setOf(

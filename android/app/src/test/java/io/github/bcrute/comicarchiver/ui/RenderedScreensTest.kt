@@ -154,11 +154,13 @@ class RenderedScreensTest {
         assertEquals(1, stops)
     }
 
-    @Test fun signedOutCannotReachLibraryOrGo() {
+    @Test fun signedOutCanBrowseSavedLibraryWithoutOfferingGo() {
         controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut)
         show()
         compose.onNodeWithText("Go").assertDoesNotExist()
-        compose.onNode(hasText("Library") and hasClickAction()).assertDoesNotExist()
+        library()
+        compose.onNodeWithText("Find saved series").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
     }
 
     @Test

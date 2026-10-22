@@ -30,6 +30,9 @@ interface SignInEngine {
     /** Drive the given UI-owned, composable-hosted WebView through the site's real sign-in page. */
     fun startSignIn(webView: WebView)
 
+    /** Verify an existing saved session once per process, without admitting downloads. */
+    fun restoreSignIn(webView: WebView) {}
+
     fun cancelSignIn()
 
     fun signOut()

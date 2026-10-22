@@ -26,7 +26,7 @@ VERSION = 1
 
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
-                 "export_status", "signin_probe", "signout_record"})
+                 "export_status", "signin_probe", "signin_restore", "signout_record"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -244,6 +244,26 @@ def _signout_record(args):
     return _core(forget)
 
 
+def _signin_restore(args):
+    """A saved record permits a fresh verification, never an authentication claim.
+
+    A first install or signed-out session does not issue background source requests.
+    No worker is started and no saved plan is admitted by this operation.
+    """
+    session = _path_arg(args, "session_root")
+
+    def saved(ArchiveError):
+        from comic_archive import android_session, sites
+        site = android_session.signed_in_site(session)
+        if site is not None and site.key != sites.DEFAULT.key:
+            raise ArchiveError("This app cannot restore that site's sign-in yet.")
+        return site is not None
+
+    if not _core(saved):
+        return {"signed_in": False, "verified": False, "reason": "no_saved_session"}
+    return _signin_probe(args)
+
+
 def _enqueue_sync(args):
     """Queue the fixed library-sync job on the running worker; fixed words only (§2)."""
     session = _path_arg(args, "session_root")
@@ -430,6 +450,7 @@ HANDLERS = {"ping": _ping,
             "pause": _account_ui_op("pause"),
             "download_status": _account_ui_op("status"),
             "signin_probe": _signin_probe,
+            "signin_restore": _signin_restore,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,

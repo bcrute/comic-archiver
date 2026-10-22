@@ -79,6 +79,7 @@ data class SignInScreenUi(
     /** A sign-in page or settle wait is in flight. */
     val busy: Boolean,
     val notice: NoticeUi?,
+    val restoring: Boolean = false,
 )
 
 /** One series row in the library: what the controller reports as finished. */

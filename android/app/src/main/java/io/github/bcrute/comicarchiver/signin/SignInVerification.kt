@@ -21,4 +21,7 @@ interface SignInVerification {
 
     /** The honest failure code for [session]; the engine decides whether it still counts. */
     fun verificationFailed(code: String, session: Long)
+
+    /** A one-shot restore found no verified session; interactive sign-in stays available. */
+    fun restoreNotVerified(session: Long) { verificationFailed("login_required", session) }
 }

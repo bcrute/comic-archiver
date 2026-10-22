@@ -41,7 +41,7 @@ class BridgeEnvelopeTests(unittest.TestCase):
         # Every §2 op (and the flagged native-line extensions) is a real op now: each one
         # answers its own envelope, never the scaffold's not_implemented.
         for op in ("enqueue_sync", "library_listing", "export_manifest", "export_status",
-                   "signin_probe", "signout_record"):
+                   "signin_probe", "signin_restore", "signout_record"):
             with self.subTest(op):
                 value = self.call(json.dumps({"v": 1, "op": op, "args": {}}))
                 self.assertFalse(value["ok"])
@@ -193,6 +193,51 @@ class BridgeLifecycleTests(unittest.TestCase):
         value = self.call("signin_probe", {"session_root": str(self.root / ".comic-session")})
         self.assertFalse(value["ok"])
         self.assertEqual(value["code"], "cookie_seams_missing")
+
+    def test_restore_without_saved_session_issues_no_account_probe(self):
+        from unittest.mock import patch
+        with patch("comic_archive.android_adapter.signed_in_probe") as probe:
+            value = self.call("signin_restore", {"session_root": str(self.root / ".comic-session")})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(value["result"]["signed_in"])
+        probe.assert_not_called()
+
+    def test_restore_verifies_saved_session_without_starting_worker_or_plan(self):
+        from unittest.mock import patch
+        from comic_archive import android_session, worker_host
+        session = self.root / ".comic-session"
+        android_session.mark_signed_in(session)
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        verified = {"signed_in": True, "verified": True, "reason": None}
+        with patch("comic_archive.android_adapter.signed_in_probe", return_value=verified) as probe:
+            value = self.call("signin_restore", {"session_root": str(session)})
+        self.assertTrue(value["ok"], value)
+        self.assertTrue(value["result"]["signed_in"])
+        probe.assert_called_once()
+        self.assertFalse(worker_host.status(session)["running"])
+        self.assertFalse((session / "worker/account-export.json").exists())
+
+    def test_restore_expired_saved_session_does_not_authenticate(self):
+        from unittest.mock import patch
+        from comic_archive import android_session
+        session = self.root / ".comic-session"
+        android_session.mark_signed_in(session)
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        refused = {"signed_in": False, "verified": False, "reason": "not_signed_in"}
+        with patch("comic_archive.android_adapter.signed_in_probe", return_value=refused):
+            value = self.call("signin_restore", {"session_root": str(session)})
+        self.assertTrue(value["ok"], value)
+        self.assertFalse(value["result"]["signed_in"])
+
+    def test_restore_refuses_torn_saved_record_before_network(self):
+        from unittest.mock import patch
+        session = self.root / ".comic-session"
+        session.mkdir()
+        (session / "android.json").write_text('{"schema_version":1}')
+        with patch("comic_archive.android_adapter.signed_in_probe") as probe:
+            value = self.call("signin_restore", {"session_root": str(session)})
+        self.assertFalse(value["ok"])
+        probe.assert_not_called()
 
     def test_signout_record_forgets_the_written_sign_in(self):
         from comic_archive import android_session

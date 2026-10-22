@@ -13,6 +13,9 @@ data class AppState(
 sealed interface SignInState {
     data object SignedOut : SignInState
 
+    /** Checking the saved WebView session without opening or navigating a sign-in page. */
+    data object Restoring : SignInState
+
     /** The sign-in page currently shown; the URL is the site's own page. */
     data class Page(val url: String) : SignInState
 

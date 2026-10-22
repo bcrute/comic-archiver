@@ -66,13 +66,15 @@ class SignInProbe(
         while (true) {
             if (engine.currentSession() != session) return
             val state = engine.signInState()
-            if (state !is SignInState.Page && state !is SignInState.Settling) return
+            if (state !is SignInState.Page && state !is SignInState.Settling &&
+                state !is SignInState.Restoring) return
             val answer = dispatchGate.withLock {
                 // The bridge answers failures as ok=false envelopes; a throw here means
                 // the question could not even be asked.
                 try {
                     JSONObject(bridge.dispatch(
-                        "signin_probe", JSONObject().put("session_root", sessionRoot).toString()))
+                        if (state is SignInState.Restoring) "signin_restore" else "signin_probe",
+                        JSONObject().put("session_root", sessionRoot).toString()))
                 } catch (_: Exception) {
                     null
                 }
@@ -85,6 +87,10 @@ class SignInProbe(
                     return
                 }
                 answer != null && answer.optBoolean("ok") -> {
+                    if (state is SignInState.Restoring) {
+                        withContext(engineContext) { engine.restoreNotVerified(session) }
+                        return
+                    }
                     // "Not yet signed in" (the person is still typing) or the site's own
                     // "unavailable": the page stays usable; the bound decides the rest.
                 }

@@ -41,6 +41,9 @@ fun SignInScreen(
             style = MaterialTheme.typography.bodyMedium,
         )
         state.notice?.let { NoticeCard(it) }
+        if (state.restoring) {
+            Text("Checking saved sign-in…", style = MaterialTheme.typography.bodyMedium)
+        }
         if (!state.busy) {
             Button(onClick = onStartSignIn, modifier = Modifier.fillMaxWidth()) {
                 Text("Sign in to Tapas")

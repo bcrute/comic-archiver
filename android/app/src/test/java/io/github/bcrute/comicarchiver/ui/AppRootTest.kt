@@ -9,17 +9,18 @@ import org.junit.Test
 
 /**
  * Focused tests for the root's state/action decisions — the mistakes that would matter
- * in an assembled app: routing someone who is not signed in past the sign-in screen,
+ * in an assembled app: offering downloads to someone who is not signed in,
  * offering Go while a transfer is already running, or offering Pause with nothing in
  * flight. Compose rendering itself is not tested here; it waits for the fleet build.
  */
 class AppRootTest {
 
     @Test
-    fun `only a signed-in state reaches the app tabs`() {
+    fun `only a verified sign-in reaches download controls`() {
         assertEquals(RootRoute.APP, routeFor(SignInState.SignedIn("tapas")))
         assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.SignedOut))
         assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Settling))
+        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Restoring))
         assertEquals(
             RootRoute.SIGN_IN,
             routeFor(SignInState.Page("https://example.invalid/")),
