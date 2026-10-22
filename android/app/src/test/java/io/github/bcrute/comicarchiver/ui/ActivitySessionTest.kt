@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver.ui
 
+import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
@@ -17,7 +18,6 @@ import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
-import org.junit.After
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -25,6 +25,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentHashMap
@@ -38,10 +39,23 @@ class ActivitySessionTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val app get() = compose.activity.application as LifecycleTestApp
 
-    @After fun terminateTestProcess() { compose.runOnIdle { app.onTerminate() } }
+    private fun awaitState(condition: () -> Boolean) {
+        try {
+            compose.waitUntil(10_000) {
+                // IO bridge replies use the real Android main Handler, separate from
+                // Compose's frame clock. Robolectric's paused looper must be driven.
+                shadowOf(Looper.getMainLooper()).idle()
+                condition()
+            }
+        } catch (failure: AssertionError) {
+            throw AssertionError("Controller did not settle: download=${app.controller.state.value.download}, " +
+                "restore=${app.fake.count("signin_restore")}, worker=${app.fake.count("worker_start")}, " +
+                "go=${app.fake.count("go")}, status=${app.fake.count("download_status")}", failure)
+        }
+    }
 
     private fun ready() {
-        compose.waitUntil(10_000) { app.controller.state.value.signIn is SignInState.SignedIn &&
+        awaitState { app.controller.state.value.signIn is SignInState.SignedIn &&
             app.controller.state.value.library.isNotEmpty() && app.controller.state.value.settings != null }
     }
 
@@ -59,7 +73,7 @@ class ActivitySessionTest {
         ready()
         val controller = app.controller
         compose.onNodeWithText("Go").performClick()
-        compose.waitUntil(10_000) { controller.state.value.download is DownloadState.Running }
+        awaitState { controller.state.value.download is DownloadState.Running }
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("Running").assertIsNotEnabled()
         assertSame(controller, app.controller)
@@ -73,10 +87,10 @@ class ActivitySessionTest {
         ready()
         compose.onNode(hasText("Settings") and hasClickAction()).performClick()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
-        compose.waitUntil(10_000) { app.controller.state.value.settings?.wifiOnly == false &&
+        awaitState { app.controller.state.value.settings?.wifiOnly == false &&
             !app.controller.state.value.settingsBusy }
         compose.onNodeWithText("Slow").performClick()
-        compose.waitUntil(10_000) { app.controller.state.value.settings?.speed == "slow" &&
+        awaitState { app.controller.state.value.settings?.speed == "slow" &&
             !app.controller.state.value.settingsBusy }
         compose.activityRule.scenario.recreate()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsOn()
@@ -89,10 +103,10 @@ class ActivitySessionTest {
         ready()
         compose.onNode(hasText("Settings") and hasClickAction()).performClick()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
-        compose.waitUntil(10_000) { app.controller.state.value.settings?.wifiOnly == false &&
+        awaitState { app.controller.state.value.settings?.wifiOnly == false &&
             !app.controller.state.value.settingsBusy }
         compose.runOnIdle { app.fake.settingsReadable = false; app.controller.refreshSettings() }
-        compose.waitUntil(10_000) { app.controller.state.value.settings == null &&
+        awaitState { app.controller.state.value.settings == null &&
             app.controller.state.value.settingsNotice != null }
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertDoesNotExist()
         compose.onNodeWithText("Download settings are unavailable.").assertIsDisplayed()
