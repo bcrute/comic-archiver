@@ -15,15 +15,19 @@ import java.io.OutputStream
  * ContentResolver + DocumentsContract (no documentfile dependency). Everything is a
  * document URI; no POSIX file operations touch the user's tree.
  *
- * UNPROVEN IN THIS WORKSPACE: this class touches Android framework APIs that do not exist
- * in JVM unit tests. It is exercised by the androidTest source under
- * src/androidTest/java/io/github/bcrute/comicarchiver/export/, to be run on a fleet
- * emulator through the native line's coordinated build; it must not be called proven
- * until those receipts exist.
+ * Existing CBZ copies have manual device evidence. Recovery and provider variations
+ * still need system integration coverage; pure seam tests do not establish that proof.
  */
 class ContentResolverDocumentsAdapter(private val resolver: ContentResolver) : DocumentsAdapter {
 
     constructor(context: Context) : this(context.contentResolver)
+
+    override fun belongsToTree(file: DocumentsFile, target: SafExportTarget): Boolean = try {
+        val document = Uri.parse(file.uriString)
+        val tree = Uri.parse(target.treeUriString)
+        document.scheme == "content" && tree.scheme == "content" && document.authority == tree.authority &&
+            DocumentsContract.getTreeDocumentId(document) == DocumentsContract.getTreeDocumentId(tree)
+    } catch (_: IllegalArgumentException) { false }
 
     override fun rootFolder(target: SafExportTarget): DocumentsFolder {
         val tree = parseTree(target)
@@ -41,7 +45,7 @@ class ContentResolverDocumentsAdapter(private val resolver: ContentResolver) : D
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             parentUri, DocumentsContract.getDocumentId(parentUri),
         )
-        resolver.query(
+        try { resolver.query(
             childrenUri,
             arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -59,7 +63,8 @@ class ContentResolverDocumentsAdapter(private val resolver: ContentResolver) : D
                     return DocumentsFolder(child.toString())
                 }
             }
-        }
+        } } catch (e: SecurityException) { throw grantLost(e) }
+          catch (e: IOException) { throw DocumentsException(DocumentsCode.IO, "folder query failed", e) }
         val created = try {
             DocumentsContract.createDocument(resolver, parentUri, MIME_TYPE_DIR, displayName)
         } catch (e: SecurityException) {
@@ -111,7 +116,7 @@ class ContentResolverDocumentsAdapter(private val resolver: ContentResolver) : D
     override fun delete(file: DocumentsFile): Boolean = try {
         DocumentsContract.deleteDocument(resolver, parseDoc(file.uriString))
     } catch (e: SecurityException) {
-        throw grantLost(e)
+        false
     } catch (e: IllegalArgumentException) {
         false
     } catch (e: IOException) {

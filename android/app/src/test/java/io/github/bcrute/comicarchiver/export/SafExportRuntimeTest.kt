@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +23,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Real preferences and coordinator; a synthetic bridge prevents account/filesystem
  * exports. Grant persistence and actual provider copies still need device coverage. */
@@ -79,5 +82,48 @@ class SafExportRuntimeTest {
         }
         assertEquals(PublicIssue.JOB_FAILED, result.lastIssue)
         assertEquals(1, calls.get())
+    }
+
+    @Test fun repeatedStartCannotAdmitAnotherRunAndStopDuringManifestIsRetained() {
+        rememberedFolder()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val runtime = SafExportRuntime(context, object : PythonBridge {
+            override fun dispatch(op: String, argsJson: String): String {
+                calls.incrementAndGet(); entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return """{"ok":true,"result":{"entries":[]}}"""
+            }
+        }, context.filesDir.resolve("test-workspace"), scope, FakeDocuments())
+        runtime.startExport()
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            runtime.startExport()
+            assertEquals(1, calls.get())
+            runtime.stopExport()
+        } finally { release.countDown() }
+        val result = runBlocking {
+            withTimeout(5000) { runtime.panel.first { it.phase == ExportPhaseUi.INTERRUPTED } }
+        }
+        assertEquals(PublicIssue.EXPORT_INTERRUPTED, result.lastIssue)
+        assertEquals(1, calls.get())
+    }
+
+    @Test fun unexpectedProviderFailureLeavesAnActionableErrorInsteadOfRunningForever() {
+        rememberedFolder()
+        val documents = object : DocumentsAdapter by FakeDocuments() {
+            override fun rootFolder(target: SafExportTarget): DocumentsFolder =
+                throw IllegalStateException("synthetic provider failure")
+        }
+        val manifest = """{"ok":true,"result":{"entries":[{"seriesId":"s","episodeId":"e",
+            "kind":"CBZ","filename":"one.cbz","bytes":1,"sha256":"${"a".repeat(64)}","relpath":"s/one.cbz"}]}}"""
+        val runtime = SafExportRuntime(context, object : PythonBridge {
+            override fun dispatch(op: String, argsJson: String) = manifest
+        }, context.filesDir.resolve("test-workspace"), scope, documents)
+        runtime.startExport()
+        val result = runBlocking {
+            withTimeout(5000) { runtime.panel.first { it.phase == ExportPhaseUi.FINISHED_WITH_FAILURES } }
+        }
+        assertEquals(PublicIssue.JOB_FAILED, result.lastIssue)
     }
 }

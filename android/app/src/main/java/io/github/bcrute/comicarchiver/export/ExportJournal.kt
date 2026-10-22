@@ -52,30 +52,38 @@ data class JournalEntry(
     val targetUri: String?,
     val attempt: Int,
     val failure: ExportFailure?,
+    val targetTreeUri: String? = null,
 )
 
 /**
- * The recoverable journal: one entry per archive, keyed by episodeId, persisted after
+ * The recoverable journal: one entry per series/episode/format/target tree, persisted after
  * every state change so interruption at any point loses at most the in-flight file, which
  * restarts from scratch on the next run. Lives only in app-private storage.
  */
-class ExportJournal private constructor(private val entries: LinkedHashMap<String, JournalEntry>) {
+class ExportJournal private constructor(private val entries: LinkedHashMap<List<String?>, JournalEntry>) {
 
-    fun get(episodeId: String): JournalEntry? = entries[episodeId]
+    /** Legacy convenience for a unique episode; ambiguous identities never choose a copy. */
+    fun get(episodeId: String): JournalEntry? = entries.values.filter { it.episodeId == episodeId }.singleOrNull()
+
+    fun find(entry: ExportEntry, tree: String): JournalEntry? =
+        entries[listOf(entry.seriesId, entry.episodeId, entry.kind.name, tree)] ?:
+            entries[listOf(entry.seriesId, entry.episodeId, entry.kind.name, null)]
 
     fun all(): List<JournalEntry> = entries.values.toList()
 
     fun record(entry: JournalEntry) {
-        entries[entry.episodeId] = entry
+        if (entry.targetTreeUri != null) entries.remove(key(entry.copy(targetTreeUri = null)))
+        entries[key(entry)] = entry
     }
 
     companion object {
         fun empty(): ExportJournal = ExportJournal(LinkedHashMap())
 
         fun of(entries: List<JournalEntry>): ExportJournal =
-            ExportJournal(LinkedHashMap<String, JournalEntry>().apply {
-                for (e in entries) put(e.episodeId, e)
-            })
+            empty().apply { entries.forEach(::record) }
+
+        private fun key(entry: JournalEntry) =
+            listOf(entry.seriesId, entry.episodeId, entry.kind.name, entry.targetTreeUri)
     }
 }
 
@@ -91,13 +99,15 @@ interface JournalStore {
  * instead of guessing:
  *
  * ```
- * comicarchiver-export-journal v1
- * episodeId|seriesId|kind|requestedName|actualName|bytes|sha256|state|targetUri|attempt|failure
+ * comicarchiver-export-journal v2
+ * episodeId|seriesId|kind|requestedName|actualName|bytes|sha256|state|targetUri|attempt|failure|targetTreeUri
  * ```
  *
  * Fields are escaped (`\` -> `\\`, `|` -> `\p`, newline -> `\n`); unparseable lines are
  * skipped rather than aborting the journal, since the worst case is re-exporting a file.
- * Saves are atomic (temp file + rename).
+ * v1 lines remain readable with an unknown target tree; the exporter verifies their
+ * actual tree membership and bytes before adoption. Saves use temp file + rename;
+ * a failed replacement preserves the previous journal.
  */
 class FileJournalStore(private val file: File) : JournalStore {
 
@@ -107,12 +117,12 @@ class FileJournalStore(private val file: File) : JournalStore {
         } catch (_: IOException) {
             return ExportJournal.empty()
         }
-        if (lines.isEmpty() || lines[0] != HEADER) return ExportJournal.empty()
-        val entries = LinkedHashMap<String, JournalEntry>()
+        if (lines.isEmpty() || lines[0] !in setOf(HEADER, LEGACY_HEADER)) return ExportJournal.empty()
+        val entries = ArrayList<JournalEntry>()
         for (line in lines.drop(1)) {
-            parseEntry(line)?.let { entries[it.episodeId] = it }
+            parseEntry(line, lines[0] == LEGACY_HEADER)?.let(entries::add)
         }
-        return ExportJournal.of(entries.values.toList())
+        return ExportJournal.of(entries)
     }
 
     override fun save(journal: ExportJournal) {
@@ -132,27 +142,26 @@ class FileJournalStore(private val file: File) : JournalStore {
                 .append(e.targetUri?.let(::escape) ?: "").append(SEP)
                 .append(e.attempt).append(SEP)
                 .append(e.failure?.name ?: "")
+                .append(SEP).append(e.targetTreeUri?.let(::escape) ?: "")
                 .append('\n')
         }
         tmp.writeText(HEADER + "\n" + body)
         if (!tmp.renameTo(file)) {
-            file.delete()
-            if (!tmp.renameTo(file)) {
-                tmp.delete()
-                throw IOException("journal save failed for ${file.name}")
-            }
+            tmp.delete()
+            throw IOException("export journal could not be saved")
         }
     }
 
-    private fun parseEntry(line: String): JournalEntry? {
+    private fun parseEntry(line: String, legacy: Boolean): JournalEntry? {
         val fields = split(line) ?: return null
-        if (fields.size != 11) return null
+        if (fields.size != if (legacy) 11 else 12) return null
         return try {
             val kind = ExportKind.valueOf(fields[2])
             val state = JournalState.valueOf(fields[7])
             val failure = fields[10].takeIf { it.isNotEmpty() }?.let(ExportFailure::valueOf)
             val bytes = fields[5].toLong()
             val attempt = fields[9].toInt()
+            require(bytes >= 0 && attempt >= 0 && fields[6].matches(Regex("[a-fA-F0-9]{64}")))
             JournalEntry(
                 episodeId = fields[0],
                 seriesId = fields[1],
@@ -165,6 +174,7 @@ class FileJournalStore(private val file: File) : JournalStore {
                 targetUri = fields[8].takeIf { it.isNotEmpty() },
                 attempt = attempt,
                 failure = failure,
+                targetTreeUri = if (legacy) null else fields[11].takeIf { it.isNotEmpty() },
             )
         } catch (_: IllegalArgumentException) {
             null
@@ -209,7 +219,8 @@ class FileJournalStore(private val file: File) : JournalStore {
         .replace("\n", "\\n")
 
     companion object {
-        private const val HEADER = "comicarchiver-export-journal v1"
+        private const val HEADER = "comicarchiver-export-journal v2"
+        private const val LEGACY_HEADER = "comicarchiver-export-journal v1"
         private const val SEP = '|'
     }
 }

@@ -56,6 +56,10 @@ interface DocumentsAdapter {
     /** The root folder of the target tree; may reveal a revoked grant. */
     fun rootFolder(target: SafExportTarget): DocumentsFolder
 
+    /** Legacy records are reusable only when their URI carries this exact tree grant.
+     * Unknown membership fails closed; a fresh copy is safer than writing another tree. */
+    fun belongsToTree(file: DocumentsFile, target: SafExportTarget): Boolean = false
+
     /**
      * Returns the named subfolder of [parent], creating it when absent. When a same-named
      * non-folder document exists, implementations may pick a provider-unique alternative

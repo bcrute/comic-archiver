@@ -95,6 +95,19 @@ class ExportJournalTest {
         assertNull(loaded.targetUri)
         assertNull(loaded.failure)
     }
+
+    @Test fun `version one entries remain readable and are written as version two`() {
+        val file = File(tmp.root, "legacy.txt")
+        file.writeText("comicarchiver-export-journal v1\n" +
+            "ep1|series|CBZ|one.cbz|one.cbz|3|${"a".repeat(64)}|VERIFIED|content://fake/tree/doc-1|1|\n")
+        val store = FileJournalStore(file)
+        val legacy = store.load().get("ep1")!!
+        assertNull(legacy.targetTreeUri)
+        val migrated = legacy.copy(targetTreeUri = "content://fake/tree")
+        store.save(ExportJournal.of(listOf(migrated)))
+        assertEquals("comicarchiver-export-journal v2", file.readLines().first())
+        assertEquals(migrated, store.load().get("ep1"))
+    }
 }
 
 /** Name policy for display names sent to providers. */

@@ -2,7 +2,6 @@ package io.github.bcrute.comicarchiver.export
 
 import java.io.IOException
 import java.io.InputStream
-import java.io.OutputStream
 
 /**
  * Result of one batch run. `interrupted` and `grantLost` are recoverable: the journal
@@ -57,7 +56,14 @@ class SafBatchExporter(
         stopRequested = true
     }
 
-    fun exportBatch(target: SafExportTarget, entries: List<ExportEntry>): ExportSummary {
+    private var activeTarget = ""
+
+    @Synchronized
+    fun exportBatch(target: SafExportTarget, entries: List<ExportEntry>,
+                    shouldStop: () -> Boolean = { false },
+                    onProgress: (ExportSummary) -> Unit = {}): ExportSummary {
+        activeTarget = target.treeUriString
+        val stopped = { stopRequested || shouldStop() }
         stopRequested = false
         val journal = store.load()
 
@@ -77,24 +83,33 @@ class SafBatchExporter(
         val seriesFolders = HashMap<String, DocumentsFolder>()
 
         for (entry in entries) {
-            if (stopRequested) {
+            if (stopped()) {
                 interrupted = true
                 break
             }
-            val previous = journal.get(entry.episodeId)
+            val previous = journal.find(entry, activeTarget)?.takeIf { record ->
+                record.targetUri?.let { documents.belongsToTree(DocumentsFile(it), target) }
+                    ?: (record.targetTreeUri == activeTarget)
+            }
             if (previous != null &&
                 previous.state == JournalState.VERIFIED &&
                 previous.bytes == entry.bytes &&
                 previous.sha256.equals(entry.sha256, ignoreCase = true) &&
-                recordedCopyStillExists(previous)
+                recordedCopyMatches(previous, entry, stopped)
             ) {
                 // Only skip when the verified copy is of the archive the manifest now
                 // describes AND that copy is still in the tree; a re-saved episode (new
                 // bytes/digest) or a user-deleted document is exported again.
+                if (previous.targetTreeUri == null) {
+                    journal.record(previous.copy(targetTreeUri = activeTarget))
+                    store.save(journal)
+                }
                 already++
+                onProgress(ExportSummary(verified, failures.size, already, failures.toList(), false, false))
                 continue
             }
-            when (val outcome = exportOne(root, entry, previous, journal, seriesFolders)) {
+            if (stopped()) { interrupted = true; break }
+            when (val outcome = exportOne(root, entry, previous, journal, seriesFolders, stopped)) {
                 OneResult.Verified -> verified++
                 OneResult.GrantLost -> {
                     store.save(journal)
@@ -119,6 +134,7 @@ class SafBatchExporter(
                     }
                 }
             }
+            onProgress(ExportSummary(verified, failures.size, already, failures.toList(), interrupted, false))
         }
         store.save(journal)
         return ExportSummary(
@@ -139,20 +155,19 @@ class SafBatchExporter(
     }
 
     /**
-     * A VERIFIED journal line is only trustworthy while its copy still exists: the user
-     * may have deleted the exported document (or revoked its tree) after the run. Probing
-     * the recorded URI must succeed before an entry may be skipped as already verified;
-     * any probe failure — deleted, stale grant, or otherwise — falls through to the normal
-     * resume path, which recreates the target and re-verifies real bytes.
+     * A VERIFIED journal line is only trustworthy while the actual selected-tree bytes
+     * still match. A changed document is rewritten, and a missing/stale document follows
+     * the normal create path. Metadata alone never certifies an old copy.
      */
-    private fun recordedCopyStillExists(previous: JournalEntry): Boolean {
+    private fun recordedCopyMatches(previous: JournalEntry, entry: ExportEntry,
+                                    stopped: () -> Boolean): Boolean {
         val uri = previous.targetUri ?: return false
         return try {
-            documents.displayNameFor(DocumentsFile(uri))
-            true
-        } catch (_: DocumentsException) {
-            false
-        }
+            val digest = documents.openInput(DocumentsFile(uri)).use { StreamDigest.digestOnly(it, stopped) }
+            digest is StreamDigest.Result.Done && digest.bytes == entry.bytes &&
+                digest.sha256Hex.equals(entry.sha256, ignoreCase = true)
+        } catch (_: DocumentsException) { false }
+          catch (_: IOException) { false }
     }
 
     private fun exportOne(
@@ -161,6 +176,7 @@ class SafBatchExporter(
         previous: JournalEntry?,
         journal: ExportJournal,
         seriesFolders: MutableMap<String, DocumentsFolder>,
+        stopped: () -> Boolean,
     ): OneResult {
         val requestedName = SafeName.of(entry.filename, fallbackName(entry))
         if (ExportKind.fromFilename(requestedName) != entry.kind) {
@@ -190,7 +206,7 @@ class SafBatchExporter(
         store.save(journal)
 
         val copy = try {
-            copyVerified(entry, target)
+            copyVerified(entry, target, stopped)
         } catch (e: DocumentsException) {
             if (e.code == DocumentsCode.GRANT_LOST) return OneResult.GrantLost
             return failed(journal, entry, previous, requestedName, target.uriString,
@@ -218,6 +234,7 @@ class SafBatchExporter(
                     journalEntry(entry, requestedName, actualName, JournalState.VERIFIED,
                         target.uriString, (previous?.attempt ?: 0) + 1, failure = null)
                 )
+                store.save(journal)
                 OneResult.Verified
             }
         }
@@ -299,17 +316,17 @@ class SafBatchExporter(
      * provider: size (provider-reported when available, else bytes read) and SHA-256 must
      * both match the manifest. The original is only read, never written or deleted.
      */
-    private fun copyVerified(entry: ExportEntry, target: DocumentsFile): CopyOutcome {
+    private fun copyVerified(entry: ExportEntry, target: DocumentsFile, stopped: () -> Boolean): CopyOutcome {
         source.openStream(entry).use { input ->
             documents.openOutput(target).use { output ->
-                when (StreamDigest.copyAndDigest(input, output) { stopRequested }) {
+                when (StreamDigest.copyAndDigest(input, output) { stopped() }) {
                     StreamDigest.Result.Stopped -> return CopyOutcome.STOPPED
                     is StreamDigest.Result.Done -> Unit
                 }
             }
         }
         val written = when (val verify = documents.openInput(target).use { verifyStream ->
-            StreamDigest.digestOnly(verifyStream) { stopRequested }
+            StreamDigest.digestOnly(verifyStream) { stopped() }
         }) {
             StreamDigest.Result.Stopped -> return CopyOutcome.STOPPED
             is StreamDigest.Result.Done -> verify
@@ -319,8 +336,7 @@ class SafBatchExporter(
         } catch (_: DocumentsException) {
             -1L
         }
-        val sizeOk = (providerSize >= 0 && providerSize == entry.bytes) ||
-            (providerSize < 0 && written.bytes == entry.bytes)
+        val sizeOk = written.bytes == entry.bytes && (providerSize < 0 || providerSize == entry.bytes)
         val digestOk = written.sha256Hex.equals(entry.sha256, ignoreCase = true)
         return if (sizeOk && digestOk) CopyOutcome.DONE else CopyOutcome.MISMATCH
     }
@@ -362,6 +378,7 @@ class SafBatchExporter(
         targetUri = targetUri,
         attempt = attempt,
         failure = failure,
+        targetTreeUri = activeTarget,
     )
 
     private fun fallbackName(entry: ExportEntry): String =
@@ -379,8 +396,7 @@ class SafBatchExporter(
     ): ExportSummary {
         val failures = ArrayList<JournalEntry>()
         for (entry in entries) {
-            val previous = journal.get(entry.episodeId)
-            if (previous?.state == JournalState.VERIFIED) continue
+            val previous = journal.find(entry, activeTarget)
             val recorded = journalEntry(
                 entry,
                 SafeName.of(entry.filename, fallbackName(entry)),

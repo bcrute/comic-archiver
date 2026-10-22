@@ -40,7 +40,7 @@ class FakeDocuments : DocumentsAdapter {
     var onSourceRead: (() -> Unit)? = null
 
     private var nextId = 1
-    private val rootUri = "content://fake/tree/root"
+    private fun rootUri(target: SafExportTarget) = target.treeUriString + "/root"
 
     fun grantLost() = DocumentsException(DocumentsCode.GRANT_LOST, "grant revoked (fake)")
 
@@ -55,10 +55,20 @@ class FakeDocuments : DocumentsAdapter {
 
     override fun rootFolder(target: SafExportTarget): DocumentsFolder {
         checkGrant()
+        val rootUri = rootUri(target)
         if (rootUri !in docs) {
             docs[rootUri] = Doc(rootUri, "Export", "vnd.android.document/directory", true, null)
         }
         return DocumentsFolder(rootUri)
+    }
+
+    override fun belongsToTree(file: DocumentsFile, target: SafExportTarget): Boolean {
+        var current: String? = file.uriString
+        while (current != null) {
+            if (current == rootUri(target)) return true
+            current = docs[current]?.parentUri
+        }
+        return false
     }
 
     override fun ensureSubfolder(parent: DocumentsFolder, displayName: String): DocumentsFolder {

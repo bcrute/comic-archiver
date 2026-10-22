@@ -10,6 +10,9 @@ import io.github.bcrute.comicarchiver.ui.exportIssueFromWireCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -29,21 +32,23 @@ import java.io.InputStream
  * relpath confined to the workspace's Library folder.
  *
  * The bridge call and the exporter run execute on Dispatchers.IO through [scope]
- * (the activity's lifecycle scope at assembly); [stopExport] is safe from any thread.
+ * (the application's process scope at assembly); [stopExport] is safe from any thread.
  */
 class SafExportRuntime(
     context: Context,
     private val bridge: PythonBridge,
     workspaceRoot: File,
     private val scope: CoroutineScope,
+    documents: DocumentsAdapter = ContentResolverDocumentsAdapter(context.applicationContext),
 ) {
     private val appContext = context.applicationContext
     private val libraryRoot = File(workspaceRoot, LIBRARY_DIR)
     private val exporter = SafBatchExporter(
         source = ::openOriginal,
-        documents = ContentResolverDocumentsAdapter(appContext),
+        documents = documents,
         store = FileJournalStore(File(appContext.filesDir, "export/journal-v1.txt")),
     )
+    private val active = AtomicReference<AtomicBoolean?>(null)
     private val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     // initialPanel restores this value; keep the initialization order explicit so a
@@ -58,6 +63,7 @@ class SafExportRuntime(
      * system refuses to persist is reported as the re-pick state, not silently dropped.
      */
     fun onFolderGranted(uri: Uri) {
+        if (active.get() != null) return
         try {
             appContext.contentResolver.takePersistableUriPermission(
                 uri,
@@ -79,38 +85,52 @@ class SafExportRuntime(
             _panel.value = ExportPanelStateUi(ExportPhaseUi.NOT_PICKED)
             return
         }
+        val stop = AtomicBoolean(false)
+        if (!active.compareAndSet(null, stop)) return
         _panel.value = ExportPanelStateUi(ExportPhaseUi.RUNNING)
         scope.launch(Dispatchers.IO) {
-            val parsed = try {
-                ExportManifestParser.parse(
+            try {
+                val parsed = ExportManifestParser.parse(
                     bridge.dispatch(OP_MANIFEST, JSONObject().put("root", workspaceRootArg).toString()),
                 )
-            } catch (error: Exception) {
+                if (stop.get()) {
+                    _panel.value = ExportPanelStateUi(ExportPhaseUi.INTERRUPTED,
+                        lastIssue = PublicIssue.EXPORT_INTERRUPTED)
+                    return@launch
+                }
+                if (parsed.refused || parsed.invalid > 0) {
+                    _panel.value = refusedPanel(if (parsed.refused)
+                        exportIssueFromWireCode(parsed.refusedCode!!) else PublicIssue.JOB_FAILED)
+                    return@launch
+                }
+                if (parsed.entries.isEmpty()) {
+                    _panel.value = ExportPanelStateUi(ExportPhaseUi.READY)
+                    return@launch
+                }
+                val summary = exporter.exportBatch(SafExportTarget(uri.toString()), parsed.entries,
+                    shouldStop = { stop.get() }, onProgress = { partial ->
+                        _panel.value = ExportPanelStateUi.fromSummary(partial, parsed.entries.size)
+                            .copy(phase = ExportPhaseUi.RUNNING)
+                    })
+                _panel.value = ExportPanelStateUi.fromSummary(summary, parsed.entries.size)
+            } catch (cancelled: CancellationException) {
+                _panel.value = ExportPanelStateUi(ExportPhaseUi.INTERRUPTED,
+                    lastIssue = PublicIssue.EXPORT_INTERRUPTED)
+                throw cancelled
+            } catch (_: SecurityException) {
+                _panel.value = ExportPanelStateUi(ExportPhaseUi.GRANT_LOST,
+                    lastIssue = PublicIssue.EXPORT_INTERRUPTED)
+            } catch (_: Exception) {
                 _panel.value = refusedPanel(PublicIssue.JOB_FAILED)
-                return@launch
+            } finally {
+                active.compareAndSet(stop, null)
             }
-            if (parsed.refused) {
-                _panel.value = refusedPanel(exportIssueFromWireCode(parsed.refusedCode!!))
-                return@launch
-            }
-            if (parsed.invalid > 0) {
-                // An incomplete manifest cannot certify that every archive exported.
-                // Keep originals and require a fresh, usable manifest before copying.
-                _panel.value = refusedPanel(PublicIssue.JOB_FAILED)
-                return@launch
-            }
-            if (parsed.entries.isEmpty() && parsed.invalid == 0) {
-                // Nothing finished yet: the honest state is a ready panel, not success.
-                _panel.value = ExportPanelStateUi(ExportPhaseUi.READY)
-                return@launch
-            }
-            val summary = exporter.exportBatch(SafExportTarget(uri.toString()), parsed.entries)
-            _panel.value = ExportPanelStateUi.fromSummary(summary, parsed.entries.size)
         }
     }
 
     /** Cooperative stop; the running batch then reports itself interrupted, never complete. */
     fun stopExport() {
+        active.get()?.set(true)
         exporter.requestStop()
     }
 
@@ -118,7 +138,8 @@ class SafExportRuntime(
     private fun openOriginal(entry: ExportEntry): InputStream {
         val resolved = resolveOriginal(libraryRoot, entry.relpath)
             ?: throw SourceRefusedException("original refused")
-        return FileInputStream(resolved)
+        return try { FileInputStream(resolved) }
+        catch (error: java.io.IOException) { throw SourceRefusedException("original refused", error) }
     }
 
     private fun initialPanel(): ExportPanelStateUi {
@@ -148,11 +169,7 @@ class SafExportRuntime(
          * on refusal; the caller reports a refused original, never the path itself.
          */
         internal fun resolveOriginal(libraryRoot: File, relpath: String): File? {
-            if (relpath.isBlank() || relpath.startsWith("/")) return null
-            val root = libraryRoot.canonicalFile
-            val target = File(root, relpath).canonicalFile
-            if (target == root || !target.path.startsWith(root.path + File.separator)) return null
-            return target.takeIf { it.isFile }
+            return io.github.bcrute.comicarchiver.library.resolveArchive(libraryRoot, relpath)
         }
     }
 }

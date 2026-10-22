@@ -367,4 +367,97 @@ class SafBatchExporterTest {
                 .map { it.name }.toSet(),
         )
     }
+
+    @Test fun `choosing another granted tree copies there and preserves both histories`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        val first = exporter().exportBatch(target, entries)
+        val originalUri = store.load().find(entries.single(), target.treeUriString)!!.targetUri!!
+        val other = SafExportTarget("content://fake/another-tree")
+        val second = exporter().exportBatch(other, entries)
+        val secondUri = store.load().find(entries.single(), other.treeUriString)!!.targetUri!!
+        assertTrue(first.complete && second.complete)
+        assertEquals(1, second.verified)
+        assertNotEquals(originalUri, secondUri)
+        assertTrue(documents.belongsToTree(DocumentsFile(secondUri), other))
+        assertTrue(bytes.contentEquals(documents.docs[originalUri]!!.bytes))
+        val back = exporter().exportBatch(target, entries)
+        assertEquals(1, back.alreadyVerified)
+        assertEquals(2, documents.createdNames.size)
+    }
+
+    @Test fun `same episode ID in different series never shares a journal or target`() {
+        val bytes = byteArrayOf(7, 8, 9)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes, seriesId = "First"), entry("ep1", bytes, seriesId = "Second"))
+        val summary = exporter().exportBatch(target, entries)
+        assertTrue(summary.complete)
+        assertEquals(2, summary.verified)
+        val saved = store.load()
+        assertEquals(2, saved.all().size)
+        assertNotEquals(saved.find(entries[0], target.treeUriString)!!.targetUri,
+            saved.find(entries[1], target.treeUriString)!!.targetUri)
+        assertEquals(2, exporter().exportBatch(target, entries).alreadyVerified)
+    }
+
+    @Test fun `a changed exported copy is reverified and repaired even when its name survives`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        val uri = store.load().get("ep1")!!.targetUri!!
+        documents.docs[uri]!!.bytes = byteArrayOf(9, 9, 9)
+        val retry = exporter().exportBatch(target, entries)
+        assertTrue(retry.complete)
+        assertEquals(0, retry.alreadyVerified)
+        assertEquals(1, retry.verified)
+        assertTrue(bytes.contentEquals(documents.docs[uri]!!.bytes))
+        assertEquals(1, documents.createdNames.size)
+    }
+
+    @Test fun `stop requested before batch cannot be cleared by batch initialization`() {
+        val bytes = byteArrayOf(1)
+        source.originals["ep1"] = bytes
+        val summary = exporter().exportBatch(target, listOf(entry("ep1", bytes)), shouldStop = { true })
+        assertTrue(summary.interrupted)
+        assertFalse(summary.complete)
+        assertTrue(documents.createdNames.isEmpty())
+    }
+
+    @Test fun `progress reports verified work before the batch ends`() {
+        val bytes = byteArrayOf(1)
+        source.originals["ep1"] = bytes; source.originals["ep2"] = bytes
+        val counts = mutableListOf<Int>()
+        exporter().exportBatch(target, listOf(entry("ep1", bytes), entry("ep2", bytes)), onProgress = {
+            counts.add(it.verified + it.alreadyVerified)
+            assertEquals(it.verified, store.load().all().count { row -> row.state == JournalState.VERIFIED })
+        })
+        assertEquals(listOf(1, 2), counts)
+    }
+
+    @Test fun `unreadable current tree cannot certify previously verified files`() {
+        val bytes = byteArrayOf(1)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        documents.grantRevoked = true
+        val summary = exporter().exportBatch(target, entries)
+        assertTrue(summary.grantLost)
+        assertFalse(summary.complete)
+        assertEquals(1, summary.failed)
+    }
+
+    @Test fun `legacy copy is adopted only after matching tree and actual byte verification`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        val legacy = MemJournalStore()
+        legacy.save(ExportJournal.of(store.load().all().map { it.copy(targetTreeUri = null) }))
+        val summary = exporter(legacy).exportBatch(target, entries)
+        assertEquals(1, summary.alreadyVerified)
+        assertEquals(1, documents.createdNames.size)
+        assertEquals(target.treeUriString, legacy.load().get("ep1")!!.targetTreeUri)
+    }
 }
