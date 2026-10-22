@@ -208,6 +208,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         session = self.root / ".comic-session"
         android_session.mark_signed_in(session)
         app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        (self.root / "net.json").write_text('{"connection":"wifi","metered":false}')
         verified = {"signed_in": True, "verified": True, "reason": None}
         with patch("comic_archive.android_adapter.signed_in_probe", return_value=verified) as probe:
             value = self.call("signin_restore", {"session_root": str(session)})
@@ -223,11 +224,33 @@ class BridgeLifecycleTests(unittest.TestCase):
         session = self.root / ".comic-session"
         android_session.mark_signed_in(session)
         app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        (self.root / "net.json").write_text('{"connection":"wifi","metered":false}')
         refused = {"signed_in": False, "verified": False, "reason": "not_signed_in"}
         with patch("comic_archive.android_adapter.signed_in_probe", return_value=refused):
             value = self.call("signin_restore", {"session_root": str(session)})
         self.assertTrue(value["ok"], value)
         self.assertFalse(value["result"]["signed_in"])
+
+    def test_automatic_restore_honors_metered_choice_before_any_account_request(self):
+        from unittest.mock import patch
+        from comic_archive import android_session
+        self.call("prepare_workspace", {"root": str(self.root)})
+        session = self.root / ".comic-session"
+        android_session.mark_signed_in(session)
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        (self.root / "net.json").write_text('{"connection":"cellular","metered":true}')
+        verified = {"signed_in": True, "verified": True, "reason": None}
+        with patch("comic_archive.android_adapter.signed_in_probe", return_value=verified) as probe:
+            held = self.call("signin_restore", {"session_root": str(session)})
+            self.assertTrue(held["ok"], held)
+            self.assertFalse(held["result"]["signed_in"])
+            self.assertEqual(held["result"]["reason"], "network_held")
+            probe.assert_not_called()
+            self.assertTrue(self.call("configure_settings", {"root": str(self.root), "wifi_only": False})["ok"])
+            restored = self.call("signin_restore", {"session_root": str(session)})
+        self.assertTrue(restored["result"]["signed_in"])
+        probe.assert_called_once()
+        self.assertFalse((session / "worker/account-export.json").exists())
 
     def test_restore_refuses_torn_saved_record_before_network(self):
         from unittest.mock import patch

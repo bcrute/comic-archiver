@@ -264,6 +264,10 @@ def _signin_restore(args):
 
     if not _core(saved):
         return {"signed_in": False, "verified": False, "reason": "no_saved_session"}
+    # Restore is automatic, unlike opening the site's sign-in page explicitly. Honor
+    # the same stored connection choice before making its account request.
+    if not _core(lambda error: _settings_value(session.parent))["allowed"]:
+        return {"signed_in": False, "verified": False, "reason": "network_held"}
     return _signin_probe(args)
 
 
