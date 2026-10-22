@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,6 +48,13 @@ fun ComicArchiverAppRoot(
     val state by controller.state.collectAsState()
 
     if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
+        // System Back while a sign-in is in flight cancels it — the engine's wait closes
+        // honestly and the WebView slot unmounts back to the entry screen — instead of
+        // finishing the activity over an attached surface. Outside a flight Back keeps
+        // its system default.
+        BackHandler(
+            enabled = state.signIn is SignInState.Page || state.signIn is SignInState.Settling,
+        ) { controller.cancelSignIn() }
         SignInScreen(
             state = state.toSignInScreenUi(),
             onStartSignIn = controller::startSignIn,
