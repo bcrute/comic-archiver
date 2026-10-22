@@ -9,9 +9,19 @@ store stays the single cookie authority; no domain, path, expiry or security att
 ever reconstructed or persisted on this side, and nothing here logs a URL, cookie value or
 account detail.
 """
+from dataclasses import replace
+from urllib.parse import urlsplit
+
 from . import sites
 from .models import ArchiveError
-from .transport import Transport
+from .transport import Transport, asset_url
+
+# The Android WebView signs in on the mobile origin. Its real user agent is
+# redirected there even for who-am-i; a bare HTTPX agent receives HTTP 403.
+# Keep desktop/public identities canonical, but send Android first-party requests
+# to the same origin as the authenticated surface, using that origin's own cookies.
+ANDROID_TAPAS = replace(sites.DEFAULT, home='https://m.tapas.io',
+                        cookie_hosts=('m.tapas.io',), signin_hosts=('tapas.io',))
 
 
 class WebViewCookieSource:
@@ -24,7 +34,7 @@ class WebViewCookieSource:
     headerFor is accepted here — the frozen ABI itself is unchanged.
     """
 
-    def __init__(self, bridge, site=sites.DEFAULT):
+    def __init__(self, bridge, site=ANDROID_TAPAS):
         for name in ('headerFor', 'header_for'):
             if callable(getattr(bridge, name, None)):
                 self._header = getattr(bridge, name)
@@ -34,6 +44,20 @@ class WebViewCookieSource:
         if not callable(getattr(bridge, 'apply', None)):
             raise ArchiveError('The app sign-in store is not wired to the downloader.')
         self._bridge, self.site = bridge, site
+
+    def browser_agent(self):
+        """The actual WebView agent captured by native before navigation, never invented."""
+        read = getattr(self._bridge, 'browserUserAgent', None)
+        if not callable(read):
+            return None
+        try:
+            value = read()
+        except Exception:
+            raise ArchiveError('The app sign-in browser identity is unavailable.') from None
+        if value is not None and (not isinstance(value, str) or not value.isascii()
+                                  or not value.isprintable() or not value.strip()):
+            raise ArchiveError('The app sign-in browser identity is unusable.')
+        return value
 
     def header_for(self, url):
         """cookie_source for the core Transport: the live Cookie header for this exact URL.
@@ -76,13 +100,28 @@ class AndroidTransport(Transport):
     """
 
     def __init__(self, cookie_source, interval=1.0, client=None, metrics=None, network_guard=None,
-                 agent=None, site=sites.DEFAULT):
+                 agent=None, site=ANDROID_TAPAS):
         source = cookie_source if isinstance(cookie_source, WebViewCookieSource) else \
             WebViewCookieSource(cookie_source, site)
+        if agent is None:
+            agent = source.browser_agent()
         super().__init__(cookies=(), interval=interval, client=client, metrics=metrics,
                          network_guard=network_guard, agent=agent, site=site,
                          cookie_source=source.header_for, cookie_sink=source.apply)
         self.store = source
+
+    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False):
+        """Route canonical Tapas identities through its Android mobile origin.
+
+        Validate before routing. The cookie store is asked for the destination URL;
+        no canonical-host header is copied to another host, no arbitrary redirect
+        is followed, and CDN/other-origin requests retain their existing boundaries.
+        """
+        asset_url(url, self.site)
+        parsed = urlsplit(url)
+        if self.site == ANDROID_TAPAS and parsed.netloc == 'tapas.io':
+            url = parsed._replace(netloc=self.site.host).geturl()
+        return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies)
 
     @property
     def assets(self):

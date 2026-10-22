@@ -10,6 +10,8 @@ constructor seams) to run.
 import json
 import unittest
 
+import httpx
+
 from comic_archive.models import ArchiveError
 from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
 
@@ -102,6 +104,51 @@ class WebViewCookieSourceTests(unittest.TestCase):
 
 
 class AndroidTransportTests(unittest.TestCase):
+    def test_real_request_path_uses_mobile_session_and_actual_webview_agent(self):
+        agent = 'Actual WebView/154 Mobile'
+        store = Store({'https://m.tapas.io/who-am-i': 'session=GOLDEN'})
+        store.browserUserAgent = lambda: agent
+        seen = []
+
+        def answer(request):
+            seen.append(request)
+            # The observed phone contract: the bare client is refused; the
+            # browser agent on canonical redirects. Only the mobile request
+            # using its own live session verifies the account.
+            if request.headers.get('User-Agent') != agent:
+                return httpx.Response(403)
+            if request.url.host == 'tapas.io':
+                return httpx.Response(302, headers={'Location': 'https://m.tapas.io/who-am-i'})
+            self.assertEqual(request.url.host, 'm.tapas.io')
+            self.assertEqual(request.headers.get('Cookie'), 'session=GOLDEN')
+            self.assertEqual(request.headers.get('Referer'), 'https://m.tapas.io/')
+            return httpx.Response(200, json={'data': {'user': {'id': 7}}})
+
+        from comic_archive.android_adapter import AndroidTapasAdapter
+        client = httpx.Client(transport=httpx.MockTransport(answer), trust_env=False)
+        with AndroidTapasAdapter(transport=AndroidTransport(store, client=client)) as adapter:
+            self.assertTrue(adapter._http.check_session())
+        self.assertEqual(len(seen), 2)  # adapter entry and explicit verification
+        self.assertEqual(store.asked, ['https://m.tapas.io/who-am-i'] * 2)
+
+    def test_routing_validates_before_reading_any_session_header(self):
+        store = Store()
+        transport = Capturing(store)
+        for url in ('http://tapas.io/who-am-i', 'https://tapas.io:444/who-am-i',
+                    'https://tapas.io.evil.test/who-am-i', 'https://m.tapas.io.evil.test/'):
+            with self.assertRaises(ArchiveError):
+                transport.get(url)
+        self.assertEqual(store.asked, [])
+        self.assertEqual(transport.sent, {})
+
+    def test_unusable_browser_agent_never_crosses_into_request_headers(self):
+        for agent in ('bad\r\nCookie: PRIVATE', 42, ''):
+            store = Store()
+            store.browserUserAgent = lambda value=agent: value
+            with self.assertRaises(ArchiveError) as error:
+                AndroidTransport(store, client=CloseableClient())
+            self.assertNotIn('PRIVATE', str(error.exception))
+
     def test_the_adapter_wires_the_store_in_and_keeps_no_jar(self):
         store = Store({'https://tapas.io/x': 'session=GOLDEN'})
         transport = AndroidTransport(store, interval=0.25, client=CloseableClient())
@@ -124,12 +171,12 @@ class AndroidTransportTests(unittest.TestCase):
                 AndroidTransport(bridge, client=CloseableClient())
 
     def test_the_live_header_travels_to_the_site_host_only_through_the_canonical_path(self):
-        store = Store({'https://tapas.io/who-am-i': 'session=GOLDEN'})
+        store = Store({'https://m.tapas.io/who-am-i': 'session=GOLDEN'})
         transport = Capturing(store)
         self.assertEqual(transport.get('https://tapas.io/who-am-i'), b'golden')
         self.assertEqual(transport.get('https://us-a.tapas.io/pc/golden/0001.png'), b'golden')
-        self.assertEqual(store.asked, ['https://tapas.io/who-am-i'])
-        self.assertEqual(transport.sent, {'https://tapas.io/who-am-i': 'session=GOLDEN',
+        self.assertEqual(store.asked, ['https://m.tapas.io/who-am-i'])
+        self.assertEqual(transport.sent, {'https://m.tapas.io/who-am-i': 'session=GOLDEN',
                                           'https://us-a.tapas.io/pc/golden/0001.png': None})
 
     def test_the_tapas_adapter_accepts_the_injected_transport_without_a_session_file(self):
@@ -141,11 +188,11 @@ class AndroidTransportTests(unittest.TestCase):
                 self.sent[url] = headers.get("Cookie")
                 return body
 
-        transport = WhoAmI(Store({'https://tapas.io/who-am-i': 'session=GOLDEN'}))
+        transport = WhoAmI(Store({'https://m.tapas.io/who-am-i': 'session=GOLDEN'}))
         with TapasHTTPAdapter(transport=transport) as adapter:
             self.assertTrue(adapter.check_session())
             self.assertEqual(adapter.account_identity(), '7')
-        self.assertEqual(transport.sent['https://tapas.io/who-am-i'], 'session=GOLDEN')
+        self.assertEqual(transport.sent['https://m.tapas.io/who-am-i'], 'session=GOLDEN')
 
 
 if __name__ == '__main__':

@@ -24,7 +24,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 from . import sites
-from .android_transport import AndroidTransport
+from .android_transport import ANDROID_TAPAS, AndroidTransport
 from .errors import AuthenticationError
 from .adapters.library_navigation import reading_list_location
 from .models import ArchiveError
@@ -40,11 +40,20 @@ def site_addresses():
     """
     return [{'key': site.key, 'home': site.home, 'signInPath': site.signin_path,
              'cookieHosts': list(site.cookie_hosts), 'signinHosts': list(site.signin_hosts)}
-            for site in sites.SITES if site.available]
+            for original in sites.SITES if original.available
+            for site in (ANDROID_TAPAS if original.key == 'tapas' else original,)]
 
 
 # The account lists the HTTP reading-list route itself verifies (reading_list_location).
 HTTP_CATEGORIES = ('subscribed', 'recent', 'updated')
+
+
+def _canonical_page_url(url):
+    """Mobile navigation still names the same canonical public series/list identities."""
+    parsed = urlsplit(url)
+    if parsed.scheme == 'https' and parsed.netloc == 'm.tapas.io':
+        return parsed._replace(netloc='tapas.io').geturl()
+    return url
 
 
 def _series_path_url(url):
@@ -72,7 +81,7 @@ class ReadingListHTML(HTMLParser):
 
     def __init__(self, page_url):
         super().__init__(convert_charrefs=True)
-        self.page_url = page_url
+        self.page_url = _canonical_page_url(page_url)
         self.cards = []
         self.page_links = []
         self._stack = []
@@ -88,7 +97,7 @@ class ReadingListHTML(HTMLParser):
         href = attributes.get('href')
         if not isinstance(href, str):
             return
-        url = urljoin(self.page_url, href)
+        url = _canonical_page_url(urljoin(self.page_url, href))
         location = reading_list_location(url)
         if location is not None:
             self.page_links.append(location)

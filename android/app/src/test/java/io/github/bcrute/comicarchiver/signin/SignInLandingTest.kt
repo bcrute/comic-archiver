@@ -12,6 +12,14 @@ import org.junit.Test
  */
 class SignInLandingTest {
 
+    @Test
+    fun android_fallback_uses_the_authenticated_mobile_cookie_origin() {
+        val site = WebViewSignInEngine.BETA_SITES.getValue("tapas")
+        assertTrue(site.home == "https://m.tapas.io")
+        assertTrue(site.cookieHosts == setOf("m.tapas.io"))
+        assertTrue(SignInLanding.admits("tapas.io", https = true, site = site))
+    }
+
     private val tapas = SiteAddress(
         "https://tapas.io", "/account/signin",
         setOf("tapas.io"), setOf("m.tapas.io"),

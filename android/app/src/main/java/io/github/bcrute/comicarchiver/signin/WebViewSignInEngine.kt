@@ -126,6 +126,7 @@ class WebViewSignInEngine(
         webView.settings.saveFormData = false
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
+        store.rememberBrowserUserAgent(webView.settings.userAgentString)
         CookieManager.getInstance().setAcceptCookie(true)
         webView.webViewClient = SignInWebViewClient(this)
         synchronized(this) {
@@ -256,8 +257,8 @@ class WebViewSignInEngine(
         /** The beta minimum; the integrated runtime feeds [sites] from the Python sites module. */
         val BETA_SITES: Map<String, SiteAddress> = mapOf(
             "tapas" to SiteAddress(
-                "https://tapas.io", "/account/signin",
-                setOf("tapas.io"), setOf("m.tapas.io"),
+                "https://m.tapas.io", "/account/signin",
+                setOf("m.tapas.io"), setOf("tapas.io"),
             ),
         )
     }

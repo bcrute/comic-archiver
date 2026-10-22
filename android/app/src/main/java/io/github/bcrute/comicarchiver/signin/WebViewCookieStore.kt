@@ -37,6 +37,14 @@ class WebViewCookieStore(
 
     private val main = Handler(Looper.getMainLooper())
 
+    @Volatile private var browserAgent: String? = null
+
+    /** Capture the real sign-in surface's public request identity before navigation. */
+    fun rememberBrowserUserAgent(value: String) { browserAgent = value }
+
+    /** The HTTP reader uses the same browser identity; no cookie or account data. */
+    fun browserUserAgent(): String? = browserAgent
+
     /** The live Cookie header for exactly this URL, or null when the store would send none. */
     override fun headerFor(url: String): String? = onMain { manager ->
         if (!isSiteUrl(url)) null else manager.getCookie(url)

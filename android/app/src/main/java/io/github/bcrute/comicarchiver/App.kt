@@ -38,7 +38,7 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        cookieStore = WebViewCookieStore(setOf("tapas.io"))
+        cookieStore = WebViewCookieStore(WebViewSignInEngine.BETA_SITES.getValue("tapas").cookieHosts)
         PythonRuntime.ensureStarted(this, cookieStore)
         // The core holds every download until its status file speaks; start writing it now.
         NetworkStatusWriter.start(this, filesDir.resolve("workspace/net.json"))

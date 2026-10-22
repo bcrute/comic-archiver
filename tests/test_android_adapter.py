@@ -30,7 +30,7 @@ class Store:
         self.asked.append(url)
         if self.broken:
             raise RuntimeError('value=PRIVATE')
-        return 'session=GOLDEN' if url.startswith('https://tapas.io/') else None
+        return 'session=GOLDEN' if url.startswith('https://m.tapas.io/') else None
 
     def apply(self, url, values):
         pass
@@ -68,10 +68,10 @@ def body(value):
     return json.dumps(value).encode()
 
 
-WHO_AM_I = "https://tapas.io/who-am-i"
+WHO_AM_I = "https://m.tapas.io/who-am-i"
 SIGNED_IN = body({'data': {'user': {'id': 4242}}})
-LIST_1 = "https://tapas.io/reading-list?category=SUBSCRIBED&pageNumber=1"
-LIST_2 = "https://tapas.io/reading-list?category=SUBSCRIBED&pageNumber=2"
+LIST_1 = "https://m.tapas.io/reading-list?category=SUBSCRIBED&pageNumber=1"
+LIST_2 = "https://m.tapas.io/reading-list?category=SUBSCRIBED&pageNumber=2"
 
 
 def page(cards, next_page=None):
@@ -98,7 +98,7 @@ LIBRARY_2 = page([card(3003, 'bronze-comic', 'Bronze Comic')])
 AMBIGUOUS = page(['<li class="content-item" data-tiara-event-meta-series-id="1001">'
                   '<div data-tiara-event-meta-series-id="2002">'
                   '<a href="/series/two-ids">Ambiguous</a></div></li>'])
-LOCKED_INFO = "https://tapas.io/episode/9003/info"
+LOCKED_INFO = "https://m.tapas.io/episode/9003/info"
 LOCKED = body({'data': {'id': 9003, 'title': 'Locked Gate', 'scene': 2, 'must_pay': True,
                         'scheduled': False, 'book': False, 'free': False, 'unlocked': False,
                         'closing_date': None}})
@@ -118,10 +118,10 @@ NOVEL_EPISODES = body({'data': {'pagination': {'total': 1, 'has_next': False}, '
 
 def library_transport():
     return SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: LIBRARY_1, LIST_2: LIBRARY_2,
-                               "https://tapas.io/series/1001": COMIC,
-                               "https://tapas.io/series/1001/episodes?page=1&max_limit=20": COMIC_EPISODES,
-                               "https://tapas.io/series/2002": NOVEL,
-                               "https://tapas.io/series/2002/episodes?page=1&max_limit=20": NOVEL_EPISODES,
+                               "https://m.tapas.io/series/1001": COMIC,
+                               "https://m.tapas.io/series/1001/episodes?page=1&max_limit=20": COMIC_EPISODES,
+                               "https://m.tapas.io/series/2002": NOVEL,
+                               "https://m.tapas.io/series/2002/episodes?page=1&max_limit=20": NOVEL_EPISODES,
                                LOCKED_INFO: LOCKED})
 
 
@@ -175,7 +175,7 @@ class AndroidTapasAdapterDiscoveryTests(unittest.TestCase):
         # every one of them the site's own page with the live session header.
         self.assertEqual([url for url, _ in transport.fetched], [WHO_AM_I, LIST_1, LIST_2])
         self.assertTrue(all(cookie == 'session=GOLDEN' for _, cookie in transport.fetched))
-        self.assertTrue(all(url.startswith('https://tapas.io/') for url, _ in transport.fetched))
+        self.assertTrue(all(url.startswith('https://m.tapas.io/') for url, _ in transport.fetched))
 
     def test_a_card_without_one_verified_identity_leaves_the_list_incomplete(self):
         transport = SyntheticTransport({WHO_AM_I: SIGNED_IN, LIST_1: AMBIGUOUS})
@@ -250,10 +250,10 @@ class AndroidTapasAdapterArchiveTests(unittest.TestCase):
         self.assertEqual(novel['episodes'][0]['access_state'], 'tapas_unlocked')
         # resolve_series and enumerate_episodes were both reached for each series.
         self.assertEqual([url for url, _ in transport.fetched], [
-            WHO_AM_I, "https://tapas.io/series/1001",
-            "https://tapas.io/series/1001/episodes?page=1&max_limit=20",
-            WHO_AM_I, "https://tapas.io/series/2002",
-            "https://tapas.io/series/2002/episodes?page=1&max_limit=20"])
+            WHO_AM_I, "https://m.tapas.io/series/1001",
+            "https://m.tapas.io/series/1001/episodes?page=1&max_limit=20",
+            WHO_AM_I, "https://m.tapas.io/series/2002",
+            "https://m.tapas.io/series/2002/episodes?page=1&max_limit=20"])
 
     def test_an_expected_account_change_stops_the_job(self):
         transport = library_transport()
@@ -288,18 +288,27 @@ class AndroidTapasAdapterConstructionTests(unittest.TestCase):
 
 
 class SignedInProbeTests(unittest.TestCase):
+    def test_mobile_reading_list_links_keep_canonical_public_identities(self):
+        parser = ReadingListHTML('https://m.tapas.io/reading-list?category=SUBSCRIBED&pageNumber=1')
+        parser.feed(page([card(1001, 'golden-comic', 'Golden Comic')], next_page=2).decode())
+        self.assertEqual(parser.cards[0]['source_url'], 'https://tapas.io/series/golden-comic')
+        absolute = ReadingListHTML('https://m.tapas.io/reading-list')
+        absolute.feed('<a href="https://m.tapas.io/series/golden-comic" '
+                      'data-tiara-event-meta-series-id="1001">Golden Comic</a>')
+        self.assertEqual(absolute.cards[0]['source_url'], 'https://tapas.io/series/golden-comic')
+
     def test_the_sites_table_for_the_native_engine_is_the_real_one(self):
         from comic_archive.android_adapter import site_addresses
         table = site_addresses()
         tapas = next(entry for entry in table if entry['key'] == 'tapas')
-        self.assertEqual(tapas, {'key': 'tapas', 'home': 'https://tapas.io',
-                                 'signInPath': '/account/signin', 'cookieHosts': ['tapas.io'],
-                                 'signinHosts': ['m.tapas.io']})
+        self.assertEqual(tapas, {'key': 'tapas', 'home': 'https://m.tapas.io',
+                                 'signInPath': '/account/signin', 'cookieHosts': ['m.tapas.io'],
+                                 'signinHosts': ['tapas.io']})
         self.assertTrue(all(set(entry) == {'key', 'home', 'signInPath', 'cookieHosts', 'signinHosts'}
                             for entry in table))
-        # Landing hosts are navigation hosts, never cookie targets: the mobile mirror
-        # appears in signinHosts only, and cookieHosts stays the downloader's exact list.
-        self.assertEqual(tapas['cookieHosts'], ['tapas.io'])
+        # Android uses the authenticated mobile origin, with exact cookie scope;
+        # canonical public identities remain navigation hosts, never cookie targets.
+        self.assertEqual(tapas['cookieHosts'], ['m.tapas.io'])
 
     def test_only_the_verified_who_am_i_reports_signed_in(self):
         self.assertEqual(signed_in_probe(transport=library_transport()),
