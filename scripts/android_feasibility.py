@@ -474,10 +474,22 @@ def phase_provision():
     return tools
 
 
+def _private_directory(path):
+    """One job-private directory, tightened to owner-only even when it already
+    exists (mkdir's mode applies only to directories it creates)."""
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+
 def _write_private_file(path, data):
-    """Materialize one job-private file with owner-only permissions from creation."""
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    """Materialize one job-private file with owner-only permissions even when the
+    path or its leaf directory already exists with looser modes."""
+    _private_directory(path.parent)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # O_CREAT's mode never reaches a file that already exists, so a leftover 0644
+    # store is tightened through the open descriptor itself.
+    os.fchmod(descriptor, 0o600)
     with os.fdopen(descriptor, "wb") as sink:
         sink.write(data)
 
@@ -500,8 +512,12 @@ def _cert_sha256(java, keystore, runner):
     JDK's keytool, which also proves the store reads back with the standard debug
     credentials. Nothing from keytool's output beyond the fingerprint is retained."""
     result = runner([str(pathlib.Path(java).parent / "keytool"), "-list", "-v",
+                     "-alias", "androiddebugkey",
                      "-keystore", str(keystore), "-storepass", "android"], timeout=120)
-    match = re.search(r"^SHA256: ([0-9A-F:]+)$", result["tail"], re.MULTILINE)
+    # keytool indents the certificate fields (observed output: "    SHA256: AA:.."),
+    # and the alias is requested so the pin is this store's debug key, not the
+    # first certificate any store happens to show.
+    match = re.search(r"^\s*SHA256: ([0-9A-F:]+)\s*$", result["tail"], re.MULTILINE)
     if result["returncode"] != 0 or not match:
         return None
     return match.group(1).replace(":", "").lower()
@@ -531,15 +547,26 @@ def phase_debug_signing(tools, env=None, runner=run_tool, keystore_path=None,
     if not java or not (pathlib.Path(java).parent / "keytool").is_file():
         record("debug_signing", "pending", reason="no pinned JDK keytool available")
         return None
-    injected = (env.get(DEBUG_KEYSTORE_ENV) or "").strip()
-    provenance = "injected" if injected else "generated"
-    if injected:
+    raw_injection = env.get(DEBUG_KEYSTORE_ENV)
+    provenance = "generated" if raw_injection is None else "injected"
+    if raw_injection is not None:
+        injected = raw_injection.strip()
+        if not injected:
+            # A present-but-empty injection is a misconfigured pin, not a request
+            # to mint a new identity; a silent generation here could strand every
+            # installed app behind a signature mismatch.
+            record("debug_signing", "failed", provenance=provenance,
+                   reason="injection is present but empty")
+            return None
         decoded, reason = _decode_debug_keystore_b64(injected)
         if decoded is None:
             record("debug_signing", "failed", provenance=provenance, reason=reason)
             return None
         _write_private_file(keystore, decoded)
     else:
+        # keytool does not create the store's directory, and the parent must be
+        # private before the key ever lands in it.
+        _private_directory(keystore.parent)
         generated = runner([str(pathlib.Path(java).parent / "keytool"), "-genkeypair",
                             "-keystore", str(keystore), "-alias", "androiddebugkey",
                             "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",

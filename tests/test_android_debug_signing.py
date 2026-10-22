@@ -48,16 +48,24 @@ def keytool_fake(fail_generate=False, fail_list=False):
             if fail_generate:
                 return {"returncode": 1, "tail": ""}
             keystore = Path(argv[argv.index("-keystore") + 1])
-            keystore.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if not keystore.parent.is_dir():
+                raise AssertionError("keytool was asked to write into a missing directory")
             keystore.write_bytes(b"generated-store")
             return {"returncode": 0, "tail": ""}
         if "-list" in argv:
             if fail_list:
                 return {"returncode": 1, "tail": ""}
+            if argv[argv.index("-alias") + 1] != "androiddebugkey":
+                raise AssertionError("certificate listing must pin the debug alias")
             colonated = ":".join(FINGERPRINT[index:index + 2]
                                  for index in range(0, len(FINGERPRINT), 2))
+            # keytool -list -v indents every certificate field, fingerprint included.
             return {"returncode": 0,
-                    "tail": f"Alias name: androiddebugkey\nSHA256: {colonated.upper()}\n"}
+                    "tail": "Alias name: androiddebugkey\n"
+                            "Entry type: PrivateKeyEntry\n"
+                            "Certificate[1]:\n"
+                            "Owner: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
+                            f"    SHA256: {colonated.upper()}\n"}
         return {"returncode": 1, "tail": ""}
 
     run.calls = calls
@@ -96,6 +104,16 @@ class StrictInjectionTests(DebugSigningTestCase):
         self.assertFalse(self.keystore.exists())
         self.assertEqual(runner.calls, [])
 
+    def test_empty_injection_fails_closed(self):
+        runner = keytool_fake()
+        result = self.phase({feasibility.DEBUG_KEYSTORE_ENV: "   \t\n"}, runner=runner)
+        self.assertIsNone(result)
+        self.assertEqual(self.recorded()["status"], "failed")
+        self.assertEqual(self.recorded()["reason"], "injection is present but empty")
+        # Fail-closed, not fail-into-generation: keytool never ran, nothing written.
+        self.assertEqual(runner.calls, [])
+        self.assertFalse(self.keystore.exists())
+
     def test_bad_padding_is_rejected_by_the_decoder_itself(self):
         self.assertEqual(feasibility._decode_debug_keystore_b64("aGVsbG8")[0], None)
         self.assertEqual(feasibility._decode_debug_keystore_b64("")[0], None)
@@ -133,6 +151,28 @@ class StrictInjectionTests(DebugSigningTestCase):
         # An injected key is the owner's stored copy; it is never re-exported.
         self.assertNotIn("private_artifact", self.recorded())
         self.assertFalse(self.artifacts.exists())
+
+
+class PrivateFileTests(DebugSigningTestCase):
+    def test_existing_loose_modes_are_tightened(self):
+        # A leftover 0644 file inside a 0755 directory must not survive: O_CREAT's
+        # mode never applies to an existing file, and mkdir's mode never applies
+        # to an existing directory.
+        directory = self.root / "loose"
+        directory.mkdir(mode=0o755)
+        target = directory / "debug.keystore"
+        target.write_bytes(b"stale-public-store")
+        os.chmod(target, 0o644)
+        feasibility._write_private_file(target, b"new-private-store")
+        self.assertEqual(target.read_bytes(), b"new-private-store")
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+
+    def test_parent_exists_before_keytool_writes(self):
+        # The generated path must hand keytool an existing private directory.
+        self.phase({})
+        self.assertEqual(stat.S_IMODE(self.keystore.parent.stat().st_mode), 0o700)
+        self.assertTrue(self.keystore.is_file())
 
 
 class GeneratedKeyTests(DebugSigningTestCase):
