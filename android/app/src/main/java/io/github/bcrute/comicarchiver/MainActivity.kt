@@ -7,9 +7,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -76,27 +82,37 @@ class MainActivity : ComponentActivity() {
                     ActivityResultContracts.OpenDocumentTree(),
                 ) { uri -> if (uri != null) exports.onFolderGranted(uri) }
 
-                ComicArchiverAppRoot(
-                    controller = controller,
-                    exportState = panel,
-                    onPickFolder = { pickFolder.launch(null) },
-                    onStartExport = { exports.startExport() },
-                    onStopExport = {
-                        exports.stopExport()
-                        controller.cancelExport()
-                    },
-                    signInContent = {
-                        AndroidView(
-                            factory = { context ->
-                                WebView(context).also { webView ->
-                                    (controller as DefaultAppController)
-                                        .attachSignInWebView(webView)
-                                }
+                // Compose owns the whole NoActionBar window: this Surface paints the app
+                // background edge to edge, and the system bars stay clear of the controls
+                // instead of the old legacy action bar overlapping them.
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        ComicArchiverAppRoot(
+                            controller = controller,
+                            exportState = panel,
+                            onPickFolder = { pickFolder.launch(null) },
+                            onStartExport = { exports.startExport() },
+                            onStopExport = {
+                                exports.stopExport()
+                                controller.cancelExport()
                             },
-                            modifier = Modifier.fillMaxWidth().height(360.dp),
+                            signInContent = {
+                                AndroidView(
+                                    factory = { context ->
+                                        WebView(context).also { webView ->
+                                            (controller as DefaultAppController)
+                                                .attachSignInWebView(webView)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(360.dp),
+                                )
+                            },
                         )
-                    },
-                )
+                    }
+                }
             }
         }
     }

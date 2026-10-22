@@ -1,0 +1,8 @@
+<resources>
+    <!-- The UI is entirely Compose, so the window must be a bare NoActionBar one that
+         Compose can own edge to edge. Without an explicit theme the platform's default
+         legacy action-bar window kept its decor on top of the ComposeView under enforced
+         edge-to-edge (API 35+), leaving the screen blank behind the old title bar. The
+         light window background matches the Compose background that paints over it. -->
+    <style name="Theme.ComicArchiver" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -12,7 +12,8 @@
     <application
         android:name=".App"
         android:allowBackup="false"
-        android:label="@string/app_name">
+        android:label="@string/app_name"
+        android:theme="@style/Theme.ComicArchiver">
         <!-- Backups are off: the app-private workspace and cookie store never leave the device. -->
 
         <activity
