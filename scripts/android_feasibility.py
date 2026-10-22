@@ -886,7 +886,9 @@ def _apk_signer_cert_sha256(sdk, java, apk, runner):
     """The APK's actual signing certificate digest, via the job's provisioned
     apksigner (newest installed build-tools revision). Pinning the keystore alone
     does not prove Gradle used it, so the shipped artifact's own certificate is
-    read back; only the public digest is ever retained."""
+    read back. Returns (digest, diagnostics): digest is None with bounded public
+    diagnostics (verifier return code and output tail) whenever the readback itself
+    fails, so a broken verifier is never conflated with a true mismatch."""
     build_tools = pathlib.Path(sdk) / "build-tools"
     apksigner = None
     if build_tools.is_dir():
@@ -894,16 +896,24 @@ def _apk_signer_cert_sha256(sdk, java, apk, runner):
                            if tool.is_dir() and (tool / "apksigner").is_file())
         apksigner = installed[-1] / "apksigner" if installed else None
     if apksigner is None:
-        return None
+        return None, {"returncode": None,
+                      "reason": "no apksigner found in the job SDK's build-tools"}
+    # JAVA_HOME names the pinned JDK for wrapper scripts that prefer it over PATH.
     result = runner([str(apksigner), "verify", "--print-certs", str(apk)], timeout=300,
-                    env_extra={"PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
+                    keep_bytes=16000,
+                    env_extra={"JAVA_HOME": str(pathlib.Path(java).parent.parent),
+                               "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
     # The SHA-1 line must not satisfy the SHA-256 match; Signer #1 is the identity
     # the platform checks for update compatibility.
     match = re.search(r"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)$",
                       result["tail"], re.MULTILINE)
-    if result["returncode"] != 0 or not match:
-        return None
-    return match.group(1).lower()
+    if result["returncode"] == 0 and match:
+        return match.group(1).lower(), None
+    # The verifier failed itself (job 35: the run's code and output were discarded,
+    # leaving the cause unknowable). apksigner --print-certs emits only public
+    # certificate data and warnings, so a bounded tail of it is safe to retain and
+    # separates "verifier problem" from "true certificate mismatch".
+    return None, {"returncode": result["returncode"], "tail": result["tail"][-800:]}
 
 
 def phase_build(paths, wheels):
@@ -919,21 +929,24 @@ def phase_build(paths, wheels):
     tail = result["tail"]
     classification = None
     apk_cert = None
+    verifier = None
     if ok:
         # The managed identity must be proven in the shipped APK itself: Gradle
         # could have fallen back to another keystore (the observed per-job
         # signature mismatch), so an unproven or differing certificate fails the
         # build rather than shipping an APK no install would accept as an update.
         expected_cert = report["phases"].get("debug_signing", {}).get("cert_sha256")
-        apk_cert = _apk_signer_cert_sha256(paths["sdk"], paths["java"], APK, run_tool)
+        apk_cert, verifier = _apk_signer_cert_sha256(paths["sdk"], paths["java"], APK, run_tool)
         if apk_cert != expected_cert:
             ok = False
             classification = "signing_certificate_mismatch"
-    if not ok:
+    if not ok and classification is None:
         # The last task Gradle marked FAILED, when present, is the truthful failure
-        # point. The earlier bare "zstandard" match mislabelled attempt 17 as a wheel
-        # failure because Chaquopy's SUCCESSFUL pip output names zstandard; keep the
-        # wheel-install heuristic only for failures that stop before any task runs.
+        # point. The bare "zstandard" match once mislabelled attempt 17 as a wheel
+        # failure because Chaquopy's SUCCESSFUL pip output names zstandard, and job
+        # 35 showed the same heuristic overwriting an honest signing classification
+        # on a BUILD SUCCESSFUL log — so relabelling applies only when no more
+        # specific classification is already set.
         failed_tasks = re.findall(r"> Task :(\S+) FAILED", tail)
         if failed_tasks:
             classification = f"task_failed:{failed_tasks[-1]}"
@@ -960,16 +973,19 @@ def phase_build(paths, wheels):
         wheel_abis = sorted(set(wheel_abis))
     artifact = None
     artifact_sha256 = None
-    if ok:
+    if result["returncode"] == 0 and APK.is_file():
         # The executor retires repo/ as soon as the job completes, taking the built APK
         # with it; the job's artifacts/ sibling survives cleanup. Preserve the exact APK
         # (and its digest, computed over the copy as it is written) so the point leaves
-        # retrievable evidence instead of a path that dies with the repo.
+        # retrievable evidence instead of a path that dies with the repo. A Gradle-built
+        # APK whose only failure is the signing certificate proof is retained too, under
+        # an explicitly UNQUALIFIED name — inspecting the real artifact beats rebuilding
+        # blind, and the distinct name keeps unproven evidence from masquerading.
         digest = hashlib.sha256()
         try:
             artifacts_dir = REPO.parent / "artifacts"
             artifacts_dir.mkdir(exist_ok=True)
-            artifact = artifacts_dir / APK.name
+            artifact = artifacts_dir / ("app-debug.apk" if ok else "app-debug-unqualified.apk")
             with APK.open("rb") as source, artifact.open("wb") as sink:
                 for chunk in iter(lambda: source.read(1024 * 1024), b""):
                     digest.update(chunk)
@@ -980,7 +996,7 @@ def phase_build(paths, wheels):
             artifact_sha256 = None
     record("build", "passed" if ok else "failed", minutes=result["minutes"], classification=classification,
            apk=str(APK) if APK.is_file() else None, wheel_abis=wheel_abis, jvm_flags=jvm_flags,
-           apk_cert_sha256=apk_cert,
+           apk_cert_sha256=apk_cert, signing_verifier=verifier,
            apk_artifact=str(artifact) if artifact else None,
            apk_sha256=artifact_sha256, apk_bytes=APK.stat().st_size if APK.is_file() else None,
            pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)

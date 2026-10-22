@@ -222,36 +222,60 @@ class ApkCertificateTests(DebugSigningTestCase):
         feasibility.report["phases"]["debug_signing"] = {"status": "passed",
                                                         "cert_sha256": FINGERPRINT}
 
-    def apksigner_fake(self, digest, returncode=0):
+    def apksigner_fake(self, digest, returncode=0, warnings=False):
         def run(argv, timeout=None, env_extra=None, **kwargs):
             if "--print-certs" in argv:
+                # The wrapper script is handed the pinned JDK both ways.
+                assert env_extra and env_extra.get("JAVA_HOME", "").endswith("/jdk")
+                assert env_extra["PATH"].split(":")[0] == str(Path(self.java).parent)
+                banner = ("WARNING: sun.security.validator.ValidatorException: "
+                          "PKIX path building failed (proxy CA)\n" * 8) if warnings else ""
                 return {"returncode": returncode, "tail": (
-                    "Signer #1 certificate DN: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
+                    banner
+                    + "Signer #1 certificate DN: CN=Comic Archiver Debug, O=Comic Archiver, C=US\n"
                     f"Signer #1 certificate SHA-256 digest: {digest}\n"
-                    "Signer #1 certificate SHA-1 digest: 0000000000000000000000000000000000000000\n")}
-            return {"returncode": 0, "minutes": 0.1, "tail": ""}
+                    "Signer #1 certificate SHA-1 digest: 0000000000000000000000000000000000000000\n"
+                    + banner)}
+            # A successful Gradle run whose Chaquopy pip tail names zstandard — job
+            # 35's exact shape that the old heuristic misread as a wheel failure.
+            return {"returncode": 0, "minutes": 1.6, "tail": (
+                "> Task :app:packageDebug\n> Task :app:assembleDebug\n\n"
+                "BUILD SUCCESSFUL in 1m 35s\n48 actionable tasks: 48 executed\n"
+                "Successfully installed zstandard-0.25.0 httpx-0.27.2\n")}
 
         return run
 
-    def run_build(self, digest, returncode=0):
+    def run_build(self, digest, returncode=0, warnings=False):
         paths = {"sdk": self.sdk, "gradle": "gradle", "java": self.java,
                  "buildpython": "python3", "debug_keystore": str(self.keystore)}
-        with patch.object(feasibility, "run_tool", self.apksigner_fake(digest, returncode)), \
+        with patch.object(feasibility, "run_tool", self.apksigner_fake(digest, returncode, warnings)), \
                 patch.object(feasibility, "APK", self.apk), \
                 patch.object(feasibility, "REPO", self.root / "repo"):
             ok = feasibility.phase_build(paths, "wheels")
         return ok, feasibility.report["phases"]["build"]
 
     def test_parser_reads_signer_one_sha256_only(self):
-        digest = feasibility._apk_signer_cert_sha256(
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
             self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT.upper()))
         self.assertEqual(digest, FINGERPRINT)
+        self.assertIsNone(diagnostics)
 
-    def test_parser_rejects_failed_or_absent_apksigner(self):
-        self.assertIsNone(feasibility._apk_signer_cert_sha256(
-            self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT, returncode=1)))
-        self.assertIsNone(feasibility._apk_signer_cert_sha256(
-            self.root / "no-build-tools", self.java, self.apk, self.apksigner_fake(FINGERPRINT)))
+    def test_parser_reads_through_verifier_warnings(self):
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT, warnings=True))
+        self.assertEqual(digest, FINGERPRINT)
+        self.assertIsNone(diagnostics)
+
+    def test_parser_rejects_failed_or_absent_apksigner_with_diagnostics(self):
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT, returncode=1))
+        self.assertIsNone(digest)
+        self.assertEqual(diagnostics["returncode"], 1)
+        self.assertIn("SHA-256", diagnostics["tail"])
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.root / "no-build-tools", self.java, self.apk, self.apksigner_fake(FINGERPRINT))
+        self.assertIsNone(digest)
+        self.assertIn("no apksigner", diagnostics["reason"])
 
     def test_matching_certificate_passes_the_build(self):
         ok, phase = self.run_build(FINGERPRINT)
@@ -259,6 +283,7 @@ class ApkCertificateTests(DebugSigningTestCase):
         self.assertEqual(phase["status"], "passed")
         self.assertEqual(phase["apk_cert_sha256"], FINGERPRINT)
         self.assertIsNone(phase["classification"])
+        self.assertTrue(phase["apk_artifact"].endswith("/artifacts/app-debug.apk"))
 
     def test_mismatched_certificate_fails_the_build(self):
         ok, phase = self.run_build(self.OTHER_FINGERPRINT)
@@ -272,6 +297,27 @@ class ApkCertificateTests(DebugSigningTestCase):
         self.assertFalse(ok)
         self.assertEqual(phase["status"], "failed")
         self.assertEqual(phase["classification"], "signing_certificate_mismatch")
+
+    def test_successful_gradle_log_naming_zstandard_keeps_signing_classification(self):
+        # Job 35's exact failure: BUILD SUCCESSFUL, Chaquopy pip tail names zstandard,
+        # the certificate proof fails — the old heuristic relabelled the phase
+        # wheel_install_failed and discarded everything about the verifier run.
+        ok, phase = self.run_build(None, returncode=1)
+        self.assertFalse(ok)
+        self.assertEqual(phase["classification"], "signing_certificate_mismatch")
+        self.assertNotIn("wheel_install_failed", phase["classification"])
+        self.assertIsNotNone(phase["signing_verifier"])
+        self.assertEqual(phase["signing_verifier"]["returncode"], 1)
+
+    def test_unqualified_apk_is_retained_on_signing_check_failure(self):
+        ok, phase = self.run_build(self.OTHER_FINGERPRINT)
+        self.assertFalse(ok)
+        unqualified = self.root / "artifacts/app-debug-unqualified.apk"
+        self.assertEqual(phase["apk_artifact"], str(unqualified))
+        self.assertTrue(unqualified.is_file())
+        self.assertEqual(unqualified.read_bytes(), self.apk.read_bytes())
+        self.assertIsNotNone(phase["apk_sha256"])
+        self.assertFalse((self.root / "artifacts/app-debug.apk").exists())
 
 
 class ReceiptHygieneTests(DebugSigningTestCase):
