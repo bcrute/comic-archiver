@@ -905,7 +905,7 @@ def _apk_signer_cert_sha256(sdk, java, apk, runner):
                                "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
     # The SHA-1 line must not satisfy the SHA-256 match; Signer #1 is the identity
     # the platform checks for update compatibility.
-    match = re.search(r"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)$",
+    match = re.search(r"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$",
                       result["tail"], re.MULTILINE)
     if result["returncode"] == 0 and match:
         return match.group(1).lower(), None
@@ -937,7 +937,10 @@ def phase_build(paths, wheels):
         # build rather than shipping an APK no install would accept as an update.
         expected_cert = report["phases"].get("debug_signing", {}).get("cert_sha256")
         apk_cert, verifier = _apk_signer_cert_sha256(paths["sdk"], paths["java"], APK, run_tool)
-        if apk_cert != expected_cert:
+        if not expected_cert or apk_cert is None:
+            ok = False
+            classification = "signing_verification_failed"
+        elif apk_cert != expected_cert:
             ok = False
             classification = "signing_certificate_mismatch"
     if not ok and classification is None:

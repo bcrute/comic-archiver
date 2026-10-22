@@ -266,6 +266,12 @@ class ApkCertificateTests(DebugSigningTestCase):
         self.assertEqual(digest, FINGERPRINT)
         self.assertIsNone(diagnostics)
 
+    def test_parser_rejects_incomplete_digest(self):
+        digest, diagnostics = feasibility._apk_signer_cert_sha256(
+            self.sdk, self.java, self.apk, self.apksigner_fake("abc123"))
+        self.assertIsNone(digest)
+        self.assertEqual(diagnostics["returncode"], 0)
+
     def test_parser_rejects_failed_or_absent_apksigner_with_diagnostics(self):
         digest, diagnostics = feasibility._apk_signer_cert_sha256(
             self.sdk, self.java, self.apk, self.apksigner_fake(FINGERPRINT, returncode=1))
@@ -296,7 +302,13 @@ class ApkCertificateTests(DebugSigningTestCase):
         ok, phase = self.run_build(None, returncode=1)
         self.assertFalse(ok)
         self.assertEqual(phase["status"], "failed")
-        self.assertEqual(phase["classification"], "signing_certificate_mismatch")
+        self.assertEqual(phase["classification"], "signing_verification_failed")
+
+    def test_absent_expected_certificate_cannot_qualify_an_apk(self):
+        feasibility.report["phases"]["debug_signing"].pop("cert_sha256")
+        ok, phase = self.run_build(FINGERPRINT)
+        self.assertFalse(ok)
+        self.assertEqual(phase["classification"], "signing_verification_failed")
 
     def test_successful_gradle_log_naming_zstandard_keeps_signing_classification(self):
         # Job 35's exact failure: BUILD SUCCESSFUL, Chaquopy pip tail names zstandard,
@@ -304,7 +316,7 @@ class ApkCertificateTests(DebugSigningTestCase):
         # wheel_install_failed and discarded everything about the verifier run.
         ok, phase = self.run_build(None, returncode=1)
         self.assertFalse(ok)
-        self.assertEqual(phase["classification"], "signing_certificate_mismatch")
+        self.assertEqual(phase["classification"], "signing_verification_failed")
         self.assertNotIn("wheel_install_failed", phase["classification"])
         self.assertIsNotNone(phase["signing_verifier"])
         self.assertEqual(phase["signing_verifier"]["returncode"], 1)
