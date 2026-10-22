@@ -17,6 +17,16 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.runtime.CompositionLocalProvider
+import io.github.bcrute.comicarchiver.controller.CatalogQuery
+import io.github.bcrute.comicarchiver.controller.CatalogChoice
+import io.github.bcrute.comicarchiver.controller.CatalogState
+import io.github.bcrute.comicarchiver.controller.SavedFilePage
+import io.github.bcrute.comicarchiver.controller.SavedFileItem
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
@@ -202,6 +212,55 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun signedOutFilesSearchSortAndPagingReachTheCatalogWithoutGo() {
+        controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut,
+            catalog = catalogFixture())
+        show(); library()
+        compose.onNodeWithText("Files").performClick()
+        compose.onNodeWithText("Find saved files").performTextInput("  one  ")
+        compose.onNodeWithText("Search").performClick()
+        assertEquals("one", controller.catalogRequests.last().first.query)
+        compose.onNodeWithText("Sort by: Newest saved").performClick()
+        compose.onNodeWithText("Series A–Z").performClick()
+        assertEquals("series", controller.catalogRequests.last().first.sort)
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Next"))
+        compose.onNodeWithText("Next").performClick()
+        assertEquals(50, controller.catalogRequests.last().first.offset)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun onlyARegisteredPortableArchiveOffersOpen() {
+        controller.state.value = controller.state.value.copy(catalog = catalogFixture())
+        show(); library(); compose.onNodeWithText("Files").performClick()
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Open"))
+        compose.onNodeWithText("Open").performClick()
+        assertEquals(listOf("a".repeat(64)), controller.openRequests)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun catalogFailureKeepsAnHonestRetryAndHidesStaleRows() {
+        controller.state.value = controller.state.value.copy(catalog = catalogFixture().copy(
+            error = "Saved files could not be loaded. Try Refresh files."))
+        show(); library(); compose.onNodeWithText("Files").performClick()
+        compose.onNodeWithText("Saved files could not be loaded. Try Refresh files.").assertIsDisplayed()
+        compose.onNodeWithText("chapter.cbz").assertDoesNotExist()
+        compose.onNodeWithText("Refresh files").performClick()
+        assertTrue(controller.catalogRequests.last().second)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun largeTextFilesCanScrollPastTheControlsToOpen() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
+                MaterialTheme { SavedFilesScreen(catalogFixture(), { _, _ -> }, controller::openSavedFile) {} }
+            }
+        }
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Open"))
+        compose.onNodeWithText("Open").assertIsDisplayed().performClick()
+        assertEquals(listOf("a".repeat(64)), controller.openRequests)
+    }
+
     @Test
     @Config(qualifiers = "w360dp-h640dp")
     fun signOutRemainsReachableOnASmallPhone() {
@@ -212,6 +271,16 @@ class RenderedScreensTest {
         compose.onNodeWithText("Go").assertDoesNotExist()
     }
 }
+
+private fun catalogFixture() = CatalogState(page = SavedFilePage(
+    rows = listOf(SavedFileItem("a".repeat(64), "Synthetic series", "Chapter one", "chapter.cbz",
+        "Comic", "4 B", "This device", null, false, "a".repeat(64))),
+    total = 101, offset = 0, limit = 50, summary = "101 saved files", range = "Showing 1–50 of 101",
+    notice = "", locations = listOf(CatalogChoice("all", "All storage")),
+    kinds = listOf(CatalogChoice("episodes", "Comics and novels")),
+    sorts = listOf(CatalogChoice("saved_desc", "Newest saved"), CatalogChoice("series", "Series A–Z")),
+    pageSizes = listOf(50, 100, 200),
+))
 
 private class ScreenController : AppController {
     override val state = MutableStateFlow(UiFixtures.coldStart.copy(
@@ -229,6 +298,8 @@ private class ScreenController : AppController {
     var goCalls = 0
     var pauseCalls = 0
     var signOutCalls = 0
+    val catalogRequests = mutableListOf<Pair<CatalogQuery, Boolean>>()
+    val openRequests = mutableListOf<String>()
     override fun go() { goCalls++; state.value = state.value.copy(download = DownloadState.Planning) }
     override fun pause() { pauseCalls++; state.value = state.value.copy(download = DownloadState.Paused("user")) }
     override fun selectSite(key: String) {}
@@ -239,6 +310,11 @@ private class ScreenController : AppController {
         state.value = state.value.copy(signIn = SignInState.SignedOut)
     }
     override fun stop() {}
+    override fun loadCatalog(query: CatalogQuery, refresh: Boolean) {
+        catalogRequests.add(query to refresh)
+        state.value = state.value.copy(catalog = state.value.catalog.copy(query = query))
+    }
+    override fun openSavedFile(id: String) { openRequests.add(id) }
     override fun refreshSettings() { settingsRefreshes++ }
     override fun setWifiOnly(value: Boolean) {
         state.value = state.value.copy(settings = state.value.settings?.copy(wifiOnly = value))

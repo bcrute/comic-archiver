@@ -125,6 +125,37 @@ class ActivitySessionTest {
         assertSame(exports, app.exports)
         assertEquals(0, app.fake.count("go"))
     }
+
+    @Test fun filesUseTheControllerBridgeAndSurviveRecreationWithoutGo() {
+        ready()
+        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithText("Files").performClick()
+        awaitState { app.controller.state.value.catalog.page != null &&
+            !app.controller.state.value.catalog.loading }
+        assertEquals(1, app.controller.state.value.catalog.page!!.total)
+        compose.onNodeWithText("Find saved files").performTextInput("One")
+        compose.onNodeWithText("Search").performClick()
+        awaitState { !app.controller.state.value.catalog.loading }
+        compose.activityRule.scenario.recreate()
+        awaitState { !app.controller.state.value.catalog.loading }
+        compose.onNodeWithText("Find saved files").assertIsDisplayed()
+        assertEquals("One", app.controller.state.value.catalog.query.query)
+        assertEquals(0, app.fake.count("go"))
+        assertEquals(0, app.fake.count("worker_start"))
+    }
+
+    @Test fun failedCatalogRefreshShowsFailureRatherThanAnEmptyOrStaleResult() {
+        ready()
+        compose.runOnIdle { app.controller.loadCatalog(io.github.bcrute.comicarchiver.controller.CatalogQuery()) }
+        awaitState { app.controller.state.value.catalog.page != null }
+        compose.runOnIdle {
+            app.fake.catalogReadable = false
+            app.controller.loadCatalog(app.controller.state.value.catalog.query, true)
+        }
+        awaitState { app.controller.state.value.catalog.error != null }
+        assertEquals(1, app.controller.state.value.catalog.page!!.total)
+        assertEquals(0, app.fake.count("go"))
+    }
 }
 
 /** A host seam, not a second controller or fake app UI. No Python/HTTP bootstrap. */
@@ -137,6 +168,7 @@ class LifecycleTestApp : App() {
 
 class LifecycleBridge : PythonBridge {
     @Volatile var settingsReadable = true
+    @Volatile var catalogReadable = true
     @Volatile private var wifiOnly = true
     @Volatile private var speed = "medium"
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
@@ -145,12 +177,19 @@ class LifecycleBridge : PythonBridge {
         calls.computeIfAbsent(op) { AtomicInteger() }.incrementAndGet()
         if (op in setOf("settings", "configure_settings") && !settingsReadable)
             return """{"ok":false,"code":"job_failed"}"""
+        if (op == "file_catalog" && !catalogReadable) return """{"ok":false,"code":"job_failed"}"""
         if (op == "configure_settings") {
             val args = JSONObject(argsJson)
             if (args.has("wifi_only")) wifiOnly = args.getBoolean("wifi_only")
             if (args.has("speed")) speed = args.getString("speed")
         }
         val result = when (op) {
+            "file_catalog" -> """{"rows":[{"row_id":"${"a".repeat(64)}","open":"${"a".repeat(64)}",
+                "series":"Test Comic","title":"One","filename":"one.cbz","type":"Comic","size":"4 B",
+                "storage":"This device","saved_epoch":null,"file_time":false}],"total":1,"offset":0,
+                "limit":50,"summary":"One saved episode","range":"Showing 1 of 1","notice":"Loaded",
+                "locations":[{"id":"all","label":"All storage"}],"kinds":[{"key":"episodes","label":"Comics and novels"}],
+                "sorts":[{"key":"saved_desc","label":"Newest saved first"}],"page_sizes":[50,100,200]}"""
             "settings", "configure_settings" -> """{"wifi_only":$wifiOnly,"speed":"$speed",
                 "connection":"wifi","metered":false,"allowed":true,"speeds":[
                 {"key":"fast","label":"Fast","available":false},

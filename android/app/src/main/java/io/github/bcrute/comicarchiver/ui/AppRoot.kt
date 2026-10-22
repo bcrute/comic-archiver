@@ -86,6 +86,9 @@ fun ComicArchiverAppRoot(
                 }
                 AppTab.LIBRARY -> LibraryScreen(
                     series = state.toLibraryUi(),
+                    catalog = state.catalog,
+                    onCatalogQuery = controller::loadCatalog,
+                    onOpenFile = controller::openSavedFile,
                     exportState = exportState,
                     onPickFolder = onPickFolder,
                     onStartExport = onStartExport,

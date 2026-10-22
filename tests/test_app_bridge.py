@@ -41,7 +41,7 @@ class BridgeEnvelopeTests(unittest.TestCase):
         # Every §2 op (and the flagged native-line extensions) is a real op now: each one
         # answers its own envelope, never the scaffold's not_implemented.
         for op in ("enqueue_sync", "library_listing", "export_manifest", "export_status",
-                   "signin_probe", "signin_restore", "signout_record", "settings", "configure_settings"):
+                   "signin_probe", "signin_restore", "signout_record", "settings", "configure_settings", "file_catalog", "file_open"):
             with self.subTest(op):
                 value = self.call(json.dumps({"v": 1, "op": op, "args": {}}))
                 self.assertFalse(value["ok"])
@@ -61,6 +61,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         app_bridge._workspace["root"] = None
         app_bridge._seams.update(store=None, cookie_source=None, cookie_sink=None)
         app_bridge._export_cache.update(root=None, facts=None, summary=None)
+        app_bridge._catalog_cache.update(root=None, registry=None)
 
     def _cleanup(self):
         from comic_archive import network_android
@@ -399,6 +400,74 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(comic["seriesId"], "123")
         self.assertEqual(comic["relpath"], "Sample Comic/episode-1.cbz")
         self.assertRegex(value["result"]["manifest_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_file_catalog_matches_the_desktop_catalog_and_core_filter_catalogs(self):
+        from unittest.mock import patch
+        from comic_archive import library_model
+        from comic_archive.local_library import LOCAL_OWNER
+        self._export_library()
+        with patch("comic_archive.worker_host.start_in_process") as start:
+            value = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "episodes"}})
+        self.assertTrue(value["ok"], value)
+        page = value["result"]
+        registry = app_bridge._catalog_registry(self.root)
+        desktop = registry.saved_files(LOCAL_OWNER, registry.workspace_id, kind="episodes", sort="saved_desc")
+        self.assertEqual([(r["filename"], r["open"]) for r in page["rows"]],
+                         [(r["filename"], r["open"]) for r in library_model.rows(desktop, False)])
+        self.assertEqual(page["total"], 3)
+        self.assertEqual(page["kinds"], [{"key": k, "label": v} for k, v in library_model.KINDS])
+        self.assertEqual(page["sorts"], [{"key": k, "label": v} for k, v in library_model.SORTS])
+        self.assertEqual(page["page_sizes"], list(library_model.PAGE_SIZES))
+        self.assertTrue(all("relpath" not in row for row in page["rows"]))
+        start.assert_not_called()
+
+    def test_catalog_search_types_paging_and_stable_ids_survive_reconstruction(self):
+        self._export_library()
+        result = self.call("file_catalog", {"root": str(self.root), "options": {
+            "query": "ONE", "kind": "episodes", "limit": 1, "sort": "series"}})
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["result"]["total"], 1)
+        row = result["result"]["rows"][0]
+        self.assertEqual(row["filename"], "episode-1.cbz")
+        app_bridge._catalog_cache.update(root=None, registry=None)
+        again = self.call("file_catalog", {"root": str(self.root), "options": {"query": "ONE", "kind": "episodes"}})
+        self.assertEqual(again["result"]["rows"][0]["open"], row["open"])
+        data = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "metadata", "limit": 1}})
+        self.assertTrue(data["ok"], data)
+        self.assertGreater(data["result"]["total"], 1)
+        self.assertEqual(len(data["result"]["rows"]), 1)
+        self.assertIsNone(data["result"]["rows"][0]["open"])
+        second = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "metadata", "limit": 1, "offset": 1}})
+        self.assertNotEqual(data["result"]["rows"][0]["row_id"], second["result"]["rows"][0]["row_id"])
+
+    def test_file_open_resolves_only_registered_local_archives_and_refuses_stale_or_metadata_ids(self):
+        from unittest.mock import patch
+        self._export_library()
+        page = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "all"}})["result"]
+        comic = next(row for row in page["rows"] if row["filename"] == "episode-1.cbz")
+        with patch("subprocess.Popen") as spawn:
+            opened = self.call("file_open", {"root": str(self.root), "id": comic["open"]})
+        self.assertTrue(opened["ok"], opened)
+        self.assertEqual(opened["result"], {"relpath": "Sample Comic/episode-1.cbz", "kind": "cbz"})
+        spawn.assert_not_called()
+        metadata = next(row for row in page["rows"] if row["type"] == "Data file")
+        refused = self.call("file_open", {"root": str(self.root), "id": metadata["row_id"]})
+        self.assertFalse(refused["ok"])
+        original = self.root / "Library/Sample Comic/episode-1.cbz"
+        original.unlink()
+        self.assertFalse(self.call("file_open", {"root": str(self.root), "id": comic["open"]})["ok"])
+        original.symlink_to(self.root / "Library/Sample Novel/chapter-1.epub")
+        self.assertFalse(self.call("file_open", {"root": str(self.root), "id": comic["open"]})["ok"])
+        for bad in ("../private", "0" * 64, 123, None):
+            self.assertFalse(self.call("file_open", {"root": str(self.root), "id": bad})["ok"])
+
+    def test_catalog_refuses_implicit_or_unknown_filters(self):
+        self._export_library()
+        for options in ({"limit": True}, {"refresh": "1"}, {"query": []}, {"location": "private"},
+                        {"kind": "private"}, {"sort": "missing"}, {"offset": -1}, {"limit": 201},
+                        {"query": "x" * 201}, {"extra": "private"}):
+            with self.subTest(options):
+                self.assertFalse(self.call("file_catalog", {"root": str(self.root), "options": options})["ok"])
 
     def test_export_status_answers_the_summary_and_follows_changes(self):
         self._export_library()

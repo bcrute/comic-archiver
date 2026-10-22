@@ -25,6 +25,15 @@
             </intent-filter>
         </activity>
 
+        <provider
+            android:name=".library.ArchiveFileProvider"
+            android:authorities="${applicationId}.archives"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/archive_paths" />
+        </provider>
+
         <service
             android:name=".worker.DownloadHostService"
             android:exported="false"

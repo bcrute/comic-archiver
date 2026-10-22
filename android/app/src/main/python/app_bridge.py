@@ -20,14 +20,16 @@ import hashlib
 import json
 import os
 import platform
+import threading
 from pathlib import Path
+from urllib.parse import urlencode
 
 VERSION = 1
 
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
-                 "settings", "configure_settings"})
+                 "settings", "configure_settings", "file_catalog", "file_open"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -40,6 +42,8 @@ _seams = {"store": None, "cookie_source": None, "cookie_sink": None}
 # The export summary's stat identity, so export_status polling does not re-digest a
 # library whose files have not changed. Keyed to one root: the beta has exactly one.
 _export_cache = {"root": None, "facts": None, "summary": None}
+_catalog_cache = {"root": None, "registry": None}
+_catalog_lock = threading.Lock()
 
 
 class _BridgeError(Exception):
@@ -320,6 +324,66 @@ def _configure_settings(args):
     return _core(configure)
 
 
+def _catalog_registry(root):
+    from comic_archive.local_library import LocalWorkspaceRegistry
+    with _catalog_lock:
+        if _catalog_cache["root"] != str(root) or _catalog_cache["registry"] is None:
+            registry = LocalWorkspaceRegistry(root)
+            _catalog_cache.update(root=str(root), registry=registry)
+        return _catalog_cache["registry"]
+
+
+def _file_catalog(args):
+    root = _path_arg(args, "root")
+    options = args.get("options", {})
+    if not isinstance(options, dict) or set(options) - {"query", "location", "kind", "sort", "offset", "limit", "refresh"}:
+        raise _BridgeError("bad_request", "Choose supported saved-file filters.")
+    values = {}
+    for name, value in options.items():
+        expected = bool if name == "refresh" else int if name in {"offset", "limit"} else str
+        if type(value) is not expected:
+            raise _BridgeError("bad_request", "Choose supported saved-file filters.")
+        values["q" if name == "query" else name] = ("1" if value else "0") if expected is bool else value
+
+    def listing(ArchiveError):
+        from comic_archive import library_model, saved_library
+        from comic_archive.local_library import LOCAL_OWNER
+        from datetime import datetime
+        checked = saved_library.options(urlencode({"kind": "episodes"} | values))
+        registry = _catalog_registry(root)
+        result = registry.saved_files(LOCAL_OWNER, registry.workspace_id, **checked)
+        displayed = library_model.rows(result, False)
+        for raw, row in zip(result["files"], displayed, strict=True):
+            try:
+                row["saved_epoch"] = datetime.fromisoformat(raw["saved_at"]).timestamp() if raw["saved_at"] else None
+            except (ValueError, TypeError):
+                row["saved_epoch"] = None
+            row["row_id"] = raw.get("id")
+        return {"rows": displayed, "total": result["total"], "offset": result["offset"], "limit": result["limit"],
+                "summary": library_model.summary(result, False), "range": library_model.range_text(result),
+                "notice": library_model.notice(result).replace("Use Dashboard to start.", "Use Saving to start."), "locations": library_model.places(result, False, checked["location"]),
+                "kinds": [{"key": key, "label": label} for key, label in library_model.KINDS],
+                "sorts": [{"key": key, "label": label} for key, label in library_model.SORTS],
+                "page_sizes": list(library_model.PAGE_SIZES)}
+
+    return _core(listing)
+
+
+def _file_open(args):
+    root = _path_arg(args, "root")
+    identifier = args.get("id")
+
+    def select(ArchiveError):
+        from comic_archive.local_library import LOCAL_OWNER
+        registry = _catalog_registry(root)
+        path, kind = registry.resolve_export(LOCAL_OWNER, registry.workspace_id, identifier)
+        if kind not in {"cbz", "epub"}:
+            raise ArchiveError("Only a finished comic or novel can be opened in a reader.")
+        return {"relpath": path.relative_to(root / "Library").as_posix(), "kind": kind}
+
+    return _core(select)
+
+
 def _enqueue_sync(args):
     """Queue the fixed library-sync job on the running worker; fixed words only (§2)."""
     session = _path_arg(args, "session_root")
@@ -509,6 +573,8 @@ HANDLERS = {"ping": _ping,
             "signin_restore": _signin_restore,
             "settings": _settings,
             "configure_settings": _configure_settings,
+            "file_catalog": _file_catalog,
+            "file_open": _file_open,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,

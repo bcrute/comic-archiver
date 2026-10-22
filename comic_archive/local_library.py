@@ -297,16 +297,20 @@ class LocalWorkspaceRegistry:
         self.resolve(owner, workspace_id)
         return self.cloud_signin.cancel()
 
-    def open_file_on_device(self, owner, workspace_id, export_id):
+    def resolve_export(self, owner, workspace_id, export_id):
+        """Resolve a registered portable file for a platform-specific reader handoff."""
         workspace = self.resolve(owner, workspace_id)
         if not isinstance(export_id, str) or not re.fullmatch(r'[a-f0-9]{64}', export_id):
             raise ArchiveError('Saved file is unavailable.')
         selected = self._exports(workspace).get(export_id)
         if selected is None:
             raise ArchiveError('Saved file is unavailable.')
+        return selected
+
+    def open_file_on_device(self, owner, workspace_id, export_id):
+        path, _ = self.resolve_export(owner, workspace_id, export_id)
         # Only registered portable exports reach the fixed desktop opener.
         # There is no archive extraction, byte transfer or temporary copy.
-        path, _ = selected
         try:
             if WINDOWS:
                 os.startfile(path)  # Windows takes the file and reports nothing more about the application.

@@ -1,0 +1,154 @@
+package io.github.bcrute.comicarchiver.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import io.github.bcrute.comicarchiver.controller.CatalogChoice
+import io.github.bcrute.comicarchiver.controller.CatalogQuery
+import io.github.bcrute.comicarchiver.controller.CatalogState
+import java.text.DateFormat
+import java.util.Date
+
+/** The desktop catalog's projection, laid out for a phone. Filters are server-supplied,
+ * storage is never scanned here, and only a catalog-offered CBZ/EPUB gets Open. */
+@Composable
+fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Unit,
+                     onOpen: (String) -> Unit, exportPanel: @Composable () -> Unit) {
+    val query = state.query
+    val page = state.page
+    var draft by rememberSaveable { mutableStateOf(query.query) }
+    var pageDraft by rememberSaveable { mutableStateOf("1") }
+    LaunchedEffect(query.query) { draft = query.query }
+    LaunchedEffect(query.offset, query.limit) { pageDraft = (query.offset / query.limit + 1).toString() }
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp).testTag("saved-files-list"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Saved files", style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(value = draft, onValueChange = { draft = it.take(200) },
+                    label = { Text("Find saved files") }, singleLine = true, enabled = !state.loading,
+                    modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !state.loading, onClick = { onQuery(query.copy(query = draft.trim(), offset = 0), false) }) {
+                        Text("Search")
+                    }
+                    TextButton(enabled = !state.loading, onClick = {
+                        draft = ""; onQuery(query.copy(query = "", kind = "episodes", offset = 0), false)
+                    }) { Text("Clear") }
+                    TextButton(enabled = !state.loading, onClick = { onQuery(query, true) }) { Text("Refresh files") }
+                }
+                if (page != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CatalogMenu("File types", page.kinds, query.kind, !state.loading, Modifier.weight(1f)) {
+                            onQuery(query.copy(kind = it, offset = 0), false)
+                        }
+                        CatalogMenu("Sort by", page.sorts, query.sort, !state.loading, Modifier.weight(1f)) {
+                            onQuery(query.copy(sort = it, offset = 0), false)
+                        }
+                    }
+                    CatalogMenu("Storage", page.locations, query.location, !state.loading) {
+                        onQuery(query.copy(location = it, offset = 0), false)
+                    }
+                }
+                if (state.loading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text("Loading saved files…")
+                }
+                state.error?.let { Text(it) }
+                state.feedback?.let { Text(it) }
+            }
+        }
+        item { exportPanel() }
+        if (!state.loading && state.error == null && page != null) {
+            item { Text(page.summary) }
+            item { Text(page.range.ifBlank { page.notice }) }
+            items(page.rows, key = { it.key }) { file ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(file.series, style = MaterialTheme.typography.titleSmall)
+                        Text(file.title)
+                        Text(file.filename, style = MaterialTheme.typography.bodySmall)
+                        Text("${file.type} · ${file.size} · ${file.storage}")
+                        file.savedEpoch?.let { epoch ->
+                            Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
+                        }
+                        file.openId?.let { id ->
+                            Button(onClick = { onOpen(id) }, enabled = state.openingId == null) {
+                                Text(if (state.openingId == id) "Opening…" else "Open")
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                val pages = maxOf(1L, (page.total.toLong() + query.limit - 1) / query.limit).toInt()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(enabled = query.offset > 0, onClick = {
+                        onQuery(query.copy(offset = (query.offset - query.limit).coerceAtLeast(0)), false)
+                    }) { Text("Previous") }
+                    TextButton(enabled = query.offset + query.limit < page.total, onClick = {
+                        onQuery(query.copy(offset = (query.offset + query.limit).coerceAtMost(10_000_000)), false)
+                    }) { Text("Next") }
+                    Text("Page ${query.offset / query.limit + 1} of $pages")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = pageDraft, onValueChange = { value ->
+                        if (value.length <= 8 && value.all(Char::isDigit)) pageDraft = value
+                    }, label = { Text("Page") }, singleLine = true, modifier = Modifier.weight(1f))
+                    TextButton(enabled = pageDraft.toIntOrNull() != null, onClick = {
+                        val chosen = (pageDraft.toIntOrNull() ?: 1).coerceIn(1, pages)
+                        onQuery(query.copy(offset = ((chosen.toLong() - 1) * query.limit)
+                            .coerceAtMost(10_000_000).toInt()), false)
+                    }) { Text("Go to page") }
+                }
+                CatalogMenu("Files per page", page.pageSizes.map { CatalogChoice(it.toString(), it.toString()) },
+                    query.limit.toString(), true) {
+                    onQuery(query.copy(limit = it.toInt(), offset = 0), false)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogMenu(label: String, choices: List<CatalogChoice>, selected: String, enabled: Boolean,
+                        modifier: Modifier = Modifier, onSelect: (String) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Box(modifier) {
+        TextButton(onClick = { expanded = true }, enabled = enabled) {
+            Text("$label: ${choices.firstOrNull { it.key == selected }?.label ?: selected}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            choices.forEach { choice ->
+                DropdownMenuItem(text = { Text(choice.label) }, onClick = {
+                    expanded = false; onSelect(choice.key)
+                })
+            }
+        }
+    }
+}

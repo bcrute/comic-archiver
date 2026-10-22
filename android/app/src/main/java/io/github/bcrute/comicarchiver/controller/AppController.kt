@@ -27,6 +27,8 @@ interface AppController {
     fun refreshSettings()
     fun setWifiOnly(value: Boolean)
     fun setDownloadSpeed(value: String)
+    fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
+    fun openSavedFile(id: String)
 
     fun requestExport(folderUri: String)
     fun cancelExport()

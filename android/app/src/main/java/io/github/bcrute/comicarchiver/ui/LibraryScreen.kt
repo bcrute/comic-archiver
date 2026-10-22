@@ -20,6 +20,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import io.github.bcrute.comicarchiver.controller.CatalogState
+import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +42,31 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun LibraryScreen(
+    series: List<LibrarySeriesUi>, exportState: ExportPanelStateUi,
+    onPickFolder: () -> Unit, onStartExport: () -> Unit, onStopExport: () -> Unit,
+    catalog: CatalogState = CatalogState(),
+    onCatalogQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> },
+    onOpenFile: (String) -> Unit = {},
+) {
+    var view by rememberSaveable { mutableStateOf("Series") }
+    LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Series", "Files").forEach { choice ->
+                FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport)
+            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
+                ExportPanel(exportState, onPickFolder, onStartExport, onStopExport)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesLibraryScreen(
     series: List<LibrarySeriesUi>,
     exportState: ExportPanelStateUi,
     onPickFolder: () -> Unit,
@@ -134,7 +162,7 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun ExportPanel(
+internal fun ExportPanel(
     state: ExportPanelStateUi,
     onPickFolder: () -> Unit,
     onStartExport: () -> Unit,

@@ -11,6 +11,7 @@ data class AppState(
     val settings: DownloadSettings? = null,
     val settingsBusy: Boolean = false,
     val settingsNotice: Notice? = null,
+    val catalog: CatalogState = CatalogState(),
 )
 
 data class SpeedChoice(val key: String, val label: String, val available: Boolean)

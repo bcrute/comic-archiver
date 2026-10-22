@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.Build
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.app
+import io.github.bcrute.comicarchiver.library.ArchiveViewer
+import io.github.bcrute.comicarchiver.library.ArchiveOpenResult
 import io.github.bcrute.comicarchiver.signin.SignInEngine
 import io.github.bcrute.comicarchiver.worker.DefaultDownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHost
@@ -51,6 +53,8 @@ class DefaultAppController(
     @Volatile private var admitted = false
     private var admissionVersion = 0L
     private val settingsActions = Mutex()
+    private var catalogVersion = 0L
+    private val viewer = ArchiveViewer(context, context.filesDir.resolve("workspace/Library"))
 
     private val _state = MutableStateFlow(
         AppState(site = "tapas", signIn = SignInState.SignedOut, download = DownloadState.Held,
@@ -179,6 +183,53 @@ class DefaultAppController(
 
     override fun setDownloadSpeed(value: String) {
         changeSettings(JSONObject().put("speed", value))
+    }
+
+    override fun loadCatalog(query: CatalogQuery, refresh: Boolean) {
+        val prior = _state.value.catalog
+        if (prior.loading && prior.query == query && !refresh) return
+        val version = ++catalogVersion
+        _state.value = _state.value.copy(catalog = prior.copy(query = query, loading = true,
+            error = null, feedback = null))
+        scope.launch(Dispatchers.IO) {
+            val page = try {
+                FileCatalog.parse(bridge.dispatch("file_catalog", JSONObject().put("root", workspaceRoot)
+                    .put("options", query.json(refresh)).toString()))
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                if (version != catalogVersion) return@withContext
+                _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
+                    page = page ?: _state.value.catalog.page, loading = false,
+                    query = if (page == null) query else query.copy(offset = page.offset, limit = page.limit),
+                    error = if (page == null) "Saved files could not be loaded. Try Refresh files." else null,
+                ))
+            }
+        }
+    }
+
+    override fun openSavedFile(id: String) {
+        if (_state.value.catalog.openingId != null) return
+        _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
+            feedback = "Opening in your device's reader…"))
+        scope.launch(Dispatchers.IO) {
+            val file = try {
+                val answer = JSONObject(bridge.dispatch("file_open", JSONObject().put("root", workspaceRoot)
+                    .put("id", id).toString()))
+                if (answer.optBoolean("ok")) answer.getJSONObject("result") else null
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                val result = file?.let { viewer.open(it.optString("relpath"), it.optString("kind")) }
+                val feedback = when (result) {
+                    ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
+                    ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
+                    else -> "This file could not be opened. Refresh files and try again."
+                }
+                _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
+                    openingId = null, feedback = feedback))
+            }
+        }
     }
 
     private fun changeSettings(args: JSONObject) {

@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -88,7 +89,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                         ComicArchiverAppRoot(
                             controller = controller,
                             exportState = panel,
