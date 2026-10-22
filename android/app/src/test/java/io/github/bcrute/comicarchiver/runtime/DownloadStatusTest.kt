@@ -38,4 +38,37 @@ class DownloadStatusTest {
         for (body in listOf("{}", """{"ok":false}""", """{"ok":true,"result":{}}"""))
             assertTrue(DownloadStatus.fromEnvelope(JSONObject(body)) is DownloadState.Failed)
     }
+    private fun live(progress: String, counts: String = """{"saved_episodes":22}""") =
+        DownloadStatus.fromEnvelope(JSONObject("""{"ok":true,"result":{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"series"},"progress":$progress,"counts":$counts}}""")) as DownloadState.Running
+
+    @Test fun actual_transfer_overrides_generic_account_series_phase_and_exposes_counters() {
+        val result = live("""{"phase":"archive","downloaded_pages":316,"downloaded_bytes":67108864,"age_seconds":1}""")
+        assertEquals("Downloading episodes…", result.description)
+        assertTrue(result.detail!!.contains("22 episodes saved"))
+        assertTrue(result.detail!!.contains("316 image pages"))
+        assertTrue(result.detail!!.contains("64 MiB"))
+        assertEquals(0, result.total) // No invented account-wide percentage.
+    }
+
+    @Test fun changing_progress_changes_the_visible_feedback() {
+        val first = live("""{"phase":"archive","downloaded_pages":10,"downloaded_bytes":1048576}""")
+        val second = live("""{"phase":"archive","downloaded_pages":20,"downloaded_bytes":2097152}""")
+        assertNotEquals(first.detail, second.detail)
+        assertTrue(second.detail!!.contains("20 image pages"))
+    }
+
+    @Test fun discovery_displays_observed_pages_and_series_without_waiting_for_the_list_to_finish() {
+        val result = live("""{"phase":"account_list","reading_list_page_count":53,"observed_library_series_count":265,"age_seconds":8}""")
+        assertEquals("Reading your library…", result.description)
+        assertTrue(result.detail!!.contains("265 series found"))
+        assertTrue(result.detail!!.contains("53 list pages"))
+        assertTrue(result.detail!!.contains("Last progress 8 s ago"))
+    }
+
+    @Test fun absent_invalid_and_unknown_counters_do_not_become_progress() {
+        val result = live("""{"downloaded_pages":-1,"downloaded_bytes":"PRIVATE","age_seconds":false}""", "{}")
+        assertNull(result.detail)
+        assertFalse(result.description!!.contains("PRIVATE"))
+    }
+
 }

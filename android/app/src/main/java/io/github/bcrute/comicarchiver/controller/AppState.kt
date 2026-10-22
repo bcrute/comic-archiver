@@ -30,7 +30,8 @@ sealed interface DownloadState {
      */
     data object Held : DownloadState
     data object Planning : DownloadState
-    data class Running(val done: Int, val total: Int, val description: String? = null) : DownloadState
+    data class Running(val done: Int, val total: Int, val description: String? = null,
+                       val detail: String? = null) : DownloadState
     data class Paused(val reason: String) : DownloadState
     data class Finished(val summary: String) : DownloadState
     data class Failed(val code: String) : DownloadState

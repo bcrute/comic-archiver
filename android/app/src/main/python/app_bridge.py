@@ -202,10 +202,10 @@ def _account_ui_op(name):
                 from comic_archive import android_download
                 android_download.start(workspace)
                 return {}
-            value = getattr(account_ui, name)(workspace)
             if name == "status":
-                from comic_archive import worker_host
-                return {"account": value, "worker": worker_host.status(workspace.session)}
+                from comic_archive import android_download
+                return android_download.status(workspace)
+            getattr(account_ui, name)(workspace)
             return {}
 
         return _core(call)

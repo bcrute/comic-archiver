@@ -136,7 +136,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
         value = self.call("download_status", {"root": str(self.root)})
         self.assertTrue(value["ok"])
-        self.assertEqual(set(value["result"]), {"account", "worker"})
+        self.assertEqual(set(value["result"]), {"account", "worker", "counts", "progress"})
         self.assertEqual(value["result"]["account"]["status"], "running")
         self.assertEqual(value["result"]["account"]["phase"], "lists")
         self.assertFalse(value["result"]["worker"]["running"])

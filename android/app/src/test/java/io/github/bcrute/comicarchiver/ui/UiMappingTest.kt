@@ -219,4 +219,12 @@ class UiMappingTest {
         // UiMapping produces from them at render time).
         assertTrue(UiFixtures.running.download is DownloadState.Running)
     }
+    @Test
+    fun `live status details reach the screen without being discarded`() {
+        val ui = state(download = DownloadState.Running(0, 0, "Downloading episodes…", "22 episodes saved\n316 image pages"))
+            .toDownloadsScreenUi().download as DownloadsViewUi.Running
+        assertEquals("Downloading episodes…", ui.description)
+        assertEquals("22 episodes saved\n316 image pages", ui.detail)
+    }
+
 }

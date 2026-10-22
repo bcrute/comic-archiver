@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
@@ -33,7 +35,7 @@ fun DownloadsScreen(
     onDismissNotice: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Saving", style = MaterialTheme.typography.headlineSmall)
@@ -56,7 +58,7 @@ fun DownloadsScreen(
                 onClick = onGo,
                 enabled = state.download.goEnabled(),
                 modifier = Modifier.weight(1f),
-            ) { Text("Go") }
+            ) { Text(if (state.download is DownloadsViewUi.Running) "Running" else "Go") }
             OutlinedButton(
                 onClick = onPause,
                 enabled = state.download.pauseEnabled(),
@@ -101,7 +103,10 @@ private fun ProgressCard(running: DownloadsViewUi.Running) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
-                Text(running.description ?: "Getting ready", style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            running.detail?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
