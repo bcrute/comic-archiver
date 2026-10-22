@@ -75,7 +75,7 @@ class WebViewSignInEngine(
     private val onSettle: () -> Unit = {},
     private val timeoutMs: Long = SIGNIN_TIMEOUT_MS,
     private val sites: Map<String, SiteAddress> = BETA_SITES,
-) : SignInEngine {
+) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
     private val _state = MutableStateFlow<SignInState>(SignInState.SignedOut)
@@ -162,18 +162,22 @@ class WebViewSignInEngine(
 
     /** The sign-in session this engine is running now, or 0 while none is open. The probe
      *  compares it so an answer from an earlier session can never settle a later one. */
-    fun currentSession(): Long = synchronized(this) { if (sessionOpen) sessionId else 0L }
+    override fun currentSession(): Long =
+        synchronized(this) { if (sessionOpen) sessionId else 0L }
+
+    /** The engine's live state for the settle-time probe's loop. */
+    override fun signInState(): SignInState = state.value
 
     /** Only the embedded core's verified who-am-i success may produce SignedIn, and only
      * while this engine's own sign-in session [session] is open inside its bound — a
      * stale answer from an earlier session authenticates nothing. */
-    fun verified(session: Long) {
+    override fun verified(session: Long) {
         if (!sessionInProgress(session)) return
         finish(SignInState.SignedIn(synchronized(this) { siteKey } ?: return))
     }
 
     /** The core's verification failed for [session]; its fixed code is the honest report. */
-    fun verificationFailed(code: String, session: Long) {
+    override fun verificationFailed(code: String, session: Long) {
         if (!sessionInProgress(session)) return
         finish(SignInState.Failed(code))
     }

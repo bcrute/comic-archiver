@@ -86,7 +86,13 @@ class DefaultAppController(
         }
     }
 
-    override fun cancelSignIn() = engine.cancelSignIn()
+    override fun cancelSignIn() {
+        // A cancel only speaks to an attempt in flight (the Back handler's case); a
+        // finished sign-in is real state that survives cancels — the activity's own
+        // destruction calls this too, and a rotation must not end a signed-in session.
+        val signIn = _state.value.signIn
+        if (signIn is SignInState.Page || signIn is SignInState.Settling) engine.cancelSignIn()
+    }
 
     override fun signOut() {
         scope.launch(Dispatchers.IO) {
