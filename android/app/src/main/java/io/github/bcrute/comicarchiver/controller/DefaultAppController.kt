@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
@@ -48,6 +50,7 @@ class DefaultAppController(
     /** The last user admission: downloads never report Running without it. */
     @Volatile private var admitted = false
     private var admissionVersion = 0L
+    private val settingsActions = Mutex()
 
     private val _state = MutableStateFlow(
         AppState(site = "tapas", signIn = SignInState.SignedOut, download = DownloadState.Held,
@@ -166,6 +169,58 @@ class DefaultAppController(
         _state.value = _state.value.copy(download = DownloadState.Held)
     }
 
+    override fun refreshSettings() {
+        scope.launch(Dispatchers.IO) { readSettings() }
+    }
+
+    override fun setWifiOnly(value: Boolean) {
+        changeSettings(JSONObject().put("wifi_only", value))
+    }
+
+    override fun setDownloadSpeed(value: String) {
+        changeSettings(JSONObject().put("speed", value))
+    }
+
+    private fun changeSettings(args: JSONObject) {
+        _state.value = _state.value.copy(settingsBusy = true, settingsNotice = null)
+        scope.launch(Dispatchers.IO) {
+            settingsActions.withLock {
+                val settings = try {
+                    SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("configure_settings",
+                        args.put("root", workspaceRoot).toString())))
+                } catch (_: Exception) { null }
+                val actual = settings ?: try {
+                    SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("settings",
+                        JSONObject().put("root", workspaceRoot).toString())))
+                } catch (_: Exception) { null }
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        settings = actual,
+                        settingsBusy = false,
+                        settingsNotice = if (settings == null) Notice(BetaCodes.JOB_FAILED,
+                            "The download setting could not be saved. Try again.") else null,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun readSettings() {
+        settingsActions.withLock {
+            val settings = try {
+                SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("settings",
+                    JSONObject().put("root", workspaceRoot).toString())))
+            } catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(
+                    settings = settings,
+                    settingsNotice = if (settings == null) Notice(BetaCodes.JOB_FAILED,
+                        "Download settings could not be read. Try again.") else null,
+                )
+            }
+        }
+    }
+
     override fun requestExport(folderUri: String) {
         scope.launch(Dispatchers.IO) {
             val envelope = JSONObject(bridge.dispatch(
@@ -221,7 +276,10 @@ class DefaultAppController(
             var tick = 0
             while (isActive) {
                 mapWorkerStatus()
-                if (tick % 5 == 0) refreshLibrary()  // Cheap stat walk; the manifest ops carry the digests.
+                if (tick % 5 == 0) {
+                    refreshLibrary()  // Cheap stat walk; the manifest ops carry the digests.
+                    readSettings()
+                }
                 tick += 1
                 delay(2000)
             }

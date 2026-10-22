@@ -26,7 +26,7 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
         Text("What this beta does not do", style = MaterialTheme.typography.headlineSmall)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Limitation("Only Tapas is supported — comics and novels, no other site yet.")
-            Limitation("Saving only runs on Wi-Fi or another unmetered connection.")
+            Limitation("Saving uses unmetered connections by default. Settings lets you allow mobile data.")
             Limitation(
                 "After an app update or process restart, saving waits until you press Go. " +
                     "Returning to an active save keeps its progress visible.",

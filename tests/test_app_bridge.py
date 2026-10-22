@@ -41,7 +41,7 @@ class BridgeEnvelopeTests(unittest.TestCase):
         # Every §2 op (and the flagged native-line extensions) is a real op now: each one
         # answers its own envelope, never the scaffold's not_implemented.
         for op in ("enqueue_sync", "library_listing", "export_manifest", "export_status",
-                   "signin_probe", "signin_restore", "signout_record"):
+                   "signin_probe", "signin_restore", "signout_record", "settings", "configure_settings"):
             with self.subTest(op):
                 value = self.call(json.dumps({"v": 1, "op": op, "args": {}}))
                 self.assertFalse(value["ok"])
@@ -238,6 +238,77 @@ class BridgeLifecycleTests(unittest.TestCase):
             value = self.call("signin_restore", {"session_root": str(session)})
         self.assertFalse(value["ok"])
         probe.assert_not_called()
+
+    def test_download_settings_use_core_catalog_and_unmetered_default_without_go(self):
+        from comic_archive import account_ui, dashboard_model, worker_host
+        from comic_archive.workspace import Workspace
+        self.call("prepare_workspace", {"root": str(self.root)})
+        value = self.call("settings", {"root": str(self.root)})
+        self.assertTrue(value["ok"], value)
+        result = value["result"]
+        self.assertTrue(result["wifi_only"])
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["connection"], "unknown")
+        self.assertEqual(result["speed"], "medium")
+        self.assertEqual(result["speeds"], [
+            {"key": key, "label": dashboard_model.SPEED_NAMES[key],
+             "available": policy["speed"] == "normal"}
+            for key, policy in account_ui.SPEEDS.items()])
+        workspace = Workspace(id="default", root=self.root)
+        self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)
+        self.assertFalse(worker_host.status(workspace.session)["running"])
+        self.assertFalse((workspace.session / "worker/account-export.json").exists())
+
+    def test_settings_consent_and_speed_persist_without_resuming_a_plan(self):
+        from comic_archive import account_ui, network, worker_host
+        from comic_archive.workspace import Workspace
+        self.call("prepare_workspace", {"root": str(self.root)})
+        (self.root / "net.json").write_text('{"connection":"cellular","metered":true}')
+        before = self.call("settings", {"root": str(self.root)})["result"]
+        self.assertFalse(before["allowed"])
+        changed = self.call("configure_settings", {"root": str(self.root), "wifi_only": False, "speed": "slow"})
+        self.assertTrue(changed["ok"], changed)
+        workspace = Workspace(id="default", root=self.root)
+        self.assertTrue(changed["result"]["allowed"])
+        self.assertFalse(network.policy(workspace.library)["wifi_only"])
+        self.assertEqual(account_ui.speed(workspace), "slow")
+        self.call("prepare_workspace", {"root": str(self.root)})
+        reopened = self.call("settings", {"root": str(self.root)})["result"]
+        self.assertFalse(reopened["wifi_only"])
+        self.assertEqual(reopened["speed"], "slow")
+        self.assertFalse(worker_host.status(workspace.session)["running"])
+        self.assertFalse((workspace.session / "worker/account-export.json").exists())
+        self.assertTrue(self.call("configure_settings", {"root": str(self.root), "wifi_only": True})["ok"])
+        self.assertFalse(self.call("settings", {"root": str(self.root)})["result"]["allowed"])
+
+    def test_settings_refuse_unsupported_or_implicit_choices_before_any_write(self):
+        from comic_archive import account_ui, network
+        from comic_archive.workspace import Workspace
+        self.call("prepare_workspace", {"root": str(self.root)})
+        for bad in ({}, {"wifi_only": "false"}, {"wifi_only": 0}, {"speed": "fast", "wifi_only": False},
+                    {"speed": []}, {"speed": "missing"}, {"other": True}):
+            with self.subTest(bad):
+                result = self.call("configure_settings", {"root": str(self.root)} | bad)
+                self.assertFalse(result["ok"])
+                workspace = Workspace(id="default", root=self.root)
+                self.assertTrue(network.policy(workspace.library)["wifi_only"])
+                self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)
+
+    def test_running_plan_refuses_speed_change_but_allows_explicit_network_choice(self):
+        from comic_archive import account_ui
+        from comic_archive.workspace import Workspace
+        self.call("prepare_workspace", {"root": str(self.root)})
+        queue = self.root / ".comic-session/worker"
+        (queue / "requests").mkdir(parents=True)
+        (queue / "responses").mkdir()
+        self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
+        before = account_ui.speed(Workspace(id="default", root=self.root))
+        result = self.call("configure_settings", {"root": str(self.root), "speed": "slow", "wifi_only": False})
+        self.assertFalse(result["ok"])
+        self.assertEqual(account_ui.speed(Workspace(id="default", root=self.root)), before)
+        result = self.call("configure_settings", {"root": str(self.root), "wifi_only": False})
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
 
     def test_signout_record_forgets_the_written_sign_in(self):
         from comic_archive import android_session

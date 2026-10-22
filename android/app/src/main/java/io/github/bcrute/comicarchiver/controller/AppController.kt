@@ -24,6 +24,10 @@ interface AppController {
     fun pause()
     fun stop()
 
+    fun refreshSettings()
+    fun setWifiOnly(value: Boolean)
+    fun setDownloadSpeed(value: String)
+
     fun requestExport(folderUri: String)
     fun cancelExport()
     fun openNotice(notice: Notice)

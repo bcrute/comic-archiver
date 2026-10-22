@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.controller.DownloadState
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -90,6 +91,16 @@ fun ComicArchiverAppRoot(
                     onStartExport = onStartExport,
                     onStopExport = onStopExport,
                 )
+                AppTab.SETTINGS -> SettingsScreen(
+                    settings = state.settings,
+                    busy = state.settingsBusy,
+                    saving = state.download is DownloadState.Running ||
+                        state.download is DownloadState.Planning,
+                    notice = state.settingsNotice,
+                    onWifiOnly = controller::setWifiOnly,
+                    onSpeed = controller::setDownloadSpeed,
+                    onRefresh = controller::refreshSettings,
+                )
                 AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                     LimitationsScreen(modifier = Modifier.weight(1f))
                     OutlinedButton(
@@ -116,7 +127,9 @@ internal fun routeFor(signIn: SignInState): RootRoute =
     if (signIn is SignInState.SignedIn) RootRoute.APP else RootRoute.SIGN_IN
 
 /** The three beta tabs; About carries the truthful limitations and sign-out. */
-internal enum class AppTab(val label: String) { SAVING("Saving"), LIBRARY("Library"), ABOUT("About") }
+internal enum class AppTab(val label: String) {
+    SAVING("Saving"), LIBRARY("Library"), SETTINGS("Settings"), ABOUT("About")
+}
 
 /**
  * Go is offered only while held (any reason) or after a finished run — never while

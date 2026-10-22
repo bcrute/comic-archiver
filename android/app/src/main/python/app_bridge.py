@@ -26,7 +26,8 @@ VERSION = 1
 
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
-                 "export_status", "signin_probe", "signin_restore", "signout_record"})
+                 "export_status", "signin_probe", "signin_restore", "signout_record",
+                 "settings", "configure_settings"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -200,7 +201,9 @@ def _account_ui_op(name):
             workspace = Workspace(id="default", root=root)
             if name == "start":
                 from comic_archive import android_download
-                android_download.start(workspace)
+                from comic_archive.locking import LibraryLock
+                with LibraryLock(workspace.session / ".account-ui"):
+                    android_download.start(workspace)
                 return {}
             if name == "status":
                 from comic_archive import android_download
@@ -262,6 +265,55 @@ def _signin_restore(args):
     if not _core(saved):
         return {"signed_in": False, "verified": False, "reason": "no_saved_session"}
     return _signin_probe(args)
+
+
+def _settings_value(root):
+    from comic_archive import account_ui, dashboard_model, network, network_android
+    from comic_archive.workspace import Workspace
+    network_android.configure(root / "net.json")
+    workspace = Workspace(id="default", root=root)
+    speeds = [{"key": key, "label": dashboard_model.SPEED_NAMES[key],
+               "available": pacing["speed"] == "normal"}
+              for key, pacing in account_ui.SPEEDS.items()]
+    supported = {item["key"] for item in speeds if item["available"]}
+    saved = account_ui.speed(workspace)
+    return network.status(workspace.library) | {
+        "speed": saved if saved in supported else "medium", "speeds": speeds}
+
+
+def _settings(args):
+    root = _path_arg(args, "root")
+    return _core(lambda error: _settings_value(root))
+
+
+def _configure_settings(args):
+    root = _path_arg(args, "root")
+    if set(args) - {"root", "wifi_only", "speed"} or not ({"wifi_only", "speed"} & set(args)):
+        raise _BridgeError("bad_request", "Choose a download setting to change.")
+    if "wifi_only" in args and type(args["wifi_only"]) is not bool:
+        raise _BridgeError("bad_request", "The mobile data choice must be explicit.")
+
+    def configure(ArchiveError):
+        from comic_archive import account_ui, network
+        from comic_archive.workspace import Workspace
+        workspace = Workspace(id="default", root=root)
+        from comic_archive.locking import LibraryLock
+        with LibraryLock(workspace.session / ".account-ui"):
+            # Validate the entire request before writing either setting.
+            if "speed" in args:
+                value = args["speed"]
+                if (not isinstance(value, str) or value not in account_ui.SPEEDS
+                        or account_ui.SPEEDS[value]["speed"] != "normal"):
+                    raise ArchiveError("That speed is not available in this Android build.")
+                if account_ui.status(workspace).get("status") == "running":
+                    raise ArchiveError("Pause saving to change the speed.")
+            if "wifi_only" in args:
+                network.configure(workspace.library, args["wifi_only"])
+            if "speed" in args:
+                account_ui.choose_speed(workspace, args["speed"])
+        return _settings_value(root)
+
+    return _core(configure)
 
 
 def _enqueue_sync(args):
@@ -451,6 +503,8 @@ HANDLERS = {"ping": _ping,
             "download_status": _account_ui_op("status"),
             "signin_probe": _signin_probe,
             "signin_restore": _signin_restore,
+            "settings": _settings,
+            "configure_settings": _configure_settings,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,

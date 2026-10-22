@@ -1,6 +1,9 @@
 package io.github.bcrute.comicarchiver.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -15,6 +18,7 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
 import org.junit.After
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -38,7 +42,7 @@ class ActivitySessionTest {
 
     private fun ready() {
         compose.waitUntil(10_000) { app.controller.state.value.signIn is SignInState.SignedIn &&
-            app.controller.state.value.library.isNotEmpty() }
+            app.controller.state.value.library.isNotEmpty() && app.controller.state.value.settings != null }
     }
 
     @Test fun coldProcessRestoresVerifiedSessionAndLibraryWithoutAdmittingDownloads() {
@@ -65,6 +69,36 @@ class ActivitySessionTest {
         assertEquals(1, app.fake.count("signin_restore"))
     }
 
+    @Test fun settingsUseTheControllerBridgeAndSurviveRecreationWithoutGo() {
+        ready()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
+        compose.waitUntil(10_000) { app.controller.state.value.settings?.wifiOnly == false &&
+            !app.controller.state.value.settingsBusy }
+        compose.onNodeWithText("Slow").performClick()
+        compose.waitUntil(10_000) { app.controller.state.value.settings?.speed == "slow" &&
+            !app.controller.state.value.settingsBusy }
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsOn()
+        compose.onNodeWithText("Slow").assertIsSelected()
+        assertEquals(0, app.fake.count("go"))
+        assertEquals(2, app.fake.count("configure_settings"))
+    }
+
+    @Test fun failedPolicyRefreshHidesStaleMobileConsentInsteadOfReusingIt() {
+        ready()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
+        compose.waitUntil(10_000) { app.controller.state.value.settings?.wifiOnly == false &&
+            !app.controller.state.value.settingsBusy }
+        compose.runOnIdle { app.fake.settingsReadable = false; app.controller.refreshSettings() }
+        compose.waitUntil(10_000) { app.controller.state.value.settings == null &&
+            app.controller.state.value.settingsNotice != null }
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertDoesNotExist()
+        compose.onNodeWithText("Download settings are unavailable.").assertIsDisplayed()
+        assertEquals(0, app.fake.count("go"))
+    }
+
     @Test fun activityRecreationRetainsExportCoordinatorAndLibraryQuery() {
         ready()
         val exports = app.exports
@@ -87,11 +121,26 @@ class LifecycleTestApp : App() {
 }
 
 class LifecycleBridge : PythonBridge {
+    @Volatile var settingsReadable = true
+    @Volatile private var wifiOnly = true
+    @Volatile private var speed = "medium"
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {
         calls.computeIfAbsent(op) { AtomicInteger() }.incrementAndGet()
+        if (op in setOf("settings", "configure_settings") && !settingsReadable)
+            return """{"ok":false,"code":"job_failed"}"""
+        if (op == "configure_settings") {
+            val args = JSONObject(argsJson)
+            if (args.has("wifi_only")) wifiOnly = args.getBoolean("wifi_only")
+            if (args.has("speed")) speed = args.getString("speed")
+        }
         val result = when (op) {
+            "settings", "configure_settings" -> """{"wifi_only":$wifiOnly,"speed":"$speed",
+                "connection":"wifi","metered":false,"allowed":true,"speeds":[
+                {"key":"fast","label":"Fast","available":false},
+                {"key":"medium","label":"Medium","available":true},
+                {"key":"slow","label":"Slow","available":true}]}"""
             "signin_restore" -> """{"signed_in":true,"verified":true}"""
             "worker_start" -> """{"running":true,"stop_requested":false}"""
             "download_status" -> """{"worker":{"running":true},"account":{"status":"running","phase":"archive"}}"""

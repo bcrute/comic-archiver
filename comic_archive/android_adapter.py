@@ -187,6 +187,17 @@ class AndroidTapasAdapter:
         from .adapters.tapas_http import TapasHTTPAdapter
         self._http = TapasHTTPAdapter(transport=transport, expected_account_id=expected_account_id)
 
+    @property
+    def interval(self):
+        """The worker's per-job pacing belongs to the transport doing every request."""
+        return self.transport.interval
+
+    @interval.setter
+    def interval(self, value):
+        # The worker validates job options before assignment and restores the previous
+        # interval in finally. Assets share this transport, so they inherit it too.
+        self.transport.interval = value
+
     def _sync_state(self):
         """Carry the job's runtime limits to the one transport before any delegated call."""
         for key in ('deadline', 'cancel_check'):

@@ -279,6 +279,44 @@ class AndroidTapasAdapterConstructionTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             AndroidTapasAdapter(transport=object())
 
+    def test_worker_speed_options_reach_the_actual_request_transport_and_are_restored(self):
+        from unittest.mock import patch
+        from comic_archive.worker import _execute
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN})
+        transport.interval = 1.0
+        adapter = AndroidTapasAdapter(transport=transport)
+        seen = []
+        original = transport._request
+
+        def request(*args, **kwargs):
+            seen.append(transport.interval)
+            return original(*args, **kwargs)
+
+        def consume(actual, library, report, **options):
+            return actual.transport.get(WHO_AM_I), options["download_workers"]
+
+        for interval, workers in ((0.25, 4), (1.0, 1)):
+            transport.last = 0.0
+            with patch.object(transport, "_request", side_effect=request), patch(
+                    "comic_archive.jobs.archive_discovered", side_effect=consume):
+                result = _execute(adapter, {"operation": "archive_discovered", "args": {
+                    "request_interval": interval, "download_workers": workers}}, upload_first=False)
+            self.assertEqual(result, (SIGNED_IN, workers))
+            self.assertEqual(seen[-1], interval)
+            self.assertEqual(transport.interval, 1.0)
+
+    def test_failed_job_restores_transport_pacing_for_the_next_job(self):
+        from unittest.mock import patch
+        from comic_archive.worker import _execute
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN})
+        transport.interval = 1.0
+        adapter = AndroidTapasAdapter(transport=transport)
+        with patch("comic_archive.jobs.archive_discovered", side_effect=ArchiveError("test refusal")):
+            with self.assertRaises(ArchiveError):
+                _execute(adapter, {"operation": "archive_discovered", "args": {
+                    "request_interval": 0.25}}, upload_first=False)
+        self.assertEqual(transport.interval, 1.0)
+
     def test_entry_verifies_the_account_and_exit_closes_the_live_transport(self):
         transport = library_transport()
         with AndroidTapasAdapter(transport=transport) as adapter:

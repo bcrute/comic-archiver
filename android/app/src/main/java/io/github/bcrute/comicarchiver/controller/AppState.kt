@@ -8,6 +8,20 @@ data class AppState(
     val download: DownloadState,
     val library: List<LibraryEntry>,
     val notice: Notice?,
+    val settings: DownloadSettings? = null,
+    val settingsBusy: Boolean = false,
+    val settingsNotice: Notice? = null,
+)
+
+data class SpeedChoice(val key: String, val label: String, val available: Boolean)
+
+data class DownloadSettings(
+    val wifiOnly: Boolean,
+    val speed: String,
+    val speeds: List<SpeedChoice>,
+    val connection: String,
+    val metered: Boolean?,
+    val allowed: Boolean,
 )
 
 sealed interface SignInState {

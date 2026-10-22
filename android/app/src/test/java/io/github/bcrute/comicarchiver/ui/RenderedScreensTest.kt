@@ -5,6 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -15,6 +19,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.DownloadState
+import io.github.bcrute.comicarchiver.controller.DownloadSettings
+import io.github.bcrute.comicarchiver.controller.SpeedChoice
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
@@ -154,6 +160,39 @@ class RenderedScreensTest {
         assertEquals(1, stops)
     }
 
+    @Test fun settingsWriteExplicitPolicyAndPacingWithoutGo() {
+        show()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        val mobile = compose.onNodeWithContentDescription("Also save on metered and mobile connections")
+        mobile.assertIsOff().performClick()
+        mobile.assertIsOn()
+        compose.onNodeWithText("Slow").performClick().assertIsSelected()
+        compose.onNodeWithText("Fast").assertIsNotEnabled()
+        assertEquals(false, controller.state.value.settings?.wifiOnly)
+        assertEquals("slow", controller.state.value.settings?.speed)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun speedCannotBeChangedWhileSavingButNetworkChoiceStaysAvailable() {
+        controller.state.value = controller.state.value.copy(download = DownloadState.Planning)
+        show()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("Slow").assertIsNotEnabled()
+        compose.onNodeWithText("Pause saving to change the speed.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsEnabled()
+    }
+
+    @Test fun unreadableSettingsDoNotOfferAnUnverifiedMobileDataToggle() {
+        controller.state.value = controller.state.value.copy(settings = null,
+            settingsNotice = Notice("job_failed", "Download settings could not be read."))
+        show()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertDoesNotExist()
+        compose.onNodeWithText("Retry settings").performClick()
+        assertEquals(1, controller.settingsRefreshes)
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun signedOutCanBrowseSavedLibraryWithoutOfferingGo() {
         controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut)
         show()
@@ -177,12 +216,16 @@ class RenderedScreensTest {
 private class ScreenController : AppController {
     override val state = MutableStateFlow(UiFixtures.coldStart.copy(
         signIn = SignInState.SignedIn("tapas"),
+        settings = DownloadSettings(true, "medium", listOf(
+            SpeedChoice("fast", "Fast", false), SpeedChoice("medium", "Medium", true),
+            SpeedChoice("slow", "Slow", true)), "wifi", false, true),
         library = listOf(
             LibraryEntry("z", "Zulu Comic", LibraryKind.COMIC, 8, 2),
             LibraryEntry("b", "Beta Novel", LibraryKind.NOVELS, 5, 3),
             LibraryEntry("a", "Alpha Comic", LibraryKind.COMIC, 9, 8),
         ),
     ))
+    var settingsRefreshes = 0
     var goCalls = 0
     var pauseCalls = 0
     var signOutCalls = 0
@@ -196,6 +239,13 @@ private class ScreenController : AppController {
         state.value = state.value.copy(signIn = SignInState.SignedOut)
     }
     override fun stop() {}
+    override fun refreshSettings() { settingsRefreshes++ }
+    override fun setWifiOnly(value: Boolean) {
+        state.value = state.value.copy(settings = state.value.settings?.copy(wifiOnly = value))
+    }
+    override fun setDownloadSpeed(value: String) {
+        state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
+    }
     override fun requestExport(folderUri: String) {}
     override fun cancelExport() {}
     override fun openNotice(notice: Notice) {}
