@@ -320,6 +320,35 @@ def _jvm_truststore(java):
     return (str(target), "JKS") if target.is_file() else (None, None)
 
 
+
+def _emulator_capable():
+    return os.access("/dev/kvm", os.R_OK | os.W_OK)
+
+
+def _sdk_build_packages(names, *, emulator_capable):
+    """Provision build inputs always; emulator inputs only on a usable fleet host."""
+    names = set(names)
+    platforms = sorted((name for name in names if re.fullmatch(r"platforms;android-\d+", name)),
+                       key=lambda name: int(name.rsplit("-", 1)[1]))
+    ndks = sorted((name for name in names if re.fullmatch(r"ndk;\d+(\.\d+)+", name)),
+                  key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
+    build_tools = sorted((name for name in names if re.fullmatch(r"build-tools;\d+(\.\d+){1,2}", name)),
+                         key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
+    wanted = ["platform-tools"]
+    wanted += [group[-1] for group in (platforms, ndks, build_tools) if group]
+    if emulator_capable:
+        images = sorted(name for name in names
+                        if re.fullmatch(r"system-images;android-\d+;[a-z0-9_]+;x86_64", name))
+        images = [name for name in images if "ps16k" not in name] or images
+        wanted.append("emulator")
+        if images:
+            wanted.append(images[-1])
+    # AGP also requires this exact revision, independent of the newest build tools.
+    if "build-tools;35.0.0" in names and "build-tools;35.0.0" not in wanted:
+        wanted.append("build-tools;35.0.0")
+    return wanted
+
+
 def phase_provision():
     """Provision job-private JDK, Android SDK tools, Gradle, host CPython 3.13 and cibuildwheel.
 
@@ -421,28 +450,8 @@ def phase_provision():
             steps["sdk_packages"] = {"status": "unavailable",
                                      "reason": "repository listing unfetchable over the Python path"}
         else:
-            names = set(packages)
-            platforms = sorted((name for name in names if re.fullmatch(r"platforms;android-\d+", name)),
-                               key=lambda name: int(name.rsplit("-", 1)[1]))
-            ndks = sorted((name for name in names if re.fullmatch(r"ndk;\d+(\.\d+)+", name)),
-                          key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
-            build_tools = sorted((name for name in names if re.fullmatch(r"build-tools;\d+(\.\d+){1,2}", name)),
-                                 key=lambda name: tuple(int(piece) for piece in name.split(";")[1].split(".")))
-            images = sorted(name for name in names
-                            if re.fullmatch(r"system-images;android-\d+;[a-z0-9_]+;x86_64", name))
-            # A plain-tag image boots the emulator for the self-check; the 16 KB-page
-            # variants are a separate qualification, not this phase's default.
-            images = [name for name in images if "ps16k" not in name] or images
-            wanted = ["platform-tools", "emulator"]
-            wanted += [group[-1] for group in (platforms, ndks, build_tools, images) if group]
-            # The Android Gradle Plugin pins its OWN default build-tools revision and
-            # fails the build on nothing else but that exact one (observed attempt 15:
-            # "Failed to find Build Tools revision 35.0.0" with 37.0.0 installed), then
-            # its sdkmanager fallback dies on the executor's read-only $HOME. The latest
-            # AND the AGP-pinned revision are therefore both installed up front.
-            agp_build_tools = "build-tools;35.0.0"
-            if agp_build_tools in names and agp_build_tools not in wanted:
-                wanted.append(agp_build_tools)
+            emulator_capable = _emulator_capable()
+            wanted = _sdk_build_packages(packages, emulator_capable=emulator_capable)
             installed, failures = [], {}
             for name in wanted:
                 ok, note = (_install_sdk_package(name, packages[name], sdk) if name in packages
@@ -456,6 +465,7 @@ def phase_provision():
                                 env_extra={"JAVA_HOME": java_home,
                                            "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
             steps["sdk_packages"] = {"source": list(REPOSITORY_XMLS),
+                                     "emulator_capable": emulator_capable,
                                      "installed": installed,
                                      "failed": failures,
                                      "licenses": {"returncode": licenses["returncode"],
@@ -675,7 +685,7 @@ def phase_preflight(tools):
            gradle=gradle_version, sdk=str(sdk_path), system_images=images,
            gradle_probes=gradle_probes if gradle is None else None,
            buildpython=buildpython_version, buildpython_path=buildpython,
-           kvm=pathlib.Path("/dev/kvm").exists())
+           kvm=_emulator_capable())
     return required_ok, {"sdk": sdk_path, "gradle": gradle, "java": java, "buildpython": buildpython}
 
 
@@ -1057,6 +1067,9 @@ def _evaluate_selfcheck(line):
 
 
 def phase_in_app(paths):
+    if not _emulator_capable():
+        record("in_app", "pending", reason="no accessible /dev/kvm on this host; an emulator cannot run")
+        return
     sdk = paths["sdk"]
     adb = sdk / "platform-tools/adb"
     emulator = sdk / "emulator/emulator"
@@ -1069,9 +1082,6 @@ def phase_in_app(paths):
         record("in_app", "pending", reason="no avdmanager/emulator/system image",
                adb=adb.is_file(), emulator=emulator.is_file(), avdmanager=avdmanager.is_file(),
                system_image=image)
-        return
-    if not pathlib.Path("/dev/kvm").exists():
-        record("in_app", "pending", reason="no /dev/kvm on this host; an emulator cannot run")
         return
 
     avd_home = JOB_DIR / "avd"
