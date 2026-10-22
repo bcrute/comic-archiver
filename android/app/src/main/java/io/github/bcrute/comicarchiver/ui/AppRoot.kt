@@ -94,7 +94,7 @@ fun ComicArchiverAppRoot(
                     onStopExport = onStopExport,
                 )
                 AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
-                    LimitationsScreen()
+                    LimitationsScreen(modifier = Modifier.weight(1f))
                     OutlinedButton(
                         onClick = controller::signOut,
                         modifier = Modifier.fillMaxWidth().padding(16.dp),

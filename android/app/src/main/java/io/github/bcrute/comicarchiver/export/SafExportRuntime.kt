@@ -46,10 +46,12 @@ class SafExportRuntime(
     )
     private val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // initialPanel restores this value; initialize it first so construction does not
+    // overwrite the restored folder after showing a misleading READY panel.
+    private var treeUri: Uri? = null
+
     private val _panel = kotlinx.coroutines.flow.MutableStateFlow(initialPanel())
     val panel: kotlinx.coroutines.flow.StateFlow<ExportPanelStateUi> = _panel
-
-    private var treeUri: Uri? = null
 
     /**
      * The folder-picker result: the one persistable grant the beta uses. A grant the
@@ -89,6 +91,12 @@ class SafExportRuntime(
             }
             if (parsed.refused) {
                 _panel.value = refusedPanel(exportIssueFromWireCode(parsed.refusedCode!!))
+                return@launch
+            }
+            if (parsed.invalid > 0) {
+                // An incomplete manifest cannot certify that every archive exported.
+                // Keep originals and require a fresh, usable manifest before copying.
+                _panel.value = refusedPanel(PublicIssue.JOB_FAILED)
                 return@launch
             }
             if (parsed.entries.isEmpty() && parsed.invalid == 0) {

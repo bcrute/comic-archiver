@@ -161,6 +161,16 @@ class RenderedScreensTest {
         compose.onNodeWithText("Go").assertDoesNotExist()
         compose.onNode(hasText("Library") and hasClickAction()).assertDoesNotExist()
     }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun signOutRemainsReachableOnASmallPhone() {
+        show()
+        compose.onNodeWithText("About").performClick()
+        compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed().performClick()
+        assertEquals(1, controller.signOutCalls)
+        compose.onNodeWithText("Go").assertDoesNotExist()
+    }
 }
 
 private class ScreenController : AppController {
@@ -174,12 +184,16 @@ private class ScreenController : AppController {
     ))
     var goCalls = 0
     var pauseCalls = 0
+    var signOutCalls = 0
     override fun go() { goCalls++; state.value = state.value.copy(download = DownloadState.Planning) }
     override fun pause() { pauseCalls++; state.value = state.value.copy(download = DownloadState.Paused("user")) }
     override fun selectSite(key: String) {}
     override fun startSignIn() {}
     override fun cancelSignIn() {}
-    override fun signOut() {}
+    override fun signOut() {
+        signOutCalls++
+        state.value = state.value.copy(signIn = SignInState.SignedOut)
+    }
     override fun stop() {}
     override fun requestExport(folderUri: String) {}
     override fun cancelExport() {}
