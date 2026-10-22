@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,7 +50,12 @@ fun SignInScreen(
         // The WebView sign-in surface, mounted only while the controller reports a
         // sign-in in flight (Page/Settling → busy). An unloaded WebView mounted on the
         // entry screen paints blank and blanked the whole entry screen with it.
-        if (state.busy) signInContent()
+        // While mounted it owns the screen's remaining height: the site's mobile login
+        // page puts its form below a large hero graphic, so a short fixed-height
+        // surface kept the form below the fold behind the cookie banner.
+        if (state.busy) {
+            Box(Modifier.weight(1f).fillMaxWidth()) { signInContent() }
+        }
     }
 }
 

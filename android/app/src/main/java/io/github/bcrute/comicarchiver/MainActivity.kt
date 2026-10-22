@@ -11,8 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
@@ -20,7 +18,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.chaquo.python.Python
@@ -126,7 +123,10 @@ class MainActivity : ComponentActivity() {
                                                 (it.parent as? ViewGroup)?.removeView(it)
                                             }
                                         },
-                                        modifier = Modifier.fillMaxWidth().height(360.dp),
+                                        // Fills the remaining-height region SignInScreen
+                                        // allots while busy; a fixed 360dp surface kept
+                                        // the site's login form below the fold.
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             },
