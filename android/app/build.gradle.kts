@@ -76,6 +76,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // Robolectric's resolver puts its download lock in Java's user.home.
+            // Fleet host homes are read-only: only this test JVM uses a private home,
+            // leaving the environment and host/shared caches untouched.
+            val testHome = layout.buildDirectory.dir("test-home/${it.name}").get().asFile
+            it.systemProperty("user.home", testHome.absolutePath)
+            it.doFirst { testHome.mkdirs() }
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
