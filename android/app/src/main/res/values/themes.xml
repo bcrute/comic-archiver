@@ -1,8 +1,10 @@
 <resources>
-    <!-- The UI is entirely Compose, so the window must be a bare NoActionBar one that
-         Compose can own edge to edge. Without an explicit theme the platform's default
-         legacy action-bar window kept its decor on top of the ComposeView under enforced
-         edge-to-edge (API 35+), leaving the screen blank behind the old title bar. The
-         light window background matches the Compose background that paints over it. -->
+    <!-- The UI is entirely Compose, so the window is a bare NoActionBar one Compose owns
+         edge to edge. This removes the legacy platform action bar that the default theme
+         kept over the ComposeView under enforced edge-to-edge (API 35+). It is required
+         window hygiene, NOT the whole white-screen fix: with this theme the legacy title
+         bar is gone but Compose content may still not paint (device-verified 2026-10-21);
+         the remaining rendering cause is under diagnosis. The light window background
+         matches the Compose background that paints over it. -->
     <style name="Theme.ComicArchiver" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

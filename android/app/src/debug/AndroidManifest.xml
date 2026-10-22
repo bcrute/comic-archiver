@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Debug-build-only rendering probe (src/debug never reaches a release build): no
+         intent filter, so the activity is reachable only by an explicit adb am start,
+         never from another app. -->
+    <application>
+        <activity
+            android:name=".debug.DebugDisplayActivity"
+            android:exported="true" />
+    </application>
+
+</manifest>

@@ -42,6 +42,8 @@ class DefaultAppController(
         context, bridge, sessionRoot, workspaceRoot + "/Library", workspaceRoot + "/net.json", scope)
     private var signInWebView: WebView? = null
     private var poll: Job? = null
+    /** The site key the engine actually loaded; null while no offered site matches. */
+    private var siteLoaded: String? = null
     /** The last user admission: downloads never report Running without it. */
     @Volatile private var admitted = false
 
@@ -51,6 +53,11 @@ class DefaultAppController(
     override val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
+        // The beta opens straight on tapas and its UI has no site selector, so the initial
+        // site must be armed here: without a load the first Sign in reached an engine with
+        // no site and crashed (observed IllegalStateException "Load a site before signing
+        // in."). A site the engine does not offer surfaces as a notice, never a crash.
+        loadSite(_state.value.site)
         scope.launch { prepareWorkspace() }
         scope.launch {
             engine.state.collect { value -> _state.value = _state.value.copy(signIn = value) }
@@ -63,17 +70,19 @@ class DefaultAppController(
     }
 
     override fun selectSite(key: String) {
-        engine.load(key)
-        _state.value = _state.value.copy(site = key)
+        loadSite(key)
+        if (siteLoaded != null) _state.value = _state.value.copy(site = key)
     }
 
     override fun startSignIn() {
         val webView = signInWebView
-        if (webView == null) {
-            _state.value = _state.value.copy(
+        when {
+            siteLoaded == null -> _state.value = _state.value.copy(
+                notice = Notice(BetaCodes.UNSUPPORTED_SITE,
+                                "This app cannot sign in to that site yet."))
+            webView == null -> _state.value = _state.value.copy(
                 notice = Notice(BetaCodes.WORKER_OFFLINE, "The sign-in page is not showing yet."))
-        } else {
-            engine.startSignIn(webView)
+            else -> engine.startSignIn(webView)
         }
     }
 
@@ -153,6 +162,20 @@ class DefaultAppController(
                 envelope.optString("message", "The workspace could not be opened.")))
         }
         // Cold start is Held whatever the workspace said; a held download waits for Go.
+    }
+
+    /** Arm the engine with one site key. An unoffered key leaves the engine untouched and
+     *  reports [BetaCodes.UNSUPPORTED_SITE]; a successful load only then updates state. */
+    private fun loadSite(key: String) {
+        try {
+            engine.load(key)
+            siteLoaded = key
+        } catch (_: IllegalArgumentException) {
+            siteLoaded = null
+            _state.value = _state.value.copy(
+                notice = Notice(BetaCodes.UNSUPPORTED_SITE,
+                                "This app cannot sign in to that site yet."))
+        }
     }
 
     private fun startPolling() {
