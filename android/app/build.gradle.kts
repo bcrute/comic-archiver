@@ -43,6 +43,23 @@ android {
     }
 
     buildTypes {
+        debug {
+            // One managed debug signing identity for fleet builds: scripts/android_feasibility.py
+            // materializes a job-private keystore (injected from owner-private config or freshly
+            // generated on the job) and passes its path as -PdebugKeystore=... The alias and both
+            // passwords are the public Android debug defaults, so only the store file changes.
+            // Without the property AGP's default behavior (a per-user auto-generated debug
+            // keystore, unique per job and lost with it) applies unchanged; the release build
+            // type keeps no signing config at all.
+            providers.gradleProperty("debugKeystore").orNull?.let { managed ->
+                signingConfigs.getByName("debug") {
+                    storeFile = file(managed)
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
+            }
+        }
         release {
             // Release hygiene (signing, shrinking) is native-line work after the beta scope
             // is proven; no signing keys are created before the release owner's procedure.

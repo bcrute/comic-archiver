@@ -11,7 +11,9 @@ CPython 3.13 matching the app's embedded 3.13 major.minor (Chaquopy requirement)
 Gradle explicitly; the host's own 3.14 is never used.
 
 Isolation: any missing tool is provisioned under android/.fleet-sdk (gitignored, job-private,
-never host-global). The emulator phase creates its own AVD under a job-private
+never host-global). The debug signing identity is managed the same way: one keystore per job,
+injected from owner-private config or generated and retained as a private artifact, never a
+secret inside the repo or its snapshot. The emulator phase creates its own AVD under a job-private
 ANDROID_AVD_HOME, targets one adb serial for every command, uses a private port, and tears
 down only the emulator and AVD it created. No host AVD, device or global state is touched.
 
@@ -21,6 +23,8 @@ passed. A tool's return code alone is never qualification. Artifacts are retaine
 as on success.
 """
 import argparse
+import base64
+import binascii
 import hashlib
 import io
 import json
@@ -53,6 +57,13 @@ WHEEL_ABI_ARCHS = ("arm64_v8a", "x86_64")
 APK = REPO / "android/app/build/outputs/apk/debug/app-debug.apk"
 JOB_DIR = REPO / "android/.fleet-job"
 TOOLS_DIR = REPO / "android/.fleet-sdk"
+# One managed debug signing identity per job: an owner-private injected keystore
+# (COMIC_ARCHIVER_DEBUG_KEYSTORE_B64, never in the repo or snapshot) or, with
+# nothing injected, a NEW dedicated project debug key generated on the job and
+# retained as a 0600 private artifact for the owner to keep injecting later.
+DEBUG_KEYSTORE_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_B64"
+DEBUG_CERT_SHA256_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_CERT_SHA256"
+DEBUG_KEYSTORE = TOOLS_DIR / "debug-signing/debug.keystore"
 SELF_IDENTITY = "comic-archiver/android-selfcheck/1"
 SELF_TAG = "ComicArchiverSelfcheck"
 APP_ACTIVITY = "io.github.bcrute.comicarchiver/.MainActivity"
@@ -463,6 +474,110 @@ def phase_provision():
     return tools
 
 
+def _write_private_file(path, data):
+    """Materialize one job-private file with owner-only permissions from creation."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as sink:
+        sink.write(data)
+
+
+def _decode_debug_keystore_b64(value):
+    """Strictly decode an injected keystore: any flaw is a failure, never a cue to
+    silently fall back to a fresh key (an update signed by it would be refused by
+    every install carrying the previous identity)."""
+    try:
+        decoded = base64.b64decode(value.encode("ascii"), validate=True)
+    except (binascii.Error, ValueError):
+        return None, "not strict base64"
+    if not decoded:
+        return None, "decoded to zero bytes"
+    return decoded, None
+
+
+def _cert_sha256(java, keystore, runner):
+    """The keystore certificate's SHA-256 fingerprint — public data — via the pinned
+    JDK's keytool, which also proves the store reads back with the standard debug
+    credentials. Nothing from keytool's output beyond the fingerprint is retained."""
+    result = runner([str(pathlib.Path(java).parent / "keytool"), "-list", "-v",
+                     "-keystore", str(keystore), "-storepass", "android"], timeout=120)
+    match = re.search(r"^SHA256: ([0-9A-F:]+)$", result["tail"], re.MULTILINE)
+    if result["returncode"] != 0 or not match:
+        return None
+    return match.group(1).replace(":", "").lower()
+
+
+def phase_debug_signing(tools, env=None, runner=run_tool, keystore_path=None,
+                        artifacts_dir=None):
+    """Materialize this job's ONE managed debug keystore, before any Gradle run.
+
+    An injected COMIC_ARCHIVER_DEBUG_KEYSTORE_B64 (owner-private fleet config; the
+    bytes never enter the repo, snapshot or source archive) is strict-decoded into a
+    0600 job-private file; any defect fails the job outright — the phone's install
+    must never be stranded behind an accidental new identity. With nothing injected,
+    a NEW dedicated project debug key is generated here with the pinned JDK's
+    keytool (never locally) and retained as a 0600 private artifact so the owner can
+    store it in private config and inject it on every future job; exporting this
+    newly generated key is explicitly authorized, unlike any older, release or
+    account material. An optional expected certificate SHA-256 pins the identity on
+    both paths. Gradle later receives only the file's path, via a debug-only
+    property; the release build type keeps no signing config.
+    """
+    env = os.environ if env is None else env
+    keystore = DEBUG_KEYSTORE if keystore_path is None else pathlib.Path(keystore_path)
+    artifacts = (REPO.parent / "artifacts" if artifacts_dir is None
+                 else pathlib.Path(artifacts_dir))
+    java = tools.get("java") if tools else None
+    if not java or not (pathlib.Path(java).parent / "keytool").is_file():
+        record("debug_signing", "pending", reason="no pinned JDK keytool available")
+        return None
+    injected = (env.get(DEBUG_KEYSTORE_ENV) or "").strip()
+    provenance = "injected" if injected else "generated"
+    if injected:
+        decoded, reason = _decode_debug_keystore_b64(injected)
+        if decoded is None:
+            record("debug_signing", "failed", provenance=provenance, reason=reason)
+            return None
+        _write_private_file(keystore, decoded)
+    else:
+        generated = runner([str(pathlib.Path(java).parent / "keytool"), "-genkeypair",
+                            "-keystore", str(keystore), "-alias", "androiddebugkey",
+                            "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
+                            "-dname", "CN=Comic Archiver Debug,O=Comic Archiver,C=US",
+                            "-storepass", "android", "-keypass", "android"], timeout=300)
+        if generated["returncode"] != 0 or not keystore.is_file():
+            record("debug_signing", "failed", provenance=provenance,
+                   reason="keytool could not generate the keystore")
+            return None
+        os.chmod(keystore, 0o600)
+    fingerprint = _cert_sha256(java, keystore, runner)
+    if fingerprint is None:
+        record("debug_signing", "failed", provenance=provenance,
+               reason="keytool could not read the keystore back")
+        return None
+    expected = (env.get(DEBUG_CERT_SHA256_ENV) or "").strip().replace(":", "").lower()
+    if expected and expected != fingerprint:
+        record("debug_signing", "failed", provenance=provenance,
+               reason="certificate fingerprint differs from the expected value")
+        return None
+    facts = {"provenance": provenance, "keystore": str(keystore),
+             "cert_sha256": fingerprint}
+    if provenance == "generated":
+        # The retained copy is the whole point of the generated path: without it the
+        # key dies with the job (the job-34 loss). The fleet archive's verified
+        # copytree preserves these owner-only modes and publishes nothing.
+        try:
+            artifact = artifacts / "debug-keystore/comic-archiver-debug.keystore"
+            _write_private_file(artifact, keystore.read_bytes())
+        except OSError:
+            record("debug_signing", "failed", provenance=provenance,
+                   reason="generated keystore could not be retained as a private artifact")
+            return None
+        facts["private_artifact"] = str(artifact)
+    record("debug_signing", "passed", **facts)
+    return str(keystore)
+
+
 def _java_version(java):
     probe = run_tool([java, "-version"], timeout=120)
     match = re.search(r'version "(\d+)', probe["tail"])
@@ -732,6 +847,10 @@ def _gradle_invocation(paths, task, wheels):
             f"-PzstandardWheels={wheels}", f"-PbuildPython={paths['buildpython']}"]
     if index_url:
         argv.append(f"-PpipIndexUrl={index_url}")
+    # The managed debug keystore's path is the only signing fact Gradle ever sees;
+    # without it AGP's default per-user debug keystore behavior applies unchanged.
+    if paths.get("debug_keystore"):
+        argv.append(f"-PdebugKeystore={paths['debug_keystore']}")
     return env, argv, jvm_flags, index_url
 
 
@@ -942,7 +1061,7 @@ def _json_ok(text):
         return False
 
 
-REQUIRED_PHASES = ("provision", "preflight", "sdist", "wheels", "build", "jvm_tests", "in_app")
+REQUIRED_PHASES = ("provision", "debug_signing", "preflight", "sdist", "wheels", "build", "jvm_tests", "in_app")
 
 
 def _verdict():
@@ -964,6 +1083,9 @@ def main():
     args = parser.parse_args()
     try:
         tools = phase_provision() if args.phase == "all" else {}
+        # The managed keystore exists (or the job fails) before any Gradle run; an
+        # APK is never produced with an unmanaged, job-ephemeral debug identity.
+        debug_keystore = phase_debug_signing(tools) if args.phase == "all" else None
         preflight = phase_preflight(tools) if args.phase in {"all", "preflight"} else None
         if args.phase == "sdist":
             phase_sdist()
@@ -972,7 +1094,9 @@ def main():
         else:
             # The sdist digest is cheap and independent; it always runs in the full phase.
             sdist = phase_sdist()
-            if preflight is not None and preflight[0]:
+            signing_ok = report["phases"].get("debug_signing", {}).get("status") == "passed"
+            if preflight is not None and preflight[0] and signing_ok:
+                preflight[1]["debug_keystore"] = debug_keystore
                 wheels = phase_wheels(preflight[1], sdist)
                 if phase_build(preflight[1], wheels):
                     if phase_jvm_tests(preflight[1], wheels):
@@ -983,10 +1107,12 @@ def main():
                     record("jvm_tests", "skipped", reason="build did not pass")
                     record("in_app", "skipped", reason="build did not pass")
             else:
-                record("wheels", "skipped", reason="preflight did not pass")
-                record("build", "skipped", reason="preflight did not pass")
-                record("jvm_tests", "skipped", reason="preflight did not pass")
-                record("in_app", "skipped", reason="preflight did not pass")
+                reason = ("preflight did not pass" if preflight is None or not preflight[0]
+                          else "managed debug keystore unavailable")
+                record("wheels", "skipped", reason=reason)
+                record("build", "skipped", reason=reason)
+                record("jvm_tests", "skipped", reason=reason)
+                record("in_app", "skipped", reason=reason)
     finally:
         code = _verdict()
         report["verdict"] = {0: "passed", 1: "failed", 2: "failed", 3: "pending"}[code]
