@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.debug
 
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Base64
 import android.view.Gravity
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -87,12 +88,18 @@ class DebugDisplayActivity : ComponentActivity() {
                             AndroidView(
                                 factory = { context ->
                                     WebView(context).also { webView ->
-                                        webView.loadData(
+                                        // Base64, never raw utf-8: on Q+ the data URI's
+                                        // '#' starts a fragment and truncates the rest,
+                                        // so the earlier raw fixture could never paint.
+                                        val page =
                                             "<html><body style=\"background:#204080;" +
                                                 "color:white;font-size:xx-large\">" +
-                                                "<p>WEBVIEW VISIBLE</p></body></html>",
+                                                "<p>WEBVIEW VISIBLE</p></body></html>"
+                                        webView.loadData(
+                                            Base64.encodeToString(
+                                                page.toByteArray(), Base64.NO_PADDING),
                                             "text/html",
-                                            "utf-8",
+                                            "base64",
                                         )
                                     }
                                 },

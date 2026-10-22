@@ -46,8 +46,10 @@ fun SignInScreen(
             }
         }
         Spacer(Modifier.height(4.dp))
-        // The WebView sign-in surface, when a sign-in is in flight.
-        signInContent()
+        // The WebView sign-in surface, mounted only while the controller reports a
+        // sign-in in flight (Page/Settling → busy). An unloaded WebView mounted on the
+        // entry screen paints blank and blanked the whole entry screen with it.
+        if (state.busy) signInContent()
     }
 }
 

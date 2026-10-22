@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Debug-build-only rendering probe (src/debug never reaches a release build): no
-         intent filter, so the activity is reachable only by an explicit adb am start,
-         never from another app. -->
+    <!-- Debug-build-only rendering probe (src/debug never reaches a release build).
+         No intent filter, so it never resolves implicit intents, but exported=true
+         means any app could still start it explicitly — tolerated only because the
+         debug build is a development install and the probe performs no account or
+         data actions. -->
     <application>
         <activity
             android:name=".debug.DebugDisplayActivity"

@@ -40,7 +40,8 @@ import java.io.File
  * under the ComicArchiverSelfcheck tag for scripts/android_feasibility.py; that path is
  * unchanged from the scaffold launcher and never logs credentials.
  *
- * Sign-in's WebView is the UI-owned surface the frozen engine drives; no object is ever
+ * Sign-in's WebView is one activity-owned surface the frozen engine drives, mounted in
+ * the tree only while a sign-in is in flight; no object is ever
  * exposed to page JavaScript. The folder picker's persistable grant lands in
  * [SafExportRuntime.onFolderGranted].
  */
@@ -48,6 +49,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var controller: AppController
     private lateinit var exports: SafExportRuntime
+
+    /** The one activity-owned sign-in WebView; destroyed with the activity in [onDestroy]. */
+    private var signInWebView: WebView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,6 +72,12 @@ class MainActivity : ComponentActivity() {
         }
 
         controller = DefaultAppController(this, createSignInEngine(app), lifecycleScope)
+        // The sign-in WebView is activity-owned and created up front, attached to the
+        // controller BEFORE any Sign in can run, so the engine always drives this one
+        // instance; the UI mounts it only while a sign-in is in flight (see
+        // SignInScreen). No unloaded WebView ever sits in the entry tree.
+        signInWebView = WebView(this)
+            .also { (controller as DefaultAppController).attachSignInWebView(it) }
         exports = SafExportRuntime(
             context = this,
             bridge = app.bridge,
@@ -100,21 +110,32 @@ class MainActivity : ComponentActivity() {
                                 controller.cancelExport()
                             },
                             signInContent = {
-                                AndroidView(
-                                    factory = { context ->
-                                        WebView(context).also { webView ->
-                                            (controller as DefaultAppController)
-                                                .attachSignInWebView(webView)
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth().height(360.dp),
-                                )
+                                // The pre-created, already-attached activity-owned
+                                // WebView, mounted into the tree only while busy; the
+                                // factory hands over the existing instance (never a new
+                                // one), so detach/remount reuses the same surface.
+                                val webView = signInWebView
+                                if (webView != null) {
+                                    AndroidView(
+                                        factory = { webView },
+                                        modifier = Modifier.fillMaxWidth().height(360.dp),
+                                    )
+                                }
                             },
                         )
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        // The activity-owned sign-in surface goes with the activity. The cookie store —
+        // the app's cookie authority — is deliberately untouched here.
+        signInWebView?.stopLoading()
+        signInWebView?.destroy()
+        signInWebView = null
+        super.onDestroy()
     }
 
     /**
