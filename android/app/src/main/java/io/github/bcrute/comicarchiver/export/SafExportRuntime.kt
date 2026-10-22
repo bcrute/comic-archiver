@@ -46,8 +46,8 @@ class SafExportRuntime(
     )
     private val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    // initialPanel restores this value; initialize it first so construction does not
-    // overwrite the restored folder after showing a misleading READY panel.
+    // initialPanel restores this value; keep the initialization order explicit so a
+    // later initializer change cannot overwrite that restored folder.
     private var treeUri: Uri? = null
 
     private val _panel = kotlinx.coroutines.flow.MutableStateFlow(initialPanel())
