@@ -65,11 +65,13 @@ class DefaultAppController(
     private val cloudActions = Mutex()
     private var catalogVersion = 0L
     private val preferences = context.getSharedPreferences("comicarchiver_appearance", Context.MODE_PRIVATE)
+    private val sessionActions = context.getSharedPreferences("comicarchiver_session_actions", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
         AppState(site = location.key, signIn = SignInState.SignedOut, download = DownloadState.Held,
                  library = emptyList(), notice = null,
                  sites = context.app.siteChoices(), siteBusy = true,
+                 signOutPending = sessionActions.getBoolean("signout_${location.key}", false),
                  theme = AppTheme.entries.firstOrNull { it.name == preferences.getString("theme", null) }
                      ?: AppTheme.SYSTEM))
     override val state: StateFlow<AppState> = _state.asStateFlow()
@@ -83,7 +85,7 @@ class DefaultAppController(
             workspaceReady = opened.optBoolean("ok")
             _state.value = _state.value.copy(siteBusy = false,
                 notice = if (workspaceReady) _state.value.notice else workspaceNotice(opened))
-            if (workspaceReady) signInWebView?.let(engine::restoreSignIn)
+            if (workspaceReady && !_state.value.signOutPending) signInWebView?.let(engine::restoreSignIn)
             // The saved library is useful while held, too. Reading it must not depend
             // on Go (and this poll cannot admit downloads: mapWorkerStatus checks
             // admitted before consulting live worker state).
@@ -101,7 +103,7 @@ class DefaultAppController(
     fun attachSignInWebView(webView: WebView, siteKey: String = location.key) {
         if (siteKey != location.key) return
         signInWebView = webView
-        if (workspaceReady && !_state.value.siteBusy) engine.restoreSignIn(webView)
+        if (workspaceReady && !_state.value.siteBusy && !_state.value.signOutPending) engine.restoreSignIn(webView)
     }
 
     fun attachSurfaceFactory(owner: Any, release: () -> Unit = {}, factory: (String) -> Unit) {
@@ -125,6 +127,11 @@ class DefaultAppController(
 
     override fun selectSite(key: String) {
         if (key == location.key && workspaceReady || _state.value.siteBusy) return
+        if (_state.value.signOutPending) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish signing out before switching sites. Your library is retained."))
+            return
+        }
         val choice = _state.value.sites.firstOrNull { it.key == key }
         if (choice == null || !choice.enabled) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
@@ -179,7 +186,8 @@ class DefaultAppController(
                                 workspaceReady = true
                                 signInWebView = null // Activity supplies a freshly bound profile surface.
                                 _state.value = AppState(key, engine.state.value, DownloadState.Held,
-                                    emptyList(), null, theme = _state.value.theme, sites = before.sites)
+                                    emptyList(), null, theme = _state.value.theme, sites = before.sites,
+                                    signOutPending = sessionActions.getBoolean("signout_$key", false))
                             }
                         } catch (cancelled: CancellationException) { throw cancelled }
                           catch (_: Exception) {
@@ -210,7 +218,7 @@ class DefaultAppController(
     }
 
     override fun startSignIn() {
-        if (_state.value.siteBusy || !workspaceReady) return
+        if (_state.value.siteBusy || _state.value.signOutPending || !workspaceReady) return
         if (_state.value.sites.firstOrNull { it.key == location.key }?.signInAvailable == false) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
                 "Saved files are available. Update Android System WebView to sign in to this site."))
@@ -268,7 +276,7 @@ class DefaultAppController(
         admissionVersion++
         admitted = false
         val target = location
-        _state.value = _state.value.copy(siteBusy = true)
+        _state.value = _state.value.copy(siteBusy = true, signOutPending = true, notice = null)
         scope.launch {
           siteActions.withLock {
             // Contract §3 order, awaited end to end: the downloader drains before any
@@ -276,6 +284,10 @@ class DefaultAppController(
             // engine closes the session and clears the jar on the main thread; only then
             // is the sign-in record forgotten, so a restart can never resume it.
             try {
+                val remembered = withContext(Dispatchers.IO) {
+                    sessionActions.edit().putBoolean("signout_${target.key}", true).commit()
+                }
+                if (!remembered) throw IllegalStateException("sign-out intent not saved")
                 if (!downloads.drain()) throw IllegalStateException("worker did not drain")
                 val cleared = withTimeoutOrNull(5_000) {
                     suspendCancellableCoroutine<Boolean> { continuation ->
@@ -289,7 +301,12 @@ class DefaultAppController(
                 val forgotten = withContext(Dispatchers.IO) { JSONObject(bridge.dispatch("signout_record",
                     JSONObject().put("session_root", target.session.absolutePath).toString())) }
                 if (!forgotten.optBoolean("ok")) throw IllegalStateException("record not forgotten")
-                _state.value = _state.value.copy(download = DownloadState.Held)
+                val completed = withContext(Dispatchers.IO) {
+                    sessionActions.edit().remove("signout_${target.key}").commit()
+                }
+                if (!completed) throw IllegalStateException("sign-out completion not saved")
+                _state.value = _state.value.copy(download = DownloadState.Held,
+                    signOutPending = false, notice = null)
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) {
                 _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
@@ -302,6 +319,11 @@ class DefaultAppController(
     }
 
     override fun go() {
+        if (_state.value.signOutPending) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish signing out before starting another download."))
+            return
+        }
         if (_state.value.siteBusy || !workspaceReady || engine.state.value !is SignInState.SignedIn) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
                 "Open the site and finish sign-in before pressing Go."))
@@ -370,7 +392,7 @@ class DefaultAppController(
     }
 
     override fun cloudAction(request: CloudRequest) {
-        if (_state.value.cloudBusy || _state.value.siteBusy || !workspaceReady) return
+        if (_state.value.cloudBusy || _state.value.siteBusy || _state.value.signOutPending || !workspaceReady) return
         val target = location; val version = siteVersion
         val needsWorker = request is CloudRequest.Test || request is CloudRequest.Retry ||
             request is CloudRequest.Cleanup || request is CloudRequest.Resume

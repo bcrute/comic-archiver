@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Looper
 import android.webkit.WebView
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -153,10 +154,65 @@ class SiteSwitchActivityTest {
         assertNull(app.controller.state.value.notice)
         assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
     }
+
+    @Test fun failedProfileClearKeepsARetryAndCannotStartOrSwitchAnAccount() {
+        ready()
+        app.failClear = true
+        select("About"); compose.onNodeWithText("Sign out of Tapas").performClick()
+        await { app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
+        assertEquals(0, app.wire.count("signout_record"))
+        compose.onNode(hasText("Webtoon") and hasClickAction()).assertIsNotEnabled()
+        compose.runOnIdle { app.controller.go(); app.controller.selectSite("webtoon") }
+        assertEquals("tapas", app.controller.state.value.site)
+        assertEquals(0, app.wire.count("go"))
+        select("Library"); compose.onNodeWithText("Tapas book").assertIsDisplayed()
+        compose.onNodeWithText("Retry sign-out").assertIsDisplayed()
+        assertTrue(app.getSharedPreferences("comicarchiver_session_actions", 0).getBoolean("signout_tapas", false))
+        compose.runOnIdle { app.failClear = false }
+        compose.onNodeWithText("Retry sign-out").performClick()
+        await { !app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy &&
+            app.controller.state.value.signIn == SignInState.SignedOut }
+        assertEquals(1, app.wire.count("signout_record"))
+        assertEquals(2, app.clearCalls.get())
+        assertFalse(app.getSharedPreferences("comicarchiver_session_actions", 0).contains("signout_tapas"))
+        assertEquals(SignInState.SignedOut, app.controller.state.value.signIn)
+    }
+
+    @Test fun aFailedRecordForgetRemainsRetryableAfterTheBrowserProfileIsAlreadyClear() {
+        ready()
+        app.wire.refuseForget = true
+        select("About"); compose.onNodeWithText("Sign out of Tapas").performClick()
+        await { app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
+        assertEquals(1, app.wire.count("signout_record"))
+        assertEquals(1, app.clearCalls.get())
+        compose.runOnIdle { app.wire.refuseForget = false }
+        compose.onNodeWithText("Retry sign-out").performClick()
+        await { !app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
+        assertEquals(2, app.wire.count("signout_record"))
+        assertEquals(2, app.clearCalls.get())
+        assertEquals(0, app.wire.count("go"))
+    }
+
+    @Test
+    @Config(application = PendingSignOutTestApp::class)
+    fun aColdProcessWithUnfinishedSignOutShowsItsLibraryAndRetryWithoutRestoringAuth() {
+        await { !app.controller.state.value.siteBusy && app.controller.state.value.library.isNotEmpty() }
+        assertTrue(app.controller.state.value.signOutPending)
+        assertEquals(0, app.wire.count("signin_restore"))
+        assertEquals(SignInState.SignedOut, app.controller.state.value.signIn)
+        select("Library"); compose.onNodeWithText("Tapas book").assertIsDisplayed()
+        compose.onNodeWithText("Retry sign-out").performClick()
+        await { !app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
+        assertEquals(1, app.wire.count("signout_record"))
+        assertEquals(0, app.wire.count("signin_restore"))
+        assertEquals(0, app.wire.count("go"))
+    }
 }
 
 open class SwitchTestApp : App() {
     val wire = SwitchBridge()
+    var failClear = false
+    val clearCalls = java.util.concurrent.atomic.AtomicInteger()
     override val bridge: PythonBridge get() = wire
     override val signInSites get() = WebViewSignInEngine.BETA_SITES + mapOf(
         "webtoon" to SiteAddress("https://www.webtoons.com", "/member/login", setOf("www.webtoons.com"),
@@ -170,7 +226,8 @@ open class SwitchTestApp : App() {
     override fun startNetworkWriter(target: SiteWorkspace) {}
     override fun signInAvailable(key: String) = true
     override fun cookieStoreForSite(key: String): WebViewCookieStore =
-        stores.getOrPut(key) { WebViewCookieStore(signInSites.getValue(key).cookieHosts) }
+        stores.getOrPut(key) { WebViewCookieStore(signInSites.getValue(key).cookieHosts,
+            clearProfile = { done -> clearCalls.incrementAndGet(); done(!failClear) }) }
     override fun createSignInSurface(context: Context, key: String) = WebView(context)
 }
 
@@ -194,12 +251,21 @@ class SurfaceFailureTestApp : SwitchTestApp() {
     }
 }
 
+class PendingSignOutTestApp : SwitchTestApp() {
+    override fun onCreate() {
+        super.onCreate()
+        getSharedPreferences("comicarchiver_session_actions", 0).edit()
+            .putBoolean("signout_tapas", true).commit()
+    }
+}
+
 class SwitchBridge : PythonBridge {
     val requests = CopyOnWriteArrayList<Pair<String, JSONObject>>()
     private val fallback = LifecycleBridge()
     private val speeds = java.util.concurrent.ConcurrentHashMap<String, String>()
     @Volatile var refuseWebtoon = false
     @Volatile var loginRequired = false
+    @Volatile var refuseForget = false
     @Volatile var holdWebtoonRestore: CountDownLatch? = null
     val restoreEntered = CountDownLatch(1)
     fun count(op: String) = requests.count { it.first == op }
@@ -211,6 +277,8 @@ class SwitchBridge : PythonBridge {
         val site = when (File(root).name) { "Webtoon" -> "Webtoon"; "Tappytoon" -> "Tappytoon"; else -> "Tapas" }
         if (op == "prepare_workspace" && site == "Webtoon" && refuseWebtoon)
             return """{"ok":false,"code":"refused","message":"The selected workspace is unavailable. Try again."}"""
+        if (op == "signout_record" && refuseForget)
+            return """{"ok":false,"code":"refused","message":"The sign-out record could not be removed. Try again."}"""
         if (op == "signin_restore" && site == "Webtoon") {
             restoreEntered.countDown()
             holdWebtoonRestore?.await(5, TimeUnit.SECONDS)

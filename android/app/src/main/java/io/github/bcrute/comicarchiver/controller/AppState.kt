@@ -19,6 +19,7 @@ data class AppState(
     val sites: List<SiteChoice> = emptyList(),
     val siteBusy: Boolean = false,
     val signInOrigin: String? = null,
+    val signOutPending: Boolean = false,
 )
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,

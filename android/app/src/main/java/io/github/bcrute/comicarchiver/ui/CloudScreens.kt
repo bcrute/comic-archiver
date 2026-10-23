@@ -84,7 +84,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     }
                 } else {
                     val open = LocalUriHandler.current
-                    CloudScreen(cloud, state.cloudBusy || state.siteBusy, state.cloudNotice?.message,
+                    CloudScreen(cloud, state.cloudBusy || state.siteBusy || state.signOutPending, state.cloudNotice?.message,
                         page == "B2 setup", state.signIn is SignInState.SignedIn,
                         onCloudRefresh, onCloudAction, { open.openUri(it.url) })
                 }

@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.runtime
 
 import android.content.Context
 import com.chaquo.python.Python
+import com.chaquo.python.PyObject
 import com.chaquo.python.android.AndroidPlatform
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
@@ -60,21 +61,22 @@ object PythonRuntime {
             .callAttr("site_addresses").asList()
         val table = mutableMapOf<String, SiteAddress>()
         for (row in rows) {
-            // PyObject's map access answers nullable; a row without every field is not a
-            // site (the caller keeps the beta fallback rather than an entry that cannot
-            // open a sign-in page).
-            val key = row["key"]?.toString()
-            val home = row["home"]?.toString()
-            val signInPath = row["signInPath"]?.toString()
-            val hosts = row["cookieHosts"]?.asList()?.map { it.toString() }
+            // PyObject.get accesses Python attributes, even though PyObject implements
+            // Map. Site rows are dictionaries: use the container view and Python keys.
+            val fields = row.asMap()
+            fun field(name: String): PyObject? = fields[PyObject.fromJava(name)]
+            val key = field("key")?.toString()
+            val home = field("home")?.toString()
+            val signInPath = field("signInPath")?.toString()
+            val hosts = field("cookieHosts")?.asList()?.map { it.toString() }
             // The sign-in journey's extra landing hosts (the mobile mirror); a row without
             // them still loads — its journey simply never leaves the cookie hosts.
-            val landing = row["signinHosts"]?.asList()?.map { it.toString() } ?: emptyList()
+            val landing = field("signinHosts")?.asList()?.map { it.toString() } ?: emptyList()
             if (key == null || home == null || signInPath == null || hosts.isNullOrEmpty()) {
                 continue
             }
-            val name = row["name"]?.toString() ?: key
-            val folder = row["folder"]?.toString() ?: ""
+            val name = field("name")?.toString() ?: key
+            val folder = field("folder")?.toString() ?: ""
             table[key] = SiteAddress(home, signInPath, hosts.toSet(), landing.toSet(), name, folder)
         }
         return table

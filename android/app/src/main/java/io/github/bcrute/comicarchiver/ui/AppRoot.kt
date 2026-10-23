@@ -79,7 +79,8 @@ fun ComicArchiverAppRoot(
         if (state.sites.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 state.sites.forEach { site ->
-                    FilterChip(selected = state.site == site.key, enabled = site.enabled && !state.siteBusy,
+                    FilterChip(selected = state.site == site.key,
+                        enabled = site.enabled && !state.siteBusy && !state.signOutPending,
                         onClick = { controller.selectSite(site.key) },
                         label = { Text(site.name, maxLines = 1, softWrap = false) })
                 }
@@ -91,6 +92,12 @@ fun ComicArchiverAppRoot(
         if (state.siteBusy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("Updating account and library…", Modifier.padding(horizontal = 16.dp))
+        }
+        if (state.signOutPending && !state.siteBusy) {
+            Text("Sign-out did not finish. Your saved files are kept.", Modifier.padding(horizontal = 16.dp))
+            OutlinedButton(onClick = controller::signOut, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Text("Retry sign-out")
+            }
         }
         if (tab != AppTab.SAVING) state.notice?.let { notice ->
             NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
@@ -136,7 +143,7 @@ fun ComicArchiverAppRoot(
                     LimitationsScreen(modifier = Modifier.weight(1f))
                     OutlinedButton(
                         onClick = {
-                            if (state.signIn is SignInState.SignedIn) controller.signOut()
+                            if (state.signIn is SignInState.SignedIn || state.signOutPending) controller.signOut()
                             else tab = AppTab.SAVING
                         },
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -144,7 +151,7 @@ fun ComicArchiverAppRoot(
                     ) {
                         val name = state.sites.firstOrNull { it.key == state.site }?.name
                             ?: if (state.site == "tapas") "Tapas" else state.site
-                        Text(if (state.signIn is SignInState.SignedIn) "Sign out of $name"
+                        Text(if (state.signIn is SignInState.SignedIn || state.signOutPending) "Sign out of $name"
                              else "Go to sign in")
                     }
                 }
