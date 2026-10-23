@@ -1,8 +1,11 @@
 """Keep expensive fleet provisioning aligned with actual emulator capacity, without
 turning missing capacity into a qualification pass. No SDK/network/build is run here.
 """
+import json
+import pathlib
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts import android_feasibility as feasibility
 
@@ -33,3 +36,155 @@ class EmulatorCapacityTests(unittest.TestCase):
             self.assertEqual(report["phases"]["in_app"]["status"], "pending")
             self.assertEqual(feasibility._verdict(), 3)
             run.assert_not_called()
+
+
+class SelfcheckEvidenceTests(unittest.TestCase):
+    """Exercise the actual MainActivity envelope, without claiming Android execution."""
+
+    @staticmethod
+    def envelope():
+        return {
+            "ping": {"ok": True, "result": {"python": "3.13.16", "bridge_version": 1}},
+            "selfcheck": {
+                "identity": feasibility.SELF_IDENTITY, "python": "3.13.16", "page_size": 16384,
+                "zstandard": {"imported": True, "version": "0.25.0", "roundtrip": True,
+                              "trailing_frame": True, "truncation": True, "checksum": "rejected",
+                              "window_bound": True},
+            },
+        }
+
+    def test_main_activity_envelope_requires_bridge_and_every_native_check(self):
+        checks = feasibility._evaluate_selfcheck(self.envelope())
+        self.assertTrue(checks["bridge_ping"])
+        self.assertTrue(all(checks.values()))
+
+    def test_bare_python_facts_and_invalid_envelopes_cannot_qualify_the_app(self):
+        for value in (None, [], {}, {"error": "ImportError"}, self.envelope()["selfcheck"]):
+            with self.subTest(value=value):
+                self.assertFalse(all(feasibility._evaluate_selfcheck(value).values()))
+
+    def test_missing_or_failed_named_checks_never_receive_success(self):
+        for key in ("imported", "version", "roundtrip", "trailing_frame", "truncation", "checksum", "window_bound"):
+            with self.subTest(key=key):
+                value = self.envelope()
+                del value["selfcheck"]["zstandard"][key]
+                self.assertFalse(all(feasibility._evaluate_selfcheck(value).values()))
+        value = self.envelope()
+        value["selfcheck"]["zstandard"]["roundtrip"] = 1
+        self.assertFalse(feasibility._evaluate_selfcheck(value)["roundtrip"])
+
+    def test_unparseable_and_below_floor_versions_fail_without_raising(self):
+        for version in ("", "old", "0.nope.0", "0.24.0", None, 0.25, "0.25rc1"):
+            with self.subTest(version=version):
+                value = self.envelope()
+                value["selfcheck"]["zstandard"]["version"] = version
+                self.assertFalse(feasibility._evaluate_selfcheck(value)["version_floor"])
+
+    def test_missing_failed_or_mismatched_bridge_ping_does_not_qualify(self):
+        for ping in (None, {}, {"ok": False},
+                     {"ok": True, "result": {"bridge_version": True, "python": "3.13.16"}},
+                     {"ok": True, "result": {"bridge_version": 1, "python": "3.12.0"}}):
+            with self.subTest(ping=ping):
+                value = self.envelope()
+                value["ping"] = ping
+                self.assertFalse(feasibility._evaluate_selfcheck(value)["bridge_ping"])
+
+    def test_identity_and_observed_page_size_are_required(self):
+        for identity in (None, feasibility.SELF_IDENTITY + "/other"):
+            value = self.envelope()
+            value["selfcheck"]["identity"] = identity
+            self.assertFalse(feasibility._evaluate_selfcheck(value)["selfcheck_line"])
+        for size in (None, True, 0, -4096, "16384"):
+            value = self.envelope()
+            value["selfcheck"]["page_size"] = size
+            self.assertFalse(feasibility._evaluate_selfcheck(value)["page_size"])
+
+
+class InAppObservationTests(unittest.TestCase):
+    def observe(self, failure=None):
+        with tempfile.TemporaryDirectory() as folder:
+            sdk = pathlib.Path(folder) / "sdk"
+            for relative in ("platform-tools/adb", "emulator/emulator", "cmdline-tools/latest/bin/avdmanager"):
+                path = sdk / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            payload = SelfcheckEvidenceTests.envelope()
+            report = {"phases": {"preflight": {"system_images": ["system-images;android-36;google_apis;x86_64"]}}}
+            process = MagicMock()
+            process.poll.return_value = 0
+
+            def run(argv, **kwargs):
+                code, tail = 0, ""
+                if "getprop" in argv:
+                    tail = {"sys.boot_completed": "1", "ro.product.cpu.abi": "x86_64",
+                            "ro.build.version.sdk": "36"}[argv[-1]]
+                elif "install" in argv:
+                    code, tail = (1, "Failure") if failure == "install" else (0, "Success")
+                elif "start" in argv:
+                    tail = "Error: Activity not started" if failure == "launch" else "Status: ok"
+                elif "logcat" in argv and "-c" in argv:
+                    code = 1 if failure == "clear" else 0
+                elif "logcat" in argv and "-d" in argv:
+                    code = 1 if failure == "read" else 0
+                    tail = json.dumps(payload)
+                return {"returncode": code, "tail": tail}
+
+            with patch.object(feasibility, "report", report), patch.object(
+                    feasibility, "JOB_DIR", pathlib.Path(folder) / "job"), patch.object(
+                    feasibility, "_emulator_capable", return_value=True), patch.object(
+                    feasibility, "_free_port", return_value=5554), patch.object(
+                    feasibility, "run_tool", side_effect=run), patch.object(
+                    feasibility.subprocess, "Popen", return_value=process), patch.object(feasibility.time, "sleep"):
+                feasibility.phase_in_app({"sdk": sdk, "java": "/fixture/jdk/bin/java"})
+            return report["phases"]["in_app"]
+
+    def test_success_needs_install_launch_clear_read_and_the_real_envelope(self):
+        phase = self.observe()
+        self.assertEqual(phase["status"], "passed")
+        self.assertTrue(all(phase["checks"].values()))
+
+    def test_stale_passing_log_cannot_hide_failed_install(self):
+        phase = self.observe("install")
+        self.assertEqual(phase["status"], "failed")
+        self.assertFalse(phase["checks"]["install_ok"])
+
+    def test_shell_zero_exit_without_successful_activity_start_is_not_success(self):
+        phase = self.observe("launch")
+        self.assertEqual(phase["status"], "failed")
+        self.assertFalse(phase["checks"]["launch_ok"])
+
+    def test_failed_log_clear_or_read_cannot_accept_stale_evidence(self):
+        for stage, check in (("clear", "log_cleared"), ("read", "log_read")):
+            with self.subTest(stage=stage):
+                phase = self.observe(stage)
+                self.assertEqual(phase["status"], "failed")
+                self.assertFalse(phase["checks"][check])
+
+
+class EmulatorPortTests(unittest.TestCase):
+    def test_console_and_adb_pair_must_both_be_free_in_androids_range(self):
+        addresses = []
+
+        def socket():
+            value = MagicMock()
+            value.__enter__.return_value = value
+
+            def bind(address):
+                addresses.append(address)
+                if address[1] == 5555:
+                    raise OSError("adb endpoint occupied")
+
+            value.bind.side_effect = bind
+            return value
+
+        with patch.object(feasibility.socket, "socket", side_effect=socket):
+            self.assertEqual(feasibility._free_port(), 5556)
+        self.assertEqual([port for host, port in addresses], [5554, 5555, 5556, 5557])
+        self.assertTrue(all(host == "127.0.0.1" for host, port in addresses))
+
+    def test_exhausted_android_port_range_is_an_explicit_failure(self):
+        value = MagicMock()
+        value.__enter__.return_value = value
+        value.bind.side_effect = OSError("occupied")
+        with patch.object(feasibility.socket, "socket", return_value=value), self.assertRaises(RuntimeError):
+            feasibility._free_port()

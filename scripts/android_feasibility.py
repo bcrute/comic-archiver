@@ -1042,33 +1042,51 @@ def phase_jvm_tests(paths, wheels):
 
 
 def _free_port():
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
+    # Android's console/adb pairs have a documented range, unlike arbitrary
+    # ephemeral TCP ports. Check both endpoints before starting this job's AVD.
+    for port in range(5554, 5683, 2):
+        try:
+            with socket.socket() as console, socket.socket() as adb:
+                console.bind(("127.0.0.1", port))
+                adb.bind(("127.0.0.1", port + 1))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError("No free Android emulator console/adb port pair")
 
 
 def _evaluate_selfcheck(line):
     """Missing evidence is not success: every named check must be present and passed."""
-    if not isinstance(line, dict) or not isinstance(line.get("zstandard"), dict):
+    # MainActivity emits {ping: <bridge envelope>, selfcheck: <Python facts>}.
+    # A bare Python result cannot prove that the packaged bridge worked too.
+    facts = line.get("selfcheck") if isinstance(line, dict) else None
+    if not isinstance(facts, dict) or not isinstance(facts.get("zstandard"), dict):
         return {"selfcheck_line": False}
-    zstd = line["zstandard"]
-    version = str(zstd.get("version", "")).split(".")
+    ping = line.get("ping")
+    result = ping.get("result") if isinstance(ping, dict) else None
+    zstd = facts["zstandard"]
+    version = zstd.get("version")
+    parsed = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", version) if isinstance(version, str) else None
     return {
-        "selfcheck_line": True,
+        "selfcheck_line": facts.get("identity") == SELF_IDENTITY,
+        "bridge_ping": isinstance(result, dict) and ping.get("ok") is True and
+                       type(result.get("bridge_version")) is int and result["bridge_version"] == 1 and
+                       isinstance(result.get("python"), str) and bool(result["python"]) and
+                       result["python"] == facts.get("python"),
         "imported": zstd.get("imported") is True,
-        "version_floor": len(version) >= 2 and (int(version[0]), int(version[1])) >= (0, 25),
+        "version_floor": parsed is not None and tuple(map(int, parsed.groups()[:2])) >= (0, 25),
         "roundtrip": zstd.get("roundtrip") is True,
         "trailing_frame": zstd.get("trailing_frame") is True,
         "truncation": zstd.get("truncation") is True,
         "checksum": zstd.get("checksum") == "rejected",
         "window_bound": zstd.get("window_bound") is True,
-        "page_size": isinstance(line.get("page_size"), int),
+        "page_size": type(facts.get("page_size")) is int and facts["page_size"] > 0,
     }
 
 
 def phase_in_app(paths):
     if not _emulator_capable():
-        record("in_app", "pending", reason="no accessible /dev/kvm on this host; an emulator cannot run")
+        record("in_app", "pending", reason="no accessible /dev/kvm in this job; native emulator gate pending")
         return
     sdk = paths["sdk"]
     adb = sdk / "platform-tools/adb"
@@ -1099,7 +1117,6 @@ def phase_in_app(paths):
     serial, process = None, None
     try:
         port = _free_port()
-        port += port % 2  # adb pairs the console port with port+1; keep the pair contiguous.
         serial = f"emulator-{port}"
         process = subprocess.Popen(
             [str(emulator), "-avd", avd_name, "-port", str(port), "-no-window", "-no-snapshot",
@@ -1123,20 +1140,25 @@ def phase_in_app(paths):
         for key, prop in (("abi", "ro.product.cpu.abi"), ("api", "ro.build.version.sdk")):
             properties[key] = run_tool([str(adb), "-s", serial, "shell", "getprop", prop], timeout=60)["tail"].strip()
         install = run_tool([str(adb), "-s", serial, "install", "-r", str(APK)], timeout=600)
-        run_tool([str(adb), "-s", serial, "logcat", "-c"], timeout=60)
-        run_tool([str(adb), "-s", serial, "shell", "am", "start", "-n", APP_ACTIVITY,
-                  "--ez", "selfcheck", "true"], timeout=120)
+        cleared = run_tool([str(adb), "-s", serial, "logcat", "-c"], timeout=60)
+        launched = run_tool([str(adb), "-s", serial, "shell", "am", "start", "-W", "-n", APP_ACTIVITY,
+                             "--ez", "selfcheck", "true"], timeout=120)
         time.sleep(20)
         log = run_tool([str(adb), "-s", serial, "logcat", "-d", "-s", SELF_TAG, "-v", "raw"], timeout=120)
         line = next((json.loads(piece) for piece in log["tail"].splitlines()
                      if piece.strip().startswith("{") and SELF_IDENTITY in piece and _json_ok(piece)), None)
         checks = _evaluate_selfcheck(line)
+        checks["install_ok"] = install["returncode"] == 0 and "Success" in install["tail"].splitlines()
+        checks["log_cleared"] = cleared["returncode"] == 0
+        checks["launch_ok"] = launched["returncode"] == 0 and "Status: ok" in launched["tail"].splitlines()
+        checks["log_read"] = log["returncode"] == 0
         checks["abi_allowed"] = properties["abi"] in ABI_FILTERS
         record("in_app", "passed" if checks and all(checks.values()) else "failed",
-               install_ok=install["returncode"] == 0, evidence=line, checks=checks,
+               install_ok=checks["install_ok"], evidence=line, checks=checks,
                abi=properties["abi"], api=properties["api"], tail=log["tail"][:2000])
-    except ValueError:
-        record("in_app", "failed", reason="selfcheck line was not valid JSON")
+    except (ValueError, OSError, RuntimeError) as error:
+        record("in_app", "failed", reason="emulator or selfcheck observation failed",
+               error_type=type(error).__name__)
     finally:
         if serial:
             run_tool([str(adb), "-s", serial, "emu", "kill"], timeout=120)
