@@ -135,7 +135,7 @@ def serve(request):
                                   f'<div id="episode-9001"><article>{images}</article></div>')
         if path == '/episode/9100':
             return httpx.Response(200, text='<script>var seriesId=2002;</script>'
-                                  f'<div id="episode-9100"><div id="epub-9100"><p>{NOVEL_TEXT}</p>'
+                                  f'<div id="episode-9100"><div id="epub-9100" class="ep-epub-content"><p>{NOVEL_TEXT}</p>'
                                   '<p><em>Comics and novels use the real writers.</em></p></div></div>')
     with _lock:
         _unexpected += 1

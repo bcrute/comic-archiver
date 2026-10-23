@@ -58,7 +58,7 @@ class SiteStandInTests(unittest.TestCase):
     def test_comic_order_and_png_bytes_match_the_production_capture_flow(self):
         adapter = self.adapter()
         manifest = adapter._http.capture('https://tapas.io/episode/9001')
-        self.assertEqual(tuple(page.url for page in manifest.episodes[0].pages), self.fixture.ASSETS)
+        self.assertEqual(tuple(page.location for page in manifest.episodes[0].pages), self.fixture.ASSETS)
         for url, expected in zip(self.fixture.ASSETS, self.fixture.PAGES, strict=True):
             self.assertEqual(adapter.transport.get(url), expected)
             self.assertTrue(expected.startswith(b'\x89PNG\r\n\x1a\n'))
