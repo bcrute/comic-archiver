@@ -1,0 +1,10 @@
+{
+  "format": "cl1-frame-data/1",
+  "producer": "Hand-authored CL-1 DATA vector; not a producer/runtime/peer fixture",
+  "read_id": "11111111-1111-4111-8111-111111111111",
+  "offset": 0,
+  "sequence": 0,
+  "terminal": true,
+  "payload_hex": "616263",
+  "frame_hex": "434c4231010000001111111111114111811111111111111100000000000000000000000000000003616263"
+}
