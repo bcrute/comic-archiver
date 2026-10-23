@@ -3,7 +3,6 @@ package io.github.bcrute.comicarchiver.ui
 import android.content.Context
 import android.os.Looper
 import android.webkit.WebView
-import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -182,16 +181,20 @@ class SiteSwitchActivityTest {
 
     @Test
     @Config(application = ViewportTestApp::class)
-    fun signInGetsAFixedBrowserViewportAfterInitialMountAndActivityRecreation() {
+    fun signInSetsBrowserLayoutBeforeNavigationAndAfterActivityRecreation() {
         ready()
         fun startAndInspect(): WebView {
             compose.runOnIdle { app.controller.startSignIn() }
-            await { app.controller.state.value.signIn is SignInState.Page &&
-                app.surfaces.lastOrNull()?.let { it.isAttachedToWindow && it.width > 0 && it.height > 0 } == true }
+            await { app.controller.state.value.signIn is SignInState.Page }
+            compose.onNodeWithText("https://m.tapas.io").assertIsDisplayed()
             return compose.runOnIdle { app.surfaces.last().also { surface ->
+                assertTrue("The sign-in screen must mount its browser", surface.parent is ViewGroup)
                 assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.width)
                 assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.height)
-                assertEquals((surface.parent as ViewGroup).height, surface.height)
+                val firstLoad = (app as ViewportTestApp).layoutsAtLoad.last()
+                assertSame(surface, firstLoad.first)
+                assertEquals(ViewGroup.LayoutParams.MATCH_PARENT to ViewGroup.LayoutParams.MATCH_PARENT,
+                    firstLoad.second)
             } }
         }
         val first = startAndInspect()
@@ -232,15 +235,15 @@ class SiteSwitchActivityTest {
     }
 }
 
-/** Robolectric 4.17 supplies a proxy WebViewProvider, without Chromium's measure
- * delegate. Supply ordinary View measurement for this layout-only fixture. Actual
- * HTML percentage sizing and browser rendering require the retained APK on device.
- * Neither the Activity's layout parameters nor its Compose constraints are faked. */
+/** Record the real Activity's parameters when navigation starts. Robolectric has
+ * no Chromium measure delegate, so actual CSS/viewport sizes require the device
+ * gate. Do not manufacture browser measurements in this ordering/lifecycle test. */
 class ViewportTestApp : SwitchTestApp() {
+    val layoutsAtLoad = CopyOnWriteArrayList<Pair<WebView, Pair<Int?, Int?>>>()
     override fun createSignInSurface(context: Context, key: String) = object : WebView(context) {
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            setMeasuredDimension(View.getDefaultSize(0, widthMeasureSpec),
-                View.getDefaultSize(0, heightMeasureSpec))
+        override fun loadUrl(url: String) {
+            layoutsAtLoad.add(this to (layoutParams?.width to layoutParams?.height))
+            super.loadUrl(url)
         }
     }.also { surfaces.add(it) }
 }

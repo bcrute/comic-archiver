@@ -439,13 +439,72 @@ class SafBatchExporterTest {
     @Test fun `unreadable current tree cannot certify previously verified files`() {
         val bytes = byteArrayOf(1)
         source.originals["ep1"] = bytes
-        val entries = listOf(entry("ep1", bytes))
+        source.originals["novel"] = bytes
+        val entries = listOf(entry("ep1", bytes), entry("novel", bytes, kind = ExportKind.EPUB))
         exporter().exportBatch(target, entries)
+        val previous = store.load().all()
         documents.grantRevoked = true
         val summary = exporter().exportBatch(target, entries)
         assertTrue(summary.grantLost)
         assertFalse(summary.complete)
-        assertEquals(1, summary.failed)
+        assertEquals(2, summary.failed)
+        assertEquals(0, summary.verified + summary.alreadyVerified)
+        assertTrue(summary.failures.all { it.failure == ExportFailure.GRANT_LOST })
+        assertEquals(previous, store.load().all())
+
+        // The old records survive the failed attempt, but credit still needs
+        // actual reads of the selected-tree copies after a fresh grant. Refuse
+        // the originals to prove that intact files are not copied again.
+        documents.grantRevoked = false
+        source.refuse.addAll(listOf("ep1", "novel"))
+        val resumed = exporter().exportBatch(target, entries)
+        assertTrue(resumed.complete)
+        assertEquals(2, resumed.alreadyVerified)
+        assertEquals(0, resumed.verified)
+        assertEquals(previous, store.load().all())
+    }
+
+    @Test fun `lost grant does not shadow an unbound legacy copy before re-pick`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        val original = store.load().get("ep1")!!.copy(targetTreeUri = null)
+        val legacy = MemJournalStore()
+        legacy.save(ExportJournal.of(listOf(original)))
+        documents.grantRevoked = true
+        val blocked = exporter(legacy).exportBatch(target, entries)
+        assertTrue(blocked.grantLost)
+        assertEquals(0, blocked.verified + blocked.alreadyVerified)
+        assertEquals(listOf(original), legacy.load().all())
+        documents.grantRevoked = false
+        source.refuse.add("ep1")
+        val resumed = exporter(legacy).exportBatch(target, entries)
+        assertTrue(resumed.complete)
+        assertEquals(1, resumed.alreadyVerified)
+        assertEquals(1, documents.createdNames.size)
+        assertEquals(original.targetUri, legacy.load().get("ep1")!!.targetUri)
+        assertEquals(target.treeUriString, legacy.load().get("ep1")!!.targetTreeUri)
+    }
+
+    @Test fun `copy changed while its grant was lost is checked and repaired on retry`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        val original = store.load().get("ep1")!!
+        val uri = requireNotNull(original.targetUri)
+        documents.grantRevoked = true
+        assertTrue(exporter().exportBatch(target, entries).grantLost)
+        documents.docs[uri]!!.bytes = byteArrayOf(9, 9, 9)
+        documents.grantRevoked = false
+        val resumed = exporter().exportBatch(target, entries)
+        assertTrue(resumed.complete)
+        assertEquals(0, resumed.alreadyVerified)
+        assertEquals(1, resumed.verified)
+        assertEquals(original.targetUri, store.load().get("ep1")!!.targetUri)
+        assertTrue(bytes.contentEquals(documents.docs[uri]!!.bytes))
+        assertEquals(1, documents.createdNames.size)
     }
 
     @Test fun `legacy copy is adopted only after matching tree and actual byte verification`() {

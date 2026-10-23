@@ -397,7 +397,8 @@ class SafBatchExporter(
         val failures = ArrayList<JournalEntry>()
         for (entry in entries) {
             // Root access failed, so no legacy URI's membership was verified.
-            val previous = journal.find(entry, activeTarget)?.takeIf { it.targetTreeUri == activeTarget }
+            val existing = journal.find(entry, activeTarget)
+            val previous = existing?.takeIf { it.targetTreeUri == activeTarget }
             val recorded = journalEntry(
                 entry,
                 SafeName.of(entry.filename, fallbackName(entry)),
@@ -407,7 +408,12 @@ class SafBatchExporter(
                 (previous?.attempt ?: 0) + 1,
                 failure,
             )
-            journal.record(recorded)
+            // This run could not inspect or change a copy. Keep any prior evidence
+            // (including an unbound v1 record) for actual byte/tree verification on
+            // retry. Overwriting VERIFIED here forced every intact copy to be
+            // rewritten after a folder re-pick; shadowing v1 lost its target URI.
+            // The current run still reports zero verified and its actual failure.
+            if (existing == null) journal.record(recorded)
             failures.add(recorded)
         }
         store.save(journal)
