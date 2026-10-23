@@ -27,6 +27,8 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -415,6 +419,83 @@ class RenderedScreensTest {
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed().performClick()
         assertEquals(1, controller.signOutCalls)
         compose.onNodeWithText("Go").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun aboutUsesInstalledIdentityAndHelpCanRetryWithoutStartingSaving() {
+        val app = RuntimeEnvironment.getApplication()
+        val apk = java.io.File(app.cacheDir, "installed-identity.apk").apply { writeText("abc") }
+        // Preserve the activity registration while replacing only installed identity facts.
+        val pkg = shadowOf(app.packageManager).getInternalMutablePackageInfo(app.packageName)
+        val opened = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(
+                LocalDensity provides Density(LocalDensity.current.density, 2f),
+                LocalUriHandler provides object : UriHandler {
+                    override fun openUri(uri: String) {
+                        opened.add(uri)
+                        if (opened.size == 1) throw IllegalStateException("private-browser-detail")
+                    }
+                },
+            ) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                }
+            }
+        }
+        compose.runOnIdle {
+            pkg.versionName = "installed-fixture"
+            pkg.setLongVersionCode(4_294_967_333L)
+            pkg.applicationInfo!!.sourceDir = apk.path
+        }
+        compose.onNodeWithText("About").performScrollTo().performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("APK fingerprint: ba7816bf8f01cfea")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Version installed-fixture (build 4294967333)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("APK fingerprint: ba7816bf8f01cfea").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("· Uninstalling removes app-private libraries and sign-ins. Files already copied " +
+            "to your chosen export folder or verified in your B2 bucket stay there.")).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Read the official Tapas closure FAQ").performScrollTo().performClick()
+        compose.onNodeWithText("Could not open the FAQ. Check that a browser is available and try again.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("private-browser-detail").assertDoesNotExist()
+        compose.onNodeWithText("Read the official Tapas closure FAQ").performScrollTo().performClick()
+        compose.onNodeWithText("Could not open the FAQ. Check that a browser is available and try again.")
+            .assertDoesNotExist()
+        assertEquals(listOf("https://tapas.io/newsfeed/271", "https://tapas.io/newsfeed/271"), opened)
+        compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
+        compose.onNodeWithText("Saving").performScrollTo().performClick()
+        compose.onNodeWithText("Go").performScrollTo().assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+        assertEquals(0, controller.signOutCalls)
+    }
+
+    @Test
+    @Config(sdk = [24])
+    @Suppress("DEPRECATION")
+    fun aboutKeepsVersionWhenApkCannotBeReadOnTheOldestSupportedApi() {
+        val app = RuntimeEnvironment.getApplication()
+        val pkg = shadowOf(app.packageManager).getInternalMutablePackageInfo(app.packageName)
+        val absent = java.io.File(app.cacheDir, "unreadable-private-apk.apk")
+        show()
+        compose.runOnIdle {
+            pkg.versionName = "older-api-fixture"
+            pkg.versionCode = 37
+            pkg.applicationInfo!!.sourceDir = absent.path
+        }
+        compose.onNodeWithText("About").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("APK fingerprint unavailable")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Version older-api-fixture (build 37)").assertIsDisplayed()
+        compose.onNodeWithText("APK fingerprint unavailable").assertIsDisplayed()
+        compose.onNodeWithText(absent.path).assertDoesNotExist()
+        compose.onNodeWithText("Saving").performClick()
+        compose.onNodeWithText("Go").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+        assertEquals(0, controller.signOutCalls)
     }
 }
 
