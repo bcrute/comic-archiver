@@ -48,11 +48,12 @@ def _integer(value, low, high):
 class Session:
     """Single-worker protocol owner. A policy callback is not account/peer proof."""
 
-    def __init__(self, indices, authorize, session_challenge, clock=time.monotonic):
+    def __init__(self, indices, authorize, session_challenge, clock=time.monotonic, lease_remaining=None):
         _require(isinstance(indices, dict) and 1 <= len(indices) <= 16)
         _require(all(isinstance(index, Index) and share == index.share_id for share, index in indices.items()))
         _id(session_challenge)
         self.challenge = session_challenge
+        self._lease_remaining = lease_remaining
         self.indices, self.authorize, self.clock = dict(indices), authorize, clock
         self.closed, self.negotiated = False, False
         self.archive_max = ARCHIVE_MAX
@@ -157,8 +158,12 @@ class Session:
 
     def _dispatch(self, request):
         op, args = request['op'], request['args']
-        if op in {'hello', 'ping'}:
+        if op in {'hello', 'ping', 'access.lease'}:
             _require(args.get('session_challenge') == self.challenge, 'auth_required')
+        if op == 'access.lease':
+            _require(set(args)=={'session_challenge'} and callable(self._lease_remaining), 'unsupported_format')
+            remaining = _integer(self._lease_remaining(), 1, 10000)
+            return dict(expires_in_ms=remaining, session_challenge=self.challenge)
         if op == 'hello':
             _require(not self.negotiated, 'busy')
             majors = args.get('supported_majors')

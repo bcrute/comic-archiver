@@ -78,7 +78,7 @@ class PairingOwner:
             raise
 
     def _record(self, pairing_id):
-        return next((row for row in self.state.records() if row['pairing_id'] == pairing_id), None)
+        return self.state.record(pairing_id)
 
     def _live(self, draft):
         try:

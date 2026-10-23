@@ -48,11 +48,14 @@ class _Runner:
         self.controller, self.transport, self.pending = controller, transport, pending
         self.pairing_id = transport.pairing_id
         self.task, self.receiving, self.crypto = None, None, None
+        self.peer = None
         self.stopping, self.joined, self.failure = False, False, None
         self.signals = asyncio.Queue(maxsize=8)
 
     def stop(self):
         self.stopping = True
+        if self.peer is not None:
+            self.peer.invalidate()
         self.transport.invalidate()  # Synchronous permission retirement first.
         if self.crypto is not None:
             self.crypto.close()
@@ -92,6 +95,11 @@ class _Runner:
                 # Read-only recognition of an EXISTING durable approval under a
                 # fresh actual live session; never mint/rearm local approval.
                 await self.transport.signal(self.crypto.seal('pair.accept', dict(shares=bound['shares'], generation=bound['generation'])))
+        elif kind == 'lease':
+            # The actual native socket already validated request/challenge/start.
+            # Refresh the actual peer gate, never from the packet's numeric DTO.
+            if self.peer is not None and self.peer._physical_current():
+                self.peer._gate.refresh()
         elif kind == 'signal':
             bound = self.transport.binding
             require(bound is not None)
@@ -146,6 +154,8 @@ class _Runner:
 
     async def finish(self):
         self.stop()
+        if self.peer is not None:
+            await self.peer.close()
         if self.receiving is not None and not self.receiving.done():
             self.receiving.cancel()
             done, _ = await asyncio.wait({self.receiving}, timeout=3)
@@ -352,11 +362,11 @@ class HostController:
 
     async def revoke(self, pairing_id):
         self.current()
-        self.owner.revoke(pairing_id)  # Actual local authority before any await.
-        self._acks.pop(pairing_id, None)
         runner = self._runners.get(pairing_id)
         if runner is not None:
-            runner.stop()
+            runner.stop()  # Stop actual peer/worker permission BEFORE store IO.
+        self.owner.revoke(pairing_id)
+        self._acks.pop(pairing_id, None)
         await self.stop(pairing_id)
         # An unavailable service retains the durable local tombstone for explicit
         # reconciliation. Never undo it or invent a remote success.
@@ -377,11 +387,12 @@ class HostController:
     async def withdraw_share(self, share_id):
         self.current()
         affected = [row['pairing_id'] for row in self.owner.state.records() if row['status'] == 'approved' and share_id in row['shares']]
+        for pair in affected:
+            if pair in self._runners:
+                self._runners[pair].stop()  # Before native store IO.
         self.owner.remove_share(share_id)  # Preserve remaining local grants/versions.
         for pair in affected:
             self._acks.pop(pair, None)
-            if pair in self._runners:
-                self._runners[pair].stop()
         for pair in affected:
             await self.stop(pair)
             if self.owner._record(pair)['status'] == 'revoked':
@@ -398,6 +409,11 @@ class HostController:
         await self.stop(pair)
         pending._ack = None
         self._pending.pop(pair, None)
+
+    async def open_peer(self, pairing_id, ice_servers=None):
+        self.current()
+        from .rtc import HostPeer
+        return await HostPeer.open(self, pairing_id, ice_servers)
 
     async def send_signal(self, pairing_id, kind, body):
         self.current()

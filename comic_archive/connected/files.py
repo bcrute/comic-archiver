@@ -408,3 +408,78 @@ class Index:
             source.close()
             raise SourceError('version_changed')
         return source
+
+
+# Native selected-index handoff only, never a peer/account/read authorization.
+# A worker opens its OWN real read-only SQLite connection, not a cross-thread
+# connection or an Index built from an incoming path/JSON description.
+_READER_SOURCE = object()
+
+
+class IndexReadSource:
+    def __init__(self, token, index):
+        _require(token is _READER_SOURCE and isinstance(index, Index))
+        index.root.current()
+        self.source, self.share, self.root_identity = index, index.share_id, index.root.identity
+        directory = _directory(index.path.parent)
+        self.fd = None
+        try:
+            self.fd = os.open(index.path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            value = os.fstat(self.fd)
+            _require(stat.S_ISREG(value.st_mode) and value.st_nlink == 1 and value.st_uid == os.geteuid()
+                     and not value.st_mode & 0o077 and value.st_size > 0)
+            self.identity = value.st_dev, value.st_ino
+        except BaseException:
+            self.close()
+            raise
+        finally:
+            os.close(directory)
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+    def open(self):
+        _require(self.fd is not None, 'cancelled')
+        root = SharedRoot(self.source.root.path)
+        reader = None
+        try:
+            _require(root.identity == self.root_identity)
+            # Actual pinned original DB inode must still be selected; never
+            # create/adopt a new database on missing/restored/foreign input.
+            before = os.stat(self.source.path, follow_symlinks=False)
+            _require((before.st_dev, before.st_ino) == self.identity and before.st_nlink == 1)
+            reader = _ReadOnlyIndex(_READER_SOURCE, self, root)
+            after = os.stat(self.source.path, follow_symlinks=False)
+            _require((after.st_dev, after.st_ino) == self.identity and after.st_nlink == 1)
+            _require(reader.share_id == self.share)
+            return reader
+        except BaseException:
+            if reader is not None:
+                reader.close()
+            root.close()
+            raise
+
+
+class _ReadOnlyIndex(Index):
+    def __init__(self, token, source, root):
+        _require(token is _READER_SOURCE and isinstance(source, IndexReadSource) and source.fd is not None)
+        self.root, self.path = root, source.source.path
+        self.db = sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True, isolation_level=None, timeout=1)
+        try:
+            self.db.row_factory = sqlite3.Row
+            _require(self.db.execute('PRAGMA user_version').fetchone()[0] == 1)
+            rows = self.db.execute('SELECT * FROM metadata LIMIT 2').fetchall()
+            _require(len(rows) == 1 and rows[0]['format'] == FORMAT and rows[0]['root'] == json.dumps(root.identity)
+                     and rows[0]['share_id'] == source.share)
+        except BaseException:
+            self.db.close()
+            raise
+
+    def register_completed(self, relative, series_title):
+        raise SourceError('auth_required')
+
+
+def read_source(index):
+    return IndexReadSource(_READER_SOURCE, index)

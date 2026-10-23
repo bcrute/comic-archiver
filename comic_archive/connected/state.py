@@ -191,6 +191,14 @@ class HostState:
         self.current()
         return loads(dumps(self._data['pairings'], MAXIMUM), MAXIMUM)
 
+    def record(self, pairing_id):
+        self.current()
+        _id(pairing_id)
+        row = next((value for value in self._data['pairings'] if value['pairing_id'] == pairing_id), None)
+        # Same native descriptor/stamp checks, bounded copy of this one record.
+        # Avoid serializing the whole1024-record store before every data frame.
+        return None if row is None else loads(dumps(row, 8192), 8192)
+
     def _commit(self, pairs):
         """Caller is the serialized local owner. No JSON reply is read authority."""
         temporary = old_fd = None
