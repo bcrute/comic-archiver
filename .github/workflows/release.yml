@@ -30,6 +30,7 @@ jobs:
           COMMIT: ${{ github.sha }}
           OWNER: ${{ github.repository_owner }}
           REF_TYPE: ${{ github.ref_type }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
@@ -40,5 +41,11 @@ jobs:
           gh release download "$RELEASE_TAG" --dir dist
           release_api=$(gh release view "$RELEASE_TAG" --json apiUrl --jq .apiUrl)
           gh api "$release_api" > release.json
-          python3 scripts/verify_release.py dist --commit "$COMMIT" --release release.json --owner "$OWNER"
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          python3 scripts/verify_release.py dist --commit "$COMMIT" --release release.json --owner "$OWNER" \
+            --android-cert-sha256 "$ANDROID_RELEASE_CERT_SHA256" \
+            --android-build-tools "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/37.0.0"
+          if test "$(python3 -c 'import json; print(json.load(open("release.json"))["prerelease"])')" = True; then
+            gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

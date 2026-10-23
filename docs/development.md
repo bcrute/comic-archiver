@@ -95,6 +95,14 @@ stops publication. `scripts/verify_release.py` defines and checks this contract.
 to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
 
+Schema2 adds the universal Android APK while retaining all three desktop downloads
+and required checks. It verifies the actual APK's original approved signing
+certificate, compiled identity and ZIP alignment, and requires Android native,
+device, real-output, update and audit evidence. Beta drafts remain prereleases
+and are not promoted to latest. See the [Android release contract](android-release-contract.md)
+for the exact fields, owner-configured fingerprint and SDK requirements. The
+current debug phone build is not a publishable release artifact.
+
 ## Where things are
 
 | Path | What it holds |
