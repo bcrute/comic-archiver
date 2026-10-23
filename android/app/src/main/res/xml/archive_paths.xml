@@ -3,4 +3,5 @@
     <files-path name="library" path="workspace/Library/" />
     <files-path name="webtoon-library" path="workspace/Webtoon/Library/" />
     <files-path name="tappytoon-library" path="workspace/Tappytoon/Library/" />
+    <cache-path name="opened-cache" path="opened-archives/" />
 </paths>

@@ -33,8 +33,11 @@ internal class FakePortableDocuments : PortableDocuments {
         return PortableMetadata(value, value?.toString()?.toByteArray()?.size ?: 0)
     }
     override fun current(tree: Uri, document: PortableDocument) = allowed && opened.none { it == "changed" }
-    override fun open(tree: Uri, document: PortableDocument): ArchiveOpenResult {
-        opened.add(document.id); return ArchiveOpenResult.REQUESTED
+    override fun prepare(tree: Uri, document: PortableDocument, checkActive: () -> Unit): PreparedPortableOpen {
+        checkActive()
+        return object : PreparedPortableOpen {
+            override fun launch(): ArchiveOpenResult { opened.add(document.id); return ArchiveOpenResult.REQUESTED }
+        }
     }
     fun file(id: String, name: String, flags: Int = 0, bytes: Long? = 20) =
         PortableDocument(id, name, "application/octet-stream", bytes, 1700000000, flags)

@@ -20,6 +20,10 @@ internal data class PortableDocument(val id: String, val name: String, val mime:
     val partial get() = flags and (Document.FLAG_PARTIAL or Document.FLAG_VIRTUAL_DOCUMENT) != 0
 }
 internal data class PortableMetadata(val value: JSONObject?, val bytes: Int)
+internal interface PreparedPortableOpen {
+    fun launch(): ArchiveOpenResult
+    fun discard() {}
+}
 
 internal fun projectPortableMetadata(value: JSONObject) = JSONObject().apply {
     for (key in listOf("title", "format", "episode_number", "imported_at", "cover_file")) {
@@ -36,7 +40,7 @@ internal interface PortableDocuments {
     fun children(tree: Uri, parent: PortableDocument): List<PortableDocument>
     fun metadata(tree: Uri, document: PortableDocument, maximum: Int): PortableMetadata
     fun current(tree: Uri, document: PortableDocument): Boolean
-    fun open(tree: Uri, document: PortableDocument): ArchiveOpenResult
+    fun prepare(tree: Uri, document: PortableDocument, checkActive: () -> Unit): PreparedPortableOpen
 }
 
 /** Only read permission is requested/persisted; export retains its separate writable picker. */
@@ -119,10 +123,21 @@ internal class ResolverPortableDocuments(private val context: Context,
         !observed.directory && !observed.partial && observed.name == document.name &&
             observed.bytes != 0L && observed.bytes == document.bytes && observed.modified == document.modified
     } catch (_: Exception) { false }
-    override fun open(tree: Uri, document: PortableDocument): ArchiveOpenResult {
-        if (!readable(tree)) return ArchiveOpenResult.UNAVAILABLE
-        val kind = document.name.substringAfterLast('.', "")
-        return requestArchiveOpen(context, uri(tree, document.id), kind, launch)
+    override fun prepare(tree: Uri, document: PortableDocument, checkActive: () -> Unit): PreparedPortableOpen {
+        check(readable(tree))
+        val root = context.cacheDir.resolve("opened-archives")
+        val file = ReadingCopyStore(root).stage(document.name, document.bytes,
+            source = { resolver.openInputStream(uri(tree, document.id)) ?: throw IOException("Document unavailable") },
+            checkActive = checkActive)
+        if (!current(tree, document)) {
+            file.parentFile?.deleteRecursively()
+            throw IOException("Selected document changed")
+        }
+        return object : PreparedPortableOpen {
+            override fun launch() = ArchiveViewer(context, root, launch).open(
+                file.relativeTo(root.canonicalFile).invariantSeparatorsPath, document.name.substringAfterLast('.'))
+            override fun discard() { file.parentFile?.deleteRecursively() }
+        }
     }
 }
 

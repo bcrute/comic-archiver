@@ -163,22 +163,36 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
         val document = source.value.documents[id] ?: return
         val chosen = selection
         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
-            feedback = "Opening in your device's reader…", feedbackFor = id))
+            feedback = "Preparing a reading copy…", feedbackFor = id))
         pending?.cancel()
         pending = scope.launch(Dispatchers.IO) {
-            val available = try { documents.current(source.tree, document) } catch (_: Exception) { false }
-            withContext(Dispatchers.Main) {
-                if (chosen != selection || tree != source.tree || cached !== source) return@withContext
-                val result = try { if (available) documents.open(source.tree, document) else ArchiveOpenResult.UNAVAILABLE }
-                    catch (_: Exception) { ArchiveOpenResult.UNAVAILABLE }
-                val message = when (result) {
-                    ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
-                    ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
-                    else -> "This file changed or is unavailable. Refresh files or choose the folder again."
+            var prepared: PreparedPortableOpen? = null
+            var launched = false
+            try {
+                val activity = coroutineContext
+                if (documents.current(source.tree, document)) prepared = documents.prepare(source.tree, document) { activity.ensureActive() }
+                withContext(Dispatchers.Main) {
+                    if (chosen != selection || tree != source.tree || cached !== source) return@withContext
+                    val result = try { prepared?.launch() ?: ArchiveOpenResult.UNAVAILABLE }
+                        catch (_: Exception) { ArchiveOpenResult.UNAVAILABLE }
+                    launched = result == ArchiveOpenResult.REQUESTED
+                    val message = when (result) {
+                        ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
+                        ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
+                        else -> "This file changed or is unavailable. Refresh files or choose the folder again."
+                    }
+                    _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
+                        openingId = null, feedback = message, feedbackFor = id))
                 }
-                _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
-                    openingId = null, feedback = message, feedbackFor = id))
-            }
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    if (chosen == selection && tree == source.tree && cached === source)
+                        _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = null,
+                            feedback = "The reading copy could not be prepared. Free some space, refresh files or choose the folder again.",
+                            feedbackFor = id))
+                }
+            } finally { if (!launched) prepared?.discard() }
         }
     }
 }

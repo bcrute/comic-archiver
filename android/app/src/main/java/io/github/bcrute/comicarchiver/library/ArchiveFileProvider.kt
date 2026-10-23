@@ -19,12 +19,13 @@ class ArchiveFileProvider : FileProvider() {
         // Persisted URI identities match archive_paths.xml. The original Tapas
         // `library` root remains unchanged across updates and external read grants.
         val folder = when (parts.firstOrNull()) {
-            "library" -> "workspace/Library"
-            "webtoon-library" -> "workspace/Webtoon/Library"
-            "tappytoon-library" -> "workspace/Tappytoon/Library"
+            "library" -> File(context.filesDir, "workspace/Library")
+            "webtoon-library" -> File(context.filesDir, "workspace/Webtoon/Library")
+            "tappytoon-library" -> File(context.filesDir, "workspace/Tappytoon/Library")
+            "opened-cache" -> File(context.cacheDir, "opened-archives")
             else -> return null
         }
-        return resolveArchive(File(context.filesDir, folder), parts.drop(1).joinToString("/"))
+        return resolveArchive(folder, parts.drop(1).joinToString("/"))
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {

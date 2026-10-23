@@ -94,10 +94,11 @@ class ArchiveViewerTest {
 
     @Test fun providerRootsOpenOnlyTheirOwnFinishedArchivesAndPreserveTheLegacyUri() {
         val provider = provider()
-        val roots = mapOf("library" to "workspace/Library", "webtoon-library" to "workspace/Webtoon/Library",
-            "tappytoon-library" to "workspace/Tappytoon/Library")
-        roots.forEach { (identity, path) ->
-            val selected = File(context.filesDir, path)
+        val roots = mapOf("library" to File(context.filesDir, "workspace/Library"),
+            "webtoon-library" to File(context.filesDir, "workspace/Webtoon/Library"),
+            "tappytoon-library" to File(context.filesDir, "workspace/Tappytoon/Library"),
+            "opened-cache" to File(context.cacheDir, "opened-archives"))
+        roots.forEach { (identity, selected) ->
             val file = File(selected, "Same Series/chapter.cbz").apply {
                 parentFile!!.mkdirs(); writeText("$identity fixture")
             }

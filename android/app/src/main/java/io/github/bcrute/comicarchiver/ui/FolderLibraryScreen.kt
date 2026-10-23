@@ -27,8 +27,8 @@ fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose:
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(state.label?.let { "Folder: $it" } ?: "Open a library folder", style = MaterialTheme.typography.titleMedium)
-                Text("Browse a Library, project or exported series folder. Files stay where they are. " +
-                    "This does not change where new downloads are saved.")
+                Text("Browse a Library, project or exported series folder. Originals stay where they are. " +
+                    "Opening needs temporary space on this device. New downloads keep their current destination.")
                 if (state.choosing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Reading folder…") }
                 state.message?.let { Text(it) }
                 if (state.needsFolder) Text("Choose the folder again to restore access.")
