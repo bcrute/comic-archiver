@@ -85,8 +85,8 @@ class ExportJournal private constructor(private val entries: LinkedHashMap<List<
     companion object {
         fun empty(): ExportJournal = ExportJournal(LinkedHashMap())
 
-        fun of(entries: List<JournalEntry>): ExportJournal =
-            empty().apply { entries.forEach(::record) }
+        fun of(records: List<JournalEntry>): ExportJournal =
+            empty().apply { records.forEach(::record) }
 
         private fun key(entry: JournalEntry) =
             listOf(entry.seriesId, entry.episodeId, entry.kind.name, entry.targetTreeUri)
