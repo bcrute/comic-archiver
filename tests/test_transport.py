@@ -23,6 +23,24 @@ class Clock:
 
 
 class TransportLimitTests(unittest.TestCase):
+    def test_httpx_cookie_jar_cannot_bypass_the_desktop_host_and_explicit_take_rules(self):
+        import httpx
+        seen = []
+
+        def response(request):
+            seen.append(request.headers.get('cookie'))
+            return httpx.Response(200, content=b'fixture',
+                headers={'set-cookie': 'sid=FIXTURE_ROTATED; Domain=tapas.io; Path=/; Secure'})
+
+        with httpx.Client(transport=httpx.MockTransport(response)) as client:
+            transport = Transport(client=client, interval=0)
+            transport.get('https://tapas.io/first')  # No take_cookies: ignored.
+            transport.get('https://tapas.io/second', take_cookies=True)
+            transport.get('https://tapas.io/third')
+            transport.get('https://cdn.tapas.io/fixture.png')
+            self.assertEqual(len(client.cookies), 0)
+        self.assertEqual(seen, [None, None, 'sid=FIXTURE_ROTATED', None])
+
     @patch('comic_archive.transport.time.sleep')
     def test_a_byte_budget_that_is_spent_or_not_a_number_stops_before_any_request(self, sleep):
         client = Client([Response()])

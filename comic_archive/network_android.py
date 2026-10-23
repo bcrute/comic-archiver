@@ -6,16 +6,21 @@ symlinked or unreadable file means *unknown*, which the core's policy holds: tra
 stopped until the network is verified unmetered.
 """
 import json
+import time
 from pathlib import Path
 
 UNKNOWN = {"connection": "unknown", "metered": None}
 _ALLOWED = {"wifi", "wired", "cellular"}
-_path = {"value": None}
+_path = {"value": None, "require_fresh": False}
+MAX_AGE_MS = 30_000
 
 
-def configure(path) -> None:
+def configure(path, *, require_fresh=None) -> None:
     """Record the app-private status file; called once at startup by the bridge."""
-    _path["value"] = str(Path(path)) if path is not None else None
+    value = str(Path(path)) if path is not None else None
+    if require_fresh is not None or value != _path['value']:
+        _path['require_fresh'] = require_fresh is True
+    _path["value"] = value
 
 
 def configured() -> bool:
@@ -43,4 +48,9 @@ def probe():
     if not isinstance(observed, dict) or observed.get("connection") not in _ALLOWED \
             or type(observed.get("metered")) is not bool:
         return dict(UNKNOWN)
+    if _path['require_fresh'] or 'schema_version' in observed or 'observed_at_ms' in observed:
+        stamp = observed.get('observed_at_ms')
+        if (type(observed.get('schema_version')) is not int or observed['schema_version'] != 1
+                or type(stamp) is not int or not 0 <= time.time() * 1000 - stamp <= MAX_AGE_MS):
+            return dict(UNKNOWN)
     return {"connection": observed["connection"], "metered": observed["metered"]}

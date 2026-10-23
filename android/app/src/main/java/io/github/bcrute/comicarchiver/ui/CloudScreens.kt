@@ -72,7 +72,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
             }
         }
         when (page) {
-            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy,
+            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy,
                 state.download is DownloadState.Running || state.download is DownloadState.Planning,
                 state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme)
             else -> {
@@ -84,7 +84,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     }
                 } else {
                     val open = LocalUriHandler.current
-                    CloudScreen(cloud, state.cloudBusy, state.cloudNotice?.message,
+                    CloudScreen(cloud, state.cloudBusy || state.siteBusy, state.cloudNotice?.message,
                         page == "B2 setup", state.signIn is SignInState.SignedIn,
                         onCloudRefresh, onCloudAction, { open.openUri(it.url) })
                 }

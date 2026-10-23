@@ -4,17 +4,30 @@ No device, live account or provider request is used. Real WebView profile/isolat
 and workspace switching remain separate native/device gates for the whole block.
 """
 import unittest
+import json
+from pathlib import Path
+import tempfile
+import time
+from unittest.mock import patch
 from urllib.parse import urlsplit
+import xml.etree.ElementTree as ET
+import zipfile
 
 import httpx
 
-from comic_archive import sites, worker_host
+from comic_archive import network, network_android, sites, worker_host
 from comic_archive.adapters.webtoon import WebtoonAdapter
 from comic_archive.android_readers import reader, signed_in_probe
 from comic_archive.models import ArchiveError
+from comic_archive.archive import verify
+from comic_archive.inventory import Inventory
+from comic_archive.jobs import sync
 from comic_archive.transport import Transport
 from test_webtoon import HOME, USER_INFO, SUBSCRIPTIONS, series_pages, subscriptions_page, subscription, who
 from test_tappytoon import page_data
+import test_tappytoon as tappytoon_fixture
+import test_webtoon as webtoon_fixture
+from test_archive import png
 
 
 class NativeStore:
@@ -39,17 +52,148 @@ def browser_cookie(domain):
 
 
 class NativeReaderTests(unittest.TestCase):
+    @patch('builtins.print')
+    def test_native_webtoon_saves_the_desktop_paginated_archive_fixture_with_the_same_original_images(self, output):
+        pages = series_pages() | {USER_INFO: who('fixture-account')}
+        observed = []
+
+        def request(value):
+            url = str(value.url)
+            observed.append(value)
+            self.assertIn(url, pages)
+            return httpx.Response(200, content=pages[url])
+
+        with tempfile.TemporaryDirectory() as folder, httpx.Client(transport=httpx.MockTransport(request)) as client:
+            root = Path(folder) / 'Library'
+            with Inventory(root) as inventory:
+                inventory.observe('7', 'Sample Series', [], 'fixture')
+            native = reader('webtoon', NativeStore(sites.named('webtoon')), client=client, interval=0)
+            with native:
+                result = sync(native, root, refresh_lists=False)
+            self.assertEqual(sorted(result['archived_episode_ids']), ['7000001', '7000002', '7000004'])
+            self.assertEqual(verify(root), [])
+            for path, number in zip(sorted(root.glob('**/*.cbz')), (1, 2, 4), strict=True):
+                with zipfile.ZipFile(path) as archive:
+                    pictures = [archive.read(name) for name in sorted(archive.namelist()) if name.endswith('.png')]
+                self.assertEqual(pictures, [png(10 * number + 1), png(10 * number + 2)])
+        images = [value for value in observed if str(value.url).startswith(webtoon_fixture.IMAGES)]
+        self.assertEqual(len(images), 6)
+        for value in images:
+            self.assertNotIn('cookie', value.headers)
+            self.assertNotIn('authorization', value.headers)
+            self.assertEqual(value.headers['referer'], HOME + '/')
+
+    @patch('builtins.print')
+    def test_native_tappytoon_saves_only_the_desktop_fixtures_free_and_unlocked_chapters(self, output):
+        fixture = tappytoon_fixture
+
+        class ChapterStore(NativeStore):
+            # A deterministic stand-in for the native store's own cookie parser.
+            # Production still forwards raw attributes to WebView, without a jar.
+            chapter = ''
+
+            def apply(self, url, values):
+                super().apply(url, values)
+                for value in values:
+                    if value.startswith('CloudFront-Signature=chapter'):
+                        self.chapter = value.split(';', 1)[0]
+
+            def headerFor(self, url):
+                base = super().headerFor(url)
+                return base + ('; ' + self.chapter if self.chapter else '') if base else None
+
+        answers = fixture.series_answers() | {fixture.KEY_PAGE: page_data(account=5),
+            fixture.LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}]}
+        observed = []
+
+        def request(value):
+            url = str(value.url)
+            observed.append(value)
+            self.assertIn(url, answers)
+            if url.startswith(fixture.API):
+                self.assertEqual(value.headers.get('authorization'), fixture.KEY)
+            if url.startswith(fixture.CDN):
+                self.assertIn('CloudFront-Signature=chapter', value.headers.get('cookie', ''))
+            answer = answers[url]
+            if isinstance(answer, fixture.Answer):
+                return httpx.Response(answer.status_code, content=answer.data, headers=answer.headers)
+            return httpx.Response(200, content=answer if isinstance(answer, bytes) else json.dumps(answer).encode())
+
+        with tempfile.TemporaryDirectory() as folder, httpx.Client(transport=httpx.MockTransport(request)) as client:
+            root = Path(folder) / 'Library'
+            store = ChapterStore(sites.named('tappytoon'))
+            native = reader('tappytoon', store, client=client, interval=0)
+            with native:
+                result = sync(native, root, categories=['unlocked'])
+            self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
+            self.assertEqual(verify(root), [])
+            pictures = []
+            for path in root.glob('**/*.cbz'):
+                with zipfile.ZipFile(path) as archive:
+                    pictures.append([archive.read(name) for name in sorted(archive.namelist())
+                                     if not name.endswith(('.xml', '.json'))])
+            self.assertEqual(sorted(pictures), sorted([png(10 * n), png(10 * n + 1)] for n in (0, 1, 3)))
+            self.assertEqual(native.transport.cookies, ())
+        for value in observed:
+            url = str(value.url)
+            self.assertEqual('authorization' in value.headers, url.startswith(fixture.API))
+            self.assertNotIn('tracker=elsewhere', value.headers.get('cookie', ''))
+            self.assertNotIn('chapterId=902', url)
+            if url == fixture.COMIC['coverImageUrl']:
+                self.assertNotIn('cookie', value.headers)
+
+    def test_declared_archive_uri_roots_keep_the_old_identity_and_match_core_workspace_folders(self):
+        path = Path(__file__).resolve().parents[1] / 'android/app/src/main/res/xml/archive_paths.xml'
+        roots = {node.attrib['name']: node.attrib['path'] for node in ET.parse(path).getroot()}
+        self.assertEqual(roots['library'], 'workspace/Library/')
+        base = Path('workspace')
+        for site in sites.SITES:
+            name = 'library' if site == sites.DEFAULT else site.key + '-library'
+            self.assertEqual(roots[name], (sites.folder(base, site) / 'Library').as_posix() + '/')
+        self.assertEqual(len(roots), len(sites.SITES))
+
+    def test_worker_factory_enforces_the_selected_librarys_live_network_policy(self):
+        self.addCleanup(network_android.configure, None)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / 'Library'
+            library.mkdir()
+            facts = root / 'net.json'
+            facts.write_text(json.dumps({'connection': 'wifi', 'metered': False}))
+            network_android.configure(facts)
+            network.configure(library, True)
+            native = worker_host.android_adapter_factory(NativeStore(sites.named('webtoon')),
+                site_key='webtoon', library_root=library)()
+            native.transport.close()
+            calls = []
+
+            def request(value):
+                self.assertEqual(str(value.url), USER_INFO)
+                calls.append(str(value.url))
+                return httpx.Response(200, content=who('fixture-account'))
+
+            # Use the real factory's guard through the same closed HTTP source.
+            with httpx.Client(transport=httpx.MockTransport(request)) as client:
+                native = reader('webtoon', NativeStore(sites.named('webtoon')), client=client,
+                                network_guard=native.transport.network_guard, interval=0)
+                self.assertEqual(native.account_identity(), 'fixture-account')
+                facts.write_text(json.dumps({'connection': 'cellular', 'metered': True}))
+                with patch('comic_archive.network.time.monotonic', return_value=time.monotonic() + 2), \
+                        self.assertRaises(ArchiveError):
+                    native.account_identity()
+            self.assertEqual(calls, [USER_INFO], 'The held request must not reach the wire')
+
     def test_probe_requires_provider_identity_even_with_a_live_cookie(self):
         site = sites.named('webtoon')
         for payload, expected in ((who('fixture-account'), None), (who(), 'not_signed_in'),
                                   (b'not the account response', 'unavailable')):
             calls = []
 
-            def request(value):
+            def request(value, answer=payload):
                 self.assertEqual(str(value.url), USER_INFO)
                 self.assertEqual(value.headers.get('Cookie'), 'sid=FIXTURE_SESSION')
                 calls.append(str(value.url))
-                return httpx.Response(200, content=payload)
+                return httpx.Response(200, content=answer)
 
             with self.subTest(expected=expected), httpx.Client(transport=httpx.MockTransport(request)) as client:
                 answer = signed_in_probe('webtoon', NativeStore(site), client=client)

@@ -41,6 +41,15 @@ object PythonRuntime {
         }
     }
 
+    /** Called only after the former worker is stopped and before the next native attempt. */
+    fun selectCookieStore(store: WebViewCookieStore, siteKey: String) {
+        Python.getInstance().getModule("app_bridge").callAttr("set_cookie_seams", store, null, siteKey)
+    }
+
+    fun deactivateCookieStore() {
+        Python.getInstance().getModule("app_bridge").callAttr("deactivate_cookie_seams")
+    }
+
     /**
      * The sign-in engine's site table, from the core's own sites module (its
      * android_adapter.site_addresses): plain public-safe addresses only, so no second
@@ -64,7 +73,9 @@ object PythonRuntime {
             if (key == null || home == null || signInPath == null || hosts.isNullOrEmpty()) {
                 continue
             }
-            table[key] = SiteAddress(home, signInPath, hosts.toSet(), landing.toSet())
+            val name = row["name"]?.toString() ?: key
+            val folder = row["folder"]?.toString() ?: ""
+            table[key] = SiteAddress(home, signInPath, hosts.toSet(), landing.toSet(), name, folder)
         }
         return table
     }

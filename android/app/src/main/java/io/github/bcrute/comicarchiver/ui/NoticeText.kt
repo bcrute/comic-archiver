@@ -45,8 +45,8 @@ object NoticeText {
             "Press Go to start it again.",
         ),
         PublicIssue.UNSUPPORTED_SITE to IssueWords(
-            "This site is not supported yet.",
-            "The beta supports Tapas only.",
+            "This site's sign-in is unavailable on this device.",
+            "Choose a supported site or update Android System WebView; saved files are kept.",
         ),
     )
 

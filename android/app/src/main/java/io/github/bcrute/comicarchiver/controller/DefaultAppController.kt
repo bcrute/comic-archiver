@@ -9,8 +9,8 @@ import io.github.bcrute.comicarchiver.library.ArchiveViewer
 import io.github.bcrute.comicarchiver.library.ArchiveOpenResult
 import io.github.bcrute.comicarchiver.signin.SignInEngine
 import io.github.bcrute.comicarchiver.worker.DefaultDownloadHost
-import io.github.bcrute.comicarchiver.worker.DownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHostService
+import io.github.bcrute.comicarchiver.runtime.SiteWorkspace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +22,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import kotlin.coroutines.resume
 
 /**
  * Runtime AppController (native line) against the frozen contract. Every download action
@@ -41,11 +44,17 @@ class DefaultAppController(
 ) : AppController {
 
     private val bridge get() = context.app.bridge
-    private val workspaceRoot = context.filesDir.resolve("workspace").absolutePath
-    private val sessionRoot = context.filesDir.resolve("workspace/.comic-session").absolutePath
-    private val downloads: DownloadHost = DefaultDownloadHost(
-        context, bridge, sessionRoot, workspaceRoot + "/Library", workspaceRoot + "/net.json", scope)
+    @Volatile private var location = context.app.workspace
+    private fun downloadHost(target: SiteWorkspace) = DefaultDownloadHost(context, bridge,
+        target.session.absolutePath, target.library.absolutePath, target.network.absolutePath, scope)
+    private var downloads = downloadHost(location)
+    @Volatile private var siteVersion = 0L
+    private var workspaceReady = false
+    private val siteActions = Mutex()
     private var signInWebView: WebView? = null
+    private var surfaceOwner: Any? = null
+    private var surfaceFactory: ((String) -> Unit)? = null
+    private var surfaceRelease: (() -> Unit)? = null
     private var poll: Job? = null
     /** The site key the engine actually loaded; null while no offered site matches. */
     private var siteLoaded: String? = null
@@ -55,54 +64,171 @@ class DefaultAppController(
     private val settingsActions = Mutex()
     private val cloudActions = Mutex()
     private var catalogVersion = 0L
-    private val viewer = ArchiveViewer(context, context.filesDir.resolve("workspace/Library"))
     private val preferences = context.getSharedPreferences("comicarchiver_appearance", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
-        AppState(site = "tapas", signIn = SignInState.SignedOut, download = DownloadState.Held,
+        AppState(site = location.key, signIn = SignInState.SignedOut, download = DownloadState.Held,
                  library = emptyList(), notice = null,
+                 sites = context.app.siteChoices(), siteBusy = true,
                  theme = AppTheme.entries.firstOrNull { it.name == preferences.getString("theme", null) }
                      ?: AppTheme.SYSTEM))
     override val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
-        // The beta opens straight on tapas and its UI has no site selector, so the initial
-        // site must be armed here: without a load the first Sign in reached an engine with
-        // no site and crashed (observed IllegalStateException "Load a site before signing
-        // in."). A site the engine does not offer surfaces as a notice, never a crash.
+        // Arm the persisted site before an Activity attaches its profile-bound surface.
+        // Core preparation completes before restore or any download admission.
         loadSite(_state.value.site)
         scope.launch {
-            withContext(Dispatchers.IO) { prepareWorkspace() }
+            val opened = withContext(Dispatchers.IO) { prepareWorkspace(location) }
+            workspaceReady = opened.optBoolean("ok")
+            _state.value = _state.value.copy(siteBusy = false,
+                notice = if (workspaceReady) _state.value.notice else workspaceNotice(opened))
+            if (workspaceReady) signInWebView?.let(engine::restoreSignIn)
             // The saved library is useful while held, too. Reading it must not depend
             // on Go (and this poll cannot admit downloads: mapWorkerStatus checks
             // admitted before consulting live worker state).
-            startPolling()
+            if (workspaceReady) startPolling()
         }
         scope.launch {
-            engine.state.collect { value -> _state.value = _state.value.copy(signIn = value) }
+            engine.state.collect { value ->
+                if (value !is SignInState.SignedIn || value.site == location.key)
+                    _state.value = _state.value.copy(signIn = value, signInOrigin = engine.currentOrigin())
+            }
         }
     }
 
     /** The UI's composable-hosted WebView; attach before startSignIn. Not part of the frozen interface. */
-    fun attachSignInWebView(webView: WebView) {
+    fun attachSignInWebView(webView: WebView, siteKey: String = location.key) {
+        if (siteKey != location.key) return
         signInWebView = webView
-        engine.restoreSignIn(webView)
+        if (workspaceReady && !_state.value.siteBusy) engine.restoreSignIn(webView)
+    }
+
+    fun attachSurfaceFactory(owner: Any, release: () -> Unit = {}, factory: (String) -> Unit) {
+        surfaceOwner = owner
+        surfaceFactory = factory
+        surfaceRelease = release
+    }
+
+    fun detachSurfaceFactory(owner: Any) {
+        if (surfaceOwner === owner) { surfaceOwner = null; surfaceFactory = null; surfaceRelease = null }
     }
 
     /** Release the activity surface; verified auth and download admission live on. */
     fun detachSignInWebView(webView: WebView) {
         if (signInWebView !== webView) return
         val signIn = engine.state.value
-        if (signIn is SignInState.Page || signIn is SignInState.Settling) engine.cancelSignIn()
+        if (signIn is SignInState.Page || signIn is SignInState.Settling ||
+            signIn is SignInState.Restoring) engine.cancelSignIn()
         signInWebView = null
     }
 
     override fun selectSite(key: String) {
-        loadSite(key)
-        if (siteLoaded != null) _state.value = _state.value.copy(site = key)
+        if (key == location.key && workspaceReady || _state.value.siteBusy) return
+        val choice = _state.value.sites.firstOrNull { it.key == key }
+        if (choice == null || !choice.enabled) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
+                choice?.reason ?: "Choose a supported site."))
+            return
+        }
+        val auth = engine.state.value
+        if (admitted || _state.value.download is DownloadState.Planning ||
+            _state.value.download is DownloadState.Running || _state.value.settingsBusy ||
+            _state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
+            _state.value.cloud?.authStatus == "running" || context.app.exports.isActive ||
+            auth is SignInState.Page || auth is SignInState.Settling || auth is SignInState.Restoring) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish sign-in, saving, export or cloud activity before switching sites."))
+            return
+        }
+        val target = try { context.app.workspaceFor(key) }
+            catch (_: Exception) {
+                _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
+                    "This device cannot keep that site's sign-in separate. Update Android System WebView."))
+                return
+            }
+        val previous = location
+        val before = _state.value
+        val version = ++siteVersion
+        admissionVersion++
+        catalogVersion++
+        admitted = false
+        val oldPoll = poll
+        oldPoll?.cancel()
+        poll = null
+        _state.value = before.copy(siteBusy = true, notice = null)
+        scope.launch {
+            siteActions.withLock {
+                oldPoll?.join()
+                settingsActions.withLock {
+                    cloudActions.withLock {
+                        var coreChanged = false
+                        var failure: Notice? = null
+                        try {
+                            if (!downloads.drain()) throw IllegalStateException("worker did not drain")
+                            val opened = withContext(Dispatchers.IO) { prepareWorkspace(target) }
+                            if (!opened.optBoolean("ok")) {
+                                failure = workspaceNotice(opened)
+                            } else {
+                                coreChanged = true
+                                engine.load(key)
+                                context.app.selectWorkspace(key)
+                                location = target
+                                downloads = downloadHost(target)
+                                siteLoaded = key
+                                workspaceReady = true
+                                signInWebView = null // Activity supplies a freshly bound profile surface.
+                                _state.value = AppState(key, engine.state.value, DownloadState.Held,
+                                    emptyList(), null, theme = _state.value.theme, sites = before.sites)
+                            }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                          catch (_: Exception) {
+                            failure = Notice(BetaCodes.JOB_FAILED,
+                                "The site could not be opened. The previous library is retained. Try again.")
+                        }
+                        if (failure != null) {
+                            workspaceReady = true
+                            if (coreChanged) {
+                                val restored = withContext(Dispatchers.IO) { prepareWorkspace(previous) }
+                                workspaceReady = restored.optBoolean("ok")
+                                if (workspaceReady) {
+                                    try { engine.load(previous.key); context.app.selectWorkspace(previous.key) }
+                                    catch (_: Exception) { workspaceReady = false }
+                                }
+                            }
+                            _state.value = before.copy(download = DownloadState.Held, siteBusy = false,
+                                signIn = engine.state.value, notice = failure, theme = _state.value.theme,
+                                catalog = before.catalog.copy(loading = false, openingId = null))
+                            if (workspaceReady && coreChanged) signInWebView?.let(engine::restoreSignIn)
+                        }
+                        if (version == siteVersion) _state.value = _state.value.copy(siteBusy = false)
+                    }
+                }
+                if (workspaceReady) startPolling()
+            }
+        }
     }
 
     override fun startSignIn() {
+        if (_state.value.siteBusy || !workspaceReady) return
+        if (_state.value.sites.firstOrNull { it.key == location.key }?.signInAvailable == false) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
+                "Saved files are available. Update Android System WebView to sign in to this site."))
+            return
+        }
+        if (engine.state.value is SignInState.Restoring || engine.state.value is SignInState.Page ||
+            engine.state.value is SignInState.Settling) return
+        if (admitted || _state.value.download is DownloadState.Planning ||
+            _state.value.download is DownloadState.Running) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Pause saving before starting sign-in again."))
+            return
+        }
+        try { surfaceFactory?.invoke(location.key) } catch (_: Exception) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.WORKER_OFFLINE,
+                "The sign-in page could not be opened. Update Android System WebView and try again."))
+            return
+        }
         val webView = signInWebView
         when {
             siteLoaded == null -> _state.value = _state.value.copy(
@@ -125,30 +251,55 @@ class DefaultAppController(
     }
 
     override fun signOut() {
+        if (_state.value.siteBusy || !workspaceReady) return
+        if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
+            _state.value.cloud?.authStatus == "running" || context.app.exports.isActive) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish export and cloud activity before signing out."))
+            return
+        }
         admissionVersion++
         admitted = false
-        scope.launch(Dispatchers.IO) {
+        val target = location
+        _state.value = _state.value.copy(siteBusy = true)
+        scope.launch {
+          siteActions.withLock {
             // Contract §3 order, awaited end to end: the downloader drains before any
             // cookie or record goes, so no in-flight request races the cleared store; the
             // engine closes the session and clears the jar on the main thread; only then
             // is the sign-in record forgotten, so a restart can never resume it.
-            bridge.dispatch("pause", JSONObject().put("root", workspaceRoot).toString())
-            bridge.dispatch("worker_stop", JSONObject().put("session_root", sessionRoot)
-                .put("wait_seconds", 15).toString())
-            withContext(Dispatchers.Main) { engine.signOut() }
-            bridge.dispatch("signout_record", JSONObject().put("session_root", sessionRoot).toString())
-            val intent = Intent(context, DownloadHostService::class.java)
-                .setAction(DownloadHostService.ACTION_STOP)
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-            else @Suppress("DEPRECATION") context.startService(intent)
-            admitted = false
-            withContext(Dispatchers.Main) {
+            try {
+                if (!downloads.drain()) throw IllegalStateException("worker did not drain")
+                val cleared = withTimeoutOrNull(5_000) {
+                    suspendCancellableCoroutine<Boolean> { continuation ->
+                        engine.signOut { if (continuation.isActive) continuation.resume(it) }
+                    }
+                } ?: false
+                if (!cleared) throw IllegalStateException("profile not cleared")
+                // A cleared profile must not retain a live surface with old page/history
+                // state. The next explicit sign-in creates a newly bound WebView.
+                surfaceRelease?.invoke()
+                val forgotten = withContext(Dispatchers.IO) { JSONObject(bridge.dispatch("signout_record",
+                    JSONObject().put("session_root", target.session.absolutePath).toString())) }
+                if (!forgotten.optBoolean("ok")) throw IllegalStateException("record not forgotten")
                 _state.value = _state.value.copy(download = DownloadState.Held)
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) {
+                _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                    "Sign-out did not finish. The library is retained. Retry sign-out after activity stops."))
+            } finally {
+                _state.value = _state.value.copy(siteBusy = false)
             }
+          }
         }
     }
 
     override fun go() {
+        if (_state.value.siteBusy || !workspaceReady || engine.state.value !is SignInState.SignedIn) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
+                "Open the site and finish sign-in before pressing Go."))
+            return
+        }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
             _state.value.cloud?.authStatus == "running") {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
@@ -162,6 +313,7 @@ class DefaultAppController(
         downloads.go result@{ error ->
             if (version != admissionVersion) return@result
             admitted = error == null
+            if (error == BetaCodes.LOGIN_REQUIRED) engine.requireSignIn()
             _state.value = _state.value.copy(download =
                 if (error == null) DownloadState.Planning else DownloadState.Failed(error))
             if (error == null) startPolling()
@@ -169,6 +321,7 @@ class DefaultAppController(
     }
 
     override fun pause() {
+        if (_state.value.siteBusy || !workspaceReady) return
         admissionVersion++
         admitted = false
         downloads.pause()
@@ -177,6 +330,7 @@ class DefaultAppController(
     }
 
     override fun stop() {
+        if (_state.value.siteBusy || !workspaceReady) return
         admissionVersion++
         admitted = false
         downloads.checkpointAndStop("user")
@@ -184,7 +338,9 @@ class DefaultAppController(
     }
 
     override fun refreshSettings() {
-        scope.launch(Dispatchers.IO) { readSettings() }
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
+        scope.launch(Dispatchers.IO) { readSettings(target, version) }
     }
 
     override fun setTheme(value: AppTheme) {
@@ -201,11 +357,14 @@ class DefaultAppController(
     }
 
     override fun refreshCloud() {
-        scope.launch(Dispatchers.IO) { readCloud() }
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
+        scope.launch(Dispatchers.IO) { readCloud(target, version) }
     }
 
     override fun cloudAction(request: CloudRequest) {
-        if (_state.value.cloudBusy) return
+        if (_state.value.cloudBusy || _state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
         val needsWorker = request is CloudRequest.Test || request is CloudRequest.Retry ||
             request is CloudRequest.Cleanup || request is CloudRequest.Resume
         if (needsWorker && _state.value.signIn !is SignInState.SignedIn) {
@@ -221,10 +380,11 @@ class DefaultAppController(
                     if (needsWorker) {
                         val intent = Intent(context, DownloadHostService::class.java)
                             .setAction(DownloadHostService.ACTION_START)
+                            .putExtra(DownloadHostService.EXTRA_WORKSPACE, target.root.absolutePath)
                         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
                         else @Suppress("DEPRECATION") context.startService(intent)
                     }
-                    val answer = bridge.dispatch("cloud_action", request.json().put("root", workspaceRoot).toString())
+                    val answer = bridge.dispatch("cloud_action", request.json().put("root", target.root.absolutePath).toString())
                     val envelope = JSONObject(answer)
                     if (envelope.opt("ok") == true) CloudStatus.parse(answer)
                     else {
@@ -234,23 +394,25 @@ class DefaultAppController(
                 } catch (cancelled: CancellationException) { throw cancelled }
                   catch (_: Exception) { null }
                 withContext(Dispatchers.Main) {
+                    if (!current(target, version)) return@withContext
                     _state.value = _state.value.copy(cloud = result ?: _state.value.cloud, cloudBusy = false,
                         cloudNotice = if (result == null) Notice(BetaCodes.JOB_FAILED,
                             refusal ?: "The cloud action did not finish. Refresh cloud settings and try again.") else null)
                 }
             }
             // Re-read actual policy even when the mutation returned a refusal.
-            readCloud()
+            readCloud(target, version)
         }
     }
 
-    private suspend fun readCloud() {
+    private suspend fun readCloud(target: SiteWorkspace, version: Long) {
         cloudActions.withLock {
             val status = try {
-                CloudStatus.parse(bridge.dispatch("cloud_status", JSONObject().put("root", workspaceRoot).toString()))
+                CloudStatus.parse(bridge.dispatch("cloud_status", JSONObject().put("root", target.root.absolutePath).toString()))
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
             withContext(Dispatchers.Main) {
+                if (!current(target, version)) return@withContext
                 _state.value = _state.value.copy(cloud = status ?: _state.value.cloud,
                     cloudNotice = if (status == null) Notice(BetaCodes.JOB_FAILED,
                         "Cloud settings could not be read. Try Refresh cloud settings.") else _state.value.cloudNotice)
@@ -259,6 +421,8 @@ class DefaultAppController(
     }
 
     override fun loadCatalog(query: CatalogQuery, refresh: Boolean) {
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val site = siteVersion
         val prior = _state.value.catalog
         if (prior.loading && prior.query == query && !refresh) return
         val version = ++catalogVersion
@@ -266,12 +430,12 @@ class DefaultAppController(
             error = null, feedback = null, feedbackFor = null))
         scope.launch(Dispatchers.IO) {
             val page = try {
-                FileCatalog.parse(bridge.dispatch("file_catalog", JSONObject().put("root", workspaceRoot)
+                FileCatalog.parse(bridge.dispatch("file_catalog", JSONObject().put("root", target.root.absolutePath)
                     .put("options", query.json(refresh)).toString()))
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
             withContext(Dispatchers.Main) {
-                if (version != catalogVersion) return@withContext
+                if (version != catalogVersion || !current(target, site)) return@withContext
                 _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
                     page = page ?: _state.value.catalog.page, loading = false,
                     query = if (page == null) query else query.copy(offset = page.offset, limit = page.limit),
@@ -282,18 +446,21 @@ class DefaultAppController(
     }
 
     override fun openSavedFile(id: String) {
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
         if (_state.value.catalog.openingId != null) return
         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
             feedback = "Opening in your device's reader…", feedbackFor = id))
         scope.launch(Dispatchers.IO) {
             val file = try {
-                val answer = JSONObject(bridge.dispatch("file_open", JSONObject().put("root", workspaceRoot)
+                val answer = JSONObject(bridge.dispatch("file_open", JSONObject().put("root", target.root.absolutePath)
                     .put("id", id).toString()))
                 if (answer.optBoolean("ok")) answer.getJSONObject("result") else null
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
             withContext(Dispatchers.Main) {
-                val result = file?.let { viewer.open(it.optString("relpath"), it.optString("kind")) }
+                if (!current(target, version)) return@withContext
+                val result = file?.let { ArchiveViewer(context, target.library).open(it.optString("relpath"), it.optString("kind")) }
                 val feedback = when (result) {
                     ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
                     ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
@@ -306,18 +473,21 @@ class DefaultAppController(
     }
 
     private fun changeSettings(args: JSONObject) {
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
         _state.value = _state.value.copy(settingsBusy = true, settingsNotice = null)
         scope.launch(Dispatchers.IO) {
             settingsActions.withLock {
                 val settings = try {
                     SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("configure_settings",
-                        args.put("root", workspaceRoot).toString())))
+                        args.put("root", target.root.absolutePath).toString())))
                 } catch (_: Exception) { null }
                 val actual = settings ?: try {
                     SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("settings",
-                        JSONObject().put("root", workspaceRoot).toString())))
+                        JSONObject().put("root", target.root.absolutePath).toString())))
                 } catch (_: Exception) { null }
                 withContext(Dispatchers.Main) {
+                    if (!current(target, version)) return@withContext
                     _state.value = _state.value.copy(
                         settings = actual,
                         settingsBusy = false,
@@ -329,13 +499,14 @@ class DefaultAppController(
         }
     }
 
-    private suspend fun readSettings() {
+    private suspend fun readSettings(target: SiteWorkspace, version: Long) {
         settingsActions.withLock {
             val settings = try {
                 SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("settings",
-                    JSONObject().put("root", workspaceRoot).toString())))
+                    JSONObject().put("root", target.root.absolutePath).toString())))
             } catch (_: Exception) { null }
             withContext(Dispatchers.Main) {
+                if (!current(target, version)) return@withContext
                 _state.value = _state.value.copy(
                     settings = settings,
                     settingsNotice = if (settings == null) Notice(BetaCodes.JOB_FAILED,
@@ -346,13 +517,15 @@ class DefaultAppController(
     }
 
     override fun requestExport(folderUri: String) {
+        if (_state.value.siteBusy || !workspaceReady) return
+        val target = location; val version = siteVersion
         scope.launch(Dispatchers.IO) {
             val envelope = JSONObject(bridge.dispatch(
-                "export_manifest", JSONObject().put("root", workspaceRoot).toString()))
+                "export_manifest", JSONObject().put("root", target.root.absolutePath).toString()))
             if (!envelope.optBoolean("ok")) {
-                _state.value = _state.value.copy(notice = Notice(
+                withContext(Dispatchers.Main) { if (current(target, version)) _state.value = _state.value.copy(notice = Notice(
                     envelope.optString("code", BetaCodes.JOB_FAILED),
-                    envelope.optString("message", "The export could not start.")))
+                    envelope.optString("message", "The export could not start."))) }
             }
         }
     }
@@ -368,16 +541,19 @@ class DefaultAppController(
         else _state.value.copy(notice = notice)
     }
 
-    private suspend fun prepareWorkspace() {
-        val envelope = JSONObject(bridge.dispatch(
-            "prepare_workspace", JSONObject().put("root", workspaceRoot).toString()))
-        if (!envelope.optBoolean("ok")) {
-            _state.value = _state.value.copy(notice = Notice(
-                envelope.optString("code", BetaCodes.JOB_FAILED),
-                envelope.optString("message", "The workspace could not be opened.")))
-        }
-        // Cold start is Held whatever the workspace said; a held download waits for Go.
+    private fun prepareWorkspace(target: SiteWorkspace): JSONObject = try {
+        JSONObject(bridge.dispatch("prepare_workspace", JSONObject().put("root", target.root.absolutePath)
+            .put("base_root", target.base.absolutePath).put("site_key", target.key)
+            .put("network_schema", 1).toString()))
+    } catch (_: Exception) {
+        JSONObject().put("ok", false).put("message", "The workspace could not be opened. Try the site again.")
     }
+
+    private fun workspaceNotice(answer: JSONObject) = Notice(answer.optString("code", BetaCodes.JOB_FAILED),
+        answer.optString("message", "The workspace could not be opened. Try the site again."))
+
+    private fun current(target: SiteWorkspace, version: Long): Boolean =
+        siteVersion == version && location.key == target.key
 
     /** Arm the engine with one site key. An unoffered key leaves the engine untouched and
      *  reports [BetaCodes.UNSUPPORTED_SITE]; a successful load only then updates state. */
@@ -385,7 +561,7 @@ class DefaultAppController(
         try {
             engine.load(key)
             siteLoaded = key
-        } catch (_: IllegalArgumentException) {
+        } catch (_: Exception) {
             siteLoaded = null
             _state.value = _state.value.copy(
                 notice = Notice(BetaCodes.UNSUPPORTED_SITE,
@@ -395,17 +571,18 @@ class DefaultAppController(
 
     private fun startPolling() {
         poll?.cancel()
+        val target = location; val version = siteVersion
         // The poll's bridge calls block on Python: keep them off the main thread.
         poll = scope.launch(Dispatchers.IO) {
             var tick = 0
             while (isActive) {
-                mapWorkerStatus()
+                mapWorkerStatus(target, version)
                 if (tick % 5 == 0) {
-                    refreshLibrary()  // Cheap stat walk; the manifest ops carry the digests.
-                    readSettings()
-                    readCloud()
+                    refreshLibrary(target, version)
+                    readSettings(target, version)
+                    readCloud(target, version)
                 } else if (_state.value.cloud?.taskRunning == true || _state.value.cloud?.authStatus == "running") {
-                    readCloud()
+                    readCloud(target, version)
                 }
                 tick += 1
                 delay(2000)
@@ -413,27 +590,30 @@ class DefaultAppController(
         }
     }
 
-    private suspend fun mapWorkerStatus() {
+    private suspend fun mapWorkerStatus(target: SiteWorkspace, version: Long) {
         if (!admitted) return
+        val admission = admissionVersion
         val envelope = try {
-            JSONObject(bridge.dispatch("download_status", JSONObject().put("root", workspaceRoot).toString()))
+            JSONObject(bridge.dispatch("download_status", JSONObject().put("root", target.root.absolutePath).toString()))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             JSONObject()
         }
         withContext(Dispatchers.Main) {
-            if (!admitted) return@withContext
+            if (!admitted || admission != admissionVersion || !current(target, version)) return@withContext
             val download = DownloadStatus.fromEnvelope(envelope)
+            if (download is DownloadState.Failed && download.code == BetaCodes.LOGIN_REQUIRED)
+                engine.requireSignIn()
             if (download is DownloadState.Failed || download is DownloadState.Finished ||
                 download is DownloadState.Paused) admitted = false
             _state.value = _state.value.copy(download = download)
         }
     }
 
-    private suspend fun refreshLibrary() {
+    private suspend fun refreshLibrary(target: SiteWorkspace, version: Long) {
         val envelope = JSONObject(bridge.dispatch(
-            "library_listing", JSONObject().put("root", workspaceRoot).toString()))
+            "library_listing", JSONObject().put("root", target.root.absolutePath).toString()))
         if (!envelope.optBoolean("ok")) return
         val entries = envelope.optJSONArray("result") ?: return
         val library = (0 until entries.length()).mapNotNull { index ->
@@ -448,6 +628,7 @@ class DefaultAppController(
             )
         }
         withContext(Dispatchers.Main) {
+            if (!current(target, version)) return@withContext
             _state.value = _state.value.copy(library = library)
         }
     }

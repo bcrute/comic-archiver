@@ -208,6 +208,9 @@ class LifecycleTestApp : App() {
     override val bridge: PythonBridge get() = fake
     override val signInSites get() = WebViewSignInEngine.BETA_SITES
     override fun startRuntime() {}
+    override fun selectRuntimeCookieStore(store: io.github.bcrute.comicarchiver.signin.WebViewCookieStore, siteKey: String) {}
+    override fun startNetworkWriter(target: io.github.bcrute.comicarchiver.runtime.SiteWorkspace) {}
+    override fun deactivateRuntimeCookieStore() {}
 }
 
 class LifecycleBridge : PythonBridge {
@@ -240,7 +243,7 @@ class LifecycleBridge : PythonBridge {
                 {"key":"fast","label":"Fast","available":false},
                 {"key":"medium","label":"Medium","available":true},
                 {"key":"slow","label":"Slow","available":true}]}"""
-            "signin_restore" -> """{"signed_in":true,"verified":true}"""
+            "signin_restore", "signin_commit" -> """{"signed_in":true,"verified":true}"""
             "worker_start" -> """{"running":true,"stop_requested":false}"""
             "download_status" -> """{"worker":{"running":true},"account":{"status":"running","phase":"archive"}}"""
             "library_listing" -> """[{"seriesId":"test","title":"Test Comic","kind":"comics","episodeCount":4,"savedCount":4}]"""

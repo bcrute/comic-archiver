@@ -38,7 +38,9 @@ def site_addresses():
     the bridge the real table (comic_archive.sites) so no second site list exists anywhere.
     Only each site's addresses travel — never anything about a saved sign-in.
     """
-    return [{'key': site.key, 'home': site.home, 'signInPath': site.signin_path,
+    return [{'key': site.key, 'name': original.name,
+             'folder': '' if original == sites.DEFAULT else original.name,
+             'home': site.home, 'signInPath': site.signin_path,
              'cookieHosts': list(site.cookie_hosts), 'signinHosts': list(site.signin_hosts)}
             for original in sites.SITES if original.available
             for site in (ANDROID_TAPAS if original.key == 'tapas' else original,)]

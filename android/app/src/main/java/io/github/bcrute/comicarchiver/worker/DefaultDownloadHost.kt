@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import io.github.bcrute.comicarchiver.controller.BetaCodes
 import org.json.JSONObject
+import java.io.File
 
 /**
  * Runtime DownloadHost (native line): the foreground service owns the worker's lifetime,
@@ -66,14 +67,21 @@ class DefaultDownloadHost(
         // drain the worker through the existing protocol — in order, so the drain cannot
         // overtake the pause — and the service stops itself after.
         scope.launch(Dispatchers.IO) {
-            JSONObject(bridge.dispatch("pause",
+            drain()
+        }
+    }
+
+    /** Await the same ordered checkpoint before any process-wide workspace change. */
+    suspend fun drain(): Boolean = actions.withLock {
+        withContext(Dispatchers.IO) {
+            val paused = JSONObject(bridge.dispatch("pause",
                 JSONObject().put("root", workspaceRoot()).toString()))
-            JSONObject(bridge.dispatch("worker_stop",
+            if (!paused.optBoolean("ok")) return@withContext false
+            val stopped = JSONObject(bridge.dispatch("worker_stop",
                 JSONObject().put("session_root", sessionRoot).put("wait_seconds", 15).toString()))
-            val intent = Intent(context, DownloadHostService::class.java)
-                .setAction(DownloadHostService.ACTION_STOP)
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-            else @Suppress("DEPRECATION") context.startService(intent)
+            val done = stopped.optBoolean("ok") && stopped.optJSONObject("result")?.opt("running") == false
+            if (done) context.stopService(Intent(context, DownloadHostService::class.java))
+            done
         }
     }
 
@@ -89,6 +97,7 @@ class DefaultDownloadHost(
     private fun startService() {
         val intent = Intent(context, DownloadHostService::class.java)
             .setAction(DownloadHostService.ACTION_START)
+            .putExtra(DownloadHostService.EXTRA_WORKSPACE, workspaceRoot())
         // startForegroundService whenever it exists: a background Go (notification, engine)
         // must still bring the service up, and the service then reaches startForeground.
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
@@ -101,5 +110,5 @@ class DefaultDownloadHost(
         return envelope.optBoolean("ok") && envelope.getJSONObject("result").optBoolean("running", false)
     }
 
-    private fun workspaceRoot(): String = context.filesDir.resolve("workspace").absolutePath
+    private fun workspaceRoot(): String = checkNotNull(File(sessionRoot).parentFile).absolutePath
 }

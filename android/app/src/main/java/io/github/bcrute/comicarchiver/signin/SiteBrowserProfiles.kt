@@ -16,9 +16,10 @@ import androidx.webkit.WebViewFeature
 class SiteBrowserProfiles(private val sites: Map<String, SiteAddress>) {
     private val opened = mutableMapOf<String, SiteBrowserProfile>()
 
-    fun supportsIsolatedSites(): Boolean =
+    fun supportsIsolatedSites(): Boolean = try {
         WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)
+    } catch (_: Exception) { false }
 
     fun open(key: String): SiteBrowserProfile {
         check(Looper.myLooper() == Looper.getMainLooper())

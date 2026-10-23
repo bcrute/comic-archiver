@@ -104,6 +104,28 @@ class WebViewCookieSourceTests(unittest.TestCase):
 
 
 class AndroidTransportTests(unittest.TestCase):
+    def test_httpx_cannot_retain_or_resend_cookies_after_the_native_store_deletes_them(self):
+        url = 'https://m.tapas.io/who-am-i'
+        store = Store({url: 'session=FIXTURE_LIVE'})
+        seen = []
+
+        def response(request):
+            seen.append(request.headers.get('cookie'))
+            return httpx.Response(200, content=b'fixture',
+                headers={'set-cookie': 'session=FIXTURE_ROTATED; Domain=tapas.io; Path=/; Secure'})
+
+        with httpx.Client(transport=httpx.MockTransport(response)) as client:
+            client.cookies.set('ambient', 'FIXTURE_OLD', domain='tapas.io')
+            transport = AndroidTransport(store, client=client, interval=0)
+            transport.get(url, take_cookies=True)
+            self.assertEqual(len(client.cookies), 0)
+            store.headers.clear()
+            transport.get(url)
+            transport.get('https://cdn.tapas.io/fixture.png')
+            self.assertEqual(len(client.cookies), 0)
+        self.assertEqual(seen, ['session=FIXTURE_LIVE', None, None])
+        self.assertEqual(store.given, [(url, ('session=FIXTURE_ROTATED; Domain=tapas.io; Path=/; Secure',))])
+
     def test_real_request_path_uses_mobile_session_and_actual_webview_agent(self):
         agent = 'Actual WebView/154 Mobile'
         store = Store({'https://m.tapas.io/who-am-i': 'session=GOLDEN'})

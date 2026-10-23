@@ -25,6 +25,8 @@ import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.security.MessageDigest
+import org.json.JSONObject
 
 /** Real preferences and coordinator; a synthetic bridge prevents account/filesystem
  * exports. Grant persistence and actual provider copies still need device coverage. */
@@ -36,7 +38,9 @@ class SafExportRuntimeTest {
     private val calls = AtomicInteger()
 
     @Before fun resetPreferences() {
-        context.getSharedPreferences("comicarchiver_export", Context.MODE_PRIVATE).edit().clear().commit()
+        listOf("comicarchiver_export", "comicarchiver_export_webtoon", "comicarchiver_export_tappytoon").forEach {
+            context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
+        }
     }
 
     @After fun stopScope() { scope.cancel() }
@@ -125,5 +129,50 @@ class SafExportRuntimeTest {
             withTimeout(5000) { runtime.panel.first { it.phase == ExportPhaseUi.FINISHED_WITH_FAILURES } }
         }
         assertEquals(PublicIssue.JOB_FAILED, result.lastIssue)
+    }
+
+    @Test fun providerFoldersAndJournalsStaySeparateAcrossReconstructionAndIdCollisions() {
+        val documents = FakeDocuments()
+        val journalBytes = mutableMapOf<String, ByteArray>()
+        listOf("tapas", "webtoon", "tappytoon").forEach { site ->
+            val preferences = if (site == "tapas") "comicarchiver_export" else "comicarchiver_export_$site"
+            context.getSharedPreferences(preferences, Context.MODE_PRIVATE).edit()
+                .putString("tree_uri", "content://fixture.documents/tree/$site").commit()
+            val root = context.filesDir.resolve("namespace-fixture/$site")
+            val original = root.resolve("Library/same/chapter.cbz").apply {
+                parentFile!!.mkdirs(); writeText("$site fixture archive")
+            }
+            val bytes = original.readBytes()
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            val manifest = """{"ok":true,"result":{"entries":[{"seriesId":"same","episodeId":"same",
+                "kind":"CBZ","filename":"chapter.cbz","bytes":${bytes.size},"sha256":"$digest","relpath":"same/chapter.cbz"}]}}"""
+            val bridge = object : PythonBridge {
+                override fun dispatch(op: String, argsJson: String): String {
+                    assertEquals("export_manifest", op)
+                    assertEquals(root.absolutePath, JSONObject(argsJson).getString("root"))
+                    return manifest
+                }
+            }
+            val runtime = SafExportRuntime(context, bridge, root, scope, documents, siteKey = site)
+            runtime.startExport()
+            runBlocking { withTimeout(5000) { runtime.panel.first { it.phase == ExportPhaseUi.ALL_VERIFIED } } }
+            val file = context.filesDir.resolve(if (site == "tapas") "export/journal-v1.txt" else "export/$site/journal-v1.txt")
+            val entry = FileJournalStore(file).load().all().single()
+            assertEquals(JournalState.VERIFIED, entry.state)
+            assertEquals("content://fixture.documents/tree/$site", entry.targetTreeUri)
+            assertEquals(digest, entry.sha256)
+            assertTrue(documents.belongsToTree(DocumentsFile(entry.targetUri!!), SafExportTarget(entry.targetTreeUri!!)))
+            assertTrue(bytes.contentEquals(documents.docs.getValue(entry.targetUri!!).bytes!!))
+            journalBytes[site] = file.readBytes()
+            val before = documents.createdNames.size
+            val restored = SafExportRuntime(context, bridge, root, scope, documents, siteKey = site)
+            restored.startExport()
+            runBlocking { withTimeout(5000) { restored.panel.first { it.phase == ExportPhaseUi.ALL_VERIFIED } } }
+            assertEquals(before, documents.createdNames.size)
+        }
+        journalBytes.forEach { (site, expected) ->
+            val path = if (site == "tapas") "export/journal-v1.txt" else "export/$site/journal-v1.txt"
+            assertTrue(expected.contentEquals(context.filesDir.resolve(path).readBytes()))
+        }
     }
 }

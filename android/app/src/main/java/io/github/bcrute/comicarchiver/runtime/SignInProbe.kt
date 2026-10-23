@@ -17,10 +17,9 @@ import kotlin.coroutines.CoroutineContext
 /**
  * The engine's onSettle body (the native seam the UI line's MainActivity fills in): the
  * embedded core's verified who-am-i through the bridge decides — cookie presence never
- * does. The bridge writes the sign-in record the worker gates on inside its own dispatch,
- * once its own verified who-am-i has passed; that write can land even when the native
- * callback below is then rejected as stale. What the session tag guarantees is narrower
- * and exact: a callback from an earlier session can never transition the native engine.
+ * does. A tagged probe prepares verification without writing a session. Only the
+ * engine's current-session verified callback performs the separate bounded commit.
+ * Cancellation or a stale callback therefore cannot leave a new sign-in record.
  *
  * The first settle usually happens on the site's anonymous cookies while the person is
  * still typing, so the desktop sign-in window's shape is kept: the question is asked
@@ -43,6 +42,7 @@ class SignInProbe(
     private val sessionRoot: String,
     private val retryMs: Long = 3_000L,
     private val engineContext: CoroutineContext = Dispatchers.Main,
+    private val siteKey: String = "tapas",
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val dispatchGate = Mutex()
@@ -74,7 +74,8 @@ class SignInProbe(
                 try {
                     JSONObject(bridge.dispatch(
                         if (state is SignInState.Restoring) "signin_restore" else "signin_probe",
-                        JSONObject().put("session_root", sessionRoot).toString()))
+                        JSONObject().put("session_root", sessionRoot).put("site_key", siteKey)
+                            .put("attempt", session).toString()))
                 } catch (_: Exception) {
                     null
                 }

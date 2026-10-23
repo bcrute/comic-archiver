@@ -74,6 +74,24 @@ def mark_signed_in(directory: Path, site=sites.DEFAULT, compatibility_state=Fals
         sync_directory(directory)
 
 
+def prepare_site(directory: Path, site):
+    """Bind a workspace to its provider without creating a sign-in or copying cookies."""
+    _guard(directory)
+    if not isinstance(site, sites.Site) or sites.find(site.key) != site:
+        raise ArchiveError('Choose a supported site for this workspace.')
+    if any((directory / name).is_symlink() for name in ('site', 'site.tmp')):
+        raise ArchiveError('Refusing a symlink in session storage.')
+    if (directory / 'site').exists():
+        if sites.of_session(directory) != site:
+            raise ArchiveError('This workspace belongs to another site. Existing files are retained.')
+        return
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    _private_write(directory / 'site.tmp', site.key)
+    replace_file(directory / 'site.tmp', directory / 'site')
+    sync_directory(directory)
+
+
 def is_signed_in(directory: Path):
     """Whether an Android sign-in record exists and is whole: marker, and the site's name."""
     if _read_marker(directory) is None:

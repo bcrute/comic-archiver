@@ -16,7 +16,13 @@ data class AppState(
     val cloud: CloudStatus? = null,
     val cloudBusy: Boolean = false,
     val cloudNotice: Notice? = null,
+    val sites: List<SiteChoice> = emptyList(),
+    val siteBusy: Boolean = false,
+    val signInOrigin: String? = null,
 )
+
+data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,
+                      val signInAvailable: Boolean = enabled)
 
 enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 

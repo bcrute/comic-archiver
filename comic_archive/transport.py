@@ -2,6 +2,7 @@
 import time
 import logging
 import threading
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from urllib.parse import urlsplit
 from .models import ArchiveError
 from . import sites
@@ -10,6 +11,13 @@ from .downloads import validate_request_interval
 from .transfer_metrics import TransferMetrics, network_failure_code
 # How much of a refused request's answer is kept with its error.
 REFUSAL_BYTES = 4096
+
+
+class _NoClientCookies(DefaultCookiePolicy):
+    """Transport or WebView owns cookies; the HTTP client's implicit jar owns none."""
+
+    def set_ok(self, cookie, request):
+        return False
 
 
 class _PrivateHTTPLogs(logging.Filter):
@@ -69,6 +77,15 @@ class Transport:
             client = httpx.Client(timeout=30, follow_redirects=False, trust_env=False)
         protect_http_logs()
         self.client = client
+        # HTTPX otherwise retains every response's Set-Cookie independently of our
+        # take_cookies/own-host checks, and can resend it to an asset host or after
+        # WebView deletes its cookie. This client belongs to the transport; disable
+        # that second authority before its first request. Explicit transport cookie
+        # headers and raw forwarding to the selected WebView remain unchanged.
+        jar = getattr(getattr(client, 'cookies', None), 'jar', None)
+        if isinstance(jar, CookieJar):
+            jar.clear()
+            jar.set_policy(_NoClientCookies())
         # The site's own cookies go only to the hosts its profile names, never to a CDN.
         self.cookies = tuple((c["domain"], f"{c['name']}={c['value']}") for c in cookies if site.keeps_cookie(c["domain"]))
         # What the browser that reads the pages calls itself; without one the HTTP client gives its own name.

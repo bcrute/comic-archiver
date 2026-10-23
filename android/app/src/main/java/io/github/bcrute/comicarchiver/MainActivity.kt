@@ -20,6 +20,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -28,7 +34,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.chaquo.python.Python
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.DefaultAppController
-import io.github.bcrute.comicarchiver.export.SafExportRuntime
+import io.github.bcrute.comicarchiver.controller.Notice
+import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
 import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
 
@@ -49,10 +56,10 @@ import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
 class MainActivity : ComponentActivity() {
 
     private lateinit var controller: AppController
-    private lateinit var exports: SafExportRuntime
 
     /** The one activity-owned sign-in WebView; destroyed with the activity in [onDestroy]. */
-    private var signInWebView: WebView? = null
+    private var signInWebView by mutableStateOf<WebView?>(null)
+    private var surfaceSite: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,12 +84,18 @@ class MainActivity : ComponentActivity() {
         // controller BEFORE any Sign in can run, so the engine always drives this one
         // instance; the UI mounts it only while a sign-in is in flight (see
         // SignInScreen). No unloaded WebView ever sits in the entry tree.
-        signInWebView = WebView(this)
-            .also { (controller as DefaultAppController).attachSignInWebView(it) }
-        exports = app.exports
+        (controller as DefaultAppController).attachSurfaceFactory(this, release = ::releaseSignInSurface) { site ->
+            replaceSignInSurface(site, force = true)
+        }
+        try { replaceSignInSurface(controller.state.value.site) } catch (_: Exception) { surfaceUnavailable() }
 
         setContent {
             val appState by controller.state.collectAsState()
+            val exports = remember(appState.site) { app.exportsFor(appState.site) }
+            LaunchedEffect(appState.site) {
+                try { replaceSignInSurface(appState.site) } catch (_: Exception) { surfaceUnavailable() }
+            }
+            var pickerSite by rememberSaveable { mutableStateOf<String?>(null) }
             ComicArchiverTheme(appState.theme) {
                 val background = MaterialTheme.colorScheme.background
                 SideEffect {
@@ -101,7 +114,12 @@ class MainActivity : ComponentActivity() {
                 val panel by exports.panel.collectAsState()
                 val pickFolder = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocumentTree(),
-                ) { uri -> if (uri != null) exports.onFolderGranted(uri) }
+                ) { uri ->
+                    val selected = pickerSite
+                    pickerSite = null
+                    if (uri != null && selected != null && selected == controller.state.value.site && !controller.state.value.siteBusy)
+                        app.exportsFor(selected).onFolderGranted(uri)
+                }
 
                 // Compose owns the whole NoActionBar window: this Surface paints the app
                 // background edge to edge, and the system bars stay clear of the controls
@@ -114,8 +132,16 @@ class MainActivity : ComponentActivity() {
                         ComicArchiverAppRoot(
                             controller = controller,
                             exportState = panel,
-                            onPickFolder = { pickFolder.launch(null) },
-                            onStartExport = { exports.startExport() },
+                            onPickFolder = {
+                                if (!controller.state.value.siteBusy && controller.state.value.site == appState.site) {
+                                    pickerSite = appState.site
+                                    pickFolder.launch(null)
+                                }
+                            },
+                            onStartExport = {
+                                if (!controller.state.value.siteBusy && controller.state.value.site == appState.site)
+                                    exports.startExport()
+                            },
                             onStopExport = {
                                 exports.stopExport()
                                 controller.cancelExport()
@@ -127,6 +153,7 @@ class MainActivity : ComponentActivity() {
                                 // one), so detach/remount reuses the same surface.
                                 val webView = signInWebView
                                 if (webView != null) {
+                                  key(webView) {
                                     AndroidView(
                                         // A remount (retry, back-and-forth) never fights
                                         // a stale parent: hand the one instance over
@@ -141,6 +168,7 @@ class MainActivity : ComponentActivity() {
                                         // the site's login form below the fold.
                                         modifier = Modifier.fillMaxSize(),
                                     )
+                                  }
                                 }
                             },
                         )
@@ -160,15 +188,42 @@ class MainActivity : ComponentActivity() {
         // rotation, where the cookie store (the app's cookie authority) is deliberately
         // untouched: no signout, no cookie clearing. Detach from any Compose-view parent
         // BEFORE destroy(); destroying a still-attached WebView throws.
+        if (this::controller.isInitialized) (controller as DefaultAppController).detachSurfaceFactory(this)
+        releaseSignInSurface()
+        super.onDestroy()
+    }
+
+    private fun replaceSignInSurface(site: String, force: Boolean = false) {
+        if (!force && surfaceSite == site && signInWebView != null) return
+        releaseSignInSurface()
+        val surface = (applicationContext as App).createSignInSurface(this, site)
+        try {
+            surfaceSite = site
+            signInWebView = surface
+            (controller as DefaultAppController).attachSignInWebView(surface, site)
+        } catch (error: Exception) {
+            surface.destroy()
+            signInWebView = null
+            surfaceSite = null
+            throw error
+        }
+    }
+
+    private fun releaseSignInSurface() {
         signInWebView?.let { webView ->
-            if (this::controller.isInitialized)
-                (controller as DefaultAppController).detachSignInWebView(webView)
+            if (this::controller.isInitialized) (controller as DefaultAppController).detachSignInWebView(webView)
             (webView.parent as? ViewGroup)?.removeView(webView)
-            webView.stopLoading()
-            webView.destroy()
+            try { webView.stopLoading(); webView.destroy() } catch (_: Exception) {
+                // A render-process-gone callback may already have destroyed this surface.
+            }
         }
         signInWebView = null
-        super.onDestroy()
+        surfaceSite = null
+    }
+
+    private fun surfaceUnavailable() {
+        controller.openNotice(Notice(BetaCodes.WORKER_OFFLINE,
+            "The sign-in page could not be opened. Update Android System WebView and try sign-in again."))
     }
 
 }

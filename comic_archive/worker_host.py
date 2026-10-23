@@ -6,20 +6,22 @@ with an explicit session root, so Go-only admission (account_ui.reopen), the
 status.json/drain.json protocol and network holds behave exactly as on the desktop.
 
 Workspace rule (reviewed roadmap): explicit roots are preferred over process-global cwd
-changes. The beta has exactly one workspace, whose root the bridge sets as the process cwd
-once while the worker is stopped; the worker's own queue paths all stay inside the session.
+changes. One workspace is active, whose root the bridge sets as the process cwd only
+after the former worker has fully stopped; queue paths stay inside their own session.
 """
 import time
+import threading
 from pathlib import Path
 
 from . import background
 from .models import ArchiveError
 from .state_paths import SESSION_NAME
 
-_thread = {"value": None}
+_thread = {"value": None, "session": None}
+_launch_lock = threading.RLock()
 
 
-def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas'):
+def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas', library_root=None):
     """One shared reader per worker start, with an explicitly selected site's live store.
 
     The full worker surface — the fail-closed who-am-i admission, library discovery and
@@ -39,19 +41,35 @@ def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas'
 
     def build():
         from .android_readers import reader
-        return reader(site_key, cookie_source, cookie_sink)
+        from .network import NetworkGuard
+        guard = NetworkGuard(Path(library_root)) if library_root is not None else None
+        return reader(site_key, cookie_source, cookie_sink, network_guard=guard)
 
     return build
 
 
 def status(session_root) -> dict:
     """Worker status through the existing status.json/.runtime protocol."""
-    return background.status(Path(session_root))
+    session = Path(session_root).absolute()
+    observed = background.status(session)
+    thread = _thread['value']
+    if (_thread['session'] == session and thread is not None and thread.is_alive()
+            and not observed['running']):
+        return observed | {'running': True, 'state': 'stopping' if observed.get('stop_requested')
+                           or observed.get('state') in {'stopped', 'startup_failed'} else 'starting'}
+    return observed
 
 
 def request_stop(session_root, *, wait_seconds: float = 0) -> dict:
     """Cooperative drain request; the one stop path for user Stop and service onTimeout."""
-    return background.stop(Path(session_root), wait_seconds=wait_seconds)
+    session = Path(session_root).absolute()
+    deadline = time.monotonic() + wait_seconds
+    with _launch_lock:
+        observed = background.stop(session, wait_seconds=wait_seconds)
+        thread = _thread['value'] if _thread['session'] == session else None
+        if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+        return status(session) if thread is not None and thread.is_alive() else observed
 
 
 def start_in_process(session_root, library_root, cookie_source, cookie_sink, network_status_path) -> dict:
@@ -62,8 +80,6 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
     store stays the single cookie authority. ``network_status_path`` feeds
     comic_archive.network_android. Only a whole Android sign-in record in the session can
     start the downloader, and Go-only admission is enforced by prepare_workspace's reopen."""
-    import threading
-
     from . import android_session, network_android, sites
     from .locking import LibraryLock
 
@@ -73,18 +89,25 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
         raise ArchiveError("The worker runs on the workspace's own session and library roots.")
     if not android_session.is_signed_in(session):
         raise ArchiveError("Sign in before starting the downloader.")
-    if android_session.signed_in_site(session).key != sites.DEFAULT.key:
-        raise ArchiveError("The Android beta downloads from Tapas only.")
-    network_android.configure(network_status_path)
-    factory = android_adapter_factory(cookie_source, cookie_sink)
+    site = android_session.signed_in_site(session)
+    if sites.find(site.key) != site:
+        raise ArchiveError("Choose a supported site before starting the downloader.")
+    if Path(network_status_path).absolute() != session.parent / 'net.json':
+        raise ArchiveError("The connection report belongs to this workspace.")
     background.root(session, create=True)  # Name and symlink validation, as the desktop path does.
-    with LibraryLock(library / '.launcher'):
-        current = background.status(session)
+    with _launch_lock, LibraryLock(library / '.launcher'):
+        previous = _thread['value']
+        if previous is not None and previous.is_alive() and _thread['session'] != session:
+            raise ArchiveError("Stop the previous site's downloader before starting another.")
+        current = status(session)
         if current['running']:
             return current | {'started': False}
+        factory = android_adapter_factory(cookie_source, cookie_sink, site_key=site.key, library_root=library)
+        network_android.configure(network_status_path)
         thread = threading.Thread(target=_worker_main, args=(session, factory),
                                   name='comic-archiver-worker', daemon=True)
         _thread['value'] = thread
+        _thread['session'] = session
         thread.start()
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -94,7 +117,7 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
             if not thread.is_alive():
                 break  # A start that already ended reports itself through status.json.
             time.sleep(0.25)
-    return background.status(session) | {'started': False}
+    return status(session) | {'started': False}
 
 
 def _worker_main(session, factory):

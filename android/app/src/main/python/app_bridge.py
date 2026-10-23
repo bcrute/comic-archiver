@@ -21,6 +21,7 @@ import json
 import os
 import platform
 import threading
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -29,16 +30,20 @@ VERSION = 1
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
-                 "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action"})
+                 "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
+                 "signin_attempt", "signin_commit"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
 
-# The one workspace the beta app runs, and the WebView cookie seams the Kotlin side
-# registers once at startup through set_cookie_seams (Chaquopy hands the same store
+# The one active workspace, and the WebView cookie seams the Kotlin side selects
+# after confirmed drain through set_cookie_seams (Chaquopy hands the same store
 # object to the sign-in engine, so there is one cookie authority).
-_workspace = {"root": None}
-_seams = {"store": None, "cookie_source": None, "cookie_sink": None}
+_workspace = {"root": None, "base": None, "site_key": "tapas"}
+_workspace_lock = threading.RLock()
+_signin_lock = threading.RLock()
+_signin_attempts = {}
+_seams = {"store": None, "cookie_source": None, "cookie_sink": None, "site_key": None}
 # The export summary's stat identity, so export_status polling does not re-digest a
 # library whose files have not changed. Keyed to one root: the beta has exactly one.
 _export_cache = {"root": None, "facts": None, "summary": None}
@@ -63,7 +68,7 @@ class _BridgeError(Exception):
         self.message = message
 
 
-def set_cookie_seams(cookie_source, cookie_sink=None):
+def set_cookie_seams(cookie_source, cookie_sink=None, site_key=None):
     """Register the app's live cookie seams once at startup (frozen contract §4).
 
     The Kotlin cookie store object is registered as itself. Chaquopy performs no
@@ -75,18 +80,41 @@ def set_cookie_seams(cookie_source, cookie_sink=None):
     WebViewCookieSource wraps the store at use time; the store stays with Kotlin, which
     keeps it the single cookie authority.
     """
+    if site_key is not None:
+        from comic_archive import sites
+        if not isinstance(site_key, str) or sites.find(site_key) is None:
+            raise _BridgeError("bad_request", "Choose a supported sign-in store.")
     if not callable(cookie_source):
         header = next((getattr(cookie_source, name) for name in ("headerFor", "header_for")
                        if callable(getattr(cookie_source, name, None))), None)
         if header is None or not callable(getattr(cookie_source, "apply", None)):
             raise _BridgeError("bad_request",
                                "The cookie seams must be the app's sign-in store or its callables.")
-        _seams.update(store=cookie_source, cookie_source=None, cookie_sink=None)
+        _replace_cookie_seams({"store": cookie_source, "cookie_source": None, "cookie_sink": None,
+                              "site_key": site_key})
         return
     if cookie_sink is not None and not callable(cookie_sink):
         raise _BridgeError("bad_request",
                            "The cookie seams must be the app's sign-in store or its callables.")
-    _seams.update(store=None, cookie_source=cookie_source, cookie_sink=cookie_sink)
+    _replace_cookie_seams({"store": None, "cookie_source": cookie_source, "cookie_sink": cookie_sink,
+                          "site_key": site_key})
+
+
+def _replace_cookie_seams(value):
+    with _workspace_lock:
+        from comic_archive import worker_host
+        from comic_archive.state_paths import session_path
+        current = _workspace["root"]
+        if current is not None and worker_host.status(session_path(current))["running"]:
+            raise _BridgeError("refused", "Stop the downloader before changing site sign-in.")
+        if current is not None and value["site_key"] not in {None, _workspace["site_key"]}:
+            raise _BridgeError("refused", "The sign-in store belongs to another site.")
+        _seams.update(value)
+
+
+def deactivate_cookie_seams():
+    """Native bootstrap only: offline library access has no substitute cookie authority."""
+    _replace_cookie_seams({"store": None, "cookie_source": None, "cookie_sink": None, "site_key": None})
 
 
 def _cookie_seams():
@@ -146,23 +174,53 @@ def _prepare_workspace(args):
     reviewed roadmap's one-active-workspace rule.
     """
     root = _path_arg(args, "root")
+    base = _path_arg(args, "base_root") if "base_root" in args else root
+    key = args.get("site_key", "tapas")
+    schema = args.get("network_schema")
+    if schema is not None and (type(schema) is not int or schema != 1):
+        raise _BridgeError("bad_request", "Choose a supported connection report.")
 
     def build(ArchiveError):
-        from comic_archive import account_ui, shared, worker_host
+        from comic_archive import account_ui, android_session, network_android, shared, sites, worker_host
         from comic_archive.archive_paths import directory
-        from comic_archive.state_paths import private_folder
+        from comic_archive.state_paths import private_folder, session_path
         from comic_archive.workspace import Workspace
-        library = directory(root / "Library")
-        session = private_folder(root, "session")
-        if worker_host.status(session)["running"]:
-            raise ArchiveError("Stop the downloader before switching workspaces.")
-        os.chdir(root)
-        shared.link(library, private_folder(root, "shared"))
-        _workspace["root"] = root
-        held = account_ui.reopen(Workspace(id="default", root=root), idle=True)
-        _cloud_controller(root)  # Recover held cloud tasks before any Go admission.
-        return {"root": str(root), "library": str(library), "session": str(session),
-                "held": bool(held)}
+        site = sites.find(key) if isinstance(key, str) else None
+        if site is None or sites.folder(base, site) != root:
+            raise ArchiveError("Choose this site's own workspace.")
+        with _workspace_lock:
+            previous = _workspace["root"]
+            for candidate in {root, previous} - {None}:
+                if worker_host.status(session_path(candidate))["running"]:
+                    raise ArchiveError("Stop the downloader before switching workspaces.")
+            controller = _cloud_cache["controller"]
+            if previous is not None and previous != root:
+                old = Workspace(id="default", root=previous)
+                if account_ui.status(old).get("status") == "running":
+                    raise ArchiveError("Pause saving before switching sites.")
+                if controller is not None and controller.busy:
+                    raise ArchiveError("Finish the cloud activity before switching sites.")
+            library = directory(root / "Library")
+            session = private_folder(root, "session")
+            android_session.prepare_site(session, site)
+            shared.link(library, private_folder(base, "shared"))
+            before_cwd = Path.cwd()
+            try:
+                os.chdir(root)
+                held = account_ui.reopen(Workspace(id="default", root=root), idle=True)
+                _cloud_controller(root)  # Recover held cloud tasks before Go admission.
+            except Exception:
+                os.chdir(before_cwd)
+                raise
+            with _signin_lock:
+                if previous is not None and previous != root:
+                    old_ticket = _signin_attempts.get(session_path(previous))
+                    if old_ticket is not None:
+                        old_ticket.update(active=False, verified=False)
+                _workspace.update(root=root, base=base, site_key=site.key)
+                network_android.configure(root / "net.json", require_fresh=schema == 1)
+            return {"root": str(root), "library": str(library), "session": str(session),
+                    "site_key": site.key, "held": bool(held)}
 
     return _core(build)
 
@@ -184,8 +242,12 @@ def _worker_start(args):
 
     def start(ArchiveError):
         from comic_archive import worker_host
-        source, sink = _cookie_seams()
-        return worker_host.start_in_process(session, library, source, sink, status_path)
+        with _workspace_lock:
+            _active_root(session.parent, ArchiveError)
+            if _seams["site_key"] not in {None, _workspace["site_key"]}:
+                raise ArchiveError("The sign-in store belongs to another site.")
+            source, sink = _cookie_seams()
+            return worker_host.start_in_process(session, library, source, sink, status_path)
 
     return _core(start)
 
@@ -216,7 +278,8 @@ def _account_ui_op(name):
             if name == "start":
                 from comic_archive import android_download
                 from comic_archive.locking import LibraryLock
-                with LibraryLock(workspace.session / ".account-ui"):
+                with _workspace_lock, LibraryLock(workspace.session / ".account-ui"):
+                    _active_root(root, ArchiveError)
                     cloud = _cloud_cache["controller"] if _cloud_cache["root"] == str(root) else None
                     if cloud is not None and cloud.busy:
                         raise ArchiveError("Finish the cloud activity before pressing Go.")
@@ -232,10 +295,11 @@ def _account_ui_op(name):
     return handler
 
 
-def _signin_probe(args):
+def _signin_probe(args, network_guard=None):
     """The settle-time truth op (native line; §4 wording): the core's own who-am-i through
     the live seams decides, and only a verified answer writes the sign-in record that
-    worker_start gates on. Cookie presence alone can never produce signed_in here."""
+    worker_start gates on. Tagged native probes only prepare verification; the current
+    main-thread engine must separately commit it. Cookie presence authenticates nothing."""
     session = _path_arg(args, "session_root")
 
     def probe(ArchiveError):
@@ -245,16 +309,97 @@ def _signin_probe(args):
         site = sites.find(key) if isinstance(key, str) else None
         if site is None:
             raise ArchiveError("Choose a supported site before signing in.")
-        answer = (android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink)
+        token = args.get("attempt")
+        with _signin_lock:
+            ticket = _signin_attempts.get(session)
+            if token is not None:
+                if not _current_attempt(session, site.key, token, ticket):
+                    return {"signed_in": False, "verified": False, "reason": "attempt_ended"}
+            elif ticket is not None:
+                # A registered native session cannot be downgraded to an untagged write.
+                return {"signed_in": False, "verified": False, "reason": "attempt_ended"}
+        kwargs = {"network_guard": network_guard} if network_guard is not None else {}
+        answer = (android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink, **kwargs)
                   if site == sites.DEFAULT else
-                  android_readers.signed_in_probe(site.key, source, sink))
-        if answer["signed_in"]:
-            # Written only after the verified answer; the compatibility state is empty on
-            # purpose — no cookie ever leaves the store.
-            android_session.mark_signed_in(session, site=site, compatibility_state=True)
+                  android_readers.signed_in_probe(site.key, source, sink, **kwargs))
+        with _signin_lock:
+            if token is not None:
+                if not _current_attempt(session, site.key, token, ticket):
+                    return {"signed_in": False, "verified": False, "reason": "attempt_ended"}
+                ticket["verified"] = bool(answer["signed_in"] and answer["verified"])
+            elif _signin_attempts.get(session) is not None:
+                return {"signed_in": False, "verified": False, "reason": "attempt_ended"}
+            elif answer["signed_in"]:
+                # Compatibility for unregistered v1 callers; the native client always
+                # uses the tagged prepare/commit protocol below.
+                android_session.mark_signed_in(session, site=site, compatibility_state=True)
         return answer
 
     return _core(probe)
+
+
+def _active_root(root, ArchiveError):
+    if _workspace["root"] is not None and _workspace["root"] != root:
+        raise ArchiveError("Open this site's workspace before starting work.")
+
+
+def _current_attempt(session, site_key, token, ticket):
+    return (type(token) is int and 0 < token < 2**63 and ticket is not None
+            and _signin_attempts.get(session) is ticket and ticket["token"] == token
+            and ticket["site_key"] == site_key and ticket["active"]
+            and time.monotonic() < ticket["deadline"]
+            and (_workspace["root"] is None or
+                 _workspace["root"] == session.parent and _workspace["site_key"] == site_key))
+
+
+def _signin_attempt(args):
+    """Begin or invalidate a bounded native attempt; performs no provider request."""
+    session = _path_arg(args, "session_root")
+    token, key, active = args.get("attempt"), args.get("site_key"), args.get("active")
+    duration = args.get("timeout_ms", 900_000)
+    if (type(token) is not int or not 0 < token < 2**63 or type(active) is not bool
+            or type(duration) is not int or not 1 <= duration <= 900_000):
+        raise _BridgeError("bad_request", "Choose a valid sign-in attempt.")
+
+    def change(ArchiveError):
+        from comic_archive import sites
+        if not isinstance(key, str) or sites.find(key) is None:
+            raise ArchiveError("Choose a supported site before signing in.")
+        with _signin_lock:
+            previous = _signin_attempts.get(session)
+            if not active:
+                if previous is not None and previous["token"] == token:
+                    previous.update(active=False, verified=False)
+                return {}
+            if previous is not None and token <= previous["token"]:
+                raise ArchiveError("Start a new sign-in attempt.")
+            if _workspace["root"] != session.parent or _workspace["site_key"] != key:
+                raise ArchiveError("Open this site's workspace before signing in.")
+            if _seams["site_key"] not in {None, key}:
+                raise ArchiveError("The sign-in store belongs to another site.")
+            _signin_attempts[session] = {"token": token, "site_key": key, "active": True,
+                                         "verified": False, "deadline": time.monotonic() + duration / 1000}
+        return {}
+
+    return _core(change)
+
+
+def _signin_commit(args):
+    """Commit only a still-current prepared verification; no cookies are copied."""
+    session = _path_arg(args, "session_root")
+    token, key = args.get("attempt"), args.get("site_key")
+
+    def commit(ArchiveError):
+        from comic_archive import android_session, sites
+        with _signin_lock:
+            ticket = _signin_attempts.get(session)
+            if not _current_attempt(session, key, token, ticket) or not ticket["verified"]:
+                raise ArchiveError("The sign-in attempt ended. Sign in again.")
+            android_session.mark_signed_in(session, site=sites.find(key), compatibility_state=True)
+            ticket["verified"] = False  # A prepared answer can be committed only once.
+        return {"signed_in": True, "verified": True, "reason": None}
+
+    return _core(commit)
 
 
 def _signout_record(args):
@@ -263,8 +408,16 @@ def _signout_record(args):
     session = _path_arg(args, "session_root")
 
     def forget(ArchiveError):
-        from comic_archive import android_session
-        android_session.forget(session)
+        from comic_archive import android_session, sites
+        with _signin_lock:
+            if session in _signin_attempts:
+                _signin_attempts[session].update(active=False, verified=False)
+            else:
+                _signin_attempts[session] = {"token": 0, "active": False, "verified": False,
+                                             "site_key": "tapas", "deadline": 0}
+            android_session.forget(session)
+            if _workspace["root"] == session.parent:
+                android_session.prepare_site(session, sites.find(_workspace["site_key"]))
         return {}
 
     return _core(forget)
@@ -290,10 +443,18 @@ def _signin_restore(args):
     # the same stored connection choice before making its account request.
     if not _core(lambda error: _settings_value(session.parent))["allowed"]:
         return {"signed_in": False, "verified": False, "reason": "network_held"}
-    return _signin_probe(args | {"site_key": site_key})
+    from comic_archive.network import NetworkGuard
+    return _signin_probe(args | {"site_key": site_key}, network_guard=NetworkGuard(session.parent / "Library"))
 
 
 def _settings_value(root):
+    from comic_archive.models import ArchiveError
+    with _workspace_lock:
+        _active_root(root, ArchiveError)
+        return _settings_unlocked(root)
+
+
+def _settings_unlocked(root):
     from comic_archive import account_ui, dashboard_model, network, network_android
     from comic_archive.workspace import Workspace
     network_android.configure(root / "net.json")
@@ -460,12 +621,14 @@ def _enqueue_sync(args):
         if not android_session.is_signed_in(session):
             raise ArchiveError("Sign in before syncing the library.")
         site = android_session.signed_in_site(session)
-        if site is None or site.key != sites.DEFAULT.key:
-            raise ArchiveError("The Android beta syncs from Tapas only.")
-        if not worker_host.status(session)["running"]:
-            raise ArchiveError("Start the downloader before syncing the library.")
-        task = submit_job(session, "sync", {})
-        return {"task_id": task["task_id"], "status": task["status"]}
+        if site is None or sites.find(site.key) != site:
+            raise ArchiveError("Choose a supported site before syncing the library.")
+        with _workspace_lock:
+            _active_root(session.parent, ArchiveError)
+            if not worker_host.status(session)["running"]:
+                raise ArchiveError("Start the downloader before syncing the library.")
+            task = submit_job(session, "sync", {})
+            return {"task_id": task["task_id"], "status": task["status"]}
 
     return _core(enqueue)
 
@@ -627,6 +790,20 @@ def _export_status(args):
     return _core(status)
 
 
+def _in_active_workspace(handler):
+    """Serialize context-sensitive policy actions before controller/account locks."""
+    def call(args):
+        root = _path_arg(args, "root")
+
+        def active(ArchiveError):
+            with _workspace_lock:
+                _active_root(root, ArchiveError)
+                return handler(args)
+
+        return _core(active)
+    return call
+
+
 HANDLERS = {"ping": _ping,
             "prepare_workspace": _prepare_workspace,
             "worker_status": _worker_status,
@@ -637,12 +814,14 @@ HANDLERS = {"ping": _ping,
             "download_status": _account_ui_op("status"),
             "signin_probe": _signin_probe,
             "signin_restore": _signin_restore,
-            "settings": _settings,
-            "configure_settings": _configure_settings,
+            "signin_attempt": _signin_attempt,
+            "signin_commit": _signin_commit,
+            "settings": _in_active_workspace(_settings),
+            "configure_settings": _in_active_workspace(_configure_settings),
             "file_catalog": _file_catalog,
             "file_open": _file_open,
-            "cloud_status": _cloud_status,
-            "cloud_action": _cloud_action,
+            "cloud_status": _in_active_workspace(_cloud_status),
+            "cloud_action": _in_active_workspace(_cloud_action),
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,

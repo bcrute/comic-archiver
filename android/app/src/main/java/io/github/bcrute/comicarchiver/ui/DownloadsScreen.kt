@@ -56,12 +56,12 @@ fun DownloadsScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = onGo,
-                enabled = state.download.goEnabled(),
+                enabled = state.controlsEnabled && state.download.goEnabled(),
                 modifier = Modifier.weight(1f),
             ) { Text(if (state.download is DownloadsViewUi.Running) "Running" else "Go") }
             OutlinedButton(
                 onClick = onPause,
-                enabled = state.download.pauseEnabled(),
+                enabled = state.controlsEnabled && state.download.pauseEnabled(),
                 modifier = Modifier.weight(1f),
             ) { Text("Pause") }
         }

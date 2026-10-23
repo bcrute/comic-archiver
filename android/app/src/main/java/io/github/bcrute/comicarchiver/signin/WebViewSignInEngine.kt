@@ -4,7 +4,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.webkit.CookieManager
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.controller.SignInState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +18,8 @@ data class SiteAddress(
     val signInPath: String,
     val cookieHosts: Set<String>,
     val signInHosts: Set<String> = emptySet(),
+    val name: String = "",
+    val workspaceFolder: String = "",
 )
 
 /** The sign-in journey's landing-host rule, kept pure so its boundary is testable off-device:
@@ -71,11 +72,16 @@ object SignInLanding {
  * @param sites the sites this app can load, by site key.
  */
 class WebViewSignInEngine(
-    private val store: WebViewCookieStore,
+    private var store: WebViewCookieStore,
     private val onSettle: () -> Unit = {},
     private val timeoutMs: Long = SIGNIN_TIMEOUT_MS,
     private val sites: Map<String, SiteAddress> = BETA_SITES,
     private val onRestore: () -> Unit = {},
+    private val storeFor: ((String) -> WebViewCookieStore)? = null,
+    private val onStoreSelected: (String, WebViewCookieStore) -> Unit = { _, _ -> },
+    private val onStoreUnavailable: () -> Unit = {},
+    private val onAttempt: (String, Long, Long, Boolean) -> Unit = { _, _, _, _ -> },
+    private val onVerified: (String, Long) -> Boolean = { _, _ -> true },
 ) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
@@ -90,6 +96,8 @@ class WebViewSignInEngine(
     private var startedAtMillis = 0L
     private var boundMs = timeoutMs
     private var restoreAttempted = false
+    @Volatile private var visibleOrigin: String? = null
+    private var hasAuthority = true
     private val timeout = Runnable {
         finish(if (_state.value is SignInState.Restoring) SignInState.SignedOut
                else SignInState.Failed("signin_incomplete"))
@@ -98,23 +106,31 @@ class WebViewSignInEngine(
     /** Point the engine at one site key; the previously loaded in-memory state goes. */
     override fun load(siteKey: String) {
         val next = sites[siteKey] ?: throw IllegalArgumentException("This app does not offer that site.")
+        val nextStore = try { storeFor?.invoke(siteKey) ?: store } catch (_: IllegalStateException) { null }
+        finish(SignInState.SignedOut) // Invalidate the former site's attempt before changing authority.
+        if (nextStore == null) onStoreUnavailable() else onStoreSelected(siteKey, nextStore)
         synchronized(this) {
             this.siteKey = siteKey
             address = next
+            hasAuthority = nextStore != null
+            if (nextStore != null) store = nextStore
             settleAnnounced = false
             restoreAttempted = false
         }
         // The platform store initialises on the main thread, before any worker asks it.
-        store.prepare()
-        finish(SignInState.SignedOut)
+        if (hasAuthority) store.prepare() else finish(SignInState.Failed("unsupported_site"))
     }
 
     /** Live cookie provider for the loaded site; the source itself is site-scoped. */
-    override fun cookieSource(): CookieHeaderSource = store
+    override fun cookieSource(): CookieHeaderSource {
+        check(hasAuthority) { "This site needs an isolated sign-in store." }
+        return store
+    }
 
     /** Whether the platform store holds the loaded site's cookies. Cookie presence only:
      * an authentication claim needs the core's verified who-am-i, see [verified]. */
     override fun isSignedIn(): Boolean {
+        if (!hasAuthority) return false
         val site = address ?: return false
         return try {
             store.hasCookies(site.home)
@@ -125,7 +141,9 @@ class WebViewSignInEngine(
 
     /** Drive the UI-owned WebView through the site's real sign-in page. */
     override fun startSignIn(webView: WebView) {
+        if (!hasAuthority) { finish(SignInState.Failed("unsupported_site")); return }
         val site = address ?: throw IllegalStateException("Load a site before signing in.")
+        finish(SignInState.SignedOut)
         // The sign-in page's own needs only: its scripts and storage on, every surface the
         // page does not need off. A JavaScript interface is never added, here or elsewhere.
         webView.settings.javaScriptEnabled = true
@@ -134,8 +152,7 @@ class WebViewSignInEngine(
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
         store.rememberBrowserUserAgent(webView.settings.userAgentString)
-        CookieManager.getInstance().setAcceptCookie(true)
-        webView.webViewClient = SignInWebViewClient(this)
+        store.prepare()
         synchronized(this) {
             settleAnnounced = false
             sessionOpen = true
@@ -143,15 +160,18 @@ class WebViewSignInEngine(
             startedAtMillis = SystemClock.elapsedRealtime()
             boundMs = timeoutMs
         }
+        if (!beginAttempt()) return
+        webView.webViewClient = SignInWebViewClient(this, sessionId)
         val page = site.home + site.signInPath
-        _state.value = SignInState.Page(page)
+        visibleOrigin = site.home
+        _state.value = SignInState.Page(site.home)
         webView.loadUrl(page)
         main.removeCallbacks(timeout)
         main.postDelayed(timeout, timeoutMs)
     }
 
     override fun restoreSignIn(webView: WebView) {
-        if (address == null || restoreAttempted || _state.value !is SignInState.SignedOut) return
+        if (!hasAuthority || address == null || restoreAttempted || _state.value !is SignInState.SignedOut) return
         restoreAttempted = true
         store.rememberBrowserUserAgent(webView.settings.userAgentString)
         synchronized(this) {
@@ -160,6 +180,7 @@ class WebViewSignInEngine(
             startedAtMillis = SystemClock.elapsedRealtime()
             boundMs = minOf(timeoutMs, 15_000L)
         }
+        if (!beginAttempt()) return
         _state.value = SignInState.Restoring
         main.removeCallbacks(timeout)
         main.postDelayed(timeout, boundMs)
@@ -176,17 +197,32 @@ class WebViewSignInEngine(
         finish(SignInState.Failed("signin_incomplete"))
     }
 
+    override fun requireSignIn() {
+        finish(SignInState.Failed("login_required"))
+    }
+
     /**
      * Sign out: the session closes first — no further page, settle or probe answer is
      * accepted, and the wait's bound is cancelled — and only then is the app's whole
      * WebView cookie store cleared. [SignedOut] follows the store's own answer.
      */
-    override fun signOut() {
-        synchronized(this) { sessionOpen = false }
-        main.removeCallbacks(timeout)
+    override fun signOut() = signOut {}
+
+    override fun signOut(onCleared: (Boolean) -> Unit) {
+        if (!hasAuthority) {
+            finish(SignInState.Failed("signout_incomplete"))
+            onCleared(false)
+            return
+        }
+        finish(SignInState.SignedOut)
+        val closed = synchronized(this) { siteKey to sessionId }
         store.clearAllAsync { cleared ->
-            finish(if (cleared) SignInState.SignedOut
-                   else SignInState.Failed("signout_incomplete"))
+            if (synchronized(this) { siteKey != closed.first || sessionId != closed.second || sessionOpen }) {
+                onCleared(false)
+            } else {
+                finish(if (cleared) SignInState.SignedOut else SignInState.Failed("signout_incomplete"))
+                onCleared(cleared)
+            }
         }
     }
 
@@ -203,7 +239,23 @@ class WebViewSignInEngine(
      * stale answer from an earlier session authenticates nothing. */
     override fun verified(session: Long) {
         if (!sessionInProgress(session)) return
-        finish(SignInState.SignedIn(synchronized(this) { siteKey } ?: return))
+        val key = synchronized(this) { siteKey } ?: return
+        val committed = try { onVerified(key, session) } catch (_: Exception) { false }
+        finish(if (committed) SignInState.SignedIn(key) else SignInState.Failed("signin_unavailable"))
+    }
+
+    override fun currentOrigin(): String? = visibleOrigin
+
+    fun pageStarted(url: String, session: Long) {
+        if (!sessionInProgress(session)) return
+        val address = try { Uri.parse(url) } catch (_: Exception) { null }
+        val host = address?.host
+        if (address == null || !address.scheme.equals("https", ignoreCase = true) || host.isNullOrBlank()) {
+            verificationFailed("signin_unavailable", session)
+            return
+        }
+        visibleOrigin = "https://$host" + if (address.port in 1..65535 && address.port != 443) ":${address.port}" else ""
+        _state.value = SignInState.Page(checkNotNull(visibleOrigin))
     }
 
     /** The core's verification failed for [session]; its fixed code is the honest report. */
@@ -260,9 +312,30 @@ class WebViewSignInEngine(
     }
 
     private fun finish(next: SignInState) {
-        synchronized(this) { sessionOpen = false }
+        val previous = synchronized(this) {
+            val open = if (sessionOpen) siteKey?.let { Triple(it, sessionId, boundMs) } else null
+            sessionOpen = false
+            open
+        }
         main.removeCallbacks(timeout)
+        visibleOrigin = null
+        previous?.let {
+            try { onAttempt(it.first, it.second, it.third, false) } catch (_: Exception) {
+                // A failed invalidation cannot commit: only verified(currentSession)
+                // invokes the separate native commit, and this session is already closed.
+            }
+        }
         _state.value = next
+    }
+
+    fun loadedSiteKey(): String? = synchronized(this) { siteKey }
+
+    private fun beginAttempt(): Boolean = try {
+        onAttempt(checkNotNull(siteKey), sessionId, boundMs, true)
+        true
+    } catch (_: Exception) {
+        finish(SignInState.Failed("signin_unavailable"))
+        false
     }
 
     /** A finished page on the site's own sign-in journey only (its hosts, HTTPS, exact

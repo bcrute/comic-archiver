@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.net.Uri
 import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.R
 import io.github.bcrute.comicarchiver.app
@@ -25,6 +26,7 @@ import org.json.JSONObject
  * service is never sticky.
  */
 class DownloadHostService : Service() {
+    private var workspaceRoot: String? = null
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -40,15 +42,28 @@ class DownloadHostService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Always reach startForeground first: a startForegroundService delivery of the Stop
         // action must still promote the service within its window before it stops itself.
+        val requested = intent?.getStringExtra(EXTRA_WORKSPACE)
+        if (intent?.action == ACTION_START) {
+            val current = app.workspace.root.absolutePath
+            if (requested != null && requested != current) {
+                startInForeground()
+                if (workspaceRoot == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
+                return START_NOT_STICKY
+            }
+            workspaceRoot = current
+        }
         startInForeground()
-        if (intent?.action == ACTION_STOP) checkpointAndStop()
+        if (intent?.action == ACTION_STOP && (requested == null || requested == workspaceRoot))
+            checkpointAndStop(startId)
         return START_NOT_STICKY
     }
 
     private fun startInForeground() {
         val stop = PendingIntent.getService(
             this, 1,
-            Intent(this, DownloadHostService::class.java).setAction(ACTION_STOP),
+            Intent(this, DownloadHostService::class.java).setAction(ACTION_STOP)
+                .setData(Uri.parse("comicarchiver://downloads/${app.workspace.key}"))
+                .putExtra(EXTRA_WORKSPACE, workspaceRoot),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(
             this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -66,28 +81,36 @@ class DownloadHostService : Service() {
             .build())
     }
 
-    private fun checkpointAndStop() {
+    private fun checkpointAndStop(startId: Int, waitSeconds: Int = 15) {
+        val root = workspaceRoot
+        if (root == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return
+        }
         // Off the main thread: the drain waits until the worker's task checkpoint lands.
         CoroutineScope(Dispatchers.IO).launch {
-            val root = filesDir.resolve("workspace").absolutePath
-            val session = filesDir.resolve("workspace/.comic-session").absolutePath
-            app.bridge.dispatch("pause", JSONObject().put("root", root).toString())
-            app.bridge.dispatch(
-                "worker_stop",
-                JSONObject().put("session_root", session).put("wait_seconds", 15).toString())
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            val session = java.io.File(root, ".comic-session").absolutePath
+            try {
+                app.bridge.dispatch("pause", JSONObject().put("root", root).toString())
+                app.bridge.dispatch("worker_stop", JSONObject().put("session_root", session)
+                    .put("wait_seconds", waitSeconds).toString())
+            } finally {
+                // A delayed old Stop must not tear down a subsequent Start's notification.
+                if (stopSelfResult(startId)) stopForeground(STOP_FOREGROUND_REMOVE)
+            }
         }
     }
 
     /** The service's own timeout: checkpoint exactly like Stop, without the notification action. */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        checkpointAndStop()
+        checkpointAndStop(startId, waitSeconds = 2)
     }
 
     companion object {
         const val ACTION_START = "io.github.bcrute.comicarchiver.worker.START"
         const val ACTION_STOP = "io.github.bcrute.comicarchiver.worker.STOP"
+        const val EXTRA_WORKSPACE = "workspace_root"
         private const val CHANNEL_ID = "downloads"
         private const val NOTIFICATION_ID = 1
     }

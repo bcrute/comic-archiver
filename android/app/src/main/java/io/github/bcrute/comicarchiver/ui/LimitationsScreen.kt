@@ -25,7 +25,9 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
     ) {
         Text("What this beta does not do", style = MaterialTheme.typography.headlineSmall)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Limitation("Only Tapas is supported — comics and novels, no other site yet.")
+            Limitation("Choose a source site above. Each site keeps its sign-in and library separate.")
+            Limitation("On devices without isolated browser profiles, saved libraries remain available; sign-in needs an updated Android System WebView.")
+            Limitation("Tapas Recent and Free Episodes discovery and Fast mode are not available in this candidate yet.")
             Limitation("Saving uses unmetered connections by default. Settings lets you allow mobile data.")
             Limitation(
                 "After an app update or process restart, saving waits until you press Go. " +

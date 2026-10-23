@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="library" path="workspace/Library/" />
+    <files-path name="webtoon-library" path="workspace/Webtoon/Library/" />
+    <files-path name="tappytoon-library" path="workspace/Tappytoon/Library/" />
 </paths>

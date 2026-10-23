@@ -24,6 +24,9 @@ fun Notice.toNoticeUi(): NoticeUi = NoticeUi(
 fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     busy = signIn is SignInState.Page || signIn is SignInState.Settling,
     restoring = signIn is SignInState.Restoring,
+    siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
+    origin = signInOrigin,
+    controlsEnabled = !siteBusy && sites.firstOrNull { it.key == site }?.signInAvailable != false,
     notice = (signIn as? SignInState.Failed)?.let {
         NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
     } ?: notice?.toNoticeUi(),
@@ -31,6 +34,7 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
 
 fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     signedIn = signIn is SignInState.SignedIn,
+    controlsEnabled = !siteBusy,
     download = downloadView(),
     remaining = library.sumOf { (it.episodeCount - it.savedCount).coerceAtLeast(0) },
     notice = notice?.toNoticeUi()

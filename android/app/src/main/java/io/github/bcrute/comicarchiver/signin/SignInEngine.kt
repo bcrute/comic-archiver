@@ -27,6 +27,9 @@ interface SignInEngine {
     /** Whether the platform store currently holds the loaded site's session cookies. */
     fun isSignedIn(): Boolean
 
+    /** Public HTTPS origin only, without path, query, user info or credentials. */
+    fun currentOrigin(): String? = null
+
     /** Drive the given UI-owned, composable-hosted WebView through the site's real sign-in page. */
     fun startSignIn(webView: WebView)
 
@@ -35,5 +38,14 @@ interface SignInEngine {
 
     fun cancelSignIn()
 
+    /** A worker's verified authentication refusal requires a fresh sign-in journey. */
+    fun requireSignIn() { cancelSignIn() }
+
     fun signOut()
+
+    /** Completion belongs to the selected profile's clear callback. */
+    fun signOut(onCleared: (Boolean) -> Unit) {
+        signOut()
+        onCleared(state.value is SignInState.SignedOut)
+    }
 }

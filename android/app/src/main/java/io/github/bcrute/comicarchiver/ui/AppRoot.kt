@@ -13,6 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,7 +76,26 @@ fun ComicArchiverAppRoot(
                 ) { Text(candidate.label, maxLines = 1, softWrap = false) }
             }
         }
-        tabState.SaveableStateProvider(tab) {
+        if (state.sites.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                state.sites.forEach { site ->
+                    FilterChip(selected = state.site == site.key, enabled = site.enabled && !state.siteBusy,
+                        onClick = { controller.selectSite(site.key) },
+                        label = { Text(site.name, maxLines = 1, softWrap = false) })
+                }
+            }
+            state.sites.firstOrNull { it.key == state.site }?.reason?.let {
+                Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (state.siteBusy) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Updating account and library…", Modifier.padding(horizontal = 16.dp))
+        }
+        if (tab != AppTab.SAVING) state.notice?.let { notice ->
+            NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
+        }
+        tabState.SaveableStateProvider("${state.site}:${tab.name}") {
             when (tab) {
                 AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
                     SignInScreen(
@@ -119,8 +140,11 @@ fun ComicArchiverAppRoot(
                             else tab = AppTab.SAVING
                         },
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        enabled = !state.siteBusy,
                     ) {
-                        Text(if (state.signIn is SignInState.SignedIn) "Sign out of Tapas"
+                        val name = state.sites.firstOrNull { it.key == state.site }?.name
+                            ?: if (state.site == "tapas") "Tapas" else state.site
+                        Text(if (state.signIn is SignInState.SignedIn) "Sign out of $name"
                              else "Go to sign in")
                     }
                 }

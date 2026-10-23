@@ -19,6 +19,7 @@ class AndroidCloud:
     def __init__(self, registry):
         self.registry = registry
         self.workspace = registry.resolve(LOCAL_OWNER, registry.workspace_id)
+        self.site = sites.of_session(self.workspace.session)
         self._lock = threading.RLock()
         self._task = None
         self._kind = None
@@ -52,7 +53,7 @@ class AndroidCloud:
         # The Android record is verified by the native sign-in engine. Desktop's
         # empty compatibility state file alone must not enable cloud tasks.
         status['session_configured'] = android_session.is_signed_in(self.workspace.session)
-        return State(sites=sites.choices(android_session.signed_in_site(self.workspace.session) or sites.DEFAULT),
+        return State(sites=sites.choices(android_session.signed_in_site(self.workspace.session) or self.site),
                      status=status, account=account,
                      cloud=registry.cloud_status(LOCAL_OWNER, identity),
                      cloud_auth=registry.cloud_signin_status(LOCAL_OWNER, identity),
@@ -134,7 +135,7 @@ class AndroidCloud:
                 if not selected or not selected['enabled']:
                     raise ArchiveError('Check the connection and finish the current activity before changing storage.')
                 # Reuse the exact desktop switching order and enabling checks.
-                runtime = type('CloudRuntime', (), {'registry': registry, 'site': sites.DEFAULT})()
+                runtime = type('CloudRuntime', (), {'registry': registry, 'site': self.site})()
                 try:
                     app_actions.Actions(lambda: runtime).choose_storage(value, state.cloud_targets())
                 except app_actions.Refused as error:

@@ -40,16 +40,20 @@ class SafExportRuntime(
     workspaceRoot: File,
     private val scope: CoroutineScope,
     documents: DocumentsAdapter = ContentResolverDocumentsAdapter(context.applicationContext),
+    siteKey: String = "tapas",
 ) {
     private val appContext = context.applicationContext
+    private val siteIdentity = siteKey.also { require(it.matches(Regex("[a-z][a-z0-9_-]{0,31}"))) }
     private val libraryRoot = File(workspaceRoot, LIBRARY_DIR)
     private val exporter = SafBatchExporter(
         source = ::openOriginal,
         documents = documents,
-        store = FileJournalStore(File(appContext.filesDir, "export/journal-v1.txt")),
+        store = FileJournalStore(File(appContext.filesDir,
+            if (siteIdentity == "tapas") "export/journal-v1.txt" else "export/$siteIdentity/journal-v1.txt")),
     )
     private val active = AtomicReference<AtomicBoolean?>(null)
-    private val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val preferences = appContext.getSharedPreferences(
+        if (siteIdentity == "tapas") PREFS else "${PREFS}_$siteIdentity", Context.MODE_PRIVATE)
 
     // initialPanel restores this value; keep the initialization order explicit so a
     // later initializer change cannot overwrite that restored folder.
@@ -57,6 +61,7 @@ class SafExportRuntime(
 
     private val _panel = kotlinx.coroutines.flow.MutableStateFlow(initialPanel())
     val panel: kotlinx.coroutines.flow.StateFlow<ExportPanelStateUi> = _panel
+    val isActive: Boolean get() = active.get() != null
 
     /**
      * The folder-picker result: the one persistable grant the beta uses. A grant the

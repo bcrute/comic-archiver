@@ -91,4 +91,34 @@ class ArchiveViewerTest {
         assertNull(resolveArchive(root, "Series One/chapter.cbz"))
         assertThrows(FileNotFoundException::class.java) { provider().openFile(address, "r") }
     }
+
+    @Test fun providerRootsOpenOnlyTheirOwnFinishedArchivesAndPreserveTheLegacyUri() {
+        val provider = provider()
+        val roots = mapOf("library" to "workspace/Library", "webtoon-library" to "workspace/Webtoon/Library",
+            "tappytoon-library" to "workspace/Tappytoon/Library")
+        roots.forEach { (identity, path) ->
+            val selected = File(context.filesDir, path)
+            val file = File(selected, "Same Series/chapter.cbz").apply {
+                parentFile!!.mkdirs(); writeText("$identity fixture")
+            }
+            val address = uri(file)
+            assertEquals(identity, address.pathSegments.first())
+            val bytes = ParcelFileDescriptor.AutoCloseInputStream(provider.openFile(address, "r")).use { it.readBytes() }
+            assertArrayEquals(file.readBytes(), bytes)
+            val intents = mutableListOf<Intent>()
+            assertEquals(ArchiveOpenResult.REQUESTED,
+                ArchiveViewer(context, selected) { intents.add(it) }.open("Same Series/chapter.cbz", "cbz"))
+            assertEquals(address, intents.single().data)
+            assertEquals(Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                intents.single().flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+            assertThrows(FileNotFoundException::class.java) { provider.openFile(address, "w") }
+            val hidden = File(selected, ".archive-state/private.cbz").apply {
+                parentFile!!.mkdirs(); writeText("private fixture")
+            }
+            assertThrows(FileNotFoundException::class.java) { provider.openFile(uri(hidden), "r") }
+            assertThrows(FileNotFoundException::class.java) {
+                provider.openFile(Uri.parse("content://${context.packageName}.archives/$identity/../.comic-session/state.cbz"), "r")
+            }
+        }
+    }
 }

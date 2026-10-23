@@ -3,6 +3,14 @@ package io.github.bcrute.comicarchiver.signin
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
+import android.net.http.SslError
+import android.graphics.Bitmap
+import android.net.Uri
+import android.view.ViewGroup
 
 /**
  * Reports the sign-in pages' progress to [WebViewSignInEngine].
@@ -12,15 +20,53 @@ import android.webkit.WebViewClient
  * JavaScript interface and evaluates no script: nothing in the page can call the app, the
  * downloader or Python. Nothing is logged.
  */
-class SignInWebViewClient(private val engine: WebViewSignInEngine) : WebViewClient() {
+class SignInWebViewClient(private val engine: WebViewSignInEngine,
+                         private val session: Long = engine.currentSession()) : WebViewClient() {
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        // Load web pages in the WebView; leave every other scheme to the system, not to us.
-        val scheme = request.url.scheme ?: return true
-        return !scheme.equals("http", ignoreCase = true) && !scheme.equals("https", ignoreCase = true)
+        val refused = !request.url.scheme.equals("https", ignoreCase = true)
+        if (refused && request.isForMainFrame) fail()
+        return refused
+    }
+
+    @Suppress("DEPRECATION")
+    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+        val refused = !Uri.parse(url).scheme.equals("https", ignoreCase = true)
+        if (refused) fail()
+        return refused
+    }
+
+    override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        if (engine.currentSession() != session) return
+        if (!Uri.parse(url).scheme.equals("https", ignoreCase = true)) {
+            view.stopLoading()
+            fail()
+        } else engine.pageStarted(url, session)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        engine.onPageFinished(url)
+        if (engine.currentSession() == session) engine.onPageFinished(url)
     }
+
+    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+        if (request.isForMainFrame) fail()
+    }
+
+    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+        if (request.isForMainFrame && errorResponse.statusCode >= 400) fail()
+    }
+
+    override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+        handler.cancel()
+        fail()
+    }
+
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        fail()
+        (view.parent as? ViewGroup)?.removeView(view)
+        try { view.destroy() } catch (_: Exception) {}
+        return true
+    }
+
+    private fun fail() { engine.verificationFailed("signin_unavailable", session) }
 }

@@ -42,6 +42,7 @@ data class DownloadsScreenUi(
     /** Episodes the library still lacks, in aggregate; 0 when everything is saved. */
     val remaining: Int,
     val notice: NoticeUi?,
+    val controlsEnabled: Boolean = true,
 )
 
 /** The download phase as the screen shows it: held (for any reason), running, or finished. */
@@ -80,6 +81,9 @@ data class SignInScreenUi(
     val busy: Boolean,
     val notice: NoticeUi?,
     val restoring: Boolean = false,
+    val siteName: String = "Tapas",
+    val origin: String? = null,
+    val controlsEnabled: Boolean = true,
 )
 
 /** One series row in the library: what the controller reports as finished. */

@@ -34,19 +34,19 @@ fun SignInScreen(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Tapas", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Sign in with your Tapas account to save the comics and novels you bought " +
-                "before the site closes.",
+        Text(state.siteName, style = MaterialTheme.typography.headlineSmall)
+        if (!state.busy && !state.restoring) Text(
+            "Sign in with your ${state.siteName} account to save episodes you can access.",
             style = MaterialTheme.typography.bodyMedium,
         )
+        state.origin?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         state.notice?.let { NoticeCard(it) }
         if (state.restoring) {
             Text("Checking saved sign-in…", style = MaterialTheme.typography.bodyMedium)
         }
-        if (!state.busy) {
-            Button(onClick = onStartSignIn, modifier = Modifier.fillMaxWidth()) {
-                Text("Sign in to Tapas")
+        if (!state.busy && !state.restoring) {
+            Button(onClick = onStartSignIn, enabled = state.controlsEnabled, modifier = Modifier.fillMaxWidth()) {
+                Text("Sign in to ${state.siteName}")
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -69,16 +69,17 @@ fun NoticeCard(
     notice: NoticeUi,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
+    showRecovery: Boolean = true,
 ) {
     val words = NoticeText.wordsFor(notice.issue)
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(words.notice, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                words.recoveryAction,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            if (showRecovery) Text(
+                    words.recoveryAction,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             notice.detail?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }

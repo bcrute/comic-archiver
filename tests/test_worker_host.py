@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from comic_archive import android_session, network_android, worker_host
+from comic_archive import android_session, network_android, sites, worker_host
 from comic_archive.models import ArchiveError
 
 
@@ -125,3 +125,37 @@ class WorkerLifecycleTests(unittest.TestCase):
         observed = worker_host.status(self.session)
         self.assertFalse(observed["running"])
         self.assertEqual(observed["state"], "stopped")
+
+    def test_each_provider_can_start_held_and_drain_before_the_next_workspace(self):
+        for site in sites.SITES:
+            with self.subTest(site=site.key):
+                workspace = sites.folder(self.root, site)
+                self.session = workspace / '.comic-session'
+                self.library = workspace / 'Library'
+                self.library.mkdir(parents=True, exist_ok=True)
+                android_session.mark_signed_in(self.session, site=site)
+                facts = workspace / 'net.json'
+                facts.write_text('{"connection":"wifi","metered":false}')
+                os.chdir(workspace)
+                started = worker_host.start_in_process(self.session, self.library,
+                    _cookie_header, _set_cookies, facts)
+                self.assertTrue(started['running'], started)
+                self.assertEqual(started['state'], 'ready')
+                stopped = worker_host.request_stop(self.session, wait_seconds=15)
+                self.assertFalse(stopped['running'], stopped)
+
+    def test_a_refused_cross_workspace_start_cannot_retarget_the_live_network_probe(self):
+        started = worker_host.start_in_process(self.session, self.library,
+            _cookie_header, _set_cookies, self.root / 'net.json')
+        self.assertTrue(started['running'], started)
+        other = self.root / 'Webtoon'
+        other_library = other / 'Library'
+        other_library.mkdir(parents=True)
+        other_session = other / '.comic-session'
+        android_session.mark_signed_in(other_session, site=sites.named('webtoon'))
+        (other / 'net.json').write_text('{"connection":"cellular","metered":true}')
+        with self.assertRaises(ArchiveError):
+            worker_host.start_in_process(other_session, other_library,
+                _cookie_header, _set_cookies, other / 'net.json')
+        self.assertEqual(network_android.probe(), {'connection': 'wifi', 'metered': False})
+        self.assertTrue(worker_host.status(self.session)['running'])
