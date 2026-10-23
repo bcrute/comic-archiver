@@ -55,6 +55,28 @@ class SiteStandInTests(unittest.TestCase):
                 with self.adapter(cookie):
                     pass
 
+    def test_canonical_browser_responses_retain_authentication_and_bounded_visible_pagers(self):
+        from comic_archive.android_adapter import ReadingListHTML
+        for category in ('SUBSCRIBED', 'RECENT', 'FREE_EPISODES'):
+            rows = []
+            for page in (1, 2):
+                url = f'https://tapas.io/reading-list?category={category}&type=ALL&pageNumber={page}'
+                value = json.loads(self.fixture.browser_response(url, 'fixture_session=READY'))
+                self.assertEqual(value['status'], 200)
+                parser = ReadingListHTML(url)
+                parser.feed(value['body'])
+                rows.extend(card['source_series_id'] for card in parser.cards)
+                self.assertIn('paging__button--next', value['body'])
+                if page == 2:
+                    self.assertIn('paging__button--next disabled', value['body'])
+                if category == 'FREE_EPISODES':
+                    self.assertIn('class="filter-item on"', value['body'])
+            self.assertEqual(rows, ['1001', '2002'])
+        refused = json.loads(self.fixture.browser_response('https://tapas.io/reading-list', 'wrong=COOKIE'))
+        self.assertEqual(refused['status'], 401)
+        foreign = json.loads(self.fixture.browser_response('https://elsewhere.example/', 'fixture_session=READY'))
+        self.assertEqual(foreign['status'], 403)
+
     def test_comic_order_and_png_bytes_match_the_production_capture_flow(self):
         adapter = self.adapter()
         manifest = adapter._http.capture('https://tapas.io/episode/9001')
@@ -87,11 +109,12 @@ class SiteStandInTests(unittest.TestCase):
         self.assertEqual(json.loads(self.fixture.observation())['unexpected_requests'], 2)
 
     def test_install_changes_socket_factory_but_retains_native_cookie_authority(self):
-        from comic_archive import android_adapter, android_readers, android_transport
+        from comic_archive import android_adapter, android_browser, android_readers, android_transport
         store = Store()
         with contextlib.ExitStack() as stack:
             for module in (android_adapter, android_readers, android_transport):
                 stack.enter_context(patch.object(module, 'AndroidTransport', module.AndroidTransport))
+            stack.enter_context(patch.object(android_browser, '_asset_client', android_browser._asset_client))
             self.fixture.install()
             reader = android_readers.reader('tapas', store)
             self.addCleanup(reader.transport.close)

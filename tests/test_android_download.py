@@ -39,6 +39,23 @@ class AndroidGoTests(unittest.TestCase):
         self.assertEqual(account_ui.speed(self.workspace), 'medium')
         self.assertEqual(account_export._load(self.root)['window_budgets']['speed'], 'normal')
 
+    def test_explicit_fast_is_preserved_and_refused_when_the_native_engine_is_unavailable(self):
+        account_ui.choose_speed(self.workspace, 'fast')
+        before = (self.workspace.session / account_ui.SPEED_FILE).read_bytes()
+        with self.assertRaisesRegex(ArchiveError, 'Medium or Slow'):
+            android_download.start(self.workspace)
+        self.assertEqual((self.workspace.session / account_ui.SPEED_FILE).read_bytes(), before)
+        self.assertFalse((self.root / 'account-export.json').exists())
+
+    def test_fast_admission_uses_the_real_fixed_policy_without_opening_a_browser_while_held(self):
+        from test_android_browser import Factory
+        factory = Factory()
+        account_ui.choose_speed(self.workspace, 'fast')
+        android_download.start(self.workspace, browser_factory=factory)
+        self.assertEqual(account_export._load(self.root)['window_budgets']['speed'], 'fast')
+        self.assertEqual(account_ui.speed(self.workspace), 'fast')
+        self.assertEqual(factory.opens, [])
+
     def test_old_empty_mobile_scans_are_read_again_without_deleting_failed_receipt(self):
         task = self.old_plan()
         path = self.root / 'responses' / (task + '.json')

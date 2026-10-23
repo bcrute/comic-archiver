@@ -40,6 +40,8 @@ class SettingsStatusTest {
     @Test fun unsupportedSelectedSpeedCannotBePresentedAsApplied() {
         val bad = envelope()
         bad.getJSONObject("result").put("speed", "fast")
-        assertNull(SettingsStatus.fromEnvelope(bad))
+        val settings = SettingsStatus.fromEnvelope(bad)!!
+        assertEquals("fast", settings.speed)
+        assertEquals(false, settings.speeds.any { it.key == settings.speed && it.available })
     }
 }

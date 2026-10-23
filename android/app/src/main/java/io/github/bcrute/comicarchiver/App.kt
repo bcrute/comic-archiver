@@ -16,6 +16,9 @@ import io.github.bcrute.comicarchiver.signin.SiteBrowserProfiles
 import io.github.bcrute.comicarchiver.signin.SiteBrowserProfile
 import io.github.bcrute.comicarchiver.controller.DefaultAppController
 import io.github.bcrute.comicarchiver.controller.SiteChoice
+import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.controller.DownloadState
+import io.github.bcrute.comicarchiver.browser.NativeBrowserFactory
 import io.github.bcrute.comicarchiver.export.SafExportRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +46,14 @@ open class App : Application() {
     private val profiles by lazy { SiteBrowserProfiles(signInSites) }
     private val probes = mutableMapOf<String, SignInProbe>()
     private val exportRuntimes = mutableMapOf<String, SafExportRuntime>()
+    val readingBrowser by lazy {
+        NativeBrowserFactory(this, { browserProfile("tapas") },
+            { (selectedKey ?: initialSiteKey) == "tapas" &&
+                (signInEngine.state.value as? SignInState.SignedIn)?.site == "tapas" &&
+                (controller.state.value.download is DownloadState.Planning ||
+                    controller.state.value.download is DownloadState.Running) },
+            { owner, selected -> createReadingSurface(owner, selected.key) })
+    }
     @Volatile private var selectedKey: String? = null
 
     val initialSiteKey: String by lazy {
@@ -67,6 +78,9 @@ open class App : Application() {
         try { profile.bind(surface); return surface }
         catch (error: Exception) { surface.destroy(); throw error }
     }
+
+    /** Same profile binding, separate worker-owned window/client. Tests replace only responses. */
+    open fun createReadingSurface(context: Context, key: String): WebView = createSignInSurface(context, key)
 
     fun siteChoices(): List<SiteChoice> = signInSites.map { (key, address) ->
         val enabled = signInAvailable(key)
@@ -140,7 +154,7 @@ open class App : Application() {
 
     /** The host bootstrap seam: screen/lifecycle tests supply a synthetic bridge. */
     protected open fun startRuntime() {
-        PythonRuntime.ensureStarted(this, cookieStore)
+        PythonRuntime.ensureStarted(this, cookieStore, readingBrowser)
         // The core holds every download until its status file speaks; start writing it now.
         startNetworkWriter(workspace)
     }

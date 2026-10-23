@@ -109,8 +109,10 @@ fun SettingsScreen(
                 }
                 Text(if (saving) "Pause saving to change the speed."
                      else "The stored choice applies when you press Go. It never starts saving on its own.")
-                if (settings.speeds.any { !it.available })
-                    Text("Fast mode is not available in this Android version yet.")
+                if (settings.speeds.none { it.key == settings.speed && it.available })
+                    Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before pressing Go.")
+                if (settings.speeds.any { it.key == "fast" && !it.available })
+                    Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
             }
         }
     }

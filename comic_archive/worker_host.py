@@ -17,11 +17,12 @@ from . import background
 from .models import ArchiveError
 from .state_paths import SESSION_NAME
 
-_thread = {"value": None, "session": None}
+_thread = {"value": None, "session": None, "browser_factory": None}
 _launch_lock = threading.RLock()
 
 
-def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas', library_root=None):
+def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas', library_root=None,
+                            browser_factory=None):
     """One shared reader per worker start, with an explicitly selected site's live store.
 
     The full worker surface — the fail-closed who-am-i admission, library discovery and
@@ -43,9 +44,24 @@ def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas'
         from .android_readers import reader
         from .network import NetworkGuard
         guard = NetworkGuard(Path(library_root)) if library_root is not None else None
+        if site_key == 'tapas' and browser_available(browser_factory):
+            if library_root is None:
+                raise ArchiveError('The native browser needs its selected library.')
+            from .android_browser import AndroidTapasBrowserAdapter
+            return AndroidTapasBrowserAdapter(Path(library_root).parent / SESSION_NAME,
+                browser_factory, network_guard=guard)
         return reader(site_key, cookie_source, cookie_sink, network_guard=guard)
 
     return build
+
+
+def browser_available(factory):
+    if factory is None:
+        return False
+    try:
+        return factory.available() is True
+    except Exception:
+        return False
 
 
 def status(session_root) -> dict:
@@ -65,14 +81,21 @@ def request_stop(session_root, *, wait_seconds: float = 0) -> dict:
     session = Path(session_root).absolute()
     deadline = time.monotonic() + wait_seconds
     with _launch_lock:
-        observed = background.stop(session, wait_seconds=wait_seconds)
         thread = _thread['value'] if _thread['session'] == session else None
+        if thread is None or not thread.is_alive():
+            return background.stop(session, wait_seconds=wait_seconds)
+        background.stop(session, wait_seconds=0)  # Durable drain precedes renderer interruption.
+        factory = _thread.get('browser_factory')
+        if factory is not None:
+            from .android_browser import interrupt_contexts
+            interrupt_contexts(factory)
         if thread is not None and thread is not threading.current_thread() and thread.is_alive():
             thread.join(timeout=max(0, deadline - time.monotonic()))
-        return status(session) if thread is not None and thread.is_alive() else observed
+        return status(session)
 
 
-def start_in_process(session_root, library_root, cookie_source, cookie_sink, network_status_path) -> dict:
+def start_in_process(session_root, library_root, cookie_source, cookie_sink, network_status_path,
+                     *, browser_factory=None) -> dict:
     """Start the embedded worker against explicit roots (native line, before the integration
     build). ``cookie_source`` is the app's store object (the AndroidTapasAdapter route with
     the asset reader) or the live per-URL provider, with ``cookie_sink`` then the own-origin
@@ -102,12 +125,19 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
         current = status(session)
         if current['running']:
             return current | {'started': False}
-        factory = android_adapter_factory(cookie_source, cookie_sink, site_key=site.key, library_root=library)
+        factory = android_adapter_factory(cookie_source, cookie_sink, site_key=site.key, library_root=library,
+            browser_factory=browser_factory)
+        fast_factory = None
+        if site == sites.DEFAULT and browser_factory is not None:
+            from .android_browser import AndroidFastWorkerSession
+            from .network import NetworkGuard
+            fast_factory = lambda: AndroidFastWorkerSession(session, browser_factory, NetworkGuard(library))
         network_android.configure(network_status_path)
-        thread = threading.Thread(target=_worker_main, args=(session, factory),
+        thread = threading.Thread(target=_worker_main, args=(session, factory, fast_factory),
                                   name='comic-archiver-worker', daemon=True)
         _thread['value'] = thread
         _thread['session'] = session
+        _thread['browser_factory'] = browser_factory if site == sites.DEFAULT else None
         thread.start()
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -120,10 +150,11 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
     return status(session) | {'started': False}
 
 
-def _worker_main(session, factory):
+def _worker_main(session, factory, fast_factory=None):
     from .worker import run_worker
     try:
-        run_worker(session, adapter_factory=factory)
+        options = {'fast_session_factory': fast_factory} if fast_factory is not None else {}
+        run_worker(session, adapter_factory=factory, **options)
     except ArchiveError:
         pass  # status.json already says startup_failed in its public-safe words.
     except Exception as error:

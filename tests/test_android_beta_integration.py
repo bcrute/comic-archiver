@@ -11,6 +11,7 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
         self.token = 'a' * 32
         self.ready = {'run_token': self.token, 'phase': 'copy_blocked', 'native_pause_verified': True,
                       'native_recreation_verified': True, 'comic_and_novel_verified': True,
+                      'native_fast_verified': True, 'native_discovery_verified': True,
                       'expected_cbz_bytes': 2000000, 'partial_bytes': 8192, 'document_id': 'root/comic/one.cbz',
                       'originals': [{'name': 'Library/comic/one.cbz', 'bytes': 2000000, 'sha256': 'b' * 64},
                                     {'name': 'Library/novel/one.epub', 'bytes': 2000, 'sha256': 'c' * 64}]}
@@ -37,6 +38,7 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
     def test_stale_token_missing_step_or_complete_file_is_not_a_ready_copy(self):
         for key, replacement in [('run_token', 'e' * 32), ('native_pause_verified', False),
                                  ('native_recreation_verified', None), ('comic_and_novel_verified', False),
+                                 ('native_fast_verified', False), ('native_discovery_verified', None),
                                  ('partial_bytes', 0), ('partial_bytes', 2000000)]:
             with self.subTest(key=key, replacement=replacement):
                 value = copy.deepcopy(self.ready)

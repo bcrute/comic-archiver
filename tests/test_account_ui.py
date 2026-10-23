@@ -43,6 +43,19 @@ class AccountUITests(unittest.TestCase):
                 self.registry.start_account(owner,workspace_id)
         self.assertFalse(list((self.queue/'requests').iterdir()))
 
+    def test_native_pause_callback_observes_the_saved_stop_before_any_renderer_is_interrupted(self):
+        account_ui.start(self.workspace)
+        seen = []
+        account_ui.pause(self.workspace, on_stop_requested=lambda: seen.append(
+            account_export.status(self.workspace.session, self.workspace.library)['status']))
+        self.assertEqual(seen, ['stopped'])
+
+    def test_explicit_pause_can_interrupt_a_reader_even_before_an_account_plan_exists(self):
+        seen = []
+        account_ui.pause(self.workspace, on_stop_requested=lambda: seen.append('stopped'))
+        self.assertEqual(seen, ['stopped'])
+        self.assertFalse(list((self.queue / 'requests').iterdir()))
+
     def test_go_is_durable_account_wide_and_duplicate_go_does_not_start_another_run(self):
         before=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
         self.assertFalse(before['configured']);self.assertFalse((self.queue/'account-export.json').exists())

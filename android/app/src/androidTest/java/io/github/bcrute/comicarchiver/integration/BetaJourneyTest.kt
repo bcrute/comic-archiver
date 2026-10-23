@@ -149,6 +149,7 @@ class BetaJourneyTest {
             requireNotNull(device.wait(Until.findObject(By.text("Sign in to fixture")), 20_000)).click()
             await("verified native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
             assertEquals(0, observe().getInt("asset_requests"))
+            assertEquals(0, app.readingSurfaceCreations.get())
             click("Go")
             await("real asset transfer blocked") { observe().getBoolean("blocked_transfer") }
             assertTrue(app.controller.state.value.download is DownloadState.Running ||
@@ -168,8 +169,18 @@ class BetaJourneyTest {
                 state.optJSONObject("result")?.optString("state") == "ready"
             }
             assertTrue(archives().none { it.extension == "cbz" })
+            click("Settings")
+            click("Fast")
+            await("stored native Fast choice") { app.controller.state.value.settings?.speed == "fast" &&
+                app.controller.state.value.settings?.speeds?.any { it.key == "fast" && it.available } == true }
+            click("Saving")
             click("Go")
             await("complete comic and novel catalog records", 180_000) { exportableCount() == 2 }
+            await("real Recent/Free browser pagination and native Fast engine", 90_000) {
+                val facts = observe()
+                facts.getJSONArray("recent_pages").length() >= 2 && facts.getJSONArray("free_pages").length() >= 2 &&
+                    facts.getInt("fast_asset_clients") > 0
+            }
             // Pause leaves the library ready for the separate export journey.
             device.findObject(By.text("Pause"))?.takeIf { it.isEnabled }?.click()
             verifyOutputs()
@@ -188,7 +199,8 @@ class BetaJourneyTest {
             save("ready.json", JSONObject().put("phase", "copy_blocked").put("originals", before)
                 .put("expected_cbz_bytes", original.length()).put("partial_bytes", partial.getLong("partial_bytes"))
                 .put("document_id", partial.getString("document_id")).put("native_pause_verified", true)
-                .put("native_recreation_verified", true).put("comic_and_novel_verified", true))
+                .put("native_recreation_verified", true).put("comic_and_novel_verified", true)
+                .put("native_fast_verified", true).put("native_discovery_verified", true))
             // The fleet coordinator independently verifies the live partial/journal,
             // then kills this process. Returning normally is a failed interruption gate.
             SystemClock.sleep(150_000)
@@ -204,6 +216,7 @@ class BetaJourneyTest {
             await("restored native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn &&
                 !app.controller.state.value.siteBusy }
             assertEquals(DownloadState.Held, app.controller.state.value.download)
+            assertEquals(0, app.readingSurfaceCreations.get())
             assertEquals(0, observe().getInt("asset_requests"))
             assertTrue(journal().all().any { row -> row.state == JournalState.COPYING })
             documents("abandon") // Close the old provider pipe before opening the same document again.

@@ -6,6 +6,7 @@ import com.chaquo.python.PyObject
 import com.chaquo.python.android.AndroidPlatform
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
+import io.github.bcrute.comicarchiver.browser.NativeBrowserFactory
 
 /**
  * Process-wide Python bootstrap (native line). Starts the embedded runtime once and
@@ -21,7 +22,7 @@ object PythonRuntime {
     @Volatile
     private var seamsRegistered = false
 
-    fun ensureStarted(context: Context, cookieStore: WebViewCookieStore) {
+    fun ensureStarted(context: Context, cookieStore: WebViewCookieStore, browser: NativeBrowserFactory? = null) {
         if (!Python.isStarted()) {
             synchronized(this) {
                 if (!Python.isStarted()) {
@@ -36,6 +37,8 @@ object PythonRuntime {
                         .callAttr("set_cookie_seams", cookieStore)
                     Python.getInstance().getModule("app_bridge")
                         .callAttr("enable_android_cloud")
+                    Python.getInstance().getModule("app_bridge")
+                        .callAttr("set_browser_seam", browser)
                     seamsRegistered = true
                 }
             }

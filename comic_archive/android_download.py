@@ -6,11 +6,28 @@ from .models import ArchiveError
 from .queue_client import task_status
 
 
-def start(workspace):
-    # The Android HTTP reader is the only engine. Desktop fast mode would try to
-    # launch a second browser, both for metadata and for episode archives.
-    if account_ui.speed(workspace) == 'fast':
-        account_ui.choose_speed(workspace, 'medium')
+def selected_speed(workspace):
+    # Android starts at Medium until a choice is actually stored. Merely viewing
+    # settings is read-only; the first explicit Go commits that displayed default.
+    return account_ui.speed(workspace) if (workspace.session / account_ui.SPEED_FILE).exists() else 'medium'
+
+
+def speed_available(site_key, speed, browser_factory=None):
+    if speed not in account_ui.SPEEDS:
+        return False
+    if speed != 'fast' or site_key != 'tapas':
+        return True  # Other sites keep the desktop's ordinary-reader Fast policy.
+    from .worker_host import browser_available
+    return browser_available(browser_factory)
+
+
+def start(workspace, *, browser_factory=None):
+    from . import sites
+    speed = selected_speed(workspace)
+    if not speed_available(sites.of_session(workspace.session).key, speed, browser_factory):
+        raise ArchiveError('Fast mode needs an updated Android System WebView. Choose Medium or Slow in Settings.')
+    if not (workspace.session / account_ui.SPEED_FILE).exists():
+        account_ui.choose_speed(workspace, speed)
     root = batches._root(workspace.session, workspace.library)
     marker = workspace.session / 'android-reader-version.json'
     with LibraryLock(root / '.android-reader-upgrade'):

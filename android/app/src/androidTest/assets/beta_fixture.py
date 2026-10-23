@@ -22,6 +22,7 @@ _asset_requests = 0
 _asset_cookie_leaks = 0
 _unexpected = 0
 _browser_agent_seen = False
+_fast_asset_clients = 0
 
 
 def png(seed):
@@ -57,9 +58,20 @@ def series(key):
 
 def list_page(category, page):
     key, slug, title = (1001, 'golden-comic', 'Golden Comic') if page == 1 else (2002, 'silver-novel', 'Silver Novel')
-    more = (f'<section class="paging-wrap"><a class="paging__button--next" '
-            f'href="/reading-list?category={category}&amp;pageNumber=2">Next</a></section>') if page == 1 else ''
-    return (f'<html><body><ul class="content-list-wrap"><li class="content-item" '
+    kind = '&amp;type=ALL' if category == 'FREE_EPISODES' else ''
+    next_page = 2 if page == 1 else page
+    more = (f'<section class="paging-wrap"><a class="paging__button--next{ " disabled" if page == 2 else ""}" '
+            f'href="/reading-list?category={category}{kind}&amp;pageNumber={next_page}">Next</a></section>')
+    tabs = ''.join(f'<a href="/reading-list?category={key}">{key.title()}</a>'
+                   for key in ('SUBSCRIBED', 'UPDATED', 'RECENT'))
+    filters = ('<nav class="section-filter"><ul><li data-type="FREE_EPISODES" '
+               f'class="filter-item{ " on" if category == "FREE_EPISODES" else ""}">'
+               '<a class="item-title" href="/reading-list?category=FREE_EPISODES&amp;type=ALL">Free Episodes</a>'
+               '</li></ul></nav><nav class="section-sort"><ul><li class="sort-item on">'
+               '<a class="item-title">All</a></li></ul></nav>')
+    return ('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<style>body{margin:16px}a{display:inline-block;padding:12px}</style></head>'
+            f'<body><a href="/reading-list">Library</a>{tabs}{filters}<ul class="content-list-wrap"><li class="content-item" '
             f'data-tiara-event-meta-series-id="{key}"><a href="/series/{slug}">{title}</a>'
             f'</li></ul>{more}</body></html>').encode()
 
@@ -101,17 +113,19 @@ def serve(request):
                 _did_block = True
         return httpx.Response(200, headers={'Content-Type': 'image/png'},
                               stream=PageStream(PAGES[0 if path.endswith('/1.png') else 1], block))
-    if host == 'm.tapas.io':
+    if host in {'m.tapas.io', 'tapas.io'}:
         authenticated = any(value.strip() == 'fixture_session=READY'
                             for value in request.headers.get('Cookie', '').split(';'))
         if path == '/who-am-i':
             return httpx.Response(200, json={'data': {'user': {'id': 4242}} if authenticated else {}})
         if not authenticated:
             return httpx.Response(401)
+        if path == '/' and host == 'tapas.io':
+            return httpx.Response(200, text='<html><body><a href="/reading-list">Library</a></body></html>')
         if path == '/reading-list':
-            category = request.url.params.get('category')
-            page = request.url.params.get('pageNumber')
-            if category in {'SUBSCRIBED', 'UPDATED'} and page in {'1', '2'}:
+            category = request.url.params.get('category', 'UPDATED')
+            page = request.url.params.get('pageNumber', '1')
+            if category in {'SUBSCRIBED', 'UPDATED', 'RECENT', 'FREE_EPISODES'} and page in {'1', '2'}:
                 return httpx.Response(200, content=list_page(category, int(page)),
                                       headers={'Content-Type': 'text/html'})
         for key in (1001, 2002):
@@ -146,12 +160,35 @@ def client():
     return httpx.Client(transport=httpx.MockTransport(serve), follow_redirects=False)
 
 
+def browser_asset_client(fast):
+    global _fast_asset_clients
+    if fast:
+        with _lock:
+            _fast_asset_clients += 1
+    return client()
+
+
+def browser_response(url, cookie, method='GET'):
+    """Only the native test WebView calls this network-response seam.
+
+    Cookie is read from its actual bound profile, not installed by the fixture.
+    This qualifies profile authority and browser execution, not a TLS wire capture.
+    """
+    parsed = httpx.URL(url)
+    if parsed.scheme != 'https' or parsed.host != 'tapas.io':
+        return json.dumps({'status': 403, 'type': 'text/plain', 'body': 'External networking is disabled.'})
+    response = serve(httpx.Request(method, url, headers={'Cookie': cookie or ''}))
+    response.read()
+    return json.dumps({'status': response.status_code,
+        'type': response.headers.get('Content-Type', 'text/plain').split(';')[0], 'body': response.text})
+
+
 def install():
     """Called by the emulator-only test Application, after real native bootstrap."""
     global _installed
     if _installed:
         return
-    from comic_archive import android_adapter, android_readers, android_transport
+    from comic_archive import android_adapter, android_browser, android_readers, android_transport
     base = android_transport.AndroidTransport
 
     class FixtureTransport(base):
@@ -163,6 +200,7 @@ def install():
     android_transport.AndroidTransport = FixtureTransport
     android_adapter.AndroidTransport = FixtureTransport
     android_readers.AndroidTransport = FixtureTransport
+    android_browser._asset_client = browser_asset_client
     _installed = True
 
 
@@ -184,8 +222,13 @@ def observation():
         return json.dumps({'blocked_transfer': _blocked.is_set(), 'asset_requests': _asset_requests,
                            'asset_cookie_leaks': _asset_cookie_leaks, 'unexpected_requests': _unexpected,
                            'browser_agent_seen': _browser_agent_seen,
+                           'fast_asset_clients': _fast_asset_clients,
                            'locked_reader_requested': any(path == '/episode/9003' for host, path, query in _requests),
                            'subscribed_pages': sorted({query for host, path, query in _requests
                                                        if path == '/reading-list' and 'SUBSCRIBED' in query}),
+                           'recent_pages': sorted({query for host, path, query in _requests
+                                                   if path == '/reading-list' and 'RECENT' in query}),
+                           'free_pages': sorted({query for host, path, query in _requests
+                                                 if path == '/reading-list' and 'FREE_EPISODES' in query}),
                            'page_hashes': [hashlib.sha256(page).hexdigest() for page in PAGES],
                            'novel_text': NOVEL_TEXT})

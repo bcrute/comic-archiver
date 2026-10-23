@@ -29,7 +29,7 @@ object SettingsStatus {
         if (wifiOnly && allowed &&
             (connection !in setOf("wifi", "wired") || metered != false)) return null
         if (speeds.map { it.key }.distinct().size != speeds.size ||
-            speeds.none { it.key == speed && it.available }) return null
+            speeds.none { it.key == speed }) return null
         return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed)
     }
 }

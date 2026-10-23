@@ -201,15 +201,45 @@ def reader(site):
     raise ArchiveError(f'Saving from {site.name} is not available yet.')
 
 
-def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None):
+def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
+               fast_session_factory=None):
     from .locking import LibraryLock
     # One process consumes each private queue; separate user workers remain independent.
     root=directory(Path(session)/'worker')
     with LibraryLock(root/'.runtime'):
-        return _run_worker(session,preferred,headless,interval,adapter_factory)
+        return _run_worker(session,preferred,headless,interval,adapter_factory,fast_session_factory)
 
 
-def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None):
+@contextmanager
+def _embedded_reader(factory):
+    # Constructor ownership does not run __enter__: that performs authentication
+    # on HTTP readers, whereas held startup must make no source request.
+    adapter = factory()
+    problem = None
+    try:
+        yield adapter
+    except BaseException as error:
+        problem = error
+        raise
+    finally:
+        close = getattr(adapter, 'close', None)
+        if not callable(close):
+            close = getattr(getattr(adapter, 'transport', None), 'close', None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                if problem is None:
+                    raise
+
+
+class _EmbeddedFastUnavailable:
+    def batch(self):
+        raise ArchiveError('The native Fast reader is unavailable. Choose Medium or Slow, or update Android System WebView.')
+
+
+def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
+                fast_session_factory=None):
     root = directory(session / "worker")
     root.chmod(0o700)
     requests = directory(root / "requests")
@@ -229,10 +259,9 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
         publish({"state": "starting"})
         site = sites.of_session(session)
         if adapter_factory is not None:
-            # The embedded host supplies one transport-backed adapter; no browser engine and
-            # no faster second session exist there, and the factory owns every credential rule.
-            adapter_source = nullcontext(adapter_factory())
-            fast_source = nullcontext()
+            adapter_source = _embedded_reader(adapter_factory)
+            # An embedded worker must never fall back to a desktop browser launch.
+            fast_source = fast_session_factory() if fast_session_factory is not None else nullcontext(_EmbeddedFastUnavailable())
         else:
             from .fast_import import FastWorkerSession
             # The faster second engine is Tapas's own; other sites read with the one adapter.
@@ -294,6 +323,8 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                                 return
                             stopped=(bool(re.fullmatch(r'job-[a-f0-9]{24}',task_id))
                                      and queued_stop_requested(session,task_id))
+                            if not stopped and callable(getattr(adapter, 'begin_task', None)):
+                                adapter.begin_task()
                             publish({"state": "busy", "task_id": task_id})
                         result = (cancelled_result(Path('Library'),request.get('operation'))
                                   if stopped else execute(adapter, request, fast_session=fast_session))

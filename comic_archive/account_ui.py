@@ -114,16 +114,20 @@ def _plan(session, library):
     return completion._public(completion._load(batches._root(session, library, require_queue=False)))
 
 
-def pause(workspace):
+def pause(workspace, *, on_stop_requested=None):
     """Stop further batches and the one in progress, which left alone runs for up to half an hour."""
     session, library = workspace.session, workspace.library
     configured = account_export.status(session, library).get('configured')
     if not (configured or _plan(session, library).get('configured')):
+        if on_stop_requested is not None:
+            on_stop_requested()
         return  # Nothing has downloaded here yet.
     if configured:
         account_export.request_stop(session, library)  # The plan stops with it, unless the download had finished.
     if _plan(session, library).get('status') in {'running', 'paused'}:
         completion.request_stop(session, library)
+    if on_stop_requested is not None:
+        on_stop_requested()
     tasks = {account_export.status(session, library).get('pending_task_id'),
              batches.status(session, library).get('pending_task_id')} - {None}
     deadline = time.monotonic() + PAUSE_WAIT_SECONDS

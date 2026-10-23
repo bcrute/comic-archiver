@@ -10,7 +10,7 @@ from comic_archive.models import ArchiveError
 from comic_archive.errors import LibraryBusy
 from comic_archive.locking import LibraryLock
 from comic_archive.fast_import import FAST_WORKERS
-from comic_archive.worker import execute, private_json, run_worker
+from comic_archive.worker import execute, private_json, run_worker, _embedded_reader, _EmbeddedFastUnavailable
 
 
 class RecordingAdapter:
@@ -25,6 +25,31 @@ class RecordingAdapter:
 
 
 class WorkerTests(unittest.TestCase):
+    def test_embedded_startup_does_not_enter_a_network_reader_and_owns_its_close(self):
+        calls = []
+        class Reader:
+            def __enter__(self):
+                raise AssertionError('Held startup must not authenticate over the network')
+            def close(self):
+                calls.append('closed')
+        reader = Reader()
+        with _embedded_reader(lambda: reader) as owned:
+            self.assertIs(owned, reader)
+        self.assertEqual(calls, ['closed'])
+        problem = ArchiveError('Original failure')
+        with self.assertRaises(ArchiveError) as caught:
+            with _embedded_reader(lambda: reader):
+                raise problem
+        self.assertIs(caught.exception, problem)
+        self.assertEqual(calls, ['closed', 'closed'])
+
+    def test_an_embedded_worker_without_native_fast_cannot_launch_a_desktop_browser(self):
+        from types import SimpleNamespace
+        with patch('comic_archive.fast_import.FastImportAdapter', side_effect=AssertionError('Desktop browser')):
+            with self.assertRaisesRegex(ArchiveError, 'native Fast'):
+                execute(SimpleNamespace(interval=1.0), {'operation': 'archive_discovered',
+                    'args': {'speed': 'fast'}}, fast_session=_EmbeddedFastUnavailable())
+
     def work_in_temporary_directory(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         previous=os.getcwd();os.chdir(temporary.name);self.addCleanup(os.chdir,previous)

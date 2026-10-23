@@ -96,12 +96,14 @@ class BridgeLifecycleTests(unittest.TestCase):
         app_bridge._workspace.update(root=None, base=None, site_key="tapas")
         app_bridge._signin_attempts.clear()
         app_bridge._seams.update(store=None, cookie_source=None, cookie_sink=None)
+        app_bridge._browser.update(factory=None)
         app_bridge._export_cache.update(root=None, facts=None, summary=None)
         app_bridge._catalog_cache.update(root=None, registry=None)
 
     def _cleanup(self):
         from comic_archive import network_android
         network_android.configure(None)  # Process-global probe state never leaks to later tests.
+        app_bridge._browser.update(factory=None)
         os.chdir(self._previous)
         self._tmp.cleanup()
 
@@ -354,6 +356,33 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)
         self.assertFalse(worker_host.status(workspace.session)["running"])
         self.assertFalse((workspace.session / "worker/account-export.json").exists())
+
+    def test_native_fast_availability_preserves_a_stored_unavailable_choice_without_go(self):
+        from test_android_browser import Factory
+        self.call('prepare_workspace', {'root': str(self.root)})
+        factory = Factory()
+        app_bridge.set_browser_seam(factory)
+        selected = self.call('configure_settings', {'root': str(self.root), 'speed': 'fast'})
+        self.assertTrue(selected['ok'], selected)
+        factory.enabled = False
+        settings = self.call('settings', {'root': str(self.root)})['result']
+        self.assertEqual(settings['speed'], 'fast')
+        self.assertFalse(next(item['available'] for item in settings['speeds'] if item['key'] == 'fast'))
+        self.assertFalse(self.call('go', {'root': str(self.root)})['ok'])
+        self.assertEqual(factory.opens, [])
+
+    def test_a_delayed_foreign_workspace_setting_is_refused_before_any_write(self):
+        from comic_archive import account_ui, network
+        from comic_archive.workspace import Workspace
+        self.call('prepare_workspace', {'root': str(self.root)})
+        other = self.root / 'Webtoon'
+        other.mkdir()
+        value = self.call('configure_settings', {'root': str(other), 'speed': 'slow', 'wifi_only': False})
+        self.assertFalse(value['ok'])
+        workspace = Workspace('other', other)
+        self.assertFalse((workspace.session / account_ui.SPEED_FILE).exists())
+        self.assertFalse(workspace.session.exists())
+        self.assertTrue(network.policy(self.root / 'Library')['wifi_only'])
 
     def test_settings_consent_and_speed_persist_without_resuming_a_plan(self):
         from comic_archive import account_ui, network, worker_host

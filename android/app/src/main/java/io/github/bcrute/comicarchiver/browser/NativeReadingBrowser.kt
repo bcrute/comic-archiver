@@ -174,8 +174,8 @@ class NativeReadingBrowser internal constructor(
 
     private fun checkOpen() { if (closed || gone) throw ScriptRequestException(ScriptFailure.CLOSED) }
 
-    /** Cooperative Pause also invalidates a worker currently waiting on renderer script. */
-    fun interrupt() { scripts.cancelPending() }
+    /** Destroy the reading document too, so stopped fetches cannot keep transferring. */
+    fun interrupt() = onBrowserMain { closeOnMain() }
 
     fun close() = onBrowserMain { closeOnMain() }
 

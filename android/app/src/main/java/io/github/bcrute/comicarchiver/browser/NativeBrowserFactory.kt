@@ -9,17 +9,23 @@ import androidx.webkit.WebViewFeature
 import com.chaquo.python.PyObject
 import io.github.bcrute.comicarchiver.signin.SiteBrowserProfile
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
+import java.util.concurrent.atomic.AtomicLong
 
 /** One application-owned authority for Tapas discovery and its separate Fast metadata pool. */
 class NativeBrowserFactory(
     private val context: Context,
     private val profile: () -> SiteBrowserProfile,
     private val permitted: () -> Boolean,
+    private val boundView: (Context, SiteBrowserProfile) -> WebView = { owner, selected ->
+        WebView(owner).also(selected::bind)
+    },
 ) {
     private val opened = linkedSetOf<NativeReadingBrowser>()
     private var workerSettings: ServiceWorkerWebSettings? = null
     private var previousWorkerBlock = true
+    private var previousWorkerCache = WebSettings.LOAD_DEFAULT
     private var workerLeases = 0
+    private val generation = AtomicLong()
 
     fun available(): Boolean = try {
         onBrowserMain {
@@ -33,11 +39,14 @@ class NativeBrowserFactory(
         profile().readingCookies()
     }
 
-    fun open(policy: PyObject): NativeReadingBrowser = onBrowserMain(discard = { it.close() }) {
+    fun open(policy: PyObject): NativeReadingBrowser {
+      val expected = generation.get()
+      return onBrowserMain(discard = { it.close() }) {
+        if (generation.get() != expected) throw ScriptRequestException(ScriptFailure.CANCELLED)
         if (!permitted() || !available() || opened.size >= 2) throw ScriptRequestException(ScriptFailure.NOT_READY)
         val selected = profile()
         check(selected.key == "tapas") { "Choose the Tapas browser profile." }
-        val surface = ReaderSurface.create(context) { owner -> WebView(owner).also(selected::bind) }
+        val surface = ReaderSurface.create(context) { owner -> boundView(owner, selected) }
         var lease = false
         try {
             val view = surface.view
@@ -70,22 +79,40 @@ class NativeBrowserFactory(
             try { surface.close() } finally { if (lease) releaseWorkerBlock() }
             throw ScriptRequestException(ScriptFailure.NOT_READY)
         }
+      }
     }
 
     /** Stop waiting scripts promptly; the Python controller owns durable stop admission. */
-    fun interrupt() = onBrowserMain { opened.toList().forEach { it.interrupt() } }
+    fun interrupt() {
+        generation.incrementAndGet()
+        onBrowserMain {
+            opened.toList().forEach { try { it.interrupt() } catch (_: Exception) { } }
+            if (opened.isNotEmpty()) throw ScriptRequestException(ScriptFailure.TIMEOUT)
+        }
+    }
 
     /** Called after worker drain, before profile/workspace change or sign-out. */
-    fun closeAll(): Boolean = onBrowserMain {
+    fun closeAll(): Boolean {
+      generation.incrementAndGet()
+      return onBrowserMain {
         opened.toList().forEach { try { it.close() } catch (_: Exception) { } }
         opened.isEmpty()
+      }
     }
 
     private fun acquireWorkerBlock(view: WebView) {
         if (workerLeases == 0) {
             val settings = WebViewCompat.getProfile(view).serviceWorkerController.serviceWorkerWebSettings
             previousWorkerBlock = settings.blockNetworkLoads
-            settings.blockNetworkLoads = true
+            previousWorkerCache = settings.cacheMode
+            try {
+                settings.blockNetworkLoads = true
+                settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            } catch (_: Exception) {
+                try { settings.cacheMode = previousWorkerCache } catch (_: Exception) { }
+                try { settings.blockNetworkLoads = previousWorkerBlock } catch (_: Exception) { }
+                throw ScriptRequestException(ScriptFailure.NOT_READY)
+            }
             workerSettings = settings
         }
         workerLeases++
@@ -97,6 +124,7 @@ class NativeBrowserFactory(
         if (workerLeases == 0) {
             val old = workerSettings
             workerSettings = null
+            try { old?.cacheMode = previousWorkerCache } catch (_: Exception) { }
             try { old?.blockNetworkLoads = previousWorkerBlock } catch (_: Exception) { }
         }
     }

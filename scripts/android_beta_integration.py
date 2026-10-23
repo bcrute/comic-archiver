@@ -63,7 +63,8 @@ def valid_ready(value, provider, journal, token, pid, running):
         return False
     if value.get('run_token') != token or value.get('phase') != 'copy_blocked' or any(
             value.get(key) is not True for key in ('native_pause_verified', 'native_recreation_verified',
-                                                 'comic_and_novel_verified')):
+                                                 'comic_and_novel_verified', 'native_fast_verified',
+                                                 'native_discovery_verified')):
         return False
     originals = value.get('originals')
     if not isinstance(originals, list) or len(originals) != 2:

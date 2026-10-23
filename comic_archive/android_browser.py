@@ -12,6 +12,7 @@ import json
 import math
 import threading
 import time
+import weakref
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -24,6 +25,54 @@ from .fast_import import FAST_INTERVAL, FAST_METADATA_INTERVAL, FAST_WORKERS, Fa
 from .models import ArchiveError
 from .pipeline import MetadataPipeline
 from .transport import Transport
+
+_contexts = weakref.WeakSet()
+_contexts_lock = threading.RLock()
+
+# Registration removal does not detach an already controlled document. The
+# caller discards that entire WebView before trusting any provider content.
+_SERVICE_WORKERS = """async clear => {
+  if (location.origin !== 'https://tapas.io') throw new Error('Origin');
+  if (!('serviceWorker' in navigator)) return {registered:0, controlled:false, cleared:true};
+  const workers = await navigator.serviceWorker.getRegistrations();
+  if (workers.length > 128 || workers.some(worker => new URL(worker.scope).origin !== location.origin))
+    throw new Error('Workers');
+  const controlled = !!navigator.serviceWorker.controller;
+  const removed = clear ? await Promise.all(workers.map(worker => worker.unregister())) : [];
+  return {registered:workers.length, controlled, cleared:removed.every(value => value === true)};
+}"""
+_CONTROLLED = 'comic-archive:controlled-reading-document'
+_WORKER_GUARD_HEAD = """(() => {
+  if (navigator.serviceWorker && navigator.serviceWorker.controller)
+    return 'comic-archive:controlled-reading-document';
+  const answer = ("""
+_WORKER_GUARD_TAIL = """);
+  if (navigator.serviceWorker && navigator.serviceWorker.controller)
+    return 'comic-archive:controlled-reading-document';
+  return answer;
+})()"""
+
+
+def interrupt_contexts(factory):
+    """Publish typed cancellation before native wakes any blocked script waiter."""
+    with _contexts_lock:
+        contexts = [context for context in _contexts if context.factory is factory or context.factory == factory]
+    for context in contexts:
+        context.cancel()
+    factory.interrupt()
+
+
+def close_contexts(factory):
+    with _contexts_lock:
+        contexts = [context for context in _contexts if context.factory is factory or context.factory == factory]
+    failed = False
+    for context in contexts:
+        try:
+            context.close()
+        except Exception:
+            failed = True
+    if factory.closeAll() is not True or failed:
+        raise ArchiveError('The reading browser is still closing. Try again after saving stops.')
 
 
 class _Loop:
@@ -124,6 +173,8 @@ class AndroidBrowserPage(dom.Page):
     def script(self, code, seconds=dom.SCRIPT_SECONDS):
         self.context.check()
         bound = max(1, min(45000, int(seconds * 1000)))
+        if self.context.workers_ready:
+            code = _WORKER_GUARD_HEAD + code + _WORKER_GUARD_TAIL
         result = self.surface.invoke('execute', code, bound)
         try:
             value = json.loads(result)
@@ -131,6 +182,9 @@ class AndroidBrowserPage(dom.Page):
             value = None
         if not isinstance(value, str):
             raise dom.Error('The reading page gave no text answer.')
+        if value == _CONTROLLED:
+            self.context.close()
+            raise ArchiveError('The reading page is controlled by a cached worker. Pause and try Go again.')
         return value
 
     def expect_navigation(self, wait_until='load', timeout=dom.DEFAULT_TIMEOUT):
@@ -178,6 +232,8 @@ class AndroidBrowserContext:
         self.handlers, self.page, self.methods = [], None, {}
         self.rules_lock = threading.RLock()
         self.closed = False
+        self.cancelled = False
+        self.workers_ready = False
         self.problem = None
         self.loop = _Loop()
         self.surface = None
@@ -186,6 +242,8 @@ class AndroidBrowserContext:
             native = factory.open(self)
             self.surface = _Surface(self, native)
             self.agent = self.surface.snapshot()['agent']
+            with _contexts_lock:
+                _contexts.add(self)
         except Exception:
             if native is not None:
                 try:
@@ -193,14 +251,19 @@ class AndroidBrowserContext:
                 except Exception:
                     pass
             self.closed = True
+            self.check_callback()  # Keep a concurrent stop/network hold typed.
             raise ArchiveError('The browser reader could not open. Update Android System WebView and try again.') from None
 
     def check(self):
         with self.rules_lock:
             problem, self.problem = self.problem, None
             closed = self.closed
+            cancelled = self.cancelled
         if problem is not None:
             raise problem
+        if cancelled:
+            from .cancellation import RunCancelled
+            raise RunCancelled('This browser read was stopped; completed files are retained.')
         if closed:
             raise dom.Error('The native reading browser has closed.')
         self.check_callback()
@@ -274,6 +337,10 @@ class AndroidBrowserContext:
     def storage_state(self):
         raise ArchiveError('Android sign-in stays in the browser; no copied session may be saved.')
 
+    def cancel(self):
+        with self.rules_lock:
+            self.cancelled = True
+
     def close(self):
         with self.rules_lock:
             if self.closed:
@@ -281,11 +348,22 @@ class AndroidBrowserContext:
             self.closed = True
             self.handlers.clear()
             self.problem = None
+        with _contexts_lock:
+            _contexts.discard(self)
         if self.surface is not None:
             try:
                 self.surface.native.close()
             except Exception:
                 raise dom.Error('The native reading browser could not close cleanly.') from None
+
+
+def _asset_client(fast):
+    """The socket boundary is replaceable by disposable-emulator fixtures only."""
+    import httpx
+    if fast:
+        return httpx.Client(timeout=httpx.Timeout(10, connect=30), follow_redirects=False, trust_env=False,
+            limits=httpx.Limits(max_connections=FAST_WORKERS, max_keepalive_connections=FAST_WORKERS))
+    return httpx.Client(timeout=30, follow_redirects=False, trust_env=False)
 
 
 class AndroidBrowserTransport(BrowserReadTransport):
@@ -298,10 +376,8 @@ class AndroidBrowserTransport(BrowserReadTransport):
         self.assets.close()
         try:
             store = WebViewCookieSource(context.factory.cookieStore(), site=sites.DEFAULT)
-            if fast and client is None:
-                import httpx
-                client = httpx.Client(timeout=httpx.Timeout(10, connect=30), follow_redirects=False, trust_env=False,
-                    limits=httpx.Limits(max_connections=FAST_WORKERS, max_keepalive_connections=FAST_WORKERS))
+            if client is None:
+                client = _asset_client(fast)
             self.assets = Transport(cookies=(), interval=interval, profile=profile, client=client,
                 network_guard=network_guard, agent=context.agent, site=sites.DEFAULT,
                 cookie_source=store.header_for, cookie_sink=store.apply)
@@ -334,6 +410,15 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
             raise ArchiveError('Update Android System WebView to use browser discovery and Fast mode.')
         if self.context is not None:
             raise ArchiveError('The browser reader is already open.')
+        self._open_context()
+        try:
+            self._prepare_document()
+        except Exception:
+            self.close()
+            raise
+        return self
+
+    def _open_context(self):
         context = AndroidBrowserContext(self.factory, self.remaining_timeout)
         try:
             self.page = context.new_page()
@@ -342,13 +427,41 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
             context.close()
             raise
         self.context = context
-        return self
+
+    def _worker_status(self, clear):
+        value = self.page.evaluate(_SERVICE_WORKERS, clear, timeout=self.remaining_timeout())
+        if (not isinstance(value, dict) or set(value) != {'registered', 'controlled', 'cleared'}
+                or type(value['registered']) is not int or not 0 <= value['registered'] <= 128
+                or type(value['controlled']) is not bool or type(value['cleared']) is not bool
+                or not value['cleared']):
+            raise ArchiveError('The browser could not clear its cached reading worker. Pause and try Go again.')
+        return value
+
+    def _prepare_document(self):
+        self.page.goto(sites.DEFAULT.home, wait_until='domcontentloaded', timeout=self.remaining_timeout())
+        status = self._worker_status(True)
+        if status['registered'] or status['controlled']:
+            # Keep the native sign-in profile, but never keep its controlled
+            # document, even when unregister() has already resolved successfully.
+            self.context.close()
+            self._open_context()
+            self.page.goto(sites.DEFAULT.home, wait_until='domcontentloaded', timeout=self.remaining_timeout())
+            fresh = self._worker_status(False)
+            if fresh['registered'] or fresh['controlled']:
+                raise ArchiveError('A cached reading worker is still active. Pause and try Go again.')
+        self.context.workers_ready = True
+
+    def inspect_library(self, *args, **kwargs):
+        if self.context is None:
+            self.__enter__()
+        return super().inspect_library(*args, **kwargs)
 
     def automatic_adapter(self):
         if self.context is None:
             self.__enter__()  # Worker startup remains held and performs no browser/network work.
         if self.context is None or self.context.closed:
             raise ArchiveError('Open the Android reading browser before saving.')
+        self.context.check()
         interval = FAST_INTERVAL if self.fast else self.interval
         metadata = FAST_METADATA_INTERVAL if self.fast else getattr(self, 'metadata_interval', 1.0)
         if self.transport is None:
@@ -365,6 +478,14 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
         self._automatic = TapasHTTPAdapter(transport=self.transport,
             expected_account_id=getattr(self, 'expected_account_id', None))
         return self._automatic
+
+    def begin_task(self):
+        # Called only at new queue admission (or a new Fast batch), never as a
+        # retry inside the stopped task. A stopped document cannot resume itself.
+        context = self.context
+        if context is not None and (context.closed or context.cancelled or context.surface.gone):
+            self.close()
+        self.deadline = self.cancel_check = self.expected_account_id = self.asset_metrics = None
 
     def capture_automatic(self, url, series_id=None, series_title=None, title=None, order=None):
         self._manifest = self.automatic_adapter().capture(url, series_id, series_title, title, order)
@@ -397,6 +518,10 @@ class AndroidFastImportAdapter(MetadataPipeline):
         self.session = session
         super().__init__(AndroidTapasBrowserAdapter, None, session, factory,
             fast=True, interval=FAST_INTERVAL, network_guard=network_guard)
+
+    def begin_batch(self):
+        super().begin_batch()
+        self._pool.submit(self._inner.begin_task).result()
 
 
 class AndroidFastWorkerSession(FastWorkerSession):

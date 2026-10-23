@@ -23,6 +23,20 @@ def _set_cookies(url, values):
 
 
 class AdapterFactoryTests(unittest.TestCase):
+    def test_native_browser_selection_is_lazy_and_keeps_the_selected_library_guard(self):
+        from comic_archive.android_browser import AndroidTapasBrowserAdapter
+        from test_android_browser import Factory
+        with tempfile.TemporaryDirectory() as temporary:
+            library = Path(temporary) / 'Library'
+            factory = Factory()
+            adapter = worker_host.android_adapter_factory(_cookie_header, _set_cookies,
+                library_root=library, browser_factory=factory)()
+            self.assertIsInstance(adapter, AndroidTapasBrowserAdapter)
+            self.assertEqual(adapter.session, library.parent / '.comic-session')
+            self.assertEqual(adapter.network_guard.root, library)
+            self.assertEqual(factory.opens, [])
+            adapter.close()
+
     def test_the_factory_builds_one_android_adapter_on_the_transport_seams(self):
         source, sink = _cookie_header, _set_cookies
         # No `with`: the adapter's enter runs the core's who-am-i (a network call); the
@@ -120,6 +134,19 @@ class WorkerLifecycleTests(unittest.TestCase):
         stopped = worker_host.request_stop(self.session, wait_seconds=15)
         self.assertFalse(stopped["running"], stopped)
         self.assertEqual(stopped["state"], "stopped")
+
+    def test_native_browser_and_fast_pool_reach_ready_and_drain_without_loading_any_source(self):
+        from test_android_browser import Factory
+        factory = Factory()
+        started = worker_host.start_in_process(self.session, self.library, _cookie_header, _set_cookies,
+            self.root / 'net.json', browser_factory=factory)
+        self.assertTrue(started['running'], started)
+        self.assertEqual(started['state'], 'ready')
+        self.assertEqual(factory.opens, [])
+        self.assertEqual(factory.native.calls, [])
+        stopped = worker_host.request_stop(self.session, wait_seconds=15)
+        self.assertFalse(stopped['running'], stopped)
+        self.assertFalse(any(call[0] in {'load', 'execute'} for call in factory.native.calls))
 
     def test_status_before_any_worker_is_stopped_not_unknown(self):
         observed = worker_host.status(self.session)

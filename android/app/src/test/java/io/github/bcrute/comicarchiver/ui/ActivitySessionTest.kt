@@ -75,6 +75,25 @@ class ActivitySessionTest {
         compose.onNodeWithText("1 of 1 series").assertIsDisplayed()
     }
 
+    @Test fun aStoredUnavailableSpeedBlocksGoAndOffersSettingsRecoveryWithoutStartingAWorker() {
+        ready()
+        app.fake.speed = "fast"
+        compose.runOnIdle { app.controller.refreshSettings() }
+        awaitState { app.controller.state.value.settings?.speed == "fast" }
+        compose.onNodeWithText("Go").performClick()
+        awaitState { app.controller.state.value.notice?.message?.contains("stored speed") == true }
+        assertEquals(0, app.fake.count("worker_start"))
+        assertEquals(0, app.fake.count("go"))
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("Fast").performScrollTo().assertIsSelected().assertIsNotEnabled()
+        compose.onNodeWithText("Medium").performScrollTo().performClick()
+        awaitState { app.controller.state.value.settings?.speed == "medium" && !app.controller.state.value.settingsBusy }
+        compose.onNode(hasText("Saving") and hasClickAction()).performClick()
+        compose.onNodeWithText("Go").performClick()
+        awaitState { app.controller.state.value.download is DownloadState.Running }
+        assertEquals(1, app.fake.count("go"))
+    }
+
     @Test fun activityRecreationKeepsLiveAdmissionAndDoesNotRestartOrReauthenticate() {
         ready()
         val controller = app.controller
@@ -217,7 +236,7 @@ class LifecycleBridge : PythonBridge {
     @Volatile var settingsReadable = true
     @Volatile var catalogReadable = true
     @Volatile private var wifiOnly = true
-    @Volatile private var speed = "medium"
+    @Volatile var speed = "medium"
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {

@@ -335,6 +335,12 @@ class DefaultAppController(
                 "Finish the cloud activity before pressing Go."))
             return
         }
+        val settings = _state.value.settings
+        if (settings != null && settings.speeds.none { it.key == settings.speed && it.available }) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "The stored speed cannot run here. Choose Medium or Slow in Settings, or update Android System WebView."))
+            return
+        }
         val version = ++admissionVersion
         admitted = false
         poll?.cancel()

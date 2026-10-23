@@ -44,6 +44,7 @@ _workspace_lock = threading.RLock()
 _signin_lock = threading.RLock()
 _signin_attempts = {}
 _seams = {"store": None, "cookie_source": None, "cookie_sink": None, "site_key": None}
+_browser = {"factory": None}
 # The export summary's stat identity, so export_status polling does not re-digest a
 # library whose files have not changed. Keyed to one root: the beta has exactly one.
 _export_cache = {"root": None, "facts": None, "summary": None}
@@ -66,6 +67,34 @@ class _BridgeError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+def set_browser_seam(factory):
+    """Native bootstrap only; this authority is never accepted through JSON dispatch."""
+    methods = ('available', 'open', 'cookieStore', 'interrupt', 'closeAll')
+    if factory is not None and not all(callable(getattr(factory, name, None)) for name in methods):
+        raise _BridgeError('bad_request', 'The native reading browser is not connected.')
+    with _workspace_lock:
+        from comic_archive import worker_host
+        from comic_archive.state_paths import session_path
+        current = _workspace['root']
+        if current is not None and worker_host.status(session_path(current))['running']:
+            raise _BridgeError('refused', 'Stop the downloader before replacing its browser.')
+        if _browser['factory'] is not factory:
+            _close_browser()
+        _browser['factory'] = factory
+
+
+def _close_browser():
+    if _browser['factory'] is not None:
+        from comic_archive.android_browser import close_contexts
+        close_contexts(_browser['factory'])
+
+
+def _interrupt_browser():
+    if _browser['factory'] is not None:
+        from comic_archive.android_browser import interrupt_contexts
+        interrupt_contexts(_browser['factory'])
 
 
 def set_cookie_seams(cookie_source, cookie_sink=None, site_key=None):
@@ -109,6 +138,7 @@ def _replace_cookie_seams(value):
             raise _BridgeError("refused", "Stop the downloader before changing site sign-in.")
         if current is not None and value["site_key"] not in {None, _workspace["site_key"]}:
             raise _BridgeError("refused", "The sign-in store belongs to another site.")
+        _close_browser()
         _seams.update(value)
 
 
@@ -200,6 +230,7 @@ def _prepare_workspace(args):
                     raise ArchiveError("Pause saving before switching sites.")
                 if controller is not None and controller.busy:
                     raise ArchiveError("Finish the cloud activity before switching sites.")
+            _close_browser()
             library = directory(root / "Library")
             session = private_folder(root, "session")
             android_session.prepare_site(session, site)
@@ -247,7 +278,8 @@ def _worker_start(args):
             if _seams["site_key"] not in {None, _workspace["site_key"]}:
                 raise ArchiveError("The sign-in store belongs to another site.")
             source, sink = _cookie_seams()
-            return worker_host.start_in_process(session, library, source, sink, status_path)
+            options = {'browser_factory': _browser['factory']} if _browser['factory'] is not None else {}
+            return worker_host.start_in_process(session, library, source, sink, status_path, **options)
 
     return _core(start)
 
@@ -262,7 +294,10 @@ def _worker_stop(args):
 
     def stop(ArchiveError):
         from comic_archive import worker_host
-        return worker_host.request_stop(session, wait_seconds=wait)
+        result = worker_host.request_stop(session, wait_seconds=wait)
+        if not result['running']:
+            _close_browser()
+        return result
 
     return _core(stop)
 
@@ -278,16 +313,23 @@ def _account_ui_op(name):
             if name == "start":
                 from comic_archive import android_download
                 from comic_archive.locking import LibraryLock
-                with _workspace_lock, LibraryLock(workspace.session / ".account-ui"):
+                with _workspace_lock:
                     _active_root(root, ArchiveError)
-                    cloud = _cloud_cache["controller"] if _cloud_cache["root"] == str(root) else None
-                    if cloud is not None and cloud.busy:
-                        raise ArchiveError("Finish the cloud activity before pressing Go.")
-                    android_download.start(workspace)
+                    with LibraryLock(workspace.session / ".account-ui"):
+                        cloud = _cloud_cache["controller"] if _cloud_cache["root"] == str(root) else None
+                        if cloud is not None and cloud.busy:
+                            raise ArchiveError("Finish the cloud activity before pressing Go.")
+                        options = {'browser_factory': _browser['factory']} if _browser['factory'] is not None else {}
+                        android_download.start(workspace, **options)
                 return {}
             if name == "status":
                 from comic_archive import android_download
                 return android_download.status(workspace)
+            if name == 'pause':
+                with _workspace_lock:
+                    _active_root(root, ArchiveError)
+                    account_ui.pause(workspace, on_stop_requested=_interrupt_browser)
+                return {}
             getattr(account_ui, name)(workspace)
             return {}
 
@@ -455,17 +497,16 @@ def _settings_value(root):
 
 
 def _settings_unlocked(root):
-    from comic_archive import account_ui, dashboard_model, network, network_android
+    from comic_archive import account_ui, android_download, dashboard_model, network, network_android
     from comic_archive.workspace import Workspace
     network_android.configure(root / "net.json")
     workspace = Workspace(id="default", root=root)
     speeds = [{"key": key, "label": dashboard_model.SPEED_NAMES[key],
-               "available": pacing["speed"] == "normal"}
-              for key, pacing in account_ui.SPEEDS.items()]
-    supported = {item["key"] for item in speeds if item["available"]}
-    saved = account_ui.speed(workspace)
+               "available": android_download.speed_available(_workspace['site_key'], key, _browser['factory'])}
+              for key in account_ui.SPEEDS]
+    saved = android_download.selected_speed(workspace)
     return network.status(workspace.library) | {
-        "speed": saved if saved in supported else "medium", "speeds": speeds}
+        "speed": saved, "speeds": speeds}
 
 
 def _settings(args):
@@ -481,24 +522,26 @@ def _configure_settings(args):
         raise _BridgeError("bad_request", "The mobile data choice must be explicit.")
 
     def configure(ArchiveError):
-        from comic_archive import account_ui, network
+        from comic_archive import account_ui, android_download, network
         from comic_archive.workspace import Workspace
         workspace = Workspace(id="default", root=root)
         from comic_archive.locking import LibraryLock
-        with LibraryLock(workspace.session / ".account-ui"):
-            # Validate the entire request before writing either setting.
-            if "speed" in args:
-                value = args["speed"]
-                if (not isinstance(value, str) or value not in account_ui.SPEEDS
-                        or account_ui.SPEEDS[value]["speed"] != "normal"):
-                    raise ArchiveError("That speed is not available in this Android build.")
-                if account_ui.status(workspace).get("status") == "running":
-                    raise ArchiveError("Pause saving to change the speed.")
-            if "wifi_only" in args:
-                network.configure(workspace.library, args["wifi_only"])
-            if "speed" in args:
-                account_ui.choose_speed(workspace, args["speed"])
-        return _settings_value(root)
+        with _workspace_lock:
+            _active_root(root, ArchiveError)
+            with LibraryLock(workspace.session / ".account-ui"):
+                # Validate the entire request before writing either setting.
+                if "speed" in args:
+                    value = args["speed"]
+                    if (not isinstance(value, str) or value not in account_ui.SPEEDS
+                            or not android_download.speed_available(_workspace['site_key'], value, _browser['factory'])):
+                        raise ArchiveError("That speed is not available in this Android build.")
+                    if account_ui.status(workspace).get("status") == "running":
+                        raise ArchiveError("Pause saving to change the speed.")
+                if "wifi_only" in args:
+                    network.configure(workspace.library, args["wifi_only"])
+                if "speed" in args:
+                    account_ui.choose_speed(workspace, args["speed"])
+            return _settings_unlocked(root)
 
     return _core(configure)
 

@@ -11,14 +11,15 @@ import httpx
 from comic_archive import android_session, qt_engine as dom, sites
 from comic_archive.android_browser import (
     AndroidBrowserContext, AndroidBrowserTransport, AndroidFastImportAdapter,
-    AndroidFastWorkerSession, AndroidTapasBrowserAdapter,
+    AndroidFastWorkerSession, AndroidTapasBrowserAdapter, interrupt_contexts,
+    _CONTROLLED, _SERVICE_WORKERS, _WORKER_GUARD_HEAD, _WORKER_GUARD_TAIL,
 )
 from comic_archive.cancellation import RunCancelled
 from comic_archive.errors import AuthenticationError
 from comic_archive.fast_import import FAST_INTERVAL, FAST_METADATA_INTERVAL
 from comic_archive.models import ArchiveError
 from comic_archive.network import NetworkPolicyHold
-from test_qt_engine import ONE_HEAD, ONE_TAIL, Site
+from test_qt_engine import ONE_HEAD, ONE_TAIL, Site, parse_call
 import test_tapas_http as golden_http
 
 
@@ -39,6 +40,8 @@ class Native:
         self.site, self.calls = Site(), []
         self.closed = False
         self.on_release = self.on_execute = None
+        self.workers = {'registered': 0, 'controlled': False, 'cleared': True}
+        self.worker_reads = []
 
     def state(self):
         return json.dumps({'v': 1, 'url': self.site.document['url'], 'ended': int(self.site.document['id']),
@@ -54,6 +57,16 @@ class Native:
 
     def execute(self, source, bound):
         self.calls.append(('execute', bound))
+        guarded = source.startswith(_WORKER_GUARD_HEAD)
+        if guarded:
+            if self.workers['controlled']:
+                return json.dumps(_CONTROLLED)
+            source = source[len(_WORKER_GUARD_HEAD):-len(_WORKER_GUARD_TAIL)]
+        if source.startswith(dom.CALL.split('%')[0]):
+            script, _, argument = parse_call(source)
+            if script == _SERVICE_WORKERS:
+                self.worker_reads.append(argument)
+                return json.dumps(json.dumps({'value': self.workers.copy()}))
         if self.on_execute is not None:
             return self.on_execute(source, bound)
         return json.dumps(self.site(source))
@@ -70,6 +83,9 @@ class Native:
         self.calls.append(('close',))
         self.closed = True
 
+    def interrupt(self):
+        self.calls.append(('interrupt',))
+
 
 class Factory:
     def __init__(self):
@@ -80,11 +96,21 @@ class Factory:
         return self.enabled
 
     def open(self, policy):
+        if self.native.closed:
+            self.native = Native()
         self.opens.append(policy)
         return self.native
 
     def cookieStore(self):
         return self.store
+
+    def interrupt(self):
+        self.native.interrupt()
+        self.native.close()
+
+    def closeAll(self):
+        self.native.close()
+        return True
 
 
 class BrowserFacadeTests(unittest.TestCase):
@@ -192,6 +218,16 @@ class BrowserFacadeTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             self.context.storage_state()
 
+    def test_explicit_pause_is_sticky_and_scoped_to_its_own_factory(self):
+        other = AndroidBrowserContext(Factory(), lambda: None)
+        self.addCleanup(other.close)
+        interrupt_contexts(self.factory)
+        for _ in range(2):
+            with self.assertRaises(RunCancelled):
+                self.page.evaluate('() => 1')
+        other.check()
+        self.assertIn(('interrupt',), self.native.calls)
+
 
 class BrowserAdapterTests(unittest.TestCase):
     def setUp(self):
@@ -295,3 +331,65 @@ class BrowserAdapterTests(unittest.TestCase):
                         self.fail('Forgotten sign-in admitted a new batch')
                 self.assertIsNone(pool.adapter)
             adapter.__exit__.assert_called_once()
+
+    def test_only_a_new_task_admission_discards_the_cancelled_reading_document(self):
+        adapter = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
+        self.addCleanup(adapter.close)
+        adapter.__enter__()
+        old = adapter.context
+        interrupt_contexts(self.factory)
+        with self.assertRaises(RunCancelled):
+            old.check()
+        adapter.begin_task()
+        self.assertTrue(old.closed)
+        self.assertIsNone(adapter.context)
+        self.assertEqual(len(self.factory.opens), 1)  # Admission still does not load a page.
+        adapter.__enter__()
+        self.assertIsNot(adapter.context, old)
+        adapter.context.check()
+
+    def test_cached_worker_is_removed_then_its_entire_document_is_replaced(self):
+        old = self.factory.native
+        old.workers = {'registered': 2, 'controlled': True, 'cleared': True}
+        before = {p.name: p.read_bytes() for p in self.session.iterdir() if p.is_file()}
+        with AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard) as adapter:
+            self.assertTrue(old.closed)
+            self.assertIsNot(adapter.context.surface.native, old)
+            self.assertEqual(old.worker_reads, [True])
+            self.assertEqual(self.factory.native.worker_reads, [False])
+            self.assertEqual(len(self.factory.opens), 2)
+            self.assertTrue(adapter.context.workers_ready)
+            self.assertEqual([call for call in self.factory.native.calls if call[0] == 'load'],
+                             [('load', 'https://tapas.io/')])
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.session.iterdir() if p.is_file()})
+
+    def test_failed_worker_cleanup_closes_the_reader_before_any_metadata_request(self):
+        self.factory.native.workers['cleared'] = False
+        self.factory.native.site.reply = Mock(side_effect=AssertionError('Provider metadata consumed'))
+        with self.assertRaisesRegex(ArchiveError, 'cached reading worker'):
+            AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard).__enter__()
+        self.assertTrue(self.factory.native.closed)
+        self.factory.native.site.reply.assert_not_called()
+
+    def test_a_controller_remaining_in_the_replacement_window_refuses_the_whole_open(self):
+        self.factory.native.workers['controlled'] = True
+        open_native = self.factory.open
+        def still_controlled(policy):
+            native = open_native(policy)
+            native.workers['controlled'] = True
+            return native
+        with patch.object(self.factory, 'open', side_effect=still_controlled):
+            with self.assertRaisesRegex(ArchiveError, 'still active'):
+                AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard).__enter__()
+        self.assertEqual(len(self.factory.opens), 2)
+        self.assertTrue(self.factory.native.closed)
+
+    def test_new_controller_after_preflight_refuses_the_value_and_closes_the_reader(self):
+        with AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard) as adapter:
+            self.factory.native.workers['controlled'] = True
+            self.factory.native.site.reply = Mock(side_effect=AssertionError('Stale data consumed'))
+            with self.assertRaisesRegex(ArchiveError, 'controlled by a cached worker'):
+                adapter.page.evaluate('() => "stale"')
+            self.factory.native.site.reply.assert_not_called()
+            self.assertTrue(self.factory.native.closed)
+            self.assertTrue(adapter.context.closed)
