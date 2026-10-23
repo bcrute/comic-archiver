@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -53,11 +54,14 @@ fun LibraryScreen(
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
     actionsEnabled: Boolean = true,
+    compactEditing: Boolean = false,
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
+    val viewScroll = rememberLazyListState()
     LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
     Column(Modifier.fillMaxSize()) {
-        LazyRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!compactEditing) LazyRow(Modifier.padding(horizontal = 16.dp), state = viewScroll,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(listOf("Series", "Files", "Folder")) { choice ->
                 FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
             }

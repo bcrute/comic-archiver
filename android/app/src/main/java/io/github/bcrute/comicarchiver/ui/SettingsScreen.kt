@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,10 +46,10 @@ fun SettingsScreen(
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Appearance", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppTheme.entries.forEach { choice ->
                         FilterChip(selected = choice == theme, onClick = { onTheme(choice) },
-                            label = { Text(choice.label) })
+                            label = { Text(choice.label, maxLines = 1, softWrap = false) })
                     }
                 }
             }
@@ -97,13 +98,13 @@ fun SettingsScreen(
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Download speed", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     settings.speeds.forEach { speed ->
                         FilterChip(
                             selected = speed.key == settings.speed,
                             enabled = speed.available && !busy && !saving,
                             onClick = { onSpeed(speed.key) },
-                            label = { Text(speed.label) },
+                            label = { Text(speed.label, maxLines = 1, softWrap = false) },
                         )
                     }
                 }

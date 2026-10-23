@@ -1,7 +1,10 @@
 package io.github.bcrute.comicarchiver.ui
 
 import android.app.Application
+import android.view.View
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -15,6 +18,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -27,6 +31,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
@@ -36,6 +41,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -54,6 +63,7 @@ import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -411,6 +421,129 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    /** Real insets delivery plus a constrained remaining viewport: the old fixed
+     * navigation leaves no editor space here. Platform pan/resize still needs the
+     * actual-APK keyboard check, separate from these rendered layout regressions. */
+    private fun keyboardInsets(view: View, visible: Boolean) {
+        ViewCompat.dispatchApplyWindowInsets(view, WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.ime(), Insets.of(0, 0, 0, if (visible) 800 else 0))
+            .setVisible(WindowInsetsCompat.Type.ime(), visible).build())
+    }
+
+    private fun editorFitsViewport(label: String) {
+        val editor = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
+        val viewport = compose.onNodeWithTag("editor-viewport").getUnclippedBoundsInRoot()
+        assertTrue("Editor must have a positive height", editor.bottom > editor.top)
+        assertTrue("Whole editor $editor must fit in $viewport",
+            editor.top >= viewport.top && editor.bottom <= viewport.bottom)
+    }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp")
+    fun landscapeKeyboardKeepsLargeTextSeriesSearchVisibleAndPreservesItsQuery() {
+        val viewportHeight = mutableStateOf(411.dp)
+        lateinit var view: View
+        compose.setContent {
+            val localView = LocalView.current
+            SideEffect { view = localView }
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    Box(Modifier.height(viewportHeight.value).testTag("editor-viewport")) {
+                        ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {},
+                            workingLibraries = WorkingLibrariesState(enabled = true))
+                    }
+                }
+            }
+        }
+        library()
+        compose.onNodeWithText("Find saved series").performScrollTo().performClick()
+        compose.runOnIdle {
+            viewportHeight.value = 160.dp
+            keyboardInsets(view, true)
+        }
+        compose.onNodeWithText("Find saved series").performScrollTo().performTextInput("CompactNoMatch")
+        compose.onNodeWithText("CompactNoMatch").assertIsDisplayed()
+        editorFitsViewport("Find saved series")
+        compose.onNodeWithText("Clear search").assertIsDisplayed()
+        compose.runOnIdle {
+            keyboardInsets(view, false)
+            viewportHeight.value = 411.dp
+        }
+        compose.onNode(hasText("Library") and hasClickAction()).assertIsDisplayed()
+        compose.onNodeWithText("Series").assertIsSelected()
+        compose.onNodeWithText("CompactNoMatch").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Clear search").performClick()
+        compose.onNodeWithText("3 of 3 series").performScrollTo().assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp")
+    fun landscapeKeyboardKeepsB2DraftVisibleWithoutConnectingOrChangingPage() {
+        controller.state.value = controller.state.value.copy(cloud = cloudFixture())
+        val viewportHeight = mutableStateOf(411.dp)
+        lateinit var view: View
+        compose.setContent {
+            val localView = LocalView.current
+            SideEffect { view = localView }
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    Box(Modifier.height(viewportHeight.value).testTag("editor-viewport")) {
+                        ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                    }
+                }
+            }
+        }
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("B2 setup").performScrollTo().performClick()
+        compose.onNodeWithText("Bucket name").performScrollTo().performClick()
+        compose.runOnIdle {
+            viewportHeight.value = 160.dp
+            keyboardInsets(view, true)
+        }
+        compose.onNodeWithText("Bucket name").performScrollTo().performTextInput("-compact")
+        editorFitsViewport("Bucket name")
+        compose.runOnIdle {
+            keyboardInsets(view, false)
+            viewportHeight.value = 411.dp
+        }
+        compose.onNodeWithText("B2 setup").assertIsSelected()
+        compose.onNodeWithText("fixture-library-compact").performScrollTo().assertIsDisplayed()
+        assertTrue(controller.cloudRequests.isEmpty())
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun narrowLargeTextThemeAndSpeedChoicesStayWholeAndCanBeSelectedWithoutGo() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                }
+            }
+        }
+        compose.onNode(hasText("Settings") and hasClickAction()).performScrollTo().performClick()
+        fun wholeLabel(label: String) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(label, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue("The complete $label label must fit on one line",
+                layouts.isNotEmpty() && layouts.all(::fitsSingleLine))
+        }
+        compose.onNodeWithText("Dark").performScrollTo().assertIsDisplayed()
+        wholeLabel("Dark")
+        compose.onNodeWithText("Dark").performClick().assertIsSelected()
+        assertEquals(AppTheme.DARK, controller.state.value.theme)
+        compose.onNodeWithText("Download speed").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Slow").performScrollTo().assertIsDisplayed()
+        wholeLabel("Slow")
+        compose.onNodeWithText("Slow").performClick().assertIsSelected()
+        assertEquals("slow", controller.state.value.settings?.speed)
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test
     @Config(qualifiers = "w360dp-h640dp")
     fun signOutRemainsReachableOnASmallPhone() {
@@ -527,6 +660,7 @@ private class ScreenController : AppController {
     var signOutCalls = 0
     val catalogRequests = mutableListOf<Pair<CatalogQuery, Boolean>>()
     val openRequests = mutableListOf<String>()
+    val cloudRequests = mutableListOf<CloudRequest>()
     override fun go() { goCalls++; state.value = state.value.copy(download = DownloadState.Planning) }
     override fun pause() { pauseCalls++; state.value = state.value.copy(download = DownloadState.Paused("user")) }
     override fun selectSite(key: String) {}
@@ -544,7 +678,7 @@ private class ScreenController : AppController {
     override fun openSavedFile(id: String) { openRequests.add(id) }
     override fun setTheme(value: AppTheme) { state.value = state.value.copy(theme = value) }
     override fun refreshCloud() {}
-    override fun cloudAction(request: CloudRequest) {}
+    override fun cloudAction(request: CloudRequest) { cloudRequests.add(request) }
     override fun refreshSettings() { settingsRefreshes++ }
     override fun setWifiOnly(value: Boolean) {
         state.value = state.value.copy(settings = state.value.settings?.copy(wifiOnly = value))

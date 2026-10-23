@@ -2,8 +2,11 @@ package io.github.bcrute.comicarchiver.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -74,103 +78,116 @@ fun ComicArchiverAppRoot(
     BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
         if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            AppTab.entries.forEach { candidate ->
-                TextButton(
-                    modifier = Modifier.semantics { selected = candidate == tab; role = Role.Tab },
-                    onClick = { tab = candidate },
-                    colors = ButtonDefaults.textButtonColors(contentColor =
-                        if (candidate == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
-                ) { Text(candidate.label, maxLines = 1, softWrap = false) }
-            }
-        }
-        if (state.sites.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                state.sites.forEach { site ->
-                    FilterChip(selected = state.site == site.key,
-                        enabled = site.enabled && !state.siteBusy && !state.libraryBusy && !state.signOutPending,
-                        onClick = { controller.selectSite(site.key) },
-                        label = { Text(site.name, maxLines = 1, softWrap = false) })
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val tabScroll = rememberScrollState()
+    val siteScroll = rememberScrollState()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // A landscape IME can leave less height than the navigation rows alone.
+        // Keep the selected editor mounted; dismissing IME restores its navigation.
+        val compactEditing = keyboardVisible && maxHeight < 320.dp
+        Column(Modifier.fillMaxSize()) {
+            if (!compactEditing) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(tabScroll)) {
+                    AppTab.entries.forEach { candidate ->
+                        TextButton(
+                            modifier = Modifier.semantics { selected = candidate == tab; role = Role.Tab },
+                            onClick = { tab = candidate },
+                            colors = ButtonDefaults.textButtonColors(contentColor =
+                                if (candidate == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+                        ) { Text(candidate.label, maxLines = 1, softWrap = false) }
+                    }
+                }
+                if (state.sites.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(siteScroll)) {
+                        state.sites.forEach { site ->
+                            FilterChip(selected = state.site == site.key,
+                                enabled = site.enabled && !state.siteBusy && !state.libraryBusy && !state.signOutPending,
+                                onClick = { controller.selectSite(site.key) },
+                                label = { Text(site.name, maxLines = 1, softWrap = false) })
+                        }
+                    }
+                    state.sites.firstOrNull { it.key == state.site }?.reason?.let {
+                        Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
-            state.sites.firstOrNull { it.key == state.site }?.reason?.let {
-                Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            if (state.siteBusy) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("Updating account and library…", Modifier.padding(horizontal = 16.dp))
             }
-        }
-        if (state.siteBusy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text("Updating account and library…", Modifier.padding(horizontal = 16.dp))
-        }
-        if (state.signOutPending && !state.siteBusy) {
-            Text("Sign-out did not finish. Your saved files are kept.", Modifier.padding(horizontal = 16.dp))
-            OutlinedButton(onClick = controller::signOut, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Text("Retry sign-out")
-            }
-        }
-        if (tab != AppTab.SAVING) state.notice?.let { notice ->
-            NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
-        }
-        if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
-        tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
-            when (tab) {
-                AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
-                    SignInScreen(
-                        state = state.toSignInScreenUi(),
-                        onStartSignIn = controller::startSignIn,
-                        signInContent = signInContent,
-                    )
-                } else {
-                    DownloadsScreen(
-                        state = state.toDownloadsScreenUi(),
-                        onGo = controller::go,
-                        onPause = controller::pause,
-                        onDismissNotice = state.notice?.let { notice ->
-                            { controller.openNotice(notice) }
-                        },
-                    )
+            if (state.signOutPending && !state.siteBusy) {
+                Text("Sign-out did not finish. Your saved files are kept.", Modifier.padding(horizontal = 16.dp))
+                OutlinedButton(onClick = controller::signOut, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Text("Retry sign-out")
                 }
-                AppTab.LIBRARY -> Column(Modifier.fillMaxSize()) {
-                    if (workingLibraries.enabled) OutlinedButton(onClick = { settingsPage = "Libraries"; tab = AppTab.SETTINGS },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { Text("Change working library") }
-                    LibraryScreen(
-                    series = state.toLibraryUi(),
-                    catalog = state.catalog,
-                    onCatalogQuery = controller::loadCatalog,
-                    onOpenFile = controller::openSavedFile,
-                    exportState = exportState,
-                    onPickFolder = onPickFolder,
-                    onStartExport = onStartExport,
-                    onStopExport = onStopExport,
-                    folderState = folderState, onFolderLoad = onFolderLoad, onOpenFolder = onOpenFolder,
-                    onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
-                    actionsEnabled = state.workspaceReady && !state.libraryBusy && !state.siteBusy,
-                ) }
-                AppTab.SETTINGS -> SettingsPages(
-                    state = state,
-                    onTheme = controller::setTheme,
-                    onWifiOnly = controller::setWifiOnly,
-                    onSpeed = controller::setDownloadSpeed,
-                    onRefresh = controller::refreshSettings,
-                    onCloudRefresh = controller::refreshCloud,
-                    onCloudAction = controller::cloudAction,
-                    workingLibraries = workingLibraries, workingLibraryActions = workingLibraryActions,
-                    selectedPage = settingsPage, onPageSelected = { settingsPage = it },
-                )
-                AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
-                    LimitationsScreen(modifier = Modifier.weight(1f))
-                    OutlinedButton(
-                        onClick = {
-                            if (state.signIn is SignInState.SignedIn || state.signOutPending) controller.signOut()
-                            else tab = AppTab.SAVING
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady,
-                    ) {
-                        val name = state.sites.firstOrNull { it.key == state.site }?.name
-                            ?: if (state.site == "tapas") "Tapas" else state.site
-                        Text(if (state.signIn is SignInState.SignedIn || state.signOutPending) "Sign out of $name"
-                             else "Go to sign in")
+            }
+            if (tab != AppTab.SAVING) state.notice?.let { notice ->
+                NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
+            }
+            if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
+            tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
+                when (tab) {
+                    AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
+                        SignInScreen(
+                            state = state.toSignInScreenUi(),
+                            onStartSignIn = controller::startSignIn,
+                            signInContent = signInContent,
+                        )
+                    } else {
+                        DownloadsScreen(
+                            state = state.toDownloadsScreenUi(),
+                            onGo = controller::go,
+                            onPause = controller::pause,
+                            onDismissNotice = state.notice?.let { notice ->
+                                { controller.openNotice(notice) }
+                            },
+                        )
+                    }
+                    AppTab.LIBRARY -> Column(Modifier.fillMaxSize()) {
+                        if (workingLibraries.enabled && !compactEditing) OutlinedButton(onClick = { settingsPage = "Libraries"; tab = AppTab.SETTINGS },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { Text("Change working library") }
+                        LibraryScreen(
+                            series = state.toLibraryUi(),
+                            catalog = state.catalog,
+                            onCatalogQuery = controller::loadCatalog,
+                            onOpenFile = controller::openSavedFile,
+                            exportState = exportState,
+                            onPickFolder = onPickFolder,
+                            onStartExport = onStartExport,
+                            onStopExport = onStopExport,
+                            folderState = folderState, onFolderLoad = onFolderLoad, onOpenFolder = onOpenFolder,
+                            onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
+                            actionsEnabled = state.workspaceReady && !state.libraryBusy && !state.siteBusy,
+                            compactEditing = compactEditing,
+                        )
+                    }
+                    AppTab.SETTINGS -> SettingsPages(
+                        state = state,
+                        onTheme = controller::setTheme,
+                        onWifiOnly = controller::setWifiOnly,
+                        onSpeed = controller::setDownloadSpeed,
+                        onRefresh = controller::refreshSettings,
+                        onCloudRefresh = controller::refreshCloud,
+                        onCloudAction = controller::cloudAction,
+                        workingLibraries = workingLibraries, workingLibraryActions = workingLibraryActions,
+                        selectedPage = settingsPage, onPageSelected = { settingsPage = it },
+                        compactEditing = compactEditing,
+                    )
+                    AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
+                        LimitationsScreen(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = {
+                                if (state.signIn is SignInState.SignedIn || state.signOutPending) controller.signOut()
+                                else tab = AppTab.SAVING
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady,
+                        ) {
+                            val name = state.sites.firstOrNull { it.key == state.site }?.name
+                                ?: if (state.site == "tapas") "Tapas" else state.site
+                            Text(if (state.signIn is SignInState.SignedIn || state.signOutPending) "Sign out of $name"
+                                 else "Go to sign in")
+                        }
                     }
                 }
             }

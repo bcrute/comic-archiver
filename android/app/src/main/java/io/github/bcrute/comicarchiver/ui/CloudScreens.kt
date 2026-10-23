@@ -63,11 +63,13 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   onCloudRefresh: () -> Unit, onCloudAction: (CloudRequest) -> Unit,
                   workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
-                  selectedPage: String? = null, onPageSelected: (String) -> Unit = {}) {
+                  selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
+                  compactEditing: Boolean = false) {
     var savedPage by rememberSaveable { mutableStateOf("Downloads") }
     val page = selectedPage ?: savedPage
+    val pageScroll = rememberScrollState()
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        if (!compactEditing) Row(Modifier.fillMaxWidth().horizontalScroll(pageScroll),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (listOf("Downloads") + if (workingLibraries.enabled) listOf("Libraries", "Storage", "B2 setup") else listOf("Storage", "B2 setup")).forEach { name ->
                 FilterChip(selected = page == name, onClick = {

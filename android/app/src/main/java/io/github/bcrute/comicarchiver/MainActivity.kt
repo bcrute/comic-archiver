@@ -6,12 +6,12 @@ import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -63,6 +63,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Compose owns the insets on every supported API. Leaving Android's
+        // default adjustPan active can move the entire app off a short IME window.
+        enableEdgeToEdge()
 
         val app = applicationContext as App
 
@@ -151,7 +154,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
+                    Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
                         ComicArchiverAppRoot(
                             controller = controller,
                             exportState = panel,
