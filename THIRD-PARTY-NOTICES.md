@@ -69,6 +69,7 @@ https://code.qt.io/cgit/qt/qtwebengine-chromium.git.
 
 The opt-in `connected` extra pins [JWCrypto1.6.1](https://pypi.org/project/jwcrypto/1.6.1/)
 under LGPL-3.0-or-later and [aiortc1.15.0](https://pypi.org/project/aiortc/1.15.0/)
+under BSD-3-Clause, plus [websockets15.0.1](https://pypi.org/project/websockets/15.0.1/)
 under BSD-3-Clause. They remain ordinary replaceable Python dependencies. Source
 metadata is in `packaging/connected-direct-sources.json`; neither dependency nor
 its native/transitive packages has been installed or qualified for this source

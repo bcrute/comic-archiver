@@ -247,3 +247,22 @@ class PairingOwner:
                                                  dict(pairing_id=pairing_id), int(self.wall() * 1000))
         self.current()
         return proof
+
+
+    def control_socket(self, pairing_id, origin, host_token=None):
+        self.current()
+        _id(pairing_id)
+        row = self._record(pairing_id)
+        require(row is not None and row['status'] in {'pending','approved'} and row['generation'] == 0, 'revoked')
+        pending = row['status'] == 'pending'
+        if pending:
+            require(host_token is None)
+            draft = self.drafts.get(pairing_id)
+            require(draft is not None and self._live(draft), 'revoked')
+        else:
+            require(isinstance(host_token, str) and len(host_token) == 64 and all(c in '0123456789abcdef' for c in host_token))
+        proof = self.state.identity.control_proof(origin, 'GET', '/api/connected-library/v1/signals',
+                                                dict(pairing_id=pairing_id, host_token=host_token), int(self.wall() * 1000))
+        self.current()
+        require(self._record(pairing_id) == row, 'revoked')
+        return proof, pending
