@@ -387,6 +387,11 @@ class Index:
         finally:
             source.close()
 
+    @property
+    def revision(self):
+        self.root.current()
+        return self.db.execute('SELECT revision FROM metadata').fetchone()[0]
+
     def snapshot(self):
         self.root.current()
         rows = self.db.execute('SELECT * FROM books ORDER BY series_id, chapter_order, id LIMIT ?', (BOOKS_MAX + 1,)).fetchall()

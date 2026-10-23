@@ -84,6 +84,13 @@ class ReadRange:
         _require(self.authorize() is True, 'revoked')
         self.source.current()
 
+    def poll(self):
+        try:
+            self._current()
+        except BaseException:
+            self.close()
+            raise
+
     def add_credit(self, count):
         try:
             self._current()
