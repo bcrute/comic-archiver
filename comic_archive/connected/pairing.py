@@ -236,6 +236,20 @@ class PairingOwner:
         require(self._record(pairing_id) == row, 'revoked')
         return proof
 
+    def control_scope(self, pairing_id, origin):
+        self.current()
+        _id(pairing_id)
+        row = self._record(pairing_id)
+        require(row is not None and row['status'] == 'approved' and row['generation'] > 0, 'revoked')
+        # Only the actual already-persisted reduced local row; no caller-supplied
+        # shares/generation/approval, fresh Review or reconstructed grant.
+        body = dict(pairing_id=pairing_id, account_binding=row['account_binding'], reader_keys=row['reader_keys'],
+                    approval_id=row['approval_id'], shares=row['shares'], generation=row['generation'])
+        proof = self.state.identity.control_proof(origin, 'POST', f'/api/connected-library/v1/pairings/{pairing_id}/scope', body, int(self.wall() * 1000))
+        self.current()
+        require(self._record(pairing_id) == row, 'revoked')
+        return proof
+
     def control_revocation(self, pairing_id, origin):
         self.current()
         _id(pairing_id)
@@ -251,7 +265,7 @@ class PairingOwner:
         self.current()
         _id(pairing_id)
         row = self._record(pairing_id)
-        require(row is not None and row['status'] in {'pending','approved'} and row['generation'] == 0, 'revoked')
+        require(row is not None and row['status'] in {'pending','approved'}, 'revoked')
         pending = row['status'] == 'pending'
         if pending:
             require(host_token is None)

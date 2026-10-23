@@ -90,10 +90,10 @@ class HostRendezvous:
         require(not self._closed and self._socket.state is State.OPEN, 'cancelled')
         self.owner.current()
         row = self.owner._record(self.pairing_id)
-        require(row is not None and row['status'] in {'pending','approved'} and row['generation'] == 0, 'revoked')
+        require(row is not None and row['status'] in {'pending','approved'}, 'revoked')
         if self.pending:
             draft = self._draft
-            require(draft is not None and self.owner.clock() < draft.deadline, 'revoked')
+            require(row['generation'] == 0 and draft is not None and self.owner.clock() < draft.deadline, 'revoked')
             if row['status'] == 'pending':
                 require(self.owner.drafts.get(self.pairing_id) is draft and self.owner._live(draft), 'revoked')
             else:
@@ -108,7 +108,7 @@ class HostRendezvous:
         else:
             require(row['status'] == 'approved', 'revoked')
             if self._binding is not None:
-                require(row['account_binding'] == self._binding['account_binding']
+                require(row['generation'] == self._binding['generation'] and row['account_binding'] == self._binding['account_binding']
                         and row['reader_keys'] == self._binding['reader_keys']
                         and row['shares'] == self._binding['shares'], 'revoked')
         return row
@@ -190,7 +190,7 @@ class HostRendezvous:
                 require(isinstance(binding, dict) and set(binding) == {'pairing_id','session_id','challenge','account_binding',
                     'host_keys','reader_keys','generation','shares','pending'} and binding['pairing_id'] == self.pairing_id
                     and binding['pending'] is self.pending and binding['host_keys'] == self.owner.state.identity.public_bundle()
-                    and type(binding['generation']) is int and binding['generation'] == 0 and isinstance(binding['shares'], list) and len(binding['shares']) <= 16)
+                    and type(binding['generation']) is int and 0 <= binding['generation'] < 2**31 and isinstance(binding['shares'], list) and len(binding['shares']) <= 16)
                 for name in ['pairing_id','session_id','challenge','account_binding']:
                     _id(binding[name])
                 for share in binding['shares']:

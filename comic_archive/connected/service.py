@@ -125,13 +125,15 @@ class HostService:
         """Reconcile ONE already durable local approval; never approve again."""
         self.current()
         before = self.owner._record(pairing_id)
-        proof = self.owner.control_approval(pairing_id, self.origin)
-        value = await self._request('POST', PREFIX + '/pairings/' + pairing_id + '/approve', proof)
+        require(before is not None and before['status'] == 'approved', 'revoked')
+        operation = 'approve' if before['generation'] == 0 else 'scope'
+        proof = (self.owner.control_approval if operation == 'approve' else self.owner.control_scope)(pairing_id, self.origin)
+        value = await self._request('POST', PREFIX + '/pairings/' + pairing_id + '/' + operation, proof)
         self.current()
         require(self.owner._record(pairing_id) == before, 'revoked')
         require(set(value) == {'pairing_id','approval_id','generation','shares','host_token','token_expires_at'}
                 and value['pairing_id'] == pairing_id and value['approval_id'] == before['approval_id']
-                and type(value['generation']) is int and value['generation'] == before['generation'] == 0
+                and type(value['generation']) is int and value['generation'] == before['generation']
                 and value['shares'] == before['shares'] and isinstance(value['host_token'], str)
                 and re.fullmatch(r'[0-9a-f]{64}', value['host_token']) and type(value['token_expires_at']) is int
                 and int(self.owner.wall() * 1000) < value['token_expires_at'] <= int(self.owner.wall() * 1000) + 2592005000)

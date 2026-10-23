@@ -83,7 +83,7 @@ class _Runner:
                 self.pending._label = status['account_label']
             else:
                 row = self.controller.owner._record(self.pairing_id)
-                require(row is not None and row['status'] == 'approved' and row['generation'] == bound['generation'] == 0
+                require(row is not None and row['status'] == 'approved' and row['generation'] == bound['generation']
                         and row['account_binding'] == bound['account_binding'] and row['reader_keys'] == bound['reader_keys']
                         and row['shares'] == bound['shares'] and status['approval_id'] == row['approval_id'])
                 scope = {name:bound[name] for name in ['pairing_id','session_id','account_binding','challenge','generation']}
@@ -297,14 +297,18 @@ class HostController:
         self.current()
         _id(pairing_id)
         row = self.owner._record(pairing_id)
-        require(row is not None and row['status'] == 'approved' and row['generation'] == 0, 'revoked')
-        status = await self.service.status(pairing_id)
-        self.current()
-        require(self.owner._record(pairing_id) == row, 'revoked')
-        require(status['status'] in {'claimed','approved'} and status['account_binding'] == row['account_binding']
-                and status['reader_keys'] == row['reader_keys'] and status['generation'] == 0, 'revoked')
-        if status['status'] == 'approved':
-            require(status['approval_id'] == row['approval_id'] and status['shares'] == row['shares'])
+        require(row is not None and row['status'] == 'approved', 'revoked')
+        if row['generation'] == 0:
+            status = await self.service.status(pairing_id)
+            self.current()
+            require(self.owner._record(pairing_id) == row, 'revoked')
+            require(status['status'] in {'claimed','approved'} and status['account_binding'] == row['account_binding']
+                    and status['reader_keys'] == row['reader_keys'] and status['generation'] == 0, 'revoked')
+            if status['status'] == 'approved':
+                require(status['approval_id'] == row['approval_id'] and status['shares'] == row['shares'])
+        # gen>0 goes directly to the narrow signed scope reducer. If the durable
+        # floor advanced but SQL acknowledgement failed, ordinary status MUST
+        # refuse the older SQL row; it cannot be a prerequisite for reconciliation.
         value = await self.service.acknowledge(pairing_id)  # Same actual stored IDs.
         self.current()
         require(self.owner._record(pairing_id) == row, 'revoked')
@@ -314,7 +318,7 @@ class HostController:
     def approval(self, pairing_id):
         self.current()
         row = self.owner._record(pairing_id)
-        require(row is not None and row['status'] == 'approved' and row['generation'] == 0 and pairing_id in self._acks, 'revoked')
+        require(row is not None and row['status'] == 'approved' and pairing_id in self._acks, 'revoked')
         return dict(pairing_id=pairing_id, generation=row['generation'], shares=list(row['shares']))
 
     async def listen(self, pairing_id):
@@ -397,8 +401,10 @@ class HostController:
             await self.stop(pair)
             if self.owner._record(pair)['status'] == 'revoked':
                 await self.service.revoke(pair)
-        # Nonempty generation>0 scopes stay retired until durable server scope
-        # reconciliation is implemented; never revoke remaining shares or reuse0.
+            else:
+                await self._reconcile_approval(pair)  # Same durable reduced row, no new consent.
+        # No automatic reconnect here. Local controls/driver choose when to listen
+        # after actual old worker/socket cleanup and service acknowledgement.
         return affected
 
     async def retire_pending(self, pending):
