@@ -360,7 +360,7 @@ class BrowserAdapterTests(unittest.TestCase):
             self.assertEqual(len(self.factory.opens), 2)
             self.assertTrue(adapter.context.workers_ready)
             self.assertEqual([call for call in self.factory.native.calls if call[0] == 'load'],
-                             [('load', 'https://tapas.io/')])
+                             [('load', sites.DEFAULT.home)])
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.session.iterdir() if p.is_file()})
 
     def test_failed_worker_cleanup_closes_the_reader_before_any_metadata_request(self):

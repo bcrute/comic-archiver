@@ -144,13 +144,17 @@ class NativeReaderTests(unittest.TestCase):
 
     def test_declared_archive_uri_roots_keep_the_old_identity_and_match_core_workspace_folders(self):
         path = Path(__file__).resolve().parents[1] / 'android/app/src/main/res/xml/archive_paths.xml'
-        roots = {node.attrib['name']: node.attrib['path'] for node in ET.parse(path).getroot()}
+        nodes = list(ET.parse(path).getroot())
+        roots = {node.attrib['name']: node.attrib['path'] for node in nodes if node.tag == 'files-path'}
         self.assertEqual(roots['library'], 'workspace/Library/')
         base = Path('workspace')
         for site in sites.SITES:
             name = 'library' if site == sites.DEFAULT else site.key + '-library'
             self.assertEqual(roots[name], (sites.folder(base, site) / 'Library').as_posix() + '/')
         self.assertEqual(len(roots), len(sites.SITES))
+        cache = {node.attrib['name']: node.attrib['path'] for node in nodes if node.tag == 'cache-path'}
+        self.assertEqual(cache, {'opened-cache': 'opened-archives/'})
+        self.assertEqual(len(nodes), len(roots) + len(cache))  # No extra or duplicate authority roots.
 
     def test_worker_factory_enforces_the_selected_librarys_live_network_policy(self):
         self.addCleanup(network_android.configure, None)
