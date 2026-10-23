@@ -75,46 +75,58 @@ def _request(client, method, url, guard, cancel, **options):
         _pause(wait, cancel)
 
 
+def authorized(client, credentials, guard, cancel):
+    """A validated private, bucket-scoped authorization for platform transfer adapters.
+
+    Callers own the client and guard; the returned token stays in memory. The desktop
+    connection format below remains unchanged.
+    """
+    validate(credentials)
+    account = _request(client, 'GET', 'https://api.backblazeb2.com/b2api/v4/b2_authorize_account',
+                       guard, cancel, auth=(credentials['key_id'], credentials['application_key']))
+    try:
+        api = account['apiInfo']['storageApi']
+        allowed = api['allowed']
+        buckets = allowed['buckets']
+        capabilities = allowed['capabilities']
+        if (not isinstance(buckets, list) or len(buckets) != 1
+                or not isinstance(buckets[0], dict)
+                or not isinstance(capabilities, list)
+                or not {'listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles'} <= set(capabilities)
+                or allowed.get('namePrefix')):
+            raise CloudTransferError('b2_key_permissions')
+        bucket = buckets[0]
+        if not isinstance(bucket.get('name'), str) or not BUCKET.fullmatch(bucket['name']):
+            raise CloudTransferError('b2_key_permissions')
+        if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():
+            raise CloudTransferError('b2_bucket_mismatch')
+        if (not isinstance(api['apiUrl'], str)
+                or not re.fullmatch(r'https://api[0-9]+\.backblazeb2\.com', api['apiUrl'])
+                or not isinstance(account['accountId'], str)
+                or not isinstance(account['authorizationToken'], str)):
+            raise ValueError
+        listing = _request(client, 'POST', api['apiUrl'] + '/b2api/v4/b2_list_buckets', guard, cancel,
+                           headers={'Authorization': account['authorizationToken']},
+                           json={'accountId': account['accountId'], 'bucketName': bucket['name']})
+        matches = listing['buckets']
+        if (not isinstance(matches, list) or len(matches) != 1
+                or matches[0].get('bucketName') != bucket['name']
+                or matches[0].get('bucketId') != bucket['id']):
+            raise ValueError
+        if matches[0].get('bucketType') != 'allPrivate':
+            raise CloudTransferError('b2_private_bucket')
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise CloudTransferError('cloud_connection') from None
+    return account
+
+
 def connection(root, credentials, cancel):
     """Discover settings from a bucket-scoped key; never request a password."""
     validate(credentials)
     guard = NetworkGuard(root)
     with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-        account = _request(client, 'GET', 'https://api.backblazeb2.com/b2api/v4/b2_authorize_account',
-                           guard, cancel, auth=(credentials['key_id'], credentials['application_key']))
-        try:
-            api = account['apiInfo']['storageApi']
-            allowed = api['allowed']
-            buckets = allowed['buckets']
-            capabilities = allowed['capabilities']
-            if (not isinstance(buckets, list) or len(buckets) != 1
-                    or not isinstance(buckets[0], dict)
-                    or not isinstance(capabilities, list)
-                    or not {'listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles'} <= set(capabilities)
-                    or allowed.get('namePrefix')):
-                raise CloudTransferError('b2_key_permissions')
-            bucket = buckets[0]
-            if not isinstance(bucket.get('name'), str) or not BUCKET.fullmatch(bucket['name']):
-                raise CloudTransferError('b2_key_permissions')
-            if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():
-                raise CloudTransferError('b2_bucket_mismatch')
-            if (not isinstance(api['apiUrl'], str)
-                    or not re.fullmatch(r'https://api[0-9]+\.backblazeb2\.com', api['apiUrl'])
-                    or not isinstance(account['accountId'], str)
-                    or not isinstance(account['authorizationToken'], str)):
-                raise ValueError
-            listing = _request(client, 'POST', api['apiUrl'] + '/b2api/v4/b2_list_buckets', guard, cancel,
-                               headers={'Authorization': account['authorizationToken']},
-                               json={'accountId': account['accountId'], 'bucketName': bucket['name']})
-            matches = listing['buckets']
-            if (not isinstance(matches, list) or len(matches) != 1
-                    or matches[0].get('bucketName') != bucket['name']
-                    or matches[0].get('bucketId') != bucket['id']):
-                raise ValueError
-            if matches[0].get('bucketType') != 'allPrivate':
-                raise CloudTransferError('b2_private_bucket')
-        except (KeyError, TypeError, AttributeError, ValueError):
-            raise CloudTransferError('cloud_connection') from None
+        account = authorized(client, credentials, guard, cancel)
+    bucket = account['apiInfo']['storageApi']['allowed']['buckets'][0]
     return {'type': 'b2', 'account': credentials['key_id'], 'key': credentials['application_key'],
             'archive_bucket': bucket['name'], 'hard_delete': 'true',
             'chunk_size': '5Mi', 'upload_concurrency': '1'}

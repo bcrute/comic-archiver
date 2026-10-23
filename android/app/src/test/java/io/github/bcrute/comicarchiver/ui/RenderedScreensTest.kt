@@ -38,6 +38,7 @@ import io.github.bcrute.comicarchiver.controller.CatalogState
 import io.github.bcrute.comicarchiver.controller.SavedFilePage
 import io.github.bcrute.comicarchiver.controller.SavedFileItem
 import io.github.bcrute.comicarchiver.controller.AppController
+import io.github.bcrute.comicarchiver.controller.CloudRequest
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.SpeedChoice
@@ -315,7 +316,9 @@ class RenderedScreensTest {
         compose.onNodeWithText("Settings", useUnmergedTree = true).performScrollTo()
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue(layouts.isNotEmpty())
-        assertTrue(layouts.all { it.lineCount == 1 && !it.didOverflowWidth })
+        assertTrue("Tab text layouts: " + layouts.joinToString { "lines=${it.lineCount}, " +
+            "overflow=${it.didOverflowWidth}, size=${it.size}, intrinsic=${it.multiParagraph.maxIntrinsicWidth}" },
+            layouts.all { it.lineCount == 1 && !it.didOverflowWidth })
         compose.onNodeWithText("About").performScrollTo().performClick()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
@@ -394,6 +397,8 @@ private class ScreenController : AppController {
     }
     override fun openSavedFile(id: String) { openRequests.add(id) }
     override fun setTheme(value: AppTheme) { state.value = state.value.copy(theme = value) }
+    override fun refreshCloud() {}
+    override fun cloudAction(request: CloudRequest) {}
     override fun refreshSettings() { settingsRefreshes++ }
     override fun setWifiOnly(value: Boolean) {
         state.value = state.value.copy(settings = state.value.settings?.copy(wifiOnly = value))

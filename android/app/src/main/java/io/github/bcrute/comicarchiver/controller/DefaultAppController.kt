@@ -53,6 +53,7 @@ class DefaultAppController(
     @Volatile private var admitted = false
     private var admissionVersion = 0L
     private val settingsActions = Mutex()
+    private val cloudActions = Mutex()
     private var catalogVersion = 0L
     private val viewer = ArchiveViewer(context, context.filesDir.resolve("workspace/Library"))
     private val preferences = context.getSharedPreferences("comicarchiver_appearance", Context.MODE_PRIVATE)
@@ -148,6 +149,12 @@ class DefaultAppController(
     }
 
     override fun go() {
+        if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
+            _state.value.cloud?.authStatus == "running") {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish the cloud activity before pressing Go."))
+            return
+        }
         val version = ++admissionVersion
         admitted = false
         poll?.cancel()
@@ -191,6 +198,64 @@ class DefaultAppController(
 
     override fun setDownloadSpeed(value: String) {
         changeSettings(JSONObject().put("speed", value))
+    }
+
+    override fun refreshCloud() {
+        scope.launch(Dispatchers.IO) { readCloud() }
+    }
+
+    override fun cloudAction(request: CloudRequest) {
+        if (_state.value.cloudBusy) return
+        val needsWorker = request is CloudRequest.Test || request is CloudRequest.Retry ||
+            request is CloudRequest.Cleanup || request is CloudRequest.Resume
+        if (needsWorker && _state.value.signIn !is SignInState.SignedIn) {
+            _state.value = _state.value.copy(cloudNotice = Notice(BetaCodes.LOGIN_REQUIRED,
+                "Sign in to the site before starting a cloud task."))
+            return
+        }
+        _state.value = _state.value.copy(cloudBusy = true, cloudNotice = null)
+        scope.launch(Dispatchers.IO) {
+            cloudActions.withLock {
+                var refusal: String? = null
+                val result = try {
+                    if (needsWorker) {
+                        val intent = Intent(context, DownloadHostService::class.java)
+                            .setAction(DownloadHostService.ACTION_START)
+                        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+                        else @Suppress("DEPRECATION") context.startService(intent)
+                    }
+                    val answer = bridge.dispatch("cloud_action", request.json().put("root", workspaceRoot).toString())
+                    val envelope = JSONObject(answer)
+                    if (envelope.opt("ok") == true) CloudStatus.parse(answer)
+                    else {
+                        refusal = envelope.optString("message").takeIf { it.isNotBlank() && it.length <= 1500 }
+                        null
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                  catch (_: Exception) { null }
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(cloud = result ?: _state.value.cloud, cloudBusy = false,
+                        cloudNotice = if (result == null) Notice(BetaCodes.JOB_FAILED,
+                            refusal ?: "The cloud action did not finish. Refresh cloud settings and try again.") else null)
+                }
+            }
+            // Re-read actual policy even when the mutation returned a refusal.
+            readCloud()
+        }
+    }
+
+    private suspend fun readCloud() {
+        cloudActions.withLock {
+            val status = try {
+                CloudStatus.parse(bridge.dispatch("cloud_status", JSONObject().put("root", workspaceRoot).toString()))
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(cloud = status ?: _state.value.cloud,
+                    cloudNotice = if (status == null) Notice(BetaCodes.JOB_FAILED,
+                        "Cloud settings could not be read. Try Refresh cloud settings.") else _state.value.cloudNotice)
+            }
+        }
     }
 
     override fun loadCatalog(query: CatalogQuery, refresh: Boolean) {
@@ -338,6 +403,9 @@ class DefaultAppController(
                 if (tick % 5 == 0) {
                     refreshLibrary()  // Cheap stat walk; the manifest ops carry the digests.
                     readSettings()
+                    readCloud()
+                } else if (_state.value.cloud?.taskRunning == true || _state.value.cloud?.authStatus == "running") {
+                    readCloud()
                 }
                 tick += 1
                 delay(2000)

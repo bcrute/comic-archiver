@@ -11,7 +11,7 @@ MESSAGES = {
     'cloud_space': 'The provider reported insufficient cloud storage. Free space through your provider or choose another destination, then retry. Local episodes are retained.',
     'cloud_cap': 'Backblaze stopped the upload: your account has used its free 10 GB, or reached a spending limit set on its Caps & Alerts page. Add a card on Backblaze’s Billing page or raise the limit, then retry. Local episodes are retained.',
     'cloud_rate_limited': 'The provider limited requests. Wait before retrying. Your saved sign-in and local episodes are retained.',
-    'cloud_connection': 'The cloud transfer was unavailable or timed out. Check the connection and rclone installation, then retry. Local episodes are retained.',
+    'cloud_connection': 'The cloud transfer was unavailable or timed out. Check the connection and cloud setup, then retry. Local episodes are retained.',
     'cloud_permission': 'The provider refused write access. Check the selected account and connection permissions, then retry. Local episodes are retained.',
     'cloud_verification': 'The cloud copy could not be verified. Local episodes are retained; retry the upload before removing any files.',
     'cloud_transfer_limit': 'A cloud transfer limit was reached. Check the connection settings before retrying. Local episodes are retained.',

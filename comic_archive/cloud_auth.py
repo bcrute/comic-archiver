@@ -43,7 +43,7 @@ def retire(root, folder, config):
 class SignIn:
     def __init__(self, root):
         self.root = Path(root)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state = {'status': 'idle'}
         self._cancel = threading.Event()
         self._thread = None
@@ -68,8 +68,9 @@ class SignIn:
         return self.status()
 
     def cancel(self):
-        self._cancel.set()
-        return self.status()
+        with self._lock:
+            self._cancel.set()
+            return self.status()
 
     def close(self):
         self.cancel()
@@ -79,7 +80,7 @@ class SignIn:
     def _run(self, provider, credentials):
         try:
             root = cloud.safe_root(self.root)
-            from .cloud_tools import ensure
+            from .cloud_runtime import ensure
             self._update(stage='preparing')
             ensure(root, self._cancel)
             self._update(stage='authenticating')
@@ -99,7 +100,9 @@ class SignIn:
                 # Each attempt has a new config; failed/cancelled repairs cannot
                 # damage the previous authenticated connection or its receipts.
                 destination = folder / ('connection-' + uuid.uuid4().hex + '.conf')
-                with LibraryLock(root):
+                with self._lock, LibraryLock(root):
+                    if self._cancel.is_set():
+                        raise ArchiveError('Cloud sign-in stopped.')
                     os.replace(config, destination); destination.chmod(0o600)
                     try:
                         value = cloud.settings(root)
@@ -113,7 +116,7 @@ class SignIn:
                             retire(root, folder, Path(previous['config']))
                         except (ArchiveError, OSError):
                             pass  # The old file stays; the new connection is saved either way.
-                self._update(status='connected')
+                    self._update(status='connected')
         except Exception as error:
             from .network import NetworkPolicyHold
             code = ('signin_network_held' if isinstance(error, NetworkPolicyHold)

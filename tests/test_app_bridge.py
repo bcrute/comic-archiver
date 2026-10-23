@@ -41,7 +41,8 @@ class BridgeEnvelopeTests(unittest.TestCase):
         # Every §2 op (and the flagged native-line extensions) is a real op now: each one
         # answers its own envelope, never the scaffold's not_implemented.
         for op in ("enqueue_sync", "library_listing", "export_manifest", "export_status",
-                   "signin_probe", "signin_restore", "signout_record", "settings", "configure_settings", "file_catalog", "file_open"):
+                   "signin_probe", "signin_restore", "signout_record", "settings", "configure_settings", "file_catalog", "file_open",
+                   "cloud_status", "cloud_action"):
             with self.subTest(op):
                 value = self.call(json.dumps({"v": 1, "op": op, "args": {}}))
                 self.assertFalse(value["ok"])

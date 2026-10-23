@@ -39,7 +39,8 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
                 "Long saves can be stopped by the system after a while; pressing Go " +
                     "continues them.",
             )
-            Limitation("No cloud backup, no image-quality options, no listing services yet.")
+            Limitation("B2 storage uses your own private bucket. Connect and pass the upload/readback test before choosing it as a destination.")
+            Limitation("Other cloud providers, image-quality options and listing services are not supported yet.")
             Limitation("Tapas closes at the end of March 2027; save what you bought before then.")
         }
     }

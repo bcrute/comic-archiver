@@ -189,6 +189,17 @@ class ActivitySessionTest {
         assertEquals(1, app.controller.state.value.catalog.page!!.total)
         assertEquals(0, app.fake.count("go"))
     }
+
+    @Test fun b2SetupIsReachableThroughTheActualActivityWithoutGoOrAnotherWorker() {
+        ready()
+        awaitState { app.controller.state.value.cloud != null }
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("B2 setup").performClick()
+        compose.onNodeWithText("Open Buckets").performScrollTo().assertIsDisplayed()
+        assertTrue(app.fake.count("cloud_status") >= 1)
+        assertEquals(0, app.fake.count("go"))
+        assertEquals(0, app.fake.count("worker_start"))
+    }
 }
 
 /** A host seam, not a second controller or fake app UI. No Python/HTTP bootstrap. */
@@ -217,6 +228,7 @@ class LifecycleBridge : PythonBridge {
             if (args.has("speed")) speed = args.getString("speed")
         }
         val result = when (op) {
+            "cloud_status", "cloud_action" -> return cloudEnvelope()
             "file_catalog" -> """{"rows":[{"row_id":"${"a".repeat(64)}","open":"${"a".repeat(64)}",
                 "series":"Test Comic","title":"One","filename":"one.cbz","type":"Comic","size":"4 B",
                 "storage":"This device","saved_epoch":null,"file_time":false}],"total":1,"offset":0,

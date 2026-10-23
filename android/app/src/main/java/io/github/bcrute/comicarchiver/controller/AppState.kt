@@ -13,6 +13,9 @@ data class AppState(
     val settingsNotice: Notice? = null,
     val catalog: CatalogState = CatalogState(),
     val theme: AppTheme = AppTheme.SYSTEM,
+    val cloud: CloudStatus? = null,
+    val cloudBusy: Boolean = false,
+    val cloudNotice: Notice? = null,
 )
 
 enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }

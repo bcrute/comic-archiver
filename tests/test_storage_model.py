@@ -219,6 +219,16 @@ class B2Tests(unittest.TestCase):
         self.assertEqual(settings['cost_short'], 'free, your library fits in the free 10 GB')
         self.assertTrue(settings['cost'].startswith('Your library should take about 5.0 GB'))
 
+    def test_embedded_runtime_may_prepare_an_idle_worker_only_for_an_explicit_cloud_action(self):
+        idle = state(b2(), status={'session_configured': True, 'worker': {'reported_state': 'offline'}})
+        self.assertFalse(model.b2(idle)['test_enabled'])
+        self.assertTrue(model.b2(idle, can_start_worker=True)['test_enabled'])
+        for changes in ({'status': {'session_configured': False}}, {'account': {'status': 'running'}},
+                        {'task': 'job-pending'}, {'cloud_auth': {'status': 'running'}}, {'busy': True}):
+            with self.subTest(changes=changes):
+                refused = state(b2(), **changes)
+                self.assertFalse(model.b2(refused, can_start_worker=True)['test_enabled'])
+
 
 class OverviewTests(unittest.TestCase):
     LOCATIONS = [{'id': 'device', 'label': 'This device', 'episodes': 60, 'files': 120, 'connected': True},

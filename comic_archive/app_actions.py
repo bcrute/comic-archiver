@@ -9,7 +9,7 @@ import re
 import threading
 from urllib.parse import urlencode
 
-from . import cloud_tools, sites
+from . import cloud_runtime, sites
 from .dashboard_model import LIBRARY_SECONDS, NETWORK_SECONDS, Message, error_text
 from .errors import DeviceFileOpenUnavailable, LibraryBusy
 from .library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
@@ -78,7 +78,7 @@ class Actions:
             LOG.warning('the sites\' settings were not read: %s', described(error))
             settings = []
         return {'sites': sites.choices(runtime.site), 'site_settings': settings, 'library_folder': str(runtime.folder),
-                'cloud_offered': cloud_tools.offered(), 'workspace_id': registry.workspace_id}
+                'cloud_offered': cloud_runtime.offered(), 'workspace_id': registry.workspace_id}
 
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):
         """One refresh of the dashboard: every read it needs, together, or Refused if any failed."""

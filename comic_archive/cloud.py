@@ -347,7 +347,8 @@ class Transfer:
 
 def transfer_for(root, provider, target, *, full_readback=False):
     from .network import NetworkGuard
-    transfer = Transfer(provider, target)
+    from .cloud_runtime import transfer as platform_transfer
+    transfer = platform_transfer(root, provider, target)
     transfer.guard = NetworkGuard(root)
     transfer.full_readback = full_readback
     return transfer
@@ -362,7 +363,8 @@ def configure_target(root, provider, *, remote=None, config=None):
         raise ArchiveError('Cloud connection name is invalid.')
     config = _config(config or root / '.archive-state/cloud/rclone.conf')
     target = {'remote':remote, 'config':str(config), 'enabled':False, 'tested':False, 'target_id':str(uuid.uuid4())}
-    Transfer(provider, target)
+    from .cloud_runtime import transfer as platform_transfer
+    platform_transfer(root, provider, target)
     with LibraryLock(root):
         value = settings(root) or {'schema_version':1, 'library_id':str(uuid.uuid4()), 'targets':{}}
         previous = value['targets'].get(provider)

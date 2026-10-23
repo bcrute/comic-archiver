@@ -1,13 +1,17 @@
 package io.github.bcrute.comicarchiver.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -17,10 +21,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.SignInState
-import io.github.bcrute.comicarchiver.controller.DownloadState
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -57,13 +64,14 @@ fun ComicArchiverAppRoot(
         if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
     Column(Modifier.fillMaxSize()) {
-        ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             AppTab.entries.forEach { candidate ->
-                Tab(
-                    selected = candidate == tab,
+                TextButton(
+                    modifier = Modifier.semantics { selected = candidate == tab; role = Role.Tab },
                     onClick = { tab = candidate },
-                    text = { Text(candidate.label, maxLines = 1, softWrap = false) },
-                )
+                    colors = ButtonDefaults.textButtonColors(contentColor =
+                        if (candidate == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+                ) { Text(candidate.label, maxLines = 1, softWrap = false) }
             }
         }
         tabState.SaveableStateProvider(tab) {
@@ -94,17 +102,14 @@ fun ComicArchiverAppRoot(
                     onStartExport = onStartExport,
                     onStopExport = onStopExport,
                 )
-                AppTab.SETTINGS -> SettingsScreen(
-                    theme = state.theme,
+                AppTab.SETTINGS -> SettingsPages(
+                    state = state,
                     onTheme = controller::setTheme,
-                    settings = state.settings,
-                    busy = state.settingsBusy,
-                    saving = state.download is DownloadState.Running ||
-                        state.download is DownloadState.Planning,
-                    notice = state.settingsNotice,
                     onWifiOnly = controller::setWifiOnly,
                     onSpeed = controller::setDownloadSpeed,
                     onRefresh = controller::refreshSettings,
+                    onCloudRefresh = controller::refreshCloud,
+                    onCloudAction = controller::cloudAction,
                 )
                 AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                     LimitationsScreen(modifier = Modifier.weight(1f))

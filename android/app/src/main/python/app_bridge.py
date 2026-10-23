@@ -29,7 +29,7 @@ VERSION = 1
 OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "worker_stop",
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
-                 "settings", "configure_settings", "file_catalog", "file_open"})
+                 "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -44,6 +44,14 @@ _seams = {"store": None, "cookie_source": None, "cookie_sink": None}
 _export_cache = {"root": None, "facts": None, "summary": None}
 _catalog_cache = {"root": None, "registry": None}
 _catalog_lock = threading.Lock()
+_cloud_cache = {"root": None, "controller": None}
+_cloud_lock = threading.Lock()
+
+
+def enable_android_cloud():
+    """Native bootstrap only: select in-process B2 without enabling any connection."""
+    from comic_archive.cloud_runtime import install_android
+    install_android()
 
 
 class _BridgeError(Exception):
@@ -140,7 +148,7 @@ def _prepare_workspace(args):
     root = _path_arg(args, "root")
 
     def build(ArchiveError):
-        from comic_archive import account_ui, worker_host
+        from comic_archive import account_ui, shared, worker_host
         from comic_archive.archive_paths import directory
         from comic_archive.state_paths import private_folder
         from comic_archive.workspace import Workspace
@@ -149,8 +157,10 @@ def _prepare_workspace(args):
         if worker_host.status(session)["running"]:
             raise ArchiveError("Stop the downloader before switching workspaces.")
         os.chdir(root)
+        shared.link(library, private_folder(root, "shared"))
         _workspace["root"] = root
         held = account_ui.reopen(Workspace(id="default", root=root), idle=True)
+        _cloud_controller(root)  # Recover held cloud tasks before any Go admission.
         return {"root": str(root), "library": str(library), "session": str(session),
                 "held": bool(held)}
 
@@ -207,6 +217,9 @@ def _account_ui_op(name):
                 from comic_archive import android_download
                 from comic_archive.locking import LibraryLock
                 with LibraryLock(workspace.session / ".account-ui"):
+                    cloud = _cloud_cache["controller"] if _cloud_cache["root"] == str(root) else None
+                    if cloud is not None and cloud.busy:
+                        raise ArchiveError("Finish the cloud activity before pressing Go.")
                     android_download.start(workspace)
                 return {}
             if name == "status":
@@ -382,6 +395,54 @@ def _file_open(args):
         return {"relpath": path.relative_to(root / "Library").as_posix(), "kind": kind}
 
     return _core(select)
+
+
+def _cloud_controller(root):
+    from comic_archive.android_cloud import AndroidCloud
+    with _cloud_lock:
+        if _cloud_cache["root"] != str(root) or _cloud_cache["controller"] is None:
+            previous = _cloud_cache["controller"]
+            if previous is not None:
+                previous.registry.cloud_signin.close()
+            _cloud_cache.update(root=str(root), controller=AndroidCloud(_catalog_registry(root)))
+        return _cloud_cache["controller"]
+
+
+def _cloud_status(args):
+    root = _path_arg(args, "root")
+    if set(args) != {"root"}:
+        raise _BridgeError("bad_request", "Choose supported cloud settings.")
+    return _core(lambda error: _cloud_controller(root).snapshot())
+
+
+def _cloud_action(args):
+    root = _path_arg(args, "root")
+    action = args.get("action")
+    if not isinstance(action, str) or action not in {"connect", "cancel", "test", "retry", "cleanup", "sharing", "destination", "resume"}:
+        raise _BridgeError("bad_request", "Choose a supported cloud action.")
+    required = {"root", "action"} | ({"credentials"} if action == "connect" else
+                                     {"value"} if action in {"cleanup", "sharing", "destination"} else set())
+    if set(args) != required or ("value" in args and not isinstance(args["value"], str)):
+        raise _BridgeError("bad_request", "Choose supported cloud settings.")
+    credentials = args.get("credentials")
+    if action == "connect":
+        if (not isinstance(credentials, dict) or set(credentials) != {"bucket", "key_id", "application_key"}
+                or any(not isinstance(value, str) or len(value) > 256 for value in credentials.values())):
+            raise _BridgeError("bad_request", "Enter the bucket name, keyID and applicationKey.")
+
+    def act(ArchiveError):
+        def prepare_worker():
+            result = _worker_start({"session_root": str(root / ".comic-session"),
+                                   "library_root": str(root / "Library"), "network_status_path": str(root / "net.json")})
+            if not result.get("running") or result.get("stop_requested"):
+                raise ArchiveError("The downloader is not ready for this cloud task. Try again.")
+        return _cloud_controller(root).act(action, credentials=credentials, value=args.get("value"),
+                                           start_worker=prepare_worker)
+    try:
+        return _core(act)
+    finally:
+        if isinstance(credentials, dict):
+            credentials.clear()
 
 
 def _enqueue_sync(args):
@@ -575,6 +636,8 @@ HANDLERS = {"ping": _ping,
             "configure_settings": _configure_settings,
             "file_catalog": _file_catalog,
             "file_open": _file_open,
+            "cloud_status": _cloud_status,
+            "cloud_action": _cloud_action,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,

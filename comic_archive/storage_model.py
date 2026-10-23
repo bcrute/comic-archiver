@@ -72,10 +72,13 @@ def b2_summary(s):
             f'Set up and checked: {bucket}. New episodes are uploaded to it as they are saved.{retry}')
 
 
-def can_import(s):
+def can_import(s, *, can_start_worker=False):
     """Whether a cloud task may start: signed in, the downloader idle and ready, nothing else running."""
     status = s.status or {}
-    return bool(status.get('session_configured') and (status.get('worker') or {}).get('reported_state') == 'ready'
+    ready = (status.get('worker') or {}).get('reported_state') == 'ready'
+    # Embedded runtimes may start their held worker on this explicit cloud action.
+    # They must await real readiness before submitting the task; desktop stays strict.
+    return bool(status.get('session_configured') and (ready or can_start_worker)
                 and (status.get('progress') or {}).get('status') != 'running'
                 and (s.account or {}).get('status') != 'running' and not s.busy and not s.task
                 and (s.cloud_auth or {}).get('status') != 'running')
@@ -177,7 +180,7 @@ def bucket_name(draft, saved, workspace_id):
     return draft if draft is not None else saved if saved else 'comic-library-' + workspace_id[:12]
 
 
-def b2(s, steps_open=False):
+def b2(s, steps_open=False, *, can_start_worker=False):
     """The Backblaze B2 settings: its state, what it costs, and the controls that set it up."""
     target = s.target() or {}
     value = s.cloud or {}
@@ -196,7 +199,7 @@ def b2(s, steps_open=False):
         if isinstance(code, str) and code in CLOUD_HINTS:
             repair += f' Test cleanup pending: {CLOUD_HINTS[code]} Local originals are retained.'
         cleanup.append({'test_id': record.get('test_id'), 'text': f"Retry {label(record.get('provider'))} test cleanup",
-                        'enabled': can_import(s)})
+                        'enabled': can_import(s, can_start_worker=can_start_worker)})
     connected = target.get('connected') is True
     # A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
     folded = connected and not steps_open
@@ -224,8 +227,8 @@ def b2(s, steps_open=False):
         'cancel_visible': signing_in, 'cancel_enabled': not s.busy,
         'auth': auth_text(s.cloud_auth),
         'repair': repair, 'cleanup': cleanup,
-        'retry_enabled': can_import(s) and any(t.get('enabled') for t in s.cloud_targets()),
-        'test_enabled': (can_import(s) and connected
+        'retry_enabled': can_import(s, can_start_worker=can_start_worker) and any(t.get('enabled') for t in s.cloud_targets()),
+        'test_enabled': (can_import(s, can_start_worker=can_start_worker) and connected
                          and not any(r.get('provider') == 'b2' for r in value.get('pending_test_cleanup') or [])),
     }
 

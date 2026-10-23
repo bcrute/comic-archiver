@@ -33,6 +33,8 @@ object PythonRuntime {
                 if (!seamsRegistered) {
                     Python.getInstance().getModule("app_bridge")
                         .callAttr("set_cookie_seams", cookieStore)
+                    Python.getInstance().getModule("app_bridge")
+                        .callAttr("enable_android_cloud")
                     seamsRegistered = true
                 }
             }

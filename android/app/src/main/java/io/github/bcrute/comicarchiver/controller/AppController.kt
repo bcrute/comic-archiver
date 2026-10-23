@@ -30,6 +30,8 @@ interface AppController {
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
     fun setTheme(value: AppTheme)
+    fun refreshCloud()
+    fun cloudAction(request: CloudRequest)
 
     fun requestExport(folderUri: String)
     fun cancelExport()
