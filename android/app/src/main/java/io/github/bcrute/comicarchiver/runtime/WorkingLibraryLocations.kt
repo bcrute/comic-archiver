@@ -109,6 +109,16 @@ internal class WorkingLibraryLocations(filesDir: File) {
         payload
     }
 
+    /** Captured documents/journals stay separate from the verifier's empty output payload. */
+    fun captureRoot(ticket: String): File = locked {
+        val pending = ticket(read(), ticket)
+        if (pending.digest != null) fail(WorkingLibraryFailure.NOT_READY)
+        val root = File(stageRoot(ticket), "capture")
+        safe(root)
+        mkdirs(root)
+        root
+    }
+
     /** The digest identifies the verified import snapshot, not every future change to the library. */
     fun verified(ticket: String, digest: String) = locked {
         if (!HASH.matches(digest)) fail(WorkingLibraryFailure.NOT_READY)
@@ -144,7 +154,7 @@ internal class WorkingLibraryLocations(filesDir: File) {
         }
         val location = WorkingLibraryLocation(pending.id, pending.label, pending.source)
         write(state.copy(libraries = state.libraries + location, pending = null))
-        // An empty staging directory is disposable; failing to remove it changes no result.
+        // Captured input is disposable after the verified payload commits. Cleanup cannot undo that commit.
         try { removeTree(stage) } catch (_: Exception) { }
         location
     }

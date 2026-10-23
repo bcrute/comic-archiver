@@ -65,6 +65,31 @@ class WorkingLibraryLocationsTest {
         assertEquals(1, cold.libraries().size)
     }
 
+    @Test fun capturedInputsStaySeparateAndOnlyTheirPendingPrivateStageIsDiscarded() {
+        val owner = temporary.newFolder("private")
+        val locations = WorkingLibraryLocations(owner)
+        val (pending, payloadFile) = staged(locations)
+        val payloadBytes = payloadFile.readBytes()
+        val capture = locations.captureRoot(pending.id)
+        assertFalse(capture.path.startsWith(locations.copyRoot(pending.id).path + File.separator))
+        val input = capture.resolve("workspace/Library/source.json")
+        input.parentFile!!.mkdirs(); input.writeText("private input")
+        assertEquals(capture, WorkingLibraryLocations(owner).captureRoot(pending.id))
+        locations.verified(pending.id, digest)
+        failure(WorkingLibraryFailure.NOT_READY) { locations.captureRoot(pending.id) }
+        val completed = locations.complete(pending.id)
+        assertFalse(capture.exists())
+        assertArrayEquals(payloadBytes, locations.root(completed.id).resolve("Library/series/finished.cbz").readBytes())
+        assertEquals(WorkingLibraryLocations.DEFAULT, locations.current().id)
+        val next = (locations.begin("Another source", source.copy(key = "c".repeat(64),
+            tree = "content://fixture.documents/tree/another")) as WorkingLibraryStart.Copy).pending
+        val nextCapture = locations.captureRoot(next.id)
+        nextCapture.resolve("private-input").writeText("cancelled")
+        locations.cancel(next.id)
+        assertFalse(nextCapture.exists())
+        assertTrue(locations.root(completed.id).isDirectory)
+    }
+
     @Test fun verificationAndCompletionMakeALibrarySelectableButDoNotSelectIt() {
         val owner = temporary.newFolder("private")
         val original = owner.resolve("workspace/Library/original.cbz")

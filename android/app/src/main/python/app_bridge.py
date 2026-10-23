@@ -196,6 +196,57 @@ def _ping(args):
     return {"python": platform.python_version(), "bridge_version": VERSION}
 
 
+def working_library_prepare(captured, payload, ticket, source_key, control, recover=False):
+    """Native IO-only entry, deliberately absent from JSON dispatch and provider JS.
+
+    This can take minutes and must not block the UI/fast command bridge. The
+    native coordinator supplies its reserved staging paths and cancellation
+    authority. No active workspace, session, browser or durable Go state changes.
+    """
+    import_error = None
+    try:
+        from dataclasses import asdict
+        import re
+        from comic_archive.working_library import (LibraryImportError, RECEIPT,
+                                                   prepare_snapshot, prepared_snapshot)
+        import_error = LibraryImportError
+        captured = _path_arg({'captured': captured}, 'captured')
+        payload = _path_arg({'payload': payload}, 'payload')
+        if (not isinstance(ticket, str) or not re.fullmatch(
+                r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}', ticket)
+                or not isinstance(source_key, str) or not re.fullmatch(r'[a-f0-9]{64}', source_key)
+                or type(recover) is not bool or not callable(getattr(control, 'isCancelled', None))):
+            raise _BridgeError('bad_request', 'The library copy request is unavailable.')
+        stage = payload.parent
+        if (payload.name != 'payload' or stage.name != ticket or stage.parent.name != '.staging'
+                or stage.parent.parent.name != 'working-libraries' or captured != stage / 'capture/workspace'):
+            raise _BridgeError('bad_request', 'Choose this pending library copy.')
+        with _workspace_lock:
+            active = _workspace['root']
+            if active is not None and (stage == active or stage in active.parents or active in stage.parents):
+                raise _BridgeError('refused', 'The active library cannot be replaced by a pending copy.')
+
+        def check():
+            if control.isCancelled():
+                raise LibraryImportError('cancelled')
+
+        check()
+        if recover and not (payload / RECEIPT).exists():
+            return _response(ok=True, result=None)
+        result = (prepared_snapshot(payload, check=check, ticket=ticket, source_key=source_key) if recover
+                  else prepare_snapshot(captured, payload, check=check))
+        check()
+        return _response(ok=True, result={'digest': result.digest, 'sites': [asdict(site) for site in result.sites]})
+    except _BridgeError as error:
+        return _response(ok=False, code=error.code, message=error.message)
+    except Exception as error:
+        # Keep cancellation typed, while raw Java/Python/filesystem errors stay private.
+        if import_error is not None and isinstance(error, import_error):
+            return _response(ok=False, code='library_import_' + error.code, message=str(error))
+        return _response(ok=False, code='library_import_invalid',
+                         message='The library copy could not be verified. The previous library is retained.')
+
+
 def _prepare_workspace(args):
     """Make the one workspace's folders, hold any saved download for Go, and set the cwd.
 
