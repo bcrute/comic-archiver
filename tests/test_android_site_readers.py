@@ -67,7 +67,7 @@ class NativeReaderTests(unittest.TestCase):
             root = Path(folder) / 'Library'
             with Inventory(root) as inventory:
                 inventory.observe('7', 'Sample Series', [], 'fixture')
-            native = reader('webtoon', NativeStore(sites.named('webtoon')), client=client, interval=0)
+            native = reader('webtoon', NativeStore(sites.named('webtoon')), client=client, interval=0.25)
             with native:
                 result = sync(native, root, refresh_lists=False)
             self.assertEqual(sorted(result['archived_episode_ids']), ['7000001', '7000002', '7000004'])
@@ -122,7 +122,7 @@ class NativeReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, httpx.Client(transport=httpx.MockTransport(request)) as client:
             root = Path(folder) / 'Library'
             store = ChapterStore(sites.named('tappytoon'))
-            native = reader('tappytoon', store, client=client, interval=0)
+            native = reader('tappytoon', store, client=client, interval=0.25)
             with native:
                 result = sync(native, root, categories=['unlocked'])
             self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
@@ -175,7 +175,7 @@ class NativeReaderTests(unittest.TestCase):
             # Use the real factory's guard through the same closed HTTP source.
             with httpx.Client(transport=httpx.MockTransport(request)) as client:
                 native = reader('webtoon', NativeStore(sites.named('webtoon')), client=client,
-                                network_guard=native.transport.network_guard, interval=0)
+                                network_guard=native.transport.network_guard, interval=0.25)
                 self.assertEqual(native.account_identity(), 'fixture-account')
                 facts.write_text(json.dumps({'connection': 'cellular', 'metered': True}))
                 with patch('comic_archive.network.time.monotonic', return_value=time.monotonic() + 2), \
@@ -238,8 +238,8 @@ class NativeReaderTests(unittest.TestCase):
         site = sites.named('webtoon')
         store = NativeStore(site)
         reference = WebtoonAdapter(transport=Transport(cookies=[browser_cookie('.webtoons.com')],
-            client=reference_client, site=site, interval=0))
-        native = reader('webtoon', store, client=native_client, interval=0)
+            client=reference_client, site=site, interval=0.25))
+        native = reader('webtoon', store, client=native_client, interval=0.25)
         self.addCleanup(reference.transport.close); self.addCleanup(native.transport.close)
         expected = reference.inspect_library(category='subscribed')
         actual = native.inspect_library(category='subscribed')
@@ -262,7 +262,7 @@ class NativeReaderTests(unittest.TestCase):
             requests.append(value)
             return httpx.Response(200, content=b'fixture-image')
         client = httpx.Client(transport=httpx.MockTransport(request))
-        native = reader('webtoon', store, client=client, interval=0)
+        native = reader('webtoon', store, client=client, interval=0.25)
         self.addCleanup(native.transport.close)
         self.assertEqual(native.transport.get('https://webtoon-phinf.pstatic.net/fixture.jpg'), b'fixture-image')
         self.assertEqual(store.asked, [])
@@ -285,8 +285,8 @@ class NativeReaderTests(unittest.TestCase):
         reference_client = httpx.Client(transport=httpx.MockTransport(request))
         native_client = httpx.Client(transport=httpx.MockTransport(request))
         reference = TappytoonAdapter(transport=Transport(cookies=[browser_cookie('.tappytoon.com')],
-            client=reference_client, site=site, interval=0))
-        native = reader('tappytoon', NativeStore(site), client=native_client, interval=0)
+            client=reference_client, site=site, interval=0.25))
+        native = reader('tappytoon', NativeStore(site), client=native_client, interval=0.25)
         self.addCleanup(reference.transport.close); self.addCleanup(native.transport.close)
         self.assertEqual(native.account_identity(), reference.account_identity())
         self.assertEqual(native.account_identity(), '321')

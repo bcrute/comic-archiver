@@ -33,7 +33,7 @@ class TransportLimitTests(unittest.TestCase):
                 headers={'set-cookie': 'sid=FIXTURE_ROTATED; Domain=tapas.io; Path=/; Secure'})
 
         with httpx.Client(transport=httpx.MockTransport(response)) as client:
-            transport = Transport(client=client, interval=0)
+            transport = Transport(client=client, interval=0.25)
             transport.get('https://tapas.io/first')  # No take_cookies: ignored.
             transport.get('https://tapas.io/second', take_cookies=True)
             transport.get('https://tapas.io/third')

@@ -116,7 +116,7 @@ class AndroidTransportTests(unittest.TestCase):
 
         with httpx.Client(transport=httpx.MockTransport(response)) as client:
             client.cookies.set('ambient', 'FIXTURE_OLD', domain='tapas.io')
-            transport = AndroidTransport(store, client=client, interval=0)
+            transport = AndroidTransport(store, client=client, interval=0.25)
             transport.get(url, take_cookies=True)
             self.assertEqual(len(client.cookies), 0)
             store.headers.clear()
