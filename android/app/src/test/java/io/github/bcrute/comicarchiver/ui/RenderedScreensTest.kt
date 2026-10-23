@@ -19,6 +19,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.CompositionLocalProvider
@@ -167,7 +170,7 @@ class RenderedScreensTest {
         show(ExportPhaseUi.FINISHED_WITH_FAILURES, start = { retries++ }); library()
         compose.onNodeWithText("Retry failed files").performScrollTo().performClick()
         assertEquals(1, retries)
-        compose.onNodeWithText("All files exported").assertDoesNotExist()
+        compose.onNodeWithText("Last export verified.").assertDoesNotExist()
     }
 
     @Test fun runningExportCanBeStopped() {
@@ -175,6 +178,17 @@ class RenderedScreensTest {
         show(ExportPhaseUi.RUNNING, stop = { stops++ }); library()
         compose.onNodeWithText("Stop export").performScrollTo().performClick()
         assertEquals(1, stops)
+    }
+
+    @Test fun aCompletedBatchCanExportNewFilesOrChangeFolderWithoutGo() {
+        var starts = 0; var picks = 0
+        show(ExportPhaseUi.ALL_VERIFIED, start = { starts++ }, pick = { picks++ }); library()
+        compose.onNodeWithText("Last export verified.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Export all").performScrollTo().performClick()
+        compose.onNodeWithText("Change export folder").performScrollTo().performClick()
+        assertEquals(1, starts)
+        assertEquals(1, picks)
+        assertEquals(0, controller.goCalls)
     }
 
     @Test fun settingsWriteExplicitPolicyAndPacingWithoutGo() {
@@ -278,13 +292,51 @@ class RenderedScreensTest {
     @Config(qualifiers = "w360dp-h640dp")
     fun largeTextFilesCanScrollPastTheControlsToOpen() {
         compose.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
                 MaterialTheme { SavedFilesScreen(catalogFixture(), { _, _ -> }, controller::openSavedFile) {} }
             }
         }
         compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Open"))
         compose.onNodeWithText("Open").assertIsDisplayed().performClick()
         assertEquals(listOf("a".repeat(64)), controller.openRequests)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun largeTextNavigationKeepsWordsWholeAndCanReachAbout() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                }
+            }
+        }
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Settings", useUnmergedTree = true).performScrollTo()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertTrue(layouts.isNotEmpty())
+        assertTrue(layouts.all { it.lineCount == 1 && !it.didOverflowWidth })
+        compose.onNodeWithText("About").performScrollTo().performClick()
+        compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun largeTextSeriesAndExportControlsRemainReachableOnAShortScreen() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                }
+            }
+        }
+        library()
+        compose.onNodeWithTag("series-library-list").performScrollToNode(hasText("Alpha Comic"))
+        compose.onNodeWithText("Alpha Comic").assertIsDisplayed()
+        compose.onNodeWithText("8 of 9 saved · CBZ").assertIsDisplayed()
+        compose.onNodeWithText("Choose export folder").performScrollTo().assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
     }
 
     @Test

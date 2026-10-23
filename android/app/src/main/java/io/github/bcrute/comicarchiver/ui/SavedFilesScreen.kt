@@ -79,7 +79,7 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                     Text("Loading saved files…")
                 }
                 state.error?.let { Text(it) }
-                state.feedback?.let { Text(it) }
+                if (state.feedbackFor == null) state.feedback?.let { Text(it) }
             }
         }
         item { exportPanel() }
@@ -87,7 +87,7 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
             item { Text(page.summary) }
             item { Text(page.range.ifBlank { page.notice }) }
             items(page.rows, key = { it.key }) { file ->
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth().testTag("saved-file-${file.key}")) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(file.series, style = MaterialTheme.typography.titleSmall)
                         Text(file.title)
@@ -98,6 +98,7 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                                 .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
                         }
                         file.openId?.let { id ->
+                            if (state.feedbackFor == id) state.feedback?.let { Text(it) }
                             Button(onClick = { onOpen(id) }, enabled = state.openingId == null) {
                                 Text(if (state.openingId == id) "Opening…" else "Open")
                             }

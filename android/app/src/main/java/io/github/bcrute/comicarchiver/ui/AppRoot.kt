@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -57,12 +57,12 @@ fun ComicArchiverAppRoot(
         if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
     Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab.ordinal) {
+        ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
             AppTab.entries.forEach { candidate ->
                 Tab(
                     selected = candidate == tab,
                     onClick = { tab = candidate },
-                    text = { Text(candidate.label) },
+                    text = { Text(candidate.label, maxLines = 1, softWrap = false) },
                 )
             }
         }

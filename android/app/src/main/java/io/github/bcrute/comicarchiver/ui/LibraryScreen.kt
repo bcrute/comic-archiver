@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 /**
@@ -92,68 +93,67 @@ private fun SeriesLibraryScreen(
             else -> filtered.sortedWith(byTitle)
         }
     }
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp).testTag("series-library-list"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Library", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it.take(200) },
-            label = { Text("Find saved series") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = if (query.isNotEmpty()) {
-                { TextButton(onClick = { query = "" }) { Text("Clear search") } }
-            } else null,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(listOf("All", "Comics", "Novels")) { choice ->
-                FilterChip(
-                    selected = format == choice,
-                    onClick = { format = choice },
-                    label = { Text(choice) },
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Library", style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.take(200) },
+                    label = { Text("Find saved series") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = if (query.isNotEmpty()) {
+                        { TextButton(onClick = { query = "" }) { Text("Clear search") } }
+                    } else null,
                 )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${matches.size} of ${series.size} series", Modifier.weight(1f))
-            Box {
-                TextButton(onClick = { sortOpen = true }) { Text("Sort: $sort") }
-                DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                    listOf("Title A–Z", "Title Z–A", "Most saved").forEach { choice ->
-                        DropdownMenuItem(
-                            text = { Text(choice) },
-                            onClick = { sort = choice; sortOpen = false },
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf("All", "Comics", "Novels")) { choice ->
+                        FilterChip(
+                            selected = format == choice,
+                            onClick = { format = choice },
+                            label = { Text(choice) },
                         )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${matches.size} of ${series.size} series", Modifier.weight(1f))
+                    Box {
+                        TextButton(onClick = { sortOpen = true }) { Text("Sort: $sort") }
+                        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                            listOf("Title A–Z", "Title Z–A", "Most saved").forEach { choice ->
+                                DropdownMenuItem(
+                                    text = { Text(choice) },
+                                    onClick = { sort = choice; sortOpen = false },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { ExportPanel(exportState, onPickFolder, onStartExport, onStopExport) }
-            if (series.isEmpty()) {
-                item {
-                    Text(
-                        "Nothing finished yet. Saved comics appear here as CBZ and novels as EPUB.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else if (matches.isEmpty()) {
-                item { Text("No saved series match these filters.") }
-            } else {
-                items(matches, key = { it.seriesId }) { item ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(item.title, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "${item.savedCount} of ${item.episodeCount} saved · ${item.formatLabel}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+        item { ExportPanel(exportState, onPickFolder, onStartExport, onStopExport) }
+        if (series.isEmpty()) {
+            item {
+                Text(
+                    "Nothing finished yet. Saved comics appear here as CBZ and novels as EPUB.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        } else if (matches.isEmpty()) {
+            item { Text("No saved series match these filters.") }
+        } else {
+            items(matches, key = { it.seriesId }) { item ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(item.title, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${item.savedCount} of ${item.episodeCount} saved · ${item.formatLabel}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
@@ -192,6 +192,7 @@ internal fun ExportPanel(
                 }
             }
             state.lastIssue?.let { NoticeCard(NoticeUi(it)) }
+            if (state.phase == ExportPhaseUi.ALL_VERIFIED) Text("Last export verified.")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (state.phase) {
                     ExportPhaseUi.NOT_PICKED, ExportPhaseUi.GRANT_LOST -> Button(
@@ -200,7 +201,7 @@ internal fun ExportPanel(
                     ) { Text("Choose export folder") }
 
                     ExportPhaseUi.READY, ExportPhaseUi.INTERRUPTED,
-                    ExportPhaseUi.FINISHED_WITH_FAILURES,
+                    ExportPhaseUi.FINISHED_WITH_FAILURES, ExportPhaseUi.ALL_VERIFIED,
                     -> Button(
                         onClick = onStartExport,
                         modifier = Modifier.weight(1f),
@@ -218,11 +219,12 @@ internal fun ExportPanel(
                         onClick = onStopExport,
                         modifier = Modifier.weight(1f),
                     ) { Text("Stop export") }
-
-                    ExportPhaseUi.ALL_VERIFIED -> OutlinedButton(
-                        onClick = onPickFolder,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("All files exported") }
+                }
+            }
+            if (state.phase in setOf(ExportPhaseUi.READY, ExportPhaseUi.INTERRUPTED,
+                    ExportPhaseUi.FINISHED_WITH_FAILURES, ExportPhaseUi.ALL_VERIFIED)) {
+                TextButton(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) {
+                    Text("Change export folder")
                 }
             }
         }

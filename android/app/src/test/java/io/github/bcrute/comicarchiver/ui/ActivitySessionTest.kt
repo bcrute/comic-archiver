@@ -14,6 +14,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.assert
 import io.github.bcrute.comicarchiver.App
 import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.controller.DownloadState
@@ -154,6 +158,23 @@ class ActivitySessionTest {
         compose.onNodeWithText("Dark").assertIsSelected()
         assertEquals(0, app.fake.count("go"))
         assertEquals(0, app.fake.count("configure_settings"))
+    }
+
+    @Test fun openingFailureIsShownBesideItsFileRatherThanAboveTheWholeCatalog() {
+        ready()
+        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithText("Files").performClick()
+        awaitState { app.controller.state.value.catalog.page != null }
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Open"))
+        compose.onNodeWithText("Open").performClick()
+        val message = "This file could not be opened. Refresh files and try again."
+        awaitState { app.controller.state.value.catalog.feedback == message &&
+            app.controller.state.value.catalog.openingId == null }
+        compose.onNodeWithText(message).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("saved-file-${"a".repeat(64)}")
+            .assert(hasAnyDescendant(hasText(message)) and hasAnyDescendant(hasText("Open")))
+        assertEquals(1, app.fake.count("file_open"))
+        assertEquals(0, app.fake.count("go"))
     }
 
     @Test fun failedCatalogRefreshShowsFailureRatherThanAnEmptyOrStaleResult() {

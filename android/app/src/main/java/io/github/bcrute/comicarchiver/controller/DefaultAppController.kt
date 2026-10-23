@@ -198,7 +198,7 @@ class DefaultAppController(
         if (prior.loading && prior.query == query && !refresh) return
         val version = ++catalogVersion
         _state.value = _state.value.copy(catalog = prior.copy(query = query, loading = true,
-            error = null, feedback = null))
+            error = null, feedback = null, feedbackFor = null))
         scope.launch(Dispatchers.IO) {
             val page = try {
                 FileCatalog.parse(bridge.dispatch("file_catalog", JSONObject().put("root", workspaceRoot)
@@ -219,7 +219,7 @@ class DefaultAppController(
     override fun openSavedFile(id: String) {
         if (_state.value.catalog.openingId != null) return
         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
-            feedback = "Opening in your device's reader…"))
+            feedback = "Opening in your device's reader…", feedbackFor = id))
         scope.launch(Dispatchers.IO) {
             val file = try {
                 val answer = JSONObject(bridge.dispatch("file_open", JSONObject().put("root", workspaceRoot)
@@ -235,7 +235,7 @@ class DefaultAppController(
                     else -> "This file could not be opened. Refresh files and try again."
                 }
                 _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
-                    openingId = null, feedback = feedback))
+                    openingId = null, feedback = feedback, feedbackFor = id))
             }
         }
     }

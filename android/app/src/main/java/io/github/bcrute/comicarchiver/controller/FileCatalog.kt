@@ -18,7 +18,8 @@ data class SavedFilePage(val rows: List<SavedFileItem>, val total: Int, val offs
                          val sorts: List<CatalogChoice>, val pageSizes: List<Int>)
 data class CatalogState(val query: CatalogQuery = CatalogQuery(), val page: SavedFilePage? = null,
                         val loading: Boolean = false, val error: String? = null,
-                        val openingId: String? = null, val feedback: String? = null)
+                        val openingId: String? = null, val feedback: String? = null,
+                        val feedbackFor: String? = null)
 
 object FileCatalog {
     fun parse(envelope: String): SavedFilePage {
