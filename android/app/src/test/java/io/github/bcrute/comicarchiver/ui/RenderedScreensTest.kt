@@ -1,7 +1,11 @@
 package io.github.bcrute.comicarchiver.ui
 
 import android.app.Application
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -23,7 +27,9 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +60,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /** Production Compose screens, with taps, input, layout and save/restore assertions.
  * Only the controller/export side effects are fake: no account, WebView, worker or
@@ -74,6 +81,16 @@ class RenderedScreensTest {
     }
 
     private fun library() = compose.onNode(hasText("Library") and hasClickAction()).performClick()
+
+    // Compose 1.7.5's String semantics rebuilds MultiParagraph with the parent's
+    // constraints, rather than the text's measured width. In a scrolling Row this
+    // makes didOverflowWidth compare against an unbounded synthetic paragraph.
+    // Check the complete, unellipsized line against the actual measured text box.
+    private fun fitsSingleLine(layout: TextLayoutResult): Boolean =
+        layout.lineCount == 1 && !layout.isLineEllipsized(0) &&
+            layout.getLineStart(0) == 0 &&
+            layout.getLineEnd(0, visibleEnd = true) == layout.layoutInput.text.length &&
+            layout.getLineLeft(0) >= 0f && layout.getLineRight(0) <= layout.size.width.toFloat()
 
     @Test fun goImmediatelyShowsStartingAndPauseActuallyPauses() {
         show()
@@ -304,6 +321,8 @@ class RenderedScreensTest {
 
     @Test
     @Config(qualifiers = "w360dp-h640dp")
+    // Legacy ShadowPaint measures character counts; overflow needs real font metrics.
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun largeTextNavigationKeepsWordsWholeAndCanReachAbout() {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
@@ -317,11 +336,40 @@ class RenderedScreensTest {
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue(layouts.isNotEmpty())
         assertTrue("Tab text layouts: " + layouts.joinToString { "lines=${it.lineCount}, " +
-            "overflow=${it.didOverflowWidth}, size=${it.size}, intrinsic=${it.multiParagraph.maxIntrinsicWidth}" },
-            layouts.all { it.lineCount == 1 && !it.didOverflowWidth })
+            "overflow=${it.didOverflowWidth}, size=${it.size}, paragraphWidth=${it.multiParagraph.width}, " +
+            "intrinsic=${it.multiParagraph.maxIntrinsicWidth}, constraints=${it.layoutInput.constraints}, " +
+            "lineBounds=${it.getLineLeft(0)}..${it.getLineRight(0)}, density=${it.layoutInput.density}" },
+            layouts.all(::fitsSingleLine))
         compose.onNodeWithText("About").performScrollTo().performClick()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun singleLineFitRejectsClippedAndWrappedLabels() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    Column {
+                        Text("Settings", Modifier.testTag("fit-natural"), maxLines = 1, softWrap = false)
+                        Text("Settings", Modifier.width(20.dp).testTag("fit-clipped"),
+                            maxLines = 1, softWrap = false)
+                        Text("Settings menu", Modifier.width(20.dp).testTag("fit-wrapped"))
+                    }
+                }
+            }
+        }
+        fun fits(tag: String): Boolean {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithTag(tag, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.size)
+            return fitsSingleLine(layouts.single())
+        }
+        assertTrue("A complete natural-width label fits", fits("fit-natural"))
+        assertTrue("A clipped label must fail the same fit check", !fits("fit-clipped"))
+        assertTrue("A wrapped label must fail the same fit check", !fits("fit-wrapped"))
     }
 
     @Test
