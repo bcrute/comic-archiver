@@ -153,6 +153,7 @@ tasks.matching { it.name.endsWith("PythonSources") }.configureEach {
 }
 
 dependencies {
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core)
     implementation(platform(libs.androidx.compose.bom))

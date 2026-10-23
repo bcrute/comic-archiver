@@ -10,9 +10,11 @@ composeBom = "2024.10.01"
 lifecycle = "2.8.7"
 coroutines = "1.9.0"
 junit = "4.13.2"
+webkit = "1.18.0"
 
 [libraries]
 androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }

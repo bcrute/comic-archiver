@@ -7,6 +7,7 @@ import android.webkit.CookieManager
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** The cookie store failed or is not ready; the message carries no URL, value or account detail. */
 class CookieSourceException(message: String) : Exception(message)
@@ -33,6 +34,8 @@ class CookieSourceException(message: String) : Exception(message)
 class WebViewCookieStore(
     private val cookieHosts: Set<String>,
     private val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    private val managerProvider: () -> CookieManager = CookieManager::getInstance,
+    private val clearProfile: (((Boolean) -> Unit) -> Unit)? = null,
 ) : CookieHeaderSource, SetCookieSink {
 
     private val main = Handler(Looper.getMainLooper())
@@ -64,9 +67,9 @@ class WebViewCookieStore(
     }
 
     /**
-     * Remove every cookie the store holds for this app, bounded in time. The WebView store
-     * keeps every site's cookies together, so a sign-out or a site switch clears all of it:
-     * OAuth and other-site state never survives. Must be called off the main thread; the
+     * Clear this store's browser profile, bounded in time. A supplied profile clearer owns
+     * its cookies and browsing data; it never touches another site's profile. Must be
+     * called off the main thread; the
      * main thread uses [clearAllAsync] so it never waits on its own callback.
      */
     fun clearAll(): Boolean {
@@ -76,32 +79,43 @@ class WebViewCookieStore(
         }
         val done = CountDownLatch(1)
         val cleared = AtomicReference(false)
-        if (!main.post {
-                try {
-                    val manager = store()
-                    manager.removeAllCookies { any -> cleared.set(any) }
-                    manager.flush()
-                } catch (_: Exception) {
-                    // Counted down below either way; the fixed outcome message stays safe.
-                } finally {
-                    done.countDown()
-                }
-            }
-        ) {
-            return false
+        clearAllAsync { success ->
+            cleared.set(success)
+            done.countDown()
         }
         return done.await(timeoutMs, TimeUnit.MILLISECONDS) && cleared.get()
     }
 
     /** Ask the store asynchronously and report on the main thread; the main thread never waits on itself. */
     fun clearAllAsync(onCleared: (Boolean) -> Unit) {
-        main.post {
-            try {
-                store().removeAllCookies { any -> store().flush(); onCleared(any) }
-            } catch (_: Exception) {
-                onCleared(false)
+        if (!main.post {
+            val completed = AtomicBoolean(false)
+            val deadline = Runnable {
+                if (completed.compareAndSet(false, true)) onCleared(false)
             }
-        }
+            fun finish(success: Boolean) {
+                if (completed.compareAndSet(false, true)) {
+                    main.removeCallbacks(deadline)
+                    onCleared(success)
+                }
+            }
+            main.postDelayed(deadline, timeoutMs)
+            try {
+                val profileClearer = clearProfile
+                if (profileClearer != null) profileClearer { success -> main.post { finish(success) } }
+                else {
+                    val manager = store()
+                    manager.removeAllCookies {
+                        try {
+                            manager.flush()
+                            finish(true) // Completion succeeds even if no cookies existed.
+                        } catch (_: Exception) { finish(false) }
+                    }
+                }
+            } catch (_: Exception) {
+                finish(false)
+            }
+        }) onCleared(false)
     }
 
     /** Whether the store holds any cookie for this URL; used for settle detection. No auth
@@ -173,7 +187,7 @@ class WebViewCookieStore(
     }
 
     private fun store(): CookieManager = try {
-        CookieManager.getInstance()
+        managerProvider()
     } catch (_: Exception) {
         // The WebView provider is not loaded yet; the app initializes it at start-up.
         throw CookieSourceException(UNREADY)
