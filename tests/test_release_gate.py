@@ -283,6 +283,19 @@ class AndroidReleaseGateTests(ReleaseGateTests):
             with self.subTest(signature=value), self.assertRaises(ValueError):
                 self.verify()
 
+    def test_accepts_modern_min_sdk_badging_and_refuses_ambiguous_or_missing_api_levels(self):
+        legacy = self.badging
+        self.badging = legacy.replace("sdkVersion:'24'", "minSdkVersion:'24'")
+        self.assertEqual(self.verify(), self.value)
+        modern = self.badging
+        for value in (modern + "sdkVersion:'24'\n", modern + "minSdkVersion:'25'\n",
+                      legacy + "minSdkVersion:'Preview'\n",
+                      modern.replace("minSdkVersion:'24'", "minSdkVersion:'Preview'"),
+                      modern.replace("targetSdkVersion:'36'\n", '')):
+            self.badging = value
+            with self.subTest(badging=value), self.assertRaises(ValueError):
+                self.verify()
+
     def test_requires_real_matrix_coverage_and_rejects_duplicate_or_failed_rows(self):
         original = copy.deepcopy(self.value)
         matrix = original['android']['device_matrix']

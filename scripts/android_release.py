@@ -67,11 +67,12 @@ def inspect_apk(path, build_tools):
         if len(matches) != 1 or (key == 'version_code' and not matches[0].isdigit()):
             raise ValueError('The APK has an invalid version or package identity.')
         identity[key] = int(matches[0]) if key == 'version_code' else matches[0]
-    for prefix, key in (('sdkVersion', 'min_sdk'), ('targetSdkVersion', 'target_sdk')):
-        matches = re.findall(r'^' + prefix + r":'([0-9]+)'$", badging, re.M)
-        if len(matches) != 1:
+    for prefix, key in (('(?:minSdkVersion|sdkVersion)', 'min_sdk'), ('targetSdkVersion', 'target_sdk')):
+        api_lines = [line for line in lines if re.match(r'^' + prefix + ':', line)]
+        match = re.fullmatch(prefix + r":'([0-9]+)'", api_lines[0]) if len(api_lines) == 1 else None
+        if match is None:
             raise ValueError('The APK must declare numeric supported API levels.')
-        identity[key] = int(matches[0])
+        identity[key] = int(match[1])
     native = [line for line in lines if line.startswith('native-code:')]
     if len(native) != 1 or not re.fullmatch(r"native-code:(?: '[a-z0-9_-]+')+\s*", native[0]):
         raise ValueError('The universal APK must declare its native ABIs.')
