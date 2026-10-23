@@ -149,3 +149,22 @@ class ConnectedSignalTests(unittest.TestCase):
         self.now += 1.001
         with self.assertRaises(SourceError):
             other.seal('candidate', candidate)
+
+
+    def test_actual_http_control_signature_is_public_metadata_and_resource_bound(self):
+        from jwcrypto import jwk, jws
+        body = dict(pairing_id=identifier(), session_id=identifier(), challenge=identifier())
+        wire = self.host.control_proof('https://reader.example', 'POST', '/api/connected-library/v1/pairings', body, 100000)
+        value = jws.JWS()
+        value.allowed_algs = ['ES256']
+        value.deserialize(wire)
+        value.verify(jwk.JWK(**self.host.public_bundle()['signing']), alg='ES256')
+        claims = json.loads(value.payload)
+        self.assertEqual(claims['body'], body)
+        self.assertEqual(claims['expires_at'], 120000)
+        self.assertEqual(claims['origin'], 'https://reader.example')
+        self.assertEqual(claims['protocol'], 'cl1.control/1')
+        self.assertNotIn('d', claims['host_keys']['signing'])
+        for origin in ['http://192.0.2.10', 'https://user:password@reader.example', 'https://reader.example/path']:
+            with self.assertRaises(SourceError):
+                self.host.control_proof(origin, 'POST', '/api/connected-library/v1/pairings', body, 100000)

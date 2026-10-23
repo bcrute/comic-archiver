@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from types import MappingProxyType
+from urllib.parse import urlsplit
 
 from jwcrypto import jwk, jwe, jws
 
@@ -143,6 +144,33 @@ class Identity:
 
     def public_bundle(self):
         return loads(dumps(self._public, 2048), 2048)
+
+    def control_proof(self, origin, method, path, body, now_ms):
+        """Sign public HTTP control metadata; never account or read authority.
+
+        Protected-state/local-approval callers must supply their actual current
+        ownership. No token, cookie, provider credential or comic body belongs here.
+        """
+        try:
+            parsed = urlsplit(origin)
+            require(parsed.scheme == 'https' or parsed.scheme == 'http' and parsed.hostname in {'localhost', '127.0.0.1', '::1'})
+            require(parsed.hostname and parsed.username is None and parsed.password is None and not parsed.query
+                    and not parsed.fragment and parsed.path in {'', '/'} and origin == origin.rstrip('/'))
+            require(method in {'GET', 'POST', 'DELETE'} and isinstance(path, str) and path.startswith('/api/connected-library/v1/')
+                    and '?' not in path and '#' not in path and len(path) <= 256 and isinstance(body, dict))
+            _integer(now_ms, 0, 2**53 - 1 - 20_000)
+            claims = dict(v=1, protocol='cl1.control/1', request_id=str(uuid.uuid4()), issued_at=now_ms,
+                          expires_at=now_ms + 20_000, origin=origin, method=method, path=path,
+                          host_keys=self.public_bundle(), body=body)
+            signed = jws.JWS(dumps(claims, 4096).encode('utf-8'))
+            signed.allowed_algs = ['ES256']
+            signed.add_signature(self._signing, alg='ES256',
+                                 protected={'alg':'ES256', 'typ':'cl1-control+jws', 'kid':self._signing.thumbprint()})
+            result = signed.serialize(compact=True)
+            require(len(result) <= 8192)
+            return result
+        except Exception:
+            raise SourceError('integrity_failed') from None
 
     def attest(self, challenge, role, now_ms):
         try:

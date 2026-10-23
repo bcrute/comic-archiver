@@ -209,3 +209,41 @@ class PairingOwner:
         _id(share_id)
         self._indices.pop(share_id, None)
         return self.state.remove_share(share_id)
+
+
+    def control_start(self, draft, origin):
+        require(self._live(draft) and draft._secret is not None, 'revoked')
+        proof = self.state.identity.control_proof(origin, 'POST', '/api/connected-library/v1/pairings',
+            dict(pairing_id=draft.pairing_id, session_id=draft.session_id, challenge=draft.challenge), int(self.wall() * 1000))
+        require(self._live(draft), 'revoked')
+        return proof
+
+    def control_status(self, pairing_id, origin):
+        self.current()
+        _id(pairing_id)
+        require(self._record(pairing_id) is not None, 'not_found')
+        proof = self.state.identity.control_proof(origin, 'GET', f'/api/connected-library/v1/pairings/{pairing_id}', {}, int(self.wall() * 1000))
+        self.current()
+        return proof
+
+    def control_approval(self, pairing_id, origin):
+        self.current()
+        _id(pairing_id)
+        row = self._record(pairing_id)
+        require(row is not None and row['status'] == 'approved' and row['generation'] == 0, 'revoked')
+        body = dict(pairing_id=pairing_id, account_binding=row['account_binding'], reader_keys=row['reader_keys'],
+                    approval_id=row['approval_id'], shares=row['shares'], generation=0)
+        proof = self.state.identity.control_proof(origin, 'POST', f'/api/connected-library/v1/pairings/{pairing_id}/approve', body, int(self.wall() * 1000))
+        self.current()
+        require(self._record(pairing_id) == row, 'revoked')
+        return proof
+
+    def control_revocation(self, pairing_id, origin):
+        self.current()
+        _id(pairing_id)
+        row = self._record(pairing_id)
+        require(row is not None and row['status'] == 'revoked', 'revoked')
+        proof = self.state.identity.control_proof(origin, 'POST', f'/api/connected-library/v1/pairings/{pairing_id}/revoke',
+                                                 dict(pairing_id=pairing_id), int(self.wall() * 1000))
+        self.current()
+        return proof

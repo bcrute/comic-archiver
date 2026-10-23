@@ -244,3 +244,28 @@ class ConnectedPairingTests(unittest.TestCase):
         self.assertEqual(observed, ['cancelled'])
         self.assertTrue(os.fstat(fd).st_size > 0)
         self.assertTrue(self.state.current())
+
+
+    def test_control_requests_follow_actual_pending_approved_and_revoked_store_state(self):
+        draft, reader, session, account, wire = self.candidate()
+        start = self.owner.control_start(draft, 'https://reader.example')
+        def claims(proof):
+            encoded = proof.split('.')[1]
+            return json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+        self.assertEqual(set(claims(start)['body']), {'pairing_id','session_id','challenge'})
+        self.assertNotIn('bootstrap_secret', json.dumps(claims(start)))
+        with self.assertRaises(SourceError):
+            self.owner.control_approval(draft.pairing_id, 'https://reader.example')
+        review = self.owner.receive(draft, account, reader.public_bundle(), wire)
+        session.open(self.owner.approve(review, [self.index]))
+        approved = claims(self.owner.control_approval(draft.pairing_id, 'https://reader.example'))
+        self.assertEqual(approved['body']['approval_id'], review.approval_id)
+        self.assertEqual(approved['body']['account_binding'], account)
+        self.assertEqual(approved['body']['shares'], [self.index.share_id])
+        self.reopen()
+        self.assertEqual(claims(self.owner.control_approval(draft.pairing_id, 'https://reader.example'))['body'], approved['body'])
+        self.owner.revoke(draft.pairing_id)
+        with self.assertRaises(SourceError):
+            self.owner.control_approval(draft.pairing_id, 'https://reader.example')
+        revoked = claims(self.owner.control_revocation(draft.pairing_id, 'https://reader.example'))
+        self.assertEqual(revoked['body'], {'pairing_id':draft.pairing_id})
