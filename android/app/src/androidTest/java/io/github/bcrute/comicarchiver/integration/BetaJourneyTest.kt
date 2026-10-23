@@ -137,6 +137,9 @@ class BetaJourneyTest {
 
     @Test fun prepareTransferAndWaitForHostStop() {
         FixtureSafety.requireEmulator()
+        // The existing native gate executes this required browser boundary too;
+        // merely compiling BrowserSurfaceTest is not isolation/viewport evidence.
+        BrowserSurfaceTest().readingWindowHasAViewportAndPageScriptsCannotReachItsCommandWorld()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             await("cold signed-out startup") { !app.controller.state.value.siteBusy &&
                 app.controller.state.value.signIn == SignInState.SignedOut }
