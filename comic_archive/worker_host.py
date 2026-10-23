@@ -19,7 +19,7 @@ from .state_paths import SESSION_NAME
 _thread = {"value": None}
 
 
-def android_adapter_factory(cookie_source, cookie_sink=None):
+def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas'):
     """One adapter per worker start, on the engine line's AndroidTapasAdapter.
 
     The full worker surface — the fail-closed who-am-i admission, library discovery and
@@ -33,9 +33,13 @@ def android_adapter_factory(cookie_source, cookie_sink=None):
     if callable(cookie_source) and cookie_sink is not None and not callable(cookie_sink):
         raise ArchiveError("The WebView cookie seams must be callables supplied by the app.")
 
+    from . import sites
+    if not isinstance(site_key, str) or sites.find(site_key) is None:
+        raise ArchiveError("Choose a supported site before starting the worker.")
+
     def build():
-        from .android_adapter import AndroidTapasAdapter
-        return AndroidTapasAdapter(cookie_source=cookie_source, cookie_sink=cookie_sink)
+        from .android_readers import reader
+        return reader(site_key, cookie_source, cookie_sink)
 
     return build
 
