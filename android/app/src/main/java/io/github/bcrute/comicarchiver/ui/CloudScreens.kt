@@ -183,13 +183,13 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             OutlinedTextField(value = keyId, onValueChange = { keyId = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("keyID") }, enabled = state.canConnect && !busy,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
-                    autoCorrect = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+                    autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = applicationKey,
                 onValueChange = { applicationKey = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("applicationKey") }, enabled = state.canConnect && !busy,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
-                    autoCorrect = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             Button(enabled = state.canConnect && !busy && bucket.length in 6..63 &&
                 keyId.length in 8..256 && applicationKey.length in 8..256, onClick = {
