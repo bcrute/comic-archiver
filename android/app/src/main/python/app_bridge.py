@@ -31,7 +31,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
-                 "signin_attempt", "signin_commit"})
+                 "signin_attempt", "signin_commit", "portable_catalog"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -512,8 +512,8 @@ def _catalog_registry(root):
         return _catalog_cache["registry"]
 
 
-def _file_catalog(args):
-    root = _path_arg(args, "root")
+def _catalog_options(args):
+    from comic_archive import saved_library
     options = args.get("options", {})
     if not isinstance(options, dict) or set(options) - {"query", "location", "kind", "sort", "offset", "limit", "refresh"}:
         raise _BridgeError("bad_request", "Choose supported saved-file filters.")
@@ -524,26 +524,54 @@ def _file_catalog(args):
             raise _BridgeError("bad_request", "Choose supported saved-file filters.")
         values["q" if name == "query" else name] = ("1" if value else "0") if expected is bool else value
 
+    return saved_library.options(urlencode({"kind": "episodes"} | values))
+
+
+def _catalog_projection(result, checked, *, portable=False):
+    from comic_archive import library_model
+    from datetime import datetime
+    displayed = library_model.rows(result, False)
+    for raw, row in zip(result["files"], displayed, strict=True):
+        try:
+            row["saved_epoch"] = datetime.fromisoformat(raw["saved_at"]).timestamp() if raw["saved_at"] else None
+        except (ValueError, TypeError):
+            row["saved_epoch"] = None
+        row["row_id"] = raw.get("id")
+    notice = library_model.notice(result).replace("Use Dashboard to start.", "Use Saving to start.")
+    if portable and not result["file_count"]:
+        notice = "No CBZ, EPUB or portable library files were found. Choose a Library folder or exported series folder."
+    return {"rows": displayed, "total": result["total"], "offset": result["offset"], "limit": result["limit"],
+            "summary": library_model.summary(result, False), "range": library_model.range_text(result),
+            "notice": notice, "locations": library_model.places(result, False, checked["location"]),
+            "kinds": [{"key": key, "label": label} for key, label in library_model.KINDS],
+            "sorts": [{"key": key, "label": label} for key, label in library_model.SORTS],
+            "page_sizes": list(library_model.PAGE_SIZES)}
+
+
+def _file_catalog(args):
+    root = _path_arg(args, "root")
+
     def listing(ArchiveError):
-        from comic_archive import library_model, saved_library
         from comic_archive.local_library import LOCAL_OWNER
-        from datetime import datetime
-        checked = saved_library.options(urlencode({"kind": "episodes"} | values))
+        checked = _catalog_options(args)
         registry = _catalog_registry(root)
         result = registry.saved_files(LOCAL_OWNER, registry.workspace_id, **checked)
-        displayed = library_model.rows(result, False)
-        for raw, row in zip(result["files"], displayed, strict=True):
-            try:
-                row["saved_epoch"] = datetime.fromisoformat(raw["saved_at"]).timestamp() if raw["saved_at"] else None
-            except (ValueError, TypeError):
-                row["saved_epoch"] = None
-            row["row_id"] = raw.get("id")
-        return {"rows": displayed, "total": result["total"], "offset": result["offset"], "limit": result["limit"],
-                "summary": library_model.summary(result, False), "range": library_model.range_text(result),
-                "notice": library_model.notice(result).replace("Use Dashboard to start.", "Use Saving to start."), "locations": library_model.places(result, False, checked["location"]),
-                "kinds": [{"key": key, "label": label} for key, label in library_model.KINDS],
-                "sorts": [{"key": key, "label": label} for key, label in library_model.SORTS],
-                "page_sizes": list(library_model.PAGE_SIZES)}
+        return _catalog_projection(result, checked)
+
+    return _core(listing)
+
+
+def _portable_catalog(args):
+    manifest_path = _path_arg(args, "manifest_path")
+
+    def listing(ArchiveError):
+        from comic_archive import portable_catalog, saved_library
+        checked = _catalog_options(args)
+        manifest = saved_library.metadata(manifest_path, portable_catalog.MAX_MANIFEST_BYTES)
+        if manifest is None:
+            raise ArchiveError("The folder catalog is unavailable. Refresh files or choose the folder again.")
+        result = portable_catalog.page(manifest, **{key: value for key, value in checked.items() if key != "refresh"})
+        return _catalog_projection(result, checked, portable=True)
 
     return _core(listing)
 
@@ -819,6 +847,7 @@ HANDLERS = {"ping": _ping,
             "settings": _in_active_workspace(_settings),
             "configure_settings": _in_active_workspace(_configure_settings),
             "file_catalog": _file_catalog,
+            "portable_catalog": _portable_catalog,
             "file_open": _file_open,
             "cloud_status": _in_active_workspace(_cloud_status),
             "cloud_action": _in_active_workspace(_cloud_action),

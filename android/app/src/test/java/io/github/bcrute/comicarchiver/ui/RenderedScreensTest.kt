@@ -82,6 +82,23 @@ class RenderedScreensTest {
 
     private fun library() = compose.onNode(hasText("Library") and hasClickAction()).performClick()
 
+    @Test fun signedOutLibraryCanOpenAFolderWithoutStartingSavingOrChangingExport() {
+        controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut)
+        var folder = 0; var load = 0; var export = 0
+        compose.setContent {
+            MaterialTheme { ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED),
+                { export++ }, {}, {}, onOpenFolder = { folder++ }, onFolderLoad = { load++ }) }
+        }
+        library()
+        compose.onNodeWithText("Folder").performScrollTo().performClick()
+        compose.onNodeWithText("Open library folder").performScrollTo().performClick()
+        assertEquals(1, folder)
+        assertEquals(1, load)
+        assertEquals(0, export)
+        assertEquals(0, controller.goCalls)
+        assertTrue(controller.catalogRequests.isEmpty())
+    }
+
     // Compose 1.7.5's String semantics rebuilds MultiParagraph with the parent's
     // constraints, rather than the text's measured width. In a scrolling Row this
     // makes didOverflowWidth compare against an unbounded synthetic paragraph.

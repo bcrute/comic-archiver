@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.controller.CatalogQuery
+import io.github.bcrute.comicarchiver.library.FolderLibraryState
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -54,6 +56,9 @@ fun ComicArchiverAppRoot(
     onPickFolder: () -> Unit,
     onStartExport: () -> Unit,
     onStopExport: () -> Unit,
+    folderState: FolderLibraryState = FolderLibraryState(),
+    onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
+    onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
@@ -129,6 +134,8 @@ fun ComicArchiverAppRoot(
                     onPickFolder = onPickFolder,
                     onStartExport = onStartExport,
                     onStopExport = onStopExport,
+                    folderState = folderState, onFolderLoad = onFolderLoad, onOpenFolder = onOpenFolder,
+                    onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
                 )
                 AppTab.SETTINGS -> SettingsPages(
                     state = state,

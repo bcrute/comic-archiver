@@ -227,23 +227,34 @@ class Catalog:
     def page(self, workspace, local, *, location='all', query='', kind='all', sort='saved_desc', offset=0, limit=50,
              summary=False, refresh=False):
         value = self.snapshot(workspace, local, refresh)
-        if location not in {'all', *(g['id'] for g in value['locations'])}:
-            raise ArchiveError('Choose an available storage location.')
-        result = {k:value[k] for k in ('locations','episode_count','file_count','updated_at')}
-        if summary:
-            return result
-        needle = query.casefold()
-        rows = [r for r in value['rows'] if (location == 'all' or r['location'] == location)
-                and (kind == 'all' or kind == 'episodes' and r['kind'] in {'cbz','epub','tar.zst'}
-                     or kind == 'metadata' and r['kind'] in {'episode_metadata','series_metadata'}
-                     or kind == 'covers' and r['kind'] == 'cover')
-                and (not needle or needle in (' '.join((r['series'],r['title'],r['filename']))).casefold())]
-        if sort == 'series':
-            # Within a series, its own files first, then episodes in their order: Episode 2 before Episode 10.
-            rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold(), r['filename'], r['location']))
-        else:
-            rows.sort(key=lambda r:(r['saved_at'] or '', r['series'], r['filename'], r['location']), reverse=sort == 'saved_desc')
-        total = len(rows)
-        offset = min(offset, ((total-1)//limit)*limit if total else 0)
-        files = [{k:v for k,v in r.items() if k != 'order'} for r in rows[offset:offset+limit]]
-        return result | {'files':files, 'total':total, 'offset':offset, 'limit':limit}
+        return page_snapshot(value, location=location, query=query, kind=kind, sort=sort,
+                             offset=offset, limit=limit, summary=summary)
+
+
+def page_snapshot(value, *, location='all', query='', kind='all', sort='saved_desc', offset=0, limit=50,
+                  summary=False):
+    """One catalog's presentation rules, shared by filesystem and Android document facts.
+
+    Collectors own their storage and authority. This function never reads files or
+    treats a content URI as a filesystem path.
+    """
+    if location not in {'all', *(g['id'] for g in value['locations'])}:
+        raise ArchiveError('Choose an available storage location.')
+    result = {k:value[k] for k in ('locations','episode_count','file_count','updated_at')}
+    if summary:
+        return result
+    needle = query.casefold()
+    rows = [r for r in value['rows'] if (location == 'all' or r['location'] == location)
+            and (kind == 'all' or kind == 'episodes' and r['kind'] in {'cbz','epub','tar.zst'}
+                 or kind == 'metadata' and r['kind'] in {'episode_metadata','series_metadata'}
+                 or kind == 'covers' and r['kind'] == 'cover')
+            and (not needle or needle in (' '.join((r['series'],r['title'],r['filename']))).casefold())]
+    if sort == 'series':
+        # Within a series, its own files first, then episodes in their order: Episode 2 before Episode 10.
+        rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold(), r['filename'], r['location']))
+    else:
+        rows.sort(key=lambda r:(r['saved_at'] or '', r['series'], r['filename'], r['location']), reverse=sort == 'saved_desc')
+    total = len(rows)
+    offset = min(offset, ((total-1)//limit)*limit if total else 0)
+    files = [{k:v for k,v in r.items() if k != 'order'} for r in rows[offset:offset+limit]]
+    return result | {'files':files, 'total':total, 'offset':offset, 'limit':limit}

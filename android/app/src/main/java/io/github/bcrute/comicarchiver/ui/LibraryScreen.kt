@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import io.github.bcrute.comicarchiver.library.FolderLibraryState
 
 /**
  * Library plus the batch-export panel. The list renders what the controller reports as
@@ -48,17 +49,22 @@ fun LibraryScreen(
     catalog: CatalogState = CatalogState(),
     onCatalogQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> },
     onOpenFile: (String) -> Unit = {},
+    folderState: FolderLibraryState = FolderLibraryState(),
+    onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
+    onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
     LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Series", "Files").forEach { choice ->
+        LazyRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(listOf("Series", "Files", "Folder")) { choice ->
                 FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
             }
         }
         Box(Modifier.weight(1f)) {
             if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport)
+            else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
+                onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport)
             }

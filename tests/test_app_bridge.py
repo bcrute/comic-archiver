@@ -13,6 +13,40 @@ app_bridge = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_bridge)
 
 
+class PortableCatalogBridgeTests(unittest.TestCase):
+    def test_portable_catalog_works_signed_out_without_creating_a_workspace_or_starting_a_worker(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'catalog.json'
+            path.write_text(json.dumps({'v': 1, 'folders': [{'name': 'Exported series', 'files': [
+                {'key': 'a' * 64, 'name': 'One.epub', 'bytes': 100, 'modified': None}]}]}))
+            before = path.read_bytes()
+            with patch.object(app_bridge, '_catalog_registry', side_effect=AssertionError('No working library')):
+                value = json.loads(app_bridge.dispatch(json.dumps({'v': 1, 'op': 'portable_catalog',
+                    'args': {'manifest_path': str(path), 'options': {'kind': 'episodes'}}})))
+            self.assertTrue(value['ok'])
+            row = value['result']['rows'][0]
+            self.assertEqual(row['open'], 'a' * 64)
+            self.assertEqual(row['type'], 'Novel')
+            self.assertEqual(row['storage'], 'Opened folder')
+            self.assertIsNone(row['saved_epoch'])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ['catalog.json'])
+
+    def test_missing_malformed_or_private_manifest_never_becomes_an_empty_success(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'catalog.json'
+            for body in [None, '[]', '{"cookies":"PRIVATE"}', '{"v":1,"folders":"bad"}']:
+                if body is not None:
+                    path.write_text(body)
+                value = json.loads(app_bridge.dispatch(json.dumps({'v': 1, 'op': 'portable_catalog',
+                    'args': {'manifest_path': str(path)}})))
+                self.assertFalse(value['ok'])
+                self.assertNotIn('PRIVATE', json.dumps(value))
+
+
 class BridgeEnvelopeTests(unittest.TestCase):
     def call(self, request):
         return json.loads(app_bridge.dispatch(request))

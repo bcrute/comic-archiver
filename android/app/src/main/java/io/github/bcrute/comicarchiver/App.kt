@@ -38,6 +38,7 @@ open class App : Application() {
     open val bridge: PythonBridge by lazy { ChaquopyBridge() }
 
     private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    internal val openedLibrary by lazy { io.github.bcrute.comicarchiver.library.OpenedLibrary(this, bridge, processScope) }
     private val sitePreferences by lazy { getSharedPreferences("comicarchiver_sites", MODE_PRIVATE) }
     private val profiles by lazy { SiteBrowserProfiles(signInSites) }
     private val probes = mutableMapOf<String, SignInProbe>()

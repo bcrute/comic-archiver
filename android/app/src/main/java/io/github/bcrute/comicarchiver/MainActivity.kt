@@ -112,6 +112,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val panel by exports.panel.collectAsState()
+                val openedLibrary = remember { app.openedLibrary }
+                val folderState by openedLibrary.state.collectAsState()
+                val openLibraryFolder = rememberLauncherForActivityResult(
+                    io.github.bcrute.comicarchiver.library.ReadOnlyLibraryTree(),
+                ) { uri -> if (uri != null) openedLibrary.select(uri) }
                 val pickFolder = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocumentTree(),
                 ) { uri ->
@@ -132,6 +137,12 @@ class MainActivity : ComponentActivity() {
                         ComicArchiverAppRoot(
                             controller = controller,
                             exportState = panel,
+                            folderState = folderState,
+                            onFolderLoad = openedLibrary::ensureLoaded,
+                            onOpenFolder = { openLibraryFolder.launch(null) },
+                            onCloseFolder = openedLibrary::close,
+                            onFolderQuery = openedLibrary::load,
+                            onOpenFolderFile = openedLibrary::open,
                             onPickFolder = {
                                 if (!controller.state.value.siteBusy && controller.state.value.site == appState.site) {
                                     pickerSite = appState.site
