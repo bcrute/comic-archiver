@@ -12,8 +12,7 @@ import time
 import uuid
 from urllib.parse import urlsplit
 
-from websockets.asyncio.client import connect
-from websockets.asyncio.connection import ClientConnection
+from websockets.asyncio.client import ClientConnection, connect
 from websockets.protocol import State
 
 from .files import SourceError
