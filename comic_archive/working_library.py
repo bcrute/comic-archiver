@@ -363,7 +363,7 @@ def _receipt_records(root, inputs, public, archive, library_id, check):
                     or value.get('remote_root') != cloud.CLOUD_ROOT
                     or type(value.get('eviction_requested', False)) is not bool
                     or any(item.get('name') != name or item.get('path') != p.relative_to(root).as_posix()
-                           for item, name, p in zip(files, names, expected_paths))):
+                           for item, name, p in zip(files, names, expected_paths, strict=True))):
                 raise LibraryImportError()
             original = inputs.get(archive.relative_to(root).as_posix())
             if original and files[0]['sha256'] != original['sha256']:
