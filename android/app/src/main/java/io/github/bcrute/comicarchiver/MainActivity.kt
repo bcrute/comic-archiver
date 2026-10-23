@@ -198,6 +198,11 @@ class MainActivity : ComponentActivity() {
         releaseSignInSurface()
         val surface = (applicationContext as App).createSignInSurface(this, site)
         try {
+            // AndroidView's addView otherwise supplies WRAP_CONTENT. Chromium then
+            // forces percentage layout height to zero even inside a measured Compose
+            // box, blanking sites whose html/body fill 100% of the viewport.
+            surface.layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             surfaceSite = site
             signInWebView = surface
             (controller as DefaultAppController).attachSignInWebView(surface, site)

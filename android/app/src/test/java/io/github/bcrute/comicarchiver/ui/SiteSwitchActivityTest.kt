@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver.ui
 import android.content.Context
 import android.os.Looper
 import android.webkit.WebView
+import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
@@ -178,6 +179,25 @@ class SiteSwitchActivityTest {
         assertEquals(SignInState.SignedOut, app.controller.state.value.signIn)
     }
 
+    @Test fun signInGetsAFixedBrowserViewportAfterInitialMountAndActivityRecreation() {
+        ready()
+        fun startAndInspect(): WebView {
+            compose.runOnIdle { app.controller.startSignIn() }
+            await { app.controller.state.value.signIn is SignInState.Page &&
+                app.surfaces.lastOrNull()?.let { it.isAttachedToWindow && it.width > 0 && it.height > 0 } == true }
+            return app.surfaces.last().also { surface ->
+                assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.height)
+                assertEquals((surface.parent as ViewGroup).height, surface.height)
+            }
+        }
+        val first = startAndInspect()
+        compose.activityRule.scenario.recreate()
+        val replacement = startAndInspect()
+        assertNotSame(first, replacement)
+        assertEquals(0, app.wire.count("go"))
+    }
+
     @Test fun aFailedRecordForgetRemainsRetryableAfterTheBrowserProfileIsAlreadyClear() {
         ready()
         app.wire.refuseForget = true
@@ -213,6 +233,7 @@ open class SwitchTestApp : App() {
     val wire = SwitchBridge()
     var failClear = false
     val clearCalls = java.util.concurrent.atomic.AtomicInteger()
+    val surfaces = CopyOnWriteArrayList<WebView>()
     override val bridge: PythonBridge get() = wire
     override val signInSites get() = WebViewSignInEngine.BETA_SITES + mapOf(
         "webtoon" to SiteAddress("https://www.webtoons.com", "/member/login", setOf("www.webtoons.com"),
@@ -228,7 +249,7 @@ open class SwitchTestApp : App() {
     override fun cookieStoreForSite(key: String): WebViewCookieStore =
         stores.getOrPut(key) { WebViewCookieStore(signInSites.getValue(key).cookieHosts,
             clearProfile = { done -> clearCalls.incrementAndGet(); done(!failClear) }) }
-    override fun createSignInSurface(context: Context, key: String) = WebView(context)
+    override fun createSignInSurface(context: Context, key: String) = WebView(context).also { surfaces.add(it) }
 }
 
 class OfflineSwitchTestApp : SwitchTestApp() {
