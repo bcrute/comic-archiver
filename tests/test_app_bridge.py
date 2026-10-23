@@ -233,6 +233,40 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(value["ok"], value)
         self.assertFalse(value["result"]["signed_in"])
 
+    def test_provider_restore_uses_its_recorded_identity_and_never_starts_work(self):
+        from unittest.mock import patch
+        from comic_archive import android_session, sites, worker_host
+        def source(url):
+            return "sid=FIXTURE_SESSION"
+        app_bridge.set_cookie_seams(source)
+        verified = {"signed_in": True, "verified": True, "reason": None}
+        for key in ("webtoon", "tappytoon"):
+            site = sites.named(key)
+            root = sites.folder(self.root, site)
+            session = root / ".comic-session"
+            android_session.mark_signed_in(session, site=site)
+            (root / "net.json").write_text('{"connection":"wifi","metered":false}')
+            with self.subTest(key=key), patch("comic_archive.android_readers.signed_in_probe",
+                                             return_value=verified) as probe:
+                value = self.call("signin_restore", {"session_root": str(session)})
+            self.assertTrue(value["ok"], value)
+            self.assertEqual(value["result"], verified)
+            probe.assert_called_once_with(key, source, None)
+            self.assertEqual(android_session.signed_in_site(session), site)
+            self.assertFalse(worker_host.status(session)["running"])
+            self.assertFalse((session / "worker/account-export.json").exists())
+
+    def test_probe_refuses_unknown_site_before_verification_or_a_record_write(self):
+        from unittest.mock import patch
+        session = self.root / ".comic-session"
+        app_bridge.set_cookie_seams(lambda url: "sid=FIXTURE_SESSION")
+        with patch("comic_archive.android_readers.signed_in_probe") as probe:
+            value = self.call("signin_probe", {"session_root": str(session), "site_key": "unknown"})
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "refused")
+        self.assertFalse((session / "android.json").exists())
+        probe.assert_not_called()
+
     def test_automatic_restore_honors_metered_choice_before_any_account_request(self):
         from unittest.mock import patch
         from comic_archive import android_session

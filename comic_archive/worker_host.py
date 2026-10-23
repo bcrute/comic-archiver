@@ -20,7 +20,7 @@ _thread = {"value": None}
 
 
 def android_adapter_factory(cookie_source, cookie_sink=None, *, site_key='tapas'):
-    """One adapter per worker start, on the engine line's AndroidTapasAdapter.
+    """One shared reader per worker start, with an explicitly selected site's live store.
 
     The full worker surface — the fail-closed who-am-i admission, library discovery and
     prefetch — over one canonical transport. The app's store object itself takes the

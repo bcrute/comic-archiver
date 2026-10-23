@@ -10,7 +10,7 @@ import httpx
 
 from comic_archive import sites, worker_host
 from comic_archive.adapters.webtoon import WebtoonAdapter
-from comic_archive.android_readers import reader
+from comic_archive.android_readers import reader, signed_in_probe
 from comic_archive.models import ArchiveError
 from comic_archive.transport import Transport
 from test_webtoon import HOME, USER_INFO, SUBSCRIPTIONS, series_pages, subscriptions_page, subscription, who
@@ -39,6 +39,40 @@ def browser_cookie(domain):
 
 
 class NativeReaderTests(unittest.TestCase):
+    def test_probe_requires_provider_identity_even_with_a_live_cookie(self):
+        site = sites.named('webtoon')
+        for payload, expected in ((who('fixture-account'), None), (who(), 'not_signed_in'),
+                                  (b'not the account response', 'unavailable')):
+            calls = []
+
+            def request(value):
+                self.assertEqual(str(value.url), USER_INFO)
+                self.assertEqual(value.headers.get('Cookie'), 'sid=FIXTURE_SESSION')
+                calls.append(str(value.url))
+                return httpx.Response(200, content=payload)
+
+            with self.subTest(expected=expected), httpx.Client(transport=httpx.MockTransport(request)) as client:
+                answer = signed_in_probe('webtoon', NativeStore(site), client=client)
+            self.assertEqual(answer, {'signed_in': expected is None, 'verified': expected is None,
+                                      'reason': expected})
+            self.assertEqual(calls, [USER_INFO])
+            self.assertNotIn('fixture-account', str(answer))
+
+    def test_tappytoon_probe_verifies_the_existing_desktop_account_fixture(self):
+        from comic_archive.adapters.tappytoon import KEY_PAGE
+        calls = []
+
+        def request(value):
+            self.assertEqual(str(value.url), KEY_PAGE)
+            calls.append(str(value.url))
+            return httpx.Response(200, content=page_data(account=321))
+
+        with httpx.Client(transport=httpx.MockTransport(request)) as client:
+            answer = signed_in_probe('tappytoon', NativeStore(sites.named('tappytoon')), client=client)
+        self.assertEqual(answer, {'signed_in': True, 'verified': True, 'reason': None})
+        self.assertEqual(calls, [KEY_PAGE])
+        self.assertNotIn('321', str(answer))
+
     def webtoon_wire(self):
         listing = HOME + '/en/fantasy/sample-series/list?title_no=7'
         pages = series_pages() | {USER_INFO: who('fixture-account'),

@@ -240,12 +240,18 @@ def _signin_probe(args):
 
     def probe(ArchiveError):
         source, sink = _cookie_seams()
-        from comic_archive import android_adapter, android_session
-        answer = android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink)
+        from comic_archive import android_adapter, android_readers, android_session, sites
+        key = args.get("site_key", sites.DEFAULT.key)
+        site = sites.find(key) if isinstance(key, str) else None
+        if site is None:
+            raise ArchiveError("Choose a supported site before signing in.")
+        answer = (android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink)
+                  if site == sites.DEFAULT else
+                  android_readers.signed_in_probe(site.key, source, sink))
         if answer["signed_in"]:
             # Written only after the verified answer; the compatibility state is empty on
             # purpose — no cookie ever leaves the store.
-            android_session.mark_signed_in(session, compatibility_state=True)
+            android_session.mark_signed_in(session, site=site, compatibility_state=True)
         return answer
 
     return _core(probe)
@@ -273,19 +279,18 @@ def _signin_restore(args):
     session = _path_arg(args, "session_root")
 
     def saved(ArchiveError):
-        from comic_archive import android_session, sites
+        from comic_archive import android_session
         site = android_session.signed_in_site(session)
-        if site is not None and site.key != sites.DEFAULT.key:
-            raise ArchiveError("This app cannot restore that site's sign-in yet.")
-        return site is not None
+        return site.key if site is not None else None
 
-    if not _core(saved):
+    site_key = _core(saved)
+    if site_key is None:
         return {"signed_in": False, "verified": False, "reason": "no_saved_session"}
     # Restore is automatic, unlike opening the site's sign-in page explicitly. Honor
     # the same stored connection choice before making its account request.
     if not _core(lambda error: _settings_value(session.parent))["allowed"]:
         return {"signed_in": False, "verified": False, "reason": "network_held"}
-    return _signin_probe(args)
+    return _signin_probe(args | {"site_key": site_key})
 
 
 def _settings_value(root):

@@ -8,6 +8,7 @@ from . import sites
 from .android_adapter import AndroidTapasAdapter
 from .android_transport import ANDROID_TAPAS, AndroidTransport
 from .models import ArchiveError
+from .errors import AuthenticationError
 from .transport import Transport
 
 
@@ -33,3 +34,23 @@ def reader(site_key, cookie_source, cookie_sink=None, *, client=None, interval=1
         return WebtoonAdapter(transport=transport)
     from .adapters.tappytoon import TappytoonAdapter
     return TappytoonAdapter(transport=transport)
+
+
+def signed_in_probe(site_key, cookie_source, cookie_sink=None, *, client=None, network_guard=None):
+    """Verify the site's own identity without returning or persisting that identity.
+
+    Native profile/workspace admission still belongs to the caller. A cookie,
+    public page or reader constructor alone never authenticates an account.
+    """
+    try:
+        adapter = reader(site_key, cookie_source, cookie_sink, client=client,
+                         network_guard=network_guard)
+        try:
+            adapter.account_identity()
+        finally:
+            adapter.transport.close()
+        return {'signed_in': True, 'verified': True, 'reason': None}
+    except AuthenticationError:
+        return {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'}
+    except ArchiveError:
+        return {'signed_in': False, 'verified': False, 'reason': 'unavailable'}

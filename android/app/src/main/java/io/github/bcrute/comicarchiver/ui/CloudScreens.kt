@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,6 +32,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppState
 import io.github.bcrute.comicarchiver.controller.AppTheme
@@ -178,10 +182,14 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             Text("4. Paste the two key values. They stay on this device.")
             OutlinedTextField(value = keyId, onValueChange = { keyId = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("keyID") }, enabled = state.canConnect && !busy,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
+                    autoCorrect = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = applicationKey,
                 onValueChange = { applicationKey = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("applicationKey") }, enabled = state.canConnect && !busy,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
+                    autoCorrect = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             Button(enabled = state.canConnect && !busy && bucket.length in 6..63 &&
                 keyId.length in 8..256 && applicationKey.length in 8..256, onClick = {
