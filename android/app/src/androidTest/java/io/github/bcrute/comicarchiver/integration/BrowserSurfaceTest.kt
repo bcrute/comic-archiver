@@ -86,6 +86,9 @@ class BrowserSurfaceTest {
             val retained = json("""(() => { globalThis.readerValue = 42;
                 return JSON.stringify({value:globalThis.readerValue}); })()""")
             assertEquals(42, retained.getInt("value"))
+            // Arming a Next click must retain the current document for its
+            // visibility/position/guard reads until navigation actually begins.
+            instrumentation.runOnMainSync { scripts.prepareNavigation() }
             assertEquals(42, json("JSON.stringify({value:globalThis.readerValue})").getInt("value"))
         } finally {
             instrumentation.runOnMainSync {

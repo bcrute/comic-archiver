@@ -38,6 +38,18 @@ class SiteBrowserProfile internal constructor(val key: String, address: SiteAddr
     val cookies = WebViewCookieStore(address.cookieHosts,
         managerProvider = { if (profileName == null) CookieManager.getInstance() else named.cookieManager },
         clearProfile = ::clear)
+    private val canonicalReaderCookies by lazy {
+        check(key == "tapas") { "Choose the Tapas reading profile." }
+        WebViewCookieStore(setOf("tapas.io"),
+            managerProvider = { if (profileName == null) CookieManager.getInstance() else named.cookieManager },
+            clearProfile = ::clear)
+    }
+
+    /** Canonical browser metadata/assets use the same store, with their exact own-origin grant. */
+    fun readingCookies(): WebViewCookieStore {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        return canonicalReaderCookies
+    }
 
     /** This must be the first operation on a newly constructed WebView. */
     fun bind(webView: WebView) {

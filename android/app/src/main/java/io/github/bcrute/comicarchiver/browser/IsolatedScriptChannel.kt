@@ -75,7 +75,9 @@ internal class IsolatedScriptChannel(
     fun prepareNavigation() {
         requireMain()
         if (closed) throw ScriptRequestException(ScriptFailure.CLOSED)
-        navigationStarted()
+        // Keep the current document usable while a guarded pointer click is
+        // aimed. Its outstanding reads are invalidated when navigation actually
+        // starts; only the next document receives this new bootstrap nonce.
         try {
             script?.remove()
             script = null

@@ -109,6 +109,9 @@ class FastWorkerSession:
     def __exit__(self, kind, problem, trace):
         self.close(problem)
 
+    def _open_adapter(self):
+        return FastImportAdapter(self.session, self.preferred_browser, headless=self.headless)
+
     @contextmanager
     def batch(self):
         # An ordinary login/session import or another browser's capture must
@@ -122,7 +125,7 @@ class FastWorkerSession:
             if changed:
                 self.close()
         if self.adapter is None:
-            candidate = FastImportAdapter(self.session, self.preferred_browser, headless=self.headless)
+            candidate = self._open_adapter()
             candidate.__enter__()
             self.adapter = candidate
         self.adapter.begin_batch()
