@@ -83,6 +83,8 @@ class PortableFolderTest {
         assertEquals(listOf("Valid.epub"), result.documents.values.map { it.name })
         assertTrue(result.manifest.getJSONArray("folders").getJSONObject(0).getJSONArray("files")
             .getJSONObject(0).isNull("bytes"))
+        docs.rootDocument = docs.rootDocument.copy(flags = Document.FLAG_PARTIAL)
+        assertThrows(IllegalStateException::class.java) { PortableFolderScanner(docs).scan(tree) }
     }
 
     @Test fun repeatedOrAmbiguousDocumentIdentitiesAndRevokedGrantsFailBeforeAnEmptyCatalogCanBeClaimed() {

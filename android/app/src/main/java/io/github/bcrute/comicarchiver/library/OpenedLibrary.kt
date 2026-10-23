@@ -38,6 +38,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
     @Volatile private var tree: Uri? = preferences.getString("tree", null)?.let(Uri::parse)
     private var selection = 0L
     private var request = 0L
+    private var pickerGeneration = UUID.randomUUID().toString()
     private data class Cached(val tree: Uri, val value: PortableSnapshot, val file: File, val time: Long)
     @Volatile private var cached: Cached? = null
     private var pending: Job? = null
@@ -52,7 +53,11 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
 
     fun ensureLoaded() { if (tree != null && _state.value.catalog.page == null && !_state.value.catalog.loading) load() }
 
-    fun select(uri: Uri) {
+    fun pickerTicket(): String = pickerGeneration
+
+    fun select(uri: Uri, ticket: String? = null) {
+        if (ticket != null && ticket != pickerGeneration) return
+        pickerGeneration = UUID.randomUUID().toString()
         val chosen = ++selection
         val query = CatalogQuery()
         val prior = _state.value
@@ -143,6 +148,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
 
     fun close() {
         selection++; request++
+        pickerGeneration = UUID.randomUUID().toString()
         pending?.cancel(); pending = null
         tree = null; cached?.file?.delete(); cached = null
         preferences.edit().clear().apply()

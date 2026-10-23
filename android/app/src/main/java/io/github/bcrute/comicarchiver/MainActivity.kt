@@ -114,9 +114,14 @@ class MainActivity : ComponentActivity() {
                 val panel by exports.panel.collectAsState()
                 val openedLibrary = remember { app.openedLibrary }
                 val folderState by openedLibrary.state.collectAsState()
+                var folderPickerTicket by rememberSaveable { mutableStateOf<String?>(null) }
                 val openLibraryFolder = rememberLauncherForActivityResult(
                     io.github.bcrute.comicarchiver.library.ReadOnlyLibraryTree(),
-                ) { uri -> if (uri != null) openedLibrary.select(uri) }
+                ) { uri ->
+                    val ticket = folderPickerTicket
+                    folderPickerTicket = null
+                    if (uri != null && ticket != null) openedLibrary.select(uri, ticket)
+                }
                 val pickFolder = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocumentTree(),
                 ) { uri ->
@@ -139,7 +144,10 @@ class MainActivity : ComponentActivity() {
                             exportState = panel,
                             folderState = folderState,
                             onFolderLoad = openedLibrary::ensureLoaded,
-                            onOpenFolder = { openLibraryFolder.launch(null) },
+                            onOpenFolder = {
+                                folderPickerTicket = openedLibrary.pickerTicket()
+                                openLibraryFolder.launch(null)
+                            },
                             onCloseFolder = openedLibrary::close,
                             onFolderQuery = openedLibrary::load,
                             onOpenFolderFile = openedLibrary::open,

@@ -108,6 +108,7 @@ class OpenedLibraryTest {
         docs.beforeRoot = { entered.countDown(); check(release.await(10, TimeUnit.SECONDS)) }
         val runtime = runtime(); runtime.select(tree)
         assertTrue(entered.await(5, TimeUnit.SECONDS))
+        val oldTicket = runtime.pickerTicket()
         runtime.close(); release.countDown()
         await { !runtime.state.value.choosing }
         shadowOf(Looper.getMainLooper()).idle()
@@ -115,6 +116,8 @@ class OpenedLibraryTest {
         assertNull(runtime.state.value.catalog.page)
         assertNull(context.getSharedPreferences("comicarchiver_opened_library", 0).getString("tree", null))
         assertTrue(operations.isEmpty())
+        runtime.select(tree, oldTicket)
+        assertFalse(runtime.state.value.selected)
     }
 
     @Test fun onlyAnOfferedUnchangedDocumentCanBeOpenedAndMissingFilesGetFeedback() {

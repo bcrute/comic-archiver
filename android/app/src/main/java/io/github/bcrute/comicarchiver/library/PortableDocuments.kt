@@ -135,6 +135,7 @@ internal class PortableFolderScanner(private val documents: PortableDocuments) {
     fun scan(tree: Uri, checkActive: () -> Unit = {}): PortableSnapshot {
         check(documents.readable(tree))
         val picked = documents.root(tree)
+        check(picked.directory && !picked.partial) { "Selected folder is incomplete" }
         fun safe(name: String) = name.isNotBlank() && name.length <= 500 && !name.startsWith('.') &&
             name.none { it == '/' || it == '\\' || it.code < 32 }
         fun archive(name: String) = listOf(".cbz", ".epub", ".tar.zst").firstOrNull { name.endsWith(it) }
