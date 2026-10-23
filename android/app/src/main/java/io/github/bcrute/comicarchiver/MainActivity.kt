@@ -222,8 +222,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun surfaceUnavailable() {
-        controller.openNotice(Notice(BetaCodes.WORKER_OFFLINE,
-            "The sign-in page could not be opened. Update Android System WebView and try sign-in again."))
+        val notice = Notice(BetaCodes.JOB_FAILED,
+            "The sign-in page could not be opened. Update Android System WebView and try sign-in again.")
+        // Creation and the initial Compose effect may both observe the same failure.
+        // Only a user acknowledgement should toggle an existing notice away.
+        if (controller.state.value.notice != notice) controller.openNotice(notice)
     }
 
 }

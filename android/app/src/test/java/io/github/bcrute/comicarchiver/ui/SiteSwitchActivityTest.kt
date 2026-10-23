@@ -139,6 +139,20 @@ class SiteSwitchActivityTest {
         assertFalse(app.controller.state.value.signIn is SignInState.SignedIn)
         assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
     }
+
+    @Test
+    @Config(application = SurfaceFailureTestApp::class)
+    fun repeatedSurfaceFailureKeepsItsNoticeAndANewSignInCanRecover() {
+        await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
+        compose.onNodeWithText("The sign-in page could not be opened. Update Android System WebView and try sign-in again.")
+            .assertIsDisplayed()
+        compose.onNodeWithText("Press Go to start it again.").assertDoesNotExist()
+        compose.runOnIdle { (app as SurfaceFailureTestApp).failSurface = false }
+        compose.onNodeWithText("Sign in to Tapas").performClick()
+        await { app.controller.state.value.signIn is SignInState.Page }
+        assertNull(app.controller.state.value.notice)
+        assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
+    }
 }
 
 open class SwitchTestApp : App() {
@@ -168,6 +182,14 @@ class OfflineSwitchTestApp : SwitchTestApp() {
     }
     override fun createSignInSurface(context: Context, key: String): WebView {
         check(key == "tapas") { "Synthetic missing profile capability" }
+        return super.createSignInSurface(context, key)
+    }
+}
+
+class SurfaceFailureTestApp : SwitchTestApp() {
+    var failSurface = true
+    override fun createSignInSurface(context: Context, key: String): WebView {
+        check(!failSurface) { "Synthetic unavailable browser surface" }
         return super.createSignInSurface(context, key)
     }
 }

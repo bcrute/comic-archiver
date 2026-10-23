@@ -225,7 +225,7 @@ class DefaultAppController(
             return
         }
         try { surfaceFactory?.invoke(location.key) } catch (_: Exception) {
-            _state.value = _state.value.copy(notice = Notice(BetaCodes.WORKER_OFFLINE,
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
                 "The sign-in page could not be opened. Update Android System WebView and try again."))
             return
         }
@@ -235,8 +235,15 @@ class DefaultAppController(
                 notice = Notice(BetaCodes.UNSUPPORTED_SITE,
                                 "This app cannot sign in to that site yet."))
             webView == null -> _state.value = _state.value.copy(
-                notice = Notice(BetaCodes.WORKER_OFFLINE, "The sign-in page is not showing yet."))
-            else -> engine.startSignIn(webView)
+                notice = Notice(BetaCodes.JOB_FAILED, "The sign-in page is not showing yet. Try sign-in again."))
+            else -> try {
+                engine.startSignIn(webView)
+                _state.value = _state.value.copy(notice = null)
+            } catch (_: Exception) {
+                engine.cancelSignIn()
+                _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                    "The sign-in page could not be opened. Update Android System WebView and try again."))
+            }
         }
     }
 
