@@ -396,7 +396,8 @@ class SafBatchExporter(
     ): ExportSummary {
         val failures = ArrayList<JournalEntry>()
         for (entry in entries) {
-            val previous = journal.find(entry, activeTarget)
+            // Root access failed, so no legacy URI's membership was verified.
+            val previous = journal.find(entry, activeTarget)?.takeIf { it.targetTreeUri == activeTarget }
             val recorded = journalEntry(
                 entry,
                 SafeName.of(entry.filename, fallbackName(entry)),

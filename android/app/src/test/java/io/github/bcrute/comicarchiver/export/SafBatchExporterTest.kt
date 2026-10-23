@@ -460,4 +460,20 @@ class SafBatchExporterTest {
         assertEquals(1, documents.createdNames.size)
         assertEquals(target.treeUriString, legacy.load().get("ep1")!!.targetTreeUri)
     }
+
+    @Test fun `choosing another tree before legacy adoption preserves the original copy history`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        source.originals["ep1"] = bytes
+        val entries = listOf(entry("ep1", bytes))
+        exporter().exportBatch(target, entries)
+        val original = store.load().get("ep1")!!
+        val legacy = MemJournalStore()
+        legacy.save(ExportJournal.of(listOf(original.copy(targetTreeUri = null))))
+        val other = SafExportTarget("content://fake/another-tree")
+        assertEquals(1, exporter(legacy).exportBatch(other, entries).verified)
+        assertEquals(1, exporter(legacy).exportBatch(target, entries).alreadyVerified)
+        assertEquals(2, documents.createdNames.size)
+        assertEquals(original.targetUri, legacy.load().find(entries.single(), target.treeUriString)!!.targetUri)
+        assertEquals(2, legacy.load().all().size)
+    }
 }

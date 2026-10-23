@@ -72,7 +72,13 @@ class ExportJournal private constructor(private val entries: LinkedHashMap<List<
     fun all(): List<JournalEntry> = entries.values.toList()
 
     fun record(entry: JournalEntry) {
-        if (entry.targetTreeUri != null) entries.remove(key(entry.copy(targetTreeUri = null)))
+        if (entry.targetTreeUri != null) {
+            val legacyKey = key(entry.copy(targetTreeUri = null))
+            val legacy = entries[legacyKey]
+            // A first export into another tree must not retire a still-usable v1
+            // copy. Adopt only the same document, or a legacy line with no copy.
+            if (legacy?.targetUri == null || legacy.targetUri == entry.targetUri) entries.remove(legacyKey)
+        }
         entries[key(entry)] = entry
     }
 
