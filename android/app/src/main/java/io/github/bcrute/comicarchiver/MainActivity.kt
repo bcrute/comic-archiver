@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver
 
+import android.Manifest
 import android.os.Bundle
 import android.os.Build
 import android.util.Log
@@ -21,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.viewinterop.AndroidView
 import com.chaquo.python.Python
 import io.github.bcrute.comicarchiver.controller.AppController
@@ -38,6 +42,8 @@ import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
 import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
+import io.github.bcrute.comicarchiver.worker.DownloadNotifications
+import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 
 /**
  * The app's one activity (UI/export line): mounts the Compose root over the real
@@ -94,6 +100,23 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appState by controller.state.collectAsState()
+            val notifications = remember { DownloadNotifications(this@MainActivity) }
+            var notificationAccess by remember { mutableStateOf(notifications.access()) }
+            var notificationError by remember { mutableStateOf<String?>(null) }
+            val requestNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+                notificationAccess = notifications.access()
+                notificationError = null
+            }
+            DisposableEffect(this@MainActivity) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        notificationAccess = notifications.access()
+                        notificationError = null
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
             val exports = remember(appState.libraryId, appState.site, appState.workspaceReady) { app.exportsFor(appState.site, appState.libraryId) }
             LaunchedEffect(appState.libraryId, appState.site) {
                 try { replaceSignInSurface(appState.site) } catch (_: Exception) { surfaceUnavailable() }
@@ -157,6 +180,25 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
                         ComicArchiverAppRoot(
                             controller = controller,
+                            notificationAccess = notificationAccess,
+                            notificationError = notificationError,
+                            onNotificationAccess = {
+                                notificationError = null
+                                when (notificationAccess) {
+                                    DownloadNotificationAccess.ASK_PERMISSION -> {
+                                        notifications.recordRequest()
+                                        try { requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                                        catch (_: RuntimeException) {
+                                            notificationAccess = DownloadNotificationAccess.SETTINGS
+                                            notificationError = "Android could not open the permission prompt. Use notification settings."
+                                        }
+                                    }
+                                    DownloadNotificationAccess.SETTINGS -> if (!notifications.openSettings()) {
+                                        notificationError = "Android could not open notification settings. Open this app's settings from your device settings."
+                                    }
+                                    DownloadNotificationAccess.ENABLED -> Unit
+                                }
+                            },
                             exportState = panel,
                             folderState = folderState,
                             onFolderLoad = openedLibrary::ensureLoaded,

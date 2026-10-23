@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import io.github.bcrute.comicarchiver.controller.AppTheme
+import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.controller.CatalogChoice
 import io.github.bcrute.comicarchiver.controller.CatalogState
@@ -66,6 +67,7 @@ import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
+import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -97,6 +99,61 @@ class RenderedScreensTest {
     }
 
     private fun library() = compose.onNode(hasText("Library") and hasClickAction()).performClick()
+
+    @Test fun notificationAccessAndSettingsReturnNeverAdmitSaving() {
+        val access = mutableStateOf(DownloadNotificationAccess.ASK_PERMISSION)
+        var requests = 0
+        compose.setContent { MaterialTheme {
+            ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {},
+                notificationAccess = access.value, onNotificationAccess = {
+                    requests++
+                    access.value = if (requests == 1) DownloadNotificationAccess.SETTINGS else DownloadNotificationAccess.ENABLED
+                })
+        } }
+        compose.onNodeWithText("Allow download notifications").performScrollTo().performClick()
+        assertEquals(1, requests)
+        assertEquals(0, controller.goCalls)
+        compose.onNodeWithText("Go").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(1, controller.goCalls)
+        compose.onNodeWithText("Notification settings").performScrollTo().performClick()
+        assertEquals(2, requests)
+        compose.onNodeWithText("Notification settings").assertDoesNotExist()
+        compose.onNodeWithText("Allow download notifications").assertDoesNotExist()
+        assertEquals(1, controller.goCalls)
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun blockedNotificationSettingsRemainReachableAtDoubleTextSize() {
+        var requests = 0
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {},
+                        notificationAccess = DownloadNotificationAccess.SETTINGS,
+                        notificationError = "Open this app's settings from your device settings.",
+                        onNotificationAccess = { requests++ })
+                }
+            }
+        }
+        compose.onNodeWithText("Notification settings").performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(1, requests)
+        assertEquals(0, controller.goCalls)
+        compose.onNodeWithText("Go").performScrollTo().assertIsEnabled()
+    }
+
+    @Test fun aRecordedNetworkHoldDoesNotClaimTheReconnectedRouteIsMeteredOrAutoResume() {
+        controller.state.value = controller.state.value.copy(
+            download = DownloadState.Paused(BetaCodes.METERED_HOLD),
+            settings = controller.state.value.settings?.copy(connection = "wifi", metered = false, allowed = true))
+        show()
+        compose.onNodeWithText("Saving was held by your network setting. Check your connection and metered-data choice in Settings, then press Go.")
+            .assertIsDisplayed()
+        compose.onNodeWithText("Go").assertIsEnabled()
+        compose.onNodeWithText("Pause").assertIsNotEnabled()
+        assertEquals(0, controller.goCalls)
+    }
 
     @Test fun signedOutLibraryCanOpenAFolderWithoutStartingSavingOrChangingExport() {
         controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut)

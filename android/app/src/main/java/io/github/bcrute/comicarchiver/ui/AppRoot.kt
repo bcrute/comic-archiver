@@ -37,6 +37,7 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
+import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -66,6 +67,9 @@ fun ComicArchiverAppRoot(
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
     workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
     workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
+    notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
+    notificationError: String? = null,
+    onNotificationAccess: () -> Unit = {},
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
@@ -138,6 +142,9 @@ fun ComicArchiverAppRoot(
                             state = state.toDownloadsScreenUi(),
                             onGo = controller::go,
                             onPause = controller::pause,
+                            notificationAccess = notificationAccess,
+                            notificationError = notificationError,
+                            onNotificationAccess = onNotificationAccess,
                             onDismissNotice = state.notice?.let { notice ->
                                 { controller.openNotice(notice) }
                             },

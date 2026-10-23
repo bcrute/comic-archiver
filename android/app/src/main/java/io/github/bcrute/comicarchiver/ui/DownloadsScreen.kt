@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 
 /**
  * Go/Pause and progress. Renders [DownloadsScreenUi], derived from the controller's
@@ -33,6 +34,9 @@ fun DownloadsScreen(
     onGo: () -> Unit,
     onPause: () -> Unit,
     onDismissNotice: (() -> Unit)? = null,
+    notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
+    notificationError: String? = null,
+    onNotificationAccess: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -65,6 +69,18 @@ fun DownloadsScreen(
                 modifier = Modifier.weight(1f),
             ) { Text("Pause") }
         }
+        if (notificationAccess != DownloadNotificationAccess.ENABLED) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Download notifications are off. Enable them for the background saving notice and its Stop action. Go and Pause still work here.")
+                    notificationError?.let { Text(it) }
+                    OutlinedButton(onClick = onNotificationAccess, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (notificationAccess == DownloadNotificationAccess.ASK_PERMISSION)
+                            "Allow download notifications" else "Notification settings")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -75,7 +91,7 @@ private fun PhaseBanner(download: DownloadsViewUi) {
             HoldReasonUi.NOT_STARTED -> "Nothing downloads until you press Go."
             HoldReasonUi.PAUSED_BY_USER -> "Paused. Press Go to continue."
             HoldReasonUi.METERED_OR_UNKNOWN_NETWORK ->
-                "Held: this network may be metered. Saving waits for an unmetered connection."
+                "Saving was held by your network setting. Check your connection and metered-data choice in Settings, then press Go."
             HoldReasonUi.CONNECTION_UNVERIFIED ->
                 "Held: the connection could not be verified. Press Go to try again."
             HoldReasonUi.FAILED -> "Stopped. Press Go to try again."

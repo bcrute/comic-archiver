@@ -1,5 +1,10 @@
 package io.github.bcrute.comicarchiver.ui
 
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.provider.Settings
 import android.os.Looper
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
@@ -7,6 +12,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -28,6 +34,8 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,6 +71,58 @@ class ActivitySessionTest {
     private fun ready() {
         awaitState { app.controller.state.value.signIn is SignInState.SignedIn &&
             app.controller.state.value.library.isNotEmpty() && app.controller.state.value.settings != null }
+    }
+
+    private fun notificationPermissionIsOff() {
+        ready()
+        compose.runOnIdle {
+            shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            shadowOf(compose.activity.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(true)
+            compose.activity.getSharedPreferences("comicarchiver_notifications", Context.MODE_PRIVATE)
+                .edit().clear().commit()
+        }
+        compose.activityRule.scenario.recreate()
+        ready()
+    }
+
+    @Test fun notificationGrantAndRecreationDoNotStartAWorkerOrAdmitGo() {
+        notificationPermissionIsOff()
+        assertNull(shadowOf(compose.activity).lastRequestedPermission)
+        compose.onNodeWithText("Allow download notifications").performScrollTo().performClick()
+        val request = requireNotNull(shadowOf(compose.activity).lastRequestedPermission)
+        assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS), request.requestedPermissions)
+        compose.runOnIdle {
+            shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                intArrayOf(PackageManager.PERMISSION_GRANTED))
+        }
+        compose.onNodeWithText("Allow download notifications").assertDoesNotExist()
+        compose.activityRule.scenario.recreate()
+        ready()
+        compose.onNodeWithText("Allow download notifications").assertDoesNotExist()
+        assertEquals(DownloadState.Held, app.controller.state.value.download)
+        assertEquals(0, app.fake.count("worker_start"))
+        assertEquals(0, app.fake.count("go"))
+    }
+
+    @Test fun deniedNotificationPermissionOffersSettingsAndResumeOnlyRefreshesAccess() {
+        notificationPermissionIsOff()
+        compose.onNodeWithText("Allow download notifications").performScrollTo().performClick()
+        val request = requireNotNull(shadowOf(compose.activity).lastRequestedPermission)
+        compose.runOnIdle {
+            compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                intArrayOf(PackageManager.PERMISSION_DENIED))
+        }
+        compose.onNodeWithText("Notification settings").performScrollTo().performClick()
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, shadowOf(compose.activity).nextStartedActivity.action)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.onNodeWithText("Notification settings").assertDoesNotExist()
+        compose.onNodeWithText("Go").assertIsDisplayed()
+        assertEquals(DownloadState.Held, app.controller.state.value.download)
+        assertEquals(0, app.fake.count("worker_start"))
+        assertEquals(0, app.fake.count("go"))
     }
 
     @Test fun coldProcessRestoresVerifiedSessionAndLibraryWithoutAdmittingDownloads() {

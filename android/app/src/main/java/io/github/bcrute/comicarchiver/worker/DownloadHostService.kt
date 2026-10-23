@@ -114,7 +114,7 @@ class DownloadHostService : Service() {
         const val ACTION_START = "io.github.bcrute.comicarchiver.worker.START"
         const val ACTION_STOP = "io.github.bcrute.comicarchiver.worker.STOP"
         const val EXTRA_WORKSPACE = "workspace_root"
-        private const val CHANNEL_ID = "downloads"
+        private const val CHANNEL_ID = DownloadNotifications.CHANNEL_ID
         private const val NOTIFICATION_ID = 1
     }
 }
