@@ -52,6 +52,7 @@ fun LibraryScreen(
     folderState: FolderLibraryState = FolderLibraryState(),
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
+    actionsEnabled: Boolean = true,
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
     LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
@@ -62,11 +63,11 @@ fun LibraryScreen(
             }
         }
         Box(Modifier.weight(1f)) {
-            if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport)
+            if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
-                ExportPanel(exportState, onPickFolder, onStartExport, onStopExport)
+                ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
         }
     }
@@ -79,6 +80,7 @@ private fun SeriesLibraryScreen(
     onPickFolder: () -> Unit,
     onStartExport: () -> Unit,
     onStopExport: () -> Unit,
+    actionsEnabled: Boolean,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf("All") }
@@ -141,7 +143,7 @@ private fun SeriesLibraryScreen(
                 }
             }
         }
-        item { ExportPanel(exportState, onPickFolder, onStartExport, onStopExport) }
+        item { ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled) }
         if (series.isEmpty()) {
             item {
                 Text(
@@ -173,6 +175,7 @@ internal fun ExportPanel(
     onPickFolder: () -> Unit,
     onStartExport: () -> Unit,
     onStopExport: () -> Unit,
+    actionsEnabled: Boolean = true,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -202,6 +205,7 @@ internal fun ExportPanel(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (state.phase) {
                     ExportPhaseUi.NOT_PICKED, ExportPhaseUi.GRANT_LOST -> Button(
+                        enabled = actionsEnabled,
                         onClick = onPickFolder,
                         modifier = Modifier.weight(1f),
                     ) { Text("Choose export folder") }
@@ -209,6 +213,7 @@ internal fun ExportPanel(
                     ExportPhaseUi.READY, ExportPhaseUi.INTERRUPTED,
                     ExportPhaseUi.FINISHED_WITH_FAILURES, ExportPhaseUi.ALL_VERIFIED,
                     -> Button(
+                        enabled = actionsEnabled,
                         onClick = onStartExport,
                         modifier = Modifier.weight(1f),
                     ) {

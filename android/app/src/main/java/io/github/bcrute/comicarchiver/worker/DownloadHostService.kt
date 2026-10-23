@@ -27,6 +27,7 @@ import org.json.JSONObject
  */
 class DownloadHostService : Service() {
     private var workspaceRoot: String? = null
+    private var notificationIdentity: String? = null
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -44,13 +45,15 @@ class DownloadHostService : Service() {
         // action must still promote the service within its window before it stops itself.
         val requested = intent?.getStringExtra(EXTRA_WORKSPACE)
         if (intent?.action == ACTION_START) {
-            val current = app.workspace.root.absolutePath
-            if (requested != null && requested != current) {
+            val target = app.workspace
+            val current = target.root.absolutePath
+            if (!target.available || requested != null && requested != current) {
                 startInForeground()
                 if (workspaceRoot == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
                 return START_NOT_STICKY
             }
             workspaceRoot = current
+            notificationIdentity = target.identity
         }
         startInForeground()
         if (intent?.action == ACTION_STOP && (requested == null || requested == workspaceRoot))
@@ -62,7 +65,7 @@ class DownloadHostService : Service() {
         val stop = PendingIntent.getService(
             this, 1,
             Intent(this, DownloadHostService::class.java).setAction(ACTION_STOP)
-                .setData(Uri.parse("comicarchiver://downloads/${app.workspace.key}"))
+                .setData(Uri.parse("comicarchiver://downloads/${notificationIdentity ?: "inactive"}"))
                 .putExtra(EXTRA_WORKSPACE, workspaceRoot),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(

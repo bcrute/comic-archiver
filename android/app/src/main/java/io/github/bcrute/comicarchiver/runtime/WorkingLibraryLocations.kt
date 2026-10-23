@@ -65,6 +65,9 @@ internal class WorkingLibraryLocations(filesDir: File) {
 
     fun pending(): PendingWorkingLibrary? = locked { read().pending }
 
+    /** Read the selected identity without turning a missing root into an empty replacement. */
+    fun activeId(): String = locked { read().active }
+
     fun current(): WorkingLibraryLocation = locked {
         val state = read()
         val chosen = state.libraries.single { it.id == state.active }
@@ -78,15 +81,18 @@ internal class WorkingLibraryLocations(filesDir: File) {
     }
 
     /** A repeated source choice reopens its existing private root; it never silently recopies it. */
-    fun begin(label: String, source: WorkingLibrarySource): WorkingLibraryStart = locked {
+    fun begin(label: String, source: WorkingLibrarySource, refresh: Boolean = false): WorkingLibraryStart = locked {
         validLabel(label); validSource(source)
         val state = read()
         if (state.pending != null) fail(WorkingLibraryFailure.BUSY)
-        state.libraries.singleOrNull { it.source?.key == source.key }?.let {
+        state.libraries.lastOrNull { it.source?.key == source.key && it.id == state.active }
+            .let { it ?: state.libraries.lastOrNull { entry -> entry.source?.key == source.key } }?.takeUnless { refresh }?.let {
             return@locked WorkingLibraryStart.Existing(it)
         }
         if (state.libraries.size >= MAX_LIBRARIES) fail(WorkingLibraryFailure.UNAVAILABLE)
-        val pending = PendingWorkingLibrary(UUID.randomUUID().toString(), label, source)
+        val copies = state.libraries.count { it.source?.key == source.key }
+        val pending = PendingWorkingLibrary(UUID.randomUUID().toString(),
+            if (copies == 0) label else label.take(100) + " (copy ${copies + 1})", source)
         val stage = stageRoot(pending.id)
         val payload = File(stage, "payload")
         checkNewRoot(pending.id)
@@ -112,11 +118,31 @@ internal class WorkingLibraryLocations(filesDir: File) {
     /** Captured documents/journals stay separate from the verifier's empty output payload. */
     fun captureRoot(ticket: String): File = locked {
         val pending = ticket(read(), ticket)
-        if (pending.digest != null) fail(WorkingLibraryFailure.NOT_READY)
         val root = File(stageRoot(ticket), "capture")
         safe(root)
-        mkdirs(root)
+        if (pending.digest == null) mkdirs(root)
         root
+    }
+
+    /** Ready-pending recovery includes a rename which completed before the registry commit. */
+    fun preparedRoot(ticket: String): File = locked {
+        val pending = ticket(read(), ticket)
+        val digest = pending.digest ?: fail(WorkingLibraryFailure.NOT_READY)
+        val payload = File(stageRoot(ticket), "payload")
+        val root = if (payload.exists()) payload else locationRoot(ticket)
+        marker(root, ticket, pending.source.key, digest)
+        root
+    }
+
+    /** Explicit retry only, after the old copier/verifier has joined. Retain the captured input. */
+    fun resetCopy(ticket: String): File = locked {
+        val pending = ticket(read(), ticket)
+        if (pending.digest != null) fail(WorkingLibraryFailure.NOT_READY)
+        val payload = File(stageRoot(ticket), "payload")
+        safe(payload)
+        removeTree(payload)
+        mkdirs(payload)
+        payload
     }
 
     /** The digest identifies the verified import snapshot, not every future change to the library. */
@@ -183,6 +209,13 @@ internal class WorkingLibraryLocations(filesDir: File) {
         location
     }
 
+    /** Rollback remembers the former choice even if its storage disappeared; no root is created or opened. */
+    fun rollbackSelection(id: String) = locked {
+        val state = read()
+        if (state.pending != null || state.libraries.none { it.id == id }) fail(WorkingLibraryFailure.STALE)
+        write(state.copy(active = id))
+    }
+
     private fun ticket(state: Snapshot, id: String): PendingWorkingLibrary {
         if (!ID.matches(id)) fail(WorkingLibraryFailure.STALE)
         return state.pending?.takeIf { it.id == id } ?: fail(WorkingLibraryFailure.STALE)
@@ -245,8 +278,7 @@ internal class WorkingLibraryLocations(filesDir: File) {
                 } else if (!ID.matches(id) || source == null) fail(WorkingLibraryFailure.CORRUPT)
                 WorkingLibraryLocation(id, label, source)
             }
-            if (entries.count { it.id == DEFAULT } != 1 || entries.map { it.id }.distinct().size != entries.size ||
-                entries.mapNotNull { it.source?.key }.distinct().size != entries.count { it.source != null })
+            if (entries.count { it.id == DEFAULT } != 1 || entries.map { it.id }.distinct().size != entries.size)
                 fail(WorkingLibraryFailure.CORRUPT)
             val active = value.string("active")
             if (entries.none { it.id == active }) fail(WorkingLibraryFailure.CORRUPT)
@@ -257,7 +289,7 @@ internal class WorkingLibraryLocations(filesDir: File) {
                 val source = source(entry.getJSONObject("source"))
                 val digest = if (entry.isNull("digest")) null else entry.string("digest")
                 validLabel(label)
-                if (!ID.matches(id) || entries.any { it.id == id || it.source?.key == source.key } ||
+                if (!ID.matches(id) || entries.any { it.id == id } ||
                     digest != null && !HASH.matches(digest)) fail(WorkingLibraryFailure.CORRUPT)
                 PendingWorkingLibrary(id, label, source, digest)
             }

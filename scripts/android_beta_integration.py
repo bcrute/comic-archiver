@@ -137,7 +137,24 @@ def valid_recovery(value, ready, provider, token):
     if not isinstance(value, dict) or value.get('phase') != 'recovered' or value.get('run_token') != token:
         return False
     if type(value.get('verified_exports')) is not int or value['verified_exports'] != 2 or any(value.get(key) is not True for key in
-            ('held_without_go', 'originals_unchanged', 'same_partial_document_recovered', 'comic_and_novel_verified')):
+            ('held_without_go', 'originals_unchanged', 'same_partial_document_recovered', 'comic_and_novel_verified',
+             'working_library_adopted', 'library_binding_preserved', 'library_originals_preserved', 'library_switch_held',
+             'managed_archive_grants')):
+        return False
+    if not isinstance(value.get('adopted_library_id'), str) or not re.fullmatch(
+            r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}', value['adopted_library_id']):
+        return False
+    adopted = value.get('adopted_archives')
+    if not isinstance(adopted, list) or len(adopted) != 2:
+        return False
+    for row in adopted:
+        if (not isinstance(row, dict) or not isinstance(row.get('name'), str)
+                or pathlib.PurePosixPath(row['name']).parts[:1] != ('Library',) or '..' in pathlib.PurePosixPath(row['name']).parts
+                or type(row.get('bytes')) is not int or not 0 < row['bytes'] <= 8 * 1024 * 1024
+                or not isinstance(row.get('sha256'), str) or not re.fullmatch('[a-f0-9]{64}', row['sha256'])):
+            return False
+    if (sorted(pathlib.PurePosixPath(row['name']).suffix for row in adopted) != ['.cbz', '.epub']
+            or sorted((row['bytes'], row['sha256']) for row in adopted) != sorted((row['bytes'], row['sha256']) for row in ready['originals'])):
         return False
     copies = _inventory(provider)
     if copies is None or provider['blocked'] is not False or len(copies) != 2:
@@ -224,7 +241,7 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                 raise RuntimeError('The target process was not stopped')
             first.wait(timeout=30)
             summary['phase1_intentionally_stopped'] = True
-        second = runner(instrument('recoverAfterHostStopWithoutGo'), timeout=180, keep_bytes=32000)
+        second = runner(instrument('recoverAfterHostStopWithoutGo'), timeout=300, keep_bytes=32000)
         (artifacts / 'recover.log').write_text(second['tail'])
         if second['returncode'] != 0 or not recovery_test_passed(second['tail']):
             raise RuntimeError('The exact recovery instrumentation test did not pass')
@@ -237,7 +254,8 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
         screenshot('recovered.png')
         summary.update(phase2_passed=True, checks={'native_signin_pause_recreation': True,
             'comic_and_novel_output': True, 'real_inflight_copy_stopped': True, 'same_document_recovered': True,
-            'verified_cbz_epub_exports': True, 'held_restart_without_go': True, 'originals_unchanged': True})
+            'verified_cbz_epub_exports': True, 'held_restart_without_go': True, 'originals_unchanged': True,
+            'working_library_adoption': True, 'preserved_account_binding': True, 'held_library_switch': True})
         return summary
     finally:
         if first is not None and first.poll() is None:

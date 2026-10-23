@@ -9,6 +9,7 @@ import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import io.github.bcrute.comicarchiver.runtime.PythonRuntime
 import io.github.bcrute.comicarchiver.runtime.SignInProbe
 import io.github.bcrute.comicarchiver.runtime.SiteWorkspace
+import io.github.bcrute.comicarchiver.runtime.WorkingLibraryLocations
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
@@ -46,6 +47,15 @@ open class App : Application() {
     private val profiles by lazy { SiteBrowserProfiles(signInSites) }
     private val probes = mutableMapOf<String, SignInProbe>()
     private val exportRuntimes = mutableMapOf<String, SafExportRuntime>()
+    internal val libraryLocations by lazy { WorkingLibraryLocations(filesDir) }
+    internal val workingLibraries by lazy { io.github.bcrute.comicarchiver.runtime.WorkingLibraries(this, processScope) }
+    internal open fun createWorkingLibraryDocuments(): io.github.bcrute.comicarchiver.runtime.WorkingLibraryDocuments =
+        io.github.bcrute.comicarchiver.runtime.ResolverWorkingLibraryDocuments(this)
+    internal open fun createWorkingLibraryPreparation(): io.github.bcrute.comicarchiver.runtime.WorkingLibraryPreparation =
+        io.github.bcrute.comicarchiver.runtime.WorkingLibraryPreparation(signInSites.keys)
+    private val initialLibraryId by lazy { runCatching { libraryLocations.activeId() }.getOrDefault(WorkingLibraryLocations.DEFAULT) }
+    @Volatile private var selectedLibraryId: String? = null
+    val currentLibraryId: String get() = selectedLibraryId ?: initialLibraryId
     val readingBrowser by lazy {
         NativeBrowserFactory(this, { browserProfile("tapas") },
             { (selectedKey ?: initialSiteKey) == "tapas" &&
@@ -62,8 +72,14 @@ open class App : Application() {
     }
     val workspace: SiteWorkspace get() = workspaceFor(selectedKey ?: initialSiteKey)
 
-    fun workspaceFor(key: String): SiteWorkspace = SiteWorkspace.from(filesDir.resolve("workspace"),
-        key, signInSites[key] ?: throw IllegalArgumentException("Choose a supported site."))
+    fun workspaceFor(key: String, libraryId: String = currentLibraryId): SiteWorkspace {
+        val address = signInSites[key] ?: throw IllegalArgumentException("Choose a supported site.")
+        return try { SiteWorkspace.from(libraryLocations.root(libraryId), key, address, libraryId) }
+        catch (_: Exception) {
+            // A display-only placeholder. No writer, probe or core preparation may use it.
+            SiteWorkspace.from(filesDir.canonicalFile.resolve("unavailable-working-library"), key, address, libraryId, false)
+        }
+    }
 
     fun browserProfile(key: String): SiteBrowserProfile = profiles.open(key)
 
@@ -90,10 +106,20 @@ open class App : Application() {
     }
 
     /** The controller calls this after the core and selected profile have both changed. */
-    fun selectWorkspace(key: String) {
+    fun selectWorkspace(key: String, libraryId: String = currentLibraryId) {
+        val target = workspaceFor(key, libraryId)
+        check(target.available) { "The working library is unavailable." }
+        startNetworkWriter(target)
         selectedKey = key
+        selectedLibraryId = libraryId
         sitePreferences.edit().putString("selected", key).apply()
-        startNetworkWriter(workspaceFor(key))
+    }
+
+    internal fun restoreWorkspaceSelection(previous: SiteWorkspace) {
+        if (previous.available) startNetworkWriter(previous)
+        selectedKey = previous.key
+        selectedLibraryId = previous.libraryId
+        sitePreferences.edit().putString("selected", previous.key).apply()
     }
 
     // Activity recreation reattaches a surface, not a new worker/admission/session.
@@ -112,14 +138,17 @@ open class App : Application() {
             },
             onStoreUnavailable = { deactivateRuntimeCookieStore() },
             onAttempt = { key, token, bound, active ->
+                val target = workspaceFor(key)
+                check(target.available) { "The working library is unavailable." }
                 val answer = JSONObject(bridge.dispatch("signin_attempt", JSONObject()
-                    .put("session_root", workspaceFor(key).session.absolutePath).put("site_key", key)
+                    .put("session_root", target.session.absolutePath).put("site_key", key)
                     .put("attempt", token).put("timeout_ms", bound).put("active", active).toString()))
                 check(answer.optBoolean("ok")) { "The sign-in attempt could not be prepared." }
             },
             onVerified = { key, token ->
-                val answer = JSONObject(bridge.dispatch("signin_commit", JSONObject()
-                    .put("session_root", workspaceFor(key).session.absolutePath).put("site_key", key)
+                val target = workspaceFor(key)
+                val answer = if (!target.available) JSONObject().put("ok", false) else JSONObject(bridge.dispatch("signin_commit", JSONObject()
+                    .put("session_root", target.session.absolutePath).put("site_key", key)
                     .put("attempt", token).toString()))
                 answer.optBoolean("ok") && answer.optJSONObject("result")?.optBoolean("signed_in") == true
             },
@@ -131,8 +160,14 @@ open class App : Application() {
     }
     val exports: SafExportRuntime get() = exportsFor(selectedKey ?: initialSiteKey)
 
-    fun exportsFor(key: String): SafExportRuntime = exportRuntimes.getOrPut(key) {
-        SafExportRuntime(this, bridge, workspaceFor(key).root, processScope, siteKey = key)
+    fun exportsFor(key: String, libraryId: String = currentLibraryId): SafExportRuntime {
+        val target = workspaceFor(key, libraryId)
+        return exportRuntimes.getOrPut(target.identity + if (target.available) "" else "/unavailable") {
+            SafExportRuntime(this, bridge, target.root, processScope, siteKey = key, libraryId = libraryId,
+                canStart = { val state = controller.state.value
+                    target.available && state.workspaceReady && !state.siteBusy && !state.libraryBusy && state.libraryId == libraryId && state.site == key &&
+                        workspaceFor(key, libraryId).available })
+        }
     }
 
     /** The engine's site table, fed from the core's own sites module (no second list);
@@ -142,8 +177,10 @@ open class App : Application() {
     }
 
     /** The onSettle runner: the core's verified who-am-i, wired into the engine by the UI. */
-    private fun probeFor(key: String): SignInProbe = probes.getOrPut(key) {
-        SignInProbe(bridge, workspaceFor(key).session.absolutePath, siteKey = key)
+    private fun probeFor(key: String): SignInProbe {
+        val target = workspaceFor(key)
+        check(target.available) { "The working library is unavailable." }
+        return probes.getOrPut(target.identity) { SignInProbe(bridge, target.session.absolutePath, siteKey = key) }
     }
 
     override fun onCreate() {
@@ -156,7 +193,7 @@ open class App : Application() {
     protected open fun startRuntime() {
         PythonRuntime.ensureStarted(this, cookieStore, readingBrowser)
         // The core holds every download until its status file speaks; start writing it now.
-        startNetworkWriter(workspace)
+        workspace.takeIf { it.available }?.let(::startNetworkWriter)
     }
 
     /** Tests replace native bootstrap and this authority switch together. */

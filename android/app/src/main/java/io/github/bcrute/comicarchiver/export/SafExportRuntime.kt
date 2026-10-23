@@ -41,19 +41,25 @@ class SafExportRuntime(
     private val scope: CoroutineScope,
     documents: DocumentsAdapter = ContentResolverDocumentsAdapter(context.applicationContext),
     siteKey: String = "tapas",
+    libraryId: String = "default",
+    private val canStart: () -> Boolean = { true },
 ) {
     private val appContext = context.applicationContext
     private val siteIdentity = siteKey.also { require(it.matches(Regex("[a-z][a-z0-9_-]{0,31}"))) }
+    private val libraryIdentity = libraryId.also { require(it == "default" ||
+        it.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}"))) }
     private val libraryRoot = File(workspaceRoot, LIBRARY_DIR)
     private val exporter = SafBatchExporter(
         source = ::openOriginal,
         documents = documents,
         store = FileJournalStore(File(appContext.filesDir,
-            if (siteIdentity == "tapas") "export/journal-v1.txt" else "export/$siteIdentity/journal-v1.txt")),
+            if (libraryIdentity != "default") "export/libraries/$libraryIdentity/$siteIdentity/journal-v1.txt"
+            else if (siteIdentity == "tapas") "export/journal-v1.txt" else "export/$siteIdentity/journal-v1.txt")),
     )
     private val active = AtomicReference<AtomicBoolean?>(null)
     private val preferences = appContext.getSharedPreferences(
-        if (siteIdentity == "tapas") PREFS else "${PREFS}_$siteIdentity", Context.MODE_PRIVATE)
+        if (libraryIdentity != "default") "${PREFS}_${libraryIdentity}_$siteIdentity"
+        else if (siteIdentity == "tapas") PREFS else "${PREFS}_$siteIdentity", Context.MODE_PRIVATE)
 
     // initialPanel restores this value; keep the initialization order explicit so a
     // later initializer change cannot overwrite that restored folder.
@@ -68,7 +74,7 @@ class SafExportRuntime(
      * system refuses to persist is reported as the re-pick state, not silently dropped.
      */
     fun onFolderGranted(uri: Uri) {
-        if (active.get() != null) return
+        if (active.get() != null || !canStart()) return
         try {
             appContext.contentResolver.takePersistableUriPermission(
                 uri,
@@ -86,6 +92,7 @@ class SafExportRuntime(
 
     /** Starts (or resumes) one batch run; a run without a picked folder is a no-op pick hint. */
     fun startExport() {
+        if (!canStart()) return
         val uri = treeUri ?: run {
             _panel.value = ExportPanelStateUi(ExportPhaseUi.NOT_PICKED)
             return

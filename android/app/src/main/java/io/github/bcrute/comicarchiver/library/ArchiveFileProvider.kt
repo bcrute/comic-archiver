@@ -23,10 +23,25 @@ class ArchiveFileProvider : FileProvider() {
             "webtoon-library" -> File(context.filesDir, "workspace/Webtoon/Library")
             "tappytoon-library" -> File(context.filesDir, "workspace/Tappytoon/Library")
             "opened-cache" -> File(context.cacheDir, "opened-archives")
+            "managed-libraries" -> return managed(parts.drop(1))
             else -> return null
         }
         return resolveArchive(folder, parts.drop(1).joinToString("/"))
     }
+
+    private fun managed(parts: List<String>): File? { return try {
+        val owner = context ?: return null
+        val id = parts.firstOrNull() ?: return null
+        if (!id.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}"))) return null
+        val base = io.github.bcrute.comicarchiver.runtime.WorkingLibraryLocations(owner.filesDir).root(id)
+        val prefix = if (parts.getOrNull(1) == "Library") 2 else {
+            if (parts.getOrNull(1) !in setOf("Webtoon", "Tappytoon") || parts.getOrNull(2) != "Library") return null
+            3
+        }
+        if (parts.size != prefix + 2 || parts.drop(prefix).any { it.contains('/') }) return null
+        val library = File(base, parts.subList(1, prefix).joinToString("/"))
+        resolveArchive(library, parts.drop(prefix).joinToString("/"))
+    } catch (_: Exception) { null } }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw FileNotFoundException("Saved archives are read-only.")

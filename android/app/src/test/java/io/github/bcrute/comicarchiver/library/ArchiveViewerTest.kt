@@ -17,6 +17,9 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.io.FileNotFoundException
 import java.nio.file.Files
+import io.github.bcrute.comicarchiver.runtime.WorkingLibraryLocations
+import io.github.bcrute.comicarchiver.runtime.WorkingLibrarySource
+import io.github.bcrute.comicarchiver.runtime.WorkingLibraryStart
 
 /** Real manifest/provider/path handling and temporary grant flags; a captured launcher
  * does not claim that an external reader rendered the archive. */
@@ -56,6 +59,32 @@ class ArchiveViewerTest {
         assertEquals(0, intent.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         assertEquals(0, intent.flags and Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         assertFalse(intent.data.toString().contains(context.filesDir.absolutePath))
+    }
+
+    @Test fun managedGrantsKeepTheirOriginalLibraryAfterRefreshingAndRefusePrivateOrPendingPaths() {
+        val locations = WorkingLibraryLocations(context.filesDir)
+        val source = WorkingLibrarySource("a".repeat(64), "content://fixture.documents/tree/source")
+        fun create(bytes: String): Pair<String, File> {
+            val ticket = (locations.begin("Copy", source, refresh = true) as WorkingLibraryStart.Copy).pending
+            val file = locations.copyRoot(ticket.id).resolve("Library/Series/chapter.cbz")
+            file.parentFile!!.mkdirs(); file.writeText(bytes)
+            locations.verified(ticket.id, "b".repeat(64)); val ready = locations.complete(ticket.id)
+            return ready.id to locations.root(ready.id).resolve("Library/Series/chapter.cbz")
+        }
+        val (oldId, old) = create("old public bytes"); val oldUri = uri(old)
+        val (newId, fresh) = create("new public bytes"); locations.select(newId)
+        val provider = provider()
+        fun read(address: Uri) = ParcelFileDescriptor.AutoCloseInputStream(provider.openFile(address, "r")).use { it.readBytes() }
+        assertEquals("managed-libraries", oldUri.pathSegments.first())
+        assertEquals(oldId, oldUri.pathSegments[1])
+        assertNotEquals(oldUri, uri(fresh))
+        assertArrayEquals(old.readBytes(), read(oldUri)); assertArrayEquals(fresh.readBytes(), read(uri(fresh)))
+        val hidden = locations.root(oldId).resolve(".archive-state/private.cbz").apply { parentFile!!.mkdirs(); writeText("PRIVATE") }
+        assertThrows(FileNotFoundException::class.java) { provider.openFile(uri(hidden), "r") }
+        val pending = (locations.begin("Pending", source, refresh = true) as WorkingLibraryStart.Copy).pending
+        val staged = locations.copyRoot(pending.id).resolve("Library/Series/chapter.cbz").apply { parentFile!!.mkdirs(); writeText("pending") }
+        assertThrows(FileNotFoundException::class.java) { provider.openFile(uri(staged), "r") }
+        assertThrows(FileNotFoundException::class.java) { provider.openFile(oldUri, "rw") }
     }
 
     @Test fun noReaderIsReportedAndNoUnsupportedOrMissingFileIsLaunched() {

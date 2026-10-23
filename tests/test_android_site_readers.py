@@ -151,7 +151,8 @@ class NativeReaderTests(unittest.TestCase):
         for site in sites.SITES:
             name = 'library' if site == sites.DEFAULT else site.key + '-library'
             self.assertEqual(roots[name], (sites.folder(base, site) / 'Library').as_posix() + '/')
-        self.assertEqual(len(roots), len(sites.SITES))
+        self.assertEqual(roots['managed-libraries'], 'working-libraries/')
+        self.assertEqual(len(roots), len(sites.SITES) + 1)
         cache = {node.attrib['name']: node.attrib['path'] for node in nodes if node.tag == 'cache-path'}
         self.assertEqual(cache, {'opened-cache': 'opened-archives/'})
         self.assertEqual(len(nodes), len(roots) + len(cache))  # No extra or duplicate authority roots.

@@ -4,4 +4,6 @@
     <files-path name="webtoon-library" path="workspace/Webtoon/Library/" />
     <files-path name="tappytoon-library" path="workspace/Tappytoon/Library/" />
     <cache-path name="opened-cache" path="opened-archives/" />
+    <!-- The provider additionally requires a registered immutable library UUID and a public Library path. -->
+    <files-path name="managed-libraries" path="working-libraries/" />
 </paths>

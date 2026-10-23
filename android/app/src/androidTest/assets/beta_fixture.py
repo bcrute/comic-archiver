@@ -232,3 +232,16 @@ def observation():
                                                  if path == '/reading-list' and 'FREE_EPISODES' in query}),
                            'page_hashes': [hashlib.sha256(page).hexdigest() for page in PAGES],
                            'novel_text': NOVEL_TEXT})
+
+
+def working_library_facts(root):
+    """Test-only readback; no account salt, binding or source URL leaves the target."""
+    from pathlib import Path
+    from comic_archive.inventory import Inventory
+    with Inventory(Path(root) / 'Library', read_only=True) as inventory:
+        binding = dict(inventory.db.execute("SELECT key,value FROM settings WHERE key IN ('account_salt','account_binding')"))
+        counts = dict(inventory.db.execute('SELECT status,COUNT(*) FROM episodes GROUP BY status'))
+    return json.dumps({'binding_fields': len(binding),
+                       'binding_digest': hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
+                       'archived': counts.get('archived', 0),
+                       'not_archived': sum(count for status, count in counts.items() if status != 'archived')})

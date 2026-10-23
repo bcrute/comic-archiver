@@ -45,6 +45,41 @@ class SafExportRuntimeTest {
 
     @After fun stopScope() { scope.cancel() }
 
+    @Test fun separateWorkingLibrariesKeepTheirOwnDestinationJournalAndInactiveRuntimeCannotStart() {
+        val documents = FakeDocuments()
+        val ids = listOf("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222")
+        val manifests = AtomicInteger()
+        val journals = mutableMapOf<String, ByteArray>()
+        for (id in ids) {
+            val tree = "content://fixture.documents/tree/$id"
+            context.getSharedPreferences("comicarchiver_export_${id}_tapas", Context.MODE_PRIVATE).edit().putString("tree_uri", tree).commit()
+            val root = context.filesDir.resolve("working-libraries/$id")
+            val file = root.resolve("Library/same/chapter.cbz").apply { parentFile!!.mkdirs(); writeText("$id public fixture") }
+            val bytes = file.readBytes()
+            val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            val bridge = object : PythonBridge {
+                override fun dispatch(op: String, argsJson: String): String {
+                    manifests.incrementAndGet()
+                    assertEquals(root.absolutePath, JSONObject(argsJson).getString("root"))
+                    return """{"ok":true,"result":{"entries":[{"seriesId":"same","episodeId":"same","kind":"CBZ",
+                        "filename":"chapter.cbz","bytes":${bytes.size},"sha256":"$hash","relpath":"same/chapter.cbz"}]}}"""
+                }
+            }
+            val runtime = SafExportRuntime(context, bridge, root, scope, documents, libraryId = id)
+            runtime.startExport()
+            runBlocking { withTimeout(5000) { runtime.panel.first { it.phase == ExportPhaseUi.ALL_VERIFIED } } }
+            val path = context.filesDir.resolve("export/libraries/$id/tapas/journal-v1.txt")
+            val record = FileJournalStore(path).load().all().single()
+            assertEquals(tree, record.targetTreeUri); assertEquals(hash, record.sha256)
+            journals[id] = path.readBytes()
+            val inactive = SafExportRuntime(context, bridge, root, scope, documents, libraryId = id, canStart = { false })
+            val before = manifests.get(); inactive.startExport(); assertEquals(before, manifests.get())
+        }
+        assertEquals(2, manifests.get())
+        journals.forEach { (id, bytes) -> assertTrue(bytes.contentEquals(context.filesDir.resolve("export/libraries/$id/tapas/journal-v1.txt").readBytes())) }
+        assertTrue(context.getSharedPreferences("comicarchiver_export", Context.MODE_PRIVATE).getString("tree_uri", null) == null)
+    }
+
     private fun rememberedFolder() {
         context.getSharedPreferences("comicarchiver_export", Context.MODE_PRIVATE).edit()
             .putString("tree_uri", "content://example.documents/tree/test-library").commit()

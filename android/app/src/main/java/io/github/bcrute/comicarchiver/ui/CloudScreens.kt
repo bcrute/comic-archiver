@@ -42,6 +42,7 @@ import io.github.bcrute.comicarchiver.controller.CloudRequest
 import io.github.bcrute.comicarchiver.controller.CloudStatus
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 
 /** Fixed public destinations only. Site sessions never enter these browser intents. */
 internal enum class B2Page(val label: String, val url: String) {
@@ -59,20 +60,25 @@ internal enum class B2Page(val label: String, val url: String) {
 @Composable
 fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boolean) -> Unit,
                   onSpeed: (String) -> Unit, onRefresh: () -> Unit,
-                  onCloudRefresh: () -> Unit, onCloudAction: (CloudRequest) -> Unit) {
-    var page by rememberSaveable { mutableStateOf("Downloads") }
+                  onCloudRefresh: () -> Unit, onCloudAction: (CloudRequest) -> Unit,
+                  workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
+                  workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
+                  selectedPage: String? = null, onPageSelected: (String) -> Unit = {}) {
+    var savedPage by rememberSaveable { mutableStateOf("Downloads") }
+    val page = selectedPage ?: savedPage
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Downloads", "Storage", "B2 setup").forEach { name ->
+            (listOf("Downloads") + if (workingLibraries.enabled) listOf("Libraries", "Storage", "B2 setup") else listOf("Storage", "B2 setup")).forEach { name ->
                 FilterChip(selected = page == name, onClick = {
-                    page = name
-                    if (name != "Downloads") onCloudRefresh()
+                    savedPage = name; onPageSelected(name)
+                    if (name !in setOf("Downloads", "Libraries")) onCloudRefresh()
                 }, label = { Text(name, maxLines = 1, softWrap = false) })
             }
         }
         when (page) {
-            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy,
+            "Libraries" -> WorkingLibrariesScreen(workingLibraries, workingLibraryActions)
+            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || !state.workspaceReady,
                 state.download is DownloadState.Running || state.download is DownloadState.Planning,
                 state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme)
             else -> {
@@ -84,7 +90,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     }
                 } else {
                     val open = LocalUriHandler.current
-                    CloudScreen(cloud, state.cloudBusy || state.siteBusy || state.signOutPending, state.cloudNotice?.message,
+                    CloudScreen(cloud, state.cloudBusy || state.siteBusy || state.libraryBusy || !state.workspaceReady || state.signOutPending, state.cloudNotice?.message,
                         page == "B2 setup", state.signIn is SignInState.SignedIn,
                         onCloudRefresh, onCloudAction, { open.openUri(it.url) })
                 }

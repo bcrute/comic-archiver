@@ -217,13 +217,15 @@ def working_library_prepare(captured, payload, ticket, source_key, control, reco
                 or not isinstance(source_key, str) or not re.fullmatch(r'[a-f0-9]{64}', source_key)
                 or type(recover) is not bool or not callable(getattr(control, 'isCancelled', None))):
             raise _BridgeError('bad_request', 'The library copy request is unavailable.')
-        stage = payload.parent
-        if (payload.name != 'payload' or stage.name != ticket or stage.parent.name != '.staging'
-                or stage.parent.parent.name != 'working-libraries' or captured != stage / 'capture/workspace'):
+        stage = captured.parent.parent
+        staged = payload == stage / 'payload'
+        renamed = recover and payload == stage.parent.parent / ticket
+        if (stage.name != ticket or stage.parent.name != '.staging' or stage.parent.parent.name != 'working-libraries'
+                or captured != stage / 'capture/workspace' or not (staged or renamed)):
             raise _BridgeError('bad_request', 'Choose this pending library copy.')
         with _workspace_lock:
             active = _workspace['root']
-            if active is not None and (stage == active or stage in active.parents or active in stage.parents):
+            if active is not None and any(bound == active or bound in active.parents or active in bound.parents for bound in (stage, payload)):
                 raise _BridgeError('refused', 'The active library cannot be replaced by a pending copy.')
 
         def check():

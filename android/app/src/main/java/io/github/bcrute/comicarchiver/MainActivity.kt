@@ -91,11 +91,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appState by controller.state.collectAsState()
-            val exports = remember(appState.site) { app.exportsFor(appState.site) }
-            LaunchedEffect(appState.site) {
+            val exports = remember(appState.libraryId, appState.site, appState.workspaceReady) { app.exportsFor(appState.site, appState.libraryId) }
+            LaunchedEffect(appState.libraryId, appState.site) {
                 try { replaceSignInSurface(appState.site) } catch (_: Exception) { surfaceUnavailable() }
             }
             var pickerSite by rememberSaveable { mutableStateOf<String?>(null) }
+            var pickerLibrary by rememberSaveable { mutableStateOf<String?>(null) }
             ComicArchiverTheme(appState.theme) {
                 val background = MaterialTheme.colorScheme.background
                 SideEffect {
@@ -114,6 +115,14 @@ class MainActivity : ComponentActivity() {
                 val panel by exports.panel.collectAsState()
                 val openedLibrary = remember { app.openedLibrary }
                 val folderState by openedLibrary.state.collectAsState()
+                val working = remember { app.workingLibraries }
+                val workingState by working.state.collectAsState()
+                LaunchedEffect(Unit) { working.load() }
+                var workingPickerTicket by rememberSaveable { mutableStateOf<String?>(null) }
+                val chooseWorking = rememberLauncherForActivityResult(io.github.bcrute.comicarchiver.library.ReadOnlyLibraryTree()) { uri ->
+                    val ticket = workingPickerTicket; workingPickerTicket = null
+                    if (ticket != null) working.picked(uri, ticket)
+                }
                 var folderPickerTicket by rememberSaveable { mutableStateOf<String?>(null) }
                 val openLibraryFolder = rememberLauncherForActivityResult(
                     io.github.bcrute.comicarchiver.library.ReadOnlyLibraryTree(),
@@ -126,9 +135,13 @@ class MainActivity : ComponentActivity() {
                     ActivityResultContracts.OpenDocumentTree(),
                 ) { uri ->
                     val selected = pickerSite
+                    val library = pickerLibrary
                     pickerSite = null
-                    if (uri != null && selected != null && selected == controller.state.value.site && !controller.state.value.siteBusy)
-                        app.exportsFor(selected).onFolderGranted(uri)
+                    pickerLibrary = null
+                    val current = controller.state.value
+                    if (uri != null && selected != null && library != null && selected == current.site && library == current.libraryId &&
+                        current.workspaceReady && !current.siteBusy && !current.libraryBusy)
+                        app.exportsFor(selected, library).onFolderGranted(uri)
                 }
 
                 // Compose owns the whole NoActionBar window: this Surface paints the app
@@ -151,14 +164,29 @@ class MainActivity : ComponentActivity() {
                             onCloseFolder = openedLibrary::close,
                             onFolderQuery = openedLibrary::load,
                             onOpenFolderFile = openedLibrary::open,
+                            workingLibraries = workingState,
+                            workingLibraryActions = io.github.bcrute.comicarchiver.ui.WorkingLibraryActions(
+                                load = working::load, pick = {
+                                    working.requestPicker()?.let { ticket ->
+                                        workingPickerTicket = ticket
+                                        try { chooseWorking.launch(null) } catch (_: Exception) {
+                                            workingPickerTicket = null; working.picked(null, ticket)
+                                            controller.openNotice(Notice(BetaCodes.STORAGE_LOW, "Android could not open the folder chooser. Try again."))
+                                        }
+                                    }
+                                }, confirm = { working.confirm(it) }, stop = working::stop, discard = working::discard,
+                                retry = working::retry, select = working::select, refresh = working::refreshSource),
                             onPickFolder = {
-                                if (!controller.state.value.siteBusy && controller.state.value.site == appState.site) {
+                                val current = controller.state.value
+                                if (current.workspaceReady && !current.siteBusy && !current.libraryBusy && current.site == appState.site && current.libraryId == appState.libraryId) {
                                     pickerSite = appState.site
+                                    pickerLibrary = appState.libraryId
                                     pickFolder.launch(null)
                                 }
                             },
                             onStartExport = {
-                                if (!controller.state.value.siteBusy && controller.state.value.site == appState.site)
+                                val current = controller.state.value
+                                if (current.workspaceReady && !current.siteBusy && !current.libraryBusy && current.site == appState.site && current.libraryId == appState.libraryId)
                                     exports.startExport()
                             },
                             onStopExport = {
@@ -213,7 +241,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun replaceSignInSurface(site: String, force: Boolean = false) {
-        if (!force && surfaceSite == site && signInWebView != null) return
+        val libraryId = controller.state.value.libraryId
+        val identity = "$libraryId/$site"
+        if (!force && surfaceSite == identity && signInWebView != null) return
         releaseSignInSurface()
         val surface = (applicationContext as App).createSignInSurface(this, site)
         try {
@@ -222,9 +252,9 @@ class MainActivity : ComponentActivity() {
             // box, blanking sites whose html/body fill 100% of the viewport.
             surface.layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            surfaceSite = site
+            surfaceSite = identity
             signInWebView = surface
-            (controller as DefaultAppController).attachSignInWebView(surface, site)
+            (controller as DefaultAppController).attachSignInWebView(surface, site, libraryId)
         } catch (error: Exception) {
             surface.destroy()
             signInWebView = null

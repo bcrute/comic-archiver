@@ -20,6 +20,9 @@ data class AppState(
     val siteBusy: Boolean = false,
     val signInOrigin: String? = null,
     val signOutPending: Boolean = false,
+    val libraryId: String = "default",
+    val libraryBusy: Boolean = false,
+    val workspaceReady: Boolean = true,
 )
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,

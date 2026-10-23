@@ -32,6 +32,7 @@ import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
+import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -59,11 +60,14 @@ fun ComicArchiverAppRoot(
     folderState: FolderLibraryState = FolderLibraryState(),
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
+    workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
+    workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
 
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
+    var settingsPage by rememberSaveable { mutableStateOf("Downloads") }
     val tabState = rememberSaveableStateHolder()
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.signIn is SignInState.Restoring
@@ -85,7 +89,7 @@ fun ComicArchiverAppRoot(
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 state.sites.forEach { site ->
                     FilterChip(selected = state.site == site.key,
-                        enabled = site.enabled && !state.siteBusy && !state.signOutPending,
+                        enabled = site.enabled && !state.siteBusy && !state.libraryBusy && !state.signOutPending,
                         onClick = { controller.selectSite(site.key) },
                         label = { Text(site.name, maxLines = 1, softWrap = false) })
                 }
@@ -107,7 +111,8 @@ fun ComicArchiverAppRoot(
         if (tab != AppTab.SAVING) state.notice?.let { notice ->
             NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
         }
-        tabState.SaveableStateProvider("${state.site}:${tab.name}") {
+        if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
+        tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
             when (tab) {
                 AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
                     SignInScreen(
@@ -125,7 +130,10 @@ fun ComicArchiverAppRoot(
                         },
                     )
                 }
-                AppTab.LIBRARY -> LibraryScreen(
+                AppTab.LIBRARY -> Column(Modifier.fillMaxSize()) {
+                    if (workingLibraries.enabled) OutlinedButton(onClick = { settingsPage = "Libraries"; tab = AppTab.SETTINGS },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { Text("Change working library") }
+                    LibraryScreen(
                     series = state.toLibraryUi(),
                     catalog = state.catalog,
                     onCatalogQuery = controller::loadCatalog,
@@ -136,7 +144,8 @@ fun ComicArchiverAppRoot(
                     onStopExport = onStopExport,
                     folderState = folderState, onFolderLoad = onFolderLoad, onOpenFolder = onOpenFolder,
                     onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
-                )
+                    actionsEnabled = state.workspaceReady && !state.libraryBusy && !state.siteBusy,
+                ) }
                 AppTab.SETTINGS -> SettingsPages(
                     state = state,
                     onTheme = controller::setTheme,
@@ -145,6 +154,8 @@ fun ComicArchiverAppRoot(
                     onRefresh = controller::refreshSettings,
                     onCloudRefresh = controller::refreshCloud,
                     onCloudAction = controller::cloudAction,
+                    workingLibraries = workingLibraries, workingLibraryActions = workingLibraryActions,
+                    selectedPage = settingsPage, onPageSelected = { settingsPage = it },
                 )
                 AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                     LimitationsScreen(modifier = Modifier.weight(1f))
@@ -154,7 +165,7 @@ fun ComicArchiverAppRoot(
                             else tab = AppTab.SAVING
                         },
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        enabled = !state.siteBusy,
+                        enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady,
                     ) {
                         val name = state.sites.firstOrNull { it.key == state.site }?.name
                             ?: if (state.site == "tapas") "Tapas" else state.site

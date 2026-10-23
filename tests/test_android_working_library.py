@@ -78,6 +78,18 @@ class AndroidWorkingLibraryTests(unittest.TestCase):
         self.assertFalse(wrong['ok'])
         self.assertEqual(self.call(recover=True), prepared)
 
+    def test_ready_pending_recovery_also_checks_the_payload_renamed_before_registry_commit(self):
+        prepared = self.call()
+        self.assertTrue(prepared['ok'])
+        (self.payload / LOCATION_MARKER).write_text(json.dumps({'v': 1, 'id': self.ticket,
+            'source': self.source_key, 'digest': prepared['result']['digest']}))
+        renamed = self.stage.parent.parent / self.ticket
+        self.payload.rename(renamed)
+        self.assertEqual(self.call(payload=renamed, recover=True), prepared)
+        self.assertFalse(self.call(payload=renamed)['ok'])
+        app_bridge._workspace['root'] = renamed
+        self.assertEqual(self.call(payload=renamed, recover=True)['code'], 'refused')
+
     def test_unreserved_paths_tickets_and_active_library_ancestors_cannot_be_prepared(self):
         for args in ({'ticket': '../PRIVATE'}, {'captured': self.owner / 'PRIVATE'},
                      {'payload': self.owner / 'workspace'}, {'source_key': 'PRIVATE'}):

@@ -90,13 +90,22 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
     def test_recovered_bytes_held_restart_and_same_document_are_all_required(self):
         value = {'run_token': self.token, 'phase': 'recovered', 'verified_exports': 2,
                  'held_without_go': True, 'originals_unchanged': True,
-                 'same_partial_document_recovered': True, 'comic_and_novel_verified': True}
+                 'same_partial_document_recovered': True, 'comic_and_novel_verified': True,
+                 'working_library_adopted': True, 'library_binding_preserved': True,
+                 'library_originals_preserved': True, 'library_switch_held': True, 'managed_archive_grants': True,
+                 'adopted_library_id': '11111111-1111-4111-8111-111111111111',
+                 'adopted_archives': copy.deepcopy(self.ready['originals'])}
         provider = {'blocked': False, 'files': [
             {'id': 'root/comic/one.cbz', 'bytes': 2000000, 'sha256': 'b' * 64},
             {'id': 'root/novel/one.epub', 'bytes': 2000, 'sha256': 'c' * 64}]}
         self.assertTrue(gate.valid_recovery(value, self.ready, provider, self.token))
-        for key in ('held_without_go', 'originals_unchanged', 'same_partial_document_recovered', 'comic_and_novel_verified'):
+        for key in ('held_without_go', 'originals_unchanged', 'same_partial_document_recovered', 'comic_and_novel_verified',
+                    'working_library_adopted', 'library_binding_preserved', 'library_originals_preserved', 'library_switch_held',
+                    'managed_archive_grants'):
             changed = dict(value, **{key: False})
+            self.assertFalse(gate.valid_recovery(changed, self.ready, provider, self.token))
+        for changed in (dict(value, adopted_library_id='../PRIVATE'), dict(value, adopted_archives=[]),
+                        dict(value, adopted_archives=[None, None])):
             self.assertFalse(gate.valid_recovery(changed, self.ready, provider, self.token))
         broken = copy.deepcopy(provider)
         broken['files'][0]['sha256'] = '0' * 64

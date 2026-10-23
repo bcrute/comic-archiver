@@ -76,7 +76,8 @@ class WorkingLibraryLocationsTest {
         input.parentFile!!.mkdirs(); input.writeText("private input")
         assertEquals(capture, WorkingLibraryLocations(owner).captureRoot(pending.id))
         locations.verified(pending.id, digest)
-        failure(WorkingLibraryFailure.NOT_READY) { locations.captureRoot(pending.id) }
+        assertEquals(capture, locations.captureRoot(pending.id))
+        assertEquals(locations.preparedRoot(pending.id).parentFile, capture.parentFile)
         val completed = locations.complete(pending.id)
         assertFalse(capture.exists())
         assertArrayEquals(payloadBytes, locations.root(completed.id).resolve("Library/series/finished.cbz").readBytes())
@@ -227,6 +228,50 @@ class WorkingLibraryLocationsTest {
         assertFalse(root.exists())
         locations.select(WorkingLibraryLocations.DEFAULT)
         assertEquals(WorkingLibraryLocations.DEFAULT, locations.current().id)
+    }
+
+    @Test fun aRefreshedSourceKeepsEveryOldRootAndReopensTheCurrentOrLatestCopy() {
+        val owner = temporary.newFolder("private")
+        val locations = WorkingLibraryLocations(owner)
+        val (first, _) = staged(locations)
+        locations.verified(first.id, digest)
+        val old = locations.complete(first.id)
+        locations.select(old.id)
+        val fresh = (locations.begin("Refreshed library", source, refresh = true) as WorkingLibraryStart.Copy).pending
+        val archive = locations.copyRoot(fresh.id).resolve("Library/series/finished.cbz")
+        archive.parentFile!!.mkdirs(); archive.writeText("refreshed bytes")
+        assertEquals(old.id, locations.current().id)
+        locations.verified(fresh.id, "c".repeat(64)); val next = locations.complete(fresh.id)
+        val cold = WorkingLibraryLocations(owner)
+        assertEquals(3, cold.libraries().size)
+        assertEquals(old, (cold.begin("Again", source) as WorkingLibraryStart.Existing).library)
+        cold.select(WorkingLibraryLocations.DEFAULT)
+        assertEquals(next, (cold.begin("Again", source) as WorkingLibraryStart.Existing).library)
+        assertEquals("registry fixture, not a verified archive", cold.root(old.id).resolve("Library/series/finished.cbz").readText())
+        assertEquals("refreshed bytes", cold.root(next.id).resolve("Library/series/finished.cbz").readText())
+    }
+
+    @Test fun retryResetsOnlyAnUnverifiedPayloadAndRollbackRemembersAMissingPreviousRoot() {
+        val owner = temporary.newFolder("private")
+        val locations = WorkingLibraryLocations(owner)
+        val (pending, archive) = staged(locations)
+        val captured = locations.captureRoot(pending.id).resolve("keep-input").apply { writeText("retained") }
+        locations.resetCopy(pending.id)
+        assertFalse(archive.exists()); assertEquals("retained", captured.readText())
+        locations.verified(pending.id, digest)
+        failure(WorkingLibraryFailure.NOT_READY) { locations.resetCopy(pending.id) }
+        val root = locations.preparedRoot(pending.id)
+        val renamed = owner.resolve("working-libraries/${pending.id}")
+        assertTrue(root.renameTo(renamed))
+        assertEquals(renamed, WorkingLibraryLocations(owner).preparedRoot(pending.id))
+        val completed = locations.complete(pending.id)
+        locations.select(completed.id)
+        renamed.deleteRecursively()
+        locations.rollbackSelection(WorkingLibraryLocations.DEFAULT)
+        locations.rollbackSelection(completed.id)
+        assertEquals(completed.id, locations.activeId())
+        failure(WorkingLibraryFailure.UNAVAILABLE) { locations.current() }
+        assertFalse(renamed.exists())
     }
 
     @Test fun aCorruptRegistryOrForeignMarkerNeverFallsBackToAnotherLibrary() {
