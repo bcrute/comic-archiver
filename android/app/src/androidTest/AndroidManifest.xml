@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Archive integration fixtures" android:allowBackup="false">
+        <!-- Separate test-APK UID/process survives killing the target app mid-copy. -->
+        <provider
+            android:name="io.github.bcrute.comicarchiver.integration.FixtureDocumentsProvider"
+            android:authorities="io.github.bcrute.comicarchiver.test.documents"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:exported="true" android:grantUriPermissions="true" android:process=":fixture_docs">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <provider
+            android:name="io.github.bcrute.comicarchiver.integration.FixtureControlProvider"
+            android:authorities="io.github.bcrute.comicarchiver.test.control"
+            android:exported="true" android:process=":fixture_docs" />
+    </application>
+</manifest>

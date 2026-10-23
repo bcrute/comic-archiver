@@ -55,6 +55,7 @@ PINNED_SHA256 = PINS["zstandard"]["sha256"]
 PYPI_JSON = PINS["zstandard"]["pypi_json"]
 WHEEL_ABI_ARCHS = ("arm64_v8a", "x86_64")
 APK = REPO / "android/app/build/outputs/apk/debug/app-debug.apk"
+TEST_APK = REPO / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 JOB_DIR = REPO / "android/.fleet-job"
 TOOLS_DIR = REPO / "android/.fleet-sdk"
 # One managed debug signing identity per job: an owner-private injected keystore
@@ -1084,9 +1085,32 @@ def _evaluate_selfcheck(line):
     }
 
 
-def phase_in_app(paths):
+def phase_instrumentation_build(paths, wheels):
+    """Build the required test-only APK and verify it uses the retained target signer."""
+    env, argv, _flags, _index = _gradle_invocation(paths, "assembleDebugAndroidTest", wheels)
+    result = run_tool(argv, timeout=1800, env_extra=env, keep_bytes=16000)
+    cert, diagnostics = None, None
+    expected = report["phases"].get("build", {}).get("apk_cert_sha256")
+    ok = result["returncode"] == 0 and TEST_APK.is_file()
+    if ok:
+        cert, diagnostics = _apk_signer_cert_sha256(paths["sdk"], paths["java"], TEST_APK, run_tool)
+        ok = cert is not None and expected is not None and cert == expected
+    digest = None
+    if ok:
+        artifacts = REPO.parent / "artifacts"
+        artifacts.mkdir(exist_ok=True)
+        retained = artifacts / "app-debug-androidTest.apk"
+        shutil.copyfile(TEST_APK, retained)
+        digest = hashlib.sha256(retained.read_bytes()).hexdigest()
+    record("instrumentation_build", "passed" if ok else "failed", minutes=result["minutes"],
+           apk_sha256=digest, apk_cert_sha256=cert, signing_verifier=diagnostics, tail=result["tail"])
+    return ok
+
+
+def phase_in_app(paths, test_apk=None):
     if not _emulator_capable():
         record("in_app", "pending", reason="no accessible /dev/kvm in this job; native emulator gate pending")
+        record("beta_integration", "pending", reason="no accessible /dev/kvm in this job")
         return
     sdk = paths["sdk"]
     adb = sdk / "platform-tools/adb"
@@ -1100,6 +1124,7 @@ def phase_in_app(paths):
         record("in_app", "pending", reason="no avdmanager/emulator/system image",
                adb=adb.is_file(), emulator=emulator.is_file(), avdmanager=avdmanager.is_file(),
                system_image=image)
+        record("beta_integration", "pending", reason="native emulator prerequisites unavailable")
         return
 
     avd_home = JOB_DIR / "avd"
@@ -1112,9 +1137,10 @@ def phase_in_app(paths):
                        timeout=300, env_extra=env_java)
     if created["returncode"] != 0:
         record("in_app", "failed", reason="avd creation failed", tail=created["tail"])
+        record("beta_integration", "skipped", reason="avd creation failed")
         shutil.rmtree(avd_home, ignore_errors=True)
         return
-    serial, process = None, None
+    serial, process, owned = None, None, False
     try:
         port = _free_port()
         serial = f"emulator-{port}"
@@ -1135,7 +1161,14 @@ def phase_in_app(paths):
             time.sleep(5)
         if not booted:
             record("in_app", "failed", reason="job emulator did not finish booting")
+            record("beta_integration", "skipped", reason="job emulator did not finish booting")
             return
+        identity = run_tool([str(adb), "-s", serial, "emu", "avd", "name"], timeout=60)
+        if identity["returncode"] != 0 or identity["tail"].splitlines()[:1] != [avd_name]:
+            record("in_app", "failed", reason="selected emulator is not this job's AVD")
+            record("beta_integration", "skipped", reason="emulator ownership was not verified")
+            return
+        owned = True
         properties = {}
         for key, prop in (("abi", "ro.product.cpu.abi"), ("api", "ro.build.version.sdk")):
             properties[key] = run_tool([str(adb), "-s", serial, "shell", "getprop", prop], timeout=60)["tail"].strip()
@@ -1156,11 +1189,27 @@ def phase_in_app(paths):
         record("in_app", "passed" if checks and all(checks.values()) else "failed",
                install_ok=checks["install_ok"], evidence=line, checks=checks,
                abi=properties["abi"], api=properties["api"], tail=log["tail"][:2000])
+        if not all(checks.values()):
+            record("beta_integration", "skipped", reason="native selfcheck did not pass")
+        elif test_apk is None:
+            record("beta_integration", "pending", reason="required instrumentation APK not selected")
+        else:
+            if __package__:
+                from .android_beta_integration import run as beta_journey
+            else:
+                from android_beta_integration import run as beta_journey
+            try:
+                result = beta_journey(adb, serial, avd_name, test_apk,
+                                      REPO.parent / "artifacts/beta-integration", run_tool)
+                record("beta_integration", "passed", **result)
+            except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                record("beta_integration", "failed", error_type=type(error).__name__)
     except (ValueError, OSError, RuntimeError) as error:
         record("in_app", "failed", reason="emulator or selfcheck observation failed",
                error_type=type(error).__name__)
+        record("beta_integration", "skipped", reason="native execution failed")
     finally:
-        if serial:
+        if serial and owned:
             run_tool([str(adb), "-s", serial, "emu", "kill"], timeout=120)
         if process is not None:
             for _ in range(60):
@@ -1180,20 +1229,21 @@ def _json_ok(text):
         return False
 
 
-REQUIRED_PHASES = ("provision", "debug_signing", "preflight", "sdist", "wheels", "build", "jvm_tests", "in_app")
+REQUIRED_PHASES = ("provision", "debug_signing", "preflight", "sdist", "wheels", "build", "jvm_tests",
+                   "instrumentation_build", "in_app", "beta_integration")
 
 
-def _verdict():
+def _verdict(required=REQUIRED_PHASES):
     # Every selected required phase counts: a single failed phase fails the point, a
     # capability gap (pending) or a phase skipped behind it holds it pending, and 0
     # requires every phase's evidence to have passed. Provision counts as required:
     # its remedy is what makes the later phases runnable on a bare host.
-    statuses = [report["phases"][phase]["status"] for phase in REQUIRED_PHASES if phase in report["phases"]]
+    statuses = [report["phases"].get(phase, {}).get("status", "pending") for phase in required]
     if not statuses or "failed" in statuses:
         return 1
-    if "pending" in statuses or "skipped" in statuses:
-        return 3
-    return 0
+    if all(status == "passed" for status in statuses):
+        return 0
+    return 3
 
 
 def main():
@@ -1219,7 +1269,11 @@ def main():
                 wheels = phase_wheels(preflight[1], sdist)
                 if phase_build(preflight[1], wheels):
                     if phase_jvm_tests(preflight[1], wheels):
-                        phase_in_app(preflight[1])
+                        if phase_instrumentation_build(preflight[1], wheels):
+                            phase_in_app(preflight[1], TEST_APK)
+                        else:
+                            record("in_app", "skipped", reason="instrumentation build did not pass")
+                            record("beta_integration", "skipped", reason="instrumentation build did not pass")
                     else:
                         record("in_app", "skipped", reason="jvm tests did not pass")
                 else:
@@ -1233,7 +1287,9 @@ def main():
                 record("jvm_tests", "skipped", reason=reason)
                 record("in_app", "skipped", reason=reason)
     finally:
-        code = _verdict()
+        required = {"preflight": ("preflight",), "sdist": ("sdist",)}.get(args.phase, REQUIRED_PHASES)
+        report["selected_required_phases"] = list(required)
+        code = _verdict(required)
         report["verdict"] = {0: "passed", 1: "failed", 2: "failed", 3: "pending"}[code]
         (REPO / "android-feasibility.json").write_text(json.dumps(report, indent=2))
         print(json.dumps(report))

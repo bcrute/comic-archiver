@@ -37,6 +37,19 @@ class EmulatorCapacityTests(unittest.TestCase):
             self.assertEqual(feasibility._verdict(), 3)
             run.assert_not_called()
 
+    def test_missing_beta_or_instrumentation_build_cannot_pass_the_full_verdict(self):
+        for omitted in ('instrumentation_build', 'beta_integration'):
+            report = {'phases': {name: {'status': 'passed'} for name in feasibility.REQUIRED_PHASES
+                                 if name != omitted}}
+            with self.subTest(phase=omitted), patch.object(feasibility, 'report', report):
+                self.assertEqual(feasibility._verdict(), 3)
+
+    def test_explicit_preflight_and_sdist_selectors_do_not_claim_a_whole_app_pass(self):
+        for phase in ('preflight', 'sdist'):
+            with patch.object(feasibility, 'report', {'phases': {phase: {'status': 'passed'}}}):
+                self.assertEqual(feasibility._verdict((phase,)), 0)
+                self.assertEqual(feasibility._verdict(), 3)
+
 
 class SelfcheckEvidenceTests(unittest.TestCase):
     """Exercise the actual MainActivity envelope, without claiming Android execution."""
@@ -118,6 +131,8 @@ class InAppObservationTests(unittest.TestCase):
                 if "getprop" in argv:
                     tail = {"sys.boot_completed": "1", "ro.product.cpu.abi": "x86_64",
                             "ro.build.version.sdk": "36"}[argv[-1]]
+                elif argv[-3:] == ['emu', 'avd', 'name']:
+                    tail = f'comic-archiver-feasibility-{feasibility.os.getpid()}\nOK'
                 elif "install" in argv:
                     code, tail = (1, "Failure") if failure == "install" else (0, "Success")
                 elif "start" in argv:
@@ -159,6 +174,39 @@ class InAppObservationTests(unittest.TestCase):
                 phase = self.observe(stage)
                 self.assertEqual(phase["status"], "failed")
                 self.assertFalse(phase["checks"][check])
+
+
+class InstrumentationBuildTests(unittest.TestCase):
+    def build(self, cert='a' * 64, *, exists=True):
+        with tempfile.TemporaryDirectory() as folder:
+            repo = pathlib.Path(folder) / 'checkout'
+            repo.mkdir()
+            apk = repo / 'fixture.apk'
+            if exists:
+                apk.write_bytes(b'test-only instrumentation apk')
+            report = {'phases': {'build': {'apk_cert_sha256': 'a' * 64}}}
+            with patch.object(feasibility, 'REPO', repo), patch.object(feasibility, 'TEST_APK', apk), \
+                    patch.object(feasibility, 'report', report), patch.object(
+                        feasibility, '_gradle_invocation', return_value=({}, ['gradle'], None, None)), \
+                    patch.object(feasibility, 'run_tool', return_value={'returncode': 0, 'minutes': 0.1, 'tail': 'built'}), \
+                    patch.object(feasibility, '_apk_signer_cert_sha256', return_value=(cert, {})):
+                ok = feasibility.phase_instrumentation_build({'sdk': '/fixture/sdk', 'java': '/fixture/java'}, [])
+            retained = repo.parent / 'artifacts/app-debug-androidTest.apk'
+            return ok, report['phases']['instrumentation_build'], retained.read_bytes() if retained.exists() else None
+
+    def test_test_apk_must_match_target_signer_and_retained_digest(self):
+        ok, phase, data = self.build()
+        self.assertTrue(ok)
+        self.assertEqual(phase['status'], 'passed')
+        self.assertEqual(phase['apk_sha256'], feasibility.hashlib.sha256(data).hexdigest())
+
+    def test_wrong_signer_or_missing_test_apk_cannot_pass_or_be_retained(self):
+        for arguments in ({'cert': 'b' * 64}, {'cert': None}, {'exists': False}):
+            with self.subTest(arguments=arguments):
+                ok, phase, data = self.build(**arguments)
+                self.assertFalse(ok)
+                self.assertEqual(phase['status'], 'failed')
+                self.assertIsNone(data)
 
 
 class EmulatorPortTests(unittest.TestCase):
