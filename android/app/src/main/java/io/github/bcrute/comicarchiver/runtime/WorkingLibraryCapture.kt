@@ -631,8 +631,11 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
     }
     private fun syncDirectory(path: File) {
         safe(path)
-        val descriptor = Os.open(path.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY or OsConstants.O_NOFOLLOW, 0)
-        try { Os.fsync(descriptor) } finally { Os.close(descriptor) }
+        val descriptor = Os.open(path.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW, 0)
+        try {
+            if (!OsConstants.S_ISDIR(Os.fstat(descriptor).st_mode)) fail(LibraryCaptureFailure.PRIVATE_COPY)
+            Os.fsync(descriptor)
+        } finally { Os.close(descriptor) }
     }
     private fun File.resolveSiblingCapture() = File(parentFile, ".capture-part-" +
         hex(MessageDigest.getInstance("SHA-256").digest(name.toByteArray(Charsets.UTF_8))))
