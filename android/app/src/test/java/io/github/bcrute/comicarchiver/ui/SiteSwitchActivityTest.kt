@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver.ui
 import android.content.Context
 import android.os.Looper
 import android.webkit.WebView
+import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -179,17 +180,19 @@ class SiteSwitchActivityTest {
         assertEquals(SignInState.SignedOut, app.controller.state.value.signIn)
     }
 
-    @Test fun signInGetsAFixedBrowserViewportAfterInitialMountAndActivityRecreation() {
+    @Test
+    @Config(application = ViewportTestApp::class)
+    fun signInGetsAFixedBrowserViewportAfterInitialMountAndActivityRecreation() {
         ready()
         fun startAndInspect(): WebView {
             compose.runOnIdle { app.controller.startSignIn() }
             await { app.controller.state.value.signIn is SignInState.Page &&
                 app.surfaces.lastOrNull()?.let { it.isAttachedToWindow && it.width > 0 && it.height > 0 } == true }
-            return app.surfaces.last().also { surface ->
+            return compose.runOnIdle { app.surfaces.last().also { surface ->
                 assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.width)
                 assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, surface.layoutParams.height)
                 assertEquals((surface.parent as ViewGroup).height, surface.height)
-            }
+            } }
         }
         val first = startAndInspect()
         compose.activityRule.scenario.recreate()
@@ -227,6 +230,19 @@ class SiteSwitchActivityTest {
         assertEquals(0, app.wire.count("signin_restore"))
         assertEquals(0, app.wire.count("go"))
     }
+}
+
+/** Robolectric 4.17 supplies a proxy WebViewProvider, without Chromium's measure
+ * delegate. Supply ordinary View measurement for this layout-only fixture. Actual
+ * HTML percentage sizing and browser rendering require the retained APK on device.
+ * Neither the Activity's layout parameters nor its Compose constraints are faked. */
+class ViewportTestApp : SwitchTestApp() {
+    override fun createSignInSurface(context: Context, key: String) = object : WebView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            setMeasuredDimension(View.getDefaultSize(0, widthMeasureSpec),
+                View.getDefaultSize(0, heightMeasureSpec))
+        }
+    }.also { surfaces.add(it) }
 }
 
 open class SwitchTestApp : App() {
