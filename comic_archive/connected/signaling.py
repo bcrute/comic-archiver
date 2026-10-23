@@ -129,10 +129,12 @@ class Identity:
 
     def __init__(self, token, device_id, signing, exchange):
         require(token is CREATE)
-        self.device_id, self._signing, self._exchange = device_id, signing, exchange
+        self._device_id, self._signing, self._exchange = device_id, signing, exchange
         self._public = dict(device_id=device_id, signing=signing.export_public(as_dict=True),
                             exchange=exchange.export_public(as_dict=True))
         _bundle(self._public)
+
+    device_id = property(lambda self: self._device_id)
 
     @classmethod
     def generate(cls):
@@ -185,6 +187,37 @@ def verify_bundle_proof(wire, signing_pin, challenge, role, now_ms):
         require(claims['issued_at'] <= now_ms + 5000 and claims['issued_at'] <= claims['expires_at']
                 and now_ms < claims['expires_at'] <= claims['issued_at'] + 20_000)
         return claims['bundle']
+    except Exception:
+        raise SourceError('integrity_failed') from None
+
+
+def _identity_record(identity):
+    """Private filesystem serialization only; never a wire/public bundle."""
+    require(isinstance(identity, Identity))
+    return dict(format='cl1.host-identity/1', device_id=identity.device_id,
+                signing=identity._signing.export_private(as_dict=True),
+                exchange=identity._exchange.export_private(as_dict=True))
+
+
+def _restore_identity(value):
+    """Import actual private material read by the protected store owner.
+
+    This proves key possession only, never a pairing/account/read grant.
+    """
+    try:
+        require(isinstance(value, dict) and set(value) == {'format', 'device_id', 'signing', 'exchange'}
+                and value['format'] == 'cl1.host-identity/1')
+        _id(value['device_id'])
+        restored = []
+        for name in ['signing', 'exchange']:
+            record = value[name]
+            require(isinstance(record, dict) and set(record) == KEYS | {'d'})
+            _public({key: record[key] for key in KEYS})
+            require(len(_unb64(record['d'], 32)) == 32)
+            key = jwk.JWK(**record)
+            key.get_op_key('sign')  # Validates actual private/public point consistency.
+            restored.append(key)
+        return Identity(CREATE, value['device_id'], *restored)
     except Exception:
         raise SourceError('integrity_failed') from None
 
