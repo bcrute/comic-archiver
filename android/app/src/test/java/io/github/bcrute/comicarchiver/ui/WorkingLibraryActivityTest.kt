@@ -32,7 +32,8 @@ import java.util.concurrent.TimeUnit
 /** Actual activity/coordinator/capture/filesystem, with synthetic documents and preparation.
  * These fixtures are not archives. Real SAF, JNI/core verification and cookie binding remain native gates. */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = WorkingFlowTestApp::class, sdk = [34], qualifiers = "w393dp-h1000dp")
+@Config(application = WorkingFlowTestApp::class, sdk = [34], qualifiers = "w393dp-h1000dp",
+    shadows = [WorkingLibraryFileSystemShadow::class])
 class WorkingLibraryActivityTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val app get() = compose.activity.application as WorkingFlowTestApp

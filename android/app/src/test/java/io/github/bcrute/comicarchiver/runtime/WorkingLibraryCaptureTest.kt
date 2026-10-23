@@ -18,7 +18,7 @@ import java.nio.file.Files
 
 /** Capture fixtures deliberately are not archives. Core verification and system SAF journeys are independent gates. */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [34])
+@Config(application = Application::class, sdk = [34], shadows = [WorkingLibraryFileSystemShadow::class])
 class WorkingLibraryCaptureTest {
     @get:Rule val temporary = TemporaryFolder()
     private val tree = Uri.parse("content://fixture.documents/tree/root")

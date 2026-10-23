@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 
 /** Storage/selection transactions only. Fake verification receipts do not qualify archive adoption. */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [34])
+@Config(application = Application::class, sdk = [34], shadows = [WorkingLibraryFileSystemShadow::class])
 class WorkingLibraryLocationsTest {
     @get:Rule val temporary = TemporaryFolder()
     private val source = WorkingLibrarySource("a".repeat(64), "content://fixture.documents/tree/library")
