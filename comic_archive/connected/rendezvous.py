@@ -31,12 +31,24 @@ class PinnedConnect(connect):
         return exc
 
 
+class UnclosedSocket(SourceError):
+    """Retains the ACTUAL native handle after unknown open cleanup."""
+    def __init__(self, token, socket):
+        require(token is _CREATE and isinstance(socket, ClientConnection))
+        super().__init__('connection_unavailable')
+        self.socket = socket
+
+    async def close(self):
+        await self.socket.close()
+        require(self.socket.state is State.CLOSED, 'connection_unavailable')
+
+
 class HostRendezvous:
     def __init__(self, token, owner, pairing_id, socket, pending, draft):
         require(token is _CREATE and isinstance(owner, PairingOwner) and isinstance(socket, ClientConnection))
         self.owner, self.pairing_id, self._socket, self.pending = owner, pairing_id, socket, pending
         self._binding, self._closed, self._seq, self._incoming = None, False, 0, 0
-        self._draft = draft
+        self._draft, self._bundle_sent = draft, False
         self._lease_request, self._service_deadline = None, 0.0
         self._receive_busy, self._send_lock = False, asyncio.Lock()
 
@@ -67,7 +79,11 @@ class HostRendezvous:
             result._current()
             return result
         except BaseException:
-            await socket.close()
+            try:
+                await socket.close()
+                require(socket.state is State.CLOSED, 'connection_unavailable')
+            except BaseException:
+                raise UnclosedSocket(_CREATE, socket) from None
             raise
 
     def _current(self):
@@ -108,6 +124,28 @@ class HostRendezvous:
                 self._service_deadline = 0
                 await self.close()
                 raise
+
+    @property
+    def binding(self):
+        self._current()
+        return None if self._binding is None else loads(dumps(self._binding, 4096), 4096)
+
+    @property
+    def renewal_deadline(self):
+        self._current()
+        return None if self._lease_request is None else self._lease_request[2] + 10
+
+    async def attest(self):
+        self._current()
+        require(self._binding is not None and not self._bundle_sent, 'integrity_failed')
+        proof = self.owner.state.identity.attest(self._binding['challenge'], 'host', int(self.owner.wall() * 1000))
+        self._bundle_sent = True
+        await self._send(dict(v=1, type='bundle', session_id=self._binding['session_id'], proof=proof))
+
+    def invalidate(self):
+        # Synchronous permission retirement; the actual network owner still owes
+        # awaited close/receive-task join before reporting cleanup.
+        self._closed, self._service_deadline, self._lease_request = True, 0.0, None
 
     async def heartbeat(self):
         await self._send(dict(v=1, type='heartbeat', id=str(uuid.uuid4())))
@@ -192,6 +230,7 @@ class HostRendezvous:
             self._receive_busy = False
 
     async def close(self):
-        self._closed, self._service_deadline, self._lease_request = True, 0.0, None
+        self.invalidate()
         # Actual library close awaited. Unknown close propagates, no join success.
         await self._socket.close()
+        require(self._socket.state is State.CLOSED, 'connection_unavailable')

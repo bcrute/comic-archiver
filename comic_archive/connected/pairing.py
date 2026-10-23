@@ -8,8 +8,8 @@ import secrets
 import time
 import threading
 import uuid
-from urllib.parse import urlsplit
 
+from .endpoint import reader_origin
 from .files import Index, SourceError
 from .jsoncodec import dumps, loads, require
 from .signaling import SignalSession, _b64
@@ -131,9 +131,7 @@ class PairingOwner:
 
     def qr_url(self, draft, origin):
         require(self._live(draft) and draft._secret is not None, 'revoked')
-        parsed = urlsplit(origin)
-        require(parsed.scheme == 'https' and parsed.hostname and parsed.username is None and parsed.password is None
-                and parsed.path in {'', '/'} and not parsed.query and not parsed.fragment and origin.isascii())
+        reader_origin(origin)
         payload = dict(format='cl1.pairing-qr/1', pairing_id=draft.pairing_id, session_id=draft.session_id,
                        challenge=draft.challenge, host_device_id=self.state.identity.device_id,
                        host_signing_pin=self.state.identity._signing.thumbprint(), bootstrap_secret=_b64(draft._secret))

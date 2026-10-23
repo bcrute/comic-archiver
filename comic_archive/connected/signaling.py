@@ -12,10 +12,10 @@ import re
 import time
 import uuid
 from types import MappingProxyType
-from urllib.parse import urlsplit
 
 from jwcrypto import jwk, jwe, jws
 
+from .endpoint import reader_origin
 from .files import SourceError
 from .jsoncodec import dumps, loads, require
 from .wire import _id
@@ -152,10 +152,7 @@ class Identity:
         ownership. No token, cookie, provider credential or comic body belongs here.
         """
         try:
-            parsed = urlsplit(origin)
-            require(parsed.scheme == 'https' or parsed.scheme == 'http' and parsed.hostname in {'localhost', '127.0.0.1', '::1'})
-            require(parsed.hostname and parsed.username is None and parsed.password is None and not parsed.query
-                    and not parsed.fragment and parsed.path in {'', '/'} and origin == origin.rstrip('/'))
+            reader_origin(origin)
             require(method in {'GET', 'POST', 'DELETE'} and isinstance(path, str) and path.startswith('/api/connected-library/v1/')
                     and '?' not in path and '#' not in path and len(path) <= 256 and isinstance(body, dict))
             _integer(now_ms, 0, 2**53 - 1 - 20_000)
