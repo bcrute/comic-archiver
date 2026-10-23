@@ -5,12 +5,11 @@ all calls on the same file/SQLite worker. No listener is started by this module.
 """
 from collections import OrderedDict
 import hashlib
-import json
-import math
 import time
 import uuid
 
 from .files import ARCHIVE_MAX, Index, SourceError
+from .jsoncodec import dumps, loads
 from .wire import FRAME_MAX, RANGE_MAX, WINDOW_MAX, ReadRange, _id
 
 CONTROL_MAX = 65536
@@ -26,36 +25,9 @@ def _require(value, code='integrity_failed'):
         raise SourceError(code)
 
 
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        _require(key not in result)
-        result[key] = value
-    return result
-
-
-def _shape(value, depth=0):
-    _require(depth <= 16)
-    if isinstance(value, dict):
-        for key, child in value.items():
-            key.encode('utf-8')
-            _shape(child, depth + 1)
-    elif isinstance(value, list):
-        for child in value:
-            _shape(child, depth + 1)
-    elif isinstance(value, str):
-        value.encode('utf-8')
-    elif type(value) is int:
-        _require(abs(value) <= 2**53 - 1)
-    elif type(value) is float:
-        _require(math.isfinite(value))
-
-
 def parse_control(text):
     try:
-        _require(isinstance(text, str) and 0 < len(text.encode('utf-8')) <= CONTROL_MAX)
-        value = json.loads(text, object_pairs_hook=_pairs, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-        _shape(value)
+        value = loads(text, CONTROL_MAX)
         _require(isinstance(value, dict) and type(value.get('v')) is int and value['v'] == 1
                  and isinstance(value.get('op'), str) and isinstance(value.get('args'), dict))
         _id(value.get('id'))
@@ -65,9 +37,7 @@ def parse_control(text):
 
 
 def encode_control(value):
-    data = json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
-    _require(len(data.encode('utf-8')) <= CONTROL_MAX, 'resource_limit')
-    return data
+    return dumps(value, CONTROL_MAX)
 
 
 def _integer(value, low, high):

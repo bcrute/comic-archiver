@@ -64,3 +64,15 @@ https://code.qt.io/cgit/qt/qtwebengine-chromium.git.
   bundles libjpeg-turbo, libpng, libtiff, libwebp, FreeType, zlib and other
   libraries under their own permissive licences.
 - typing_extensions (PSF).
+
+## Optional connected-reader source (not packaged or enabled)
+
+The opt-in `connected` extra pins [JWCrypto1.6.1](https://pypi.org/project/jwcrypto/1.6.1/)
+under LGPL-3.0-or-later and [aiortc1.15.0](https://pypi.org/project/aiortc/1.15.0/)
+under BSD-3-Clause. They remain ordinary replaceable Python dependencies. Source
+metadata is in `packaging/connected-direct-sources.json`; neither dependency nor
+its native/transitive packages has been installed or qualified for this source
+stage. No current Linux/Windows app bundle gains the connected extra here.
+Before distributing that opt-in host, preserve each supplied license/source notice
+in the existing package-license collection and record the actual transitive/
+native versions. The default downloader/desktop dependency set stays separate.

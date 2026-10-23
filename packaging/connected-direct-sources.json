@@ -1,0 +1,57 @@
+{
+  "status": "UNVERIFIED direct source metadata only; no installation/import/hash/crypto/packaging qualification. Transitives/native wheels unresolved until original fleet workflow point.",
+  "packages": [
+    {
+      "name": "jwcrypto",
+      "version": "1.6.1",
+      "license": "LGPL-3.0-or-later",
+      "metadata_source": "https://pypi.org/pypi/jwcrypto/1.6.1/json",
+      "dependencies": [
+        "cryptography>=49.0.0",
+        "typing_extensions>=4.5.0"
+      ],
+      "files": [
+        {
+          "filename": "jwcrypto-1.6.1-py3-none-any.whl",
+          "url": "https://files.pythonhosted.org/packages/31/a4/ee780473e42a3edaf65da1ad37f5c601a9c740e215c1e09db36bf90f3f59/jwcrypto-1.6.1-py3-none-any.whl",
+          "sha256": "77e856818e514cb3d64a1043b6885a7d52f5cc37773f5e944de02103c8d3a54f"
+        },
+        {
+          "filename": "jwcrypto-1.6.1.tar.gz",
+          "url": "https://files.pythonhosted.org/packages/13/8f/e802d77957903483129813ce6fa01a72a906f9cdd454039d1ec1e6d1e44a/jwcrypto-1.6.1.tar.gz",
+          "sha256": "a1e1570da5c2e35dbcd375ec1d2891a24de8eb35ee2c1fe8e91978efb72cfe90"
+        }
+      ]
+    },
+    {
+      "name": "aiortc",
+      "version": "1.15.0",
+      "license": "BSD-3-Clause",
+      "metadata_source": "https://pypi.org/pypi/aiortc/1.15.0/json",
+      "dependencies": [
+        "aioice<1.0.0,>=0.10.2",
+        "av<18.0.0,>=14.0.0",
+        "cryptography>=44.0.0",
+        "google-crc32c>=1.1",
+        "pyee>=13.0.0",
+        "pylibsrtp>=0.10.0",
+        "pyopenssl>=25.0.0",
+        "aiohttp>=3.7.0; extra == \"dev\"",
+        "coverage[toml]>=7.2.2; extra == \"dev\"",
+        "numpy>=1.19.0; extra == \"dev\""
+      ],
+      "files": [
+        {
+          "filename": "aiortc-1.15.0-py3-none-any.whl",
+          "url": "https://files.pythonhosted.org/packages/0c/5f/8435ba02c9278b6cec6f168db92e1d3280dd3af8f2225e20dc7c3be5ab22/aiortc-1.15.0-py3-none-any.whl",
+          "sha256": "4e1e54bff31a9c2cb654c7b7edc068085a7df53365e5df24a5cb24168e3f95f7"
+        },
+        {
+          "filename": "aiortc-1.15.0.tar.gz",
+          "url": "https://files.pythonhosted.org/packages/2d/42/af1e5755f4cdeb5926ef4aee4bd99d2fbc04b497dfe09f036d359219993e/aiortc-1.15.0.tar.gz",
+          "sha256": "ee6c0757ca070cf6d6bee441936d6ede24eef51211bbff6653409c540f72e625"
+        }
+      ]
+    }
+  ]
+}
