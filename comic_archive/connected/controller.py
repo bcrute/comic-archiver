@@ -1,7 +1,7 @@
 """One-thread host pairing/signaling controller over actual native owners.
 
-No local HTTP listener, downloader/site session, RTC peer or file worker. The
-next RTC owner must combine actual local scope/peer with the service deadline.
+No local HTTP listener or downloader/site session. Actual RTC/file-worker owners
+combine native accepted peers and local scope with the service deadline.
 """
 import asyncio
 import time
@@ -176,6 +176,7 @@ class HostController:
         self._pending, self._runners, self._operations, self._acks = {}, {}, {}, {}
         self._operation_kinds, self._unclosed = {}, {}
         self._changed = asyncio.Event()
+        self._driver = None
 
     def current(self):
         require(not self.closed, 'cancelled')
@@ -442,6 +443,8 @@ class HostController:
         raise SourceError('connection_unavailable')
 
     async def close(self):
+        if self._driver is not None and not self._driver.closed:
+            return await self._driver.close()
         self.closed = True
         for runner in self._runners.values():
             runner.stop()
