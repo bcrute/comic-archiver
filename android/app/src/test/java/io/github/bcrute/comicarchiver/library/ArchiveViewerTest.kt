@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.core.content.FileProvider
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -31,6 +32,13 @@ class ArchiveViewerTest {
     private fun provider() = ArchiveFileProvider().also {
         it.attachInfo(context, context.packageManager.resolveContentProvider(
             context.packageName + ".archives", PackageManager.GET_META_DATA)!!)
+    }
+
+    @Before fun attachProviderForThisApplicationDirectory() {
+        // Android attaches manifest providers before activities. Robolectric gives
+        // each test a new filesDir while AndroidX's authority cache survives; real
+        // attachInfo invalidates that cache for this application's current root.
+        provider()
     }
 
     @Test fun viewerPassesOnlyTheSelectedContentUriWithReadPermission() {
