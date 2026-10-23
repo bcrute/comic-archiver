@@ -78,10 +78,7 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 
 ## Planned
 
-Nothing in this section works today. A built-in reader for the CBZ and EPUB files the app saves, and an
-optional, private connection so your own library appears in your the web reader account on your other devices —
-streamed from this computer while it's online, or mirrored to your own Backblaze B2 bucket — are planned;
-see [docs/reader-and-connected-library-roadmap.md](docs/reader-and-connected-library-roadmap.md).
+The connected-library interface is now specified in the shared [CL-1 contract](docs/connected-library-contract.md), following the owner's reader-first direction on 23 October 2026. The web connection is not implemented or qualified. The web reader connects to the user's own B2 bucket first, then reads finished CBZs directly from a paired, running Archiver host. No new offline mode is required. The built-in CBZ/EPUB reader remains a separate plan; it does not block the web connection. See [the delivery roadmap](docs/reader-and-connected-library-roadmap.md).
 
 ## Other ways to save your comics
 
