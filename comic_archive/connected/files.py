@@ -37,7 +37,11 @@ def _require(value, code='integrity_failed'):
 
 
 def _parts(value):
-    _require(isinstance(value, str) and 0 < len(value.encode('utf-8')) <= 4096, 'not_found')
+    _require(isinstance(value, str), 'not_found')
+    try:
+        _require(0 < len(value.encode('utf-8')) <= 4096, 'not_found')
+    except UnicodeError:
+        raise SourceError('not_found') from None
     parts = PurePosixPath(value).parts
     _require(parts and not value.startswith('/') and '\\' not in value
              and all(part not in {'.', '..', ''} and not part.startswith('.') for part in parts)
@@ -191,7 +195,10 @@ def _object(root, relative):
 
 def _label(value):
     _require(isinstance(value, str) and value.strip())
-    raw = value.strip().encode('utf-8')
+    try:
+        raw = value.strip().encode('utf-8')
+    except UnicodeError:
+        raise SourceError('integrity_failed') from None
     return raw[:512].decode('utf-8', errors='ignore')
 
 

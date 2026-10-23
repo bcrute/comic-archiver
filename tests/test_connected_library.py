@@ -130,6 +130,12 @@ class ConnectedLibraryTests(unittest.TestCase):
         metadata.write_text(json.dumps(value))
         with self.assertRaises(SourceError):
             self.index.register_completed('series/issue.cbz', 'Series')
+        value = json.loads(good)
+        value['title'] = '\ud800'
+        metadata.write_text(json.dumps(value))
+        with self.assertRaises(SourceError) as caught:
+            self.index.register_completed('series/issue.cbz', 'Series')
+        self.assertEqual(str(caught.exception), 'integrity_failed')
         value['format'] = 'epub'
         metadata.write_text(json.dumps(value))
         with self.assertRaises(SourceError):
