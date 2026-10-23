@@ -54,6 +54,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /** Production Compose screens, with taps, input, layout and save/restore assertions.
  * Only the controller/export side effects are fake: no account, WebView, worker or
@@ -304,6 +305,8 @@ class RenderedScreensTest {
 
     @Test
     @Config(qualifiers = "w360dp-h640dp")
+    // Legacy ShadowPaint measures character counts; overflow needs real font metrics.
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun largeTextNavigationKeepsWordsWholeAndCanReachAbout() {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
