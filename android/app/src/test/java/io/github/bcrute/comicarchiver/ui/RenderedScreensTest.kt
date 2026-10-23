@@ -17,6 +17,8 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyChild
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -537,6 +539,9 @@ class RenderedScreensTest {
         compose.onNodeWithText("Dark").performClick().assertIsSelected()
         assertEquals(AppTheme.DARK, controller.state.value.theme)
         compose.onNodeWithText("Download speed").performScrollTo().assertIsDisplayed()
+        // Reveal the whole row vertically before scrolling its choices
+        // horizontally. Scrolling the heading alone can leave the row below it.
+        compose.onNode(hasScrollAction() and hasAnyChild(hasText("Slow"))).performScrollTo()
         compose.onNodeWithText("Slow").performScrollTo().assertIsDisplayed()
         wholeLabel("Slow")
         compose.onNodeWithText("Slow").performClick().assertIsSelected()
