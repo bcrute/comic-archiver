@@ -1,11 +1,12 @@
 """CL-1 bounded binary ranges. These are file/credit primitives, not peer auth."""
+
 import struct
 import time
 import uuid
 
 from .files import SourceError
 
-HEADER = struct.Struct('!4sB3x16sQII')
+HEADER = struct.Struct("!4sB3x16sQII")
 FRAME_MAX = 16384
 PAYLOAD_MAX = FRAME_MAX - HEADER.size
 WINDOW_MAX = 256 * 1024
@@ -13,7 +14,7 @@ RANGE_MAX = 4 * 1024**2
 SAFE_INTEGER = 2**53 - 1
 
 
-def _require(value, code='integrity_failed'):
+def _require(value, code="integrity_failed"):
     if not value:
         raise SourceError(code)
 
@@ -24,25 +25,41 @@ def _id(value):
         _require(parsed.version == 4 and str(parsed) == value)
         return parsed
     except (ValueError, AttributeError, TypeError):
-        raise SourceError('integrity_failed') from None
+        raise SourceError("integrity_failed") from None
 
 
 def encode_frame(read_id, offset, sequence, data, terminal):
-    _require(type(offset) is int and 0 <= offset <= SAFE_INTEGER
-             and type(sequence) is int and 0 <= sequence < 2**32
-             and isinstance(data, bytes) and 0 < len(data) <= PAYLOAD_MAX and offset + len(data) <= SAFE_INTEGER
-             and type(terminal) is bool)
-    return HEADER.pack(b'CLB1', int(terminal), _id(read_id).bytes, offset, sequence, len(data)) + data
+    _require(
+        type(offset) is int
+        and 0 <= offset <= SAFE_INTEGER
+        and type(sequence) is int
+        and 0 <= sequence < 2**32
+        and isinstance(data, bytes)
+        and 0 < len(data) <= PAYLOAD_MAX
+        and offset + len(data) <= SAFE_INTEGER
+        and type(terminal) is bool
+    )
+    return (
+        HEADER.pack(
+            b"CLB1", int(terminal), _id(read_id).bytes, offset, sequence, len(data)
+        )
+        + data
+    )
 
 
 def decode_frame(data):
     _require(isinstance(data, bytes) and HEADER.size < len(data) <= FRAME_MAX)
-    magic, flags, key, offset, sequence, count = HEADER.unpack(data[:HEADER.size])
+    magic, flags, key, offset, sequence, count = HEADER.unpack(data[: HEADER.size])
     read_id = str(uuid.UUID(bytes=key))
-    _require(magic == b'CLB1' and flags in {0, 1} and data[5:8] == b'\0\0\0'
-             and offset + count <= SAFE_INTEGER and count == len(data) - HEADER.size)
+    _require(
+        magic == b"CLB1"
+        and flags in {0, 1}
+        and data[5:8] == b"\0\0\0"
+        and offset + count <= SAFE_INTEGER
+        and count == len(data) - HEADER.size
+    )
     _id(read_id)
-    return read_id, offset, sequence, data[HEADER.size:], bool(flags)
+    return read_id, offset, sequence, data[HEADER.size :], bool(flags)
 
 
 class ReadRange:
@@ -64,8 +81,14 @@ class ReadRange:
         now = clock()
         self.deadline, self.activity = now + 60, now
         try:
-            _require(type(offset) is int and type(length) is int and 0 <= offset <= SAFE_INTEGER
-                     and 0 < length <= RANGE_MAX and offset + length <= source.stamp.size, 'resource_limit')
+            _require(
+                type(offset) is int
+                and type(length) is int
+                and 0 <= offset <= SAFE_INTEGER
+                and 0 < length <= RANGE_MAX
+                and offset + length <= source.stamp.size,
+                "resource_limit",
+            )
             self.offset, self.end = offset, offset + length
             self._current()
         except BaseException:
@@ -78,10 +101,10 @@ class ReadRange:
         self.source.close()
 
     def _current(self):
-        _require(not self.closed, 'cancelled')
+        _require(not self.closed, "cancelled")
         now = self.clock()
-        _require(now < self.deadline and now - self.activity < 30, 'cancelled')
-        _require(self.authorize() is True, 'revoked')
+        _require(now < self.deadline and now - self.activity < 30, "cancelled")
+        _require(self.authorize() is True, "revoked")
         self.source.current()
 
     def poll(self):
@@ -94,7 +117,10 @@ class ReadRange:
     def add_credit(self, count):
         try:
             self._current()
-            _require(type(count) is int and count > 0 and self.credit + count <= WINDOW_MAX, 'resource_limit')
+            _require(
+                type(count) is int and count > 0 and self.credit + count <= WINDOW_MAX,
+                "resource_limit",
+            )
             self.credit += count
             self.activity = self.clock()
         except BaseException:

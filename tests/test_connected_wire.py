@@ -1,52 +1,70 @@
 """Framing/real-file controls; authorization callbacks are explicit test doubles."""
+
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from comic_archive.connected.files import SharedRoot, SourceError
-from comic_archive.connected.wire import ReadRange, decode_frame, encode_frame, PAYLOAD_MAX, WINDOW_MAX
+from comic_archive.connected.wire import (
+    PAYLOAD_MAX,
+    WINDOW_MAX,
+    ReadRange,
+    decode_frame,
+    encode_frame,
+)
 
-VECTOR = Path(__file__).parent / 'fixtures/connected-library/frame-v1.json'
+VECTOR = Path(__file__).parent / "fixtures/connected-library/frame-v1.json"
 
 
 class ConnectedFrameTests(unittest.TestCase):
     def test_hand_authored_cross_language_data_vector_and_malformed_headers(self):
         value = json.loads(VECTOR.read_text())
-        expected = bytes.fromhex(value['frame_hex'])
-        self.assertEqual(encode_frame(value['read_id'], 0, 0, bytes.fromhex(value['payload_hex']), True), expected)
-        self.assertEqual(decode_frame(expected), (value['read_id'], 0, 0, b'abc', True))
+        expected = bytes.fromhex(value["frame_hex"])
+        self.assertEqual(
+            encode_frame(
+                value["read_id"], 0, 0, bytes.fromhex(value["payload_hex"]), True
+            ),
+            expected,
+        )
+        self.assertEqual(decode_frame(expected), (value["read_id"], 0, 0, b"abc", True))
         for offset in [0, 4, 5, 14, 24, 39]:
             changed = bytearray(expected)
             changed[offset] ^= 255
             with self.subTest(offset=offset), self.assertRaises(SourceError):
                 decode_frame(bytes(changed))
-        for changed in [expected[:39], expected[:-1], expected + b'extra']:
+        for changed in [expected[:39], expected[:-1], expected + b"extra"]:
             with self.assertRaises(SourceError):
                 decode_frame(changed)
 
 
-@unittest.skipUnless(os.name == 'posix', 'Initial host file boundary is POSIX only')
+@unittest.skipUnless(os.name == "posix", "Initial host file boundary is POSIX only")
 class ConnectedRangeTests(unittest.TestCase):
     def setUp(self):
         work = tempfile.TemporaryDirectory()
         self.addCleanup(work.cleanup)
         self.base = Path(work.name)
-        self.raw = b'synthetic unchanged source' * 1800
-        (self.base / 'original.cbz').write_bytes(self.raw)
+        self.raw = b"synthetic unchanged source" * 1800
+        (self.base / "original.cbz").write_bytes(self.raw)
         self.root = SharedRoot(self.base)
         self.addCleanup(self.root.close)
 
     def range(self, offset=0, length=None, authorize=lambda: True, clock=lambda: 0):
-        source = self.root.open('original.cbz')
+        source = self.root.open("original.cbz")
         result = ReadRange(source, offset, length or len(self.raw), authorize, clock)
         self.addCleanup(result.close)
         return result
 
-    def test_actual_pinned_range_respects_credit_size_offsets_and_terminal_custody(self):
+    def test_actual_pinned_range_respects_credit_size_offsets_and_terminal_custody(
+        self,
+    ):
         calls = []
-        stream = self.range(offset=3, length=len(self.raw) - 9, authorize=lambda: not calls.append('checked'))
+        stream = self.range(
+            offset=3,
+            length=len(self.raw) - 9,
+            authorize=lambda: not calls.append("checked"),
+        )
         self.assertIsNone(stream.next_frame())
         stream.add_credit(len(self.raw))
         received = bytearray()
@@ -64,7 +82,7 @@ class ConnectedRangeTests(unittest.TestCase):
         self.assertIsNone(stream.source.fd)
         with self.assertRaises(SourceError):
             stream.next_frame()
-        self.assertEqual((self.base / 'original.cbz').read_bytes(), self.raw)
+        self.assertEqual((self.base / "original.cbz").read_bytes(), self.raw)
 
     def test_revoke_and_monotonic_idle_end_close_the_actual_file(self):
         allowed = [True]
@@ -73,7 +91,7 @@ class ConnectedRangeTests(unittest.TestCase):
         allowed[0] = False
         with self.assertRaises(SourceError) as error:
             stream.next_frame()
-        self.assertEqual(error.exception.code, 'revoked')
+        self.assertEqual(error.exception.code, "revoked")
         self.assertIsNone(stream.source.fd)
         now = [0]
         idle = self.range(clock=lambda: now[0])
@@ -99,12 +117,17 @@ class ConnectedRangeTests(unittest.TestCase):
         with self.assertRaises(SourceError):
             stream.add_credit(1)
         self.assertIsNone(stream.source.fd)
-        for offset, length in [(-1, 1), (True, 1), (0, 4 * 1024**2 + 1), (len(self.raw), 1)]:
-            source = self.root.open('original.cbz')
+        for offset, length in [
+            (-1, 1),
+            (True, 1),
+            (0, 4 * 1024**2 + 1),
+            (len(self.raw), 1),
+        ]:
+            source = self.root.open("original.cbz")
             with self.subTest(offset=offset), self.assertRaises(SourceError):
                 ReadRange(source, offset, length, lambda: True)
             self.assertIsNone(source.fd)
-        source = self.root.open('original.cbz')
+        source = self.root.open("original.cbz")
         with self.assertRaises(SourceError):
-            ReadRange(source, 0, 1, lambda: {'approved': False})
+            ReadRange(source, 0, 1, lambda: {"approved": False})
         self.assertIsNone(source.fd)
