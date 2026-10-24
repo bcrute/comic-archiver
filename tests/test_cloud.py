@@ -54,11 +54,20 @@ class FakeTransfer:
 
     def remote(self, path):return path
 
+    def size(self, path):
+        if (self.provider, path) not in self.files:
+            raise ArchiveError('synthetic object missing')
+        return len(self.files[(self.provider, path)])
+
     def delete_test_file(self, path):
         if self.fail_delete:raise ArchiveError('synthetic cleanup outage')
         self.files.pop((self.provider,path),None)
 
     def run(self, command, path, *args, **kwargs):
+        if command == 'cat':
+            if (self.provider, path) not in self.files:
+                raise ArchiveError('synthetic object missing')
+            return self.files[(self.provider, path)]
         assert command == 'lsf'
         return ('\n'.join(key.rsplit('/',1)[-1] for provider,key in self.files
                           if provider == self.provider and key.rsplit('/',1)[0] == path)).encode()
@@ -293,7 +302,8 @@ class CloudTests(unittest.TestCase):
         self.assertTrue(original.exists());self.assertFalse(archive.exists());self.assertTrue(sidecar_path(archive).is_file())
         receipt = cloud.offloaded(self.root,archive)
         self.assertTrue(receipt['eviction_requested']);self.assertEqual(receipt['state'],'verified')
-        self.assertEqual({key.rsplit('/',1)[-1] for _,key in FakeTransfer.files},{'episode.cbz','episode.json','series.json'})
+        self.assertEqual({key.rsplit('/',1)[-1] for _,key in FakeTransfer.files if '/.reader/' not in key},
+                         {'episode.cbz','episode.json','series.json'})
         data = b'\n'.join(FakeTransfer.files.values())
         self.assertNotIn(b'cdn.test',data);self.assertNotIn(b'rclone.conf',data)
         self.assertNotIn(b'source_episode_id',data)
