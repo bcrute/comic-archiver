@@ -1,10 +1,12 @@
 package io.github.bcrute.comicarchiver.ui
 
+import android.view.View
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithTag
@@ -14,9 +16,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
@@ -27,6 +32,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowDialog
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -35,6 +41,61 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class LocalReaderScreenTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    @Config(qualifiers = "w393dp-h1000dp")
+    fun completedReloadRecoversLostDialogInputFocusAndKeyboardTraversal() {
+        val id = "a".repeat(32)
+        val book = ReaderProtocol.book(ReaderFixtures.book(id, "epub"), id)
+        val document = LocalReaderMedia.decode(ReaderFixtures.page(id, "epub", 0), book, 0)
+        val state = mutableStateOf(LocalReaderState(id = id, book = book, document = document,
+            position = book.record.position, preferences = book.record.preferences))
+        var reloads = 0
+        val actions = LocalReaderActions(reload = {
+            reloads++; state.value = state.value.copy(loading = true)
+        }, preferences = { state.value = state.value.copy(preferences = it) })
+        compose.setContent { MaterialTheme { LocalReaderScreen(state.value, actions) } }
+        compose.onNodeWithText("Reader options").performScrollTo().performClick()
+        compose.onNodeWithText("Reload saved progress").performScrollTo()
+            .performSemanticsAction(SemanticsActions.RequestFocus)
+        val decor = requireNotNull(ShadowDialog.getLatestDialog().window).decorView
+        lateinit var native: View
+        compose.runOnIdle {
+            native = requireNotNull(decor.findFocus())
+            assertTrue(native.hasWindowFocus())
+        }
+        compose.onNodeWithText("Reload saved progress").performClick()
+        compose.onNodeWithText("Reload saved progress").assertIsNotEnabled()
+        compose.runOnIdle {
+            // SDK34's real focus-clear path, with automatic refocus disabled,
+            // models the observed owner interruption while this dialog is busy.
+            // It does not simulate TalkBack or qualify the actual device repair.
+            val clear = View::class.java.getDeclaredMethod("clearFocusInternal",
+                View::class.java, java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
+            clear.isAccessible = true
+            clear.invoke(native, native, true, false)
+            assertFalse(decor.hasFocus())
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertFalse("Busy work must not reclaim focus", decor.hasFocus())
+            state.value = state.value.copy(loading = false)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue("The active options window regains native input", decor.hasFocus()) }
+        compose.onNodeWithText("Close options").assertIsFocused()
+            .performKeyInput { keyDown(Key.Tab); keyUp(Key.Tab) }
+        compose.onNodeWithText("Smaller text").assertIsFocused()
+            .performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
+        compose.runOnIdle {
+            assertEquals(1, reloads)
+            assertEquals(book.record.preferences.textScale - .25, state.value.preferences.textScale, 0.0)
+        }
+        compose.onNodeWithText("Smaller text").assertIsFocused()
+        compose.onNodeWithText("Close options").performClick()
+        compose.onNodeWithText("Reader options").assertIsDisplayed()
+    }
+
     // String semantics rebuilds the paragraph with parent constraints in Compose
     // 1.7.5. Synthetic overflow flags cannot qualify the drawn label. Check every
     // complete, unellipsized line against the actual measured text box instead.

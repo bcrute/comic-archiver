@@ -23,13 +23,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,11 @@ data class LocalReaderActions(val close: () -> Unit = {}, val previous: () -> Un
     val next: () -> Unit = {}, val bookmark: () -> Unit = {}, val reload: () -> Unit = {},
     val jump: (ReadingPosition) -> Unit = {}, val preferences: (ReadingPreferences) -> Unit = {},
     val scrolled: (Int) -> Unit = {}, val dismissFeedback: () -> Unit = {})
+
+private class ReaderOptionsFocus {
+    var actionHadInputFocus = false
+    var busyRendered = false
+}
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -96,6 +104,23 @@ fun LocalReaderScreen(state: LocalReaderState, actions: LocalReaderActions) {
     }
     if (options && book != null) Dialog(onDismissRequest = { options = false },
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val view = LocalView.current
+        val focus = remember(view) { ReaderOptionsFocus() }
+        SideEffect {
+            if (state.busy) focus.busyRendered = true
+            else if (focus.busyRendered) {
+                focus.busyRendered = false
+                // TalkBack can leave this still-active dialog without native
+                // input focus when an async action temporarily disables its button.
+                // Restore the native owner only; an existing focus stays where it is.
+                if (focus.actionHadInputFocus && view.hasWindowFocus() && !view.hasFocus()) view.requestFocus()
+                focus.actionHadInputFocus = false
+            }
+        }
+        val runOption: (() -> Unit) -> Unit = { action ->
+            focus.actionHadInputFocus = view.hasFocus()
+            action()
+        }
         Surface(Modifier.fillMaxSize().padding(16.dp), color = MaterialTheme.colorScheme.surface) {
             LazyColumn(Modifier.fillMaxSize().padding(16.dp).testTag("reader-options"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -108,24 +133,29 @@ fun LocalReaderScreen(state: LocalReaderState, actions: LocalReaderActions) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("width" to "Fit width", "page" to "Fit page").forEach { (key, label) ->
                                 FilterChip(selected = state.preferences.fit == key, enabled = !state.busy,
-                                    onClick = { actions.preferences(state.preferences.copy(fit = key)) }, label = { Text(label) })
+                                    onClick = { runOption { actions.preferences(state.preferences.copy(fit = key)) } },
+                                    label = { Text(label) })
                             }
                         }
                     } else {
                         Text("Text ${(state.preferences.textScale * 100).toInt()}%")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(enabled = !state.busy && state.preferences.textScale > .75,
-                                onClick = { actions.preferences(state.preferences.copy(textScale = (state.preferences.textScale - .25).coerceAtLeast(.75))) }) { Text("Smaller text") }
+                                onClick = { runOption {
+                                    actions.preferences(state.preferences.copy(textScale = (state.preferences.textScale - .25).coerceAtLeast(.75)))
+                                } }) { Text("Smaller text") }
                             TextButton(enabled = !state.busy && state.preferences.textScale < 2,
-                                onClick = { actions.preferences(state.preferences.copy(textScale = (state.preferences.textScale + .25).coerceAtMost(2.0))) }) { Text("Larger text") }
+                                onClick = { runOption {
+                                    actions.preferences(state.preferences.copy(textScale = (state.preferences.textScale + .25).coerceAtMost(2.0)))
+                                } }) { Text("Larger text") }
                         }
                     }
                 }
                 item {
-                    Button(onClick = actions.bookmark, enabled = !state.busy && state.document != null) {
+                    Button(onClick = { runOption(actions.bookmark) }, enabled = !state.busy && state.document != null) {
                         Text(if (state.position in book.record.bookmarks) "Remove bookmark" else "Add bookmark")
                     }
-                    TextButton(onClick = actions.reload, enabled = !state.busy) { Text("Reload saved progress") }
+                    TextButton(onClick = { runOption(actions.reload) }, enabled = !state.busy) { Text("Reload saved progress") }
                     book.warning?.let { Text(it) }
                     Text("Bookmarks", style = MaterialTheme.typography.titleMedium)
                     if (book.record.bookmarks.isEmpty()) Text("No bookmarks yet.")
