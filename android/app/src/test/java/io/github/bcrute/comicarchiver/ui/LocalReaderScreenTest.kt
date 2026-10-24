@@ -1,5 +1,13 @@
 package io.github.bcrute.comicarchiver.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +35,43 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class LocalReaderScreenTest {
     @get:Rule val compose = createComposeRule()
+    // String semantics rebuilds the paragraph with parent constraints in Compose
+    // 1.7.5. Synthetic overflow flags cannot qualify the drawn label. Check every
+    // complete, unellipsized line against the actual measured text box instead.
+    private fun fitsWholeText(layout: TextLayoutResult): Boolean =
+        layout.lineCount > 0 && layout.getLineStart(0) == 0 &&
+            layout.getLineEnd(layout.lineCount - 1, visibleEnd = true) == layout.layoutInput.text.length &&
+            (0 until layout.lineCount).all { line ->
+                !layout.isLineEllipsized(line) && layout.getLineLeft(line) >= 0f &&
+                    layout.getLineRight(line) <= layout.size.width.toFloat() &&
+                    layout.getLineTop(line) >= 0f && layout.getLineBottom(line) <= layout.size.height.toFloat()
+            }
+
+    @Test fun wholeTextOracleAcceptsCompleteLinesAndRejectsWidthAndHeightClipping() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    Column {
+                        Text("Reader options", Modifier.testTag("natural"))
+                        Text("Reader options", Modifier.width(100.dp).testTag("wrapped"))
+                        Text("Reader options", Modifier.width(20.dp).testTag("clipped-width"),
+                            maxLines = 1, softWrap = false)
+                        Text("Reader options", Modifier.height(5.dp).testTag("clipped-height"))
+                    }
+                }
+            }
+        }
+        fun fits(tag: String): Boolean {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithTag(tag, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.size)
+            return fitsWholeText(layouts.single())
+        }
+        assertTrue(fits("natural")); assertTrue(fits("wrapped"))
+        assertFalse(fits("clipped-width")); assertFalse(fits("clipped-height"))
+    }
+
     @Test fun realLargeTextKeepsReaderCloseFitBookmarksAndReloadWholeAndReachable() {
         val id = "a".repeat(32)
         val book = ReaderProtocol.book(ReaderFixtures.book(id, "cbz"), id)
@@ -45,7 +90,12 @@ class LocalReaderScreenTest {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(label, useUnmergedTree = true).performScrollTo()
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue("The entire $label label must fit", layouts.isNotEmpty() && layouts.all { !it.hasVisualOverflow })
+            assertTrue("The entire $label label must fit: " + layouts.joinToString {
+                "size=${it.size}, lines=${it.lineCount}, constraints=${it.layoutInput.constraints}, " +
+                    "bounds=" + (0 until it.lineCount).joinToString { line ->
+                        "${it.getLineLeft(line)}..${it.getLineRight(line)} x ${it.getLineTop(line)}..${it.getLineBottom(line)}"
+                    }
+            }, layouts.isNotEmpty() && layouts.all(::fitsWholeText))
             compose.onNodeWithText(label).assertIsDisplayed()
         }
         whole("Close reader")
