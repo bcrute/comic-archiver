@@ -7,11 +7,14 @@ The caller still owes actual peer/share/lease authorization before each read.
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import struct
+import unicodedata
 import uuid
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -340,6 +343,73 @@ def _completed(source, metadata):
         raise SourceError("integrity_failed") from None
 
 
+def _standalone(source):
+    """Explicit local selection, without claiming an Archiver completion record.
+
+    Metadata is inert. Never extract files, fetch URLs, or rewrite the archive.
+    The browser independently enforces its ZIP/raster decoding profile.
+    """
+    try:
+        source.current()
+        _central_bound(source)
+        with (
+            os.fdopen(os.dup(source.fd), "rb") as stream,
+            zipfile.ZipFile(stream) as archive,
+        ):
+            members = archive.infolist()
+            _require(1 <= len(members) <= 1000, "resource_limit")
+            names, total, images = set(), 0, 0
+            for member in members:
+                name = unicodedata.normalize("NFC", member.filename)
+                parts = name.removesuffix("/").split("/")
+                image = name.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                inert = parts[-1].lower() in {"comicinfo.xml", "metadata.json", ".ds_store"}
+                _require(
+                    member.orig_filename == member.filename
+                    and len(name.encode("utf-16-le")) // 2 <= 240
+                    and (member.flag_bits & 0x800 or len(name.encode("cp437")) <= 240)
+                    and not re.search(r"[\\\x00-\x1f\x7f:]", name)
+                    and all(part not in {"", ".", ".."} for part in parts)
+                    and name.lower() not in names
+                    and not member.flag_bits & ~0x808
+                    and member.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+                    and stat.S_IFMT(member.external_attr >> 16) != stat.S_IFLNK
+                    and 0 <= member.file_size <= ENTRY_MAX
+                    and 0 <= member.compress_size <= ENTRY_MAX
+                    and (member.compress_type != zipfile.ZIP_STORED
+                         or member.file_size == member.compress_size)
+                    and ((member.is_dir() and member.file_size == 0)
+                         or (image and member.file_size > 0)
+                         or (inert and member.file_size <= 65536)),
+                    "unsupported_format",
+                )
+                # Match the decoder's central-extra exclusions, including names
+                # supplied by a second encoding and unbounded ZIP64 declarations.
+                extra = member.extra
+                while extra:
+                    _require(len(extra) >= 4)
+                    kind, size = struct.unpack("<HH", extra[:4])
+                    _require(kind not in {1, 0x7075} and size <= len(extra) - 4)
+                    extra = extra[4 + size:]
+                names.add(name.lower())
+                images += int(image and not member.is_dir())
+                total += member.file_size
+                _require(total <= EXPANDED_MAX, "resource_limit")
+            _require(images > 0, "unsupported_format")
+            # Reading every member verifies CRC, local header names and overlaps.
+            # Fixed chunks bound decompression memory; no metadata is interpreted.
+            for member in members:
+                size = 0
+                with archive.open(member) as content:
+                    while data := content.read(1024**2):
+                        size += len(data)
+                        _require(size <= member.file_size)
+                _require(size == member.file_size)
+        source.current()
+    except (ValueError, UnicodeError, OSError, RuntimeError, zipfile.BadZipFile, zlib.error):
+        raise SourceError("integrity_failed") from None
+
+
 class Index:
     """Local identities, not an authenticated peer/session or RPC API.
 
@@ -414,21 +484,31 @@ class Index:
         return self.db.execute("SELECT share_id FROM metadata").fetchone()[0]
 
     def register_completed(self, relative, series_title):
+        return self._register(relative, series_title, standalone=False)
+
+    def register_standalone(self, relative, series_title):
+        return self._register(relative, series_title, standalone=True)
+
+    def _register(self, relative, series_title, *, standalone):
         _require(
             isinstance(relative, str) and relative.lower().endswith(".cbz"),
             "unsupported_format",
         )
         source = self.root.open(relative)
         try:
-            metadata = _object(
-                self.root, str(PurePosixPath(relative).with_suffix(".json"))
-            )
-            _completed(source, metadata)
+            if standalone:
+                _standalone(source)
+                title, chapter = _label(PurePosixPath(relative).stem), None
+            else:
+                metadata = _object(
+                    self.root, str(PurePosixPath(relative).with_suffix(".json"))
+                )
+                _completed(source, metadata)
+                title, chapter = _label(metadata.get("title")), metadata.get("episode_number")
+                if type(chapter) is not int or not 0 <= chapter < 2**31:
+                    chapter = None
             digest = source.sha256()
-            title, series_title = _label(metadata.get("title")), _label(series_title)
-            chapter = metadata.get("episode_number")
-            if type(chapter) is not int or not 0 <= chapter < 2**31:
-                chapter = None
+            series_title = _label(series_title)
             self.db.execute("BEGIN IMMEDIATE")
             try:
                 prior = self.db.execute(
@@ -659,6 +739,12 @@ class _ReadOnlyIndex(Index):
             raise
 
     def register_completed(self, relative, series_title):
+        raise SourceError("auth_required")
+
+    def register_standalone(self, relative, series_title):
+        raise SourceError("auth_required")
+
+    def _register(self, relative, series_title, *, standalone):
         raise SourceError("auth_required")
 
 

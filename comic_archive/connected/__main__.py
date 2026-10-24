@@ -25,6 +25,11 @@ def parser():
     index.add_argument("--index", type=Path, required=True)
     index.add_argument("--series", required=True)
     index.add_argument(
+        "--standalone",
+        action="store_true",
+        help="Explicitly select ordinary finished CBZs without Archiver JSON sidecars",
+    )
+    index.add_argument(
         "books", nargs="+", help="Selected relative CBZ paths under that root"
     )
     serve = commands.add_parser(
@@ -80,7 +85,8 @@ def register(args):
     try:
         index = Index(args.index, root)
         for book in args.books:
-            record = index.register_completed(book, args.series)
+            register_book = index.register_standalone if args.standalone else index.register_completed
+            record = register_book(book, args.series)
             emit(
                 dict(
                     share_id=index.share_id,
