@@ -67,15 +67,22 @@ class AndroidCloudTests(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(value))
         self.assertEqual(self.wire.operations, [])
 
-    def interrupted_worker(self, *, version=36):
+    def interrupted_worker(self, *, version=None):
         from comic_archive.inventory import Inventory
         from comic_archive.worker import private_json
         self.call('cloud_status')
         controller = app_bridge._cloud_cache['controller']
         folder = self.root / '.comic-session/worker'
         folder.mkdir(parents=True, exist_ok=True)
-        private_json(folder / 'status.json', {'worker_version': version, 'worker_id': 'c' * 32,
+        private_json(folder / 'status.json', {'worker_id': 'c' * 32,
             'pid': 99999999, 'state': 'busy', 'task_id': 'job-' + 'd' * 24})
+        if version is not None:
+            # The current producer stamps its own version. This is deliberately
+            # unsupported negative input, not a historical producer fixture.
+            from comic_archive.archive import atomic_json
+            status = json.loads((folder / 'status.json').read_text())
+            atomic_json(folder / 'status.json', status | {'worker_version': version})
+            (folder / 'status.json').chmod(0o600)
         with Inventory(self.root / 'Library') as inventory:
             run = inventory.start_run()
         progress = self.root / 'Library/.archive-state/progress.json'
