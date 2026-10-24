@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "sidecar": "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [35b48204-a05].json",
+  "public_hash": "d0bf00857b60b72e99accd0f2db8b7d484e6f1a4558a670c19e4daed8461f307",
+  "metadata": {
+    "schema_version": 1,
+    "source": "tapas",
+    "source_episode_id": "81",
+    "series_id": "reader",
+    "title": "Saved chapter",
+    "episode_number": 1,
+    "source_url": null,
+    "access_state": "tapas_free",
+    "published_at": null,
+    "imported_at": "2026-10-24T02:55:50.236536+00:00",
+    "page_count": 2,
+    "content_hashes": [
+      {
+        "file": "0001.png",
+        "sha256": "302df7958c27d7b9b4db87f67d8254036cbacbae39445396a683bc689ad22059",
+        "size": 3449
+      },
+      {
+        "file": "0002.png",
+        "sha256": "3522ca3b40e3ec8ec8920b044362e6f39db829b36d3e65340cb48f749f44dd11",
+        "size": 3449
+      }
+    ],
+    "source_series_id": "42",
+    "export_id": "35b48204-a054-4db9-9d6c-2fa975e37acc",
+    "access_expires_at": null,
+    "format": "cbz",
+    "content_type": "comic",
+    "image_profile": "original",
+    "images_recompressed": false,
+    "original_content_hashes": [],
+    "cache_series_id": "reader"
+  }
+}

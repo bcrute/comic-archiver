@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "content_sha256": "cbe42505dca9631f2c0a63f0d4777b8a4a55c2ad5fdc6be4d2d5e257aed4c746",
+  "kind": "cbz",
+  "units": 2,
+  "revision": 2,
+  "position": {
+    "unit": 1,
+    "offset": 2500
+  },
+  "bookmarks": [
+    {
+      "unit": 1,
+      "offset": 2500
+    }
+  ],
+  "preferences": {
+    "fit": "page",
+    "text_scale": 1.25
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "sidecar": "Reader fixture [b8b35d8b-f56]/series.json",
+  "public_hash": "cdc4b48b28b2b1ef08834f0388fbce74a1c4c4536f9472aa3de9e1ff28102335",
+  "metadata": {
+    "schema_version": 1,
+    "source": "tapas",
+    "source_series_id": "42",
+    "title": "Reader fixture",
+    "creators": [],
+    "description": null,
+    "source_url": null,
+    "episode_count": 2,
+    "imported_at": "2026-10-24T02:55:56.001369+00:00",
+    "library_series_id": "reader",
+    "source_series_id_kind": "numeric"
+  },
+  "previous": {
+    "public_hash": "c4917ecf86254551e1fc72c006bbcf852251668b64510c12e9218a831db6b3b3",
+    "metadata": {
+      "schema_version": 1,
+      "source": "tapas",
+      "source_series_id": "42",
+      "title": "Reader fixture",
+      "creators": [],
+      "description": null,
+      "source_url": null,
+      "episode_count": 1,
+      "imported_at": "2026-10-24T02:55:55.985668+00:00",
+      "library_series_id": "reader",
+      "source_series_id_kind": "numeric"
+    }
+  }
+}
