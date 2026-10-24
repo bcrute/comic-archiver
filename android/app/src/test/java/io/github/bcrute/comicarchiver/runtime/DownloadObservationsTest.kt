@@ -108,6 +108,9 @@ class DownloadObservationsTest {
         val extra = overviewEnvelope()
         extra.getJSONObject("result").put("time_estimate", JSONArray())
         assertThrows(Exception::class.java) { CloudStatus.parse(extra.toString()) }
+        val wrongOverview = overviewEnvelope()
+        wrongOverview.getJSONObject("result").put("overview", JSONArray())
+        assertThrows(Exception::class.java) { CloudStatus.parse(wrongOverview.toString()) }
     }
 
     @Test fun clockAgesObservationsWithoutFabricatingFreshActivity() {

@@ -87,6 +87,8 @@ data class CloudStatus(
             val taskRunning = flag(value, "task_running")
             val taskHeld = flag(value, "task_held")
             require(!taskHeld || taskRunning)
+            val overviewSource = value.optJSONObject("overview")
+            require(!value.has("overview") || overviewSource != null)
             return CloudStatus(text(b2, "pill"), text(b2, "text"), text(b2, "status"),
                 text(b2, "auth"), text(b2, "repair"), b2.optString("bucket").takeUnless { it == "null" } ?: "",
                 text(value, "bucket_suggestion"), text(b2, "connect_text"), flag(b2, "connect_enabled"),
@@ -96,7 +98,7 @@ data class CloudStatus(
                 text(value, "destination_help"), text(value, "destination_lock"), text(value, "device_stored"),
                 text(value, "b2_stored"), text(value, "message"), taskRunning, authStatus,
                 text(value, "cost"), taskHeld, cleanupRemaining,
-                value.optJSONObject("overview")?.let { overview ->
+                overviewSource?.let { overview ->
                     val metrics = overview.getJSONArray("metrics")
                     val locations = overview.getJSONArray("locations")
                     require(metrics.length() <= 4 && locations.length() <= 2)

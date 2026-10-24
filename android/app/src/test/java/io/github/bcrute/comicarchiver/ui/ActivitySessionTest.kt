@@ -295,10 +295,12 @@ class ActivitySessionTest {
         awaitState { app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Running)
         compose.onNodeWithText("Status unknown").assertIsNotEnabled()
-        compose.onNodeWithText("Pause").performClick()
-        awaitState { app.controller.state.value.download is DownloadState.Paused }
+        // Recover before Pause starts its new held poll; do not race the ten-second
+        // held refresh interval against the test's observation timeout.
         app.fake.statusReadable = true
         app.fake.libraryReadable = true
+        compose.onNodeWithText("Pause").performClick()
+        awaitState { app.controller.state.value.download is DownloadState.Paused }
         awaitState { !app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Paused)
         assertEquals(1, app.fake.count("go"))

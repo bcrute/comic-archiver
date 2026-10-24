@@ -387,7 +387,7 @@ class DefaultAppController(
         admitted = false
         poll?.cancel()
         _state.value = _state.value.copy(download = DownloadState.Planning, notice = null,
-            admittedAtMillis = SystemClock.elapsedRealtime())
+            admittedAtMillis = SystemClock.elapsedRealtime(), observations = null, statusReadFailed = false)
         downloads.go result@{ error ->
             if (version != admissionVersion) return@result
             admitted = error == null
