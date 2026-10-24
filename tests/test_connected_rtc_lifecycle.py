@@ -59,25 +59,44 @@ class ConnectedIceLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def pending(self, owner):
         end = self.loop.time() + 2
-        while not (self.sink.received > 0 and
-                   any(protocol.transactions for protocol in owner.connection._protocols)):
+        while not (
+            self.sink.received > 0
+            and any(protocol.transactions for protocol in owner.connection._protocols)
+        ):
             self.assertLess(self.loop.time(), end)
             await asyncio.sleep(0.01)
-        self.assertTrue(any(pair.task and not pair.task.done()
-                            for pair in owner.connection._check_list))
+        self.assertTrue(
+            any(
+                pair.task and not pair.task.done()
+                for pair in owner.connection._check_list
+            )
+        )
 
     def silent_candidate(self):
-        return RTCIceCandidate(component=1, foundation="owned-silent", priority=1,
-            ip=self.address[0], port=self.address[1], protocol="udp", type="host")
+        return RTCIceCandidate(
+            component=1,
+            foundation="owned-silent",
+            priority=1,
+            ip=self.address[0],
+            port=self.address[1],
+            protocol="udp",
+            type="host",
+        )
 
     async def assert_retired(self, transport, owner):
         protocols = tuple(owner.connection._protocols)
-        tasks = {pair.task for pair in owner.connection._check_list if pair.task is not None}
+        tasks = {
+            pair.task for pair in owner.connection._check_list if pair.task is not None
+        }
         await asyncio.wait_for(transport.stop(), 5)
         self.assertTrue(owner.joined)
         self.assertTrue(all(task.done() for task in tasks))
-        self.assertTrue(all(not protocol.transactions and protocol.transport.is_closing()
-                            for protocol in protocols))
+        self.assertTrue(
+            all(
+                not protocol.transactions and protocol.transport.is_closing()
+                for protocol in protocols
+            )
+        )
         received = self.sink.received
         await asyncio.sleep(0.6)  # Cross the real initial 0.5s retry timer.
         self.assertEqual(self.sink.received, received)
@@ -106,12 +125,20 @@ class ConnectedIceLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await right.addRemoteCandidate(candidate)
         for candidate in second.getLocalCandidates():
             await left.addRemoteCandidate(candidate)
-        await asyncio.wait_for(asyncio.gather(left.start(second.getLocalParameters()),
-            right.start(first.getLocalParameters())), 8)
+        await asyncio.wait_for(
+            asyncio.gather(
+                left.start(second.getLocalParameters()),
+                right.start(first.getLocalParameters()),
+            ),
+            8,
+        )
         self.assertEqual((left.state, right.state), ("completed", "completed"))
         await left.addRemoteCandidate(self.silent_candidate())
-        pairs = [pair for pair in owner.connection._check_list
-                 if pair.remote_addr == self.address]
+        pairs = [
+            pair
+            for pair in owner.connection._check_list
+            if pair.remote_addr == self.address
+        ]
         self.assertTrue(pairs)
         for pair in pairs:
             owner.connection.check_start_task(pair)

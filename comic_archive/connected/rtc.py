@@ -14,7 +14,6 @@ import time
 from importlib.metadata import version
 
 from aioice import Connection
-
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -82,7 +81,9 @@ class _IceRetirement:
         # Scheduling is already stopped on THIS connection, including incoming
         # triggered checks. Cancellation unwinds native Transaction.run finally
         # blocks, retiring their real retransmission timers before socket close.
-        tasks = {pair.task for pair in self.connection._check_list if pair.task is not None}
+        tasks = {
+            pair.task for pair in self.connection._check_list if pair.task is not None
+        }
         require(all(isinstance(task, asyncio.Task) for task in tasks))
         for task in tasks:
             task.cancel()
@@ -97,11 +98,16 @@ class _IceRetirement:
         require(self.connection._closed, "connection_unavailable")
         # The real protocol's connection_lost future works for both ordinary
         # UDP and TurnTransport, which has no is_closing() API.
-        require(all(not protocol.transactions and
-                    protocol._StunProtocol__closed.done() and
-                    not protocol._StunProtocol__closed.cancelled() and
-                    protocol._StunProtocol__closed.result() is True
-                    for protocol in protocols), "connection_unavailable")
+        require(
+            all(
+                not protocol.transactions
+                and protocol._StunProtocol__closed.done()
+                and not protocol._StunProtocol__closed.cancelled()
+                and protocol._StunProtocol__closed.result() is True
+                for protocol in protocols
+            ),
+            "connection_unavailable",
+        )
         self.joined = True
 
     async def close(self):
@@ -497,8 +503,10 @@ class HostPeer:
         require(self._native_close in done, "connection_unavailable")
         self._native_close.result()
         require(self._pc.connectionState == "closed", "connection_unavailable")
-        require(self._ice_retirement is None or self._ice_retirement.joined,
-                "connection_unavailable")
+        require(
+            self._ice_retirement is None or self._ice_retirement.joined,
+            "connection_unavailable",
+        )
         if failure is not None:
             raise failure
         self.joined = True
