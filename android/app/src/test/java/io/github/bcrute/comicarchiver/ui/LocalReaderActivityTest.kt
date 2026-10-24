@@ -71,9 +71,12 @@ class LocalReaderActivityTest {
         compose.onNodeWithText("Add bookmark").performScrollTo().performClick()
         await { !app.localReader.state.value.busy && ReadingPosition() in app.localReader.state.value.book!!.record.bookmarks }
         compose.onNodeWithText("Close options").performScrollTo().performClick()
+        val catalogCalls = app.fake.delegate.count("file_catalog")
         compose.onNodeWithText("Close reader").performClick()
         await { !app.localReader.state.value.closing }
-        compose.onNodeWithText("Saved files").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasContentDescription("Read One, Test Comic. one.cbz. This device")).assertIsDisplayed()
+        assertEquals("Closing the reader must preserve the loaded page and scroll", catalogCalls,
+            app.fake.delegate.count("file_catalog"))
         val id = app.fake.persisted("cbz")
         assertEquals(0, id.getJSONObject("position").getInt("unit"))
         assertEquals(0, app.fake.delegate.count("go")); assertEquals(0, app.fake.delegate.count("worker_start"))

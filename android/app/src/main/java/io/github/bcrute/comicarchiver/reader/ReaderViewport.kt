@@ -7,6 +7,7 @@ import android.text.style.ImageSpan
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
@@ -35,6 +36,10 @@ internal class ReaderViewport(context: Context) : ScrollView(context) {
     private var sizedHeight = 0
     init {
         isFillViewport = false
+        // AndroidView does not clip native drawing to its Compose layout bounds.
+        // A restored scroll must never paint the chapter over the reader controls.
+        outlineProvider = ViewOutlineProvider.BOUNDS
+        clipToOutline = true
         setOnScrollChangeListener { _, _, y, _, _ ->
             if (!restoring && height > 0) {
                 val extent = ((content?.height ?: 0) - height).coerceAtLeast(0)

@@ -64,7 +64,15 @@ fun LibraryScreen(
         if (showFilesRequested) { view = "Files"; onFilesRequestConsumed() }
     }
     val viewScroll = rememberLazyListState()
-    LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
+    var previousView by remember { mutableStateOf(view) }
+    LaunchedEffect(view) {
+        val switched = previousView != view
+        previousView = view
+        // Returning from the reader restores this pane. Reloading an existing
+        // page hides its rows during loading and clamps the saved list to the top.
+        if (view == "Files" && !catalog.loading && (switched || catalog.page == null))
+            onCatalogQuery(catalog.query, false)
+    }
     Column(Modifier.fillMaxSize()) {
         if (!compactEditing) LazyRow(Modifier.padding(horizontal = 16.dp), state = viewScroll,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
