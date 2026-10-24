@@ -1,3 +1,5 @@
+[https://github.com/bcrute/comic-archiver/releases/latest](Download for Windows and Linux)
+
 # Comic Archiver
 
 > **Tapas closes on 31 March 2027.** Tapas says what you've unlocked there cannot be moved to another app, and
@@ -95,14 +97,10 @@ Notes for building the app, checking a change and making a release are in
 
 ## Who made this
 
-I'm a software engineer with more than 15 years of experience. I decide how Comic Archiver works and what goes into
-it, and I use AI tools to build it faster, not in place of knowing what I'm doing.
+I’m a software engineer with more than 15 years of experience. I design and maintain Comic Archiver, and I use AI tools to help with development.
 
-It's tested heavily. More than 1,600 automated tests cover about 97% of the code. Before every release, a separate
-check deliberately breaks the code in hundreds of places to make sure the tests catch every one, and the app is
-built, installed, started and uninstalled on Windows 11 and built and started on Linux. A release goes out only when
-all of that passes. This isn't something thrown together in the hope that it works.
+The project has more than 1,600 automated tests and roughly 97% code coverage. Before each release, automated checks build and start the app on Windows 11 and Linux. The Windows checks also cover installation and uninstallation.
 
-## Licence
+## License
 
 MIT; see [LICENSE](LICENSE). Bundled components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
