@@ -74,7 +74,8 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 | Webtoon | Works |
 | Windows 10 and 11 | Works |
 | Linux | Works |
-| Mac | Not planned yet |
+| Mac | Not planned yet (no hardware) |
+| Android | By Nov 1 |
 
 ## Other ways to save your comics
 
