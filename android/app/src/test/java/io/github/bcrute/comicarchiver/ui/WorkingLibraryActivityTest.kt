@@ -87,6 +87,7 @@ class WorkingLibraryActivityTest {
 
     @Test fun renamingTheCurrentLibraryDoesNotSwitchItsContextOrStopItsWorker() {
         ready(); enterPreview(); confirm()
+        await { app.controller.state.value.signIn is SignInState.SignedIn }
         val workspace = app.workspace
         val oldName = app.libraryLocations.current().label
         val bytes = workspace.library.resolve("Series/chapter.cbz").readBytes()
