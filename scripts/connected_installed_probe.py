@@ -32,7 +32,9 @@ def main():
         item.metadata["Name"].lower().replace("_", "-"): item.version
         for item in importlib.metadata.distributions()
     }
-    assert actual == dict(expected["runtime_versions"], **{"comic-archive": expected["version"]})
+    assert actual == dict(
+        expected["runtime_versions"], **{"comic-archive": expected["version"]}
+    )
     entries = configparser.ConfigParser()
     entries.read_string(distribution.read_text("entry_points.txt"))
     assert entries["gui_scripts"]["comic-archiver"] == "comic_archive.desktop_app:main"
@@ -44,38 +46,56 @@ def main():
         assert not entries.has_section("console_scripts")
 
     import comic_archive
+
     for name in ("__main__", "controller", "driver", "rtc"):
         importlib.import_module("comic_archive.connected." + name)
 
     assert Path(comic_archive.__file__).resolve(strict=True).is_relative_to(prefix)
     forbidden = (
-        "comic_archive.cli", "comic_archive.adapters", "comic_archive.sites",
-        "comic_archive.session", "comic_archive.desktop_app", "comic_archive.app_runtime",
+        "comic_archive.cli",
+        "comic_archive.adapters",
+        "comic_archive.sites",
+        "comic_archive.session",
+        "comic_archive.desktop_app",
+        "comic_archive.app_runtime",
     )
-    assert not any(name == part or name.startswith(part + ".")
-                   for name in sys.modules for part in forbidden)
-    result = {"installed_bytes_match": True, "isolated_import": True,
-              "runtime_versions": actual, "downloader_imported": False,
-              "console": expected["console"]}
+    assert not any(
+        name == part or name.startswith(part + ".")
+        for name in sys.modules
+        for part in forbidden
+    )
+    result = {
+        "installed_bytes_match": True,
+        "isolated_import": True,
+        "runtime_versions": actual,
+        "downloader_imported": False,
+        "console": expected["console"],
+    }
     if args.state is not None:
         assert args.root is not None
         from comic_archive.connected.files import Index, SharedRoot
-        from comic_archive.connected.state import HostState, STATE
+        from comic_archive.connected.state import STATE, HostState
 
         root = SharedRoot(args.root)
         try:
             assert args.index is not None
             index = Index(args.index, root)
             try:
-                result["saved_catalogue"] = hashlib.sha256(json.dumps(
-                    {"share": index.share_id, "catalogue": index.snapshot()},
-                    sort_keys=True, separators=(",", ":"),
-                ).encode()).hexdigest()
+                result["saved_catalogue"] = hashlib.sha256(
+                    json.dumps(
+                        {"share": index.share_id, "catalogue": index.snapshot()},
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest()
             finally:
                 index.close()
             state = HostState.open(args.state, roots=[root])
             try:
-                semantic = {"identity": state.identity.public_bundle(), "pairs": state.records()}
+                semantic = {
+                    "identity": state.identity.public_bundle(),
+                    "pairs": state.records(),
+                }
                 result["saved_approval"] = hashlib.sha256(
                     json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest()
@@ -83,7 +103,9 @@ def main():
                 state.close()
         finally:
             root.close()
-        result["saved_state_bytes"] = hashlib.sha256((args.state / STATE).read_bytes()).hexdigest()
+        result["saved_state_bytes"] = hashlib.sha256(
+            (args.state / STATE).read_bytes()
+        ).hexdigest()
     print(json.dumps(result, sort_keys=True))
 
 
