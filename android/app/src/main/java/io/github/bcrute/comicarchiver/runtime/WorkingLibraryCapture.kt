@@ -230,6 +230,15 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                                 file("$path/${record.name}", record, MAX_JSON)
                             }
                         }
+                        item.name == "reading" -> {
+                            folder(path, item)
+                            for (record in children(item)) {
+                                if (record.name == "writer.lock" || record.name.endsWith(".json.tmp")) continue
+                                if (!record.name.matches(Regex("[a-f0-9]{64}\\.json")))
+                                    fail(LibraryCaptureFailure.INCOMPLETE)
+                                file("$path/${record.name}", record, 64L * 1024)
+                            }
+                        }
                         item.name == "cloud" -> {
                             folder(path, item)
                             optional(item, "targets.json")?.let { file("$path/targets.json", it, MAX_CLOUD_JSON) }

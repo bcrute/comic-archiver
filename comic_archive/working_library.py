@@ -170,6 +170,15 @@ def _inputs(snapshot, check):
                 if path.suffix != '.json' or not valid_export_id(path.stem):
                     raise LibraryImportError()
                 add(path, MAX_JSON)
+        reading = _safe(state / 'reading')
+        if reading.exists():
+            from .local_reader import MAX_RECORD, RECORD_NAME
+            for path in _children(reading):
+                if path.name == 'writer.lock' or path.name.endswith('.json.tmp'):
+                    continue
+                if not RECORD_NAME.fullmatch(path.name):
+                    raise LibraryImportError()
+                add(path, MAX_RECORD)
         targets = _safe(state / 'cloud/targets.json')
         if targets.exists():
             add(targets, 1024**2)
@@ -483,6 +492,11 @@ def _site(source, target, site, inputs, scratch, check):
         inventory.reconcile(full=True)
         if inventory.status()['episodes_by_status'] != ({'archived': len(seen_episodes)} if seen_episodes else {}):
             raise LibraryImportError('incomplete')
+    # Reading records are independent portable data, including future/temporarily
+    # unreadable records. Preserve their exact bytes; never copy locks or partial writes.
+    for relative in relative_inputs:
+        if relative.startswith('.archive-state/reading/'):
+            _copy(source / relative, target / relative, check)
     return ImportedSite(site.key, series_count, len(seen_episodes), cloud_only, bool(binding))
 
 

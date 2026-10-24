@@ -105,6 +105,37 @@ class WorkingLibraryCaptureTest {
     }
     private fun stable(root: File) = JSONObject(root.resolve("capture-v1.json").readText()).getBoolean("stable")
 
+    @Test fun portableReadingRecordsRemainExactWithoutWriterLocksOrUncommittedRecords() {
+        val f = fixture()
+        val state = f.documents.folder(f.library, ".archive-state")
+        val reading = f.documents.folder(state, "reading")
+        val name = "a".repeat(64) + ".json"
+        val bytes = """{"v":99,"future":"retained"}""".toByteArray()
+        val record = f.documents.file(reading, name, bytes)
+        val lock = f.documents.file(reading, "writer.lock", "PRIVATE lock".toByteArray())
+        val partial = f.documents.file(reading, "$name.tmp", "PARTIAL".toByteArray())
+        val capture = capturer(f.documents)
+        val plan = capture.scan(tree, "tapas")
+        val result = capture.capture(plan, root())
+        assertArrayEquals(bytes, result.workspace.resolve("Library/.archive-state/reading/$name").readBytes())
+        assertEquals(2, f.documents.opens[record])
+        assertFalse(f.documents.opens.containsKey(lock))
+        assertFalse(f.documents.opens.containsKey(partial))
+        assertFalse(result.workspace.resolve("Library/.archive-state/reading/writer.lock").exists())
+        assertFalse(result.workspace.resolve("Library/.archive-state/reading/$name.tmp").exists())
+    }
+
+    @Test fun oversizedAndForeignReadingRecordsCannotEnterTheCapturedLibrary() {
+        for (oversized in listOf(true, false)) {
+            val f = fixture()
+            val reading = f.documents.folder(f.documents.folder(f.library, ".archive-state"), "reading")
+            f.documents.file(reading, if (oversized) "b".repeat(64) + ".json" else "PRIVATE-secret.data",
+                if (oversized) ByteArray(64 * 1024 + 1) else "private".toByteArray())
+            failure(LibraryCaptureFailure.INCOMPLETE) { capturer(f.documents).scan(tree, "tapas") }
+            assertTrue(f.documents.opens.isEmpty())
+        }
+    }
+
     @Test fun onlyWhitelistedDataAndPrivateProvenanceAreCapturedWithTwoSourceReads() {
         val f = fixture()
         val state = f.documents.folder(f.library, ".archive-state")

@@ -43,6 +43,17 @@ class ActionsTests(unittest.TestCase):
             self.assertEqual(getattr(self.actions, name)(*args), answer, name)
             getattr(self.registry, method).assert_called_once_with(LOCAL_OWNER, LIBRARY, *args)
 
+    def test_reading_resolves_only_a_registered_local_file_and_uses_fixed_refusal_words(self):
+        from comic_archive.local_reader import UNAVAILABLE
+        answer = self.registry.open_reader.return_value
+        self.assertIs(self.actions.read_file('a' * 64), answer)
+        self.registry.open_reader.assert_called_once_with(LOCAL_OWNER, LIBRARY, 'a' * 64)
+        self.registry.start_account.assert_not_called()
+        for identifier in ('../PRIVATE', 'https://invalid.test/file.cbz', None, 'a' * 63):
+            self.assertEqual(self.refused(self.actions.read_file, identifier), ('request_unavailable', UNAVAILABLE))
+        self.registry.open_reader.side_effect = ArchiveError('PRIVATE source')
+        self.assertEqual(self.refused(self.actions.read_file, 'a' * 64), ('request_unavailable', UNAVAILABLE))
+
     def test_a_site_or_folder_change_is_followed_and_no_library_is_said_plainly(self):
         self.actions.go()
         self.runtime = SimpleNamespace(registry=Mock(workspace_id='b' * 32), site=sites.DEFAULT)
