@@ -44,6 +44,7 @@ import tarfile
 import time
 import tomllib
 import urllib.request
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -74,6 +75,32 @@ SELF_TAG = "ComicArchiverSelfcheck"
 APP_ACTIVITY = "io.github.bcrute.comicarchiver/.MainActivity"
 ABI_FILTERS = {"arm64-v8a", "x86_64"}
 report = {"phases": {}, "argv": sys.argv[1:], "verdict": None}
+CI_DOWNLOAD_MIRROR_ENV = "COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR"
+
+# This optional job-private init script routes the project's existing public
+# repositories through the configured acquiring cache, without a worker proxy.
+# Register before settings/plugins resolve, and include later plugin repositories.
+CI_PACKAGE_MIRROR_INIT = '''import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+def mirror = System.getenv("COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR")
+def route = { repository ->
+    if (repository instanceof MavenArtifactRepository) {
+        def source = repository.url
+        if (source?.scheme == "https") {
+            if (source.userInfo != null) throw new GradleException("CI package sources must be public")
+            repository.url = mirror + source.toString().substring(8)
+            repository.allowInsecureProtocol = mirror.startsWith("http://")
+        }
+    }
+}
+gradle.beforeSettings { settings ->
+    settings.pluginManagement.repositories.all(route)
+    settings.dependencyResolutionManagement.repositories.all(route)
+}
+gradle.beforeProject { project ->
+    project.buildscript.repositories.all(route)
+    project.repositories.all(route)
+}
+'''
 
 
 def record(phase, status, **facts):
@@ -100,12 +127,35 @@ def run_tool(argv, cwd=None, timeout=2400, env_extra=None, input_bytes=None, kee
             "returncode": code, "tail": out[-keep_bytes:]}
 
 
+def _ci_download_mirror():
+    base = os.environ.get(CI_DOWNLOAD_MIRROR_ENV, "").strip()
+    if not base:
+        return None
+    parsed = urlsplit(base)
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.query or parsed.fragment or not base.endswith("/HTTPS///")
+            or any(ord(c) <= 32 for c in base)):
+        raise ValueError("Supply a credential-free CI acquiring-cache base ending /HTTPS///")
+    return base
+
+
+def _acquisition_url(url):
+    base = _ci_download_mirror()
+    if base is None:
+        return url
+    source = urlsplit(url)
+    if source.scheme != "https" or not source.hostname or source.username is not None or source.password is not None:
+        raise ValueError("CI acquiring-cache inputs must be public HTTPS URLs")
+    return base + url.split("://", 1)[1]
+
+
 def _download(url, target, timeout=1800):
     if target.is_file():
         return True
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        urllib.request.urlretrieve(url, target)
+        urllib.request.urlretrieve(_acquisition_url(url), target)
         return target.is_file() and target.stat().st_size > 0
     except OSError:
         return False
@@ -196,7 +246,8 @@ REPOSITORY_XMLS = (
 
 def _sdk_repository_packages():
     """The repository's own stable package table, fetched over the same TLS path every
-    pinned input already uses. Two fleet attempts (4 and 5) showed sdkmanager's JVM
+    pinned input already uses, optionally through the CI acquiring cache.
+    Two fleet attempts (4 and 5) showed sdkmanager's JVM
     fetching no manifests at all on this network even with explicit proxy properties,
     while urllib reached dl.google.com without complaint; so the JVM is never used to
     fetch. Each package's published sha1 is returned for verification before extraction.
@@ -204,9 +255,9 @@ def _sdk_repository_packages():
     packages = {}
     for listing in REPOSITORY_XMLS:
         try:
-            with urllib.request.urlopen(listing, timeout=120) as response:
-                # The listing is dl.google.com over TLS and every artifact it names is
-                # sha1-verified before use; only path/sha1/url are read from it.
+            with urllib.request.urlopen(_acquisition_url(listing), timeout=120) as response:
+                # Direct TLS or the configured cache's upstream TLS; every artifact
+                # retains its published sha1. Keep original source URLs in the table.
                 root = ET.fromstring(response.read())  # noqa: S314 - fixed origin, verified artifacts
         except (OSError, ET.ParseError):
             return None
@@ -463,9 +514,9 @@ def phase_provision(*, development=False):
 
     if manager.is_file() and java:
         # Install what the build and emulator phases need, driven by the repository's own
-        # stable package table (never guessed pins) over the Python network path; the JVM
-        # never fetches. sdkmanager stays for the one thing it does offline: writing the
-        # accepted-license records Gradle and avdmanager check for.
+        # stable package table (never guessed pins) over the Python network path.
+        # sdkmanager writes the accepted-license records Gradle and avdmanager check;
+        # its metadata refresh uses the same acquiring cache when configured.
         packages = _sdk_repository_packages()
         if packages is None:
             steps["sdk_packages"] = {"status": "unavailable",
@@ -482,10 +533,15 @@ def phase_provision(*, development=False):
                     installed.append({"package": name, "sha1": note})
                 else:
                     failures[name] = note
+            license_env = {"JAVA_HOME": java_home,
+                           "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"}
+            if _ci_download_mirror():
+                # sdkmanager has its own repository client. Use its upstream-base
+                # override for the same real Google metadata, never a fixture repo.
+                license_env["SDK_TEST_BASE_URL"] = _acquisition_url(
+                    "https://dl.google.com/android/repository/")
             licenses = run_tool([str(manager), f"--sdk_root={sdk}", "--licenses"], timeout=600,
-                                input_bytes="y\n" * 20,
-                                env_extra={"JAVA_HOME": java_home,
-                                           "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"})
+                                input_bytes="y\n" * 20, env_extra=license_env)
             steps["sdk_packages"] = {"source": list(REPOSITORY_XMLS),
                                      "emulator_capable": emulator_capable,
                                      "installed": installed,
@@ -717,10 +773,10 @@ def phase_sdist():
     target = cache / PINNED_SDIST
     try:
         if not target.is_file():
-            with urllib.request.urlopen(PYPI_JSON, timeout=60) as response:
+            with urllib.request.urlopen(_acquisition_url(PYPI_JSON), timeout=60) as response:
                 links = json.load(response)["urls"]
             url = next(item["url"] for item in links if item["filename"] == PINNED_SDIST)
-            urllib.request.urlretrieve(url, target)
+            urllib.request.urlretrieve(_acquisition_url(url), target)
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
     except (OSError, ValueError, StopIteration) as error:
         record("sdist", "failed", error=type(error).__name__)
@@ -886,10 +942,17 @@ def _gradle_invocation(paths, task, wheels):
     # traceback: manifests unfetchable, ~/.android read-only). ANDROID_USER_HOME moves
     # that cache somewhere writable, job-private as everything else here.
     jvm_flags = _jvm_net_options(paths["java"])
+    mirror = _ci_download_mirror()
+    if mirror:
+        # Robolectric's resolver runs in the test JVM, independently of Gradle.
+        jvm_flags.append("-Drobolectric.dependency.repo.url=" +
+                         _acquisition_url("https://repo1.maven.org/maven2"))
     env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "ANDROID_USER_HOME": str(TOOLS_DIR / "android-user"),
            "GRADLE_OPTS": " ".join(jvm_flags),
            "JAVA_TOOL_OPTIONS": " ".join(jvm_flags)}
+    if mirror:
+        env["SDK_TEST_BASE_URL"] = _acquisition_url("https://dl.google.com/android/repository/")
     # Chaquopy's pip block consults chaquo.com/pypi-13.1 unless a user --index-url is
     # passed (verified in the pinned 17.1.0's pip_install.py — it also disables pip config
     # files, so only a command-line option reaches it); this fleet's proxy refuses that
@@ -911,6 +974,11 @@ def _gradle_invocation(paths, task, wheels):
     # without it AGP's default per-user debug keystore behavior applies unchanged.
     if paths.get("debug_keystore"):
         argv.append(f"-PdebugKeystore={paths['debug_keystore']}")
+    if mirror:
+        init = TOOLS_DIR / "ci-package-mirror.init.gradle"
+        init.parent.mkdir(parents=True, exist_ok=True)
+        init.write_text(CI_PACKAGE_MIRROR_INIT)
+        argv.extend(["--init-script", str(init)])
     return env, argv, jvm_flags, index_url
 
 
