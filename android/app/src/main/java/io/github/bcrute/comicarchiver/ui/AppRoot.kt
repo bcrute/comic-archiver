@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
@@ -19,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +83,16 @@ fun ComicArchiverAppRoot(
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Downloads") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
+    var signOutSite by rememberSaveable { mutableStateOf<String?>(null) }
+    var signOutLibrary by rememberSaveable { mutableStateOf<String?>(null) }
+    val signOutAvailable = state.signIn is SignInState.SignedIn && !state.signOutPending &&
+        !state.siteBusy && !state.libraryBusy && state.workspaceReady
+    LaunchedEffect(state.site, state.libraryId, signOutAvailable) {
+        if (signOutSite != state.site || signOutLibrary != state.libraryId || !signOutAvailable) {
+            signOutSite = null
+            signOutLibrary = null
+        }
+    }
     val openCatalog: (String) -> Unit = { location ->
         controller.loadCatalog(CatalogQuery(location = location), false)
         showFilesRequested = true
@@ -98,6 +110,38 @@ fun ComicArchiverAppRoot(
     if (localReader.open) {
         LocalReaderScreen(localReader, localReaderActions)
         return
+    }
+    if (signOutSite == state.site && signOutLibrary == state.libraryId && signOutAvailable) {
+        val targetSite = state.site
+        val targetLibrary = state.libraryId
+        val name = state.sites.firstOrNull { it.key == targetSite }?.name
+            ?: if (targetSite == "tapas") "Tapas" else targetSite
+        AlertDialog(
+            onDismissRequest = { signOutSite = null; signOutLibrary = null },
+            title = { Text("Sign out of $name?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("This signs out of $name in Comic Archiver on this phone and stops saving. " +
+                        "Your $name account, other sites and sign-ins in other apps stay unchanged.\n\n" +
+                        "Your saved episodes, reading progress, export copies and B2 setup stay where they are. " +
+                        "Sign in again to download more from $name.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val current = controller.state.value
+                    val confirmed = signOutSite == targetSite && signOutLibrary == targetLibrary
+                    signOutSite = null; signOutLibrary = null
+                    // A restored dialog or late tap must never target a different session.
+                    if (confirmed && current.site == targetSite && current.libraryId == targetLibrary &&
+                        current.signIn is SignInState.SignedIn && !current.signOutPending &&
+                        !current.siteBusy && !current.libraryBusy && current.workspaceReady) controller.signOut()
+                }) { Text("Sign out") }
+            },
+            dismissButton = {
+                TextButton(onClick = { signOutSite = null; signOutLibrary = null }) { Text("Cancel") }
+            },
+        )
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // A landscape IME can leave less height than the navigation rows alone.
@@ -212,7 +256,11 @@ fun ComicArchiverAppRoot(
                         LimitationsScreen(modifier = Modifier.weight(1f))
                         OutlinedButton(
                             onClick = {
-                                if (state.signIn is SignInState.SignedIn || state.signOutPending) controller.signOut()
+                                if (state.signOutPending) controller.signOut()
+                                else if (signOutAvailable) {
+                                    signOutSite = state.site
+                                    signOutLibrary = state.libraryId
+                                }
                                 else tab = AppTab.SAVING
                             },
                             modifier = Modifier.fillMaxWidth().padding(16.dp),

@@ -842,8 +842,42 @@ class RenderedScreensTest {
         show()
         compose.onNodeWithText("About").performClick()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Sign out of Tapas?").assertIsDisplayed()
+        assertEquals(0, controller.signOutCalls)
+        compose.onNodeWithText("Sign out").performClick()
         assertEquals(1, controller.signOutCalls)
         compose.onNodeWithText("Go").assertDoesNotExist()
+    }
+
+    @Test
+    fun signOutCancellationKeepsTheSessionAndDoesNotStopSaving() {
+        show()
+        compose.onNodeWithText("About").performClick()
+        compose.onNodeWithText("Sign out of Tapas").performClick()
+        compose.onNodeWithText("Sign out of Tapas?").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Sign out of Tapas?").assertDoesNotExist()
+        assertEquals(0, controller.signOutCalls)
+        assertEquals(0, controller.pauseCalls)
+        compose.onNodeWithText("Saving").performClick()
+        compose.onNodeWithText("Go").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    fun aConfirmationForThePreviousWorkingLibraryCannotSignOutTheNewOne() {
+        show()
+        compose.onNodeWithText("About").performClick()
+        compose.onNodeWithText("Sign out of Tapas").performClick()
+        compose.onNodeWithText("Sign out of Tapas?").assertIsDisplayed()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(libraryId = "other-copy") }
+        compose.onNodeWithText("Sign out of Tapas?").assertDoesNotExist()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(libraryId = "default") }
+        compose.onNodeWithText("Sign out of Tapas?").assertDoesNotExist()
+        assertEquals(0, controller.signOutCalls)
+        compose.onNodeWithText("Sign out of Tapas").performClick()
+        compose.onNodeWithText("Sign out").performClick()
+        assertEquals(1, controller.signOutCalls)
     }
 
     @Test

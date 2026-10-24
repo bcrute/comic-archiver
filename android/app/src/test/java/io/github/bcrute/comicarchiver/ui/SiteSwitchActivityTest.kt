@@ -160,6 +160,7 @@ class SiteSwitchActivityTest {
         ready()
         app.failClear = true
         select("About"); compose.onNodeWithText("Sign out of Tapas").performClick()
+        compose.onNodeWithText("Sign out").performClick()
         await { app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
         assertEquals(0, app.wire.count("signout_record"))
         compose.onNode(hasText("Webtoon") and hasClickAction()).assertIsNotEnabled()
@@ -208,6 +209,7 @@ class SiteSwitchActivityTest {
         ready()
         app.wire.refuseForget = true
         select("About"); compose.onNodeWithText("Sign out of Tapas").performClick()
+        compose.onNodeWithText("Sign out").performClick()
         await { app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
         assertEquals(1, app.wire.count("signout_record"))
         assertEquals(1, app.clearCalls.get())
