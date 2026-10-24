@@ -398,7 +398,7 @@ class BridgeLifecycleTests(unittest.TestCase):
 
     def test_other_site_speed_refuses_mixed_unknown_and_symlinked_targets_without_mobile_consent(self):
         import tempfile
-        from comic_archive import account_ui, network
+        from comic_archive import network
         self.call('prepare_workspace', {'root': str(self.root)})
         for change in ({'site_key': 'webtoon', 'speed': 'slow', 'wifi_only': False},
                        {'site_key': '../escape', 'speed': 'slow'},
