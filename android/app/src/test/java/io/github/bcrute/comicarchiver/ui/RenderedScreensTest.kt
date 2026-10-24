@@ -618,6 +618,28 @@ class RenderedScreensTest {
     }
 
     @Test
+    @Config(qualifiers = "w320dp-h480dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun largeTextDashboardFilesRouteKeepsRefreshWholeAndActionable() {
+        controller.state.value = controller.state.value.copy(cloud = dashboardCloud(), catalog = catalogFixture())
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme { ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {}) }
+            }
+        }
+        compose.onNodeWithText("View saved files").performScrollTo().performClick()
+        compose.onNodeWithText("Files").assertIsSelected()
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Refresh files", useUnmergedTree = true).performScrollTo()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.size)
+        assertTrue("The whole Refresh files label must fit on one line", fitsSingleLine(layouts.single()))
+        compose.onNodeWithText("Refresh files").assertIsDisplayed().assertIsEnabled().performClick()
+        assertTrue(controller.catalogRequests.last().second)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
     @Config(qualifiers = "w360dp-h640dp")
     // Legacy ShadowPaint measures character counts; overflow needs real font metrics.
     @GraphicsMode(GraphicsMode.Mode.NATIVE)

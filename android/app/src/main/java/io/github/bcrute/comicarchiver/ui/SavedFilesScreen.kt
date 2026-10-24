@@ -3,6 +3,8 @@ package io.github.bcrute.comicarchiver.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,6 +40,7 @@ import java.util.Date
 /** The desktop catalog's projection, laid out for a phone. Filters are server-supplied,
  * storage is never scanned here, and only a catalog-offered CBZ/EPUB gets Open. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Unit,
                      onOpen: (String) -> Unit, exportPanel: @Composable () -> Unit) {
     val query = state.query
@@ -54,7 +57,8 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                 OutlinedTextField(value = draft, onValueChange = { draft = it.take(200) },
                     label = { Text("Find saved files") }, singleLine = true, enabled = !state.loading,
                     modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(enabled = !state.loading, onClick = { onQuery(query.copy(query = draft.trim(), offset = 0), false) }) {
                         Text("Search")
                     }
