@@ -1,8 +1,8 @@
 """Actual UDP/ICE retirement, not an admitted application peer or file grant."""
 
 import asyncio
-from struct import pack
 import unittest
+from struct import pack
 
 from aiortc import (
     RTCConfiguration,
@@ -224,16 +224,20 @@ class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
         await receiver.setRemoteDescription(sender.localDescription)
         self.owners.append(_IceRetirement.own(receiver.sctp.transport.transport))
         bounds = (
-            _SctpReceiveBounds.own(receiver.sctp, lambda: asyncio.create_task(receiver.close()))
+            _SctpReceiveBounds.own(
+                receiver.sctp, lambda: asyncio.create_task(receiver.close())
+            )
             if bounded
             else None
         )
         await receiver.setLocalDescription(await receiver.createAnswer())
         await sender.setRemoteDescription(receiver.localDescription)
         await self.wait_for(
-            lambda: sender.connectionState == receiver.connectionState == "connected"
-            and control.readyState == data.readyState == "open"
-            and set(channels) == {"cl1-control", "cl1-data"}
+            lambda: (
+                sender.connectionState == receiver.connectionState == "connected"
+                and control.readyState == data.readyState == "open"
+                and set(channels) == {"cl1-control", "cl1-data"}
+            )
         )
         return sender, receiver, control, data, channels, messages, bounds
 
@@ -252,14 +256,18 @@ class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
 
     async def send_packet(self, sender, chunks):
         sctp = sender.sctp
-        header = pack("!HHL", sctp._local_port, sctp._remote_port, sctp._remote_verification_tag)
+        header = pack(
+            "!HHL", sctp._local_port, sctp._remote_port, sctp._remote_verification_tag
+        )
         body = b"".join(bytes(chunk) for chunk in chunks)
         checksum = crc32c(header + b"\x00\x00\x00\x00" + body)
         await sctp.transport._send_data(header + pack("<L", checksum) + body)
 
     async def send_body(self, sender, body):
         sctp = sender.sctp
-        header = pack("!HHL", sctp._local_port, sctp._remote_port, sctp._remote_verification_tag)
+        header = pack(
+            "!HHL", sctp._local_port, sctp._remote_port, sctp._remote_verification_tag
+        )
         checksum = crc32c(header + b"\x00\x00\x00\x00" + body)
         await sctp.transport._send_data(header + pack("<L", checksum) + body)
 
@@ -279,30 +287,44 @@ class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
             for stream in transport._inbound_streams.values()
             for part in stream.reassembly
         ]
-        return {"parts": len(pieces), "bytes": sum(len(part.user_data) for part in pieces)}
+        return {
+            "parts": len(pieces),
+            "bytes": sum(len(part.user_data) for part in pieces),
+        }
 
     def assert_released(self, observed):
         self.assertTrue(observed["retired"])
         self.assertEqual(
-            tuple(observed[name] for name in ("streams", "parts", "bytes", "misordered", "duplicates")),
+            tuple(
+                observed[name]
+                for name in ("streams", "parts", "bytes", "misordered", "duplicates")
+            ),
             (0, 0, 0, 0, 0),
         )
 
     async def test_ordinary_two_channel_messages_and_close(self):
         sender, receiver, control, data, _, messages, bounds = await self.pair()
         before = bounds.sample()
-        await sender.sctp.transport._send_data(b"\x00" * 16)  # Authenticated, bad checksum.
-        await self.send_body(sender, pack("!BBH", 0, 0, 3))  # Valid checksum, bad length.
+        await sender.sctp.transport._send_data(
+            b"\x00" * 16
+        )  # Authenticated, bad checksum.
+        await self.send_body(
+            sender, pack("!BBH", 0, 0, 3)
+        )  # Valid checksum, bad length.
         await asyncio.sleep(0.05)
         self.assertEqual(bounds.sample(), before)
         self.assertEqual(receiver.connectionState, "connected")
         control.send("request")
         data.send(b"frame")
         await self.wait_for(lambda: len(messages) == 2)
-        self.assertEqual(set(messages), {("cl1-control", "request"), ("cl1-data", b"frame")})
+        self.assertEqual(
+            set(messages), {("cl1-control", "request"), ("cl1-data", b"frame")}
+        )
         observed = bounds.sample()
         self.assertIsNone(observed["denied"])
-        self.assertEqual((observed["streams"], observed["parts"], observed["bytes"]), (2, 0, 0))
+        self.assertEqual(
+            (observed["streams"], observed["parts"], observed["bytes"]), (2, 0, 0)
+        )
 
     async def test_reassembly_bytes_stop_at_bound_over_real_dtls(self):
         sender, _, control, _, _, _, bounds = await self.pair()
@@ -328,7 +350,9 @@ class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
         sender, _, control, _, _, _, bounds = await self.pair()
         for index in range(bounds.MAX_REASSEMBLY_PARTS + 1):
             await sender.sctp._send_chunk(
-                self.chunk(sender, control, 1, SCTP_DATA_FIRST_FRAG if index == 0 else 0)
+                self.chunk(
+                    sender, control, 1, SCTP_DATA_FIRST_FRAG if index == 0 else 0
+                )
             )
         await self.wait_for(lambda: bounds.denied is not None)
         observed = bounds.sample()
@@ -360,7 +384,9 @@ class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(lambda: bounds.denied is not None)
         observed = bounds.sample()
         self.assertEqual(observed["denied"], "duplicates")
-        self.assertEqual(observed["peaks"]["duplicates"], bounds.MAX_DUPLICATES_PER_PACKET)
+        self.assertEqual(
+            observed["peaks"]["duplicates"], bounds.MAX_DUPLICATES_PER_PACKET
+        )
         self.assert_released(observed)
 
     async def test_third_native_data_channel_is_denied_before_stream_allocation(self):

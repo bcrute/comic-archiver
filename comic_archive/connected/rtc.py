@@ -211,18 +211,25 @@ class _SctpReceiveBounds:
             and len(transport._sack_misordered) >= self.MAX_MISORDERED
         )
         reason = None
-        if duplicate and len(transport._sack_duplicates) >= self.MAX_DUPLICATES_PER_PACKET:
+        if (
+            duplicate
+            and len(transport._sack_duplicates) >= self.MAX_DUPLICATES_PER_PACKET
+        ):
             reason = "duplicates"
         elif projected_misordered:
             reason = "misordered"
-        elif not duplicate and len(streams) + (chunk.stream_id not in streams) > self.MAX_STREAMS:
+        elif (
+            not duplicate
+            and len(streams) + (chunk.stream_id not in streams) > self.MAX_STREAMS
+        ):
             reason = "streams"
         elif not duplicate and not 0 < len(chunk.user_data) <= CONTROL_MAX:
             reason = "chunk_bytes"
         elif not duplicate and len(pieces) >= self.MAX_REASSEMBLY_PARTS:
             reason = "parts"
         elif not duplicate and (
-            sum(len(part.user_data) for part in pieces) + len(chunk.user_data) > CONTROL_MAX
+            sum(len(part.user_data) for part in pieces) + len(chunk.user_data)
+            > CONTROL_MAX
         ):
             reason = "reassembly_bytes"
         if reason is not None:
