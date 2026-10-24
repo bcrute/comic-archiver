@@ -1,4 +1,4 @@
-[https://github.com/bcrute/comic-archiver/releases/latest](Download for Windows and Linux)
+
 
 # Comic Archiver
 
