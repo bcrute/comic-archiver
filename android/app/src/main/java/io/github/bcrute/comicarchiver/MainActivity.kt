@@ -224,6 +224,13 @@ class MainActivity : ComponentActivity() {
                             onCloseFolder = openedLibrary::close,
                             onFolderQuery = openedLibrary::load,
                             onOpenFolderFile = openedLibrary::open,
+                            onReadFolderFile = if (readerState.closing) null else { id ->
+                                val current = controller.state.value
+                                if (current.workspaceReady && !current.siteBusy && !current.libraryBusy) {
+                                    val workspace = app.workspaceFor(current.site, current.libraryId)
+                                    if (workspace.available) openedLibrary.readHere(id, workspace.root, reader::openPrepared)
+                                }
+                            },
                             workingLibraries = workingState,
                             workingLibraryActions = io.github.bcrute.comicarchiver.ui.WorkingLibraryActions(
                                 load = working::load, pick = {

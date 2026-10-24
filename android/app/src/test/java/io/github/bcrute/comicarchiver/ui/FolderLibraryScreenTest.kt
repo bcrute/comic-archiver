@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.github.bcrute.comicarchiver.controller.CatalogState
+import io.github.bcrute.comicarchiver.controller.SavedFileItem
+import io.github.bcrute.comicarchiver.controller.SavedFilePage
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -39,5 +41,20 @@ class FolderLibraryScreenTest {
         compose.onNodeWithText("Choose the folder again to restore access.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Close folder").performScrollTo().performClick()
         assertEquals(1, close)
+    }
+    @Test fun selectedExportOffersIndependentBuiltInAndExternalReaderActions() {
+        val id = "a".repeat(64)
+        val row = SavedFileItem(id, "Exported series", "Chapter", "one.cbz", "Comic", "7 KB",
+            "Opened folder", null, true, id)
+        val page = SavedFilePage(listOf(row), 1, 0, 50, "One saved comic", "Showing one file", "",
+            emptyList(), emptyList(), emptyList(), listOf(50))
+        val read = mutableListOf<String>(); val external = mutableListOf<String>()
+        compose.setContent { MaterialTheme { FolderLibraryScreen(FolderLibraryState(selected = true,
+            label = "Exports", catalog = CatalogState(page = page)), {}, {}, {}, { _, _ -> },
+            { external.add(it) }, { read.add(it) }) } }
+        compose.onNodeWithText("Read here").performScrollTo().performClick()
+        assertEquals(listOf(id), read); assertEquals(emptyList<String>(), external)
+        compose.onNodeWithText("Open").performScrollTo().performClick()
+        assertEquals(listOf(id), external)
     }
 }

@@ -12,6 +12,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.File
 import java.security.MessageDigest
 
 internal data class PortableDocument(val id: String, val name: String, val mime: String,
@@ -23,6 +24,27 @@ internal data class PortableMetadata(val value: JSONObject?, val bytes: Int)
 internal interface PreparedPortableOpen {
     fun launch(): ArchiveOpenResult
     fun discard() {}
+}
+
+/** Actual completed private copy, handed to the reader owner until its I/O drains. */
+internal class PreparedPortableReading private constructor(val workspace: File, val file: File) {
+    val relative: String = file.relativeTo(workspace.resolve("Library")).invariantSeparatorsPath
+    fun discard() {
+        val parent = file.parentFile ?: return
+        check(parent.canonicalFile == parent.absoluteFile)
+        if (parent.exists()) check(parent.deleteRecursively())
+    }
+    companion object {
+        fun captured(workspace: File, file: File): PreparedPortableReading {
+            val copies = workspace.resolve("Library/.archive-state/reader-copies")
+            check(workspace.canonicalFile == workspace.absoluteFile && copies.canonicalFile == copies.absoluteFile)
+            check(file.canonicalFile == file.absoluteFile && file.isFile && file.length() > 0)
+            check(file.parentFile?.parentFile == copies &&
+                file.parentFile!!.name.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}")))
+            check(archiveMime(file.extension) != null)
+            return PreparedPortableReading(workspace, file)
+        }
+    }
 }
 
 internal fun projectPortableMetadata(value: JSONObject) = JSONObject().apply {
@@ -41,6 +63,8 @@ internal interface PortableDocuments {
     fun metadata(tree: Uri, document: PortableDocument, maximum: Int): PortableMetadata
     fun current(tree: Uri, document: PortableDocument): Boolean
     fun prepare(tree: Uri, document: PortableDocument, checkActive: () -> Unit): PreparedPortableOpen
+    fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
+        checkActive: () -> Unit): PreparedPortableReading = throw IOException("Reading source unavailable")
 }
 
 /** Only read permission is requested/persisted; export retains its separate writable picker. */
@@ -137,6 +161,23 @@ internal class ResolverPortableDocuments(private val context: Context,
             override fun launch() = ArchiveViewer(context, root, launch).open(
                 file.relativeTo(root.canonicalFile).invariantSeparatorsPath, document.name.substringAfterLast('.'))
             override fun discard() { file.parentFile?.deleteRecursively() }
+        }
+    }
+
+    override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
+        checkActive: () -> Unit): PreparedPortableReading {
+        check(readable(tree) && current(tree, document))
+        val root = workspace.resolve("Library/.archive-state/reader-copies")
+        val file = ReadingCopyStore(root).stage(document.name, document.bytes,
+            source = { resolver.openInputStream(uri(tree, document.id)) ?: throw IOException("Document unavailable") },
+            checkActive = checkActive)
+        try {
+            checkActive()
+            check(current(tree, document)) { "Selected document changed" }
+            return PreparedPortableReading.captured(workspace, file)
+        } catch (failure: Exception) {
+            file.parentFile?.deleteRecursively()
+            throw failure
         }
     }
 }

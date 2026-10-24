@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+import uuid
 from unittest.mock import patch
 
 from comic_archive.android_local_reader import ReaderHost
@@ -167,6 +168,17 @@ class AndroidReaderHostTests(unittest.TestCase):
         self.host.save(self.root, self.token, {'unit': 0, 'offset': 2500}, bookmark=True,
                        preferences={'fit': 'width', 'text_scale': 1.5})
         self.host.close_all()
+        selected = self.library / '.archive-state/reader-copies' / str(uuid.uuid4()) / path.name
+        selected.parent.mkdir(parents=True)
+        shutil.copyfile(path, selected)
+        try:
+            opened = self.host.open_selected(self.root, selected.relative_to(self.library).as_posix(), self.token)
+            self.assertEqual(opened['record']['position'], {'unit': 0, 'offset': 2500})
+            rendered = self.host.page(self.root, self.token, 0)
+            self.assertEqual({name: base64.b64decode(raw) for name, raw in rendered['images'].items()}, expected['images'])
+        finally:
+            self.host.close_all()
+            shutil.rmtree(selected.parent)
         artifacts = os.environ.get('COMIC_ANDROID_READER_ARTIFACTS')
         if artifacts:
             target = Path(artifacts) / 'illustrated/Library'
@@ -273,6 +285,25 @@ class NativeReaderBridgeTests(unittest.TestCase):
             self.assertNotIn(str(self.root), json.dumps(opened))
             self.assertTrue(self.call('reader_close', self.args())['result']['closed'])
         self.assertEqual(original_hashes(self.root / 'Library'), before)
+
+    def test_selected_export_dispatch_uses_actual_private_bytes_and_retires_on_workspace_change(self):
+        target = self.root / 'Library/.archive-state/reader-copies' / str(uuid.uuid4()) / self.comic.name
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(self.comic, target)
+        choice = target.relative_to(self.root / 'Library').as_posix()
+        with patch.object(app_bridge, '_cookie_seams', side_effect=AssertionError('No sign-in authority')):
+            opened = self.call('reader_open', self.args(selected=choice))
+            self.assertTrue(opened['ok'], opened)
+            self.assertTrue(self.call('reader_page', self.args(unit=1))['ok'])
+            stream = app_bridge._reader_host._session.book._stream
+            self.assertFalse(self.call('reader_open', self.args(id=self.identifier, selected=choice))['ok'])
+            self.assertFalse(self.call('reader_open', self.args(selected='../PRIVATE'))['ok'])
+            other = self.root / 'other'
+            other.mkdir()
+            self.assertTrue(self.call('prepare_workspace', {'root': str(other)})['ok'])
+            self.assertTrue(stream.closed)
+            self.assertFalse(self.call('reader_page', self.args(unit=0))['ok'])
+        self.assertFalse(target.with_suffix('.json').exists())
 
     def test_workspace_change_retires_the_pinned_file_and_refuses_all_old_reader_work(self):
         self.assertTrue(self.call('reader_open', self.args(id=self.identifier))['ok'])

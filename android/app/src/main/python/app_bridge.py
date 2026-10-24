@@ -752,7 +752,7 @@ def _file_open(args):
 def _reader(args, operation, expected_epoch=None):
     """Only native callers can reach dispatch; no reader authority enters a WebView."""
     allowed = {'root', 'reader_id'} | {
-        'open': {'id'}, 'page': {'unit'}, 'save': {'position', 'bookmark', 'preferences'},
+        'open': {'id', 'selected'}, 'page': {'unit'}, 'save': {'position', 'bookmark', 'preferences'},
         'reload': set(), 'close': set()}[operation]
     if set(args) - allowed or not {'root', 'reader_id'} <= set(args):
         raise _BridgeError('bad_request', 'Choose supported reading controls.')
@@ -774,7 +774,10 @@ def _reader(args, operation, expected_epoch=None):
         if not active():
             raise ArchiveError('The working library changed. Choose Read here again.')
         if operation == 'open':
-            value = host.open(root, _catalog_registry(root), args.get('id'), token, active=active)
+            if ('id' in args) == ('selected' in args):
+                raise ArchiveError('Choose one supported reading source.')
+            value = (host.open_selected(root, args['selected'], token, active=active) if 'selected' in args
+                     else host.open(root, _catalog_registry(root), args.get('id'), token, active=active))
         elif operation == 'page':
             value = host.page(root, token, args.get('unit'))
         elif operation == 'save':

@@ -3,6 +3,7 @@ import base64
 import copy
 import re
 import threading
+from pathlib import Path
 
 from .local_library import LOCAL_OWNER
 from .local_reader import ReadingError, UNAVAILABLE
@@ -66,6 +67,33 @@ class ReaderHost:
             return {'reader_id': token, 'unit': unit, 'kind': page['kind']} | (
                 {'data': encode(page['data'])} if page['kind'] == 'cbz' else
                 {'html': page['html'], 'images': {name: encode(data) for name, data in page['images'].items()}})
+
+    def open_selected(self, root, relative, token, *, active=lambda: True):
+        from .selected_reader import SelectedReadingSession, selected_path
+        with self._lock:
+            self.token(token)
+            library = Path(root) / 'Library'
+            path = selected_path(library, relative)
+            identifier = 'selected:' + relative
+            if not active():
+                raise ReadingError(UNAVAILABLE)
+            if self._token == token:
+                if self._root != root or self._identifier != identifier:
+                    raise ReadingError('Choose a new reader for this saved file.')
+                self._selected(root, token)
+                return self._snapshot()
+            candidate = SelectedReadingSession(library, path,
+                max_member_bytes=MAX_ANDROID_RENDER, max_text_bytes=1024**2)
+            try:
+                if not active():
+                    raise ReadingError('The working library changed. Choose Read here again.')
+                self.close_all()
+            except BaseException:
+                candidate.close()
+                raise
+            self._root, self._token, self._identifier = root, token, identifier
+            self._session = candidate
+            return self._snapshot()
 
     def save(self, root, token, position, *, bookmark=False, preferences=None):
         with self._lock:

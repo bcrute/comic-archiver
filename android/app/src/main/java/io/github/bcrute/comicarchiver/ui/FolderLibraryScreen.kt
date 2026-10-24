@@ -21,7 +21,8 @@ import io.github.bcrute.comicarchiver.library.FolderLibraryState
 
 @Composable
 fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose: () -> Unit,
-    onClose: () -> Unit, onQuery: (CatalogQuery, Boolean) -> Unit, onOpen: (String) -> Unit) {
+    onClose: () -> Unit, onQuery: (CatalogQuery, Boolean) -> Unit, onOpen: (String) -> Unit,
+    onRead: ((String) -> Unit)? = null) {
     LaunchedEffect(Unit) { onLoad() }
     val panel: @Composable () -> Unit = {
         Card(Modifier.fillMaxWidth()) {
@@ -39,6 +40,6 @@ fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose:
             }
         }
     }
-    if (state.selected && !state.choosing) SavedFilesScreen(state.catalog, onQuery, onOpen, exportPanel = panel)
+    if (state.selected && !state.choosing) SavedFilesScreen(state.catalog, onQuery, onOpen, onRead, exportPanel = panel)
     else LazyColumn(Modifier.fillMaxSize().padding(16.dp)) { item { panel() } }
 }

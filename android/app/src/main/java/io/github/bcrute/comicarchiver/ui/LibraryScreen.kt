@@ -53,6 +53,7 @@ fun LibraryScreen(
     folderState: FolderLibraryState = FolderLibraryState(),
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
+    onReadFolderFile: ((String) -> Unit)? = null,
     actionsEnabled: Boolean = true,
     compactEditing: Boolean = false,
     showFilesRequested: Boolean = false,
@@ -83,7 +84,7 @@ fun LibraryScreen(
         Box(Modifier.weight(1f)) {
             if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
-                onCloseFolder, onFolderQuery, onOpenFolderFile)
+                onCloseFolder, onFolderQuery, onOpenFolderFile, onReadFolderFile.takeIf { actionsEnabled })
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile, onReadFile) {
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }

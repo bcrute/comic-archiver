@@ -255,7 +255,7 @@ class ReaderBook:
             if info.st_size > MAX_ARCHIVE:
                 raise ReadingError(UNSUPPORTED)
             self._identity = _fact(info)
-            metadata = _json(sidecar_path(self.path), 16 * 1024**2)
+            metadata = self._metadata(max_member_bytes, max_text_bytes)
             self.kind = metadata.get('format', 'cbz')
             if self.kind not in {'cbz', 'epub'} or self.path.suffix != '.' + self.kind:
                 raise ValueError('Format mismatch')
@@ -297,6 +297,9 @@ class ReaderBook:
         except Exception:
             self.close()
             raise ReadingError(UNAVAILABLE) from None
+
+    def _metadata(self, max_member_bytes, max_text_bytes):
+        return _json(sidecar_path(self.path), 16 * 1024**2)
 
     def _check(self):
         _safe(self.path)
@@ -382,7 +385,7 @@ class ReaderBook:
 
 class ReadingSession:
     def __init__(self, library, path, **limits):
-        self.book = ReaderBook(library, path, **limits)
+        self.book = self._book(library, path, **limits)
         self.store = ReadingStore(library)
         self.record = fresh_record(self.book.content, self.book.kind, self.book.units)
         self.warning = None
@@ -394,6 +397,10 @@ class ReadingSession:
         except BaseException:
             self.book.close()
             raise
+
+    @staticmethod
+    def _book(library, path, **limits):
+        return ReaderBook(library, path, **limits)
 
     def reload(self):
         self.record = self.store.load(self.book.content, self.book.kind, self.book.units)

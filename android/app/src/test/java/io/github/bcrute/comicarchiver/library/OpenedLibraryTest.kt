@@ -24,6 +24,9 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import java.io.ByteArrayInputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
@@ -132,5 +135,64 @@ class OpenedLibraryTest {
         await { runtime.state.value.catalog.openingId == null }
         assertTrue(runtime.state.value.catalog.feedback!!.contains("changed"))
         assertEquals(2, docs.opened.size)
+    }
+
+    @Test fun builtInSelectionStagesActualBytesWithoutLaunchingAnExternalAppOrGo() {
+        val workspace = context.filesDir.canonicalFile.resolve("selected-reader-workspace")
+        val copies = mutableListOf<PreparedPortableReading>()
+        val source = object : PortableDocuments by docs {
+            override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
+                checkActive: () -> Unit): PreparedPortableReading {
+                val file = ReadingCopyStore(workspace.resolve("Library/.archive-state/reader-copies"))
+                    .stage(document.name, 20, { ByteArrayInputStream(ByteArray(20) { 4 }) }, checkActive)
+                return PreparedPortableReading.captured(workspace, file)
+            }
+        }
+        val runtime = OpenedLibrary(context, bridge, scope, source)
+        runtime.select(tree); ready(runtime)
+        runtime.readHere("f".repeat(64), workspace) { fail("Unlisted file admitted"); false }
+        val id = runtime.state.value.catalog.page!!.rows.first().openId!!
+        runtime.readHere(id, workspace) { copies.add(it); true }
+        await { runtime.state.value.catalog.openingId == null }
+        assertEquals(1, copies.size)
+        assertArrayEquals(ByteArray(20) { 4 }, copies.single().file.readBytes())
+        assertTrue(docs.opened.isEmpty())
+        assertTrue(operations.all { it == "portable_catalog" })
+        copies.single().discard()
+        docs.allowed = false
+        runtime.readHere(id, workspace) { fail("Lost grant admitted"); false }
+        await { runtime.state.value.catalog.openingId == null }
+        assertTrue(runtime.state.value.catalog.feedback!!.contains("could not be prepared"))
+    }
+
+    @Test fun closingDuringPreparedReadKeepsTheCopyUntilActualIoReturnsThenDiscardsIt() {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val prepared = AtomicReference<PreparedPortableReading>()
+        val admissions = AtomicInteger()
+        val workspace = context.filesDir.canonicalFile.resolve("cancelled-reader-workspace")
+        val source = object : PortableDocuments by docs {
+            override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
+                checkActive: () -> Unit): PreparedPortableReading {
+                val file = ReadingCopyStore(workspace.resolve("Library/.archive-state/reader-copies"))
+                    .stage(document.name, 20, { ByteArrayInputStream(ByteArray(20) { 5 }) }, checkActive)
+                val value = PreparedPortableReading.captured(workspace, file)
+                prepared.set(value); entered.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                return value
+            }
+        }
+        val runtime = OpenedLibrary(context, bridge, scope, source)
+        runtime.select(tree); ready(runtime)
+        val id = runtime.state.value.catalog.page!!.rows.first().openId!!
+        runtime.readHere(id, workspace) { admissions.incrementAndGet(); true }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        try {
+            runtime.close()
+            assertFalse(runtime.state.value.selected)
+            assertTrue(prepared.get().file.isFile)
+        } finally { release.countDown() }
+        await { !prepared.get().file.exists() }
+        assertEquals(0, admissions.get())
+        assertFalse(runtime.state.value.selected)
     }
 }

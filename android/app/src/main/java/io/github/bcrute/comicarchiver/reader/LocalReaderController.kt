@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.reader
 
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
+import io.github.bcrute.comicarchiver.library.PreparedPortableReading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -18,7 +19,8 @@ import java.util.concurrent.Executors
 /** Process-owned, serial reader I/O. It cannot sign in, admit Go or open arbitrary paths. */
 internal class LocalReaderController(private val bridge: PythonBridge, private val scope: CoroutineScope,
     private val currentRoot: () -> File?) {
-    private data class Ticket(val id: String, val root: File, val exportId: String)
+    private data class Ticket(val id: String, val root: File, val exportId: String,
+        val selected: PreparedPortableReading? = null)
     private val executor = Executors.newSingleThreadExecutor { work -> Thread(work, "local-reader").apply { isDaemon = true } }
     private val io = executor.asCoroutineDispatcher()
     private val _state = MutableStateFlow(LocalReaderState())
@@ -57,13 +59,24 @@ internal class LocalReaderController(private val bridge: PythonBridge, private v
             return
         }
         val target = Ticket(UUID.randomUUID().toString().replace("-", ""), root, id)
+        openTarget(target)
+    }
+
+    fun openPrepared(source: PreparedPortableReading): Boolean {
+        if (_state.value.open || _state.value.closing || currentRoot()?.absolutePath != source.workspace.absolutePath) return false
+        openTarget(Ticket(UUID.randomUUID().toString().replace("-", ""), source.workspace, source.relative, source))
+        return true
+    }
+
+    private fun openTarget(target: Ticket) {
         ticket = target; dirty = false; edits++
         val captured = ++version
         _state.value = LocalReaderState(id = target.id, loading = true)
         scope.launch {
             try {
                 val result = withContext(io) {
-                    loaded(target, request(target, "reader_open", JSONObject().put("id", id)))
+                    val choice = if (target.selected == null) "id" else "selected"
+                    loaded(target, request(target, "reader_open", JSONObject().put(choice, target.exportId)))
                 }
                 if (current(target, captured)) apply(result.first, result.second)
                 else if (ticket == target && version == captured) contextChanged(currentRoot())
@@ -192,14 +205,21 @@ internal class LocalReaderController(private val bridge: PythonBridge, private v
             try {
                 withContext(io) {
                     try { if (shouldSave) warning = saveRequest(target, snapshot).warning ?: reason }
-                    finally { request(target, "reader_close") }
+                    finally {
+                        request(target, "reader_close")
+                        if (reopen == null) target.selected?.discard()
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { warning = reason ?: "Reading progress could not be saved. The original file is unchanged." }
             if (ticket == target && version == captured) {
                 ticket = null; dirty = false
                 _state.value = LocalReaderState(feedback = warning)
-                if (reopen != null) open(reopen)
+                if (reopen != null) {
+                    val selected = target.selected
+                    if (selected == null) open(reopen)
+                    else if (!openPrepared(selected)) selected.discard()
+                }
             }
         }
     }
@@ -213,7 +233,10 @@ internal class LocalReaderController(private val bridge: PythonBridge, private v
         val target = ticket
         version++; ticket = null
         _state.value = LocalReaderState()
-        if (target != null) executor.execute { try { request(target, "reader_close") } catch (_: Exception) { } }
+        if (target != null) executor.execute {
+            try { request(target, "reader_close"); target.selected?.discard() }
+            catch (_: Exception) { /* Keep actual copy when native close is unknown. */ }
+        }
         executor.shutdown()
     }
 }
