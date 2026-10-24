@@ -23,6 +23,7 @@ from aiortc.sdp import SessionDescription
 
 from .files import SourceError
 from .jsoncodec import require
+from .ice import servers as checked_servers
 from .read_worker import FileWorker
 from .rpc import CONTROL_MAX
 from .wire import FRAME_MAX, WINDOW_MAX
@@ -60,41 +61,8 @@ def data_sdp(text):
 
 
 def configuration(servers):
-    require(isinstance(servers, list) and len(servers) <= 4)
-    values = []
-    for server in servers:
-        require(
-            isinstance(server, dict)
-            and set(server) <= {"urls", "username", "credential"}
-            and "urls" in server
-        )
-        urls = server["urls"]
-        urls = [urls] if isinstance(urls, str) else urls
-        require(isinstance(urls, list) and 1 <= len(urls) <= 4)
-        require(
-            all(
-                isinstance(url, str)
-                and len(url) <= 512
-                and url.startswith(("stun:", "stuns:", "turn:", "turns:"))
-                for url in urls
-            )
-        )
-        for name in ["username", "credential"]:
-            require(
-                server.get(name) is None
-                or isinstance(server[name], str)
-                and len(server[name]) <= 512
-            )
-        values.append(
-            RTCIceServer(
-                urls=urls,
-                username=server.get("username"),
-                credential=server.get("credential"),
-            )
-        )
-    return RTCConfiguration(
-        iceServers=values
-    )  # Explicit [], never implicit public STUN.
+    values = [RTCIceServer(**item) for item in checked_servers(servers)]
+    return RTCConfiguration(iceServers=values)  # Explicit [], no public STUN fallback.
 
 
 class _ReadGate:

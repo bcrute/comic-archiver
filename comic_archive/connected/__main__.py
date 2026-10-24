@@ -43,6 +43,7 @@ def parser():
         required=True,
         metavar=("ROOT", "PRIVATE_INDEX"),
     )
+    serve.add_argument("--ice-config", type=Path, help="Owned private JSON connection settings (one STUN and one TURN server)")
     serve.add_argument(
         "--init",
         action="store_true",
@@ -209,6 +210,7 @@ async def console(driver, terminal, shutdown):
 async def serve(args):
     from .controller import HostController
     from .driver import HostDriver
+    from .ice import read_servers
     from .files import Index, SharedRoot
     from .jsoncodec import require
     from .pairing import PairingOwner
@@ -216,6 +218,7 @@ async def serve(args):
     from .terminal import TerminalInput
 
     require(os.name == "posix" and 1 <= len(args.library) <= 16, "unsupported_format")
+    ice_servers = read_servers(args.ice_config) if args.ice_config is not None else []
     if args.interactive:
         require(
             os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno()),
@@ -242,7 +245,7 @@ async def serve(args):
         state = HostState.open(args.state, roots=roots, create=args.init)
         owner = PairingOwner(state, indices)
         controller = HostController(owner, args.origin)
-        driver = HostDriver.start(controller)
+        driver = HostDriver.start(controller, ice_servers=ice_servers)
         approved = [
             row["pairing_id"] for row in state.records() if row["status"] == "approved"
         ]
