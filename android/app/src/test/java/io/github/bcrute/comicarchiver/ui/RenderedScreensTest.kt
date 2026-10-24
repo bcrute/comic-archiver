@@ -522,6 +522,37 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun cloudCopyBrowsesBackblazeWithRetryAndNeverOffersLocalReaderActions() {
+        val row = catalogFixture().page!!.rows.single().copy(openId = null, b2Copy = true,
+            storage = "Backblaze B2 (previous connection 1)")
+        val catalog = catalogFixture().let { it.copy(page = it.page!!.copy(rows = listOf(row))) }
+        val opened = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalUriHandler provides object : UriHandler {
+                override fun openUri(uri: String) {
+                    opened.add(uri)
+                    if (opened.size == 1) throw IllegalStateException("private-browser-detail")
+                }
+            }) {
+                MaterialTheme { SavedFilesScreen(catalog, { _, _ -> }, controller::openSavedFile,
+                    { error("A cloud record has no local reader") }) {} }
+            }
+        }
+        val description = "Browse Chapter one, Synthetic series in Backblaze. chapter.cbz"
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
+        compose.onNodeWithContentDescription(description).performClick()
+        val failure = "Could not open Backblaze. Check that a browser is available and try again."
+        compose.onNodeWithText(failure).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open").assertDoesNotExist()
+        compose.onNodeWithText("Read here").assertDoesNotExist()
+        compose.onNodeWithText("private-browser-detail").assertDoesNotExist()
+        compose.onNodeWithContentDescription(description).performScrollTo().performClick()
+        compose.onNodeWithText(failure).assertDoesNotExist()
+        assertEquals(listOf(B2Page.BROWSE.url, B2Page.BROWSE.url), opened)
+        assertTrue(controller.openRequests.isEmpty())
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun archiveActionsKeepContextAndDisableWhileOpeningThenRecover() {
         val first = catalogFixture().page!!.rows.single()
         val second = first.copy(key = "b".repeat(64), filename = "next.epub", type = "Novel", openId = "b".repeat(64))

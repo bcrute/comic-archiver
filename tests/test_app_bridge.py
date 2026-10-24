@@ -30,6 +30,7 @@ class PortableCatalogBridgeTests(unittest.TestCase):
             self.assertEqual(row['open'], 'a' * 64)
             self.assertEqual(row['type'], 'Novel')
             self.assertEqual(row['storage'], 'Opened folder')
+            self.assertFalse(row['b2_copy'])
             self.assertIsNone(row['saved_epoch'])
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual([p.name for p in Path(directory).iterdir()], ['catalog.json'])
@@ -520,7 +521,23 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(page["sorts"], [{"key": k, "label": v} for k, v in library_model.SORTS])
         self.assertEqual(page["page_sizes"], list(library_model.PAGE_SIZES))
         self.assertTrue(all("relpath" not in row for row in page["rows"]))
+        self.assertTrue(all(not row["b2_copy"] for row in page["rows"]))
         start.assert_not_called()
+
+    def test_catalog_identifies_current_and_previous_b2_copies_without_exposing_a_url_or_local_open(self):
+        from comic_archive.local_library import LOCAL_OWNER
+        self._export_library()
+        registry = app_bridge._catalog_registry(self.root)
+        desktop = registry.saved_files(LOCAL_OWNER, registry.workspace_id, kind="episodes", sort="saved_desc")
+        for location in ("b2", "b2-0123456789abcdef"):
+            with self.subTest(location=location):
+                row = dict(desktop["files"][0], location=location, id=None)
+                raw = dict(desktop, files=[row], total=1, offset=0)
+                result = app_bridge._catalog_projection(raw, {"location": "all"})["rows"][0]
+                self.assertTrue(result["b2_copy"])
+                self.assertIsNone(result["open"])
+                self.assertNotIn("url", result)
+                self.assertNotIn("relpath", result)
 
     def test_catalog_search_types_paging_and_stable_ids_survive_reconstruction(self):
         self._export_library()

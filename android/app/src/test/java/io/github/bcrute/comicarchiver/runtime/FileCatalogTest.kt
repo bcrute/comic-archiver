@@ -28,12 +28,18 @@ class FileCatalogTest {
         assertNull(value.rows.single().savedEpoch)
         assertTrue(value.rows.single().fileTime)
         assertEquals("a".repeat(64), value.rows.single().openId)
+        assertFalse(value.rows.single().b2Copy)
     }
 
     @Test fun metadataAndCloudRowsCanBeListedWithoutOfferingOpen() {
         val raw = page()
         val row = raw.getJSONObject("result").getJSONArray("rows").getJSONObject(0)
         row.put("row_id", JSONObject.NULL).put("open", JSONObject.NULL).put("storage", "Backblaze B2")
-        assertNull(FileCatalog.parse(raw.toString()).rows.single().openId)
+            .put("b2_copy", true)
+        val cloud = FileCatalog.parse(raw.toString()).rows.single()
+        assertNull(cloud.openId)
+        assertTrue(cloud.b2Copy)
+        row.put("row_id", "a".repeat(64)).put("open", "a".repeat(64))
+        assertThrows(IllegalArgumentException::class.java) { FileCatalog.parse(raw.toString()) }
     }
 }

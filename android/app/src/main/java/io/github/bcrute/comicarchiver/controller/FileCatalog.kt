@@ -11,7 +11,7 @@ data class CatalogQuery(val query: String = "", val location: String = "all", va
 data class CatalogChoice(val key: String, val label: String)
 data class SavedFileItem(val key: String, val series: String, val title: String, val filename: String,
                          val type: String, val size: String, val storage: String, val savedEpoch: Double?,
-                         val fileTime: Boolean, val openId: String?)
+                         val fileTime: Boolean, val openId: String?, val b2Copy: Boolean = false)
 data class SavedFilePage(val rows: List<SavedFileItem>, val total: Int, val offset: Int, val limit: Int,
                          val summary: String, val range: String, val notice: String,
                          val locations: List<CatalogChoice>, val kinds: List<CatalogChoice>,
@@ -36,10 +36,12 @@ object FileCatalog {
             val id = row.optString("row_id").takeIf { it.matches(Regex("[a-f0-9]{64}")) }
             val open = row.optString("open").takeIf { it.matches(Regex("[a-f0-9]{64}")) }
             require(open == null || open == id)
+            val b2Copy = row.optBoolean("b2_copy")
+            require(!b2Copy || open == null)
             val epoch = (row.opt("saved_epoch") as? Number)?.toDouble()?.takeIf { it.isFinite() }
             SavedFileItem(id ?: "row-$index", row.getString("series"), row.getString("title"),
                 row.getString("filename"), row.getString("type"), row.getString("size"),
-                row.getString("storage"), epoch, row.optBoolean("file_time"), open)
+                row.getString("storage"), epoch, row.optBoolean("file_time"), open, b2Copy)
         }
         require(items.size <= limit && offset + items.size <= total)
         require(items.map { it.key }.distinct().size == items.size)

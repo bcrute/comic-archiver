@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -46,6 +47,7 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                      exportPanel: @Composable () -> Unit) {
     val query = state.query
     val page = state.page
+    val browser = LocalUriHandler.current
     var draft by rememberSaveable { mutableStateOf(query.query) }
     var pageDraft by rememberSaveable { mutableStateOf("1") }
     LaunchedEffect(query.query) { draft = query.query }
@@ -117,6 +119,19 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                                 }) {
                                 Text(if (state.openingId == id) "Opening…" else "Open")
                             }
+                        }
+                        if (file.b2Copy) {
+                            var browserFailed by rememberSaveable(file.key) { mutableStateOf(false) }
+                            Text("Cloud copy. Use your Backblaze account to browse this bucket.")
+                            TextButton(onClick = {
+                                browserFailed = try {
+                                    browser.openUri(B2Page.BROWSE.url)
+                                    false
+                                } catch (_: Exception) { true }
+                            }, modifier = Modifier.semantics {
+                                contentDescription = "Browse ${file.title}, ${file.series} in Backblaze. ${file.filename}"
+                            }) { Text("Open in Backblaze") }
+                            if (browserFailed) Text("Could not open Backblaze. Check that a browser is available and try again.")
                         }
                     }
                 }
