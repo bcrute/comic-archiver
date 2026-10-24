@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.CatalogChoice
@@ -107,7 +109,9 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                                 .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
                         }
                         file.openId?.let { id ->
-                            if (state.feedbackFor == id) state.feedback?.let { Text(it) }
+                            if (state.feedbackFor == id) state.feedback?.let {
+                                Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                            }
                             if (onRead != null) Button(onClick = { onRead(id) }, enabled = state.openingId == null,
                                 modifier = Modifier.semantics {
                                     contentDescription = "Read ${file.title}, ${file.series}. ${file.filename}. ${file.storage}"
