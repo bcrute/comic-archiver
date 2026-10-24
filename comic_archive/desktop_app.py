@@ -1007,7 +1007,20 @@ class Shell:
             self.signin_leave()
         self.notice.setText(FINISHING)
         self.stack.setCurrentWidget(self.notice)
-        self.background(self.runtime.stop, self.quit)
+        pending = {'runtime', 'readers'}
+
+        def stopped(name):
+            pending.discard(name)
+            if not pending:
+                self.quit()
+
+        # Stopping downloads must not wait for a slow reader drive. Keep the
+        # event loop alive until both independent owners have retired safely.
+        self.background(self.runtime.stop, lambda: stopped('runtime'))
+        if self.pages is not None:
+            self.pages.close_readers(lambda: stopped('readers'))
+        else:
+            stopped('readers')
 
     def busy_now(self):
         """What closing would interrupt, asked on a thread for a moment at most; a slow drive leaves the last answer seen."""

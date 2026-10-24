@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "content_sha256": "a784f4f58323bf6fed267c54ee122a4f2686ad45aaeb18ab6e555b521c2651b4",
+  "kind": "epub",
+  "units": 1,
+  "revision": 1,
+  "position": {
+    "unit": 0,
+    "offset": 6500
+  },
+  "bookmarks": [
+    {
+      "unit": 0,
+      "offset": 6500
+    }
+  ],
+  "preferences": {
+    "fit": "page",
+    "text_scale": 1.25
+  }
+}

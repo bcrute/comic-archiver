@@ -1,0 +1,94 @@
+{
+  "format": "local-reading-v1",
+  "producer": {
+    "source": "cb8dc8e537c466ea971e458f8c120bd88ef54979",
+    "snapshot": "d8b73d63aab355dbb6f4492a24f29aeb502d54fc409ada498ad0646a58fbad02",
+    "job": "11b295ca98313678a508bf417a35d2e9",
+    "test": "ReaderWindowTests.test_actual_v1_producer_records_are_retained_with_both_format_outputs",
+    "gate": "2070 Python tests passed together on the fleet; exit 0",
+    "provenance": "First actual synthetic fixture producer; not an earlier public release"
+  },
+  "files": {
+    ".archive-state/inventory.sqlite3": {
+      "sha256": "e094dfc99ff3d671d4f7866bc9d3668941849f1c5132f95cd3c4c3f6631f2388",
+      "bytes": 86016
+    },
+    ".archive-state/provenance/35b48204-a054-4db9-9d6c-2fa975e37acc.json": {
+      "sha256": "7af78c0bae9505ec0aa59ab37392db830c23a9970f0165e8e6fc0e343a46bbb2",
+      "bytes": 1175
+    },
+    ".archive-state/provenance/b8b35d8b-f564-4cc5-9b95-09b75060a417.json": {
+      "sha256": "f89004ef9a4d85c6010898ec3421375d4b22799475db78fcb1e245bf49b6eef2",
+      "bytes": 1006
+    },
+    ".archive-state/provenance/e505d00e-e6e3-4e35-92d0-77a69677cfed.json": {
+      "sha256": "904bfd28abfcc7cad2bd8a54de71c4c104f8d9b9c6216b88bd88f62a3787e8af",
+      "bytes": 1828
+    },
+    ".archive-state/reading/a784f4f58323bf6fed267c54ee122a4f2686ad45aaeb18ab6e555b521c2651b4.json": {
+      "sha256": "936fb55e30bc8ff3ed4162a76088f55d969404317ecb68b4d394dbff3d736b3a",
+      "bytes": 343
+    },
+    ".archive-state/reading/cbe42505dca9631f2c0a63f0d4777b8a4a55c2ad5fdc6be4d2d5e257aed4c746.json": {
+      "sha256": "ca084cec314c8e1f77ccf7e6f3d85e024109cd6c342f3a6b6794adcede9fd057",
+      "bytes": 342
+    },
+    "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [35b48204-a05].cbz": {
+      "sha256": "cbe42505dca9631f2c0a63f0d4777b8a4a55c2ad5fdc6be4d2d5e257aed4c746",
+      "bytes": 7144
+    },
+    "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [35b48204-a05].json": {
+      "sha256": "ae52b31ff4916552aa2e714d321e890dbe71e315d28909b189f60b326f4399da",
+      "bytes": 647
+    },
+    "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [e505d00e-e6e].epub": {
+      "sha256": "a784f4f58323bf6fed267c54ee122a4f2686ad45aaeb18ab6e555b521c2651b4",
+      "bytes": 9296
+    },
+    "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [e505d00e-e6e].json": {
+      "sha256": "79e796ed672104449739cbdc199cd2cd563313b2c8519e0e8bc2c8f4461bf322",
+      "bytes": 1262
+    },
+    "Reader fixture [b8b35d8b-f56]/series.json": {
+      "sha256": "c45b2fcc0c25051be72aba81584964a465830d8275b15a1885af80e88d3a6295",
+      "bytes": 150
+    }
+  },
+  "records": [
+    {
+      "kind": "epub",
+      "archive": "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [e505d00e-e6e].epub",
+      "state": ".archive-state/reading/a784f4f58323bf6fed267c54ee122a4f2686ad45aaeb18ab6e555b521c2651b4.json"
+    },
+    {
+      "kind": "cbz",
+      "archive": "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [35b48204-a05].cbz",
+      "state": ".archive-state/reading/cbe42505dca9631f2c0a63f0d4777b8a4a55c2ad5fdc6be4d2d5e257aed4c746.json"
+    }
+  ],
+  "held_fields": {
+    "record": [
+      "v",
+      "content_sha256",
+      "kind",
+      "units",
+      "revision",
+      "position",
+      "bookmarks",
+      "preferences"
+    ],
+    "position": [
+      "unit",
+      "offset"
+    ],
+    "bookmark": [
+      "unit",
+      "offset"
+    ],
+    "preferences": [
+      "fit",
+      "text_scale"
+    ]
+  },
+  "unheld": []
+}

@@ -297,16 +297,20 @@ class LocalWorkspaceRegistry:
         self.resolve(owner, workspace_id)
         return self.cloud_signin.cancel()
 
-    def open_file_on_device(self, owner, workspace_id, export_id):
+    def resolve_export(self, owner, workspace_id, export_id):
+        """Resolve a registered portable file for a platform-specific reader handoff."""
         workspace = self.resolve(owner, workspace_id)
         if not isinstance(export_id, str) or not re.fullmatch(r'[a-f0-9]{64}', export_id):
             raise ArchiveError('Saved file is unavailable.')
         selected = self._exports(workspace).get(export_id)
         if selected is None:
             raise ArchiveError('Saved file is unavailable.')
+        return selected
+
+    def open_file_on_device(self, owner, workspace_id, export_id):
+        path, _ = self.resolve_export(owner, workspace_id, export_id)
         # Only registered portable exports reach the fixed desktop opener.
         # There is no archive extraction, byte transfer or temporary copy.
-        path, _ = selected
         try:
             if WINDOWS:
                 os.startfile(path)  # Windows takes the file and reports nothing more about the application.
@@ -325,6 +329,15 @@ class LocalWorkspaceRegistry:
         except OSError:
             raise DeviceFileOpenUnavailable('Device file opener is unavailable.') from None
         return {'status': 'open_requested'}
+
+    def open_reader(self, owner, workspace_id, export_id, **limits):
+        """Trusted in-process session; native callers project it without exposing paths or methods."""
+        from .local_reader import ReadingSession
+        workspace = self.resolve(owner, workspace_id)
+        path, kind = self.resolve_export(owner, workspace_id, export_id)
+        if kind not in {'cbz', 'epub'}:
+            raise ArchiveError('Choose a completed comic or novel for reading.')
+        return ReadingSession(workspace.library, path, **limits)
 
     def _prepare_desktop_download(self, owner, workspace_id):
         # Preserve the user's explicit cloud choice across Go, previews and

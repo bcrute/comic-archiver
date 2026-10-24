@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "sidecar": "Reader fixture [b8b35d8b-f56]/001 - Saved chapter [e505d00e-e6e].json",
+  "public_hash": "a7b646d3e16d773fc4fa78f83e37ede0ec27a2c3a28d42d892615199102645c9",
+  "metadata": {
+    "schema_version": 1,
+    "source": "tapas",
+    "source_episode_id": "82",
+    "series_id": "reader",
+    "title": "Saved chapter",
+    "episode_number": 1,
+    "source_url": null,
+    "access_state": "tapas_free",
+    "published_at": null,
+    "format": "epub",
+    "content_type": "novel",
+    "page_count": 0,
+    "chapter_count": 1,
+    "character_count": 5311,
+    "text_sha256": "57ff49d7acf5b3e89a23c2d75cd9781a607522865a947f101651140b97fb83ae",
+    "text_size": 7320,
+    "source_series_id": "42",
+    "export_id": "e505d00e-e6e3-4e35-92d0-77a69677cfed",
+    "access_expires_at": null,
+    "image_profile": "original",
+    "images_recompressed": false,
+    "original_content_hashes": [],
+    "cache_series_id": "reader",
+    "imported_at": "2026-10-24T02:55:55.995260+00:00",
+    "content_hashes": [
+      {
+        "file": "mimetype",
+        "sha256": "e468e350d1143eb648f60c7b0bd6031101ec0544a361ca74ecef256ac901f48b",
+        "size": 20
+      },
+      {
+        "file": "META-INF/container.xml",
+        "sha256": "594c6b30189ceb48f8292dc8b26da9490f408a31815776d6803163fa11fd5fb6",
+        "size": 238
+      },
+      {
+        "file": "EPUB/package.opf",
+        "sha256": "b18b60215c55a550d7075aa6fed65edbc107695888a40866b9f1150d80e0b620",
+        "size": 660
+      },
+      {
+        "file": "EPUB/chapter.xhtml",
+        "sha256": "e4e7e72b708a5bc706ff9d2b9300d3c5104827e47637aed22c948ebc1db10e46",
+        "size": 7523
+      },
+      {
+        "file": "EPUB/nav.xhtml",
+        "sha256": "ee48648757591c7bb0a17943a71754bd00293a4f0a9855c76135954d60ec8309",
+        "size": 297
+      }
+    ]
+  }
+}
