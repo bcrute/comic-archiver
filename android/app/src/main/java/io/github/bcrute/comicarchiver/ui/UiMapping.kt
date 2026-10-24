@@ -35,6 +35,13 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
 fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     signedIn = signIn is SignInState.SignedIn,
     controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending,
+    siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
+    observations = observations,
+    statusReadFailed = statusReadFailed,
+    admittedAtMillis = admittedAtMillis,
+    cloud = cloud,
+    cloudCheckedAtMillis = cloudCheckedAtMillis,
+    cloudReadFailed = cloudReadFailed,
     download = downloadView(),
     remaining = library.sumOf { (it.episodeCount - it.savedCount).coerceAtLeast(0) },
     notice = notice?.toNoticeUi()

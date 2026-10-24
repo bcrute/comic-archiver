@@ -55,8 +55,13 @@ fun LibraryScreen(
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
     actionsEnabled: Boolean = true,
     compactEditing: Boolean = false,
+    showFilesRequested: Boolean = false,
+    onFilesRequestConsumed: () -> Unit = {},
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
+    LaunchedEffect(showFilesRequested) {
+        if (showFilesRequested) { view = "Files"; onFilesRequestConsumed() }
+    }
     val viewScroll = rememberLazyListState()
     LaunchedEffect(view) { if (view == "Files") onCatalogQuery(catalog.query, false) }
     Column(Modifier.fillMaxSize()) {

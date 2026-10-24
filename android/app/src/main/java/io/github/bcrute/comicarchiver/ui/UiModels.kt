@@ -1,6 +1,8 @@
 package io.github.bcrute.comicarchiver.ui
 
 import io.github.bcrute.comicarchiver.export.ExportSummary
+import io.github.bcrute.comicarchiver.controller.CloudStatus
+import io.github.bcrute.comicarchiver.controller.DownloadObservations
 
 /**
  * The beta's public issue codes, exactly the frozen contract's set — wire-identical to
@@ -43,6 +45,13 @@ data class DownloadsScreenUi(
     val remaining: Int,
     val notice: NoticeUi?,
     val controlsEnabled: Boolean = true,
+    val siteName: String = "Tapas",
+    val observations: DownloadObservations? = null,
+    val statusReadFailed: Boolean = false,
+    val admittedAtMillis: Long? = null,
+    val cloud: CloudStatus? = null,
+    val cloudCheckedAtMillis: Long? = null,
+    val cloudReadFailed: Boolean = false,
 )
 
 /** The download phase as the screen shows it: held (for any reason), running, or finished. */

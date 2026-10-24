@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver.controller
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.app
 import io.github.bcrute.comicarchiver.library.ArchiveViewer
@@ -385,14 +386,16 @@ class DefaultAppController(
         val version = ++admissionVersion
         admitted = false
         poll?.cancel()
-        _state.value = _state.value.copy(download = DownloadState.Planning, notice = null)
+        _state.value = _state.value.copy(download = DownloadState.Planning, notice = null,
+            admittedAtMillis = SystemClock.elapsedRealtime())
         downloads.go result@{ error ->
             if (version != admissionVersion) return@result
             admitted = error == null
             if (error == BetaCodes.LOGIN_REQUIRED) engine.requireSignIn()
             _state.value = _state.value.copy(download =
-                if (error == null) DownloadState.Planning else DownloadState.Failed(error))
-            if (error == null) startPolling()
+                if (error == null) DownloadState.Planning else DownloadState.Failed(error),
+                admittedAtMillis = _state.value.admittedAtMillis.takeIf { error == null })
+            startPolling()
         }
     }
 
@@ -490,6 +493,8 @@ class DefaultAppController(
             withContext(Dispatchers.Main) {
                 if (!current(target, version)) return@withContext
                 _state.value = _state.value.copy(cloud = status ?: _state.value.cloud,
+                    cloudCheckedAtMillis = if (status != null) SystemClock.elapsedRealtime() else _state.value.cloudCheckedAtMillis,
+                    cloudReadFailed = status == null,
                     cloudNotice = if (status == null) Notice(BetaCodes.JOB_FAILED,
                         "Cloud settings could not be read. Try Refresh cloud settings.") else _state.value.cloudNotice)
             }
@@ -653,9 +658,11 @@ class DefaultAppController(
         poll = scope.launch(Dispatchers.IO) {
             var tick = 0
             while (isActive) {
-                mapWorkerStatus(target, version)
+                if (admitted || tick % 5 == 0) mapWorkerStatus(target, version)
                 if (tick % 5 == 0) {
-                    refreshLibrary(target, version)
+                    try { refreshLibrary(target, version) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* A library read failure must not stop live status/Pause updates. */ }
                     readSettings(target, version)
                     readCloud(target, version)
                 } else if (_state.value.cloud?.taskRunning == true || _state.value.cloud?.authStatus == "running") {
@@ -668,7 +675,6 @@ class DefaultAppController(
     }
 
     private suspend fun mapWorkerStatus(target: SiteWorkspace, version: Long) {
-        if (!admitted) return
         val admission = admissionVersion
         val envelope = try {
             JSONObject(bridge.dispatch("download_status", JSONObject().put("root", target.root.absolutePath).toString()))
@@ -678,13 +684,22 @@ class DefaultAppController(
             JSONObject()
         }
         withContext(Dispatchers.Main) {
-            if (!admitted || admission != admissionVersion || !current(target, version)) return@withContext
+            if (admission != admissionVersion || !current(target, version)) return@withContext
+            val observation = DownloadObservations.parse(envelope, SystemClock.elapsedRealtime())
+            val observed = _state.value.copy(observations = observation ?: _state.value.observations,
+                statusReadFailed = observation == null)
+            // Reading a held plan never admits it. A failed observation also cannot
+            // prove that a live task stopped: retain its Pause action and refuse Go.
+            if (!admitted || observation == null) {
+                _state.value = observed
+                return@withContext
+            }
             val download = DownloadStatus.fromEnvelope(envelope)
             if (download is DownloadState.Failed && download.code == BetaCodes.LOGIN_REQUIRED)
                 engine.requireSignIn()
             if (download is DownloadState.Failed || download is DownloadState.Finished ||
                 download is DownloadState.Paused) admitted = false
-            _state.value = _state.value.copy(download = download)
+            _state.value = observed.copy(download = download)
         }
     }
 

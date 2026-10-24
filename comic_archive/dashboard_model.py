@@ -105,7 +105,7 @@ def wait_text(seconds):
     return f'about {round(seconds / 60)} minutes' if seconds >= 90 else 'about a minute' if seconds > 45 else 'a few seconds'
 
 
-def time_left(estimate):
+def time_left(estimate, *, background=False):
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked):
         return ''
@@ -114,8 +114,9 @@ def time_left(estimate):
     left = (f"{display(waiting)} {'episode is' if waiting == 1 else 'episodes are'} waiting"
             + (f" and {display(unchecked)} series {'has' if unchecked == 1 else 'have'} not been checked yet, so this is a rough guess."
                if unchecked else '.'))
-    return (f"About {span(estimate['seconds'])} of downloading left at the pace of the last five minutes. {left} "
-            'It only continues while this app is open.')
+    continuation = ('Android may limit background saving. Reopen the app and press Go if saving stops.'
+                    if background else 'It only continues while this app is open.')
+    return f"About {span(estimate['seconds'])} of downloading left at the pace of the last five minutes. {left} {continuation}"
 
 
 def space_needed(estimate):

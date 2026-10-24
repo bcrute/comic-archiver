@@ -7,7 +7,7 @@ import re
 import threading
 
 from . import android_session, app_actions, background, sites, storage_model, worker_host
-from .dashboard_model import State
+from .dashboard_model import State, space_needed, time_left
 from .local_library import LOCAL_OWNER
 from .locking import LibraryLock
 from .models import ArchiveError
@@ -82,12 +82,18 @@ class AndroidCloud:
             state = self._read()
             view = self._view(state)
             choice = storage_model.storage_choice(state)
+            summary = None
             try:
                 summary = self.registry.saved_files(LOCAL_OWNER, self.registry.workspace_id, summary=True)
                 state.locations = summary.get('locations') or []
             except ArchiveError:
                 state.locations = []
             place = storage_model.storage(state)
+            overview = storage_model.library_overview(summary, state.cloud_offered, device_name='this device')
+            overview['available'] = summary is not None
+            if summary is None:
+                overview['summary'] = storage_model.LIBRARY_UNAVAILABLE
+            estimate = state.status.get('estimate') if state.account.get('configured') and state.account.get('status') != 'finished' else None
             projected = {key: view[key] for key in (
                         'pill', 'text', 'status', 'auth', 'repair', 'bucket', 'connect_text', 'connect_enabled',
                         'cancel_visible', 'cancel_enabled', 'test_enabled', 'retry_enabled', 'sharing_visible',
@@ -98,7 +104,8 @@ class AndroidCloud:
                     'destination': choice['chosen'], 'destinations': choice['options'],
                     'destination_help': choice['help'], 'destination_lock': choice['lock'],
                     'device_stored': place['device_stored'], 'b2_stored': place['b2_stored'],
-                    'cost': view['cost'],
+                    'cost': view['cost'], 'overview': overview,
+                    'time_estimate': time_left(estimate, background=True), 'space_estimate': space_needed(estimate),
                     'message': self._message, 'task_running': self._task is not None,
                     'task_held': bool(self._task and not worker_host.status(self.workspace.session)['running']),
                     'auth_status': (state.cloud_auth or {}).get('status', 'idle')}

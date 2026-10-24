@@ -61,6 +61,18 @@ class WordingTests(unittest.TestCase):
         self.assertIn('2 episodes are waiting and 1 series has not been checked yet, so this is a rough guess.', rough)
         self.assertIn('3 series have not', model.time_left({'unchecked_series': 3, 'seconds': 60}))
 
+    def test_android_estimate_keeps_desktop_numbers_without_the_window_lifetime_rule(self):
+        estimate = {'waiting_episodes': 2, 'unchecked_series': 1, 'seconds': 7200}
+        desktop = model.time_left(estimate)
+        android = model.time_left(estimate, background=True)
+        self.assertEqual(desktop.split(' It only continues')[0], android.split(' Android may limit')[0])
+        self.assertIn('Reopen the app and press Go if saving stops.', android)
+        self.assertNotIn('only continues while this app is open', android)
+        self.assertEqual(model.time_left(None, background=True), '')
+        self.assertEqual(model.time_left({'waiting_episodes': 0}, background=True), '')
+        self.assertEqual(model.time_left({'waiting_episodes': 2}, background=True),
+                         model.time_left({'waiting_episodes': 2}))
+
     def test_space_needed_says_the_whole_library_and_whether_the_disk_holds_it(self):
         self.assertEqual(model.space_needed(None), '')
         self.assertEqual(model.space_needed({'waiting_episodes': 0}), '')

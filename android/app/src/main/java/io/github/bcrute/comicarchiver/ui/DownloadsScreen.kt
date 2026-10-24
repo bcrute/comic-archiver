@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 
@@ -37,15 +38,26 @@ fun DownloadsScreen(
     notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
     notificationError: String? = null,
     onNotificationAccess: () -> Unit = {},
+    onDownloadSettings: () -> Unit = {},
+    onStorageSettings: () -> Unit = {},
+    onOpenCatalog: (String) -> Unit = {},
 ) {
+    val now = dashboardNowMillis()
+    val statusDelayed = dashboardDelayed(state.statusReadFailed, now,
+        state.observations?.receivedAtMillis ?: state.admittedAtMillis.takeIf { state.download is DownloadsViewUi.Running })
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("downloads-scroll"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Saving", style = MaterialTheme.typography.headlineSmall)
 
-        PhaseBanner(state.download)
+        PhaseBanner(if (statusDelayed && state.download is DownloadsViewUi.Running)
+            state.download.copy(description = "Saving status is unavailable.") else state.download)
+        if (statusDelayed)
+            Text("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
         if (state.download is DownloadsViewUi.Running) {
+            if (statusDelayed) Text(if (state.observations != null) "At the last successful status check:"
+                else "Waiting for the first status update.")
             ProgressCard(state.download)
         }
         if (state.remaining > 0) {
@@ -62,7 +74,9 @@ fun DownloadsScreen(
                 onClick = onGo,
                 enabled = state.controlsEnabled && state.download.goEnabled(),
                 modifier = Modifier.weight(1f),
-            ) { Text(if (state.download is DownloadsViewUi.Running) "Running" else "Go") }
+            ) { Text(if (state.download is DownloadsViewUi.Running) {
+                if (statusDelayed) "Status unknown" else "Running"
+            } else "Go") }
             OutlinedButton(
                 onClick = onPause,
                 enabled = state.controlsEnabled && state.download.pauseEnabled(),
@@ -81,6 +95,7 @@ fun DownloadsScreen(
                 }
             }
         }
+        DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog)
     }
 }
 

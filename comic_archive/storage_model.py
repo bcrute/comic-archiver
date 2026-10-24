@@ -233,7 +233,7 @@ def b2(s, steps_open=False, *, can_start_worker=False):
     }
 
 
-def library_overview(summary, cloud_offered):
+def library_overview(summary, cloud_offered, *, device_name='this computer'):
     """The dashboard's saved-library card: its counts, its storage places and a sentence about them."""
     if summary is None:
         return {'metrics': [('—', 'Saved episodes'), ('—', 'Saved files')], 'locations': [],
@@ -249,10 +249,10 @@ def library_overview(summary, cloud_offered):
                 ('Episodes on this device', device.get('episodes')), ('Cloud episode copies', copies)])
     places = [{'id': g.get('id'), 'label': g.get('label'),
                'counts': f"{display(g.get('episodes'))} episodes · {display(g.get('files'))} files"
-                         + (' · Not connected' if not g.get('connected') and not g.get('files') else '')}
+                         + (' · Not connected' if g.get('id') != 'device' and not g.get('connected') else '')}
               for g in locations if cloud_offered or g.get('id') == 'device']
     return {'metrics': [(shown(count), name) for name, count in metrics], 'locations': places,
-            'summary': (f"{display(device.get('episodes'))} saved episodes on this computer. View saved files for the complete list."
+            'summary': (f"{display(device.get('episodes'))} saved episodes on {device_name}. View saved files for the complete list."
                         if not cloud_offered else
                         f"{display(summary.get('episode_count'))} saved episodes. View all files, or choose a storage location below.")}
 

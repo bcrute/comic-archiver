@@ -76,6 +76,12 @@ fun ComicArchiverAppRoot(
 
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Downloads") }
+    var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
+    val openCatalog: (String) -> Unit = { location ->
+        controller.loadCatalog(CatalogQuery(location = location), false)
+        showFilesRequested = true
+        tab = AppTab.LIBRARY
+    }
     val tabState = rememberSaveableStateHolder()
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.signIn is SignInState.Restoring
@@ -145,6 +151,9 @@ fun ComicArchiverAppRoot(
                             notificationAccess = notificationAccess,
                             notificationError = notificationError,
                             onNotificationAccess = onNotificationAccess,
+                            onDownloadSettings = { settingsPage = "Downloads"; controller.refreshSettings(); tab = AppTab.SETTINGS },
+                            onStorageSettings = { settingsPage = "Storage"; controller.refreshCloud(); tab = AppTab.SETTINGS },
+                            onOpenCatalog = openCatalog,
                             onDismissNotice = state.notice?.let { notice ->
                                 { controller.openNotice(notice) }
                             },
@@ -166,6 +175,8 @@ fun ComicArchiverAppRoot(
                             onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
                             actionsEnabled = state.workspaceReady && !state.libraryBusy && !state.siteBusy,
                             compactEditing = compactEditing,
+                            showFilesRequested = showFilesRequested,
+                            onFilesRequestConsumed = { showFilesRequested = false },
                         )
                     }
                     AppTab.SETTINGS -> SettingsPages(
@@ -179,6 +190,7 @@ fun ComicArchiverAppRoot(
                         workingLibraries = workingLibraries, workingLibraryActions = workingLibraryActions,
                         selectedPage = settingsPage, onPageSelected = { settingsPage = it },
                         compactEditing = compactEditing,
+                        onOpenCatalog = openCatalog,
                     )
                     AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                         LimitationsScreen(modifier = Modifier.weight(1f))

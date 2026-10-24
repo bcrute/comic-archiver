@@ -79,6 +79,70 @@ class AndroidCloudTests(unittest.TestCase):
         target = controller.registry.cloud_status('trusted-local-device', controller.registry.workspace_id)['targets'][0]
         self.assertFalse(target['tested'] or target['enabled'])
 
+    def test_dashboard_summary_matches_the_real_shared_catalog_without_starting_work(self):
+        from zipfile import ZipFile
+        from comic_archive import storage_model
+        from comic_archive.local_library import LOCAL_OWNER
+        folder = self.root / 'Library' / 'Fixture Series'
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'series.json').write_text(json.dumps({'schema_version': 2,
+            'export_id': '10000000-0000-4000-8000-000000000001', 'title': 'Fixture Series'}))
+        (folder / 'chapter.json').write_text(json.dumps({'schema_version': 2,
+            'export_id': '10000000-0000-4000-8000-000000000002', 'title': 'Chapter one',
+            'format': 'cbz', 'content_type': 'comic', 'page_count': 1}))
+        with ZipFile(folder / 'chapter.cbz', 'w') as archive:
+            archive.writestr('001.jpg', b'synthetic catalog fixture')
+        before = {path.name: path.read_bytes() for path in folder.iterdir()}
+        with patch('comic_archive.android_download.start') as go:
+            answer = self.call('cloud_status')['result']['overview']
+            controller = app_bridge._cloud_cache['controller']
+            summary = controller.registry.saved_files(LOCAL_OWNER, controller.registry.workspace_id, summary=True)
+            desktop = storage_model.library_overview(summary, True)
+            self.assertEqual(answer, json.loads(json.dumps(desktop | {'available': True})))
+            self.assertEqual(summary['episode_count'], 1)
+            metrics = {label: count for count, label in answer['metrics']}
+            self.assertEqual(metrics['Saved episodes'], '1')
+            catalog = self.call('file_catalog', options={'kind': 'all'})['result']
+            self.assertEqual(metrics['Saved files'], str(catalog['total']))
+            self.assertIn(answer['locations'][0]['id'], {place['id'] for place in catalog['locations']})
+            go.assert_not_called()
+        self.assertEqual(before, {path.name: path.read_bytes() for path in folder.iterdir()})
+        self.assertEqual(self.wire.operations, [])
+
+    def test_dashboard_summary_failure_is_unavailable_instead_of_zero_or_private_text(self):
+        self.call('cloud_status')
+        controller = app_bridge._cloud_cache['controller']
+        with patch.object(controller.registry, 'saved_files', side_effect=ArchiveError('PRIVATE catalog path')):
+            value = self.call('cloud_status')['result']
+        self.assertFalse(value['overview']['available'])
+        self.assertIn('unavailable', value['overview']['summary'])
+        self.assertTrue(all(count == '—' for count, _ in value['overview']['metrics']))
+        self.assertEqual(value['overview']['locations'], [])
+        self.assertNotIn('PRIVATE', json.dumps(value))
+        self.assertEqual(self.wire.operations, [])
+
+    def test_native_estimates_reuse_shared_numbers_and_are_hidden_for_finished_plans(self):
+        from comic_archive import dashboard_model
+        self.call('cloud_status')
+        controller = app_bridge._cloud_cache['controller']
+        original = controller.registry.status
+        estimate = {'waiting_episodes': 3, 'unchecked_series': 2, 'seconds': 7200,
+                    'saved_bytes': 1_000_000_000, 'left_bytes': 2_000_000_000, 'free_bytes': 1_000_000_000}
+        def status(*args):
+            return original(*args) | {'estimate': estimate}
+        with patch.object(controller.registry, 'status', side_effect=status), \
+                patch.object(controller.registry, 'account_status', return_value={'configured': True, 'status': 'stopped'}):
+            value = self.call('cloud_status')['result']
+        self.assertEqual(value['time_estimate'], dashboard_model.time_left(estimate, background=True))
+        self.assertEqual(value['space_estimate'], dashboard_model.space_needed(estimate))
+        self.assertIn('not enough', value['space_estimate'])
+        with patch.object(controller.registry, 'status', side_effect=status), \
+                patch.object(controller.registry, 'account_status', return_value={'configured': True, 'status': 'finished'}):
+            finished = self.call('cloud_status')['result']
+        self.assertEqual(finished['time_estimate'], '')
+        self.assertEqual(finished['space_estimate'], '')
+        self.assertEqual(self.wire.operations, [])
+
     def test_native_bridge_rejects_unknown_actions_and_credential_shapes_before_http(self):
         for arguments in ({'action': 'purge'}, {'action': 'test', 'url': 'https://unrelated.invalid'},
                           {'action': 'connect', 'credentials': {'key_id': 'SECRET_FIXTURE'}},

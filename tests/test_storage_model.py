@@ -253,6 +253,14 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(model.library_overview({'locations': []}, True)['metrics'][:3],
                          [('—', 'Saved episodes'), ('—', 'Saved files'), ('—', 'Episodes on this device')])
 
+    def test_disconnected_cloud_records_remain_disconnected_when_files_are_recorded(self):
+        locations = [self.LOCATIONS[0], self.LOCATIONS[1] | {'files': 20}]
+        overview = model.library_overview({'episode_count': 70, 'file_count': 140, 'locations': locations}, True)
+        self.assertEqual(overview['locations'][1]['counts'], '10 episodes · 20 files · Not connected')
+        native = model.library_overview({'locations': locations}, False, device_name='this device')
+        self.assertIn('60 saved episodes on this device.', native['summary'])
+        self.assertEqual(native['locations'], model.library_overview({'locations': locations}, False)['locations'])
+
 
 if __name__ == '__main__':
     unittest.main()

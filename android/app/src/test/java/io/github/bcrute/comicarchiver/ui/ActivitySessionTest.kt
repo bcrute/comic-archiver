@@ -43,6 +43,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Actual activity/application/controller/engine wiring. The bridge is synthetic, so
@@ -269,6 +271,63 @@ class ActivitySessionTest {
         assertEquals(0, app.fake.count("go"))
     }
 
+    @Test fun heldStatusObservationsAndRecreationNeverAdmitGoOrStartAWorker() {
+        ready()
+        awaitState { app.controller.state.value.observations != null }
+        val controller = app.controller
+        assertEquals(DownloadState.Held, controller.state.value.download)
+        compose.activityRule.scenario.recreate()
+        ready()
+        assertSame(controller, app.controller)
+        assertEquals(DownloadState.Held, controller.state.value.download)
+        compose.onNodeWithText("Open download settings").performScrollTo().performClick()
+        compose.onNodeWithText("Downloads").assertIsSelected()
+        assertEquals(0, app.fake.count("go"))
+        assertEquals(0, app.fake.count("worker_start"))
+    }
+
+    @Test fun losingStatusAndLibraryReadsKeepsLivePauseAndRecoveryDoesNotReadmitGo() {
+        ready()
+        compose.onNodeWithText("Go").performClick()
+        awaitState { app.controller.state.value.download is DownloadState.Running }
+        app.fake.statusReadable = false
+        app.fake.libraryReadable = false
+        awaitState { app.controller.state.value.statusReadFailed }
+        assertTrue(app.controller.state.value.download is DownloadState.Running)
+        compose.onNodeWithText("Status unknown").assertIsNotEnabled()
+        compose.onNodeWithText("Pause").performClick()
+        awaitState { app.controller.state.value.download is DownloadState.Paused }
+        app.fake.statusReadable = true
+        app.fake.libraryReadable = true
+        awaitState { !app.controller.state.value.statusReadFailed }
+        assertTrue(app.controller.state.value.download is DownloadState.Paused)
+        assertEquals(1, app.fake.count("go"))
+        compose.onNodeWithText("Go").assertIsDisplayed()
+    }
+
+    @Test fun aLateRunningObservationCannotReplaceTheNewerPausedAdmission() {
+        ready()
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        app.fake.statusPayload = """{"worker":{"running":true,"state":"busy"},
+            "account":{"status":"running","phase":"archive"},"counts":{"saved_episodes":999}}"""
+        app.fake.statusGate = entered to release
+        try {
+            compose.onNodeWithText("Go").performClick()
+            awaitState { entered.count == 0L }
+            app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},
+                "account":{"status":"stopped"},"counts":{"saved_episodes":7}}"""
+            compose.onNodeWithText("Pause").performClick()
+            awaitState { app.controller.state.value.download is DownloadState.Paused &&
+                app.controller.state.value.observations?.savedEpisodes == 7L }
+            release.countDown()
+            awaitState { app.fake.releasedStatus.get() == 1 }
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(app.controller.state.value.download is DownloadState.Paused)
+            assertEquals(7L, app.controller.state.value.observations!!.savedEpisodes)
+            assertEquals(1, app.fake.count("go"))
+        } finally { release.countDown() }
+    }
+
     @Test fun b2SetupIsReachableThroughTheActualActivityWithoutGoOrAnotherWorker() {
         ready()
         awaitState { app.controller.state.value.cloud != null }
@@ -295,12 +354,26 @@ class LifecycleTestApp : App() {
 class LifecycleBridge : PythonBridge {
     @Volatile var settingsReadable = true
     @Volatile var catalogReadable = true
+    @Volatile var statusReadable = true
+    @Volatile var libraryReadable = true
+    @Volatile var statusPayload = """{"worker":{"running":true},"account":{"status":"running","phase":"archive"}}"""
+    @Volatile var statusGate: Pair<CountDownLatch, CountDownLatch>? = null
+    val releasedStatus = AtomicInteger()
     @Volatile private var wifiOnly = true
     @Volatile var speed = "medium"
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {
         calls.computeIfAbsent(op) { AtomicInteger() }.incrementAndGet()
+        if (op == "download_status" && !statusReadable) return """{"ok":false,"code":"job_failed"}"""
+        if (op == "library_listing" && !libraryReadable) throw IllegalStateException("PRIVATE library observation failure")
+        val statusSnapshot = if (op == "download_status") statusPayload else null
+        val gate = if (op == "download_status") synchronized(this) { statusGate.also { statusGate = null } } else null
+        gate?.let {
+            it.first.countDown()
+            check(it.second.await(20, TimeUnit.SECONDS)) { "Fixture response was not released" }
+            releasedStatus.incrementAndGet()
+        }
         if (op in setOf("settings", "configure_settings") && !settingsReadable)
             return """{"ok":false,"code":"job_failed"}"""
         if (op == "file_catalog" && !catalogReadable) return """{"ok":false,"code":"job_failed"}"""
@@ -324,7 +397,7 @@ class LifecycleBridge : PythonBridge {
                 {"key":"slow","label":"Slow","available":true}]}"""
             "signin_restore", "signin_commit" -> """{"signed_in":true,"verified":true}"""
             "worker_start" -> """{"running":true,"stop_requested":false}"""
-            "download_status" -> """{"worker":{"running":true},"account":{"status":"running","phase":"archive"}}"""
+            "download_status" -> statusSnapshot!!
             "library_listing" -> """[{"seriesId":"test","title":"Test Comic","kind":"comics","episodeCount":4,"savedCount":4}]"""
             else -> "{}"
         }

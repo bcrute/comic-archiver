@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.ui
 
 import android.app.Application
 import android.view.View
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
@@ -64,6 +65,11 @@ import io.github.bcrute.comicarchiver.controller.SavedFilePage
 import io.github.bcrute.comicarchiver.controller.SavedFileItem
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.CloudRequest
+import io.github.bcrute.comicarchiver.controller.DownloadObservations
+import io.github.bcrute.comicarchiver.controller.ObservedWorker
+import io.github.bcrute.comicarchiver.controller.LibraryOverview
+import io.github.bcrute.comicarchiver.controller.LibraryMetric
+import io.github.bcrute.comicarchiver.controller.LibraryPlace
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.SpeedChoice
@@ -106,6 +112,105 @@ class RenderedScreensTest {
     }
 
     private fun library() = compose.onNode(hasText("Library") and hasClickAction()).performClick()
+
+    private fun dashboardCloud() = cloudFixture(true).copy(overview = LibraryOverview(true,
+        listOf(LibraryMetric("55", "Saved episodes"), LibraryMetric("112", "Saved files")),
+        listOf(LibraryPlace("device", "This device", "53 episodes · 108 files"),
+            LibraryPlace("b2", "Backblaze B2", "2 episodes · 4 files · Not connected")),
+        "55 saved episodes. Choose a storage location below."))
+
+    @Test fun dashboardStorageLinksOpenTheMatchingCatalogAndReturnWithoutGo() {
+        controller.state.value = controller.state.value.copy(cloud = dashboardCloud(), catalog = catalogFixture(),
+            cloudCheckedAtMillis = SystemClock.elapsedRealtime())
+        show()
+        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
+            .performScrollTo().performClick()
+        compose.onNodeWithText("Files").assertIsSelected()
+        assertEquals("device", controller.catalogRequests.last().first.location)
+        compose.onNode(hasText("Saving") and hasClickAction()).performClick()
+        compose.onNodeWithText("Change saving destination").performScrollTo().performClick()
+        compose.onNodeWithText("Storage").assertIsSelected()
+        compose.onNodeWithText("View stored episodes on Backblaze B2").performScrollTo().performClick()
+        compose.onNodeWithText("Files").assertIsSelected()
+        assertEquals("b2", controller.catalogRequests.last().first.location)
+        compose.onNode(hasText("Saving") and hasClickAction()).performClick()
+        compose.onNodeWithText("View saved files").performScrollTo().performClick()
+        assertEquals("all", controller.catalogRequests.last().first.location)
+        assertEquals(0, controller.goCalls)
+        assertTrue(controller.cloudRequests.isEmpty())
+    }
+
+    @Test fun delayedDashboardKeepsPauseAndDoesNotInventZeroCounts() {
+        controller.state.value = controller.state.value.copy(download = DownloadState.Running(0, 0),
+            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.WORKING),
+            statusReadFailed = true, cloudReadFailed = true,
+            cloud = dashboardCloud().copy(overview = LibraryOverview(false, emptyList(), emptyList(),
+                "Saved file counts are unavailable. Open View saved files to retry.")))
+        show()
+        compose.onNodeWithText("Status unknown").assertIsNotEnabled()
+        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Saved episodes: 0").assertDoesNotExist()
+        compose.onNodeWithText("Saved file counts are unavailable. Open View saved files to retry.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Pause").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Go").assertIsEnabled()
+        assertEquals(1, controller.pauseCalls)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun recoveredDashboardUpdatesObservationsWithoutRestartingTheDownload() {
+        controller.state.value = controller.state.value.copy(download = DownloadState.Running(0, 0),
+            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.WORKING,
+                savedEpisodes = 53), statusReadFailed = true)
+        show()
+        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
+            .performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(statusReadFailed = false,
+            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.READY, savedEpisodes = 54)) }
+        compose.onNodeWithText("54 saved episodes recorded").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
+            .assertDoesNotExist()
+        compose.onNodeWithText("Pause").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("Running").assertIsNotEnabled()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h480dp")
+    fun largeTextDashboardKeepsEveryStorageAndSettingsActionReachable() {
+        val actions = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme { DownloadsScreen(UiFixtures.coldStart.copy(signIn = SignInState.SignedIn("tapas"),
+                    cloud = dashboardCloud().copy(timeEstimate = "About an hour remains. This is a rough estimate; Android may limit background saving.",
+                        spaceEstimate = "The complete library may need more space than this device currently has free.")).toDownloadsScreenUi(),
+                    { actions.add("go") }, { actions.add("pause") },
+                    onDownloadSettings = { actions.add("settings") }, onStorageSettings = { actions.add("storage") },
+                    onOpenCatalog = { actions.add(it) }) }
+            }
+        }
+        compose.onNodeWithText("Open download settings").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
+            .performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("View stored episodes on Backblaze B2. 2 episodes · 4 files · Not connected")
+            .performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("View saved files").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Change saving destination").performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(listOf("settings", "device", "b2", "all", "storage"), actions)
+    }
+
+    @Test fun busyDashboardKeepsAllMutationAndNavigationControlsDisabled() {
+        controller.state.value = controller.state.value.copy(libraryBusy = true, cloud = dashboardCloud())
+        show()
+        compose.onNodeWithText("Go").assertIsNotEnabled()
+        for (text in listOf("Open download settings", "View saved files", "Change saving destination"))
+            compose.onNodeWithText(text).performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
+            .performScrollTo().assertIsNotEnabled()
+        assertEquals(0, controller.goCalls)
+        assertTrue(controller.catalogRequests.isEmpty())
+    }
 
     @Test fun notificationAccessAndSettingsReturnNeverAdmitSaving() {
         val access = mutableStateOf(DownloadNotificationAccess.ASK_PERMISSION)

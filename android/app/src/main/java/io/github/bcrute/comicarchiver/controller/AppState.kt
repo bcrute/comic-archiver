@@ -23,6 +23,11 @@ data class AppState(
     val libraryId: String = "default",
     val libraryBusy: Boolean = false,
     val workspaceReady: Boolean = true,
+    val observations: DownloadObservations? = null,
+    val statusReadFailed: Boolean = false,
+    val admittedAtMillis: Long? = null,
+    val cloudCheckedAtMillis: Long? = null,
+    val cloudReadFailed: Boolean = false,
 )
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,

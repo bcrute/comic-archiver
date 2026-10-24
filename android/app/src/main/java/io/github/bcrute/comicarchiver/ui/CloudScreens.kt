@@ -64,7 +64,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
-                  compactEditing: Boolean = false) {
+                  compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {}) {
     var savedPage by rememberSaveable { mutableStateOf("Downloads") }
     val page = selectedPage ?: savedPage
     val pageScroll = rememberScrollState()
@@ -94,7 +94,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     val open = LocalUriHandler.current
                     CloudScreen(cloud, state.cloudBusy || state.siteBusy || state.libraryBusy || !state.workspaceReady || state.signOutPending, state.cloudNotice?.message,
                         page == "B2 setup", state.signIn is SignInState.SignedIn,
-                        onCloudRefresh, onCloudAction, { open.openUri(it.url) })
+                        onCloudRefresh, onCloudAction, { open.openUri(it.url) }, onOpenCatalog)
                 }
             }
         }
@@ -104,7 +104,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
 @Composable
 internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, setup: Boolean,
                          signedIn: Boolean, onRefresh: () -> Unit,
-                         onAction: (CloudRequest) -> Unit, onPage: (B2Page) -> Unit) {
+                         onAction: (CloudRequest) -> Unit, onPage: (B2Page) -> Unit,
+                         onOpenCatalog: (String) -> Unit = {}) {
     // Key text deliberately uses remember, never rememberSaveable. Leaving setup,
     // recreation and process death discard it; AppState contains no credentials.
     var bucket by remember { mutableStateOf(state.suggestion) }
@@ -151,6 +152,11 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             if (state.destinationLock.isNotBlank()) Text(state.destinationLock)
             Text("This device: ${state.deviceStored}")
             if (state.b2Stored.isNotBlank()) Text("Backblaze B2: ${state.b2Stored}")
+            state.overview?.takeIf { it.available }?.locations?.forEach { place ->
+                OutlinedButton(onClick = { onOpenCatalog(place.id) }, enabled = !busy) {
+                    Text("View stored episodes on ${place.label}")
+                }
+            }
             Text("Finished archives can also be copied to a folder from Library. Exported copies and the working library are separate.")
             TextButton(onClick = { onPage(B2Page.BROWSE) }) { Text(B2Page.BROWSE.label) }
             return@Column

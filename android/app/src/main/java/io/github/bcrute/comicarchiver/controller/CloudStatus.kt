@@ -32,6 +32,10 @@ fun CloudRequest.json(): JSONObject = JSONObject().also { request ->
 
 data class CloudDestination(val key: String, val label: String, val enabled: Boolean, val checked: Boolean)
 data class CloudCleanup(val id: String, val label: String, val enabled: Boolean)
+data class LibraryMetric(val value: String, val label: String)
+data class LibraryPlace(val id: String, val label: String, val counts: String)
+data class LibraryOverview(val available: Boolean, val metrics: List<LibraryMetric>,
+                           val locations: List<LibraryPlace>, val summary: String)
 data class CloudStatus(
     val title: String, val explanation: String, val status: String, val auth: String,
     val repair: String, val bucket: String, val suggestion: String, val connectLabel: String,
@@ -43,6 +47,9 @@ data class CloudStatus(
     val deviceStored: String, val b2Stored: String, val message: String,
     val taskRunning: Boolean, val authStatus: String, val cost: String, val taskHeld: Boolean,
     val cleanupRemaining: Int,
+    val overview: LibraryOverview? = null,
+    val timeEstimate: String = "",
+    val spaceEstimate: String = "",
 ) {
     companion object {
         fun parse(envelope: String): CloudStatus {
@@ -50,7 +57,8 @@ data class CloudStatus(
             require(answer.opt("ok") == true)
             val value = answer.getJSONObject("result")
             val b2 = value.getJSONObject("b2")
-            fun text(source: JSONObject, key: String): String = source.getString(key).also { require(it.length <= 6000) }
+            fun text(source: JSONObject, key: String): String = (source.opt(key) as? String
+                ?: throw IllegalArgumentException("Cloud text is incomplete")).also { require(it.length <= 6000) }
             fun flag(source: JSONObject, key: String): Boolean = source.opt(key) as? Boolean
                 ?: throw IllegalArgumentException("Cloud state is incomplete")
             val cleanups = b2.getJSONArray("cleanup")
@@ -87,7 +95,30 @@ data class CloudStatus(
                 flag(b2, "shared"), text(b2, "sharing_help"), cleanupRows, choices, destination,
                 text(value, "destination_help"), text(value, "destination_lock"), text(value, "device_stored"),
                 text(value, "b2_stored"), text(value, "message"), taskRunning, authStatus,
-                text(value, "cost"), taskHeld, cleanupRemaining)
+                text(value, "cost"), taskHeld, cleanupRemaining,
+                value.optJSONObject("overview")?.let { overview ->
+                    val metrics = overview.getJSONArray("metrics")
+                    val locations = overview.getJSONArray("locations")
+                    require(metrics.length() <= 4 && locations.length() <= 2)
+                    val metricRows = (0 until metrics.length()).map { index ->
+                        val metric = metrics.getJSONArray(index)
+                        require(metric.length() == 2)
+                        val count = metric.getString(0)
+                        val label = metric.getString(1)
+                        require(count.length <= 40 && (count == "—" || count.matches(Regex("[0-9][0-9,]*"))) && label in setOf("Saved episodes", "Saved files",
+                            "Episodes on this device", "Cloud episode copies"))
+                        LibraryMetric(count, label)
+                    }
+                    val places = (0 until locations.length()).map { index ->
+                        val place = locations.getJSONObject(index)
+                        val id = text(place, "id")
+                        require(id in setOf("device", "b2"))
+                        LibraryPlace(id, text(place, "label"), text(place, "counts"))
+                    }
+                    require(places.map { it.id }.distinct().size == places.size)
+                    LibraryOverview(flag(overview, "available"), metricRows, places, text(overview, "summary"))
+                }, if (value.has("time_estimate")) text(value, "time_estimate") else "",
+                if (value.has("space_estimate")) text(value, "space_estimate") else "")
         }
     }
 }
