@@ -524,7 +524,9 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun cloudCopyBrowsesBackblazeWithRetryAndNeverOffersLocalReaderActions() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun cloudCopyBrowsesBackblazeWithRetryAndNeverOffersLocalReaderActions() {
         val row = catalogFixture().page!!.rows.single().copy(openId = null, b2Copy = true,
             storage = "Backblaze B2 (previous connection 1)")
         val catalog = catalogFixture().let { it.copy(page = it.page!!.copy(rows = listOf(row))) }
@@ -580,7 +582,9 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun sameNamedWorkingLibrariesHaveDistinctActionsAndCanBeNamedWithoutSelection() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun sameNamedWorkingLibrariesHaveDistinctActionsAndCanBeNamedWithoutSelection() {
         val selected = mutableListOf<String>()
         val renamed = mutableListOf<Pair<String, String>>()
         val current = mutableStateOf(WorkingLibrariesState(enabled = true, choices = listOf(
