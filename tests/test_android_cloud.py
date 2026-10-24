@@ -67,6 +67,98 @@ class AndroidCloudTests(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(value))
         self.assertEqual(self.wire.operations, [])
 
+    def interrupted_worker(self, *, version=36):
+        from comic_archive.inventory import Inventory
+        from comic_archive.worker import private_json
+        self.call('cloud_status')
+        controller = app_bridge._cloud_cache['controller']
+        folder = self.root / '.comic-session/worker'
+        folder.mkdir(parents=True, exist_ok=True)
+        private_json(folder / 'status.json', {'worker_version': version, 'worker_id': 'c' * 32,
+            'pid': 99999999, 'state': 'busy', 'task_id': 'job-' + 'd' * 24})
+        with Inventory(self.root / 'Library') as inventory:
+            run = inventory.start_run()
+        progress = self.root / 'Library/.archive-state/progress.json'
+        private_json(progress, {'run_id': run, 'status': 'running', 'phase': 'archive',
+            'downloaded_pages': 3})
+        return controller, folder, progress
+
+    def test_stopped_native_runtime_does_not_inherit_historical_busy_cloud_admission(self):
+        from comic_archive import worker_host
+        from comic_archive.local_library import LOCAL_OWNER
+        controller, folder, progress = self.interrupted_worker()
+        before = {path: path.read_bytes() for path in (folder / 'status.json', progress)}
+        raw = controller.registry.status(LOCAL_OWNER, controller.registry.workspace_id)
+        self.assertEqual(raw['worker']['reported_state'], 'busy')
+        self.assertEqual(raw['progress']['status'], 'running')
+        self.assertIs(worker_host.status(controller.workspace.session)['running'], False)
+        with patch('comic_archive.android_download.start') as go:
+            view = self.call('cloud_status')['result']
+        self.assertTrue(view['b2']['connect_enabled'])
+        self.assertFalse(view['task_running'] or view['b2']['test_enabled'])
+        self.assertIsNone(controller._read().status['worker'])
+        self.assertIsNone(controller._read().status['progress'])
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
+        self.assertEqual(list((folder / 'requests').glob('*.json')), [])
+        self.assertEqual(self.wire.operations, [])
+        go.assert_not_called()
+
+    def test_actual_ready_embedded_worker_does_not_inherit_an_old_run_progress_fence(self):
+        from comic_archive import worker_host
+        controller = self.connected()
+        android_session.mark_signed_in(self.root / '.comic-session', compatibility_state=True)
+        controller, _, progress = self.interrupted_worker()
+        before = progress.read_bytes()
+        operations = list(self.wire.operations)
+        (self.root / 'net.json').write_text(json.dumps({'connection': 'wifi', 'metered': False}))
+        try:
+            with patch('comic_archive.android_download.start') as go:
+                live = worker_host.start_in_process(controller.workspace.session,
+                    controller.workspace.library, lambda url: '', None, self.root / 'net.json')
+                self.assertTrue(live['running'], live)
+                self.assertEqual(live['state'], 'ready')
+                value = self.call('cloud_status')['result']
+                self.assertTrue(value['b2']['connect_enabled'])
+                self.assertTrue(value['b2']['test_enabled'])
+                self.assertFalse(value['task_running'])
+                self.assertEqual(progress.read_bytes(), before)
+                self.assertEqual(self.wire.operations, operations)
+                go.assert_not_called()
+        finally:
+            retired = worker_host.request_stop(controller.workspace.session, wait_seconds=15)
+            self.assertIs(retired['running'], False)
+
+    def test_held_runtime_lock_still_refuses_cloud_connection_before_http(self):
+        from comic_archive import worker_host
+        from comic_archive.locking import LibraryLock
+        controller, folder, _ = self.interrupted_worker()
+        before = (folder / 'status.json').read_bytes()
+        with LibraryLock(folder / '.runtime'):
+            self.assertIs(worker_host.status(controller.workspace.session)['running'], True)
+            self.assertFalse(self.call('cloud_status')['result']['b2']['connect_enabled'])
+            with self.assertRaises(ArchiveError):
+                controller.act('connect', credentials={'bucket': 'fixture-library',
+                    'key_id': 'fixtureKey123', 'application_key': 'FIXTURE_KEY123'})
+        self.assertEqual((folder / 'status.json').read_bytes(), before)
+        self.assertEqual(self.wire.operations, [])
+
+    def test_unknown_legacy_worker_liveness_is_not_idle_cloud_authority(self):
+        from comic_archive import worker_host
+        controller, folder, _ = self.interrupted_worker(version=34)
+        before = (folder / 'status.json').read_bytes()
+        self.assertIsNone(worker_host.status(controller.workspace.session)['running'])
+        self.assertFalse(self.call('cloud_status')['result']['b2']['connect_enabled'])
+        with self.assertRaises(ArchiveError):
+            controller.act('connect', credentials={'bucket': 'fixture-library',
+                'key_id': 'fixtureKey123', 'application_key': 'FIXTURE_KEY123'})
+        controller._task = 'job-' + 'e' * 24
+        with patch('comic_archive.worker_host.start_in_process') as start:
+            with self.assertRaises(ArchiveError):
+                controller.act('resume', start_worker=start)
+            start.assert_not_called()
+        self.assertEqual((folder / 'status.json').read_bytes(), before)
+        self.assertEqual(self.wire.operations, [])
+
     def test_real_native_key_setup_uses_core_private_config_without_enabling_or_echoing_it(self):
         controller = self.connected()
         value = self.call('cloud_status')['result']
@@ -178,6 +270,8 @@ class AndroidCloudTests(unittest.TestCase):
             ready = True
 
         with patch.object(controller.registry, 'status', side_effect=status), \
+                patch('comic_archive.worker_host.status', side_effect=lambda session: {
+                    'running': ready, 'state': 'ready' if ready else 'stopped'}), \
                 patch('comic_archive.android_download.start') as go:
             result = controller.act('test', start_worker=start)
             self.assertTrue(result['task_running'])
@@ -189,6 +283,7 @@ class AndroidCloudTests(unittest.TestCase):
             go.assert_not_called()
             # A new process/controller recovers this exact queue identity while held.
             from comic_archive.android_cloud import AndroidCloud
+            ready = False
             restored = AndroidCloud(controller.registry)
             self.assertEqual(restored._task, controller._task)
             self.assertTrue(restored.snapshot()['task_held'])

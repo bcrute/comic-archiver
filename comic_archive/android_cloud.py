@@ -50,6 +50,15 @@ class AndroidCloud:
         registry, identity = self.registry, self.registry.workspace_id
         status = registry.status(LOCAL_OWNER, identity)
         account = registry.account_status(LOCAL_OWNER, identity)
+        worker = worker_host.status(self.workspace.session)
+        idle = worker['running'] is False or (worker['running'] is True and worker['state'] == 'ready')
+        if idle:
+            # Monitoring retains the last report after process death. Only the
+            # actual native runtime/thread can make it a current activity fence.
+            status['worker'] = {'reported_state': 'ready'} if worker['running'] else None
+            status['progress'] = None
+        uncertain = worker['running'] is None or (worker['running'] is True
+                    and worker['state'] not in {'ready', 'busy'})
         # The Android record is verified by the native sign-in engine. Desktop's
         # empty compatibility state file alone must not enable cloud tasks.
         status['session_configured'] = android_session.is_signed_in(self.workspace.session)
@@ -57,7 +66,7 @@ class AndroidCloud:
                      status=status, account=account,
                      cloud=registry.cloud_status(LOCAL_OWNER, identity),
                      cloud_auth=registry.cloud_signin_status(LOCAL_OWNER, identity),
-                     task=self._task, task_kind=self._kind, workspace_id=identity)
+                     task=self._task, task_kind=self._kind, workspace_id=identity, busy=uncertain)
 
     @property
     def busy(self):
@@ -120,7 +129,7 @@ class AndroidCloud:
                     raise ArchiveError('There is no cloud sign-in to cancel.')
                 registry.cancel_cloud_signin(LOCAL_OWNER, identity)
             elif action == 'resume':
-                if (not self._task or not state.status['session_configured'] or not callable(start_worker)
+                if (state.busy or not self._task or not state.status['session_configured'] or not callable(start_worker)
                         or state.account.get('status') == 'running' or (state.cloud_auth or {}).get('status') == 'running'):
                     raise ArchiveError('Sign in and pause saving before continuing cloud tasks.')
                 start_worker()
