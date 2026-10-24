@@ -759,6 +759,10 @@ class B2DirectTests(unittest.TestCase):
         self.assertTrue(cloud.offloaded(self.root, archive))
         # The history alone: an upload stopped before its outbox record was written, as earlier versions wrote them.
         cloud.upload_pending(self.root)  # The history is written as the episode's upload is confirmed.
+        updated = self.b2()
+        self.assertEqual({name:data for name,data in updated.items() if '/.reader/' not in name}, sent)
+        self.assertTrue(any('/.reader/' in name for name in updated))
+        sent = updated  # New optional metadata; every original above stays exact.
         history = json.loads(next((self.root/'.archive-state/cloud/history/b2').glob('*/*.json')).read_text())
         intent = self.root/'.archive-state/cloud/direct/b2'/(history['episode_id'] + '.json')
         cloud._write(intent, {'schema_version': 1, 'library_id': history['library_id'], 'target_id': history['target_id'],
