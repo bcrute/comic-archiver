@@ -250,7 +250,9 @@ class ReaderBook:
             descriptor = os.open(self.path, os.O_RDONLY | osdep.NOFOLLOW)
             self._stream = os.fdopen(descriptor, 'rb')
             info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_ARCHIVE:
+            if not stat.S_ISREG(info.st_mode) or info.st_size <= 0:
+                raise ReadingError(UNAVAILABLE)
+            if info.st_size > MAX_ARCHIVE:
                 raise ReadingError(UNSUPPORTED)
             self._identity = _fact(info)
             metadata = _json(sidecar_path(self.path), 16 * 1024**2)

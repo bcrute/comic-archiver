@@ -76,6 +76,7 @@ fun LocalReaderScreen(state: LocalReaderState, actions: LocalReaderActions) {
                     state.closing -> "Closing reader…"
                     state.loading -> "Loading saved page…"
                     state.saving -> "Saving reading progress…"
+                    state.error != null -> "Reading unavailable."
                     book?.warning != null -> book.warning.orEmpty()
                     book != null && book.canSave && book.record.revision > 0 && book.record.position == state.position &&
                         book.record.preferences == state.preferences -> "Reading progress saved."
