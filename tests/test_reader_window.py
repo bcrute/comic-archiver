@@ -141,6 +141,160 @@ class ReaderWindowTests(unittest.TestCase):
         self.capture(reader, 'comic-page-two')
         self.assertEqual(original_hashes(self.library), self.before)
 
+    def selected(self, path):
+        before = set(self.pages.readers)
+        with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=(str(path), '')):
+            QtTest.QTest.mouseClick(self.pages.library.read_selected, QtCore.Qt.MouseButton.LeftButton)
+        wait_until(lambda: bool(self.pages.readers - before))
+        reader = next(iter(self.pages.readers - before))
+        wait_until(lambda: not reader.busy)
+        return reader
+
+    def test_native_file_selection_opens_both_bare_exports_and_renders_real_content(self):
+        external = self.base / 'Portable exports'
+        external.mkdir()
+        for kind, original in (('cbz', self.comic), ('epub', self.novel)):
+            with self.subTest(kind=kind):
+                path = external / original.name
+                shutil.copyfile(original, path)
+                raw = path.read_bytes()
+                reader = self.selected(path)
+                self.assertEqual(reader.session.book.kind, kind)
+                self.assertEqual(reader.session.book.path, path)
+                if kind == 'cbz':
+                    self.assertEqual(reader.image.pixelColor(0, 0).red(), 80)
+                    self.assertEqual(reader.counter.text(), 'Page 1 of 2')
+                else:
+                    self.assertIn('Readable words & punctuation', reader.novel.toPlainText())
+                self.capture(reader, 'portable-' + kind)
+                reader.close()
+                wait_until(lambda: reader not in self.pages.readers)
+                self.assertTrue(reader.session.book._stream.closed)
+                self.assertEqual(path.read_bytes(), raw)
+                self.assertFalse(path.with_suffix('.json').exists())
+        self.assertEqual(original_hashes(self.library), self.before)
+
+    def test_selected_comic_reopens_at_saved_page_and_bookmark_after_rename(self):
+        path = self.base / 'Copied comic.cbz'
+        shutil.copyfile(self.comic, path)
+        reader = self.selected(path)
+        reader.next.click()
+        wait_until(lambda: not reader.busy and reader.position['unit'] == 1)
+        reader.bookmark.click()
+        wait_until(lambda: not reader.busy and bool(reader.session.record['bookmarks']))
+        saved = copy.deepcopy(reader.session.record)
+        reader.close()
+        wait_until(lambda: reader not in self.pages.readers)
+        moved = path.with_name('Moved comic.cbz')
+        path.rename(moved)
+        reopened = self.selected(moved)
+        self.assertEqual(reopened.session.record, saved)
+        self.assertEqual(reopened.counter.text(), 'Page 2 of 2')
+        self.assertEqual(reopened.bookmark.text(), 'Remove bookmark')
+
+    def test_file_picker_is_available_with_empty_catalog_and_cancel_changes_nothing(self):
+        self.pages.library.show_rows({'files': []})
+        self.assertEqual(self.pages.library.table.rowCount(), 0)
+        self.assertTrue(self.pages.library.read_selected.isEnabled())
+        with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=('', '')):
+            self.pages.library.read_selected.click()
+        self.assertEqual(self.pages.reader_opens, 0)
+        self.assertFalse(self.pages.readers)
+        self.assertTrue(self.pages.library.read_selected.isEnabled())
+        self.assertEqual(original_hashes(self.library), self.before)
+
+    def test_selected_open_refusal_restores_picker_and_keeps_paths_out_of_feedback(self):
+        path = self.base / 'PRIVATE broken.cbz'
+        path.write_bytes(b'not an archive')
+        with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=(str(path), '')):
+            self.pages.library.read_selected.click()
+        wait_until(lambda: not self.pages.reader_opens)
+        self.assertFalse(self.pages.readers)
+        self.assertTrue(self.pages.library.read_selected.isEnabled())
+        self.assertEqual(self.pages.library.read_selected.text(), 'Read a file…')
+        self.assertIn('could not be read', self.pages.library.reader_notice.text())
+        self.assertNotIn('PRIVATE', self.pages.library.reader_notice.text())
+        self.assertNotIn(str(self.base), self.pages.library.reader_notice.text())
+
+    def test_library_change_during_native_picker_does_not_open_the_selected_old_file(self):
+        def switched(*args):
+            self.pages.state = copy.copy(self.pages.state)
+            return str(self.comic), ''
+
+        with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', side_effect=switched):
+            self.pages.library.read_selected.click()
+        self.assertFalse(self.pages.readers)
+        self.assertEqual(self.pages.reader_opens, 0)
+        self.assertTrue(self.pages.library.read_selected.isEnabled())
+
+    def test_catalog_refresh_keeps_independent_selected_open_and_quit_drains_a_late_one(self):
+        path = self.base / 'Copied comic.cbz'
+        shutil.copyfile(self.comic, path)
+        entered, release = threading.Event(), threading.Event()
+        original = self.registry.open_selected_reader
+        sessions = []
+
+        def held(*args):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('Selected-file open was not released')
+            session = original(*args)
+            sessions.append(session)
+            return session
+
+        with patch.object(self.registry, 'open_selected_reader', side_effect=held):
+            with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=(str(path), '')):
+                self.pages.library.read_selected.click()
+            wait_until(entered.is_set)
+            self.pages.library.load(refresh=True)
+            wait_until(lambda: not self.pages.library.busy)
+            release.set()
+            wait_until(lambda: bool(self.pages.readers))
+        reader = next(iter(self.pages.readers))
+        wait_until(lambda: not reader.busy)
+        reader.close()
+        wait_until(lambda: not self.pages.readers)
+        entered.clear()
+        release.clear()
+        drained = threading.Event()
+        with patch.object(self.registry, 'open_selected_reader', side_effect=held):
+            with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=(str(path), '')):
+                self.pages.library.read_selected.click()
+            wait_until(entered.is_set)
+            self.pages.close_readers(drained.set)
+            self.assertFalse(drained.is_set())
+            release.set()
+            wait_until(drained.is_set)
+        self.assertEqual(len(sessions), 2)
+        self.assertTrue(all(session.book._stream.closed for session in sessions))
+        self.assertFalse(self.pages.readers)
+
+    def test_library_change_during_selected_open_retires_the_late_session_and_restores_picker(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.registry.open_selected_reader
+        sessions = []
+
+        def held(*args):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('Selected-file open was not released')
+            session = original(*args)
+            sessions.append(session)
+            return session
+
+        with patch.object(self.registry, 'open_selected_reader', side_effect=held):
+            with patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=(str(self.comic), '')):
+                self.pages.library.read_selected.click()
+            wait_until(entered.is_set)
+            self.pages.state = copy.copy(self.pages.state)
+            release.set()
+            wait_until(lambda: self.pages.reader_opens == 0)
+        self.assertFalse(self.pages.readers)
+        self.assertEqual(len(sessions), 1)
+        self.assertTrue(sessions[0].book._stream.closed)
+        self.assertTrue(self.pages.library.read_selected.isEnabled())
+        self.assertEqual(self.pages.library.read_selected.text(), 'Read a file…')
+
     def test_real_keyboard_navigation_and_escape_close_release_the_book(self):
         reader = self.opened('cbz')
         reader.activateWindow()

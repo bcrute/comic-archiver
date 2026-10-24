@@ -199,6 +199,10 @@ class Actions:
             raise Refused('request_unavailable', UNAVAILABLE)
         return self._call('open_reader', export_id, locked=False, failed=UNAVAILABLE)
 
+    def read_selected_file(self, path):
+        return self._call('open_selected_reader', path, locked=False,
+            failed='This file could not be read. Choose a complete CBZ or EPUB export from Comic Archiver.')
+
 
 def due(state, now):
     """What the next refresh reads besides the dashboard itself: (network, library, recount)."""

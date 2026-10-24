@@ -339,6 +339,15 @@ class LocalWorkspaceRegistry:
             raise ArchiveError('Choose a completed comic or novel for reading.')
         return ReadingSession(workspace.library, path, **limits)
 
+    def open_selected_reader(self, owner, workspace_id, path, **limits):
+        """One explicit native file selection; no import or publication authority."""
+        from .local_reader import ReadingError, UNAVAILABLE
+        from .portable_reader import PortableReadingSession
+        workspace = self.resolve(owner, workspace_id)
+        if not isinstance(path, str) or not path or len(path) > 8192 or not Path(path).is_absolute():
+            raise ReadingError(UNAVAILABLE)
+        return PortableReadingSession(workspace.library, path, **limits)
+
     def _prepare_desktop_download(self, owner, workspace_id):
         # Preserve the user's explicit cloud choice across Go, previews and
         # scheduled runs. Cloud offload still requires a successful pilot test.

@@ -883,10 +883,16 @@ class Library:
         self.title = kit.label(library_model.title('Tapas'), 'pageTitle')
         top.addWidget(self.title, 1)
         self.open_folder = kit.button('Open folder', pages.open_folder, 'secondary')
+        self.read_selected = kit.button('Read a file…', self.choose_read_file, 'secondary')
+        self.selecting_reader, self.selected_opening = False, False
         self.refresh = kit.button('Refresh files', lambda: self.load(refresh=True), 'secondary')
         top.addWidget(self.open_folder)
+        top.addWidget(self.read_selected)
         top.addWidget(self.refresh)
         column.addLayout(top)
+        self.reader_notice = kit.label('', 'muted')
+        self.reader_notice.setVisible(False)
+        column.addWidget(self.reader_notice)
         self.summary = kit.label('')
         column.addWidget(self.summary)
         self.places = w.QHBoxLayout()
@@ -1082,10 +1088,35 @@ class Library:
         return holder
 
     def read_file(self, export_id, button, feedback):
+        self.start_reader(lambda: self.pages.actions.read_file(export_id), button, feedback,
+                          row_request=self.request)
+
+    def choose_read_file(self):
+        pages, state = self.pages, self.pages.state
+        if pages.readers_closing or self.selecting_reader or self.selected_opening:
+            return
+        self.selecting_reader = True
+        self.read_selected.setEnabled(False)
+        try:
+            path, _ = self.kit.w.QFileDialog.getOpenFileName(
+                pages.widget, 'Read an Archiver export', state.library_folder or '',
+                'Archiver exports (*.cbz *.epub)')
+            if not path or pages.readers_closing or pages.state is not state:
+                return
+            self.start_reader(lambda: pages.actions.read_selected_file(path),
+                              self.read_selected, self.reader_notice)
+        finally:
+            self.selecting_reader = False
+            self.read_selected.setEnabled(not pages.readers_closing and not self.selected_opening)
+
+    def start_reader(self, work, button, feedback, *, row_request=None):
         from .reader_window import reader_window
-        pages, state, request = self.pages, self.pages.state, self.request
+        pages, state = self.pages, self.pages.state
         if pages.readers_closing:
             return
+        caption = button.text()
+        if row_request is None:
+            self.selected_opening = True
         pages.reader_opens += 1
         button.setEnabled(False)
         button.setText('Opening reader…')
@@ -1093,12 +1124,13 @@ class Library:
 
         def done(value, error):
             try:
-                if pages.readers_closing or pages.state is not state or self.request != request:
+                if (pages.readers_closing or pages.state is not state
+                        or row_request is not None and self.request != row_request):
                     if value is not None:
                         value.close()
                     return
                 button.setEnabled(True)
-                button.setText('Read here')
+                button.setText(caption)
                 if error:
                     say(feedback, error, True)
                     return
@@ -1113,8 +1145,12 @@ class Library:
                 say(feedback, 'Reading locally in Comic Archiver.')
             finally:
                 pages.reader_opens -= 1
+                if row_request is None:
+                    self.selected_opening = False
+                    self.read_selected.setText('Read a file…')
+                    self.read_selected.setEnabled(not pages.readers_closing)
                 pages.readers_drained()
-        pages.run(lambda: pages.actions.read_file(export_id), done)
+        pages.run(work, done)
 
     def open_file(self, export_id, button, feedback):
         button.setEnabled(False)
