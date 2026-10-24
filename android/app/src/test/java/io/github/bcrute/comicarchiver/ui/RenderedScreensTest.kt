@@ -544,11 +544,13 @@ class RenderedScreensTest {
         compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
         compose.onNodeWithContentDescription(description).performClick()
         val failure = "Could not open Backblaze. Check that a browser is available and try again."
-        compose.onNodeWithText(failure).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText(failure))
+        compose.onNodeWithText(failure).assertIsDisplayed()
         compose.onNodeWithText("Open").assertDoesNotExist()
         compose.onNodeWithText("Read here").assertDoesNotExist()
         compose.onNodeWithText("private-browser-detail").assertDoesNotExist()
-        compose.onNodeWithContentDescription(description).performScrollTo().performClick()
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
+        compose.onNodeWithContentDescription(description).performClick()
         compose.onNodeWithText(failure).assertDoesNotExist()
         assertEquals(listOf(B2Page.BROWSE.url, B2Page.BROWSE.url), opened)
         assertTrue(controller.openRequests.isEmpty())
@@ -593,20 +595,29 @@ class RenderedScreensTest {
                     if (it.id == id) it.copy(label = name) else it
                 })
             })) } }
-        compose.onNodeWithContentDescription("Use working library: Library · working copy 2").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithContentDescription("Use working library: Library · working copy 3").performScrollTo().assertIsDisplayed()
+        // Scroll the lazy container so each item is located after composition;
+        // repeatedly scrolling a retained child can chase its recycled bounds.
+        for (description in listOf("Use working library: Library · working copy 2",
+            "Use working library: Library · working copy 3")) {
+            compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(description))
+            compose.onNodeWithContentDescription(description).assertIsDisplayed()
+        }
         val rename = "Rename working library: Library · working copy 3"
-        compose.onNodeWithContentDescription(rename).performScrollTo().performClick()
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(rename))
+        compose.onNodeWithContentDescription(rename).performClick()
         compose.onNodeWithText("Library name").performTextReplacement("Cancelled")
         compose.onNodeWithText("Cancel").performClick()
         assertTrue(renamed.isEmpty())
-        compose.onNodeWithContentDescription(rename).performScrollTo().performClick()
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(rename))
+        compose.onNodeWithContentDescription(rename).performClick()
         compose.onNodeWithText("Library name").performTextReplacement("original")
         compose.onNodeWithText("Save name").assertIsNotEnabled()
         compose.onNodeWithText("Library name").performTextReplacement("Illustrated reader")
         compose.onNodeWithText("Save name").performClick()
         compose.onNodeWithText("Rename library").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Use working library: Illustrated reader").performScrollTo().performClick()
+        val renamedChoice = "Use working library: Illustrated reader"
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(renamedChoice))
+        compose.onNodeWithContentDescription(renamedChoice).performClick()
         assertEquals(listOf("illustrated" to "Illustrated reader"), renamed)
         assertEquals(listOf("illustrated"), selected)
     }
