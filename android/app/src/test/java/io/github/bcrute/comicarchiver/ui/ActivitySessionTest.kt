@@ -156,6 +156,32 @@ class ActivitySessionTest {
         assertEquals(1, app.fake.count("go"))
     }
 
+    @Test fun repeatedGoDuringAdmissionAndRunningStartsOneJobAndCompletionAllowsAnother() {
+        ready()
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        app.fake.workerStartGate = entered to release
+        try {
+            compose.runOnIdle { repeat(3) { app.controller.go() } }
+            awaitState { entered.count == 0L }
+            assertEquals(DownloadState.Planning, app.controller.state.value.download)
+            release.countDown()
+            awaitState { app.controller.state.value.download is DownloadState.Running }
+            assertEquals(1, app.fake.count("go"))
+            assertEquals(1, app.fake.count("worker_start"))
+            compose.runOnIdle { repeat(3) { app.controller.go() } }
+            awaitState { app.controller.state.value.download is DownloadState.Running }
+            assertEquals(1, app.fake.count("go"))
+            assertEquals(1, app.fake.count("worker_start"))
+            app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},"account":{"status":"finished"}}"""
+            awaitState { app.controller.state.value.download is DownloadState.Finished }
+            app.fake.statusPayload = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
+            compose.runOnIdle { repeat(3) { app.controller.go() } }
+            awaitState { app.controller.state.value.download is DownloadState.Running }
+            assertEquals(2, app.fake.count("go"))
+            assertEquals(2, app.fake.count("worker_start"))
+        } finally { release.countDown(); compose.runOnIdle { app.controller.pause() } }
+    }
+
     @Test fun activityRecreationKeepsLiveAdmissionAndDoesNotRestartOrReauthenticate() {
         ready()
         val controller = app.controller
@@ -360,6 +386,7 @@ class LifecycleBridge : PythonBridge {
     @Volatile var libraryReadable = true
     @Volatile var statusPayload = """{"worker":{"running":true},"account":{"status":"running","phase":"archive"}}"""
     @Volatile var statusGate: Pair<CountDownLatch, CountDownLatch>? = null
+    @Volatile var workerStartGate: Pair<CountDownLatch, CountDownLatch>? = null
     val releasedStatus = AtomicInteger()
     @Volatile private var wifiOnly = true
     @Volatile var speed = "medium"
@@ -367,6 +394,13 @@ class LifecycleBridge : PythonBridge {
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {
         calls.computeIfAbsent(op) { AtomicInteger() }.incrementAndGet()
+        if (op == "worker_start") {
+            val startGate = synchronized(this) { workerStartGate.also { workerStartGate = null } }
+            startGate?.let {
+                it.first.countDown()
+                check(it.second.await(20, TimeUnit.SECONDS)) { "Fixture worker start was not released" }
+            }
+        }
         if (op == "download_status" && !statusReadable) return """{"ok":false,"code":"job_failed"}"""
         if (op == "library_listing" && !libraryReadable) throw IllegalStateException("PRIVATE library observation failure")
         val statusSnapshot = if (op == "download_status") statusPayload else null

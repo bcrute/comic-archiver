@@ -141,4 +141,22 @@ class CloudScreensTest {
         assertEquals(listOf(B2Page.BUCKETS), pages)
         assertTrue(pages.single().url.startsWith("https://secure.backblaze.com/"))
     }
+
+    @Test fun browserRefusalStaysBesideTheB2LinkAndCanRetryWithoutACloudAction() {
+        val pages = mutableListOf<B2Page>()
+        compose.setContent { MaterialTheme {
+            CloudScreen(cloudFixture(), false, null, true, true, {},
+                { error("A browser link must not start a cloud action") }, { page ->
+                    pages.add(page)
+                    if (pages.size == 1) throw IllegalStateException("PRIVATE browser refusal")
+                })
+        } }
+        compose.onNodeWithText("Open Buckets").performScrollTo().performClick()
+        val message = "Could not open Backblaze. Check that a browser is available and try this link again."
+        compose.onNodeWithText(message).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("PRIVATE browser refusal").assertDoesNotExist()
+        compose.onNodeWithText("Open Buckets").performScrollTo().performClick()
+        compose.onNodeWithText(message).assertDoesNotExist()
+        assertEquals(listOf(B2Page.BUCKETS, B2Page.BUCKETS), pages)
+    }
 }

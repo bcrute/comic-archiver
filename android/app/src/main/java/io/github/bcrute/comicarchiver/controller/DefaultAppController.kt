@@ -356,6 +356,10 @@ class DefaultAppController(
     }
 
     override fun go() {
+        // UI disabling can lag a tap. Admission belongs to the controller, including
+        // the interval before the host answers and while observations are stale.
+        if (admitted || _state.value.download is DownloadState.Planning ||
+            _state.value.download is DownloadState.Running) return
         if (_state.value.libraryBusy) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
                 "Finish or stop the working-library change before pressing Go."))

@@ -159,7 +159,7 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
                 }
             }
             Text("Finished archives can also be copied to a folder from Library. Exported copies and the working library are separate.")
-            TextButton(onClick = { onPage(B2Page.BROWSE) }) { Text(B2Page.BROWSE.label) }
+            B2Link(B2Page.BROWSE, onPage)
             return@Column
         }
         if (state.showSharing) {
@@ -175,9 +175,9 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
         if (showCost) {
             Text("Backblaze bills you directly. Comic Archiver does not store your payment details.")
             Text(state.cost.ifBlank { "A library-size estimate is not available yet. Check Backblaze's prices and your usage." })
-            TextButton(onClick = { onPage(B2Page.PRICING) }) { Text(B2Page.PRICING.label) }
-            TextButton(onClick = { onPage(B2Page.BILLING) }) { Text(B2Page.BILLING.label) }
-            TextButton(onClick = { onPage(B2Page.CAPS) }) { Text(B2Page.CAPS.label) }
+            B2Link(B2Page.PRICING, onPage)
+            B2Link(B2Page.BILLING, onPage)
+            B2Link(B2Page.CAPS, onPage)
         }
         if (state.bucket.isNotBlank())
             TextButton(onClick = { showSteps = !showSteps }) {
@@ -185,15 +185,15 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             }
         if (state.bucket.isBlank() || showSteps) {
             Text("1. Use your own Backblaze account", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { onPage(B2Page.ACCOUNT) }) { Text(B2Page.ACCOUNT.label) }
-            TextButton(onClick = { onPage(B2Page.SIGN_IN) }) { Text(B2Page.SIGN_IN.label) }
+            B2Link(B2Page.ACCOUNT, onPage)
+            B2Link(B2Page.SIGN_IN, onPage)
             Text("2. Create a private bucket. Disable Object Lock for this library's test cleanup. Use the same bucket name here and in Backblaze.")
-            TextButton(onClick = { onPage(B2Page.BUCKETS) }) { Text(B2Page.BUCKETS.label) }
+            B2Link(B2Page.BUCKETS, onPage)
             OutlinedTextField(value = bucket, onValueChange = { bucket = it.filterNot(Char::isWhitespace).take(63) },
                 label = { Text("Bucket name") }, enabled = state.canConnect && !busy,
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             Text("3. Add an application key for this bucket only: Read and Write, no name prefix or expiry. Leave List All Bucket Names off. Keep the applicationKey page open until connected.")
-            TextButton(onClick = { onPage(B2Page.KEYS) }) { Text(B2Page.KEYS.label) }
+            B2Link(B2Page.KEYS, onPage)
             Text("4. Paste the two key values. They stay on this device.")
             OutlinedTextField(value = keyId, onValueChange = { keyId = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("keyID") }, enabled = state.canConnect && !busy,
@@ -229,7 +229,17 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
         OutlinedButton(enabled = state.canRetry && signedIn && !busy,
             onClick = { onAction(CloudRequest.Retry) }) { Text("Retry unfinished uploads") }
         listOf(B2Page.BROWSE, B2Page.REPORTS, B2Page.BILLING, B2Page.CAPS, B2Page.KEYS).forEach { page ->
-            TextButton(onClick = { onPage(page) }) { Text(page.label) }
+            B2Link(page, onPage)
         }
     }
+}
+
+/** Keep browser refusal beside the link and let the same control retry. No cloud action. */
+@Composable
+private fun B2Link(page: B2Page, onPage: (B2Page) -> Unit) {
+    var failed by remember(page) { mutableStateOf(false) }
+    TextButton(onClick = {
+        failed = try { onPage(page); false } catch (_: Exception) { true }
+    }) { Text(page.label) }
+    if (failed) Text("Could not open Backblaze. Check that a browser is available and try this link again.")
 }
