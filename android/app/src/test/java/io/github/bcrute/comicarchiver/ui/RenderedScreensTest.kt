@@ -584,6 +584,8 @@ class RenderedScreensTest {
 
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    // Explicit width/height qualifiers loop for editable dialogs: Robolectric #8460.
+    @Config(qualifiers = "mdpi")
     fun sameNamedWorkingLibrariesHaveDistinctActionsAndCanBeNamedWithoutSelection() {
         val selected = mutableListOf<String>()
         val renamed = mutableListOf<Pair<String, String>>()

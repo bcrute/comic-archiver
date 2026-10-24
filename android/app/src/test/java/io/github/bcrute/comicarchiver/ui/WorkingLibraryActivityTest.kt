@@ -5,12 +5,15 @@ import android.os.Looper
 import android.provider.DocumentsContract.Document
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.controller.DownloadState
@@ -85,7 +88,10 @@ class WorkingLibraryActivityTest {
         assertTrue(selected.library.resolve("Series/chapter.cbz").isFile)
     }
 
-    @Test fun renamingTheCurrentLibraryDoesNotSwitchItsContextOrStopItsWorker() {
+    @Test
+    // Keep the sized-window layout checks separate from Robolectric #8460.
+    @Config(qualifiers = "mdpi")
+    fun renamingTheCurrentLibraryDoesNotSwitchItsContextOrStopItsWorker() {
         ready(); enterPreview(); confirm()
         await { app.controller.state.value.signIn is SignInState.SignedIn }
         val workspace = app.workspace
@@ -96,7 +102,9 @@ class WorkingLibraryActivityTest {
         await { app.controller.state.value.download is DownloadState.Running }
         val prepared = app.wire.count("prepare_workspace")
         val stopped = app.wire.count("worker_stop")
-        compose.onNodeWithContentDescription("Rename working library: $oldName").performScrollTo().performClick()
+        val rename = "Rename working library: $oldName"
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(rename))
+        compose.onNodeWithContentDescription(rename).performClick()
         compose.onNodeWithText("Library name").performTextReplacement("Named current library")
         compose.onNodeWithText("Save name").performClick()
         await { !app.workingLibraries.state.value.loading && app.libraryLocations.current().label == "Named current library" }
