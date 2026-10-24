@@ -22,8 +22,8 @@ from aiortc.rtcsctptransport import uint32_gt
 from aiortc.sdp import SessionDescription
 
 from .files import SourceError
-from .jsoncodec import require
 from .ice import servers as checked_servers
+from .jsoncodec import require
 from .read_worker import FileWorker
 from .rpc import CONTROL_MAX
 from .wire import FRAME_MAX, WINDOW_MAX

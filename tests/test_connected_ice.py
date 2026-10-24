@@ -17,10 +17,33 @@ from comic_archive.connected.ice import read_servers, servers
 
 class ConnectedIceTests(unittest.TestCase):
     def test_supported_profile_and_refusals(self):
-        turn = dict(urls="turns:relay.example:5349?transport=tcp", username="public-fixture-user", credential="public-fixture-password")
+        turn = dict(
+            urls="turns:relay.example:5349?transport=tcp",
+            username="public-fixture-user",
+            credential="public-fixture-password",
+        )
         self.assertEqual(servers([]), [])
-        self.assertEqual(servers([dict(urls="stun:127.0.0.1:3478"), turn]), [dict(urls="stun:127.0.0.1:3478"), turn])
-        for bad in [None, {}, [dict(urls="stuns:server.example")], [dict(urls="stun:server.example?transport=tcp")], [dict(urls="stun:server.example"), dict(urls="stun:other.example")], [turn, turn], [turn | dict(urls="turns:relay.example?transport=udp")], [turn | dict(credential="")], [turn | dict(username="a\nb")], [turn | dict(credential="x" * 513)], [turn | dict(urls="turn:[::1]:3478")], [turn | dict(urls="turn:relay.example:65536")], [turn | dict(urls="turn:user:password@relay.example")], [dict(urls="stun:bad..example")], [dict(urls=["stun:a.example", "stun:b.example"])]]:
+        self.assertEqual(
+            servers([dict(urls="stun:127.0.0.1:3478"), turn]),
+            [dict(urls="stun:127.0.0.1:3478"), turn],
+        )
+        for bad in [
+            None,
+            {},
+            [dict(urls="stuns:server.example")],
+            [dict(urls="stun:server.example?transport=tcp")],
+            [dict(urls="stun:server.example"), dict(urls="stun:other.example")],
+            [turn, turn],
+            [turn | dict(urls="turns:relay.example?transport=udp")],
+            [turn | dict(credential="")],
+            [turn | dict(username="a\nb")],
+            [turn | dict(credential="x" * 513)],
+            [turn | dict(urls="turn:[::1]:3478")],
+            [turn | dict(urls="turn:relay.example:65536")],
+            [turn | dict(urls="turn:user:password@relay.example")],
+            [dict(urls="stun:bad..example")],
+            [dict(urls=["stun:a.example", "stun:b.example"])],
+        ]:
             with self.subTest(value=bad), self.assertRaises(SourceError):
                 servers(bad)
 
@@ -28,7 +51,7 @@ class ConnectedIceTests(unittest.TestCase):
     def test_real_file_custody_rejects_public_alias_fifo_and_malformed_input(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.json"
-            path.write_text('[]')
+            path.write_text("[]")
             path.chmod(0o600)
             self.assertEqual(read_servers(path), [])
             path.chmod(0o644)
@@ -48,7 +71,12 @@ class ConnectedIceTests(unittest.TestCase):
             os.mkfifo(fifo, 0o600)
             with self.assertRaises(SourceError):
                 read_servers(fifo)
-            for raw in ['[]' * 5000, '[{"urls":"stun:a.example","urls":"stun:b.example"}]', '{}', 'null']:
+            for raw in [
+                "[]" * 5000,
+                '[{"urls":"stun:a.example","urls":"stun:b.example"}]',
+                "{}",
+                "null",
+            ]:
                 path.write_text(raw)
                 with self.assertRaises(SourceError):
                     read_servers(path)
@@ -68,11 +96,44 @@ class ConnectedIceTests(unittest.TestCase):
             index.close()
             root.close()
             settings = work / "settings.json"
-            settings.write_text(json.dumps([dict(urls="turn:127.0.0.1:3478", username="public-fixture-user", credential="public-fixture-password")]))
+            settings.write_text(
+                json.dumps(
+                    [
+                        dict(
+                            urls="turn:127.0.0.1:3478",
+                            username="public-fixture-user",
+                            credential="public-fixture-password",
+                        )
+                    ]
+                )
+            )
             settings.chmod(0o600)
             # No approved pair exists, so there is no outbound peer/file authority.
-            process = subprocess.Popen([sys.executable, "-m", "comic_archive.connected", "serve", "--state", str(work / "host"), "--origin", "http://127.0.0.1:49151", "--library", str(root_path), str(work / "index/private.sqlite"), "--init", "--ice-config", str(settings)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.assertTrue(select.select([process.stdout], [], [], 10)[0], "Native CLI did not report startup")
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "comic_archive.connected",
+                    "serve",
+                    "--state",
+                    str(work / "host"),
+                    "--origin",
+                    "http://127.0.0.1:49151",
+                    "--library",
+                    str(root_path),
+                    str(work / "index/private.sqlite"),
+                    "--init",
+                    "--ice-config",
+                    str(settings),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertTrue(
+                select.select([process.stdout], [], [], 10)[0],
+                "Native CLI did not report startup",
+            )
             ready = json.loads(process.stdout.readline())
             self.assertEqual((ready["status"], ready["pairings"]), ("starting", 0))
             process.send_signal(signal.SIGTERM)
@@ -87,6 +148,8 @@ class ConnectedIceTests(unittest.TestCase):
                     process.communicate(timeout=20)
                 except subprocess.TimeoutExpired:
                     # Retain state for the actual live process; no normal-stop claim.
-                    raise RuntimeError("Owned CLI cleanup pending; retain private fixture") from None
+                    raise RuntimeError(
+                        "Owned CLI cleanup pending; retain private fixture"
+                    ) from None
             if process is None or process.poll() is not None:
                 shutil.rmtree(work)

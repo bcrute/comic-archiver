@@ -43,7 +43,11 @@ def parser():
         required=True,
         metavar=("ROOT", "PRIVATE_INDEX"),
     )
-    serve.add_argument("--ice-config", type=Path, help="Owned private JSON connection settings (one STUN and one TURN server)")
+    serve.add_argument(
+        "--ice-config",
+        type=Path,
+        help="Owned private JSON connection settings (one STUN and one TURN server)",
+    )
     serve.add_argument(
         "--init",
         action="store_true",
@@ -210,8 +214,8 @@ async def console(driver, terminal, shutdown):
 async def serve(args):
     from .controller import HostController
     from .driver import HostDriver
-    from .ice import read_servers
     from .files import Index, SharedRoot
+    from .ice import read_servers
     from .jsoncodec import require
     from .pairing import PairingOwner
     from .state import HostState
