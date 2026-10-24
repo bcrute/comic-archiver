@@ -11,10 +11,14 @@ import queue
 import re
 import threading
 import time
+from importlib.metadata import version
+
+from aioice import Connection
 
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
+    RTCIceTransport,
     RTCPeerConnection,
     RTCSessionDescription,
 )
@@ -29,6 +33,82 @@ from .rpc import CONTROL_MAX
 from .wire import FRAME_MAX, WINDOW_MAX
 
 _CREATE = object()
+
+
+class _IceRetirement:
+    """Retire real pinned SDK check tasks before their UDP owners close.
+
+    aioice 0.10.2 closes protocols without joining outstanding triggered checks.
+    The per-connection adapter only reduces work during retirement. It never
+    supplies successful ICE, DTLS, local approval or file-access authority.
+    """
+
+    def __init__(self, token, connection):
+        require(token is _CREATE and isinstance(connection, Connection))
+        self.connection, self.retiring, self.joined = connection, False, False
+        self._closing = None
+        self._original_close = connection.close
+        self._original_start = connection.check_start_task
+        self._original_incoming = connection.check_incoming
+        self._original_periodic = connection.check_periodic
+
+    @classmethod
+    def own(cls, transport):
+        require(isinstance(transport, RTCIceTransport))
+        require(version("aioice") == "0.10.2", "unsupported_format")
+        connection = transport._connection
+        require(isinstance(connection, Connection))
+        require(getattr(connection, "_ink_retirement", None) is None)
+        result = cls(_CREATE, connection)
+        connection._ink_retirement = result
+        connection.close = result.close
+        connection.check_start_task = result.start
+        connection.check_incoming = result.incoming
+        connection.check_periodic = result.periodic
+        return result
+
+    def start(self, pair):
+        if not self.retiring:
+            self._original_start(pair)
+
+    def incoming(self, *args):
+        if not self.retiring:
+            self._original_incoming(*args)
+
+    def periodic(self):
+        return False if self.retiring else self._original_periodic()
+
+    async def _drain(self):
+        # Scheduling is already stopped on THIS connection, including incoming
+        # triggered checks. Cancellation unwinds native Transaction.run finally
+        # blocks, retiring their real retransmission timers before socket close.
+        tasks = {pair.task for pair in self.connection._check_list if pair.task is not None}
+        require(all(isinstance(task, asyncio.Task) for task in tasks))
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=3)
+            require(not pending, "connection_unavailable")
+            for task in tasks:
+                if not task.cancelled():
+                    require(task.exception() is None, "connection_unavailable")
+        protocols = tuple(self.connection._protocols)
+        await self._original_close()  # Also cancels/joins actual consent work.
+        require(self.connection._closed, "connection_unavailable")
+        # The real protocol's connection_lost future works for both ordinary
+        # UDP and TurnTransport, which has no is_closing() API.
+        require(all(not protocol.transactions and
+                    protocol._StunProtocol__closed.done() and
+                    not protocol._StunProtocol__closed.cancelled() and
+                    protocol._StunProtocol__closed.result() is True
+                    for protocol in protocols), "connection_unavailable")
+        self.joined = True
+
+    async def close(self):
+        if self._closing is None:
+            self.retiring = True
+            self._closing = asyncio.create_task(self._drain())
+        await asyncio.shield(self._closing)  # Unknown close remains retained.
 
 
 def data_sdp(text):
@@ -127,6 +207,7 @@ class HostPeer:
         self._incoming, self._channels = queue.Queue(maxsize=8), set()
         self._remote_sdp, self._local_sdp = None, None
         self._failure, self._native_close, self._cleaning = None, None, False
+        self._ice_retirement = None
 
     @classmethod
     async def open(cls, controller, pairing_id, ice_servers=None):
@@ -304,6 +385,7 @@ class HostPeer:
                 RTCSessionDescription(sdp=offer, type="offer")
             )
             self._remote_sdp = self._pc.remoteDescription.sdp
+            self._ice_retirement = _IceRetirement.own(self._pc.sctp.transport.transport)
             self._limit_sctp()  # BEFORE local ICE/DTLS/SCTP can admit remote bytes.
             await asyncio.wait_for(
                 self._pc.setLocalDescription(await self._pc.createAnswer()), 20
@@ -415,6 +497,8 @@ class HostPeer:
         require(self._native_close in done, "connection_unavailable")
         self._native_close.result()
         require(self._pc.connectionState == "closed", "connection_unavailable")
+        require(self._ice_retirement is None or self._ice_retirement.joined,
+                "connection_unavailable")
         if failure is not None:
             raise failure
         self.joined = True
