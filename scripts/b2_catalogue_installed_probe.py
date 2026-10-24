@@ -27,10 +27,19 @@ def fingerprint(raw):
 
 def png():
     def chunk(kind, raw):
-        return struct.pack(">I", len(raw)) + kind + raw + struct.pack(">I", zlib.crc32(kind + raw))
+        return (
+            struct.pack(">I", len(raw))
+            + kind
+            + raw
+            + struct.pack(">I", zlib.crc32(kind + raw))
+        )
 
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(b"\x00\x14\x28\x50")) + chunk(b"IEND", b""))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x14\x28\x50"))
+        + chunk(b"IEND", b"")
+    )
 
 
 class ObjectData:
@@ -46,7 +55,9 @@ class ObjectData:
     @classmethod
     def path(cls, name):
         parsed = PurePosixPath(name)
-        assert not parsed.is_absolute() and ".." not in parsed.parts and "\\" not in name
+        assert (
+            not parsed.is_absolute() and ".." not in parsed.parts and "\\" not in name
+        )
         return cls.folder / str(parsed)
 
     def remote(self, name):
@@ -78,9 +89,13 @@ class ObjectData:
     def sha1s(self, name):
         path = self.path(name)
         paths = [path] if path.is_file() else list(path.rglob("*"))
-        return {(item.name if item == path else item.relative_to(path).as_posix()):
-                hashlib.sha1(item.read_bytes(), usedforsecurity=False).hexdigest()
-                for item in paths if item.is_file()}
+        return {
+            (
+                item.name if item == path else item.relative_to(path).as_posix()
+            ): hashlib.sha1(item.read_bytes(), usedforsecurity=False).hexdigest()
+            for item in paths
+            if item.is_file()
+        }
 
     def delete_test_file(self, name):
         self.path(name).unlink(missing_ok=True)
@@ -96,12 +111,17 @@ class ObjectData:
         if command == "cat":
             return path.read_bytes()
         assert command == "lsf"
-        return "\n".join(sorted(item.name for item in path.glob("*") if item.is_file())).encode()
+        return "\n".join(
+            sorted(item.name for item in path.glob("*") if item.is_file())
+        ).encode()
 
 
 def objects(folder):
-    return {path.relative_to(folder).as_posix(): fingerprint(path.read_bytes())
-            for path in folder.rglob("*") if path.is_file()}
+    return {
+        path.relative_to(folder).as_posix(): fingerprint(path.read_bytes())
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
 
 
 def write(path, value):
@@ -127,9 +147,13 @@ def main():
         assert path.resolve(strict=True).is_relative_to(prefix)
         raw = path.read_bytes()
         assert identity == {"bytes": len(raw), "sha256": fingerprint(raw)}
-    actual_versions = {item.metadata["Name"].lower().replace("_", "-"): item.version
-                       for item in importlib.metadata.distributions()}
-    assert actual_versions == dict(expected["runtime_versions"], **{"comic-archive": expected["version"]})
+    actual_versions = {
+        item.metadata["Name"].lower().replace("_", "-"): item.version
+        for item in importlib.metadata.distributions()
+    }
+    assert actual_versions == dict(
+        expected["runtime_versions"], **{"comic-archive": expected["version"]}
+    )
     assert not set(actual_versions) & {"pillow", "playwright", "pyside6", "ruff"}
     ObjectData.folder = work / "synthetic-object-data"
     ObjectData.folder.mkdir(mode=0o700, exist_ok=True)
@@ -142,7 +166,10 @@ def main():
         attempts.append("connect")
         raise AssertionError("Network connection refused by installed DATA profile")
 
-    with patch.object(socket.socket, "connect", denied), patch.object(socket.socket, "connect_ex", denied):
+    with (
+        patch.object(socket.socket, "connect", denied),
+        patch.object(socket.socket, "connect_ex", denied),
+    ):
         with socket.socket() as control:
             try:
                 control.connect(("127.0.0.1", 9))
@@ -158,15 +185,26 @@ def main():
                 def retrieve(self, _page):
                     return png()
 
-            episode = Episode(key, "42", title, int(key),
-                              (Page(1, "https://never-fetch.invalid/page", False),), "tapas_free")
+            episode = Episode(
+                key,
+                "42",
+                title,
+                int(key),
+                (Page(1, "https://never-fetch.invalid/page", False),),
+                "tapas_free",
+            )
             with closing(PublicationStore(library)) as store:
-                store.archive(Manifest(Series("42", "Synthetic installed library"), (episode,)),
-                              MemoryData(), progress=lambda _: None)
+                store.archive(
+                    Manifest(Series("42", "Synthetic installed library"), (episode,)),
+                    MemoryData(),
+                    progress=lambda _: None,
+                )
 
         with patch.object(cloud, "Transfer", ObjectData):
             if args.phase == "prior":
-                assert importlib.util.find_spec("comic_archive.reader_catalogue") is None
+                assert (
+                    importlib.util.find_spec("comic_archive.reader_catalogue") is None
+                )
                 publish("80", "Setup original")
                 config = work / "synthetic-config.conf"
                 config.write_text("[b2]\ntype=b2\narchive_bucket=synthetic-library\n")
@@ -178,23 +216,40 @@ def main():
                 # upgraded edition below uses the ordinary direct writer too.
                 with patch.object(cloud, "direct_target", return_value=None):
                     publish("82", "Earlier installed edition")
-                receipt = next((library / ".archive-state/cloud/outbox/b2").glob("*.json"))
+                receipt = next(
+                    (library / ".archive-state/cloud/outbox/b2").glob("*.json")
+                )
                 raw = receipt.read_bytes()
                 record = json.loads(raw)
                 assert record["state"] == "verified" and record["eviction_requested"]
                 assert not (library / record["archive"]).exists()
                 originals = objects(ObjectData.folder)
-                assert len(originals) == 3 and not any("/.reader/" in name for name in originals)
-                write(state, {"episode": record["episode_id"], "old_receipt": base64.b64encode(raw).decode(),
-                              "originals": originals})
+                assert len(originals) == 3 and not any(
+                    "/.reader/" in name for name in originals
+                )
+                write(
+                    state,
+                    {
+                        "episode": record["episode_id"],
+                        "old_receipt": base64.b64encode(raw).decode(),
+                        "originals": originals,
+                    },
+                )
             else:
                 from comic_archive import reader_catalogue as catalogue
 
                 observed = json.loads(state.read_text())
-                receipt = library / ".archive-state/cloud/outbox/b2" / (observed["episode"] + ".json")
+                receipt = (
+                    library
+                    / ".archive-state/cloud/outbox/b2"
+                    / (observed["episode"] + ".json")
+                )
                 old = base64.b64decode(observed["old_receipt"], validate=True)
                 settings = cloud.settings(library)
-                lib, target = settings["library_id"], settings["targets"]["b2"]["target_id"]
+                lib, target = (
+                    settings["library_id"],
+                    settings["targets"]["b2"]["target_id"],
+                )
                 head = catalogue.state_path(library, lib, target, observed["episode"])
 
                 def selected():
@@ -208,16 +263,28 @@ def main():
                     ObjectData.lose_reply = True
                     publish("82", "Current installed edition")
                     record = json.loads(receipt.read_bytes())
-                    assert record["state"] == "verified" and record["eviction_requested"]
+                    assert (
+                        record["state"] == "verified" and record["eviction_requested"]
+                    )
                     assert not (library / record["archive"]).exists()
-                    assert not list((library / ".archive-state/cloud/direct/b2").glob("*.json"))
+                    assert not list(
+                        (library / ".archive-state/cloud/direct/b2").glob("*.json")
+                    )
                     pending = selected()["pending"]
-                    assert pending["revision"] == 2 and pending["title"] == "Current installed edition"
-                    observed.update(current_receipt=base64.b64encode(receipt.read_bytes()).decode(),
-                                    pending=pending, after_unknown_reply=objects(ObjectData.folder))
+                    assert (
+                        pending["revision"] == 2
+                        and pending["title"] == "Current installed edition"
+                    )
+                    observed.update(
+                        current_receipt=base64.b64encode(receipt.read_bytes()).decode(),
+                        pending=pending,
+                        after_unknown_reply=objects(ObjectData.folder),
+                    )
                     write(state, observed)
                 else:
-                    current = base64.b64decode(observed["current_receipt"], validate=True)
+                    current = base64.b64decode(
+                        observed["current_receipt"], validate=True
+                    )
                     assert receipt.read_bytes() == current
                     assert selected()["pending"] == observed["pending"]
                     assert cloud.upload_pending(library)["uploaded_episodes"] == 0
@@ -238,12 +305,29 @@ def main():
                     assert receipt.read_bytes() == current
                     final = selected()["committed"]
                     assert final["archive"]["bytes"] > 0
-                    key = (f"Comic-Archive/{lib}/{final['series_id']}/{final['episode_id']}/"
-                           f"{final['version']}/episode.cbz")
-                    assert fingerprint(ObjectData.path(key).read_bytes()) == final["archive"]["sha256"]
-                    assert len([name for name in objects(ObjectData.folder) if "/.reader/" in name]) == 2
+                    key = (
+                        f"Comic-Archive/{lib}/{final['series_id']}/{final['episode_id']}/"
+                        f"{final['version']}/episode.cbz"
+                    )
+                    assert (
+                        fingerprint(ObjectData.path(key).read_bytes())
+                        == final["archive"]["sha256"]
+                    )
+                    assert (
+                        len(
+                            [
+                                name
+                                for name in objects(ObjectData.folder)
+                                if "/.reader/" in name
+                            ]
+                        )
+                        == 2
+                    )
                 after = objects(ObjectData.folder)
-                assert all(after[name] == digest for name, digest in observed["originals"].items())
+                assert all(
+                    after[name] == digest
+                    for name, digest in observed["originals"].items()
+                )
         assert attempts == ["connect"], "Production flow attempted network I/O"
         assert {item.ident for item in threading.enumerate()} == original_threads
         for descriptor in Path("/proc/self/fd").iterdir():
@@ -251,17 +335,37 @@ def main():
                 target = descriptor.readlink()
             except FileNotFoundError:
                 continue
-            assert not str(target).startswith(str(library) + "/"), "Owned library descriptor remained open"
+            assert not str(target).startswith(str(library) + "/"), (
+                "Owned library descriptor remained open"
+            )
         for name, module in tuple(sys.modules.items()):
             if name.startswith("comic_archive") and getattr(module, "__file__", None):
                 assert Path(module.__file__).resolve(strict=True).is_relative_to(prefix)
-        forbidden = ("comic_archive.adapters", "comic_archive.cli", "comic_archive.session",
-                     "comic_archive.desktop_app", "comic_archive.app_runtime", "PIL", "PySide6", "playwright")
-        assert not any(name == value or name.startswith(value + ".") for name in sys.modules for value in forbidden)
-    result = {"phase": args.phase, "installed_package_bytes": True, "isolated_poisoned_cwd": True,
-              "runtime_distributions": len(actual_versions), "unexpected_network_connections": 0,
-              "owned_threads_and_library_descriptors_retired": True,
-              "object_transport": "synthetic filesystem DATA, not actual B2", "passed": True}
+        forbidden = (
+            "comic_archive.adapters",
+            "comic_archive.cli",
+            "comic_archive.session",
+            "comic_archive.desktop_app",
+            "comic_archive.app_runtime",
+            "PIL",
+            "PySide6",
+            "playwright",
+        )
+        assert not any(
+            name == value or name.startswith(value + ".")
+            for name in sys.modules
+            for value in forbidden
+        )
+    result = {
+        "phase": args.phase,
+        "installed_package_bytes": True,
+        "isolated_poisoned_cwd": True,
+        "runtime_distributions": len(actual_versions),
+        "unexpected_network_connections": 0,
+        "owned_threads_and_library_descriptors_retired": True,
+        "object_transport": "synthetic filesystem DATA, not actual B2",
+        "passed": True,
+    }
     write(work / (args.phase + "-result.json"), result)
     print(json.dumps(result), flush=True)
 
