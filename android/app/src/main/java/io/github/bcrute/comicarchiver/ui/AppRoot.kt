@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

@@ -121,7 +121,9 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                             }
                         }
                         if (file.b2Copy) {
-                            var browserFailed by rememberSaveable(file.key) { mutableStateOf(false) }
+                            var browserFailed by rememberSaveable(file.key, file.filename, file.series, file.storage) {
+                                mutableStateOf(false)
+                            }
                             Text("Cloud copy. Use your Backblaze account to browse this bucket.")
                             TextButton(onClick = {
                                 browserFailed = try {
