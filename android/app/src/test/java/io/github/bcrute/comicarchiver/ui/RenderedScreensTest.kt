@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
@@ -17,6 +18,8 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyChild
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
@@ -31,6 +34,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -67,6 +72,8 @@ import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
+import io.github.bcrute.comicarchiver.runtime.WorkingLibraryChoice
+import io.github.bcrute.comicarchiver.runtime.WorkingLibraryPhase
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -384,6 +391,102 @@ class RenderedScreensTest {
         compose.onNodeWithText("Open").performClick()
         assertEquals(listOf("a".repeat(64)), controller.openRequests)
         assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun repeatedArchiveActionsIdentifyTheirFilesAndOpenMatchingIds() {
+        val comic = SavedFileItem("a".repeat(64), "Shared title", "Chapter one", "first.cbz",
+            "Comic", "4 B", "This device", null, false, "a".repeat(64))
+        val novel = comic.copy(key = "b".repeat(64), filename = "second.epub", type = "Novel",
+            openId = "b".repeat(64))
+        val metadata = comic.copy(key = "metadata", filename = "chapter.json", type = "Data", openId = null)
+        val catalog = catalogFixture().let { it.copy(page = it.page!!.copy(
+            rows = listOf(comic, novel, metadata), total = 3, range = "Showing 1–3 of 3")) }
+        compose.setContent { MaterialTheme { SavedFilesScreen(catalog, { _, _ -> }, controller::openSavedFile) {} } }
+        for ((description, id) in listOf(
+            "Open Chapter one, Shared title. first.cbz. This device" to comic.openId,
+            "Open Chapter one, Shared title. second.epub. This device" to novel.openId,
+        )) {
+            compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
+            compose.onNodeWithContentDescription(description).assertIsDisplayed().assertIsEnabled()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)).performClick()
+            assertEquals(id, controller.openRequests.last())
+        }
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("chapter.json"))
+        compose.onNodeWithContentDescription("chapter.json", substring = true).assertDoesNotExist()
+        assertEquals(listOf(comic.openId, novel.openId), controller.openRequests)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun archiveActionsKeepContextAndDisableWhileOpeningThenRecover() {
+        val first = catalogFixture().page!!.rows.single()
+        val second = first.copy(key = "b".repeat(64), filename = "next.epub", type = "Novel", openId = "b".repeat(64))
+        val state = mutableStateOf(catalogFixture().let { it.copy(
+            page = it.page!!.copy(rows = listOf(first, second), total = 2), openingId = first.openId) })
+        compose.setContent { MaterialTheme { SavedFilesScreen(state.value, { _, _ -> }, controller::openSavedFile) {} } }
+        val opening = "Opening Chapter one, Synthetic series. chapter.cbz. This device"
+        val next = "Open Chapter one, Synthetic series. next.epub. This device"
+        for (description in listOf(opening, next)) {
+            compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
+            compose.onNodeWithContentDescription(description).assertIsNotEnabled()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        }
+        compose.runOnIdle { state.value = state.value.copy(openingId = null,
+            feedbackFor = first.openId, feedback = "No app could open this file. Choose a CBZ or EPUB reader and try again.") }
+        val retry = "Open Chapter one, Synthetic series. chapter.cbz. This device"
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(retry))
+        compose.onNodeWithText("No app could open this file. Choose a CBZ or EPUB reader and try again.").assertIsDisplayed()
+        compose.onNodeWithContentDescription(retry).assertIsEnabled().performClick()
+        assertEquals(listOf(first.openId), controller.openRequests)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun workingLibraryActionsIdentifyChoicesAndSelectTheirMatchingIds() {
+        val selected = mutableListOf<String>()
+        val choices = listOf(
+            WorkingLibraryChoice("default", "Original library", true, true, false),
+            WorkingLibraryChoice("copy-one", "Reading copy", false, true, true),
+            WorkingLibraryChoice("copy-two", "Reading copy (copy 2)", false, true, true),
+        )
+        compose.setContent { MaterialTheme { WorkingLibrariesScreen(
+            WorkingLibrariesState(enabled = true, choices = choices), WorkingLibraryActions(select = { selected.add(it) })) } }
+        for ((description, id) in listOf(
+            "Reopen working library: Original library" to "default",
+            "Use working library: Reading copy" to "copy-one",
+            "Use working library: Reading copy (copy 2)" to "copy-two",
+        )) {
+            compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(description))
+            compose.onNodeWithContentDescription(description).assertIsDisplayed().assertIsEnabled()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)).performClick()
+            assertEquals(id, selected.last())
+        }
+        assertEquals(choices.map { it.id }, selected)
+    }
+
+    @Test fun heldBusyAndUnavailableLibrariesKeepContextAndDisableSelection() {
+        val selected = mutableListOf<String>()
+        val initial = WorkingLibrariesState(enabled = true, choices = listOf(
+            WorkingLibraryChoice("default", "Original library", true, true, false),
+            WorkingLibraryChoice("unavailable", "Retained copy", false, false, true),
+        ))
+        val state = mutableStateOf(initial)
+        compose.setContent { MaterialTheme { WorkingLibrariesScreen(state.value, WorkingLibraryActions(select = { selected.add(it) })) } }
+        val current = "Reopen working library: Original library"
+        val unavailable = "Use working library: Retained copy"
+        for (blocked in listOf(initial.copy(pending = true), initial.copy(loading = true),
+            initial.copy(phase = WorkingLibraryPhase.SELECTING))) {
+            compose.runOnIdle { state.value = blocked }
+            for (description in listOf(current, unavailable)) {
+                compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(description))
+                compose.onNodeWithContentDescription(description).assertIsNotEnabled()
+                    .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            }
+        }
+        compose.runOnIdle { state.value = initial }
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(unavailable))
+        compose.onNodeWithContentDescription(unavailable).assertIsNotEnabled()
+        compose.onNodeWithTag("working-libraries").performScrollToNode(hasContentDescription(current))
+        compose.onNodeWithContentDescription(current).assertIsEnabled().performClick()
+        assertEquals(listOf("default"), selected)
     }
 
     @Test fun catalogFailureKeepsAnHonestRetryAndHidesStaleRows() {

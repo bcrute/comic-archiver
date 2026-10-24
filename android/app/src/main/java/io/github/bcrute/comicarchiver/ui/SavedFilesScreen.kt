@@ -26,6 +26,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.CatalogChoice
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
@@ -99,7 +101,11 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                         }
                         file.openId?.let { id ->
                             if (state.feedbackFor == id) state.feedback?.let { Text(it) }
-                            Button(onClick = { onOpen(id) }, enabled = state.openingId == null) {
+                            val action = if (state.openingId == id) "Opening" else "Open"
+                            Button(onClick = { onOpen(id) }, enabled = state.openingId == null,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "$action ${file.title}, ${file.series}. ${file.filename}. ${file.storage}"
+                                }) {
                                 Text(if (state.openingId == id) "Opening…" else "Open")
                             }
                         }

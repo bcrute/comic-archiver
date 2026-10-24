@@ -16,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibraryPhase
@@ -91,7 +93,12 @@ fun WorkingLibrariesScreen(state: WorkingLibrariesState, actions: WorkingLibrary
                 Text(choice.label, style = MaterialTheme.typography.titleMedium)
                 if (choice.current) Text("Current working library")
                 if (!choice.available) Text("This working copy is unavailable. Existing files are retained.")
-                OutlinedButton(onClick = { actions.select(choice.id) }, enabled = !state.busy && !state.pending && !state.loading && choice.available) {
+                OutlinedButton(onClick = { actions.select(choice.id) },
+                    enabled = !state.busy && !state.pending && !state.loading && choice.available,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (choice.current) "Reopen working library: ${choice.label}"
+                            else "Use working library: ${choice.label}"
+                    }) {
                     Text(if (choice.current) "Reopen working library" else "Use this working library")
                 }
             }
