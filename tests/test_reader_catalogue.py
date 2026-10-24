@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +16,6 @@ from comic_archive import reader_catalogue as catalogue
 from comic_archive.cloud import Transfer as RealTransfer
 from comic_archive.models import ArchiveError, Episode, Manifest, Page
 from comic_archive.publication import PublicationStore
-from contextlib import closing
 
 
 class ReaderCatalogueTests(unittest.TestCase):
@@ -125,11 +125,20 @@ class ReaderCatalogueTests(unittest.TestCase):
         record = self.receipt()
         library, target, path, transfer = self.context(record)
         # Use the real publication/provenance and upload writers for revision2.
-        episode = Episode('82', '42', 'Later published title', 82,
-                          (Page(1, 'https://cdn.test/a', False),), 'tapas_free')
+        episode = Episode(
+            "82",
+            "42",
+            "Later published title",
+            82,
+            (Page(1, "https://cdn.test/a", False),),
+            "tapas_free",
+        )
         with closing(PublicationStore(self.root)) as store:
-            store.archive(Manifest(self.series, (episode,)), helpers.MemoryAdapter(),
-                          progress=lambda _: None)
+            store.archive(
+                Manifest(self.series, (episode,)),
+                helpers.MemoryAdapter(),
+                progress=lambda _: None,
+            )
         public = catalogue.state_read(path, library, target, record["episode_id"])[
             "committed"
         ]

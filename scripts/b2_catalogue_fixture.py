@@ -8,8 +8,8 @@ import hashlib
 import json
 import os
 import sys
-from pathlib import Path
 from contextlib import closing
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
@@ -45,11 +45,20 @@ def main():
             + selected["version"]
             + "/episode.cbz"
         )
-        episode = Episode('82', '42', 'Chapter 82 — current edition', 82,
-                          (Page(1, 'https://cdn.test/a', False),), 'tapas_free')
+        episode = Episode(
+            "82",
+            "42",
+            "Chapter 82 — current edition",
+            82,
+            (Page(1, "https://cdn.test/a", False),),
+            "tapas_free",
+        )
         with closing(PublicationStore(case.root)) as store:
-            store.archive(Manifest(case.series, (episode,)), helpers.MemoryAdapter(),
-                          progress=lambda _: None)
+            store.archive(
+                Manifest(case.series, (episode,)),
+                helpers.MemoryAdapter(),
+                progress=lambda _: None,
+            )
         current = json.loads(
             (
                 case.root
