@@ -3,8 +3,12 @@
 Notes for building the app, checking a change and making a release. Using the app is covered in the
 [README](../README.md) and on the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest).
 
-Android is the next planned platform. Its implementation blocks, feasibility gates and release criteria are in
-the [Android delivery roadmap](android-roadmap.md). The commands below cover the existing desktop app.
+Android is under development. Its implementation blocks, evidence and release criteria are in
+the [Android delivery roadmap](android-roadmap.md). The built-in reader and the independently developed
+the web reader connection have their own scope and evidence in the
+[reader and connected-library roadmap](reader-and-connected-library-roadmap.md). Connected source-checkout
+acceptance does not qualify an Android reader or a public release. The commands below cover the existing
+desktop app.
 
 ## Why the history here is short
 
