@@ -26,15 +26,27 @@ class ConnectedCliTests(unittest.TestCase):
             master, slave = os.openpty()
             try:
                 args = [
-                    sys.executable, "-m", "comic_archive.connected", "serve",
-                    "--state", str(root / "host"), "--origin", "http://127.0.0.1:1",
-                    "--library", str(shared), str(root / "private/index.sqlite"),
-                    "--init", "--interactive",
+                    sys.executable,
+                    "-m",
+                    "comic_archive.connected",
+                    "serve",
+                    "--state",
+                    str(root / "host"),
+                    "--origin",
+                    "http://127.0.0.1:1",
+                    "--library",
+                    str(shared),
+                    str(root / "private/index.sqlite"),
+                    "--init",
+                    "--interactive",
                 ]
                 result = subprocess.run(
-                    args, stdin=subprocess.DEVNULL if input_pipe else slave,
+                    args,
+                    stdin=subprocess.DEVNULL if input_pipe else slave,
                     stdout=slave if input_pipe else subprocess.PIPE,
-                    stderr=subprocess.PIPE, timeout=10, check=False,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                    check=False,
                 )
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(b"Connected host unavailable", result.stderr)
