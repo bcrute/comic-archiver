@@ -165,6 +165,7 @@ class DesktopAppTests(unittest.TestCase):
 
         def pages(q, shell, actions):
             made = Mock(name='pages', actions=actions, state=SimpleNamespace(busy=False, message=None))
+            made.close_readers.side_effect = lambda then: then()
             self.pages.append(made)
             return made
         self.paint = Mock()
