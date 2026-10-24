@@ -31,6 +31,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
@@ -575,6 +576,39 @@ class RenderedScreensTest {
         compose.onNodeWithContentDescription(retry).assertIsEnabled().performClick()
         assertEquals(listOf(first.openId), controller.openRequests)
         assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun sameNamedWorkingLibrariesHaveDistinctActionsAndCanBeNamedWithoutSelection() {
+        val selected = mutableListOf<String>()
+        val renamed = mutableListOf<Pair<String, String>>()
+        val current = mutableStateOf(WorkingLibrariesState(enabled = true, choices = listOf(
+            WorkingLibraryChoice("default", "Original", true, true, false),
+            WorkingLibraryChoice("frozen", "Library", false, true, true),
+            WorkingLibraryChoice("illustrated", "Library", false, true, true),
+        )))
+        compose.setContent { MaterialTheme { WorkingLibrariesScreen(current.value,
+            WorkingLibraryActions(select = { selected.add(it) }, rename = { id, name ->
+                renamed.add(id to name)
+                current.value = current.value.copy(renamedId = id, choices = current.value.choices.map {
+                    if (it.id == id) it.copy(label = name) else it
+                })
+            })) } }
+        compose.onNodeWithContentDescription("Use working library: Library · working copy 2").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Use working library: Library · working copy 3").performScrollTo().assertIsDisplayed()
+        val rename = "Rename working library: Library · working copy 3"
+        compose.onNodeWithContentDescription(rename).performScrollTo().performClick()
+        compose.onNodeWithText("Library name").performTextReplacement("Cancelled")
+        compose.onNodeWithText("Cancel").performClick()
+        assertTrue(renamed.isEmpty())
+        compose.onNodeWithContentDescription(rename).performScrollTo().performClick()
+        compose.onNodeWithText("Library name").performTextReplacement("original")
+        compose.onNodeWithText("Save name").assertIsNotEnabled()
+        compose.onNodeWithText("Library name").performTextReplacement("Illustrated reader")
+        compose.onNodeWithText("Save name").performClick()
+        compose.onNodeWithText("Rename library").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Use working library: Illustrated reader").performScrollTo().performClick()
+        assertEquals(listOf("illustrated" to "Illustrated reader"), renamed)
+        assertEquals(listOf("illustrated"), selected)
     }
 
     @Test fun workingLibraryActionsIdentifyChoicesAndSelectTheirMatchingIds() {

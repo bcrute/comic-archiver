@@ -235,7 +235,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }, confirm = { working.confirm(it) }, stop = working::stop, discard = working::discard,
-                                retry = working::retry, select = working::select, refresh = working::refreshSource),
+                                retry = working::retry, select = working::select, refresh = working::refreshSource,
+                                rename = working::rename),
                             onPickFolder = {
                                 val current = controller.state.value
                                 if (current.workspaceReady && !current.siteBusy && !current.libraryBusy && current.site == appState.site && current.libraryId == appState.libraryId) {

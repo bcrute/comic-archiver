@@ -6,14 +6,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -25,11 +34,55 @@ import java.util.Locale
 
 data class WorkingLibraryActions(val load: () -> Unit = {}, val pick: () -> Unit = {},
     val confirm: (Boolean) -> Unit = {}, val stop: () -> Unit = {}, val discard: () -> Unit = {},
-    val retry: () -> Unit = {}, val select: (String) -> Unit = {}, val refresh: () -> Unit = {})
+    val retry: () -> Unit = {}, val select: (String) -> Unit = {}, val refresh: () -> Unit = {},
+    val rename: (String, String) -> Unit = { _, _ -> })
 
 @Composable
 fun WorkingLibrariesScreen(state: WorkingLibrariesState, actions: WorkingLibraryActions) {
     LaunchedEffect(Unit) { actions.load() }
+    val names = state.choices.groupingBy { it.label.lowercase(Locale.ROOT) }.eachCount()
+    fun displayName(index: Int): String = state.choices[index].let {
+        if ((names[it.label.lowercase(Locale.ROOT)] ?: 0) > 1) "${it.label} · working copy ${index + 1}" else it.label
+    }
+    var renameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var draft by rememberSaveable { mutableStateOf("") }
+    var requestedName by rememberSaveable { mutableStateOf<String?>(null) }
+    val renameIndex = state.choices.indexOfFirst { it.id == renameId }
+    LaunchedEffect(state.choices, state.loading, state.renamedId, requestedName) {
+        if (!state.loading && state.renamedId == renameId && requestedName != null &&
+            state.choices.any { it.id == renameId && it.label == requestedName }) {
+            renameId = null; requestedName = null
+        }
+    }
+    if (renameIndex >= 0) {
+        val choice = state.choices[renameIndex]
+        val label = draft.trim()
+        val duplicate = state.choices.any { it.id != choice.id && it.label.equals(label, ignoreCase = true) }
+        val valid = label.isNotBlank() && label.length <= 120 && label.none { it.code < 32 || it.code == 127 } && !duplicate
+        AlertDialog(
+            onDismissRequest = { if (!state.loading) { renameId = null; requestedName = null } },
+            title = { Text("Rename library") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(displayName(renameIndex))
+                    Text("Choose a name for this working copy. Its files and source folder stay where they are.")
+                    OutlinedTextField(value = draft, onValueChange = { draft = it.take(120); requestedName = null },
+                        label = { Text("Library name") }, singleLine = true, enabled = !state.loading,
+                        isError = duplicate, modifier = Modifier.fillMaxWidth())
+                    if (duplicate) Text("Another working library already uses that name.")
+                    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else if (requestedName != null) state.message?.let { Text(it) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = valid && !state.loading && !state.busy && !state.pending,
+                    onClick = { requestedName = label; actions.rename(choice.id, label) }) { Text("Save name") }
+            },
+            dismissButton = {
+                TextButton(enabled = !state.loading, onClick = { renameId = null; requestedName = null }) { Text("Cancel") }
+            },
+        )
+    }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp).testTag("working-libraries"),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -88,19 +141,23 @@ fun WorkingLibrariesScreen(state: WorkingLibrariesState, actions: WorkingLibrary
             if (state.phase == WorkingLibraryPhase.FAILED)
                 OutlinedButton(onClick = actions.load) { Text("Reload library choices") }
         }
-        items(state.choices, key = { it.id }) { choice ->
+        itemsIndexed(state.choices, key = { _, choice -> choice.id }) { index, choice ->
+            val title = displayName(index)
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(choice.label, style = MaterialTheme.typography.titleMedium)
+                Text(title, style = MaterialTheme.typography.titleMedium)
                 if (choice.current) Text("Current working library")
                 if (!choice.available) Text("This working copy is unavailable. Existing files are retained.")
                 OutlinedButton(onClick = { actions.select(choice.id) },
                     enabled = !state.busy && !state.pending && !state.loading && choice.available,
                     modifier = Modifier.semantics {
-                        contentDescription = if (choice.current) "Reopen working library: ${choice.label}"
-                            else "Use working library: ${choice.label}"
+                        contentDescription = if (choice.current) "Reopen working library: $title"
+                            else "Use working library: $title"
                     }) {
                     Text(if (choice.current) "Reopen working library" else "Use this working library")
                 }
+                TextButton(onClick = { renameId = choice.id; draft = choice.label; requestedName = null },
+                    enabled = !state.busy && !state.pending && !state.loading,
+                    modifier = Modifier.semantics { contentDescription = "Rename working library: $title" }) { Text("Rename") }
             }
         }
     }

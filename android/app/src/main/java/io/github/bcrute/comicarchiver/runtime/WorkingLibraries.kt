@@ -25,7 +25,7 @@ data class WorkingLibrariesState(val enabled: Boolean = false, val loading: Bool
     val phase: WorkingLibraryPhase = WorkingLibraryPhase.IDLE, val choices: List<WorkingLibraryChoice> = emptyList(),
     val preview: WorkingLibraryPreview? = null, val pending: Boolean = false, val pendingLabel: String? = null,
     val filesDone: Int = 0, val filesTotal: Int = 0, val bytesRead: Long = 0, val knownBytes: Long = 0,
-    val unknownSizes: Int = 0, val message: String? = null) {
+    val unknownSizes: Int = 0, val message: String? = null, val renamedId: String? = null) {
     val busy: Boolean get() = phase !in setOf(WorkingLibraryPhase.IDLE, WorkingLibraryPhase.HELD, WorkingLibraryPhase.FAILED)
 }
 
@@ -279,6 +279,26 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
                     choices = choices?.entries ?: _state.value.choices,
                     message = if (opened) null else "The working library could not be opened. The previous library is retained.")
                 release()
+            }
+        }
+    }
+
+    /** Names do not change a runtime context or need the downloader's location-change lease. */
+    fun rename(id: String, name: String) {
+        if (_state.value.busy || _state.value.loading || pending != null || running?.isActive == true || leased) return
+        val operation = ++generation
+        _state.value = _state.value.copy(loading = true, message = null, renamedId = null)
+        running = scope.launch(Dispatchers.IO) {
+            var failure: String? = null
+            try { locations.rename(id, name) } catch (error: Exception) { failure = words(error) }
+            val choices = runCatching { readChoices() }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (operation != generation) return@withContext
+                running = null
+                _state.value = _state.value.copy(loading = false,
+                    choices = choices?.entries ?: _state.value.choices,
+                    renamedId = if (failure == null && choices != null) id else null,
+                    message = failure ?: if (choices == null) "The name could not be read. Reload library choices." else "Library name saved.")
             }
         }
     }

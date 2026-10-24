@@ -8,8 +8,10 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
@@ -81,6 +83,31 @@ class WorkingLibraryActivityTest {
         await { app.controller.state.value.libraryId == "default" && !app.controller.state.value.libraryBusy }
         assertSame(exports, app.exports); assertEquals("retained original", sentinel.readText())
         assertTrue(selected.library.resolve("Series/chapter.cbz").isFile)
+    }
+
+    @Test fun renamingTheCurrentLibraryDoesNotSwitchItsContextOrStopItsWorker() {
+        ready(); enterPreview(); confirm()
+        val workspace = app.workspace
+        val oldName = app.libraryLocations.current().label
+        val bytes = workspace.library.resolve("Series/chapter.cbz").readBytes()
+        val exports = app.exports
+        compose.runOnIdle { app.controller.go() }
+        await { app.controller.state.value.download is DownloadState.Running }
+        val prepared = app.wire.count("prepare_workspace")
+        val stopped = app.wire.count("worker_stop")
+        compose.onNodeWithContentDescription("Rename working library: $oldName").performScrollTo().performClick()
+        compose.onNodeWithText("Library name").performTextReplacement("Named current library")
+        compose.onNodeWithText("Save name").performClick()
+        await { !app.workingLibraries.state.value.loading && app.libraryLocations.current().label == "Named current library" }
+        assertEquals(workspace, app.workspace)
+        assertSame(exports, app.exports)
+        assertEquals(prepared, app.wire.count("prepare_workspace"))
+        assertEquals(stopped, app.wire.count("worker_stop"))
+        assertEquals(1, app.wire.count("go"))
+        assertFalse(app.controller.state.value.libraryBusy)
+        assertTrue(app.controller.state.value.download is DownloadState.Running)
+        assertArrayEquals(bytes, workspace.library.resolve("Series/chapter.cbz").readBytes())
+        compose.runOnIdle { app.controller.pause() }
     }
 
     @Test fun cancellingAPreviewReleasesAdmissionAndAStalePickerCannotCreateACopy() {

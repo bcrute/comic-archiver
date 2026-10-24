@@ -36,6 +36,8 @@ internal enum class WorkingLibraryFailure(val words: String) {
     BUSY("Finish or cancel the library copy before choosing another folder."),
     STALE("This library choice has changed. Choose the folder again."),
     NOT_READY("The library copy has not finished verification. The previous library is retained."),
+    INVALID_NAME("Use a name with 1 to 120 characters and no control characters."),
+    NAME_USED("Another working library already uses that name. Choose a different name."),
 }
 
 internal class WorkingLibraryException(val failure: WorkingLibraryFailure) : IllegalStateException(failure.words)
@@ -207,6 +209,21 @@ internal class WorkingLibraryLocations(filesDir: File) {
         existingRoot(location)
         write(state.copy(active = id))
         location
+    }
+
+    /** Display metadata only: keep IDs, source bindings, active choice and every file root. */
+    fun rename(id: String, name: String): WorkingLibraryLocation = locked {
+        val state = read()
+        if (state.pending != null) fail(WorkingLibraryFailure.BUSY)
+        val label = name.trim()
+        if (label.isBlank() || label.length > 120 || label.any { it.code < 32 || it.code == 127 })
+            fail(WorkingLibraryFailure.INVALID_NAME)
+        val previous = state.libraries.singleOrNull { it.id == id } ?: fail(WorkingLibraryFailure.STALE)
+        if (state.libraries.any { it.id != id && it.label.equals(label, ignoreCase = true) })
+            fail(WorkingLibraryFailure.NAME_USED)
+        val renamed = previous.copy(label = label)
+        if (renamed != previous) write(state.copy(libraries = state.libraries.map { if (it.id == id) renamed else it }))
+        renamed
     }
 
     /** Rollback remembers the former choice even if its storage disappeared; no root is created or opened. */

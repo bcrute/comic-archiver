@@ -124,6 +124,50 @@ class WorkingLibraryLocationsTest {
         assertEquals(WorkingLibraryLocations.DEFAULT, locations.current().id)
     }
 
+    @Test fun renamingOnlyChangesTheDisplayLabelAndSurvivesColdReopen() {
+        val owner = temporary.newFolder("private")
+        val locations = WorkingLibraryLocations(owner)
+        val (pending, staged) = staged(locations)
+        val bytes = staged.readBytes()
+        locations.verified(pending.id, digest)
+        val completed = locations.complete(pending.id)
+        val root = locations.root(completed.id)
+        val named = locations.rename(completed.id, "  Reader fixtures  ")
+        assertEquals("Reader fixtures", named.label)
+        assertEquals(completed.id, named.id)
+        assertEquals(completed.source, named.source)
+        assertEquals(root, locations.root(named.id))
+        assertEquals("default", locations.activeId())
+        val cold = WorkingLibraryLocations(owner)
+        assertEquals(named, cold.libraries().single { it.id == completed.id })
+        assertEquals(named, cold.select(named.id))
+        cold.rename(named.id, "Chosen reader")
+        assertEquals(named.id, cold.activeId())
+        assertEquals(root, cold.root(named.id))
+        assertArrayEquals(bytes, root.resolve("Library/series/finished.cbz").readBytes())
+        assertEquals(1, org.json.JSONObject(owner.resolve("library-locations.json").readText()).getInt("v"))
+    }
+
+    @Test fun invalidOrDuplicateNamesAndPendingCopiesCannotAlterTheRegistry() {
+        val owner = temporary.newFolder("private")
+        val locations = WorkingLibraryLocations(owner)
+        val (pending, _) = staged(locations)
+        locations.verified(pending.id, digest)
+        val completed = locations.complete(pending.id)
+        val registry = owner.resolve("library-locations.json")
+        val before = registry.readBytes()
+        for (name in listOf(" ", "x".repeat(121), "bad\nname", "bad\u0000name"))
+            failure(WorkingLibraryFailure.INVALID_NAME) { locations.rename(completed.id, name) }
+        failure(WorkingLibraryFailure.NAME_USED) { locations.rename(completed.id, "this DEVICE") }
+        failure(WorkingLibraryFailure.STALE) { locations.rename("missing", "Unique name") }
+        assertArrayEquals(before, registry.readBytes())
+        val next = locations.begin("New copy", source, refresh = true) as WorkingLibraryStart.Copy
+        val held = registry.readBytes()
+        failure(WorkingLibraryFailure.BUSY) { locations.rename(completed.id, "No change") }
+        assertArrayEquals(held, registry.readBytes())
+        locations.cancel(next.pending.id)
+    }
+
     @Test fun anUnverifiedCopyCannotCompleteOrBecomeTheActiveRoot() {
         val owner = temporary.newFolder("private")
         val locations = WorkingLibraryLocations(owner)
