@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Android feasibility point: toolchain preflight (with job-private provisioning), pinned
-zstandard sdist, cp313 Android wheels built from that sdist with cibuildwheel (the builder
+"""Android fleet builds. The default dev-apk mode builds one phone APK from retained
+dependency wheels, with only the required toolchain and the existing debug signer.
+It runs no test suite, emulator, wheel build or release qualification.
+
+Explicit --phase all is final qualification after feature parity: toolchain preflight,
+pinned zstandard sdist, cp313 Android wheels built from that sdist with cibuildwheel (the builder
 Chaquopy's own documentation names for Python 3.13+), whole-app Gradle build installing the
 wheels through --find-links plus an exact requirement, and the in-app self-check on a
 job-owned emulator. Runs ONLY on a fleet host through the CI fleet helper, never locally.
@@ -350,9 +354,25 @@ def _sdk_build_packages(names, *, emulator_capable):
     return wanted
 
 
-def phase_provision():
+def _development_sdk_packages(names, build_script):
+    """Only the SDK inputs the app actually declares; no emulator or newest-NDK sweep."""
+    compile_sdk = re.search(r"^\s*compileSdk\s*=\s*(\d+)", build_script, re.MULTILINE)
+    ndk = re.search(r'^\s*ndkVersion\s*=\s*"([\d.]+)"', build_script, re.MULTILINE)
+    if compile_sdk is None or ndk is None:
+        raise ValueError("Development builds require explicit compileSdk and ndkVersion")
+    # This is AGP's required revision, already included by the full provisioner.
+    wanted = ["platform-tools", f"platforms;android-{compile_sdk[1]}",
+              "build-tools;35.0.0", f"ndk;{ndk[1]}"]
+    if not set(wanted) <= set(names):
+        raise ValueError("The declared Android build inputs are unavailable")
+    return wanted
+
+
+def phase_provision(*, development=False):
     """Provision job-private JDK, Android SDK tools, Gradle, host CPython 3.13 and cibuildwheel.
 
+    Development mode omits cibuildwheel and emulator inputs and uses the app's
+    declared platform/NDK plus AGP's required build tools.
     Everything lands under android/.fleet-sdk and is thrown away with the job; no host-global
     toolchain is created or modified. Every archive's committed sha256 is verified before it
     is extracted. Missing pieces are reported, never fatal here.
@@ -421,7 +441,7 @@ def phase_provision():
         steps["host_python"] = {"status": "installed" if python313.is_file() else "unavailable",
                                 "version": PINS["host_python"]["version"], "sha256": digest if ok else None}
     host_version = run_tool([python313, "--version"], timeout=120)["tail"].strip() if python313.is_file() else None
-    if python313.is_file() and not venv_python.is_file():
+    if not development and python313.is_file() and not venv_python.is_file():
         # pip requires the file's name to be a valid wheel name, so the pinned wheel keeps
         # its published one (observed attempt-4 failure: "Invalid wheel filename").
         wheel = TOOLS_DIR / f"downloads/cibuildwheel-{PINS['cibuildwheel']['version']}-py3-none-any.whl"
@@ -451,8 +471,9 @@ def phase_provision():
             steps["sdk_packages"] = {"status": "unavailable",
                                      "reason": "repository listing unfetchable over the Python path"}
         else:
-            emulator_capable = _emulator_capable()
-            wanted = _sdk_build_packages(packages, emulator_capable=emulator_capable)
+            emulator_capable = not development and _emulator_capable()
+            wanted = (_development_sdk_packages(packages, (REPO / "android/app/build.gradle.kts").read_text())
+                      if development else _sdk_build_packages(packages, emulator_capable=emulator_capable))
             installed, failures = [], {}
             for name in wanted:
                 ok, note = (_install_sdk_package(name, packages[name], sdk) if name in packages
@@ -479,9 +500,9 @@ def phase_provision():
              "cibuildwheel": str(TOOLS_DIR / "cibw-venv/bin/cibuildwheel")
              if (TOOLS_DIR / "cibw-venv/bin/cibuildwheel").is_file() else None,
              "host_python_version": host_version}
-    record("provision", "passed" if all(tools[key] for key in ("java", "sdk", "gradle", "python313",
-                                                               "cibuildwheel")) else "pending",
-           steps=steps, tools=tools)
+    required_tools = ("java", "sdk", "gradle", "python313") + (() if development else ("cibuildwheel",))
+    record("provision", "passed" if all(tools[key] for key in required_tools) else "pending",
+           steps=steps, tools=tools, development_only=development)
     return tools
 
 
@@ -1246,10 +1267,72 @@ def _verdict(required=REQUIRED_PHASES):
     return 3
 
 
+def development_apk(wheels):
+    """Build one installable phone APK. Tests and final qualification are separate work."""
+    required = ("provision", "debug_signing", "preflight", "development_apk")
+    artifacts = REPO.parent / "artifacts"
+    artifacts.mkdir(exist_ok=True)
+    code = 1
+    try:
+        if not os.environ.get(DEBUG_KEYSTORE_ENV) or not os.environ.get(DEBUG_CERT_SHA256_ENV):
+            raise ValueError("Use the private fleet configuration with the retained debug signing identity")
+        wheels = pathlib.Path(wheels).resolve(strict=True)
+        expected = {f"zstandard-{PINS['zstandard']['version']}-cp313-cp313-android_24_{abi}.whl"
+                    for abi in WHEEL_ABI_ARCHS}
+        if not wheels.is_dir() or not expected <= {path.name for path in wheels.glob("*.whl")}:
+            raise ValueError("Supply the retained cp313 Android dependency wheels for both app ABIs")
+        report["dependency_wheels"] = {name: hashlib.sha256((wheels / name).read_bytes()).hexdigest()
+                                        for name in sorted(expected)}
+        tools = phase_provision(development=True)
+        if report["phases"].get("provision", {}).get("status") != "passed":
+            code = _verdict(required)
+            return code
+        key = phase_debug_signing(tools)
+        if key is None:
+            code = _verdict(required)
+            return code
+        ready, paths = phase_preflight(tools)
+        if not ready:
+            code = _verdict(required)
+            return code
+        paths["debug_keystore"] = key
+        env, argv, _, _ = _gradle_invocation(paths, "assembleDebug", wheels)
+        result = run_tool(argv, timeout=1800, env_extra=env, keep_bytes=8000)
+        if result["returncode"] != 0 or not APK.is_file():
+            record("development_apk", "failed", **result)
+        else:
+            cert, diagnostics = _apk_signer_cert_sha256(paths["sdk"], paths["java"], APK, run_tool)
+            if cert != report["phases"]["debug_signing"]["cert_sha256"]:
+                record("development_apk", "failed", reason="APK does not retain the installed signing identity",
+                       signing_verifier=diagnostics)
+            else:
+                target = artifacts / APK.name
+                shutil.copyfile(APK, target)
+                record("development_apk", "passed", apk_sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+                       apk_bytes=target.stat().st_size, apk_cert_sha256=cert, artifact=str(target))
+        code = _verdict(required)
+    except (OSError, ValueError) as error:
+        record("development_apk", "failed", reason=str(error)[:400])
+    finally:
+        report.update(selected_required_phases=list(required), tests_run=False, final_qualification=False,
+                      verdict={0: "development_apk_ready", 1: "failed", 3: "pending"}[code])
+        text = json.dumps(report, indent=2)
+        (REPO / "android-development.json").write_text(text + "\n")
+        (artifacts / "android-development.json").write_text(text + "\n")
+        print(text)
+    return code
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase", default="all", choices=["all", "preflight", "sdist"])
+    parser.add_argument("--phase", default="dev-apk", choices=["dev-apk", "all", "preflight", "sdist"],
+                        help="dev-apk builds for phone work; all runs final qualification after parity")
+    parser.add_argument("--wheels", type=pathlib.Path, help="Retained Android wheels (required for dev-apk)")
     args = parser.parse_args()
+    if args.phase == "dev-apk":
+        if args.wheels is None:
+            parser.error("dev-apk needs --wheels; full qualification requires explicit --phase all after parity")
+        return development_apk(args.wheels)
     try:
         tools = phase_provision() if args.phase == "all" else {}
         # The managed keystore exists (or the job fails) before any Gradle run; an

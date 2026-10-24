@@ -1,6 +1,7 @@
 """Keep expensive fleet provisioning aligned with actual emulator capacity, without
 turning missing capacity into a qualification pass. No SDK/network/build is run here.
 """
+import io
 import json
 import pathlib
 import tempfile
@@ -26,6 +27,20 @@ class EmulatorCapacityTests(unittest.TestCase):
         self.assertIn("emulator", wanted)
         self.assertIn("system-images;android-36;google_apis;x86_64", wanted)
         self.assertNotIn("system-images;android-36;google_apis_ps16k;x86_64", wanted)
+
+    def test_development_sdk_uses_declared_app_inputs_without_emulator_or_newest_ndk(self):
+        wanted = feasibility._development_sdk_packages(
+            self.PACKAGES, 'compileSdk = 36\nndkVersion = "27.3.13750724"\n')
+        self.assertEqual(set(wanted), {"platform-tools", "platforms;android-36",
+                                       "ndk;27.3.13750724", "build-tools;35.0.0"})
+
+    def test_default_command_cannot_accidentally_start_full_qualification(self):
+        with patch('sys.argv', ['android_feasibility.py']), patch('sys.stderr', io.StringIO()), patch.object(
+                feasibility, 'phase_provision') as provision:
+            with self.assertRaises(SystemExit) as error:
+                feasibility.main()
+            self.assertEqual(error.exception.code, 2)
+            provision.assert_not_called()
 
     def test_skipped_provisioning_still_leaves_the_required_in_app_gate_pending(self):
         report = {"phases": {name: {"status": "passed"} for name in feasibility.REQUIRED_PHASES}}
