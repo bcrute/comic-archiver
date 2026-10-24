@@ -64,7 +64,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
-                  compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {}) {
+                  compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {},
+                  onSiteSpeed: (String, String) -> Unit = { _, _ -> }) {
     var savedPage by rememberSaveable { mutableStateOf("Downloads") }
     val page = selectedPage ?: savedPage
     val pageScroll = rememberScrollState()
@@ -80,9 +81,9 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
         }
         when (page) {
             "Libraries" -> WorkingLibrariesScreen(workingLibraries, workingLibraryActions)
-            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || !state.workspaceReady,
+            "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || state.signOutPending || !state.workspaceReady,
                 state.download is DownloadState.Running || state.download is DownloadState.Planning,
-                state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme)
+                state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme, onSiteSpeed)
             else -> {
                 val cloud = state.cloud
                 if (cloud == null) {

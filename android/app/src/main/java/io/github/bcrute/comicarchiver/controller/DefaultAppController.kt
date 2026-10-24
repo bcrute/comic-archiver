@@ -435,6 +435,11 @@ class DefaultAppController(
         changeSettings(JSONObject().put("speed", value))
     }
 
+    override fun setSiteDownloadSpeed(site: String, value: String) {
+        if (site == location.key) return
+        changeSettings(JSONObject().put("site_key", site).put("speed", value))
+    }
+
     override fun refreshCloud() {
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
         val target = location; val version = siteVersion
@@ -554,7 +559,8 @@ class DefaultAppController(
     }
 
     private fun changeSettings(args: JSONObject) {
-        if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
+        if (_state.value.libraryBusy || _state.value.siteBusy || _state.value.signOutPending ||
+            _state.value.settingsBusy || !workspaceReady) return
         val target = location; val version = siteVersion
         _state.value = _state.value.copy(settingsBusy = true, settingsNotice = null)
         scope.launch(Dispatchers.IO) {

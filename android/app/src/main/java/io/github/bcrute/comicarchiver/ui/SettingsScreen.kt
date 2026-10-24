@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver.ui
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +20,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +44,7 @@ fun SettingsScreen(
     onRefresh: () -> Unit,
     theme: AppTheme = AppTheme.SYSTEM,
     onTheme: (AppTheme) -> Unit = {},
+    onSiteSpeed: (String, String) -> Unit = { _, _ -> },
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -114,6 +122,29 @@ fun SettingsScreen(
                     Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before pressing Go.")
                 if (settings.speeds.any { it.key == "fast" && !it.available })
                     Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
+            }
+        }
+        if (settings.otherSites.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Other sites", style = MaterialTheme.typography.titleMedium)
+                Text("Save a speed choice without switching sites or starting a download. It applies the next time you press Go on that site.")
+                settings.otherSites.forEach { site ->
+                    var expanded by rememberSaveable(site.key) { mutableStateOf(false) }
+                    val label = site.speeds.firstOrNull { it.key == site.speed }?.label ?: "Unavailable"
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }, enabled = !busy && site.enabled,
+                            modifier = Modifier.fillMaxWidth()) { Text("${site.name} speed: $label") }
+                        DropdownMenu(expanded = expanded && !busy && site.enabled,
+                            onDismissRequest = { expanded = false }) {
+                            site.speeds.forEach { choice ->
+                                DropdownMenuItem(enabled = choice.available, text = { Text(choice.label) },
+                                    modifier = Modifier.semantics { contentDescription = "${choice.label} speed on ${site.name}" },
+                                    onClick = { expanded = false; onSiteSpeed(site.key, choice.key) })
+                            }
+                        }
+                    }
+                    site.notice?.let { Text(it) }
+                }
             }
         }
     }
