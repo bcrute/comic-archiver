@@ -129,7 +129,7 @@ class RenderedScreensTest {
         assertEquals("device", controller.catalogRequests.last().first.location)
         compose.onNode(hasText("Saving") and hasClickAction()).performClick()
         compose.onNodeWithText("Change saving destination").performScrollTo().performClick()
-        compose.onNodeWithText("Storage").assertIsSelected()
+        compose.onNode(hasText("Storage") and hasClickAction()).assertIsSelected()
         compose.onNodeWithText("View stored episodes on Backblaze B2").performScrollTo().performClick()
         compose.onNodeWithText("Files").assertIsSelected()
         assertEquals("b2", controller.catalogRequests.last().first.location)

@@ -699,7 +699,10 @@ class DefaultAppController(
                 engine.requireSignIn()
             if (download is DownloadState.Failed || download is DownloadState.Finished ||
                 download is DownloadState.Paused) admitted = false
-            _state.value = observed.copy(download = download)
+            // requireSignIn can synchronously publish a newer sign-in state. Apply
+            // this observation to that current state rather than restoring its old
+            // SignedIn value from the snapshot captured before the callback.
+            _state.value = _state.value.copy(download = download, observations = observation, statusReadFailed = false)
         }
     }
 
