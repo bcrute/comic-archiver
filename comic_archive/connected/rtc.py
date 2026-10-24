@@ -37,6 +37,12 @@ from .rpc import CONTROL_MAX
 from .wire import FRAME_MAX, WINDOW_MAX
 
 _CREATE = object()
+# Browser ICE can return a public candidate immediately but finish gathering
+# around40s on Android. Enclose its bounded60s gather plus signaling transit.
+OFFER_TIMEOUT = 65
+ANSWER_TIMEOUT = 20
+CONNECT_TIMEOUT = 20
+PEER_OPEN_TIMEOUT = OFFER_TIMEOUT + ANSWER_TIMEOUT + CONNECT_TIMEOUT + 5
 
 
 class _IceRetirement:
@@ -366,7 +372,7 @@ class HostPeer:
         )
         peer.task = asyncio.create_task(peer._run())
         try:
-            return await asyncio.wait_for(asyncio.shield(peer._ready), 45)
+            return await asyncio.wait_for(asyncio.shield(peer._ready), PEER_OPEN_TIMEOUT)
         except BaseException:
             peer.invalidate()
             # Caller cancellation never drops the actual negotiation/cleanup task.
@@ -460,7 +466,7 @@ class HostPeer:
             self._pc.on("datachannel", self._channel)
             self._pc.on("connectionstatechange", self._state)
             claims = await asyncio.wait_for(
-                self.controller.receive_signal(self.pairing_id), 20
+                self.controller.receive_signal(self.pairing_id), OFFER_TIMEOUT
             )
             require(
                 claims["kind"] == "offer" and self._runner.current(), "auth_required"
@@ -483,7 +489,7 @@ class HostPeer:
             self._ice_retirement = _IceRetirement.own(self._pc.sctp.transport.transport)
             self._limit_sctp()  # BEFORE local ICE/DTLS/SCTP can admit remote bytes.
             await asyncio.wait_for(
-                self._pc.setLocalDescription(await self._pc.createAnswer()), 20
+                self._pc.setLocalDescription(await self._pc.createAnswer()), ANSWER_TIMEOUT
             )
             self._local_sdp = self._pc.localDescription.sdp
             data_sdp(self._local_sdp)
@@ -495,7 +501,7 @@ class HostPeer:
                     sha256=hashlib.sha256(self._local_sdp.encode("utf-8")).hexdigest(),
                 ),
             )
-            until = asyncio.get_running_loop().time() + 20
+            until = asyncio.get_running_loop().time() + CONNECT_TIMEOUT
             while not self._physical_current():
                 require(
                     not self._stopped

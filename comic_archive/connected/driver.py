@@ -9,7 +9,7 @@ import asyncio
 from .controller import HostController
 from .files import SourceError
 from .jsoncodec import require
-from .rtc import configuration
+from .rtc import PEER_OPEN_TIMEOUT, configuration
 from .wire import _id
 
 _CREATE = object()
@@ -186,7 +186,7 @@ class HostDriver:
             require(asyncio.get_running_loop().time() < end, "connection_unavailable")
             await asyncio.sleep(0.02)
 
-    async def wait_peer(self, pairing_id, maximum=45):
+    async def wait_peer(self, pairing_id, maximum=PEER_OPEN_TIMEOUT + 5):
         _id(pairing_id)
         end = asyncio.get_running_loop().time() + maximum
         while True:
