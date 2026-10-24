@@ -179,7 +179,10 @@ class _Runner:
                     heartbeat = now
                     await self.transport.heartbeat()
                 deadline = self.transport.renewal_deadline
-                require(deadline is None or now < deadline, "revoked")
+                # Missing service renewal retires this live permission, but is
+                # not a durable revocation. Driver may reconnect after SAME-owner
+                # cleanup and fresh real service admission under saved consent.
+                require(deadline is None or now < deadline, "connection_unavailable")
                 if (
                     self.pending is None
                     and self.transport.binding is not None
