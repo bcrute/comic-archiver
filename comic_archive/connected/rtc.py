@@ -21,7 +21,12 @@ from aiortc import (
     RTCPeerConnection,
     RTCSessionDescription,
 )
-from aiortc.rtcsctptransport import uint32_gt
+from aiortc.rtcsctptransport import (
+    DataChunk,
+    RTCSctpTransport,
+    tsn_plus_one,
+    uint32_gt,
+)
 from aiortc.sdp import SessionDescription
 
 from .files import SourceError
@@ -115,6 +120,118 @@ class _IceRetirement:
             self.retiring = True
             self._closing = asyncio.create_task(self._drain())
         await asyncio.shield(self._closing)  # Unknown close remains retained.
+
+
+class _SctpReceiveBounds:
+    """Bound actual pinned-SDK bookkeeping before it retains a DATA chunk.
+
+    This per-transport adapter supplies no peer, permission or successful packet.
+    DTLS authentication, SCTP parsing and acknowledgements remain in aiortc.
+    """
+
+    MAX_STREAMS = 2
+    MAX_REASSEMBLY_PARTS = 128
+    MAX_MISORDERED = 128
+    MAX_DUPLICATES_PER_PACKET = 64
+
+    def __init__(self, token, transport, deny):
+        require(token is _CREATE and isinstance(transport, RTCSctpTransport))
+        self.transport, self._deny = transport, deny
+        self._original = transport._receive_data_chunk
+        self.denied, self.retired, self.peaks = None, False, self._measure()
+
+    @classmethod
+    def own(cls, transport, deny):
+        require(isinstance(transport, RTCSctpTransport))
+        require(version("aiortc") == "1.15.0", "unsupported_format")
+        require(
+            callable(deny)
+            and callable(transport._receive_data_chunk)
+            and getattr(transport._receive_data_chunk, "__self__", None) is transport
+            and isinstance(transport._inbound_streams, dict)
+            and isinstance(transport._sack_misordered, set)
+            and isinstance(transport._sack_duplicates, list)
+            and getattr(transport, "_ink_receive_bounds", None) is None
+        )
+        result = cls(_CREATE, transport, deny)
+        transport._ink_receive_bounds = result
+        transport._receive_data_chunk = result.receive
+        return result
+
+    def _measure(self):
+        pieces = [
+            part
+            for stream in self.transport._inbound_streams.values()
+            for part in stream.reassembly
+        ]
+        return dict(
+            streams=len(self.transport._inbound_streams),
+            parts=len(pieces),
+            bytes=sum(len(part.user_data) for part in pieces),
+            misordered=len(self.transport._sack_misordered),
+            duplicates=len(self.transport._sack_duplicates),
+        )
+
+    def sample(self):
+        return self._measure() | {
+            "denied": self.denied,
+            "retired": self.retired,
+            "peaks": dict(self.peaks),
+        }
+
+    def retire(self):
+        if self.retired:
+            return
+        self._observe()
+        self.transport._inbound_streams.clear()
+        self.transport._sack_misordered.clear()
+        self.transport._sack_duplicates.clear()
+        self.transport._sack_needed = False
+        self.retired = True
+
+    def _observe(self):
+        for name, value in self._measure().items():
+            self.peaks[name] = max(self.peaks[name], value)
+
+    async def receive(self, chunk):
+        if self.retired:
+            return
+        require(isinstance(chunk, DataChunk))
+        transport = self.transport
+        last = transport._last_received_tsn
+        duplicate = last is not None and (
+            not uint32_gt(chunk.tsn, last) or chunk.tsn in transport._sack_misordered
+        )
+        streams = transport._inbound_streams
+        pieces = [part for stream in streams.values() for part in stream.reassembly]
+        projected_misordered = (
+            not duplicate
+            and last is not None
+            and chunk.tsn != tsn_plus_one(last)
+            and len(transport._sack_misordered) >= self.MAX_MISORDERED
+        )
+        reason = None
+        if duplicate and len(transport._sack_duplicates) >= self.MAX_DUPLICATES_PER_PACKET:
+            reason = "duplicates"
+        elif projected_misordered:
+            reason = "misordered"
+        elif not duplicate and len(streams) + (chunk.stream_id not in streams) > self.MAX_STREAMS:
+            reason = "streams"
+        elif not duplicate and not 0 < len(chunk.user_data) <= CONTROL_MAX:
+            reason = "chunk_bytes"
+        elif not duplicate and len(pieces) >= self.MAX_REASSEMBLY_PARTS:
+            reason = "parts"
+        elif not duplicate and (
+            sum(len(part.user_data) for part in pieces) + len(chunk.user_data) > CONTROL_MAX
+        ):
+            reason = "reassembly_bytes"
+        if reason is not None:
+            self.denied = reason
+            self.retire()
+            self._deny()
+            return
+        await self._original(chunk)
+        self._observe()
 
 
 def data_sdp(text):
@@ -213,7 +330,7 @@ class HostPeer:
         self._incoming, self._channels = queue.Queue(maxsize=8), set()
         self._remote_sdp, self._local_sdp = None, None
         self._failure, self._native_close, self._cleaning = None, None, False
-        self._ice_retirement = None
+        self._ice_retirement, self._sctp_bounds = None, None
 
     @classmethod
     async def open(cls, controller, pairing_id, ice_servers=None):
@@ -274,6 +391,8 @@ class HostPeer:
     def invalidate(self):
         self._stopped = True
         self._gate.retire()
+        if self._sctp_bounds is not None:
+            self._sctp_bounds.retire()
         if self.worker is not None:
             self.worker.stop()
         # Network retirement is independent of a possibly blocked file read;
@@ -314,46 +433,9 @@ class HostPeer:
             self.invalidate()
 
     def _limit_sctp(self):
-        # Pinned aiortc1.15.0 source exposes decoded DATA before reassembly.
-        # Its advertised window alone does not reject over-window chunks. Keep
-        # this per-instance adapter small; all SCTP parsing/crypto stays in SDK.
         transport = self._pc.sctp
-        require(
-            transport is not None
-            and callable(transport._receive_data_chunk)
-            and isinstance(transport._inbound_streams, dict)
-        )
-        original = transport._receive_data_chunk
-
-        async def receive(chunk):
-            if self._stopped:
-                return
-            streams = transport._inbound_streams
-            duplicate = (
-                transport._last_received_tsn is not None
-                and not uint32_gt(chunk.tsn, transport._last_received_tsn)
-            ) or chunk.tsn in transport._sack_misordered
-            pieces = [part for stream in streams.values() for part in stream.reassembly]
-            if (
-                len(transport._sack_misordered) > 128
-                or len(transport._sack_duplicates) > 128
-                or len(streams) + (0 if chunk.stream_id in streams else 1) > 2
-                or not 0 < len(chunk.user_data) <= CONTROL_MAX
-                or (
-                    not duplicate
-                    and (
-                        len(pieces) >= 128
-                        or sum(len(part.user_data) for part in pieces)
-                        + len(chunk.user_data)
-                        > CONTROL_MAX
-                    )
-                )
-            ):
-                self.invalidate()
-                return
-            await original(chunk)
-
-        transport._receive_data_chunk = receive
+        require(transport is not None)
+        self._sctp_bounds = _SctpReceiveBounds.own(transport, self.invalidate)
 
     def _message(self, value):
         try:
