@@ -13,7 +13,7 @@ from unittest.mock import patch
 from comic_archive.android_local_reader import ReaderHost
 from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from comic_archive.local_reader import ReaderBook, ReadingError, ReadingSession, UNSUPPORTED
-from comic_archive.models import ArchiveError, Page
+from comic_archive.models import ArchiveError
 from test_app_bridge import app_bridge
 from test_local_reader import make_book, original_hashes
 
@@ -140,15 +140,16 @@ class AndroidReaderHostTests(unittest.TestCase):
     def test_chapter_and_illustrations_share_one_aggregate_budget_before_any_member_read(self):
         from io import BytesIO
         from PIL import Image
+        from comic_archive.novels import illustration_names
 
-        class Illustrations:
-            def retrieve(self, page):
-                stream = BytesIO()
-                Image.new('RGB', (160, 240), (page.order * 80, 40, 80)).save(stream, format='PNG')
-                return stream.getvalue()
-
-        path = make_book(self.library, novel=True, key='83', illustrations=(
-            Page(1, 'https://invalid.test/one', False), Page(2, 'https://invalid.test/two', False)), adapter=Illustrations())
+        images = []
+        for color in (80, 160):
+            stream = BytesIO()
+            Image.new('RGB', (160, 240), (color, 40, 80)).save(stream, format='PNG')
+            images.append(stream.getvalue())
+        illustrations = tuple(images)
+        text = '<p>Illustrated words.</p>' + ''.join(f'<img src="{name}" />' for name in illustration_names(illustrations))
+        path = make_book(self.library, novel=True, key='83', illustrations=illustrations, text=text)
         with closing(ReaderBook(self.library, path)) as book:
             text_size = book._members['EPUB/chapter.xhtml']['size']
             largest_image = max(row['size'] for name, row in book._members.items() if name.startswith('EPUB/images/'))
