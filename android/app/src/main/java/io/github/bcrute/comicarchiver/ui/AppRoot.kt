@@ -22,14 +22,17 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -42,6 +45,12 @@ import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
 import io.github.bcrute.comicarchiver.reader.LocalReaderState
+
+private class ReaderReturnFocus {
+    var renderedReaderId: String? = null
+    var requestedReaderId: String? = null
+    var closeHadInputFocus = false
+}
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -81,6 +90,21 @@ fun ComicArchiverAppRoot(
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
+    val native = LocalView.current
+    val readerFocus = remember(native) { ReaderReturnFocus() }
+    SideEffect {
+        val previous = readerFocus.renderedReaderId
+        readerFocus.renderedReaderId = localReader.id
+        if (previous != localReader.id) {
+            // Closing removes the focused reader control. Recover only the
+            // native owner of this explicit close, after navigation is mounted.
+            if (previous != null && localReader.id == null &&
+                readerFocus.requestedReaderId == previous && readerFocus.closeHadInputFocus &&
+                native.hasWindowFocus() && !native.hasFocus()) native.requestFocus()
+            readerFocus.requestedReaderId = null
+            readerFocus.closeHadInputFocus = false
+        }
+    }
 
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Downloads") }
@@ -110,7 +134,11 @@ fun ComicArchiverAppRoot(
     val tabScroll = rememberScrollState()
     val siteScroll = rememberScrollState()
     if (localReader.open) {
-        LocalReaderScreen(localReader, localReaderActions)
+        LocalReaderScreen(localReader, localReaderActions.copy(close = {
+            readerFocus.requestedReaderId = localReader.id
+            readerFocus.closeHadInputFocus = native.hasFocus()
+            localReaderActions.close()
+        }))
         return
     }
     if (signOutSite == state.site && signOutLibrary == state.libraryId && signOutAvailable) {

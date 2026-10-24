@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -29,6 +30,7 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
@@ -83,6 +86,10 @@ import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibraryChoice
 import io.github.bcrute.comicarchiver.runtime.WorkingLibraryPhase
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
+import io.github.bcrute.comicarchiver.reader.LocalReaderState
+import io.github.bcrute.comicarchiver.reader.LocalReaderMedia
+import io.github.bcrute.comicarchiver.reader.ReaderFixtures
+import io.github.bcrute.comicarchiver.reader.ReaderProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -580,6 +587,67 @@ class RenderedScreensTest {
         compose.onNodeWithContentDescription(retry).assertIsEnabled().performClick()
         assertEquals(listOf(first.openId), controller.openRequests)
         assertEquals(0, controller.goCalls)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun readerCloseRecoversLostNativeInputAndKeepsTabNavigation() {
+        val id = "c".repeat(32)
+        val book = ReaderProtocol.book(ReaderFixtures.book(id, "cbz"), id)
+        val unit = book.record.position.unit
+        val document = LocalReaderMedia.decode(ReaderFixtures.page(id, "cbz", unit), book, unit)
+        val reader = mutableStateOf(LocalReaderState())
+        controller.state.value = controller.state.value.copy(catalog = catalogFixture())
+        var closes = 0
+        lateinit var native: View
+        compose.setContent {
+            val current = LocalView.current
+            SideEffect { native = current }
+            MaterialTheme {
+                ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {},
+                    localReader = reader.value,
+                    onReadFile = { reader.value = LocalReaderState(id = id, book = book, document = document,
+                        position = book.record.position, preferences = book.record.preferences) },
+                    localReaderActions = LocalReaderActions(close = {
+                        closes++
+                        val focused = requireNotNull(native.findFocus())
+                        // Model the actual143 input-owner interruption during
+                        // close, using SDK34 without its automatic refocus.
+                        // This is not a TalkBack or real-device qualification.
+                        val clear = View::class.java.getDeclaredMethod("clearFocusInternal",
+                            View::class.java, java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
+                        clear.isAccessible = true
+                        clear.invoke(focused, focused, true, false)
+                        assertTrue(native.hasWindowFocus())
+                        assertTrue("The native input owner is interrupted", !native.hasFocus())
+                        reader.value = LocalReaderState(closing = true)
+                    }))
+            }
+        }
+        library()
+        compose.onNodeWithText("Files").performClick()
+        val description = "Read Chapter one, Synthetic series. chapter.cbz. This device"
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
+        compose.onNodeWithContentDescription(description).performClick()
+        compose.onNodeWithText("Close reader").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.runOnIdle {
+            assertTrue(native.hasWindowFocus())
+            assertTrue(native.hasFocus())
+        }
+        compose.onNodeWithText("Close reader").performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue("Returned navigation regains native input", native.hasFocus()) }
+        compose.onNodeWithTag("saved-files-list").assertIsDisplayed()
+        compose.onNode(hasText("Saving") and hasClickAction()).assertIsFocused()
+            .performKeyInput { keyDown(Key.Tab); keyUp(Key.Tab) }
+        compose.onNode(hasText("Library") and hasClickAction()).assertIsFocused()
+            .performKeyInput { keyDown(Key.Tab); keyUp(Key.Tab) }
+        compose.onNode(hasText("Settings") and hasClickAction()).assertIsFocused()
+            .performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
+        compose.onNodeWithText("Download speed").performScrollTo().assertIsDisplayed()
+        assertEquals(1, closes)
+        assertEquals(0, controller.goCalls)
+        assertEquals(0, controller.pauseCalls)
     }
 
     @Test
