@@ -9,8 +9,15 @@ LIFETIME_MS = 30 * DAY_MS
 WINDOW_MS = 7 * DAY_MS
 MIN_EXTENSION_MS = 22 * DAY_MS
 FIELDS = {
-    "pairing_id", "account_binding", "reader_keys", "approval_id", "shares",
-    "from_generation", "generation", "previous_expires_at", "token_expires_at",
+    "pairing_id",
+    "account_binding",
+    "reader_keys",
+    "approval_id",
+    "shares",
+    "from_generation",
+    "generation",
+    "previous_expires_at",
+    "token_expires_at",
 }
 
 
@@ -24,7 +31,9 @@ def validate(value, row=None, *, completed=False):
     require(value["generation"] == value["from_generation"] + 1)
     for name in ("previous_expires_at", "token_expires_at"):
         require(type(value[name]) is int and 0 <= value[name] <= 2**53 - 1)
-    require(value["token_expires_at"] - value["previous_expires_at"] >= MIN_EXTENSION_MS)
+    require(
+        value["token_expires_at"] - value["previous_expires_at"] >= MIN_EXTENSION_MS
+    )
     require(isinstance(value["shares"], list) and 1 <= len(value["shares"]) <= 16)
     for share in value["shares"]:
         _id(share)
@@ -36,6 +45,9 @@ def validate(value, row=None, *, completed=False):
         baseline = value["generation"] if completed else value["from_generation"]
         require(
             (row["generation"] == baseline and row["shares"] == value["shares"])
-            or (row["generation"] > value["generation"]
-                and row["shares"] == [share for share in value["shares"] if share in row["shares"]])
+            or (
+                row["generation"] > value["generation"]
+                and row["shares"]
+                == [share for share in value["shares"] if share in row["shares"]]
+            )
         )

@@ -250,15 +250,23 @@ class HostService:
 
     async def renew(self, pairing_id, *, receipt=False):
         self.current()
-        proof, intent, allow_start, proposed_local = self.owner.control_renewal(pairing_id, self.origin, receipt=receipt)
+        proof, intent, allow_start, proposed_local = self.owner.control_renewal(
+            pairing_id, self.origin, receipt=receipt
+        )
         try:
-            value = await self._request("POST", PREFIX + "/pairings/" + pairing_id + "/renew", proof)
+            value = await self._request(
+                "POST", PREFIX + "/pairings/" + pairing_id + "/renew", proof
+            )
         except SourceError as error:
             if error.code == "not_found":
                 raise SourceError("unsupported_format") from None
             raise
         self.current()
-        stored = self.owner.state.receipt(pairing_id) if receipt else self.owner.state.renewal(pairing_id)
+        stored = (
+            self.owner.state.receipt(pairing_id)
+            if receipt
+            else self.owner.state.renewal(pairing_id)
+        )
         require(stored == intent, "revoked")
         require(isinstance(value, dict) and value.get("pairing_id") == pairing_id)
         if value.get("status") != "committed":
@@ -267,20 +275,49 @@ class HostService:
         else:
             require(set(value) == {"pairing_id", "status", "acknowledgement"})
             ack = value["acknowledgement"]
-            require(isinstance(ack, dict) and set(ack) == {
-                "pairing_id", "approval_id", "generation", "shares", "host_token", "token_expires_at",
-            })
-            require(type(ack["generation"]) is int and type(ack["token_expires_at"]) is int)
-            require(all(ack[name] == intent[name] for name in (
-                "pairing_id", "approval_id", "token_expires_at",
-            )))
-            require((ack["generation"] == intent["generation"] and ack["shares"] == intent["shares"])
-                    or (ack["generation"] == proposed_local["generation"]
-                        and ack["generation"] > intent["generation"]
-                        and ack["shares"] == proposed_local["shares"]))
-            require(isinstance(ack["host_token"], str)
-                    and re.fullmatch(r"[0-9a-f]{64}", ack["host_token"]))
-            require(int(self.owner.wall() * 1000) < ack["token_expires_at"], "auth_required")
+            require(
+                isinstance(ack, dict)
+                and set(ack)
+                == {
+                    "pairing_id",
+                    "approval_id",
+                    "generation",
+                    "shares",
+                    "host_token",
+                    "token_expires_at",
+                }
+            )
+            require(
+                type(ack["generation"]) is int and type(ack["token_expires_at"]) is int
+            )
+            require(
+                all(
+                    ack[name] == intent[name]
+                    for name in (
+                        "pairing_id",
+                        "approval_id",
+                        "token_expires_at",
+                    )
+                )
+            )
+            require(
+                (
+                    ack["generation"] == intent["generation"]
+                    and ack["shares"] == intent["shares"]
+                )
+                or (
+                    ack["generation"] == proposed_local["generation"]
+                    and ack["generation"] > intent["generation"]
+                    and ack["shares"] == proposed_local["shares"]
+                )
+            )
+            require(
+                isinstance(ack["host_token"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", ack["host_token"])
+            )
+            require(
+                int(self.owner.wall() * 1000) < ack["token_expires_at"], "auth_required"
+            )
         return value  # Metadata, never a socket, approval or read lease.
 
     async def revoke(self, pairing_id):

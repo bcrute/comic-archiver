@@ -407,8 +407,11 @@ class HostController:
         intent = self.owner.state.renewal(pairing_id)
         if receipt is not None:
             observed = await self.service.renew(pairing_id, receipt=True)
-            require(observed["status"] == "committed"
-                    or (observed["status"] == "superseded" and intent is not None), "auth_required")
+            require(
+                observed["status"] == "committed"
+                or (observed["status"] == "superseded" and intent is not None),
+                "auth_required",
+            )
         if intent is not None:
             # No generic /approve, /scope or socket may consume this older row.
             # A concurrent unshare makes the signed request reconcile-only.
@@ -456,8 +459,10 @@ class HostController:
     def renewal_due(self, pairing_id):
         self.current()
         ack = self._acks.get(pairing_id)
-        return (ack is not None and 0 < ack["token_expires_at"]
-                - int(self.owner.wall() * 1000) <= WINDOW_MS)
+        return (
+            ack is not None
+            and 0 < ack["token_expires_at"] - int(self.owner.wall() * 1000) <= WINDOW_MS
+        )
 
     def approval(self, pairing_id):
         self.current()

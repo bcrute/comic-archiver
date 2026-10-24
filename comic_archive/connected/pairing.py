@@ -13,7 +13,8 @@ import uuid
 from .endpoint import reader_origin
 from .files import Index, SourceError
 from .jsoncodec import dumps, loads, require
-from .renewal import LIFETIME_MS, WINDOW_MS, validate as validate_renewal
+from .renewal import LIFETIME_MS, WINDOW_MS
+from .renewal import validate as validate_renewal
 from .signaling import SignalSession, _b64
 from .state import HostState
 from .wire import _id
@@ -336,33 +337,64 @@ class PairingOwner:
             return prior
         row = self._record(pairing_id)
         require(row is not None and row["status"] == "approved", "revoked")
-        require(all(acknowledgement[name] == row[name]
-                    for name in ("pairing_id", "approval_id", "generation", "shares")), "revoked")
+        require(
+            all(
+                acknowledgement[name] == row[name]
+                for name in ("pairing_id", "approval_id", "generation", "shares")
+            ),
+            "revoked",
+        )
         now = int(self.wall() * 1000)
         previous = acknowledgement["token_expires_at"]
         require(type(previous) is int and 0 < previous - now <= WINDOW_MS, "revoked")
-        intent = {name: row[name] for name in
-                  ("pairing_id", "account_binding", "reader_keys", "approval_id", "shares")}
-        intent.update(from_generation=row["generation"], generation=row["generation"] + 1,
-                      previous_expires_at=previous, token_expires_at=now + LIFETIME_MS)
+        intent = {
+            name: row[name]
+            for name in (
+                "pairing_id",
+                "account_binding",
+                "reader_keys",
+                "approval_id",
+                "shares",
+            )
+        }
+        intent.update(
+            from_generation=row["generation"],
+            generation=row["generation"] + 1,
+            previous_expires_at=previous,
+            token_expires_at=now + LIFETIME_MS,
+        )
         validate_renewal(intent, row)
         return self.state._prepare_renewal(intent)
 
     def control_renewal(self, pairing_id, origin, *, receipt=False):
         self.current()
-        intent = self.state.receipt(pairing_id) if receipt else self.state.renewal(pairing_id)
+        intent = (
+            self.state.receipt(pairing_id)
+            if receipt
+            else self.state.renewal(pairing_id)
+        )
         row = self._record(pairing_id)
         require(intent is not None, "revoked")
         validate_renewal(intent, row, completed=receipt)
         allow_start = not receipt and row["generation"] == intent["from_generation"]
         proof = self.state.identity.control_proof(
-            origin, "POST", f"/api/connected-library/v1/pairings/{pairing_id}/renew",
-            dict(intent, allow_start=allow_start,
-                 local_generation=row["generation"], local_shares=row["shares"]),
+            origin,
+            "POST",
+            f"/api/connected-library/v1/pairings/{pairing_id}/renew",
+            dict(
+                intent,
+                allow_start=allow_start,
+                local_generation=row["generation"],
+                local_shares=row["shares"],
+            ),
             int(self.wall() * 1000),
         )
         self.current()
-        stored = self.state.receipt(pairing_id) if receipt else self.state.renewal(pairing_id)
+        stored = (
+            self.state.receipt(pairing_id)
+            if receipt
+            else self.state.renewal(pairing_id)
+        )
         require(stored == intent and self._record(pairing_id) == row, "revoked")
         return proof, intent, allow_start, row
 

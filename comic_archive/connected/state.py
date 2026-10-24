@@ -55,8 +55,11 @@ def _validate(value):
     require(
         isinstance(value, dict)
         and value.get("format") in {FORMAT, RENEWAL_FORMAT}
-        and set(value) == ({"format", "revision", "identity", "pairings"}
-                           | ({"renewals", "renewed"} if value["format"] == RENEWAL_FORMAT else set()))
+        and set(value)
+        == (
+            {"format", "revision", "identity", "pairings"}
+            | ({"renewals", "renewed"} if value["format"] == RENEWAL_FORMAT else set())
+        )
     )
     _id(value["revision"])
     require(
@@ -293,8 +296,13 @@ class HostState:
             self.current()
             value = dict(self._data, pairings=pairs, revision=str(uuid.uuid4()))
             if renewals is not None:
-                value.update(format=RENEWAL_FORMAT, renewals=renewals,
-                             renewed=self._data.get("renewed", []) if renewed is None else renewed)
+                value.update(
+                    format=RENEWAL_FORMAT,
+                    renewals=renewals,
+                    renewed=self._data.get("renewed", [])
+                    if renewed is None
+                    else renewed,
+                )
             elif renewed is not None:
                 require(value["format"] == RENEWAL_FORMAT)
                 value["renewed"] = renewed
@@ -345,15 +353,27 @@ class HostState:
     def renewal(self, pairing_id):
         self.current()
         _id(pairing_id)
-        found = next((item for item in self._data.get("renewals", [])
-                      if item["pairing_id"] == pairing_id), None)
+        found = next(
+            (
+                item
+                for item in self._data.get("renewals", [])
+                if item["pairing_id"] == pairing_id
+            ),
+            None,
+        )
         return None if found is None else loads(dumps(found, 8192), 8192)
 
     def receipt(self, pairing_id):
         self.current()
         _id(pairing_id)
-        found = next((item for item in self._data.get("renewed", [])
-                      if item["pairing_id"] == pairing_id), None)
+        found = next(
+            (
+                item
+                for item in self._data.get("renewed", [])
+                if item["pairing_id"] == pairing_id
+            ),
+            None,
+        )
         return None if found is None else loads(dumps(found, 8192), 8192)
 
     def _prepare_renewal(self, intent):
@@ -381,8 +401,12 @@ class HostState:
             row["generation"] = intent["generation"]
         else:
             require(status in {"committed", "not_committed", "superseded"})
-        renewals = [item for item in self._data["renewals"] if item["pairing_id"] != pair]
-        renewed = [item for item in self._data.get("renewed", []) if item["pairing_id"] != pair]
+        renewals = [
+            item for item in self._data["renewals"] if item["pairing_id"] != pair
+        ]
+        renewed = [
+            item for item in self._data.get("renewed", []) if item["pairing_id"] != pair
+        ]
         if status == "committed":
             renewed.append(intent)
         elif self.receipt(pair) is not None:
@@ -444,10 +468,20 @@ class HostState:
         generation = max(row["generation"], intent["generation"] if intent else 0) + 1
         require(generation < 2**31, "resource_limit")
         row.update(status="revoked", generation=generation, shares=[])
-        renewals = ([item for item in self._data["renewals"] if item["pairing_id"] != pairing_id]
-                    if self._data["format"] == RENEWAL_FORMAT else None)
-        renewed = ([item for item in self._data["renewed"] if item["pairing_id"] != pairing_id]
-                   if self._data["format"] == RENEWAL_FORMAT else None)
+        renewals = (
+            [
+                item
+                for item in self._data["renewals"]
+                if item["pairing_id"] != pairing_id
+            ]
+            if self._data["format"] == RENEWAL_FORMAT
+            else None
+        )
+        renewed = (
+            [item for item in self._data["renewed"] if item["pairing_id"] != pairing_id]
+            if self._data["format"] == RENEWAL_FORMAT
+            else None
+        )
         self._commit(pairs, renewals, renewed)
         return True
 
@@ -458,7 +492,9 @@ class HostState:
         for row in pairs:
             if row["status"] == "approved" and share_id in row["shares"]:
                 intent = self.renewal(row["pairing_id"])
-                generation = max(row["generation"], intent["generation"] if intent else 0) + 1
+                generation = (
+                    max(row["generation"], intent["generation"] if intent else 0) + 1
+                )
                 require(generation < 2**31, "resource_limit")
                 row["shares"].remove(share_id)
                 row["generation"] = generation
@@ -466,12 +502,27 @@ class HostState:
                     row["status"] = "revoked"
                 changed = True
         if changed:
-            approved = {row["pairing_id"] for row in pairs if row["status"] == "approved"}
-            renewals = ([item for item in self._data["renewals"]
-                         if item["pairing_id"] in approved]
-                        if self._data["format"] == RENEWAL_FORMAT else None)
-            renewed = ([item for item in self._data["renewed"] if item["pairing_id"] in approved]
-                       if self._data["format"] == RENEWAL_FORMAT else None)
+            approved = {
+                row["pairing_id"] for row in pairs if row["status"] == "approved"
+            }
+            renewals = (
+                [
+                    item
+                    for item in self._data["renewals"]
+                    if item["pairing_id"] in approved
+                ]
+                if self._data["format"] == RENEWAL_FORMAT
+                else None
+            )
+            renewed = (
+                [
+                    item
+                    for item in self._data["renewed"]
+                    if item["pairing_id"] in approved
+                ]
+                if self._data["format"] == RENEWAL_FORMAT
+                else None
+            )
             self._commit(pairs, renewals, renewed)
         return changed
 
