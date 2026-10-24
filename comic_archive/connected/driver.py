@@ -112,6 +112,7 @@ class HostDriver:
     async def _serve(self, slot):
         try:
             while slot.enabled and not self.closed:
+                renewing = False
                 try:
                     self.current()
                     slot.phase = "starting"
@@ -119,6 +120,9 @@ class HostDriver:
                     runner = self.controller._runners[slot.pair]
                     slot.phase = "waiting"
                     while slot.enabled and not self.closed and runner.current():
+                        if self.controller.renewal_due(slot.pair):
+                            renewing, slot.phase = True, "renewing"
+                            break
                         if runner.peer is None and not runner.signals.empty():
                             slot.phase = "connecting"
                             await self.controller.open_peer(slot.pair, self._servers)
@@ -137,6 +141,8 @@ class HostDriver:
                 # No reconnect after an uncertain native close/join. Retain the
                 # SAME controller/task/worker/FD handles and require attention.
                 await self.controller.stop(slot.pair)
+                if renewing and slot.enabled and not self.closed:
+                    continue  # SAME availability task, fresh admission after rotation.
                 if slot.error in _ATTENTION:
                     slot.enabled = False
                 if not slot.enabled or self.closed:

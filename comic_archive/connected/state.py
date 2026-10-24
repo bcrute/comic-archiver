@@ -13,10 +13,12 @@ from pathlib import Path
 
 from .files import SharedRoot, SourceError, _directory
 from .jsoncodec import dumps, loads, require
+from .renewal import validate as validate_renewal
 from .signaling import Identity, _bundle, _identity_record, _restore_identity
 from .wire import _id
 
 FORMAT = "comic-archiver.connected-host/1"
+RENEWAL_FORMAT = "comic-archiver.connected-host/2"
 MAXIMUM = 1024**2
 PAIRINGS_MAX = 1024
 STATE = "host-state.json"
@@ -52,8 +54,9 @@ def _stamp(value):
 def _validate(value):
     require(
         isinstance(value, dict)
-        and set(value) == {"format", "revision", "identity", "pairings"}
-        and value["format"] == FORMAT
+        and value.get("format") in {FORMAT, RENEWAL_FORMAT}
+        and set(value) == ({"format", "revision", "identity", "pairings"}
+                           | ({"renewals", "renewed"} if value["format"] == RENEWAL_FORMAT else set()))
     )
     _id(value["revision"])
     require(
@@ -111,6 +114,19 @@ def _validate(value):
             require(pair["shares"])
         if pair["status"] == "revoked":
             require(not pair["shares"])
+
+    if value["format"] == RENEWAL_FORMAT:
+        rows = {row["pairing_id"]: row for row in value["pairings"]}
+        for collection in ("renewals", "renewed"):
+            renewals = value[collection]
+            require(isinstance(renewals, list) and len(renewals) <= len(seen))
+            pending = set()
+            for renewal in renewals:
+                validate_renewal(renewal)
+                pair = renewal["pairing_id"]
+                require(pair in rows and pair not in pending)
+                pending.add(pair)
+                validate_renewal(renewal, rows[pair], completed=collection == "renewed")
 
 
 class HostState:
@@ -270,12 +286,18 @@ class HostState:
         # Avoid serializing the whole1024-record store before every data frame.
         return None if row is None else loads(dumps(row, 8192), 8192)
 
-    def _commit(self, pairs):
+    def _commit(self, pairs, renewals=None, renewed=None):
         """Caller is the serialized local owner. No JSON reply is read authority."""
         temporary = old_fd = None
         try:
             self.current()
             value = dict(self._data, pairings=pairs, revision=str(uuid.uuid4()))
+            if renewals is not None:
+                value.update(format=RENEWAL_FORMAT, renewals=renewals,
+                             renewed=self._data.get("renewed", []) if renewed is None else renewed)
+            elif renewed is not None:
+                require(value["format"] == RENEWAL_FORMAT)
+                value["renewed"] = renewed
             _validate(value)
             encoded = dumps(value, MAXIMUM).encode("utf-8")
             temporary_name = ".pending-" + str(uuid.uuid4())
@@ -319,6 +341,53 @@ class HostState:
         finally:
             if old_fd is not None:
                 os.close(old_fd)
+
+    def renewal(self, pairing_id):
+        self.current()
+        _id(pairing_id)
+        found = next((item for item in self._data.get("renewals", [])
+                      if item["pairing_id"] == pairing_id), None)
+        return None if found is None else loads(dumps(found, 8192), 8192)
+
+    def receipt(self, pairing_id):
+        self.current()
+        _id(pairing_id)
+        found = next((item for item in self._data.get("renewed", [])
+                      if item["pairing_id"] == pairing_id), None)
+        return None if found is None else loads(dumps(found, 8192), 8192)
+
+    def _prepare_renewal(self, intent):
+        self.current()
+        row = self.record(intent["pairing_id"])
+        validate_renewal(intent, row)
+        require(row["generation"] == intent["from_generation"], "revoked")
+        prior = self.renewal(intent["pairing_id"])
+        if prior is not None:
+            require(prior == intent, "busy")
+            return prior
+        renewals = loads(dumps(self._data.get("renewals", []), MAXIMUM), MAXIMUM)
+        renewals.append(intent)
+        self._commit(self.records(), renewals)
+        return self.renewal(intent["pairing_id"])
+
+    def _finish_renewal(self, intent, status):
+        pair = intent["pairing_id"]
+        require(self.renewal(pair) == intent, "revoked")
+        pairs = self.records()
+        row = next((item for item in pairs if item["pairing_id"] == pair), None)
+        validate_renewal(intent, row)
+        if row["generation"] == intent["from_generation"]:
+            require(status == "committed", "revoked")
+            row["generation"] = intent["generation"]
+        else:
+            require(status in {"committed", "not_committed", "superseded"})
+        renewals = [item for item in self._data["renewals"] if item["pairing_id"] != pair]
+        renewed = [item for item in self._data.get("renewed", []) if item["pairing_id"] != pair]
+        if status == "committed":
+            renewed.append(intent)
+        elif self.receipt(pair) is not None:
+            renewed.append(self.receipt(pair))
+        self._commit(pairs, renewals, renewed)
 
     def _pending(self, pairing_id):
         _id(pairing_id)
@@ -371,9 +440,15 @@ class HostState:
         require(row is not None, "not_found")
         if row["status"] == "revoked":
             return False
-        require(row["generation"] < 2**31 - 1, "resource_limit")
-        row.update(status="revoked", generation=row["generation"] + 1, shares=[])
-        self._commit(pairs)
+        intent = self.renewal(pairing_id)
+        generation = max(row["generation"], intent["generation"] if intent else 0) + 1
+        require(generation < 2**31, "resource_limit")
+        row.update(status="revoked", generation=generation, shares=[])
+        renewals = ([item for item in self._data["renewals"] if item["pairing_id"] != pairing_id]
+                    if self._data["format"] == RENEWAL_FORMAT else None)
+        renewed = ([item for item in self._data["renewed"] if item["pairing_id"] != pairing_id]
+                   if self._data["format"] == RENEWAL_FORMAT else None)
+        self._commit(pairs, renewals, renewed)
         return True
 
     def remove_share(self, share_id):
@@ -382,14 +457,22 @@ class HostState:
         changed = False
         for row in pairs:
             if row["status"] == "approved" and share_id in row["shares"]:
-                require(row["generation"] < 2**31 - 1, "resource_limit")
+                intent = self.renewal(row["pairing_id"])
+                generation = max(row["generation"], intent["generation"] if intent else 0) + 1
+                require(generation < 2**31, "resource_limit")
                 row["shares"].remove(share_id)
-                row["generation"] += 1
+                row["generation"] = generation
                 if not row["shares"]:
                     row["status"] = "revoked"
                 changed = True
         if changed:
-            self._commit(pairs)
+            approved = {row["pairing_id"] for row in pairs if row["status"] == "approved"}
+            renewals = ([item for item in self._data["renewals"]
+                         if item["pairing_id"] in approved]
+                        if self._data["format"] == RENEWAL_FORMAT else None)
+            renewed = ([item for item in self._data["renewed"] if item["pairing_id"] in approved]
+                       if self._data["format"] == RENEWAL_FORMAT else None)
+            self._commit(pairs, renewals, renewed)
         return changed
 
     def retire_pending(self):

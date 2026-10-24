@@ -11,6 +11,7 @@ from .files import SourceError
 from .jsoncodec import dumps, loads, require
 from .pairing import ApprovalReview, PairingOwner
 from .rendezvous import HostRendezvous, UnclosedSocket
+from .renewal import WINDOW_MS
 from .service import HostService
 from .signaling import SignalSession
 from .wire import _id
@@ -396,9 +397,27 @@ class HostController:
             pairing_id, "reconcile", lambda: self._reconcile_approval(pairing_id)
         )
 
-    async def _reconcile_approval(self, pairing_id):
+    async def _reconcile_approval(self, pairing_id, depth=0):
         self.current()
+        require(depth < 3, "connection_unavailable")
         _id(pairing_id)
+        row = self.owner._record(pairing_id)
+        require(row is not None and row["status"] == "approved", "revoked")
+        receipt = self.owner.state.receipt(pairing_id)
+        intent = self.owner.state.renewal(pairing_id)
+        if receipt is not None:
+            observed = await self.service.renew(pairing_id, receipt=True)
+            require(observed["status"] == "committed"
+                    or (observed["status"] == "superseded" and intent is not None), "auth_required")
+        if intent is not None:
+            # No generic /approve, /scope or socket may consume this older row.
+            # A concurrent unshare makes the signed request reconcile-only.
+            result = await self.service.renew(pairing_id)
+            self.current()
+            self.owner.state._finish_renewal(intent, result["status"])
+            self._acks.pop(pairing_id, None)
+            row = self.owner._record(pairing_id)
+            require(row is not None and row["status"] == "approved", "revoked")
         row = self.owner._record(pairing_id)
         require(row is not None and row["status"] == "approved", "revoked")
         if row["generation"] == 0:
@@ -424,7 +443,21 @@ class HostController:
         self.current()
         require(self.owner._record(pairing_id) == row, "revoked")
         self._acks[pairing_id] = value
+        if self.renewal_due(pairing_id):
+            runner = self._runners.get(pairing_id)
+            if runner is not None:
+                runner.stop()  # Permission retirement precedes native intent IO.
+            await self.stop(pairing_id)
+            self.owner.prepare_renewal(pairing_id, value)
+            self._acks.pop(pairing_id, None)
+            return await self._reconcile_approval(pairing_id, depth + 1)
         return self.approval(pairing_id)
+
+    def renewal_due(self, pairing_id):
+        self.current()
+        ack = self._acks.get(pairing_id)
+        return (ack is not None and 0 < ack["token_expires_at"]
+                - int(self.owner.wall() * 1000) <= WINDOW_MS)
 
     def approval(self, pairing_id):
         self.current()
