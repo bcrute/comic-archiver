@@ -143,6 +143,14 @@ class MainActivity : ComponentActivity() {
                 val folderState by openedLibrary.state.collectAsState()
                 val working = remember { app.workingLibraries }
                 val workingState by working.state.collectAsState()
+                val reader = remember { app.localReader }
+                val readerState by reader.state.collectAsState()
+                LaunchedEffect(appState.site, appState.libraryId, appState.workspaceReady,
+                    appState.siteBusy, appState.libraryBusy) {
+                    val root = if (!appState.workspaceReady || appState.siteBusy || appState.libraryBusy) null
+                        else app.workspaceFor(appState.site, appState.libraryId).takeIf { it.available }?.root
+                    reader.contextChanged(root)
+                }
                 LaunchedEffect(Unit) { working.load() }
                 var workingPickerTicket by rememberSaveable { mutableStateOf<String?>(null) }
                 val chooseWorking = rememberLauncherForActivityResult(io.github.bcrute.comicarchiver.library.ReadOnlyLibraryTree()) { uri ->
@@ -180,6 +188,13 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
                         ComicArchiverAppRoot(
                             controller = controller,
+                            localReader = readerState,
+                            onReadFile = if (readerState.closing) null else reader::open,
+                            localReaderActions = io.github.bcrute.comicarchiver.ui.LocalReaderActions(
+                                close = { reader.close() }, previous = reader::previous, next = reader::next,
+                                bookmark = reader::bookmark, reload = reader::reload, jump = reader::navigate,
+                                preferences = reader::preferences, scrolled = reader::scrolled,
+                                dismissFeedback = reader::dismissFeedback),
                             notificationAccess = notificationAccess,
                             notificationError = notificationError,
                             onNotificationAccess = {

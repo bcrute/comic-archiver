@@ -43,6 +43,14 @@ open class App : Application() {
 
     private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val openedLibrary by lazy { io.github.bcrute.comicarchiver.library.OpenedLibrary(this, bridge, processScope) }
+    private val localReaderOwner = lazy {
+        io.github.bcrute.comicarchiver.reader.LocalReaderController(bridge, processScope) {
+            val state = controller.state.value
+            if (!state.workspaceReady || state.siteBusy || state.libraryBusy) null
+            else workspaceFor(state.site, state.libraryId).takeIf { it.available }?.root
+        }
+    }
+    internal val localReader get() = localReaderOwner.value
     private val sitePreferences by lazy { getSharedPreferences("comicarchiver_sites", MODE_PRIVATE) }
     private val profiles by lazy { SiteBrowserProfiles(signInSites) }
     private val probes = mutableMapOf<String, SignInProbe>()
@@ -210,6 +218,7 @@ open class App : Application() {
     }
 
     override fun onTerminate() {
+        if (localReaderOwner.isInitialized()) localReader.dispose()
         processScope.cancel()
         super.onTerminate()
     }

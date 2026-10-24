@@ -39,6 +39,6 @@ fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose:
             }
         }
     }
-    if (state.selected && !state.choosing) SavedFilesScreen(state.catalog, onQuery, onOpen, panel)
+    if (state.selected && !state.choosing) SavedFilesScreen(state.catalog, onQuery, onOpen, exportPanel = panel)
     else LazyColumn(Modifier.fillMaxSize().padding(16.dp)) { item { panel() } }
 }

@@ -57,6 +57,7 @@ fun LibraryScreen(
     compactEditing: Boolean = false,
     showFilesRequested: Boolean = false,
     onFilesRequestConsumed: () -> Unit = {},
+    onReadFile: ((String) -> Unit)? = null,
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
     LaunchedEffect(showFilesRequested) {
@@ -75,7 +76,7 @@ fun LibraryScreen(
             if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
-            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
+            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile, onReadFile) {
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
         }

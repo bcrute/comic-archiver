@@ -38,6 +38,7 @@ import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
+import io.github.bcrute.comicarchiver.reader.LocalReaderState
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -70,6 +71,9 @@ fun ComicArchiverAppRoot(
     notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
     notificationError: String? = null,
     onNotificationAccess: () -> Unit = {},
+    localReader: LocalReaderState = LocalReaderState(),
+    localReaderActions: LocalReaderActions = LocalReaderActions(),
+    onReadFile: ((String) -> Unit)? = null,
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
@@ -85,12 +89,16 @@ fun ComicArchiverAppRoot(
     val tabState = rememberSaveableStateHolder()
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.signIn is SignInState.Restoring
-    BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
+    BackHandler(enabled = !localReader.open && (tab != AppTab.SAVING || signingIn)) {
         if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val tabScroll = rememberScrollState()
     val siteScroll = rememberScrollState()
+    if (localReader.open) {
+        LocalReaderScreen(localReader, localReaderActions)
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // A landscape IME can leave less height than the navigation rows alone.
         // Keep the selected editor mounted; dismissing IME restores its navigation.
@@ -135,6 +143,13 @@ fun ComicArchiverAppRoot(
                 NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
             }
             if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
+            localReader.feedback?.let { message ->
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(message)
+                    if (localReader.closing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else TextButton(onClick = localReaderActions.dismissFeedback) { Text("Dismiss reading message") }
+                }
+            }
             tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
                 when (tab) {
                     AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
@@ -167,6 +182,7 @@ fun ComicArchiverAppRoot(
                             catalog = state.catalog,
                             onCatalogQuery = controller::loadCatalog,
                             onOpenFile = controller::openSavedFile,
+                            onReadFile = onReadFile,
                             exportState = exportState,
                             onPickFolder = onPickFolder,
                             onStartExport = onStartExport,

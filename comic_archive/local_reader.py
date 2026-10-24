@@ -21,6 +21,7 @@ from .models import ArchiveError
 MAX_RECORD = 64 * 1024
 MAX_MEMBERS = 20_000
 MAX_ARCHIVE = 8 * 1024**3
+MAX_RENDER = 64 * 1024**2
 READING_DIRECTORY = '.archive-state/reading'
 RECORD_NAME = re.compile(r'[a-f0-9]{64}\.json')
 _writers = threading.RLock()
@@ -160,6 +161,8 @@ class ReadingStore:
                     current = self.load(record['content_sha256'], record['kind'], record['units'])
                     if current['revision'] != expected_revision:
                         raise ReadingConflict()
+                    if record['revision'] >= 2**53 - 2:
+                        raise ReadingError(SAVE_FAILED)
                     record['revision'] += 1
                     atomic_json(self.folder / (record['content_sha256'] + '.json'), record)
                     osdep.sync_directory(self.folder)
@@ -231,12 +234,15 @@ class _MarkupBounds(HTMLParser):
 class ReaderBook:
     """Pinned read-only file; close retires active reads before releasing their descriptor."""
 
-    def __init__(self, library, path):
+    def __init__(self, library, path, *, max_member_bytes=MAX_RENDER, max_text_bytes=8 * 1024**2):
         self.path, self.library = Path(path).absolute(), Path(library).absolute()
         self._gate = threading.Lock()
         self._closed, self._readers = False, 0
         self._stream = self._zip = None
         try:
+            if (type(max_member_bytes) is not int or not 0 < max_member_bytes <= MAX_RENDER
+                    or type(max_text_bytes) is not int or not 0 < max_text_bytes <= MAX_RENDER):
+                raise ReadingError(UNSUPPORTED)
             _safe(self.path)
             _safe(self.library)
             if not self.path.is_relative_to(self.library) or self.path.suffix not in {'.cbz', '.epub'}:
@@ -254,6 +260,20 @@ class ReaderBook:
             records = metadata.get('content_hashes')
             if not isinstance(records, list) or not 0 < len(records) <= MAX_MEMBERS:
                 raise ValueError('Invalid membership')
+            if any(not isinstance(record, dict) or type(record.get('size')) is not int
+                   or record['size'] <= 0 for record in records):
+                raise ValueError('Invalid member size')
+            if any(record['size'] > max_member_bytes for record in records):
+                raise ReadingError(UNSUPPORTED)
+            if self.kind == 'epub':
+                text = [record for record in records if record.get('file') == 'EPUB/chapter.xhtml']
+                images = [record for record in records if isinstance(record.get('file'), str)
+                          and record['file'].startswith('EPUB/images/')]
+                if len(text) != 1:
+                    raise ValueError('Missing chapter')
+                if (text[0]['size'] > max_text_bytes or len(images) > 128
+                        or sum(record['size'] for record in [*text, *images]) > max_member_bytes):
+                    raise ReadingError(UNSUPPORTED)
             _zip_bounds(self._stream, info.st_size)
             if verify_episode_contents(self._stream, metadata):
                 raise ValueError('Archive verification failed')
@@ -295,6 +315,8 @@ class ReaderBook:
                 if self._closed:
                     raise ReadingError(UNAVAILABLE)
             self._check()
+        except ReadingError:
+            raise
         except Exception:
             raise ReadingError(UNAVAILABLE) from None
         finally:
@@ -313,10 +335,23 @@ class ReaderBook:
             raise ValueError('Member changed')
         return data
 
-    def render(self, unit):
+    def render(self, unit, *, max_bytes=MAX_RENDER, max_text_bytes=8 * 1024**2):
         if type(unit) is not int or not 0 <= unit < self.units:
             raise ReadingError(UNAVAILABLE)
+        if type(max_bytes) is not int or not 0 < max_bytes <= MAX_RENDER:
+            raise ReadingError(UNSUPPORTED)
+        if type(max_text_bytes) is not int or not 0 < max_text_bytes <= MAX_RENDER:
+            raise ReadingError(UNSUPPORTED)
         with self._reading():
+            names = [self._pages[unit]]
+            if self.kind == 'epub':
+                names.extend(name for name in self._members if name.startswith('EPUB/images/'))
+            # Refuse the aggregate before any decompression/allocation. A bounded
+            # individual member does not bound a chapter with many illustrations.
+            if (sum(self._members[name]['size'] for name in names) > max_bytes
+                    or self.kind == 'epub' and (len(names) > 129
+                        or self._members[names[0]]['size'] > max_text_bytes)):
+                raise ReadingError(UNSUPPORTED)
             data = self._read(self._pages[unit])
             if self.kind == 'cbz':
                 return {'kind': 'cbz', 'data': data}
@@ -344,8 +379,8 @@ class ReaderBook:
 
 
 class ReadingSession:
-    def __init__(self, library, path):
-        self.book = ReaderBook(library, path)
+    def __init__(self, library, path, **limits):
+        self.book = ReaderBook(library, path, **limits)
         self.store = ReadingStore(library)
         self.record = fresh_record(self.book.content, self.book.kind, self.book.units)
         self.warning = None

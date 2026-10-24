@@ -330,14 +330,14 @@ class LocalWorkspaceRegistry:
             raise DeviceFileOpenUnavailable('Device file opener is unavailable.') from None
         return {'status': 'open_requested'}
 
-    def open_reader(self, owner, workspace_id, export_id):
-        """A trusted desktop object, never a command exposed through the Android/site bridge."""
+    def open_reader(self, owner, workspace_id, export_id, **limits):
+        """Trusted in-process session; native callers project it without exposing paths or methods."""
         from .local_reader import ReadingSession
         workspace = self.resolve(owner, workspace_id)
         path, kind = self.resolve_export(owner, workspace_id, export_id)
         if kind not in {'cbz', 'epub'}:
             raise ArchiveError('Choose a completed comic or novel for reading.')
-        return ReadingSession(workspace.library, path)
+        return ReadingSession(workspace.library, path, **limits)
 
     def _prepare_desktop_download(self, owner, workspace_id):
         # Preserve the user's explicit cloud choice across Go, previews and

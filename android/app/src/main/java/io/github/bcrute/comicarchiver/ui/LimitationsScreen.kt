@@ -57,6 +57,8 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
             Limitation("On devices without isolated browser profiles, saved libraries remain available; sign-in needs an updated Android System WebView.")
             Limitation("Tapas Recent and Free Episodes discovery and Fast mode need an updated Android System WebView. Settings shows whether Fast can run on this device.")
             Limitation("Saving uses unmetered connections by default. Settings lets you allow mobile data.")
+            Limitation("Read here opens verified comics and novels in your working library without signing in. Open uses another reader. Very large pages or chapters may need Open.")
+            Limitation("Reading positions and bookmarks stay with the working library. Export copies finished archives; it does not copy reading progress.")
             Limitation(
                 "After an app update or process restart, saving waits until you press Go. " +
                     "Returning to an active save keeps its progress visible.",
