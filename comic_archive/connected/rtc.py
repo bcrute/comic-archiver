@@ -372,7 +372,9 @@ class HostPeer:
         )
         peer.task = asyncio.create_task(peer._run())
         try:
-            return await asyncio.wait_for(asyncio.shield(peer._ready), PEER_OPEN_TIMEOUT)
+            return await asyncio.wait_for(
+                asyncio.shield(peer._ready), PEER_OPEN_TIMEOUT
+            )
         except BaseException:
             peer.invalidate()
             # Caller cancellation never drops the actual negotiation/cleanup task.
@@ -489,7 +491,8 @@ class HostPeer:
             self._ice_retirement = _IceRetirement.own(self._pc.sctp.transport.transport)
             self._limit_sctp()  # BEFORE local ICE/DTLS/SCTP can admit remote bytes.
             await asyncio.wait_for(
-                self._pc.setLocalDescription(await self._pc.createAnswer()), ANSWER_TIMEOUT
+                self._pc.setLocalDescription(await self._pc.createAnswer()),
+                ANSWER_TIMEOUT,
             )
             self._local_sdp = self._pc.localDescription.sdp
             data_sdp(self._local_sdp)
