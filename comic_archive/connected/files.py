@@ -363,7 +363,11 @@ def _standalone(source):
                 name = unicodedata.normalize("NFC", member.filename)
                 parts = name.removesuffix("/").split("/")
                 image = name.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
-                inert = parts[-1].lower() in {"comicinfo.xml", "metadata.json", ".ds_store"}
+                inert = parts[-1].lower() in {
+                    "comicinfo.xml",
+                    "metadata.json",
+                    ".ds_store",
+                }
                 _require(
                     member.orig_filename == member.filename
                     and len(name.encode("utf-16-le")) // 2 <= 240
@@ -372,15 +376,20 @@ def _standalone(source):
                     and all(part not in {"", ".", ".."} for part in parts)
                     and name.lower() not in names
                     and not member.flag_bits & ~0x808
-                    and member.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+                    and member.compress_type
+                    in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
                     and stat.S_IFMT(member.external_attr >> 16) != stat.S_IFLNK
                     and 0 <= member.file_size <= ENTRY_MAX
                     and 0 <= member.compress_size <= ENTRY_MAX
-                    and (member.compress_type != zipfile.ZIP_STORED
-                         or member.file_size == member.compress_size)
-                    and ((member.is_dir() and member.file_size == 0)
-                         or (image and member.file_size > 0)
-                         or (inert and member.file_size <= 65536)),
+                    and (
+                        member.compress_type != zipfile.ZIP_STORED
+                        or member.file_size == member.compress_size
+                    )
+                    and (
+                        (member.is_dir() and member.file_size == 0)
+                        or (image and member.file_size > 0)
+                        or (inert and member.file_size <= 65536)
+                    ),
                     "unsupported_format",
                 )
                 # Match the decoder's central-extra exclusions, including names
@@ -390,7 +399,7 @@ def _standalone(source):
                     _require(len(extra) >= 4)
                     kind, size = struct.unpack("<HH", extra[:4])
                     _require(kind not in {1, 0x7075} and size <= len(extra) - 4)
-                    extra = extra[4 + size:]
+                    extra = extra[4 + size :]
                 names.add(name.lower())
                 images += int(image and not member.is_dir())
                 total += member.file_size
@@ -406,7 +415,14 @@ def _standalone(source):
                         _require(size <= member.file_size)
                 _require(size == member.file_size)
         source.current()
-    except (ValueError, UnicodeError, OSError, RuntimeError, zipfile.BadZipFile, zlib.error):
+    except (
+        ValueError,
+        UnicodeError,
+        OSError,
+        RuntimeError,
+        zipfile.BadZipFile,
+        zlib.error,
+    ):
         raise SourceError("integrity_failed") from None
 
 
@@ -504,7 +520,10 @@ class Index:
                     self.root, str(PurePosixPath(relative).with_suffix(".json"))
                 )
                 _completed(source, metadata)
-                title, chapter = _label(metadata.get("title")), metadata.get("episode_number")
+                title, chapter = (
+                    _label(metadata.get("title")),
+                    metadata.get("episode_number"),
+                )
                 if type(chapter) is not int or not 0 <= chapter < 2**31:
                     chapter = None
             digest = source.sha256()

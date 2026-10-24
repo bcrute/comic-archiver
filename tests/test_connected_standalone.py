@@ -41,7 +41,10 @@ class StandaloneTests(unittest.TestCase):
             for key, value in members or [
                 ("pages/", b""),
                 ("pages/001.png", PNG),
-                ("ComicInfo.xml", b"<ComicInfo>https://never-fetch.invalid/</ComicInfo>"),
+                (
+                    "ComicInfo.xml",
+                    b"<ComicInfo>https://never-fetch.invalid/</ComicInfo>",
+                ),
             ]:
                 output.writestr(key, value)
         return target
@@ -56,14 +59,18 @@ class StandaloneTests(unittest.TestCase):
         self.assertIsNone(record["chapter_order"])
         self.assertEqual(record["sha256"], hashlib.sha256(before).hexdigest())
         revision = self.index.revision
-        self.assertEqual(self.index.register_standalone(target.name, "My library"), record)
+        self.assertEqual(
+            self.index.register_standalone(target.name, "My library"), record
+        )
         self.assertEqual(self.index.revision, revision)
         selected = read_source(self.index)
         self.addCleanup(selected.close)
         reader = selected.open()
         self.addCleanup(reader.root.close)
         self.addCleanup(reader.close)
-        self.assertEqual(reader.describe(record["book_id"], record["content_version"]), record)
+        self.assertEqual(
+            reader.describe(record["book_id"], record["content_version"]), record
+        )
         for method in (reader.register_completed, reader.register_standalone):
             with self.assertRaises(SourceError) as refused:
                 method(target.name, "My library")
@@ -81,16 +88,22 @@ class StandaloneTests(unittest.TestCase):
 
     def test_malformed_names_metadata_duplicates_and_crc_do_not_change_catalogue(self):
         for members in [
-            [("../page.png", PNG)], [("/page.png", PNG)], [("a\\page.png", PNG)],
+            [("../page.png", PNG)],
+            [("/page.png", PNG)],
+            [("a\\page.png", PNG)],
             [("page.png", PNG), ("PAGE.PNG", PNG)],
-            [("x/../page.png", PNG)], [("page.gif", PNG)],
+            [("x/../page.png", PNG)],
+            [("page.gif", PNG)],
             [("ComicInfo.xml", b"inert but no page")],
             [("page.png", PNG), ("script.js", b"alert(1)")],
             [("page.png", PNG), ("metadata.json", b"x" * 65537)],
             [("page.png", b"")],
         ]:
             self.archive(members=members)
-            with self.subTest(names=[name for name, _ in members]), self.assertRaises(SourceError):
+            with (
+                self.subTest(names=[name for name, _ in members]),
+                self.assertRaises(SourceError),
+            ):
                 self.index.register_standalone("My issue.cbz", "Series")
             self.assertEqual(self.index.snapshot()[1], [])
         target = self.archive(members=[("page.png", PNG)])
@@ -107,7 +120,7 @@ class StandaloneTests(unittest.TestCase):
         target = self.archive()
         raw = bytearray(target.read_bytes())
         tail = raw.rfind(b"PK\x05\x06")
-        raw[tail + 8:tail + 12] = b"\xff\xff\xff\xff"
+        raw[tail + 8 : tail + 12] = b"\xff\xff\xff\xff"
         target.write_bytes(raw)
         with patch("comic_archive.connected.files.zipfile.ZipFile") as opening:
             with self.assertRaises(SourceError):
@@ -123,7 +136,9 @@ class StandaloneTests(unittest.TestCase):
         first = self.index.register_standalone(target.name, "Series")
         source = self.index.open_original(first["book_id"], first["content_version"])
         self.addCleanup(source.close)
-        replacement = self.archive("replacement.cbz", [("page.png", PNG), ("metadata.json", b"{}")])
+        replacement = self.archive(
+            "replacement.cbz", [("page.png", PNG), ("metadata.json", b"{}")]
+        )
         os.replace(replacement, target)
         with self.assertRaises(SourceError):
             source.chunk(0, 1)
@@ -133,9 +148,21 @@ class StandaloneTests(unittest.TestCase):
 
     def test_cli_requires_explicit_opt_in_and_does_not_invoke_retrieval(self):
         target = self.archive()
-        command = [sys.executable, "-m", "comic_archive.connected", "index", "--root",
-                   str(self.folder), "--index", str(self.index.path), "--series", "Series"]
-        refused = subprocess.run([*command, target.name], capture_output=True, check=False)
+        command = [
+            sys.executable,
+            "-m",
+            "comic_archive.connected",
+            "index",
+            "--root",
+            str(self.folder),
+            "--index",
+            str(self.index.path),
+            "--series",
+            "Series",
+        ]
+        refused = subprocess.run(
+            [*command, target.name], capture_output=True, check=False
+        )
         self.assertEqual(refused.returncode, 1)
         self.assertEqual(refused.stdout, b"")
         output = io.StringIO()
@@ -148,9 +175,13 @@ class StandaloneTests(unittest.TestCase):
 
     def test_genuine_earlier_producer_and_reader_open_both_current_record_types(self):
         fixture = Path(__file__).parent / "fixtures/connected-index-v1/files_4caa2e9.py"
-        self.assertEqual(hashlib.sha256(fixture.read_bytes()).hexdigest(),
-                         "1930e938c08e7fc9cd84696f288d806f713d4de17eef5444f154699da717f19c")
-        spec = importlib.util.spec_from_file_location("connected_index_4caa2e9", fixture)
+        self.assertEqual(
+            hashlib.sha256(fixture.read_bytes()).hexdigest(),
+            "1930e938c08e7fc9cd84696f288d806f713d4de17eef5444f154699da717f19c",
+        )
+        spec = importlib.util.spec_from_file_location(
+            "connected_index_4caa2e9", fixture
+        )
         earlier = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = earlier
         self.addCleanup(sys.modules.pop, spec.name)
@@ -158,11 +189,25 @@ class StandaloneTests(unittest.TestCase):
         target = self.archive("completed.cbz", [("001.png", PNG)])
         import uuid
 
-        target.with_suffix(".json").write_text(json.dumps(dict(
-            schema_version=2, format="cbz", content_type="comic", export_id=str(uuid.uuid4()),
-            title="Earlier producer", page_count=1,
-            content_hashes=[dict(file="001.png", size=len(PNG), sha256=hashlib.sha256(PNG).hexdigest())],
-        )))
+        target.with_suffix(".json").write_text(
+            json.dumps(
+                dict(
+                    schema_version=2,
+                    format="cbz",
+                    content_type="comic",
+                    export_id=str(uuid.uuid4()),
+                    title="Earlier producer",
+                    page_count=1,
+                    content_hashes=[
+                        dict(
+                            file="001.png",
+                            size=len(PNG),
+                            sha256=hashlib.sha256(PNG).hexdigest(),
+                        )
+                    ],
+                )
+            )
+        )
         old_root = earlier.SharedRoot(self.folder)
         self.addCleanup(old_root.close)
         old = earlier.Index(self.base / "prior/index.sqlite", old_root)
@@ -170,7 +215,9 @@ class StandaloneTests(unittest.TestCase):
         prior = old.register_completed(target.name, "Series")
         current = Index(old.path, self.root)
         self.addCleanup(current.close)
-        self.assertEqual(current.describe(prior["book_id"], prior["content_version"]), prior)
+        self.assertEqual(
+            current.describe(prior["book_id"], prior["content_version"]), prior
+        )
         generic = self.archive()
         new = current.register_standalone(generic.name, "Series")
         self.assertEqual(old.describe(new["book_id"], new["content_version"]), new)

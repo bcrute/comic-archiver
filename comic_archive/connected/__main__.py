@@ -85,7 +85,11 @@ def register(args):
     try:
         index = Index(args.index, root)
         for book in args.books:
-            register_book = index.register_standalone if args.standalone else index.register_completed
+            register_book = (
+                index.register_standalone
+                if args.standalone
+                else index.register_completed
+            )
             record = register_book(book, args.series)
             emit(
                 dict(
