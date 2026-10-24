@@ -339,7 +339,7 @@ def _completed(source, metadata):
                     size == member.file_size and digest.hexdigest() == page["sha256"]
                 )
         source.current()
-    except (KeyError, TypeError, ValueError, OSError, RuntimeError, zipfile.BadZipFile):
+    except (KeyError, TypeError, ValueError, OSError, RuntimeError, zipfile.BadZipFile, zlib.error):
         raise SourceError("integrity_failed") from None
 
 
@@ -433,18 +433,19 @@ class Index:
     this object is not a cross-thread cancellation or process-lifecycle owner.
     """
 
-    def __init__(self, path, root):
+    def __init__(self, path, root, *, create=True):
         self.root = root
         self.path = Path(path).absolute()
         _require(not self.path.is_relative_to(root.path), "resource_limit")
-        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if create:
+            self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         directory = _directory(self.path.parent)
         try:
             parent = os.fstat(directory)
             _require(parent.st_uid == os.geteuid() and not parent.st_mode & 0o077)
             fd = os.open(
                 self.path.name,
-                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+                os.O_RDWR | (os.O_CREAT if create else 0) | os.O_NOFOLLOW | os.O_CLOEXEC,
                 0o600,
                 dir_fd=directory,
             )
@@ -455,12 +456,16 @@ class Index:
                     and before.st_nlink == 1
                     and before.st_uid == os.geteuid()
                     and not before.st_mode & 0o077
+                    and (create or before.st_size > 0)
                 )
             finally:
                 os.close(fd)
-            self.db = sqlite3.connect(self.path, isolation_level=None, timeout=1)
+            self.db = sqlite3.connect(
+                self.path.as_uri() + "?mode=rw", uri=True, isolation_level=None, timeout=1
+            )
             after = os.stat(self.path, follow_symlinks=False)
             _require((before.st_dev, before.st_ino) == (after.st_dev, after.st_ino))
+            self.identity = before.st_dev, before.st_ino
             self.db.row_factory = sqlite3.Row
             if before.st_size == 0:
                 self.db.executescript("""CREATE TABLE IF NOT EXISTS metadata(format TEXT NOT NULL, root TEXT NOT NULL,

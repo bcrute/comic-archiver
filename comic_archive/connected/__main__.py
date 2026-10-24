@@ -49,6 +49,11 @@ def parser():
         metavar=("ROOT", "PRIVATE_INDEX"),
     )
     serve.add_argument(
+        "--watch-archiver",
+        action="store_true",
+        help="Share all supported completed comics in selected Archiver libraries, including future downloads",
+    )
+    serve.add_argument(
         "--ice-config",
         type=Path,
         help="Owned private JSON connection settings (one STUN and one TURN server)",
@@ -240,6 +245,7 @@ async def serve(args):
         )
     roots, opened_indices, indices = [], [], {}
     state, owner, controller, driver, terminal = None, None, None, None, None
+    watcher = None
     stopping = asyncio.Event()
     loop = asyncio.get_running_loop()
     installed, tasks = [], set()
@@ -250,7 +256,7 @@ async def serve(args):
             )  # Serve never silently creates a replacement index.
             root = SharedRoot(Path(source))
             roots.append(root)
-            index = Index(Path(private), root)
+            index = Index(Path(private), root, create=False)
             opened_indices.append(index)
             # Retain each actual opened handle before checking duplicate IDs.
             if index.share_id in indices:
@@ -273,13 +279,27 @@ async def serve(args):
         for number in [signal.SIGINT, signal.SIGTERM]:
             loop.add_signal_handler(number, stopping.set)
             installed.append(number)
-        emit(dict(status="starting", pairings=len(selected), shares=list(indices)))
+        if args.watch_archiver:
+            from .discovery import CatalogWatcher
+
+            watcher = CatalogWatcher(indices)
+            watcher.start()  # Retained actual owner before thread start.
+        emit(
+            dict(
+                status="starting",
+                pairings=len(selected),
+                shares=list(indices),
+                watching_archiver=args.watch_archiver,
+            )
+        )
         if args.interactive:
             terminal = TerminalInput.open(sys.stdin.fileno())
             tasks = {
                 asyncio.create_task(console(driver, terminal, stopping)),
                 asyncio.create_task(reviews(controller)),
             }
+        if watcher is not None:
+            tasks.add(asyncio.create_task(watcher.monitor()))
         waiter = asyncio.create_task(stopping.wait())
         tasks.add(waiter)
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -293,6 +313,8 @@ async def serve(args):
                 driver.pause(
                     pair
                 )  # Permission retirement precedes even terminal cleanup.
+        if watcher is not None:
+            watcher.stop()
         terminal_error = None
         if terminal is not None:
             try:
@@ -309,6 +331,8 @@ async def serve(args):
                 await driver.close()
             elif controller is not None:
                 await controller.close()
+            if watcher is not None:
+                await watcher.close()
         except BaseException:
             RETAINED.append(
                 (
@@ -320,6 +344,7 @@ async def serve(args):
                     roots,
                     terminal,
                     tasks,
+                    watcher,
                 )
             )
             raise  # Never retire selected sources while actual joins are unknown.
