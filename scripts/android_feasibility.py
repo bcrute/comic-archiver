@@ -91,6 +91,9 @@ def route = { repository ->
         def source = repository.url
         if (source?.scheme == "https") {
             if (source.userInfo != null) throw new GradleException("CI package sources must be public")
+            // The fleet's native init.d hooks may already have selected its
+            // Maven or artifact endpoint. Do not wrap a cache URL in itself.
+            if (source.host == new URI(mirror).host) return
             repository.url = mirror + source.toString().substring(8)
             repository.allowInsecureProtocol = mirror.startsWith("http://")
         }
