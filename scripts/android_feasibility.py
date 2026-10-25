@@ -995,7 +995,7 @@ def phase_wheels(paths, sdist):
     # The pinned CPython Android build's android-env.sh hard-requires one specific NDK
     # and otherwise installs it with the JVM sdkmanager (broken on this fleet).
     ndk_version, ndk_note = _cibw_required_ndk(paths["sdk"], _sdk_repository_packages())
-    env = {"ANDROID_HOME": str(paths["sdk"]),
+    env = {"ANDROID_HOME": str(paths["sdk"]), "ANDROID_SDK_ROOT": str(paths["sdk"]),
            "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
            "CIBW_BUILD": "cp313-*",
@@ -1035,7 +1035,8 @@ def _gradle_invocation(paths, task, wheels):
         java_mirror = mirror.replace("/HTTPS///", "/HTTPS/%2F%2F")
         jvm_flags.append("-Drobolectric.dependency.repo.url=" +
                          java_mirror + "repo1.maven.org/maven2")
-    env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
+    env = {"ANDROID_HOME": str(paths["sdk"]), "ANDROID_SDK_ROOT": str(paths["sdk"]),
+           "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "ANDROID_USER_HOME": str(TOOLS_DIR / "android-user"),
            "GRADLE_OPTS": " ".join(jvm_flags),
            "JAVA_TOOL_OPTIONS": " ".join(jvm_flags)}
@@ -1325,7 +1326,8 @@ def phase_in_app(paths, test_apk=None):
             [str(emulator), "-avd", avd_name, "-port", str(port), "-no-window", "-no-snapshot",
              "-no-audio", "-no-boot-anim", "-gpu", "swiftshader_indirect"],
             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-            env={**os.environ, "ANDROID_AVD_HOME": str(avd_home), "ANDROID_HOME": str(sdk)})
+            env={**os.environ, "ANDROID_AVD_HOME": str(avd_home), "ANDROID_HOME": str(sdk),
+                 "ANDROID_SDK_ROOT": str(sdk)})
         run_tool([str(adb), "-s", serial, "wait-for-device"], timeout=600)
         booted, deadline = False, time.monotonic() + 900
         while time.monotonic() < deadline:
