@@ -83,7 +83,9 @@ CI_DOWNLOAD_MIRROR_ENV = "COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR"
 # repositories through the configured acquiring cache, without a worker proxy.
 # Register before settings/plugins resolve, and include later plugin repositories.
 CI_PACKAGE_MIRROR_INIT = '''import org.gradle.api.artifacts.repositories.MavenArtifactRepository
-def mirror = System.getenv("COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR")
+// Apache HttpClient normalizes adjacent path slashes. Preserve the cache's
+// HTTPS marker as encoded path segments until the cache decodes the request.
+def mirror = System.getenv("COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR")?.replace("/HTTPS///", "/HTTPS/%2F%2F")
 def route = { repository ->
     if (repository instanceof MavenArtifactRepository) {
         def source = repository.url
@@ -1025,14 +1027,16 @@ def _gradle_invocation(paths, task, wheels):
     mirror = _ci_download_mirror()
     if mirror:
         # Robolectric's resolver runs in the test JVM, independently of Gradle.
+        # Encode the significant slashes for JVM URL normalization as above.
+        java_mirror = mirror.replace("/HTTPS///", "/HTTPS/%2F%2F")
         jvm_flags.append("-Drobolectric.dependency.repo.url=" +
-                         _acquisition_url("https://repo1.maven.org/maven2"))
+                         java_mirror + "repo1.maven.org/maven2")
     env = {"ANDROID_HOME": str(paths["sdk"]), "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "ANDROID_USER_HOME": str(TOOLS_DIR / "android-user"),
            "GRADLE_OPTS": " ".join(jvm_flags),
            "JAVA_TOOL_OPTIONS": " ".join(jvm_flags)}
     if mirror:
-        env["SDK_TEST_BASE_URL"] = _acquisition_url("https://dl.google.com/android/repository/")
+        env["SDK_TEST_BASE_URL"] = java_mirror + "dl.google.com/android/repository/"
     # Chaquopy's pip block consults chaquo.com/pypi-13.1 unless a user --index-url is
     # passed (verified in the pinned 17.1.0's pip_install.py — it also disables pip config
     # files, so only a command-line option reaches it); this fleet's proxy refuses that
