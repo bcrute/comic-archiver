@@ -20,11 +20,23 @@ class CiPackageMirrorTests(unittest.TestCase):
         self.root = Path(directory.name)
         self.paths = []
         self.bodies = {}
+        self.responses = {}
+        self.requests = []
         owner = self
 
         class Cache(BaseHTTPRequestHandler):
             def do_GET(self):
                 owner.paths.append(self.path)
+                owner.requests.append(dict(self.headers))
+                if self.path in owner.responses:
+                    status, headers, body = owner.responses[self.path].pop(0)
+                    self.send_response(status)
+                    for name, value in headers.items():
+                        self.send_header(name, str(value))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    self.close_connection = True
+                    return
                 body = owner.bodies.get(self.path)
                 self.send_response(200 if body is not None else 404)
                 self.end_headers()
@@ -61,6 +73,52 @@ class CiPackageMirrorTests(unittest.TestCase):
         self.assertIn('sha256 mismatch', reason)
         self.assertFalse(target.exists())
         self.assertEqual(self.paths, [path, path])
+
+    def _interrupted_pin(self, remainder, *, status=206, extent='bytes 3-7/8'):
+        path = '/HTTPS///vendor.invalid/tool.tar.gz'
+        self.responses[path] = [
+            (200, {'Content-Length': 8, 'ETag': '"original"'}, b'abc'),
+            (status, {'Content-Length': len(remainder), 'Content-Range': extent}, remainder),
+        ]
+        target = self.root / 'download.tar.gz'
+        pin = {'url': 'https://vendor.invalid/tool.tar.gz',
+               'sha256': hashlib.sha256(b'abcdefgh').hexdigest()}
+        with patch.dict(feasibility.PINS, {'interrupted': pin}):
+            result = feasibility._fetch_pinned('interrupted', target)
+        return result, target
+
+    def test_interrupted_transfer_resumes_original_pin_with_conditional_range(self):
+        result, target = self._interrupted_pin(b'defgh')
+        self.assertEqual(result, (True, hashlib.sha256(b'abcdefgh').hexdigest()))
+        self.assertEqual(target.read_bytes(), b'abcdefgh')
+        self.assertEqual(self.requests[1]['Range'], 'bytes=3-')
+        self.assertEqual(self.requests[1]['If-Range'], '"original"')
+        self.assertEqual(list(self.root.glob('*.part')), [])
+
+    def test_changed_resumed_bytes_fail_original_digest_and_leave_no_archive(self):
+        result, target = self._interrupted_pin(b'XXXXX')
+        self.assertFalse(result[0])
+        self.assertIn('sha256 mismatch', result[1])
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.root.glob('*.part')), [])
+
+    def test_wrong_resume_offset_leaves_no_complete_or_partial_archive(self):
+        result, target = self._interrupted_pin(b'defgh', extent='bytes 2-6/8')
+        self.assertEqual(result, (False, 'download failed'))
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.root.glob('*.part')), [])
+
+    def test_server_ignoring_range_replaces_prefix_instead_of_appending(self):
+        result, target = self._interrupted_pin(b'abcdefgh', status=200)
+        self.assertTrue(result[0])
+        self.assertEqual(target.read_bytes(), b'abcdefgh')
+
+    def test_refused_resume_does_not_repeat_without_progress(self):
+        result, target = self._interrupted_pin(b'', status=403)
+        self.assertEqual(result, (False, 'download failed'))
+        self.assertFalse(target.exists())
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(list(self.root.glob('*.part')), [])
 
     def test_sdk_listing_and_archive_use_the_cache_and_keep_the_published_digest(self):
         packet = io.BytesIO()

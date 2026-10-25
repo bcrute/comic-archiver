@@ -30,6 +30,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -41,6 +42,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import tomllib
 import urllib.request
@@ -154,11 +156,89 @@ def _download(url, target, timeout=1800):
     if target.is_file():
         return True
     target.parent.mkdir(parents=True, exist_ok=True)
+    source = _acquisition_url(url)
+    deadline = time.monotonic() + timeout
+    temporary = None
+    transfer = {"file": target.name, "attempts": 0, "received_bytes": 0, "complete": False}
     try:
-        urllib.request.urlretrieve(_acquisition_url(url), target)
-        return target.is_file() and target.stat().st_size > 0
-    except OSError:
+        # Keep interrupted bytes private. Each retry requests only the missing
+        # suffix from the original stable URL, not a retained signed redirect.
+        # The caller still verifies its original vendor digest before extraction.
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix=target.name + ".",
+                                         suffix=".part", delete=False) as output:
+            temporary = pathlib.Path(output.name)
+            validator = None
+            total = None
+            complete = False
+            for _attempt in range(32):
+                transfer["attempts"] += 1
+                start = output.tell()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                headers = {"Accept-Encoding": "identity"}
+                if start:
+                    headers["Range"] = f"bytes={start}-"
+                    if validator:
+                        headers["If-Range"] = validator
+                try:
+                    request = urllib.request.Request(source, headers=headers)
+                    with urllib.request.urlopen(request, timeout=min(30, remaining)) as response:
+                        length = response.headers.get("Content-Length")
+                        length = int(length) if length is not None else None
+                        if length is not None and length < 0:
+                            return False
+                        if response.status == 206:
+                            extent = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)",
+                                                  response.headers.get("Content-Range", ""))
+                            if extent is None:
+                                return False
+                            first, last, size = map(int, extent.groups())
+                            if (first != start or not first <= last < size
+                                    or (total is not None and size != total)
+                                    or (length is not None and length != last - first + 1)):
+                                return False
+                            total = size
+                        elif response.status == 200:
+                            # If-Range may reject a changed resource, or a server
+                            # may ignore Range. A complete response replaces the
+                            # private prefix instead of being appended to it.
+                            output.seek(0)
+                            output.truncate()
+                            total = length
+                        else:
+                            return False
+                        etag = response.headers.get("ETag")
+                        validator = (etag if etag and not etag.startswith("W/") else
+                                     response.headers.get("Last-Modified"))
+                        while time.monotonic() < deadline:
+                            chunk = response.read(256 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                            transfer["received_bytes"] += len(chunk)
+                        else:
+                            return False
+                        if output.tell() and (total is None or output.tell() == total):
+                            complete = True
+                            break
+                except (OSError, http.client.HTTPException):
+                    # No bytes means a refusal/stalled endpoint, not progress.
+                    # In particular, do not hammer a permanent 403 or 404.
+                    pass
+                if output.tell() <= start or (total is not None and output.tell() > total):
+                    return False
+        if complete:
+            temporary.replace(target)
+            transfer["complete"] = True
+            return True
         return False
+    except (OSError, ValueError):
+        return False
+    finally:
+        report.setdefault("download_transfers", []).append(transfer)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _fetch_pinned(name, target):
