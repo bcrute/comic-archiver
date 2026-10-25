@@ -52,13 +52,13 @@ class CiPackageMirrorTests(unittest.TestCase):
         self.addCleanup(worker.join, 5)
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        self.base = f'http://127.0.0.1:{server.server_port}/HTTPS///'
+        self.base = f'http://127.0.0.1:{server.server_port}/HTTPS/'
         configured = patch.dict(os.environ, {feasibility.CI_DOWNLOAD_MIRROR_ENV: self.base})
         configured.start()
         self.addCleanup(configured.stop)
 
     def test_actual_cache_download_keeps_the_original_pin_and_refuses_changed_bytes(self):
-        path = '/HTTPS///vendor.invalid/tool.tar.gz'
+        path = '/HTTPS/vendor.invalid/tool.tar.gz'
         self.bodies[path] = b'abc'
         pin = {'url': 'https://vendor.invalid/tool.tar.gz',
                'sha256': 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'}
@@ -75,7 +75,7 @@ class CiPackageMirrorTests(unittest.TestCase):
         self.assertEqual(self.paths, [path, path])
 
     def _interrupted_pin(self, remainder, *, status=206, extent='bytes 3-7/8'):
-        path = '/HTTPS///vendor.invalid/tool.tar.gz'
+        path = '/HTTPS/vendor.invalid/tool.tar.gz'
         self.responses[path] = [
             (200, {'Content-Length': 8, 'ETag': '"original"'}, b'abc'),
             (status, {'Content-Length': len(remainder), 'Content-Range': extent}, remainder),
@@ -126,8 +126,8 @@ class CiPackageMirrorTests(unittest.TestCase):
             archive.writestr('tools/package.xml', b'<localPackage/>')
         original = packet.getvalue()
         digest = hashlib.sha1(original, usedforsecurity=False).hexdigest()
-        listing = '/HTTPS///vendor.invalid/sdk/repository.xml'
-        artifact = '/HTTPS///vendor.invalid/sdk/tools.zip'
+        listing = '/HTTPS/vendor.invalid/sdk/repository.xml'
+        artifact = '/HTTPS/vendor.invalid/sdk/tools.zip'
         self.bodies[listing] = ('<repository><remotePackage path="platform-tools"><archives><archive>'
             f'<host-os>linux</host-os><complete><checksum type="sha1">{digest}</checksum>'
             '<url>tools.zip</url></complete></archive></archives></remotePackage></repository>').encode()

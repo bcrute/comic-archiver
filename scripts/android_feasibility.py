@@ -83,8 +83,8 @@ CI_DOWNLOAD_MIRROR_ENV = "COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR"
 # repositories through the configured acquiring cache, without a worker proxy.
 # Register before settings/plugins resolve, and include later plugin repositories.
 CI_PACKAGE_MIRROR_INIT = '''import org.gradle.api.artifacts.repositories.MavenArtifactRepository
-// Apache HttpClient normalizes adjacent path slashes. Preserve the cache's
-// HTTPS marker as encoded path segments until the cache decodes the request.
+// Prefer the native /HTTPS/ acquiring frontend: it has no significant repeated
+// slashes for Apache HttpClient to normalize. Retain the legacy base spelling.
 def mirror = System.getenv("COMIC_ARCHIVER_CI_DOWNLOAD_MIRROR")?.replace("/HTTPS///", "/HTTPS/%2F%2F")
 def route = { repository ->
     if (repository instanceof MavenArtifactRepository) {
@@ -138,9 +138,10 @@ def _ci_download_mirror():
     parsed = urlsplit(base)
     if (parsed.scheme not in {"http", "https"} or not parsed.hostname
             or parsed.username is not None or parsed.password is not None
-            or parsed.query or parsed.fragment or not base.endswith("/HTTPS///")
+            or parsed.query or parsed.fragment
+            or not base.endswith(("/HTTPS/", "/HTTPS///"))
             or any(ord(c) <= 32 for c in base)):
-        raise ValueError("Supply a credential-free CI acquiring-cache base ending /HTTPS///")
+        raise ValueError("Supply a credential-free CI acquiring-cache base ending /HTTPS/")
     return base
 
 
@@ -1027,7 +1028,7 @@ def _gradle_invocation(paths, task, wheels):
     mirror = _ci_download_mirror()
     if mirror:
         # Robolectric's resolver runs in the test JVM, independently of Gradle.
-        # Encode the significant slashes for JVM URL normalization as above.
+        # The native frontend needs no URL encoding; retain legacy spelling.
         java_mirror = mirror.replace("/HTTPS///", "/HTTPS/%2F%2F")
         jvm_flags.append("-Drobolectric.dependency.repo.url=" +
                          java_mirror + "repo1.maven.org/maven2")
