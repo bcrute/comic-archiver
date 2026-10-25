@@ -5,10 +5,12 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 
-/** At most three temporary reader copies, never imports into the download library.
+/** At most three unused reader copies, never imports into the download library.
  * Publish only after EOF/size checks; partial or cancelled files have no readable
- * archive name. An open descriptor survives later cache eviction. */
+ * archive name. Explicit owners survive eviction until they release their copy;
+ * external readers may instead retain an open descriptor after eviction. */
 internal class ReadingCopyStore(private val directory: File,
+    private val prune: (List<File>) -> Unit = { copies -> copies.drop(2).forEach { it.deleteRecursively() } },
     private val available: (File) -> Long = { it.usableSpace }) {
     fun stage(name: String, expectedBytes: Long?, source: () -> InputStream,
         checkActive: () -> Unit = {}): File {
@@ -21,9 +23,9 @@ internal class ReadingCopyStore(private val directory: File,
         val root = directory.canonicalFile
         val old = root.listFiles()?.filter { it.isDirectory && it.name.matches(Regex("[a-f0-9-]{36}")) &&
             it.canonicalFile == it.absoluteFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
-        // Keep the two newest copies while preparing the third. These are only
-        // task-created cache folders, independent of original URI grants/files.
-        old.drop(2).forEach { it.deleteRecursively() }
+        // Keep two unused copies while preparing the third. Live owners are
+        // independent of this cache budget and retire after their actual I/O.
+        prune(old)
         val budget = (available(root) - 16L * 1024 * 1024).coerceAtLeast(0)
         if (expectedBytes != null && expectedBytes > budget) throw IOException("Temporary reading space unavailable")
         val folder = root.resolve(UUID.randomUUID().toString())

@@ -30,19 +30,35 @@ internal interface PreparedPortableOpen {
 internal class PreparedPortableReading private constructor(val workspace: File, val file: File) {
     val relative: String = file.relativeTo(workspace.resolve("Library")).invariantSeparatorsPath
     fun discard() {
-        val parent = file.parentFile ?: return
-        check(parent.canonicalFile == parent.absoluteFile)
-        if (parent.exists()) check(parent.deleteRecursively())
+        synchronized(owned) {
+            val parent = file.parentFile ?: return
+            check(parent.canonicalFile == parent.absoluteFile)
+            if (parent.exists()) check(parent.deleteRecursively())
+            owned.remove(parent)
+        }
     }
     companion object {
-        fun captured(workspace: File, file: File): PreparedPortableReading {
+        // Process-local ownership ends only after the reader's actual close.
+        // A cold process has no live handles: its abandoned copies can be pruned.
+        private val owned = HashSet<File>()
+        fun copyStore(workspace: File): ReadingCopyStore {
+            val copies = workspace.resolve("Library/.archive-state/reader-copies")
+            check(workspace.canonicalFile == workspace.absoluteFile && copies.canonicalFile == copies.absoluteFile)
+            return ReadingCopyStore(copies, prune = { candidates ->
+                synchronized(owned) {
+                    candidates.filterNot { it in owned }.drop(2).forEach { it.deleteRecursively() }
+                }
+            })
+        }
+        fun captured(workspace: File, file: File): PreparedPortableReading = synchronized(owned) {
             val copies = workspace.resolve("Library/.archive-state/reader-copies")
             check(workspace.canonicalFile == workspace.absoluteFile && copies.canonicalFile == copies.absoluteFile)
             check(file.canonicalFile == file.absoluteFile && file.isFile && file.length() > 0)
             check(file.parentFile?.parentFile == copies &&
                 file.parentFile!!.name.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}")))
             check(archiveMime(file.extension) != null)
-            return PreparedPortableReading(workspace, file)
+            check(owned.add(checkNotNull(file.parentFile))) { "Reading copy already has an owner" }
+            PreparedPortableReading(workspace, file)
         }
     }
 }
@@ -167,8 +183,7 @@ internal class ResolverPortableDocuments(private val context: Context,
     override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
         checkActive: () -> Unit): PreparedPortableReading {
         check(readable(tree) && current(tree, document))
-        val root = workspace.resolve("Library/.archive-state/reader-copies")
-        val file = ReadingCopyStore(root).stage(document.name, document.bytes,
+        val file = PreparedPortableReading.copyStore(workspace).stage(document.name, document.bytes,
             source = { resolver.openInputStream(uri(tree, document.id)) ?: throw IOException("Document unavailable") },
             checkActive = checkActive)
         try {

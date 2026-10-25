@@ -3,7 +3,6 @@ package io.github.bcrute.comicarchiver.reader
 import android.app.Application
 import android.os.Looper
 import io.github.bcrute.comicarchiver.library.PreparedPortableReading
-import io.github.bcrute.comicarchiver.library.ReadingCopyStore
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +33,7 @@ class SelectedReaderControllerTest {
     private var current: File? = root
     private val calls = CopyOnWriteArrayList<String>()
     private var failOpen = false
+    private var activeKind = "cbz"
     private var holdOpen: Pair<CountDownLatch, CountDownLatch>? = null
     private var holdClose: Pair<CountDownLatch, CountDownLatch>? = null
     private val bridge = object : PythonBridge {
@@ -43,16 +43,18 @@ class SelectedReaderControllerTest {
             val value = when (op) {
                 "reader_open" -> {
                     check(args.has("selected") && !args.has("id"))
-                    check(root.resolve("Library").resolve(args.getString("selected")).isFile)
+                    val file = root.resolve("Library").resolve(args.getString("selected"))
+                    check(file.isFile)
+                    activeKind = file.extension
                     holdOpen?.let { it.first.countDown(); check(it.second.await(10, TimeUnit.SECONDS)) }
                     if (failOpen) {
                         failOpen = false
                         return JSONObject().put("v", 1).put("ok", false).put("code", "unavailable")
                             .put("message", "Choose Read here again.").toString()
                     }
-                    ReaderFixtures.book(id, "cbz")
+                    ReaderFixtures.book(id, activeKind)
                 }
-                "reader_page" -> ReaderFixtures.page(id, "cbz", args.getInt("unit"))
+                "reader_page" -> ReaderFixtures.page(id, activeKind, args.getInt("unit"))
                 "reader_close" -> {
                     holdClose?.let { it.first.countDown(); check(it.second.await(10, TimeUnit.SECONDS)) }
                     JSONObject().put("closed", true)
@@ -63,9 +65,9 @@ class SelectedReaderControllerTest {
         }
     }
     private val reader = LocalReaderController(bridge, scope) { current }
-    private fun copied(workspace: File = root): PreparedPortableReading {
-        val source = ReaderFixtures.root.resolve("payload").resolve(ReaderFixtures.item("cbz").getString("archive"))
-        val target = ReadingCopyStore(workspace.resolve("Library/.archive-state/reader-copies"))
+    private fun copied(workspace: File = root, kind: String = "cbz"): PreparedPortableReading {
+        val source = ReaderFixtures.root.resolve("payload").resolve(ReaderFixtures.item(kind).getString("archive"))
+        val target = PreparedPortableReading.copyStore(workspace)
             .stage(source.name, source.length(), { source.inputStream() })
         return PreparedPortableReading.captured(workspace, target)
     }
@@ -112,6 +114,50 @@ class SelectedReaderControllerTest {
         assertEquals(2, calls.count { it == "reader_open" })
         reader.close(); await { !reader.state.value.closing }
         assertFalse(source.file.exists())
+    }
+    @Test fun bothSelectedFormatsReachTheirNativeDecoderAndRetireOnlyTheirPrivateCopy() {
+        for (kind in listOf("cbz", "epub")) {
+            val original = ReaderFixtures.root.resolve("payload").resolve(ReaderFixtures.item(kind).getString("archive"))
+            val bytes = original.readBytes()
+            val source = copied(kind = kind)
+            assertTrue(reader.openPrepared(source))
+            await { reader.state.value.document != null && !reader.state.value.busy }
+            assertEquals(kind, reader.state.value.book!!.record.kind)
+            if (kind == "cbz") assertTrue(reader.state.value.document is ReaderDocument.Comic)
+            else assertTrue((reader.state.value.document as ReaderDocument.Novel).text.isNotBlank())
+            assertArrayEquals(bytes, source.file.readBytes())
+            reader.close(); await { !reader.state.value.closing }
+            assertFalse(source.file.exists())
+            assertArrayEquals(bytes, original.readBytes())
+        }
+        assertEquals(2, calls.count { it == "reader_open" })
+        assertEquals(2, calls.count { it == "reader_close" })
+    }
+    @Test fun cachePressureCannotRetireTheCopyBeforeItsBlockedReaderCloseCompletes() {
+        val source = copied()
+        assertTrue(reader.openPrepared(source))
+        await { reader.state.value.document != null && !reader.state.value.busy }
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        holdClose = entered to release
+        reader.close()
+        try {
+            await { entered.count == 0L }
+            val archive = ReaderFixtures.root.resolve("payload").resolve(ReaderFixtures.item("cbz").getString("archive"))
+            val bytes = archive.readBytes()
+            // These are unowned staging leftovers, as after interrupted opens.
+            // New staging must retain the actual owner while bounding leftovers.
+            val store = PreparedPortableReading.copyStore(root)
+            repeat(6) {
+                store.stage(archive.name, archive.length(), { archive.inputStream() })
+                assertTrue(source.file.isFile)
+                assertArrayEquals(bytes, source.file.readBytes())
+            }
+            assertTrue(reader.state.value.closing)
+            assertEquals(4, source.file.parentFile!!.parentFile!!.listFiles()!!.size)
+        } finally { release.countDown() }
+        await { !reader.state.value.closing }
+        assertFalse(source.file.exists())
+        assertEquals(1, calls.count { it == "reader_close" })
     }
     @Test fun workspaceChangeDuringOpenCannotPaintALatePageOrDiscardBeforeClose() {
         val other = root.parentFile.resolve("other-" + UUID.randomUUID())

@@ -143,7 +143,7 @@ class OpenedLibraryTest {
         val source = object : PortableDocuments by docs {
             override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
                 checkActive: () -> Unit): PreparedPortableReading {
-                val file = ReadingCopyStore(workspace.resolve("Library/.archive-state/reader-copies"))
+                val file = PreparedPortableReading.copyStore(workspace)
                     .stage(document.name, 20, { ByteArrayInputStream(ByteArray(20) { 4 }) }, checkActive)
                 return PreparedPortableReading.captured(workspace, file)
             }
@@ -173,7 +173,7 @@ class OpenedLibraryTest {
         val source = object : PortableDocuments by docs {
             override fun prepareReading(tree: Uri, document: PortableDocument, workspace: File,
                 checkActive: () -> Unit): PreparedPortableReading {
-                val file = ReadingCopyStore(workspace.resolve("Library/.archive-state/reader-copies"))
+                val file = PreparedPortableReading.copyStore(workspace)
                     .stage(document.name, 20, { ByteArrayInputStream(ByteArray(20) { 5 }) }, checkActive)
                 val value = PreparedPortableReading.captured(workspace, file)
                 prepared.set(value); entered.countDown()
