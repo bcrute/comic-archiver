@@ -22,7 +22,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -92,17 +92,22 @@ fun ComicArchiverAppRoot(
     val state by controller.state.collectAsState()
     val native = LocalView.current
     val readerFocus = remember(native) { ReaderReturnFocus() }
-    SideEffect {
+    LaunchedEffect(native, localReader.id) {
         val previous = readerFocus.renderedReaderId
         readerFocus.renderedReaderId = localReader.id
         if (previous != localReader.id) {
-            // Closing removes the focused reader control. Recover only the
-            // native owner of this explicit close, after navigation is mounted.
-            if (previous != null && localReader.id == null &&
-                readerFocus.requestedReaderId == previous && readerFocus.closeHadInputFocus &&
-                native.hasWindowFocus() && !native.hasFocus()) native.requestFocus()
+            val returning = previous != null && localReader.id == null &&
+                readerFocus.requestedReaderId == previous && readerFocus.closeHadInputFocus
             readerFocus.requestedReaderId = null
             readerFocus.closeHadInputFocus = false
+            if (returning) {
+                // Newly composed navigation needs a placed focus target. A
+                // composition SideEffect can run before that first layout.
+                // A new reader cancels this effect before it can reclaim input.
+                withFrameNanos { }
+                if (native.isAttachedToWindow && native.hasWindowFocus() && !native.hasFocus())
+                    native.requestFocus()
+            }
         }
     }
 

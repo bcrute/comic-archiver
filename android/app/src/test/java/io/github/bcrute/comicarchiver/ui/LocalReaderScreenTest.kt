@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
 import android.view.View
+import android.os.Looper
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowDialog
+import org.robolectric.shadows.ShadowViewRootImpl
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -60,6 +64,13 @@ class LocalReaderScreenTest {
         compose.onNodeWithText("Reload saved progress").performScrollTo()
         val decor = requireNotNull(ShadowDialog.getLatestDialog().window).decorView
         lateinit var native: View
+        compose.runOnIdle {
+            // Dialog windows need their own real window-focus lifecycle event
+            // in Robolectric; focusing the host Activity does not deliver it.
+            val root = View::class.java.getMethod("getViewRootImpl").invoke(decor)
+            Shadow.extract<ShadowViewRootImpl>(requireNotNull(root)).callWindowFocusChanged(true)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
         compose.runOnIdle {
             // Semantics focus alone does not establish Robolectric's native
             // keyboard owner. Establish the real pre-interruption condition.
