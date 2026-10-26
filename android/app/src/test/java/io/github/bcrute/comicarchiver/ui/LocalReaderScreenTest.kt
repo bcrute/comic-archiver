@@ -80,6 +80,7 @@ class LocalReaderScreenTest {
         }
         compose.onNodeWithText("Reload saved progress")
             .performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused()
             .performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
         compose.onNodeWithText("Reload saved progress").assertIsNotEnabled()
         compose.runOnIdle {

@@ -640,8 +640,10 @@ class RenderedScreensTest {
             assertTrue(native.hasWindowFocus())
             assertTrue(native.hasFocus())
         }
-        compose.onNodeWithText("Close reader").performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
+        compose.onNodeWithText("Close reader").assertIsFocused()
+            .performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
         compose.waitForIdle()
+        compose.runOnIdle { assertEquals("The explicit close callback executed", 1, closes) }
         compose.runOnIdle { assertTrue("Returned navigation regains native input", native.hasFocus()) }
         compose.onNodeWithTag("saved-files-list").assertIsDisplayed()
         compose.onNode(hasText("Saving") and hasClickAction()).assertIsFocused()
