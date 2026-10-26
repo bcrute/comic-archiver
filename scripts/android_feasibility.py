@@ -94,6 +94,9 @@ def route = { repository ->
             // The fleet's native init.d hooks may already have selected its
             // Maven or artifact endpoint. Do not wrap a cache URL in itself.
             if (source.host == new URI(mirror).host) return
+            // The qualified image maps Central to its dedicated Maven cache.
+            // Generic acquisition rejects runtime artifacts such as .imy.
+            if (source.host in ["repo.maven.apache.org", "repo1.maven.org"]) return
             repository.url = mirror + source.toString().substring(8)
             repository.allowInsecureProtocol = mirror.startsWith("http://")
         }
