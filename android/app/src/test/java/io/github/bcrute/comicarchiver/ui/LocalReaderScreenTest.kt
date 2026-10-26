@@ -58,16 +58,21 @@ class LocalReaderScreenTest {
         compose.setContent { MaterialTheme { LocalReaderScreen(state.value, actions) } }
         compose.onNodeWithText("Reader options").performScrollTo().performClick()
         compose.onNodeWithText("Reload saved progress").performScrollTo()
-            .performSemanticsAction(SemanticsActions.RequestFocus)
         val decor = requireNotNull(ShadowDialog.getLatestDialog().window).decorView
         lateinit var native: View
         compose.runOnIdle {
+            // Semantics focus alone does not establish Robolectric's native
+            // keyboard owner. Establish the real pre-interruption condition.
+            assertTrue(decor.requestFocusFromTouch())
             native = requireNotNull(decor.findFocus())
             assertTrue(native.hasWindowFocus())
         }
-        compose.onNodeWithText("Reload saved progress").performClick()
+        compose.onNodeWithText("Reload saved progress")
+            .performSemanticsAction(SemanticsActions.RequestFocus)
+            .performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
         compose.onNodeWithText("Reload saved progress").assertIsNotEnabled()
         compose.runOnIdle {
+            assertTrue("Native input existed before interruption", decor.hasFocus())
             // SDK34's real focus-clear path, with automatic refocus disabled,
             // models the observed owner interruption while this dialog is busy.
             // It does not simulate TalkBack or qualify the actual device repair.

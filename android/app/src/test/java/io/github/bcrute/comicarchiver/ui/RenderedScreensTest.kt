@@ -630,6 +630,11 @@ class RenderedScreensTest {
         val description = "Read Chapter one, Synthetic series. chapter.cbz. This device"
         compose.onNodeWithTag("saved-files-list").performScrollToNode(hasContentDescription(description))
         compose.onNodeWithContentDescription(description).performClick()
+        compose.runOnIdle {
+            // Match the actual native keyboard-owner precondition before
+            // injecting its interruption during reader close.
+            assertTrue(native.requestFocusFromTouch())
+        }
         compose.onNodeWithText("Close reader").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.runOnIdle {
             assertTrue(native.hasWindowFocus())
