@@ -4,8 +4,7 @@ Contract: docs/android-beta-contracts.md §2. One entry point, dispatch(request)
 requests are {"v":1,"op":name,"args":{...}}; responses are {"v":1,"ok":true,"result":...} or
 {"v":1,"ok":false,"code":...,"message":...} with public-safe messages. The bridge validates
 envelope and argument shapes and refuses unknown ops. Downloads run on the Python worker
-thread (comic_archive.worker_host). Synchronous local-reader calls verify/read bounded
-content on the native reader's dedicated I/O thread; never call them on the UI thread.
+thread (comic_archive.worker_host).
 
 The bridge module stays standalone: comic_archive is imported inside handlers only, so ping
 and the selfcheck answer even before the core is importable. Core refusals (ArchiveError)
@@ -33,8 +32,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
-                 "signin_attempt", "signin_commit", "portable_catalog",
-                 "reader_open", "reader_page", "reader_save", "reader_reload", "reader_close"})
+                 "signin_attempt", "signin_commit", "portable_catalog"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -55,9 +53,6 @@ _catalog_cache = {"root": None, "registry": None}
 _catalog_lock = threading.Lock()
 _cloud_cache = {"root": None, "controller": None}
 _cloud_lock = threading.Lock()
-_reader_host = None
-_reader_lock = threading.RLock()
-_reader_epoch = 0
 
 
 def enable_android_cloud():
@@ -270,7 +265,6 @@ def _prepare_workspace(args):
         raise _BridgeError("bad_request", "Choose a supported connection report.")
 
     def build(ArchiveError):
-        global _reader_epoch
         from comic_archive import account_ui, android_session, network_android, shared, sites, worker_host
         from comic_archive.archive_paths import directory
         from comic_archive.state_paths import private_folder, session_path
@@ -291,11 +285,6 @@ def _prepare_workspace(args):
                 if controller is not None and controller.busy:
                     raise ArchiveError("Finish the cloud activity before switching sites.")
             _close_browser()
-            if previous != root:
-                _reader_epoch += 1
-                with _reader_lock:
-                    if _reader_host is not None:
-                        _reader_host.close_all()
             library = directory(root / "Library")
             session = private_folder(root, "session")
             android_session.prepare_site(session, site)
@@ -749,61 +738,8 @@ def _file_open(args):
     return _core(select)
 
 
-def _reader(args, operation, expected_epoch=None):
-    """Only native callers can reach dispatch; no reader authority enters a WebView."""
-    allowed = {'root', 'reader_id'} | {
-        'open': {'id', 'selected'}, 'page': {'unit'}, 'save': {'position', 'bookmark', 'preferences'},
-        'reload': set(), 'close': set()}[operation]
-    if set(args) - allowed or not {'root', 'reader_id'} <= set(args):
-        raise _BridgeError('bad_request', 'Choose supported reading controls.')
-    root = _path_arg(args, 'root')
-
-    def active():
-        # No workspace lock while the reader owns its I/O lock. Preparation
-        # increments the epoch before retiring a pending reader, including ABA.
-        return expected_epoch is None or (_workspace['root'] == root and _reader_epoch == expected_epoch)
-
-    def action(ArchiveError):
-        global _reader_host
-        from comic_archive.android_local_reader import ReaderHost
-        with _reader_lock:
-            if _reader_host is None:
-                _reader_host = ReaderHost()
-            host = _reader_host
-        token = args['reader_id']
-        if not active():
-            raise ArchiveError('The working library changed. Choose Read here again.')
-        if operation == 'open':
-            if ('id' in args) == ('selected' in args):
-                raise ArchiveError('Choose one supported reading source.')
-            value = (host.open_selected(root, args['selected'], token, active=active) if 'selected' in args
-                     else host.open(root, _catalog_registry(root), args.get('id'), token, active=active))
-        elif operation == 'page':
-            value = host.page(root, token, args.get('unit'))
-        elif operation == 'save':
-            value = host.save(root, token, args.get('position'), bookmark=args.get('bookmark', False),
-                              preferences=args.get('preferences'))
-        elif operation == 'reload':
-            value = host.reload(root, token)
-        else:
-            value = host.close(root, token)
-        if not active():
-            raise ArchiveError('The working library changed. Choose Read here again.')
-        return value
-
-    return _core(action)
 
 
-def _active_reader(args, operation):
-    root = _path_arg(args, 'root')
-
-    def call(ArchiveError):
-        with _workspace_lock:
-            _active_root(root, ArchiveError)
-            epoch = _reader_epoch
-        return _reader(args, operation, epoch)
-
-    return _core(call)
 
 
 def _cloud_controller(root):
@@ -1064,13 +1000,6 @@ HANDLERS = {"ping": _ping,
             "file_catalog": _file_catalog,
             "portable_catalog": _portable_catalog,
             "file_open": _file_open,
-            "reader_open": lambda args: _active_reader(args, 'open'),
-            "reader_page": lambda args: _active_reader(args, 'page'),
-            "reader_save": lambda args: _active_reader(args, 'save'),
-            "reader_reload": lambda args: _active_reader(args, 'reload'),
-            # An old ticket may close after context changed. It can retire only
-            # its own retained session and cannot close a newer reader.
-            "reader_close": lambda args: _reader(args, 'close'),
             "cloud_status": _in_active_workspace(_cloud_status),
             "cloud_action": _in_active_workspace(_cloud_action),
             "signout_record": _signout_record,

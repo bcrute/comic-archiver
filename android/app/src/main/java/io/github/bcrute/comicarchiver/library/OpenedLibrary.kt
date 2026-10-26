@@ -196,38 +196,4 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
         }
     }
 
-    fun readHere(id: String, workspace: File, admit: (PreparedPortableReading) -> Boolean) {
-        val source = cached ?: return
-        if (_state.value.choosing || _state.value.catalog.loading || _state.value.catalog.openingId != null) return
-        if (_state.value.catalog.page?.rows?.none { it.openId == id } != false) return
-        val document = source.value.documents[id] ?: return
-        val chosen = selection
-        _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
-            feedback = "Preparing a reading copy…", feedbackFor = id))
-        pending?.cancel()
-        pending = scope.launch(Dispatchers.IO) {
-            var prepared: PreparedPortableReading? = null
-            var admitted = false
-            try {
-                val activity = coroutineContext
-                check(documents.current(source.tree, document))
-                prepared = documents.prepareReading(source.tree, document, workspace) { activity.ensureActive() }
-                withContext(Dispatchers.Main) {
-                    if (chosen != selection || tree != source.tree || cached !== source) return@withContext
-                    admitted = admit(checkNotNull(prepared))
-                    _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = null,
-                        feedback = if (admitted) null else "The working library changed or a reader is closing. Choose Read here again.",
-                        feedbackFor = if (admitted) null else id))
-                }
-            } catch (cancelled: CancellationException) { throw cancelled }
-              catch (_: Exception) {
-                withContext(Dispatchers.Main) {
-                    if (chosen == selection && tree == source.tree && cached === source)
-                        _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = null,
-                            feedback = "The reading copy could not be prepared. Free some space, refresh files or choose the folder again.",
-                            feedbackFor = id))
-                }
-            } finally { if (!admitted) prepared?.discard() }
-        }
-    }
 }

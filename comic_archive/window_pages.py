@@ -1073,47 +1073,9 @@ class Library:
         feedback.setVisible(False)
         button.clicked.connect(lambda checked=False: self.open_file(row['open'], button, feedback))
         box.addWidget(button)
-        read = self.kit.button('Read here', None, 'secondary')
-        read.setAccessibleName('Read ' + row['filename'] + ' in Comic Archiver')
-        read.clicked.connect(lambda checked=False: self.read_file(row['open'], read, feedback))
-        box.addWidget(read)
         box.addWidget(feedback)
         return holder
 
-    def read_file(self, export_id, button, feedback):
-        from .reader_window import reader_window
-        pages, state, request = self.pages, self.pages.state, self.request
-        if pages.readers_closing:
-            return
-        pages.reader_opens += 1
-        button.setEnabled(False)
-        button.setText('Opening reader…')
-        say(feedback, 'Checking the saved file…')
-
-        def done(value, error):
-            try:
-                if pages.readers_closing or pages.state is not state or self.request != request:
-                    if value is not None:
-                        value.close()
-                    return
-                button.setEnabled(True)
-                button.setText('Read here')
-                if error:
-                    say(feedback, error, True)
-                    return
-                try:
-                    reader = reader_window(self.kit.q, value, pages.run, pages.widget, pages.reader_closed)
-                except Exception:
-                    value.close()
-                    say(feedback, 'The reader could not be opened. Your saved file is unchanged.', True)
-                    return
-                pages.readers.add(reader)
-                reader.show()
-                say(feedback, 'Reading locally in Comic Archiver.')
-            finally:
-                pages.reader_opens -= 1
-                pages.readers_drained()
-        pages.run(lambda: pages.actions.read_file(export_id), done)
 
     def open_file(self, export_id, button, feedback):
         button.setEnabled(False)
@@ -1141,8 +1103,6 @@ class Pages:
         self.route = 'dashboard'
         self.polling = False
         self.polled_task = None
-        self.readers, self.reader_opens = set(), 0
-        self.readers_closing, self.reader_callbacks = False, []
         kit = Kit(q, self.link)
         w = q.QtWidgets
         self.widget = w.QWidget()
@@ -1253,22 +1213,8 @@ class Pages:
     def run(self, work, done):
         self.shell.run(work, done)
 
-    def reader_closed(self, reader):
-        self.readers.discard(reader)
-        self.readers_drained()
 
-    def readers_drained(self):
-        if not self.readers and not self.reader_opens:
-            callbacks, self.reader_callbacks = self.reader_callbacks, []
-            for callback in callbacks:
-                callback()
 
-    def close_readers(self, then):
-        self.readers_closing = True
-        self.reader_callbacks.append(then)
-        for reader in list(self.readers):
-            reader.close()
-        self.readers_drained()
 
     def act(self, work, done=None, cloud=False, after=None):
         """One change at a time: the buttons wait while it runs, and a refusal is said on the dashboard and in Settings."""

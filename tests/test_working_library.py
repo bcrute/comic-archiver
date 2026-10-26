@@ -84,14 +84,15 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assertFalse((self.output / RECEIPT).exists())
 
     def test_reading_progress_and_future_records_follow_verified_copies_without_locks_or_partial_writes(self):
-        from comic_archive.local_reader import ReadingSession
         root, archive, _, _ = self.publish()
-        with closing(ReadingSession(root, archive)) as reader:
-            reader.save({'unit': 0, 'offset': 4500}, bookmark=True,
-                        preferences={'fit': 'page', 'text_scale': 1.5})
-            record_name = reader.book.content + '.json'
+        fixture = Path(__file__).parent / 'fixtures/local-reading-v1/payload/.archive-state/reading'
+        original = next(fixture.glob('*.json'))
         reading = root / '.archive-state/reading'
-        raw = (reading / record_name).read_bytes()
+        reading.mkdir()
+        record_name = original.name
+        raw = original.read_bytes()
+        (reading / record_name).write_bytes(raw)
+        (reading / 'writer.lock').write_bytes(b'LOCK')
         future = b'{"v":99,"future":"retained"}'
         (reading / ('f' * 64 + '.json')).write_bytes(future)
         (reading / (record_name + '.tmp')).write_bytes(b'PARTIAL')
@@ -102,19 +103,14 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assertEqual((copied / ('f' * 64 + '.json')).read_bytes(), future)
         self.assertFalse((copied / 'writer.lock').exists())
         self.assertFalse((copied / (record_name + '.tmp')).exists())
-        path = next((self.output / 'Library').rglob('*.cbz'))
-        with closing(ReadingSession(self.output / 'Library', path)) as reader:
-            self.assertEqual(reader.record['position'], {'unit': 0, 'offset': 4500})
-            self.assertEqual(reader.record['bookmarks'], [{'unit': 0, 'offset': 4500}])
         self.assertEqual(self.hashes(self.source), before)
 
     def test_oversized_or_symlinked_reading_state_is_refused_without_touching_the_source(self):
-        from comic_archive.local_reader import MAX_RECORD
         root, _, _, _ = self.publish()
         reading = root / '.archive-state/reading'
         reading.mkdir()
         path = reading / ('a' * 64 + '.json')
-        path.write_bytes(b'x' * (MAX_RECORD + 1))
+        path.write_bytes(b'x' * (64 * 1024 + 1))
         before = self.hashes(self.source)
         self.assert_refused()
         self.assertEqual(self.hashes(self.source), before)

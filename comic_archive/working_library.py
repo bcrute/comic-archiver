@@ -172,13 +172,12 @@ def _inputs(snapshot, check):
                 add(path, MAX_JSON)
         reading = _safe(state / 'reading')
         if reading.exists():
-            from .local_reader import MAX_RECORD, RECORD_NAME
             for path in _children(reading):
                 if path.name == 'writer.lock' or path.name.endswith('.json.tmp'):
                     continue
-                if not RECORD_NAME.fullmatch(path.name):
+                if not re.fullmatch(r'[a-f0-9]{64}\.json', path.name):
                     raise LibraryImportError()
-                add(path, MAX_RECORD)
+                add(path, 64 * 1024)
         targets = _safe(state / 'cloud/targets.json')
         if targets.exists():
             add(targets, 1024**2)

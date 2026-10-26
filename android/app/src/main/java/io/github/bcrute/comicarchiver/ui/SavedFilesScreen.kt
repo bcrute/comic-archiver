@@ -45,7 +45,7 @@ import java.util.Date
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Unit,
-                     onOpen: (String) -> Unit, onRead: ((String) -> Unit)? = null,
+                     onOpen: (String) -> Unit,
                      exportPanel: @Composable () -> Unit) {
     val query = state.query
     val page = state.page
@@ -112,10 +112,6 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                             if (state.feedbackFor == id) state.feedback?.let {
                                 Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
-                            if (onRead != null) Button(onClick = { onRead(id) }, enabled = state.openingId == null,
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Read ${file.title}, ${file.series}. ${file.filename}. ${file.storage}"
-                                }) { Text("Read here") }
                             val action = if (state.openingId == id) "Opening" else "Open"
                             Button(onClick = { onOpen(id) }, enabled = state.openingId == null,
                                 modifier = Modifier.semantics {

@@ -53,12 +53,10 @@ fun LibraryScreen(
     folderState: FolderLibraryState = FolderLibraryState(),
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
-    onReadFolderFile: ((String) -> Unit)? = null,
     actionsEnabled: Boolean = true,
     compactEditing: Boolean = false,
     showFilesRequested: Boolean = false,
     onFilesRequestConsumed: () -> Unit = {},
-    onReadFile: ((String) -> Unit)? = null,
 ) {
     var view by rememberSaveable { mutableStateOf("Series") }
     LaunchedEffect(showFilesRequested) {
@@ -69,7 +67,7 @@ fun LibraryScreen(
     LaunchedEffect(view) {
         val switched = previousView != view
         previousView = view
-        // Returning from the reader restores this pane. Reloading an existing
+        // Returning from another app restores this pane. Reloading an existing
         // page hides its rows during loading and clamps the saved list to the top.
         if (view == "Files" && !catalog.loading && (switched || catalog.page == null))
             onCatalogQuery(catalog.query, false)
@@ -84,8 +82,8 @@ fun LibraryScreen(
         Box(Modifier.weight(1f)) {
             if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
-                onCloseFolder, onFolderQuery, onOpenFolderFile, onReadFolderFile.takeIf { actionsEnabled })
-            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile, onReadFile) {
+                onCloseFolder, onFolderQuery, onOpenFolderFile)
+            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
         }

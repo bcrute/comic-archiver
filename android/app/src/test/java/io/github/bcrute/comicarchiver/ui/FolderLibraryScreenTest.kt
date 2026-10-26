@@ -42,18 +42,17 @@ class FolderLibraryScreenTest {
         compose.onNodeWithText("Close folder").performScrollTo().performClick()
         assertEquals(1, close)
     }
-    @Test fun selectedExportOffersIndependentBuiltInAndExternalReaderActions() {
+    @Test fun selectedExportOpensExternallyWithoutAnEmbeddedReader() {
         val id = "a".repeat(64)
         val row = SavedFileItem(id, "Exported series", "Chapter", "one.cbz", "Comic", "7 KB",
             "Opened folder", null, true, id)
         val page = SavedFilePage(listOf(row), 1, 0, 50, "One saved comic", "Showing one file", "",
             emptyList(), emptyList(), emptyList(), listOf(50))
-        val read = mutableListOf<String>(); val external = mutableListOf<String>()
+        val external = mutableListOf<String>()
         compose.setContent { MaterialTheme { FolderLibraryScreen(FolderLibraryState(selected = true,
             label = "Exports", catalog = CatalogState(page = page)), {}, {}, {}, { _, _ -> },
-            { external.add(it) }, { read.add(it) }) } }
-        compose.onNodeWithText("Read here").performScrollTo().performClick()
-        assertEquals(listOf(id), read); assertEquals(emptyList<String>(), external)
+            { external.add(it) }) } }
+        compose.onNodeWithText("Read here").assertDoesNotExist()
         compose.onNodeWithText("Open").performScrollTo().performClick()
         assertEquals(listOf(id), external)
     }

@@ -7,10 +7,8 @@ import java.util.UUID
 
 /** At most three unused reader copies, never imports into the download library.
  * Publish only after EOF/size checks; partial or cancelled files have no readable
- * archive name. Explicit owners survive eviction until they release their copy;
- * external readers may instead retain an open descriptor after eviction. */
+ * archive name. External readers may retain an open descriptor after eviction. */
 internal class ReadingCopyStore(private val directory: File,
-    private val prune: (List<File>) -> Unit = { copies -> copies.drop(2).forEach { it.deleteRecursively() } },
     private val available: (File) -> Long = { it.usableSpace }) {
     fun stage(name: String, expectedBytes: Long?, source: () -> InputStream,
         checkActive: () -> Unit = {}): File {
@@ -23,9 +21,8 @@ internal class ReadingCopyStore(private val directory: File,
         val root = directory.canonicalFile
         val old = root.listFiles()?.filter { it.isDirectory && it.name.matches(Regex("[a-f0-9-]{36}")) &&
             it.canonicalFile == it.absoluteFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
-        // Keep two unused copies while preparing the third. Live owners are
-        // independent of this cache budget and retire after their actual I/O.
-        prune(old)
+        // Keep two old copies while preparing the third for an external app.
+        old.drop(2).forEach { it.deleteRecursively() }
         val budget = (available(root) - 16L * 1024 * 1024).coerceAtLeast(0)
         if (expectedBytes != null && expectedBytes > budget) throw IOException("Temporary reading space unavailable")
         val folder = root.resolve(UUID.randomUUID().toString())

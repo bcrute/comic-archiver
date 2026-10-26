@@ -193,11 +193,6 @@ class Actions:
             raise Refused('request_unavailable', OPEN_FAILED)
         return self._call('open_file_on_device', export_id, failed=OPEN_FAILED)
 
-    def read_file(self, export_id):
-        from .local_reader import UNAVAILABLE
-        if not isinstance(export_id, str) or not EXPORT_ID.fullmatch(export_id):
-            raise Refused('request_unavailable', UNAVAILABLE)
-        return self._call('open_reader', export_id, locked=False, failed=UNAVAILABLE)
 
 
 def due(state, now):

@@ -29,10 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -44,13 +42,6 @@ import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
-import io.github.bcrute.comicarchiver.reader.LocalReaderState
-
-private class ReaderReturnFocus {
-    var renderedReaderId: String? = null
-    var requestedReaderId: String? = null
-    var closeHadInputFocus = false
-}
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -78,39 +69,14 @@ fun ComicArchiverAppRoot(
     folderState: FolderLibraryState = FolderLibraryState(),
     onFolderLoad: () -> Unit = {}, onOpenFolder: () -> Unit = {}, onCloseFolder: () -> Unit = {},
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
-    onReadFolderFile: ((String) -> Unit)? = null,
     workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
     workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
     notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
     notificationError: String? = null,
     onNotificationAccess: () -> Unit = {},
-    localReader: LocalReaderState = LocalReaderState(),
-    localReaderActions: LocalReaderActions = LocalReaderActions(),
-    onReadFile: ((String) -> Unit)? = null,
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
-    val native = LocalView.current
-    val readerFocus = remember(native) { ReaderReturnFocus() }
-    LaunchedEffect(native, localReader.id) {
-        val previous = readerFocus.renderedReaderId
-        readerFocus.renderedReaderId = localReader.id
-        if (previous != localReader.id) {
-            val returning = previous != null && localReader.id == null &&
-                readerFocus.requestedReaderId == previous && readerFocus.closeHadInputFocus
-            readerFocus.requestedReaderId = null
-            readerFocus.closeHadInputFocus = false
-            if (returning) {
-                // Newly composed navigation needs a placed focus target. A
-                // composition SideEffect can run before that first layout.
-                // A new reader cancels this effect before it can reclaim input.
-                withFrameNanos { }
-                if (native.isAttachedToWindow && native.hasWindowFocus() && !native.hasFocus())
-                    native.requestFocus()
-            }
-        }
-    }
-
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Downloads") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
@@ -132,20 +98,12 @@ fun ComicArchiverAppRoot(
     val tabState = rememberSaveableStateHolder()
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.signIn is SignInState.Restoring
-    BackHandler(enabled = !localReader.open && (tab != AppTab.SAVING || signingIn)) {
+    BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
         if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val tabScroll = rememberScrollState()
     val siteScroll = rememberScrollState()
-    if (localReader.open) {
-        LocalReaderScreen(localReader, localReaderActions.copy(close = {
-            readerFocus.requestedReaderId = localReader.id
-            readerFocus.closeHadInputFocus = native.hasFocus()
-            localReaderActions.close()
-        }))
-        return
-    }
     if (signOutSite == state.site && signOutLibrary == state.libraryId && signOutAvailable) {
         val targetSite = state.site
         val targetLibrary = state.libraryId
@@ -158,7 +116,7 @@ fun ComicArchiverAppRoot(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text("This signs out of $name in Comic Archiver on this phone and stops saving. " +
                         "Your $name account, other sites and sign-ins in other apps stay unchanged.\n\n" +
-                        "Your saved episodes, reading progress, export copies and B2 setup stay where they are. " +
+                        "Your saved episodes, export copies and B2 setup stay where they are. " +
                         "Sign in again to download more from $name.")
                 }
             },
@@ -222,13 +180,6 @@ fun ComicArchiverAppRoot(
                 NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
             }
             if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
-            localReader.feedback?.let { message ->
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    Text(message)
-                    if (localReader.closing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    else TextButton(onClick = localReaderActions.dismissFeedback) { Text("Dismiss reading message") }
-                }
-            }
             tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
                 when (tab) {
                     AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
@@ -261,14 +212,12 @@ fun ComicArchiverAppRoot(
                             catalog = state.catalog,
                             onCatalogQuery = controller::loadCatalog,
                             onOpenFile = controller::openSavedFile,
-                            onReadFile = onReadFile,
                             exportState = exportState,
                             onPickFolder = onPickFolder,
                             onStartExport = onStartExport,
                             onStopExport = onStopExport,
                             folderState = folderState, onFolderLoad = onFolderLoad, onOpenFolder = onOpenFolder,
                             onCloseFolder = onCloseFolder, onFolderQuery = onFolderQuery, onOpenFolderFile = onOpenFolderFile,
-                            onReadFolderFile = onReadFolderFile,
                             actionsEnabled = state.workspaceReady && !state.libraryBusy && !state.siteBusy,
                             compactEditing = compactEditing,
                             showFilesRequested = showFilesRequested,
