@@ -141,8 +141,11 @@ class NativeReadingBrowser internal constructor(
         val now = SystemClock.uptimeMillis()
         if (kind == "press") downTime = now
         val action = when (kind) { "move" -> MotionEvent.ACTION_HOVER_MOVE; "press" -> MotionEvent.ACTION_DOWN; else -> MotionEvent.ACTION_UP }
-        val event = mouseEvent(if (downTime == 0L) now else downTime, now, action, position.first, position.second,
-            if (kind == "press") MotionEvent.BUTTON_PRIMARY else 0)
+        // WebView consumes mouse ACTION_DOWN/UP without producing a mouse
+        // click; mouse clicks require separate button events. The phone uses
+        // a real touch press/release, keeping the shared DOM aim/hit guards.
+        val event = motionEvent(if (downTime == 0L) now else downTime, now, action,
+            position.first, position.second, touch = kind != "move")
         try {
             if (kind == "move") view.dispatchGenericMotionEvent(event) else view.dispatchTouchEvent(event)
         } finally {
@@ -157,7 +160,7 @@ class NativeReadingBrowser internal constructor(
             throw ScriptRequestException(ScriptFailure.SCRIPT)
         val position = position(x, y)
         val now = SystemClock.uptimeMillis()
-        val event = mouseEvent(now, now, MotionEvent.ACTION_SCROLL, position.first, position.second,
+        val event = motionEvent(now, now, MotionEvent.ACTION_SCROLL, position.first, position.second,
             deltaX = deltaX.toFloat(), deltaY = deltaY.toFloat())
         try { view.dispatchGenericMotionEvent(event) } finally { event.recycle() }
     }
@@ -192,16 +195,20 @@ class NativeReadingBrowser internal constructor(
         private fun readingUrl(uri: Uri): Boolean = uri.scheme == "https" && uri.host == "tapas.io" &&
             uri.userInfo == null && uri.port in setOf(-1, 443)
 
-        private fun mouseEvent(down: Long, now: Long, action: Int, x: Float, y: Float,
-                              buttons: Int = 0, deltaX: Float = 0f, deltaY: Float = 0f): MotionEvent {
-            val properties = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE }
+        private fun motionEvent(down: Long, now: Long, action: Int, x: Float, y: Float,
+                                touch: Boolean = false, deltaX: Float = 0f, deltaY: Float = 0f): MotionEvent {
+            val properties = MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = if (touch) MotionEvent.TOOL_TYPE_FINGER else MotionEvent.TOOL_TYPE_MOUSE
+            }
             val coordinates = MotionEvent.PointerCoords().apply {
                 this.x = x; this.y = y; pressure = 1f; size = 1f
                 setAxisValue(MotionEvent.AXIS_HSCROLL, deltaX / 100f)
                 setAxisValue(MotionEvent.AXIS_VSCROLL, -deltaY / 100f)
             }
             return MotionEvent.obtain(down, now, action, 1, arrayOf(properties), arrayOf(coordinates), 0,
-                buttons, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
+                0, 1f, 1f, 0, 0,
+                if (touch) InputDevice.SOURCE_TOUCHSCREEN else InputDevice.SOURCE_MOUSE, 0)
         }
     }
 }

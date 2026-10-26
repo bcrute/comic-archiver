@@ -1315,7 +1315,7 @@ def phase_in_app(paths, test_apk=None):
                 "ANDROID_AVD_HOME": str(avd_home),
                 "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}"}
     created = run_tool([str(avdmanager), "create", "avd", "-n", avd_name, "-k", image, "--force"],
-                       timeout=300, env_extra=env_java)
+                       timeout=300, env_extra=env_java, input_bytes="no\n")
     if created["returncode"] != 0:
         record("in_app", "failed", reason="avd creation failed", tail=created["tail"])
         record("beta_integration", "skipped", reason="avd creation failed")
