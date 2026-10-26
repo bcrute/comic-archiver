@@ -8,6 +8,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 import zipfile
 
 from scripts import android_feasibility as feasibility
@@ -119,6 +120,47 @@ class CiPackageMirrorTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual(len(self.requests), 2)
         self.assertEqual(list(self.root.glob('*.part')), [])
+
+    def test_unpacked_emulator_keeps_vendor_metadata_and_refuses_wrong_cached_revision(self):
+        packet = io.BytesIO()
+        with zipfile.ZipFile(packet, 'w') as archive:
+            archive.writestr('emulator/source.properties', 'Pkg.Revision=37.2.12\n')
+            archive.writestr('emulator/emulator', b'fixture executable')
+        original = packet.getvalue()
+        digest = hashlib.sha1(original, usedforsecurity=False).hexdigest()
+        self.bodies['/HTTPS/vendor.invalid/sdk/repository.xml'] = (
+            '<repository xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xmlns:generic="http://schemas.android.com/repository/android/generic/02">'
+            '<license id="android-sdk-license" type="text">Vendor fixture terms</license>'
+            '<remotePackage path="emulator"><type-details xsi:type="generic:genericDetailsType"/>'
+            '<revision><major>37</major><minor>2</minor><micro>12</micro></revision>'
+            '<display-name>Android Emulator</display-name><uses-license ref="android-sdk-license"/>'
+            '<channelRef ref="channel-0"/><archives><archive><host-os>linux</host-os><complete>'
+            f'<checksum type="sha1">{digest}</checksum><url>emulator.zip</url>'
+            '</complete></archive></archives></remotePackage></repository>').encode()
+        self.bodies['/HTTPS/vendor.invalid/sdk/emulator.zip'] = original
+        with patch.object(feasibility, 'REPOSITORY_XMLS', ('https://vendor.invalid/sdk/repository.xml',)), \
+                patch.object(feasibility, 'TOOLS_DIR', self.root / 'tools'):
+            details = feasibility._sdk_repository_packages()['emulator']
+            sdk = self.root / 'sdk'
+            self.assertEqual(feasibility._install_sdk_package('emulator', details, sdk), (True, digest))
+            metadata = sdk / 'emulator/package.xml'
+            document = ET.fromstring(metadata.read_text())  # noqa: S314 - generated fixture metadata
+            package = document.find('localPackage')
+            self.assertEqual(package.get('path'), 'emulator')
+            self.assertEqual(package.findtext('revision/micro'), '12')
+            self.assertEqual(document.findtext('license'), 'Vendor fixture terms')
+            self.assertNotIn('archives', metadata.read_text())
+            self.assertNotIn('channelRef', metadata.read_text())
+            metadata.unlink()
+            self.assertEqual(feasibility._install_sdk_package('emulator', details, sdk), (True, 'cached'))
+            self.assertTrue(metadata.is_file())
+            metadata.unlink()
+            (sdk / 'emulator/source.properties').write_text('Pkg.Revision=37.2.11\n')
+            okay, reason = feasibility._install_sdk_package('emulator', details, sdk)
+            self.assertFalse(okay)
+            self.assertIn('revision mismatched', reason)
+            self.assertFalse(metadata.exists())
 
     def test_sdk_listing_and_archive_use_the_cache_and_keep_the_published_digest(self):
         packet = io.BytesIO()

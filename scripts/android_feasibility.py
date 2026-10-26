@@ -333,6 +333,51 @@ REPOSITORY_XMLS = (
 )
 
 
+def _emulator_local_metadata(package, repository):
+    """Retain vendor revision/license metadata that AVD Manager needs after unzip."""
+    xsi = "{http://www.w3.org/2001/XMLSchema-instance}type"
+    details = package.find("{*}type-details")
+    if details is None or details.get(xsi) != "generic:genericDetailsType":
+        raise ValueError("Unknown emulator package type")
+    local = ET.Element("localPackage", {"path": "emulator", "obsolete": "false"})
+    for tag in ("type-details", "revision", "display-name", "uses-license", "dependencies"):
+        child = package.find("{*}" + tag)
+        if child is not None:
+            local.append(ET.fromstring(ET.tostring(child)))  # noqa: S314 - fixed vendor XML
+    revision = local.find("revision")
+    if revision is None:
+        raise ValueError("Missing emulator revision")
+    version = tuple(int(revision.findtext(name, "0")) for name in ("major", "minor", "micro"))
+    document = ET.Element("{http://schemas.android.com/repository/android/common/02}repository",
+                          {"xmlns:generic": "http://schemas.android.com/repository/android/generic/02"})
+    license_ref = local.find("uses-license")
+    if license_ref is not None:
+        license_node = next((node for node in repository.findall("{*}license")
+                             if node.get("id") == license_ref.get("ref")), None)
+        if license_node is None:
+            raise ValueError("Missing emulator license")
+        document.append(ET.fromstring(ET.tostring(license_node)))  # noqa: S314 - fixed vendor XML
+    document.append(local)
+    return ET.tostring(document, encoding="unicode"), version
+
+
+def _install_emulator_metadata(details, target):
+    if (target / "package.xml").is_file():
+        return True
+    try:
+        source = (target / "source.properties").read_text()
+        match = re.search(r"^\s*Pkg.Revision\s*=\s*(\d+(?:\.\d+){0,2})\s*$", source, re.MULTILINE)
+        if match is None:
+            return False
+        observed = tuple(int(value) for value in match[1].split("."))
+        if (observed + (0, 0, 0))[:3] != tuple(details["revision"]):
+            return False
+        (target / "package.xml").write_text(details["local_package_xml"], encoding="utf-8")
+        return True
+    except (KeyError, OSError, ValueError):
+        return False
+
+
 def _sdk_repository_packages():
     """The repository's own stable package table, fetched over the same TLS path every
     pinned input already uses, optionally through the CI acquiring cache.
@@ -369,6 +414,12 @@ def _sdk_repository_packages():
                 if sha1 is not None and artifact is not None:
                     packages[path] = {"sha1": sha1.text.strip(),
                                       "url": f"{folder}/{artifact.text.strip()}"}
+                    if path == "emulator":
+                        try:
+                            metadata, revision = _emulator_local_metadata(package, root)
+                        except ValueError:
+                            return None
+                        packages[path].update(local_package_xml=metadata, revision=revision)
                     break
     return packages
 
@@ -381,6 +432,8 @@ def _install_sdk_package(name, details, sdk):
     matched the install path; package;path segments do)."""
     target = sdk.joinpath(*name.split(";"))
     if target.is_dir():
+        if name == "emulator" and not _install_emulator_metadata(details, target):
+            return False, "emulator package metadata missing or revision mismatched"
         return True, "cached"
     bundle = TOOLS_DIR / f"downloads/{name.replace(';', '-')}.zip"
     try:
@@ -408,6 +461,8 @@ def _install_sdk_package(name, details, sdk):
     shutil.rmtree(target, ignore_errors=True)
     inner[0].rename(target)
     shutil.rmtree(staging, ignore_errors=True)
+    if name == "emulator" and not _install_emulator_metadata(details, target):
+        return False, "emulator package metadata missing or revision mismatched"
     return True, details["sha1"]
 
 
@@ -1312,6 +1367,8 @@ def phase_in_app(paths, test_apk=None):
     avd_home.mkdir(parents=True, exist_ok=True)
     avd_name = f"comic-archiver-feasibility-{os.getpid()}"
     env_java = {"JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
+                "ANDROID_HOME": str(sdk), "ANDROID_SDK_ROOT": str(sdk),
+                "ANDROID_USER_HOME": str(TOOLS_DIR / "android-user"),
                 "ANDROID_AVD_HOME": str(avd_home),
                 "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}"}
     created = run_tool([str(avdmanager), "create", "avd", "-n", avd_name, "-k", image, "--force"],
