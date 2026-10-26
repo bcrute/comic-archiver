@@ -71,7 +71,7 @@ def list_page(category, page):
                '<a class="item-title">All</a></li></ul></nav>')
     viewport = '' if _native_diagnostic_geometry else '<meta name="viewport" content="width=device-width,initial-scale=1">'
     spacer = '<div style="height:1000px"></div>' if _native_diagnostic_geometry else ''
-    return ('<!doctype html><html><head>' + viewport
+    return ('<!doctype html><html><head>' + viewport +
             '<style>body{margin:16px}a{display:inline-block;padding:12px}</style></head>'
             f'<body><a href="/reading-list">Library</a>{tabs}{filters}<ul class="content-list-wrap"><li class="content-item" '
             f'data-tiara-event-meta-series-id="{key}"><a href="/series/{slug}">{title}</a>'
