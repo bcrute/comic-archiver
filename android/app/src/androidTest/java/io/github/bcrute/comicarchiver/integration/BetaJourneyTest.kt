@@ -239,6 +239,7 @@ class BetaJourneyTest {
     @Test fun nativeDiscoveryFollowsTheActualProvidedPagerAndFreeFilter() {
         FixtureSafety.requireEmulator()
         app.fixture().callAttr("enable_native_discovery_diagnostic")
+        assertTrue("Required native WebView execution/profile features are unavailable", app.readingBrowser.available())
         ActivityScenario.launch(MainActivity::class.java).use {
             try {
                 await("cold fixture startup") { !app.controller.state.value.siteBusy &&
@@ -248,7 +249,8 @@ class BetaJourneyTest {
                 await("verified native fixture sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
                 click("Go")
                 await("native list observations", 150_000) {
-                    observe().getJSONArray("native_library_diagnostics").length() >= 4
+                    val rows = observe().getJSONArray("native_library_diagnostics")
+                    rows.length() >= 4 || (0 until rows.length()).any { !rows.getJSONObject(it).optBoolean("complete") }
                 }
                 val observations = observe().getJSONArray("native_library_diagnostics")
                 for (category in listOf("subscribed", "updated", "recent", "free_episodes")) {
