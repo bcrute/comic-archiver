@@ -539,8 +539,7 @@ class RenderedScreensTest {
                     if (opened.size == 1) throw IllegalStateException("private-browser-detail")
                 }
             }) {
-                MaterialTheme { SavedFilesScreen(catalog, { _, _ -> }, controller::openSavedFile,
-                    { error("A cloud record has no local reader") }) {} }
+                MaterialTheme { SavedFilesScreen(catalog, { _, _ -> }, controller::openSavedFile) {} }
             }
         }
         val description = "Browse Chapter one, Synthetic series in Backblaze. chapter.cbz"
