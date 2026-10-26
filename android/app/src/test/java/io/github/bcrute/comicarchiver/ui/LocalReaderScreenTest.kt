@@ -43,6 +43,7 @@ class LocalReaderScreenTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     @Config(qualifiers = "w393dp-h1000dp")
     fun completedReloadRecoversLostDialogInputFocusAndKeyboardTraversal() {
         val id = "a".repeat(32)

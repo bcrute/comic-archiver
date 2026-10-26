@@ -590,6 +590,7 @@ class RenderedScreensTest {
     }
 
     @Test
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun readerCloseRecoversLostNativeInputAndKeepsTabNavigation() {
         val id = "c".repeat(32)
