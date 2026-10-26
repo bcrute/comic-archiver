@@ -183,6 +183,53 @@ def browser_response(url, cookie, method='GET'):
         'type': response.headers.get('Content-Type', 'text/plain').split(';')[0], 'body': response.text})
 
 
+_native_library_diagnostics = []
+_native_operation_counts = {}
+_native_failures = []
+
+
+def install_native_discovery_observation():
+    """Observe actual fixture-only native/DOM calls; never replace their result."""
+    from comic_archive import android_browser
+    inspect = android_browser.AndroidTapasBrowserAdapter.inspect_library
+    invoke = android_browser._Surface.invoke
+
+    def observed_invoke(surface, operation, *arguments):
+        with _lock:
+            _native_operation_counts[operation] = _native_operation_counts.get(operation, 0) + 1
+        try:
+            return invoke(surface, operation, *arguments)
+        except Exception as error:
+            cause = error.__context__
+            native_failure = None
+            if cause is not None and hasattr(cause, 'getFailure'):
+                try:
+                    value = str(cause.getFailure().name())
+                    if value in {'NOT_READY', 'CHANGED', 'CLOSED', 'CANCELLED', 'TIMEOUT', 'BUSY', 'TOO_LARGE', 'SCRIPT'}:
+                        native_failure = value
+                except Exception:
+                    pass
+            with _lock:
+                _native_failures.append({'operation': operation, 'exception_class': type(error).__name__,
+                    'native_failure': native_failure})
+                del _native_failures[:-16]
+            raise
+
+    def observed_inspect(adapter, *args, **kwargs):
+        result = inspect(adapter, *args, **kwargs)
+        fields = ('scope', 'complete', 'membership_verified', 'blocker', 'filter_clicked',
+                  'navigation_failure', 'selection_structure', 'observed_series_count', 'pages')
+        record = {'category': kwargs.get('category', 'subscribed')}
+        record.update({key: result[key] for key in fields if key in result})
+        with _lock:
+            _native_library_diagnostics.append(record)
+            del _native_library_diagnostics[:-8]
+        return result
+
+    android_browser._Surface.invoke = observed_invoke
+    android_browser.AndroidTapasBrowserAdapter.inspect_library = observed_inspect
+
+
 def install():
     """Called by the emulator-only test Application, after real native bootstrap."""
     global _installed
@@ -201,6 +248,7 @@ def install():
     android_adapter.AndroidTransport = FixtureTransport
     android_readers.AndroidTransport = FixtureTransport
     android_browser._asset_client = browser_asset_client
+    install_native_discovery_observation()
     _installed = True
 
 
@@ -219,7 +267,9 @@ def pause_requested(root):
 
 def observation():
     with _lock:
-        return json.dumps({'blocked_transfer': _blocked.is_set(), 'asset_requests': _asset_requests,
+        return json.dumps({'native_library_diagnostics': list(_native_library_diagnostics),
+                           'native_operation_counts': dict(_native_operation_counts),
+                           'native_failures': list(_native_failures), 'blocked_transfer': _blocked.is_set(), 'asset_requests': _asset_requests,
                            'asset_cookie_leaks': _asset_cookie_leaks, 'unexpected_requests': _unexpected,
                            'browser_agent_seen': _browser_agent_seen,
                            'fast_asset_clients': _fast_asset_clients,

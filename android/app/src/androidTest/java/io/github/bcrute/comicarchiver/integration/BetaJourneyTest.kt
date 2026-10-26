@@ -235,6 +235,38 @@ class BetaJourneyTest {
             .put("adopted_library_id", newId).put("adopted_archives", imported)
     }
 
+    /** Focused native discovery diagnostic; supplies no real-provider account evidence. */
+    @Test fun nativeDiscoveryFollowsTheActualProvidedPagerAndFreeFilter() {
+        FixtureSafety.requireEmulator()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            try {
+                await("cold fixture startup") { !app.controller.state.value.siteBusy &&
+                    app.controller.state.value.signIn == SignInState.SignedOut }
+                click("Sign in to Tapas")
+                requireNotNull(device.wait(Until.findObject(By.text("Sign in to fixture")), 20_000)).click()
+                await("verified native fixture sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
+                click("Go")
+                await("native list observations", 150_000) {
+                    observe().getJSONArray("native_library_diagnostics").length() >= 4
+                }
+                val observations = observe().getJSONArray("native_library_diagnostics")
+                for (category in listOf("subscribed", "updated", "recent", "free_episodes")) {
+                    val rows = (0 until observations.length()).map { observations.getJSONObject(it) }
+                        .filter { it.optString("category") == category }
+                    assertEquals("Expected one actual $category result", 1, rows.size)
+                    assertTrue("Incomplete native $category observation: ${rows.single()}",
+                        rows.single().optBoolean("complete"))
+                    assertEquals("Actual $category must navigate both supplied pages", 2,
+                        rows.single().getJSONArray("pages").length())
+                }
+            } finally {
+                save("native-discovery-diagnostic.json", observe())
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.controller.pause() }
+                app.fixture().callAttr("release_transfer")
+            }
+        }
+    }
+
     @Test fun prepareTransferAndWaitForHostStop() {
         FixtureSafety.requireEmulator()
         // The existing native gate executes this required browser boundary too;
