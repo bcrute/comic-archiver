@@ -948,6 +948,9 @@ class LibraryTests(PagesCase):
         holder = self.library.table.cellWidget(0, 7)
         button, feedback = holder.findChild(QtWidgets.QPushButton), holder.findChild(QtWidgets.QLabel)
         self.assertEqual(button.accessibleName(), 'Open Episode 001.cbz')
+        self.assertEqual([b.text() for b in holder.findChildren(QtWidgets.QPushButton)], ['Open'])
+        self.assertFalse(any(b.text() in {'Read here', 'Read a file…'}
+                             for b in self.pages.widget.findChildren(QtWidgets.QPushButton)))
         self.shell.held = []
         button.click()
         self.assertEqual((button.text(), button.isEnabled(), feedback.text()), ('Opening…', False, library_model.OPENING))
