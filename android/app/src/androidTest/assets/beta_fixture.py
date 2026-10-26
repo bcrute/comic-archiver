@@ -69,11 +69,13 @@ def list_page(category, page):
                '<a class="item-title" href="/reading-list?category=FREE_EPISODES&amp;type=ALL">Free Episodes</a>'
                '</li></ul></nav><nav class="section-sort"><ul><li class="sort-item on">'
                '<a class="item-title">All</a></li></ul></nav>')
-    return ('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+    viewport = '' if _native_diagnostic_geometry else '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    spacer = '<div style="height:1000px"></div>' if _native_diagnostic_geometry else ''
+    return ('<!doctype html><html><head>' + viewport
             '<style>body{margin:16px}a{display:inline-block;padding:12px}</style></head>'
             f'<body><a href="/reading-list">Library</a>{tabs}{filters}<ul class="content-list-wrap"><li class="content-item" '
             f'data-tiara-event-meta-series-id="{key}"><a href="/series/{slug}">{title}</a>'
-            f'</li></ul>{more}</body></html>').encode()
+            f'</li></ul>{spacer}{more}</body></html>').encode()
 
 
 class PageStream(httpx.SyncByteStream):
@@ -183,9 +185,15 @@ def browser_response(url, cookie, method='GET'):
         'type': response.headers.get('Content-Type', 'text/plain').split(';')[0], 'body': response.text})
 
 
+_native_diagnostic_geometry = False
 _native_library_diagnostics = []
 _native_operation_counts = {}
 _native_failures = []
+
+
+def enable_native_discovery_diagnostic():
+    global _native_diagnostic_geometry
+    _native_diagnostic_geometry = True
 
 
 def install_native_discovery_observation():

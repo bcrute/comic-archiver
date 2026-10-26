@@ -238,6 +238,7 @@ class BetaJourneyTest {
     /** Focused native discovery diagnostic; supplies no real-provider account evidence. */
     @Test fun nativeDiscoveryFollowsTheActualProvidedPagerAndFreeFilter() {
         FixtureSafety.requireEmulator()
+        app.fixture().callAttr("enable_native_discovery_diagnostic")
         ActivityScenario.launch(MainActivity::class.java).use {
             try {
                 await("cold fixture startup") { !app.controller.state.value.siteBusy &&
