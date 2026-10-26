@@ -883,16 +883,10 @@ class Library:
         self.title = kit.label(library_model.title('Tapas'), 'pageTitle')
         top.addWidget(self.title, 1)
         self.open_folder = kit.button('Open folder', pages.open_folder, 'secondary')
-        self.read_selected = kit.button('Read a file…', self.choose_read_file, 'secondary')
-        self.selecting_reader, self.selected_opening = False, False
         self.refresh = kit.button('Refresh files', lambda: self.load(refresh=True), 'secondary')
         top.addWidget(self.open_folder)
-        top.addWidget(self.read_selected)
         top.addWidget(self.refresh)
         column.addLayout(top)
-        self.reader_notice = kit.label('', 'muted')
-        self.reader_notice.setVisible(False)
-        column.addWidget(self.reader_notice)
         self.summary = kit.label('')
         column.addWidget(self.summary)
         self.places = w.QHBoxLayout()
@@ -1079,78 +1073,11 @@ class Library:
         feedback.setVisible(False)
         button.clicked.connect(lambda checked=False: self.open_file(row['open'], button, feedback))
         box.addWidget(button)
-        if row['filename'].lower().endswith(('.cbz', '.epub')):
-            read = self.kit.button('Read here', None, 'secondary')
-            read.setAccessibleName('Read ' + row['filename'] + ' in Comic Archiver')
-            read.clicked.connect(lambda checked=False: self.read_file(row['open'], read, feedback))
-            box.addWidget(read)
         box.addWidget(feedback)
         return holder
 
-    def read_file(self, export_id, button, feedback):
-        self.start_reader(lambda: self.pages.actions.read_file(export_id), button, feedback,
-                          row_request=self.request)
 
-    def choose_read_file(self):
-        pages, state = self.pages, self.pages.state
-        if pages.readers_closing or self.selecting_reader or self.selected_opening:
-            return
-        self.selecting_reader = True
-        self.read_selected.setEnabled(False)
-        try:
-            path, _ = self.kit.w.QFileDialog.getOpenFileName(
-                pages.widget, 'Read an Archiver export', state.library_folder or '',
-                'Archiver exports (*.cbz *.epub)')
-            if not path or pages.readers_closing or pages.state is not state:
-                return
-            self.start_reader(lambda: pages.actions.read_selected_file(path),
-                              self.read_selected, self.reader_notice)
-        finally:
-            self.selecting_reader = False
-            self.read_selected.setEnabled(not pages.readers_closing and not self.selected_opening)
 
-    def start_reader(self, work, button, feedback, *, row_request=None):
-        from .reader_window import reader_window
-        pages, state = self.pages, self.pages.state
-        if pages.readers_closing:
-            return
-        caption = button.text()
-        if row_request is None:
-            self.selected_opening = True
-        pages.reader_opens += 1
-        button.setEnabled(False)
-        button.setText('Opening reader…')
-        say(feedback, 'Checking the saved file…')
-
-        def done(value, error):
-            try:
-                if (pages.readers_closing or pages.state is not state
-                        or row_request is not None and self.request != row_request):
-                    if value is not None:
-                        value.close()
-                    return
-                button.setEnabled(True)
-                button.setText(caption)
-                if error:
-                    say(feedback, error, True)
-                    return
-                try:
-                    reader = reader_window(self.kit.q, value, pages.run, pages.widget, pages.reader_closed)
-                except Exception:
-                    value.close()
-                    say(feedback, 'The reader could not be opened. Your saved file is unchanged.', True)
-                    return
-                pages.readers.add(reader)
-                reader.show()
-                say(feedback, 'Reading locally in Comic Archiver.')
-            finally:
-                pages.reader_opens -= 1
-                if row_request is None:
-                    self.selected_opening = False
-                    self.read_selected.setText('Read a file…')
-                    self.read_selected.setEnabled(not pages.readers_closing)
-                pages.readers_drained()
-        pages.run(work, done)
 
     def open_file(self, export_id, button, feedback):
         button.setEnabled(False)
@@ -1178,8 +1105,6 @@ class Pages:
         self.route = 'dashboard'
         self.polling = False
         self.polled_task = None
-        self.readers, self.reader_opens = set(), 0
-        self.readers_closing, self.reader_callbacks = False, []
         kit = Kit(q, self.link)
         w = q.QtWidgets
         self.widget = w.QWidget()
@@ -1290,22 +1215,8 @@ class Pages:
     def run(self, work, done):
         self.shell.run(work, done)
 
-    def reader_closed(self, reader):
-        self.readers.discard(reader)
-        self.readers_drained()
 
-    def readers_drained(self):
-        if not self.readers and not self.reader_opens:
-            callbacks, self.reader_callbacks = self.reader_callbacks, []
-            for callback in callbacks:
-                callback()
 
-    def close_readers(self, then):
-        self.readers_closing = True
-        self.reader_callbacks.append(then)
-        for reader in list(self.readers):
-            reader.close()
-        self.readers_drained()
 
     def act(self, work, done=None, cloud=False, after=None):
         """One change at a time: the buttons wait while it runs, and a refusal is said on the dashboard and in Settings."""
