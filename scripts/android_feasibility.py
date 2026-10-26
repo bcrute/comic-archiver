@@ -328,7 +328,9 @@ REPOSITORY_XMLS = (
     # their own listings, whose artifact URLs are relative to the listing's own folder.
     # Digest and URL shapes verified against the live XMLs, 21 October 2026.
     "https://dl.google.com/android/repository/repository2-3.xml",
-    "https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml",
+    # Schema1 omits current stable major.minor images and leaves native browser
+    # checks on API36's WebView133. Schema3 retains those older packages too.
+    "https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml",
     "https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml",
 )
 
@@ -537,8 +539,9 @@ def _sdk_build_packages(names, *, emulator_capable):
     wanted = ["platform-tools"]
     wanted += [group[-1] for group in (platforms, ndks, build_tools) if group]
     if emulator_capable:
-        images = sorted(name for name in names
-                        if re.fullmatch(r"system-images;android-\d+;[a-z0-9_]+;x86_64", name))
+        images = sorted((name for name in names
+                         if re.fullmatch(r"system-images;android-\d+(?:\.\d+)?;[a-z0-9_]+;x86_64", name)),
+                        key=lambda name: (tuple(int(part) for part in name.split(";")[1][8:].split(".")), name))
         images = [name for name in images if "ps16k" not in name] or images
         wanted.append("emulator")
         if images:

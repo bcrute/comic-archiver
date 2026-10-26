@@ -28,6 +28,17 @@ class EmulatorCapacityTests(unittest.TestCase):
         self.assertIn("system-images;android-36;google_apis;x86_64", wanted)
         self.assertNotIn("system-images;android-36;google_apis_ps16k;x86_64", wanted)
 
+    def test_stable_minor_images_are_ordered_numerically_and_preview_names_are_excluded(self):
+        images = {"system-images;android-37.2;google_apis;x86_64",
+                  "system-images;android-37.10;google_apis;x86_64",
+                  "system-images;android-38.0-beta1;google_apis;x86_64",
+                  "system-images;android-38.0;google_apis_ps16k;x86_64"}
+        wanted = feasibility._sdk_build_packages(self.PACKAGES | images, emulator_capable=True)
+        self.assertEqual([name for name in wanted if name.startswith("system-images;")],
+                         ["system-images;android-37.10;google_apis;x86_64"])
+        wanted = feasibility._sdk_build_packages(self.PACKAGES | images, emulator_capable=False)
+        self.assertFalse(any(name.startswith("system-images;") for name in wanted))
+
     def test_development_sdk_uses_declared_app_inputs_without_emulator_or_newest_ndk(self):
         wanted = feasibility._development_sdk_packages(
             self.PACKAGES, 'compileSdk = 36\nndkVersion = "27.3.13750724"\n')
