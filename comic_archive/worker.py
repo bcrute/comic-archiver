@@ -206,8 +206,28 @@ def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapt
     from .locking import LibraryLock
     # One process consumes each private queue; separate user workers remain independent.
     root=directory(Path(session)/'worker')
-    with LibraryLock(root/'.runtime'):
+    with _runtime_lock(LibraryLock(root/'.runtime')):
         return _run_worker(session,preferred,headless,interval,adapter_factory,fast_session_factory)
+
+
+@contextmanager
+def _runtime_lock(lock, wait=1.0):
+    # A status check takes the runtime lock for an instant to see whether a worker holds it.
+    # Only a lock still taken after a short wait is another worker.
+    from .errors import LibraryBusy
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            lock.__enter__()
+            break
+        except LibraryBusy:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+    try:
+        yield lock
+    finally:
+        lock.__exit__(None, None, None)
 
 
 @contextmanager

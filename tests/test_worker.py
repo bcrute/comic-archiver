@@ -181,6 +181,20 @@ class WorkerTests(unittest.TestCase):
                 browser.assert_not_called()
             self.assertEqual(json.loads((root/'status.json').read_text())['task_id'],'existing')
 
+    def test_a_worker_starting_while_a_status_check_holds_its_lock_still_starts(self):
+        import threading
+        from comic_archive import osdep
+        with tempfile.TemporaryDirectory() as work:
+            session=Path(work);root=session/'worker';root.mkdir()
+            with LibraryLock(root/'.runtime'):pass
+            # background.running holds the lock on its own descriptor for as long as its check takes.
+            probe=os.open(root/'.runtime/.archive-state/writer.lock',os.O_RDONLY);osdep.lock(probe)
+            def release():osdep.unlock(probe);os.close(probe)
+            timer=threading.Timer(.3,release);timer.start();self.addCleanup(timer.join)
+            with patch('comic_archive.worker._run_worker',return_value='ran') as started:
+                self.assertEqual(run_worker(session,'firefox'),'ran')
+            started.assert_called_once()
+
     @patch('builtins.print')
     def test_a_stop_request_being_written_delays_a_task_instead_of_failing_it(self, output):
         class LoadedAdapter:

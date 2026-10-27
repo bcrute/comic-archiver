@@ -4406,5 +4406,13 @@
   "new": "    if info.get(\"must_pay\") is True:\n        raise AccessDenied(\"Episode requires an unlock.\")\n    if info[\"scheduled\"] is True:\n        raise unsupported(",
   "test_file": "test_tapas_http.py",
   "test": "test_a_bought_paid_only_episode_is_readable_and_an_unbought_one_is_not"
+ },
+ {
+  "id": "worker-start-dies-on-a-status-check",
+  "source": "comic_archive/worker.py",
+  "old": "    deadline = time.monotonic() + wait\n",
+  "new": "    deadline = time.monotonic()\n",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_starting_while_a_status_check_holds_its_lock_still_starts"
  }
 ]
