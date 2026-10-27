@@ -84,8 +84,14 @@ def run(app, tests, manifest):
             raise RuntimeError('Native integration pending: no accessible KVM')
         pin = json.loads((ROOT / 'packaging/android/integration-runtime.json').read_text())
         image = pin['system_image']
+        # A preceding build may have selected a private JDK whose bundled CA set
+        # lacks the fleet mirror CA. The runtime SDK uses the fleet's native JDK
+        # and its configured trust store, independently of compilation.
+        runtime_env = {'JAVA_HOME': '/usr/lib/jvm/java-17-openjdk-amd64',
+                       'ANDROID_HOME': str(SDK), 'ANDROID_SDK_ROOT': str(SDK)}
         checked('sdk-image-install.json', [SDK / 'cmdline-tools/latest/bin/sdkmanager',
-            '--sdk_root=' + str(SDK), '--install', image], timeout=900, keep_bytes=16000, input_bytes='y\n' * 100)
+            '--sdk_root=' + str(SDK), '--install', image], timeout=900, keep_bytes=16000,
+            input_bytes='y\n' * 100, env_extra=runtime_env)
         image_root = SDK.joinpath(*image.split(';'))
         shutil.copyfile(image_root / 'package.xml', artifacts / 'sdk-image-package.xml')
         save('runtime-image.json', {'image': image, 'source_properties': (image_root / 'source.properties').read_text(), 'registered': True})
