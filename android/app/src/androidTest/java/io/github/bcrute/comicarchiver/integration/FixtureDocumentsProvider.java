@@ -68,8 +68,12 @@ public final class FixtureDocumentsProvider extends DocumentsProvider {
         return cursor;
     }
 
-    @Override public boolean isChildDocument(String parent, String child) throws FileNotFoundException {
-        return FixtureDocuments.file(child).getPath().startsWith(FixtureDocuments.file(parent).getPath() + File.separator);
+    @Override public boolean isChildDocument(String parent, String child) {
+        try {
+            return FixtureDocuments.file(child).getPath().startsWith(FixtureDocuments.file(parent).getPath() + File.separator);
+        } catch (FileNotFoundException error) {
+            return false; // An unknown or outside-tree document is never a child.
+        }
     }
 
     @Override public synchronized String createDocument(String parentId, String mimeType, String name) throws FileNotFoundException {
