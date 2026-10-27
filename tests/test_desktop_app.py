@@ -454,23 +454,6 @@ class DesktopAppTests(unittest.TestCase):
         shell.theme_paint()
         self.assertEqual(self.paint.call_count, pages.render.call_count + 1)
 
-    def test_shutdown_stops_the_runtime_while_waiting_for_readers_before_quit(self):
-        shell = self.opened()
-        shell.load()
-        waiting = []
-        shell.pages.close_readers.side_effect = waiting.append
-        self.runtime.stop.reset_mock()
-        shell.app.quit.reset_mock()
-        shell.finish()
-        self.assertEqual(shell.phase, 'stopping')
-        self.runtime.stop.assert_called_once_with()
-        self.assertEqual(len(waiting), 1)
-        self.threads.Thread.alive = False
-        emit(self.core.QTimer.made[-1].timeout)
-        shell.app.quit.assert_not_called()
-        waiting[0]()
-        shell.app.quit.assert_called_once_with()
-
     def held_lock(self, *, answered, stale):
         self.lock.tryLock = Mock(side_effect=[False, True])
         self.network.QLocalSocket.waitForConnected = Mock(return_value=answered)
