@@ -354,8 +354,15 @@ class BetaJourneyTest {
             assertEquals(0, observe().getInt("asset_requests"))
             click("Downloads")
             click("Sign in to Tapas")
-            nativeClick(By.text("Sign in to fixture"), "Adopted library sign-in", 20_000)
-            await("account verified for adopted binding", 30_000) { app.controller.state.value.signIn is SignInState.SignedIn }
+            await("account verified for adopted binding", 30_000) {
+                // The existing profile may verify immediately after explicit
+                // entry, or present the site's normal sign-in button first.
+                if (app.controller.state.value.signIn !is SignInState.SignedIn)
+                    clickIfPresent(By.text("Sign in to fixture"), 500)
+                app.controller.state.value.signIn is SignInState.SignedIn
+            }
+            val verifiedBinding = JSONObject(app.fixture().callAttr("working_library_facts", app.workspace.root.absolutePath).toString())
+            assertEquals(binding.getString("binding_digest"), verifiedBinding.getString("binding_digest"))
             assertEquals(DownloadState.Held, app.controller.state.value.download)
             assertEquals(0, observe().getInt("asset_requests"))
             assertEquals(originalFiles.toString(), originals(original.root).toString())
