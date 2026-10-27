@@ -1856,13 +1856,15 @@ class DesktopAppTests(unittest.TestCase):
             shown.assert_not_called()
         order.forget_all.return_value = False
         self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_INCOMPLETE)
+        # What lists the library folders, and the menu entry, stay so that uninstalling again finds what stayed.
+        self.assertEqual(order.remove_app_folders.call_count, 1)
         order.forget_all.return_value, order.remove_app_folders.return_value = True, False
         self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_INCOMPLETE)
         self.box.question.return_value = 1
         self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_INCOMPLETE)
         self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_FAILED)
         self.box.information.assert_not_called()
-        self.assertEqual(order.remove_app_folders.call_count, 4)  # The app's folders go even when a sign-in stayed.
+        self.assertEqual(order.remove_app_folders.call_count, 3)
         self.assertEqual((desktop_app.UNINSTALLED, desktop_app.UNINSTALL_INCOMPLETE, desktop_app.UNINSTALL_BLOCKED), (0, 1, 3))
 
     def test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used(self):

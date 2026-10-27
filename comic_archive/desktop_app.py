@@ -331,7 +331,11 @@ def uninstall(q, quiet):
         complete = removal.forget_all()
     finally:
         lock.unlock()
-    complete = removal.remove_app_folders() and complete
+    if not complete:
+        # The settings folder lists every library folder opened, and the menu entry runs this again: both stay,
+        # so uninstalling again finds the sign-ins that stayed. Neither holds a sign-in.
+        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
+    complete = removal.remove_app_folders()
     folder = removal.app_folder()
     if folder is not None:
         removal.remove_menu_entry(folder)

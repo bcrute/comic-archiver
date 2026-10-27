@@ -4114,10 +4114,18 @@
  {
   "id": "uninstall-folders-before-unlock",
   "source": "comic_archive/desktop_app.py",
-  "old": "    finally:\n        lock.unlock()\n    complete = removal.remove_app_folders() and complete",
-  "new": "        complete = removal.remove_app_folders() and complete\n    finally:\n        lock.unlock()",
+  "old": "    finally:\n        lock.unlock()\n    if not complete:",
+  "new": "        complete = removal.remove_app_folders() and complete\n    finally:\n        lock.unlock()\n    if not complete:",
   "test_file": "test_desktop_app.py",
   "test": "test_uninstalling_asks_first_then_forgets_everything_and_says_where_the_saved_episodes_are"
+ },
+ {
+  "id": "uninstall-folders-go-when-a-sign-in-stayed",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)\n    complete = removal.remove_app_folders()\n",
+  "new": "        pass\n    complete = removal.remove_app_folders() and complete\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status"
  },
  {
   "id": "uninstall-failure-reported-as-done",
