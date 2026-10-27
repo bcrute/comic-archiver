@@ -145,6 +145,20 @@ class PackagingTests(WorkspaceCase):
         # Silently, as when a newer version's installer removes this one, a failure stops the uninstall.
         self.assertIn('MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;', code)
 
+    def test_installing_over_an_open_app_has_it_close_first_or_asks_the_person_to(self):
+        installer = (PACKAGING / 'comic-archiver.iss').read_text('utf-8').replace('\r\n', '\n')
+        self.assertIn('\n#define CloseParameters StartParameters + " --close-for-update"\n', installer)
+        self.assertTrue(desktop_app.arguments(['--close-for-update']).close_for_update)
+        code = installer.split('\n[Code]\n', 1)[1]
+        self.assertIn('function PrepareToInstall(var NeedsRestart: Boolean): String;', code)
+        self.assertIn("Exec(ExpandConstant('{#AppProgram}'), '{#CloseParameters}', ExpandConstant('{app}'), SW_HIDE,", code)
+        # Whatever that answered, nothing is replaced while a program in the app's folder runs.
+        self.assertIn("Folder := Lowercase(AddBackslash(ExpandConstant('{app}')));", code)
+        self.assertIn('  while AppOpen() do\n', code)
+        # Silently, a setup over an open app stops instead of failing on files in use.
+        self.assertIn("SuppressibleMsgBox('Comic Archiver is open. Close it, then click Retry.', mbError, MB_RETRYCANCEL,\n"
+                      "                          IDCANCEL) = IDCANCEL then", code)
+
     def test_the_icon_holds_every_size_windows_asks_for(self):
         data = (PACKAGING / 'comic-archiver.ico').read_bytes()
         self.assertEqual(data[:4], b'\0\0\1\0')

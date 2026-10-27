@@ -7,7 +7,8 @@
 ;
 ; It installs for the person running it, into their own programs folder, so it never asks for an
 ; administrator. Uninstalling first has the app forget every sign-in and cloud key it saved, and remove its own
-; settings; saved episodes stay. While the app is open, nothing is uninstalled.
+; settings; saved episodes stay. While the app is open, nothing is uninstalled. Installing over an open
+; app has it close first, as its X does.
 
 #ifndef AppVersion
   #error AppVersion is not given; build with scripts/build_windows_app.py --installer
@@ -15,6 +16,7 @@
 #define AppName "Comic Archiver"
 #define AppProgram "{app}\python\pythonw.exe"
 #define UninstallParameters StartParameters + " --uninstall --quiet"
+#define CloseParameters StartParameters + " --close-for-update"
 ; The same name as in comic_archive/desktop_app.py, so the taskbar keeps the window with its shortcut.
 #define AppModelId "ComicArchiver.Desktop"
 
@@ -69,6 +71,58 @@ Filename: "{#AppProgram}"; Parameters: "{#StartParameters}"; WorkingDir: "{app}"
 Type: filesandordirs; Name: "{app}\python"
 
 [Code]
+// Whether a program in the app's folder is running: the window, its downloader or its browser engine, which keep
+// files there in use. Windows' own check for files in use (CloseApplications) follows either way.
+function AppOpen(): Boolean;
+var
+  Locator, Service, Found, Path: Variant;
+  Folder, Text: String;
+  I: Integer;
+begin
+  Result := False;
+  Folder := Lowercase(AddBackslash(ExpandConstant('{app}')));
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Found := Service.ExecQuery('SELECT ExecutablePath FROM Win32_Process');
+    for I := 0 to Found.Count - 1 do
+    begin
+      Path := Found.ItemIndex(I).ExecutablePath;
+      if not VarIsNull(Path) then
+      begin
+        Text := Path;
+        if Pos(Folder, Lowercase(Text)) = 1 then
+        begin
+          Result := True;
+          Exit;
+        end;
+      end;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+// Before any file is replaced: an open window of the installed version closes itself when asked
+// (desktop_app.close_for_update), pausing a download as its X does. One from before that request existed does
+// not answer, so the person closes it.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{#AppProgram}')) then
+    Exec(ExpandConstant('{#AppProgram}'), '{#CloseParameters}', ExpandConstant('{app}'), SW_HIDE,
+         ewWaitUntilTerminated, Code);
+  while AppOpen() do
+    if SuppressibleMsgBox('Comic Archiver is open. Close it, then click Retry.', mbError, MB_RETRYCANCEL,
+                          IDCANCEL) = IDCANCEL then
+    begin
+      Result := 'Comic Archiver is open. Close it, then run this setup again.';
+      Exit;
+    end;
+end;
+
 // The app's own uninstall step (desktop_app.uninstall), before any file goes: 0 done, 3 the app is open.
 function InitializeUninstall(): Boolean;
 var

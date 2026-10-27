@@ -36,6 +36,8 @@ DESKTOP_ID = 'comic-archiver'
 # The same name as in packaging/windows/comic-archiver.iss, so the taskbar keeps the window with its shortcut.
 WINDOWS_APP_ID = 'ComicArchiver.Desktop'
 RAISE = b'raise\n'
+# A new version's Windows setup asks the open window to close, and hears that it is closing.
+CLOSE, CLOSING = b'close\n', b'closing\n'
 ENDING_SIGNALS = tuple(getattr(signal, name) for name in ('SIGTERM', 'SIGHUP') if hasattr(signal, name))
 SELF_TEST_SECONDS = 60
 SELF_TEST_COOKIE = 'comic_archive_self_test'
@@ -47,6 +49,7 @@ CLOCK_MS = 1000
 AWAKE_CHECK_MS = 5000
 # How long closing waits to learn whether a download is running; a drive that is asleep can take longer.
 CLOSE_CHECK_SECONDS = 2
+CLOSE_WAIT_SECONDS = 120  # How long the setup waits for the open window to stop.
 # How often the window looks for a request from the system to end, since Qt holds Python's signal handlers back.
 END_CHECK_MS = 500
 SIGNIN_PROBE_MS = 500
@@ -178,6 +181,9 @@ def arguments(argv=None):
     parser.add_argument('--uninstall', action='store_true',
                         help='forget every sign-in and cloud key and remove the app\'s settings; saved episodes stay')
     parser.add_argument('--quiet', action='store_true', help='with --uninstall: ask nothing and show nothing')
+    parser.add_argument('--close-for-update', action='store_true',
+                        help='close the open window without asking, as the system ending it does, and wait until it '
+                             'has; the Windows setup runs this before it replaces the app')
     return parser.parse_args(argv)
 
 
@@ -457,6 +463,50 @@ def newer_than_open():
     return ('.'.join(map(str, mine)), '.'.join(map(str, theirs))) if mine > theirs else None
 
 
+def ask_to_close(q, name):
+    """Ask the running instance to close for an update; True once it says it is closing."""
+    socket = q.QtNetwork.QLocalSocket()
+    socket.connectToServer(name)
+    if not socket.waitForConnected(2000):
+        return False
+    socket.write(CLOSE)
+    answered = socket.waitForBytesWritten(2000) and socket.waitForReadyRead(5000)
+    reply = bytes(socket.readAll().data()) if answered else b''
+    socket.disconnectFromServer()
+    return reply == CLOSING
+
+
+def close_for_update(q):
+    """--close-for-update: 0 once no window of the app is open, after asking an open one to close; 1 while one is.
+
+    An instance from before this request existed does not answer it, and stays open.
+    """
+    application(q)
+    try:
+        state = app_runtime.state_dir()
+    except ArchiveError:
+        return 1
+    lock = q.QtCore.QLockFile(str(state / 'desktop.lock'))
+    lock.setStaleLockTime(0)
+    failed = q.QtCore.QLockFile.LockError.LockFailedError
+
+    def free():
+        if lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0)):
+            lock.unlock()
+            return True
+        return False
+    if free():
+        return 0
+    if not ask_to_close(q, server_name(state)):
+        return 1
+    deadline = time.monotonic() + CLOSE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        if free():
+            return 0
+    return 1
+
+
 def claim(q, lock, name):
     """True when this process is the one instance; False after handing over to the other."""
     if lock.tryLock(0):
@@ -514,12 +564,23 @@ class Shell:
             return
 
         def read():
-            if raise_requested(bytes(socket.readAll().data())):
+            message = bytes(socket.readAll().data())
+            if raise_requested(message):
                 self.come_forward()
+            elif message == CLOSE:
+                socket.write(CLOSING)
+                socket.flush()
+                self.close_for_update()
         socket.readyRead.connect(read)
         socket.disconnected.connect(socket.deleteLater)
         if socket.bytesAvailable():
             read()
+
+    def close_for_update(self):
+        """A new version's setup is about to replace the app: end as the system ending it does, without asking."""
+        LOG.info('closing for an update')
+        self.ended = True
+        self.end_check()
 
     def come_forward(self):
         if self.window is None:
@@ -1324,6 +1385,8 @@ def main(argv=None):
         return toolkit_missing(error, args.self_test)
     if args.uninstall:
         return uninstall(q, args.quiet)
+    if args.close_for_update:
+        return close_for_update(q)
     return self_test(q) if args.self_test else run(q, args.project_root)
 
 

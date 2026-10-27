@@ -1664,6 +1664,61 @@ class DesktopAppTests(unittest.TestCase):
         emit(self.core.QTimer.made[-1].timeout)
         shell.app.quit.assert_called_once_with()
 
+    def test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does(self):
+        shell = self.opened(); shell.load()
+        shell.listen('comic-archive-test')
+        self.runtime.busy.return_value = 'download'
+
+        def ask():
+            socket = Mock(); socket.readAll.return_value.data.return_value = b'close\n'; socket.bytesAvailable.return_value = 6
+            shell.channel.nextPendingConnection.return_value = socket
+            with self.assertLogs('comic_archive.desktop', 'INFO'):
+                emit(shell.channel.newConnection)
+            socket.write.assert_called_once_with(b'closing\n'); socket.flush.assert_called_once_with()
+        shell.phase = 'moving'
+        ask()
+        self.runtime.stop.assert_not_called()  # A library folder change is finished first.
+        shell.phase = 'open'
+        self.threads.Thread.alive = True
+        with self.assertLogs('comic_archive.desktop', 'INFO'):
+            emit(shell.end_clock.timeout)
+        self.box.question.assert_not_called()  # No one is asked, so the setup is never left waiting on a question.
+        self.runtime.stop.assert_called_once_with(); self.assertEqual(shell.phase, 'stopping')
+        ask()  # Asked again while closing: it says so, and closes once.
+        self.runtime.stop.assert_called_once_with()
+        shell.window.raise_.assert_not_called()
+
+    def test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone(self):
+        socket_kind = self.network.QLocalSocket
+        socket_kind.waitForReadyRead = Mock(return_value=True)
+        socket_kind.readAll = Mock(return_value=SimpleNamespace(data=lambda: b'closing\n'))
+        now = [0.0]
+        with patch.object(desktop_app.time, 'sleep', side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)), \
+                patch.object(desktop_app.time, 'monotonic', side_effect=lambda: now[0]):
+            # Nothing open: nothing is asked.
+            self.assertEqual(desktop_app.main(['--close-for-update']), 0)
+            self.assertEqual(socket_kind.made, []); self.lock.unlock.assert_called_once_with()
+            # Open: asked to close, and waited for until its lock is free.
+            self.lock.tryLock = Mock(side_effect=[False, False, False, True])
+            self.assertEqual(desktop_app.main(['--close-for-update']), 0)
+            socket, = socket_kind.made
+            socket.connectToServer.assert_called_once_with(desktop_app.server_name(self.state))
+            socket.write.assert_called_once_with(b'close\n')
+            self.assertEqual(now, [1.5])
+            # Still open after the wait, or an older version that does not answer: the setup asks the person.
+            self.lock.tryLock = Mock(return_value=False)
+            self.assertEqual(desktop_app.main(['--close-for-update']), 1)
+            self.assertEqual(now, [1.5 + desktop_app.CLOSE_WAIT_SECONDS])
+            for ready, reply in ((False, b'closing\n'), (True, b''), (True, b'raise\n')):
+                socket_kind.waitForReadyRead = Mock(return_value=ready)
+                socket_kind.readAll = Mock(return_value=SimpleNamespace(data=lambda: reply))
+                self.assertEqual(desktop_app.main(['--close-for-update']), 1)
+            self.assertEqual(now, [1.5 + desktop_app.CLOSE_WAIT_SECONDS])  # Not waited for.
+            socket_kind.waitForConnected = Mock(return_value=False)
+            self.assertEqual(desktop_app.main(['--close-for-update']), 1)
+        self.runtime_kind.assert_not_called(); self.assertEqual(self.widgets.QMainWindow.made, [])
+        self.box.information.assert_not_called(); self.box.critical.assert_not_called()
+
     def test_the_app_listens_for_the_system_asking_it_to_end_only_while_it_runs(self):
         self.assertIn(signal.SIGTERM, desktop_app.ENDING_SIGNALS)
         before = {number: signal.getsignal(number) for number in desktop_app.ENDING_SIGNALS}

@@ -53,9 +53,10 @@ later starts are quick.
 `C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
 Comics are saved as CBZ files and novels as EPUB files, which open in comic and e-book reader apps.
 
-**Updating.** Run the new setup file over the old version; don't uninstall first. You stay signed in, and your
-settings and saved episodes stay. Uninstalling signs Comic Archiver out of every site and removes your Backblaze
-key from this computer; your saved episodes are kept.
+**Updating.** Run the new setup file over the old version; don't uninstall first. If Comic Archiver is open, setup
+closes it first, and a download pauses until you press Go; version 0.2.3 or older asks you to close it yourself. You
+stay signed in, and your settings and saved episodes stay. Uninstalling signs Comic Archiver out of every site and
+removes your Backblaze key from this computer; your saved episodes are kept.
 
 **Linux.** Unpack the file, open the folder and double-click `comic-archiver` (choose "Run" if asked). After the
 first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above. To

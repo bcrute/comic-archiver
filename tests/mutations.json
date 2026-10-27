@@ -4502,5 +4502,69 @@
   "new": "if mine != theirs else None",
   "test_file": "test_desktop_app.py",
   "test": "test_a_newer_copy_started_while_an_older_one_is_open_says_how_to_switch"
+ },
+ {
+  "id": "update-close-request-ignored",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            elif message == CLOSE:",
+  "new": "            elif False:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does"
+ },
+ {
+  "id": "update-close-not-acknowledged",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                socket.write(CLOSING)\n                socket.flush()\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does"
+ },
+ {
+  "id": "update-close-interrupts-a-folder-move",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        LOG.info('closing for an update')\n        self.ended = True\n        self.end_check()",
+  "new": "        LOG.info('closing for an update')\n        self.finish()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does"
+ },
+ {
+  "id": "update-setup-does-not-wait",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    deadline = time.monotonic() + CLOSE_WAIT_SECONDS\n",
+  "new": "    return 0\n    deadline = time.monotonic() + CLOSE_WAIT_SECONDS\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone"
+ },
+ {
+  "id": "update-setup-trusts-silence",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    return reply == CLOSING",
+  "new": "    return True",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone"
+ },
+ {
+  "id": "update-setup-keeps-the-lock",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0)):\n            lock.unlock()\n",
+  "new": "        if lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0)):\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone"
+ },
+ {
+  "id": "update-setup-gives-up-at-once",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    while time.monotonic() < deadline:\n        time.sleep(0.5)\n        if free():\n            return 0\n    return 1",
+  "new": "    return 1",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone"
+ },
+ {
+  "id": "update-close-flag-ignored",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if args.close_for_update:\n        return close_for_update(q)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_setup_has_an_open_window_close_and_waits_until_it_is_gone"
  }
 ]
