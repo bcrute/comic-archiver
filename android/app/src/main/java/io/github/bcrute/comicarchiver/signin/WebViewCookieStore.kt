@@ -66,6 +66,13 @@ class WebViewCookieStore(
         }
     }
 
+    /** Chaquopy converts Python sequences to Java arrays, not java.util.List.
+     * Keep the frozen List seam and give Python's raw header sequence an exact
+     * overload; both paths use the same parser, host checks and completion. */
+    fun apply(url: String, setCookieValues: Array<String>) {
+        apply(url, setCookieValues.asList())
+    }
+
     /**
      * Clear this store's browser profile, bounded in time. A supplied profile clearer owns
      * its cookies and browsing data; it never touches another site's profile. Must be
