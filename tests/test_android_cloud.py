@@ -135,6 +135,29 @@ class AndroidCloudTests(unittest.TestCase):
             retired = worker_host.request_stop(controller.workspace.session, wait_seconds=15)
             self.assertIs(retired['running'], False)
 
+    def test_a_starting_worker_is_not_reported_busy_from_the_interrupted_runs_status(self):
+        import time
+        from comic_archive import worker, worker_host
+        self.connected()
+        android_session.mark_signed_in(self.root / '.comic-session', compatibility_state=True)
+        controller, _, _ = self.interrupted_worker()
+        (self.root / 'net.json').write_text(json.dumps({'connection': 'wifi', 'metered': False}))
+        original = worker._run_worker
+
+        def slow_first_status(*args):
+            time.sleep(0.6)  # The runtime lock is held; status.json is still the old run's "busy".
+            return original(*args)
+        try:
+            with patch.object(worker, '_run_worker', slow_first_status), \
+                    patch('comic_archive.android_download.start'):
+                live = worker_host.start_in_process(controller.workspace.session,
+                    controller.workspace.library, lambda url: '', None, self.root / 'net.json')
+            self.assertTrue(live['started'], live)
+            self.assertEqual(live['state'], 'ready')
+        finally:
+            retired = worker_host.request_stop(controller.workspace.session, wait_seconds=15)
+            self.assertIs(retired['running'], False)
+
     def test_held_runtime_lock_still_refuses_cloud_connection_before_http(self):
         from comic_archive import worker_host
         from comic_archive.locking import LibraryLock

@@ -138,11 +138,16 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
         _thread['value'] = thread
         _thread['session'] = session
         _thread['browser_factory'] = browser_factory if site == sites.DEFAULT else None
+        # The embedded worker shares the app's pid, so only its fresh worker_id tells its
+        # status apart from an interrupted run's leftover "busy" once it holds the lock.
+        status_file = background.root(session) / 'status.json'
+        previous_id = background.read(status_file).get('worker_id')
         thread.start()
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
+            fresh = background.read(status_file).get('worker_id') != previous_id
             observed = background.status(session)
-            if observed['state'] in {'ready', 'busy'}:
+            if fresh and observed['state'] in {'ready', 'busy'}:
                 return observed | {'started': True}
             if not thread.is_alive():
                 break  # A start that already ended reports itself through status.json.
