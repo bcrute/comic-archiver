@@ -133,7 +133,10 @@ class PublicationTests(unittest.TestCase):
         second,second_key=publish('222','818182')
         self.assertNotEqual(first,second)
         self.assertEqual((first_key,second_key),('same-name','same-name-222'))
-        self.assertEqual(json.loads((second/'series.json').read_text())['source_series_id'],'222')
+        for folder,number in ((first,'111'),(second,'222')):
+            private=json.loads(self.private_record(folder/'series.json').read_text())['metadata']
+            self.assertEqual((private['source_series_id'],private['library_series_id']),
+                             (number,'same-name' if number=='111' else 'same-name-222'))
         self.assertEqual(publish('111','818181'),(first,'same-name'))
         self.assertEqual(publish('222','818182'),(second,'same-name-222'))
         self.assertEqual(len(list(self.root.glob('*/*.cbz'))),2)
