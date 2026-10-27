@@ -4,6 +4,7 @@ Opt-in JOSE dependency is required at the original connected-reader point. These
 public synthetic local fixtures never impersonate an account or active read grant.
 """
 
+import asyncio
 import base64
 import copy
 import importlib.util
@@ -353,3 +354,63 @@ class ConnectedPairingTests(unittest.TestCase):
             self.owner.control_revocation(draft.pairing_id, "https://reader.example")
         )
         self.assertEqual(revoked["body"], {"pairing_id": draft.pairing_id})
+
+    def test_finished_claims_are_pruned_so_the_cap_bounds_live_pairings(self):
+        with patch("comic_archive.connected.state.PAIRINGS_MAX", 4):
+            review, _ = self.review()
+            self.owner.approve(review, [self.index])
+            kept = review.draft.pairing_id
+            review, _ = self.review()
+            self.owner.approve(review, [self.index])
+            tombstone = review.draft.pairing_id
+            self.assertTrue(self.owner.revoke(tombstone))
+            for _ in range(8):  # Pair/unpair cycles well past the cap.
+                draft = self.owner.start()
+                self.assertTrue(self.owner.revoke(draft.pairing_id))
+            rows = {row["pairing_id"]: row for row in self.state.records()}
+            self.assertLessEqual(len(rows), 4)
+            self.assertEqual(rows[kept]["status"], "approved")
+            # Never-approved claims go before an approved pairing's tombstone.
+            self.assertEqual(rows[tombstone]["status"], "revoked")
+            self.reopen()
+            self.assertEqual(self.owner._record(kept)["status"], "approved")
+            self.owner.start()
+            self.owner.start()
+            self.state._pending(identifier())  # The tombstone goes last, for room.
+            self.assertIsNone(self.owner._record(tombstone))
+            with self.assertRaises(SourceError) as caught:
+                self.state._pending(identifier())  # Live rows alone fill the cap.
+            self.assertEqual(caught.exception.code, "resource_limit")
+
+    def test_claim_expiring_during_review_is_reported_gone_without_ending_serve(self):
+        from comic_archive.connected import __main__ as cli
+        from comic_archive.connected.controller import (
+            _CREATE,
+            HostController,
+            PendingPairing,
+        )
+
+        review, _ = self.review()
+        pair = review.draft.pairing_id
+        emitted = []
+
+        async def run():
+            controller = HostController(self.owner, "http://127.0.0.1:1")
+            try:
+                pending = PendingPairing(_CREATE, review.draft)
+                pending._review = review
+                pending._set("review")
+                controller._pending[pair] = pending
+                self.now = 300  # Its five minutes end before it is described.
+                task = asyncio.create_task(cli.reviews(controller))
+                await asyncio.sleep(0.6)
+                self.assertFalse(task.done())
+                controller.closed = True
+                await asyncio.wait_for(task, 2)
+            finally:
+                await controller.service.close()
+
+        with patch.object(cli, "emit", emitted.append):
+            asyncio.run(run())
+        self.assertEqual(emitted, [dict(event="approval_expired", pairing_id=pair)])
+        self.assertEqual(self.state.records()[0]["status"], "revoked")

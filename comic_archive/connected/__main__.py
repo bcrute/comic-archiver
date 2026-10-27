@@ -121,6 +121,8 @@ def pending(controller, pairing_id):
 
 
 async def reviews(controller):
+    from .files import SourceError
+
     reported = set()
     while not controller.closed:
         controller.owner.expire()
@@ -130,7 +132,15 @@ async def reviews(controller):
             current.add(key)
             if item.phase == "review" and key not in reported:
                 review = item.review
-                controller.owner.describe(review)
+                try:
+                    controller.owner.describe(review)
+                except SourceError as error:
+                    if error.code != "revoked":
+                        raise
+                    # Its five minutes ran out (or it was revoked) first. That
+                    # claim is gone; the host keeps serving everything else.
+                    emit(dict(event="approval_expired", pairing_id=key[0]))
+                    continue
                 emit(
                     dict(
                         event="approval_required",
@@ -168,7 +178,13 @@ async def console(driver, terminal, shutdown):
         )
     )
     while not shutdown.is_set():
-        line = await terminal.readline()
+        try:
+            line = await terminal.readline()
+        except SourceError as error:
+            if error.code != "busy":
+                raise
+            emit(dict(error="busy"))  # Lines typed ahead were dropped, not run.
+            continue
         if line is None:
             shutdown.set()
             return

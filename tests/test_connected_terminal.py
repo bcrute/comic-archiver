@@ -45,12 +45,21 @@ class ConnectedTerminalTests(unittest.IsolatedAsyncioTestCase):
         terminal = TerminalInput.open(slave)
         self.addCleanup(terminal.close)
         # The real terminal/loop, not a manufactured ready flag or input object.
-        os.write(master, b"status\nstatus\nstatus\nstatus\napprove synthetic\n")
+        os.write(master, b"status\nstatus\nstatus\nstatus\n")
         for _ in range(100):
-            if terminal.fd is None:
+            if terminal._lines.full():
                 break
             await asyncio.sleep(0.01)
-        self.assertIsNone(terminal.fd)
-        with self.assertRaises(SourceError):
+        self.assertTrue(terminal._lines.full())
+        os.write(master, b"approve synthetic\n")
+        for _ in range(100):
+            if terminal._lines.qsize() == 1:
+                break
+            await asyncio.sleep(0.01)
+        # Typed-ahead lines are all dropped, and said so, but input carries on.
+        with self.assertRaises(SourceError) as caught:
             await asyncio.wait_for(terminal.readline(), 1)
-        self.assertIsNone(await terminal.readline())
+        self.assertEqual(caught.exception.code, "busy")
+        self.assertIsNotNone(terminal.fd)
+        os.write(master, b"status\n")
+        self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "status")

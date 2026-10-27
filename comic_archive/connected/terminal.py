@@ -61,7 +61,14 @@ class TerminalInput:
                 if byte == 10:
                     line = bytes(self._buffer).decode("utf-8")
                     self._buffer.clear()
-                    self._lines.put_nowait(line)
+                    if self._lines.full():
+                        # Typed ahead of a busy command: drop it all rather than
+                        # run part of it, and say so. Input itself keeps going.
+                        while not self._lines.empty():
+                            self._lines.get_nowait()
+                        self._lines.put_nowait(SourceError("busy"))
+                    else:
+                        self._lines.put_nowait(line)
                 else:
                     require(len(self._buffer) < 4096, "resource_limit")
                     self._buffer.append(byte)

@@ -22,6 +22,14 @@ _ATTENTION = {
 }
 
 
+def _attention(error, setup):
+    # A failed peer setup (a stale, garbled or early offer, or a lease that came
+    # late) is not the account refusing: back off and listen again, where the
+    # service can still refuse. An install that can never open a peer still
+    # needs attention.
+    return error in _ATTENTION and (not setup or error == "unsupported_format")
+
+
 class _Slot:
     def __init__(self, pair):
         self.pair, self.enabled = pair, True
@@ -110,9 +118,10 @@ class HostDriver:
             )  # SAME native cleanup really observed.
 
     async def _serve(self, slot):
+        setup = False
         try:
             while slot.enabled and not self.closed:
-                renewing = False
+                renewing = setup = False
                 try:
                     self.current()
                     slot.phase = "starting"
@@ -124,9 +133,10 @@ class HostDriver:
                             renewing, slot.phase = True, "renewing"
                             break
                         if runner.peer is None and not runner.signals.empty():
-                            slot.phase = "connecting"
+                            slot.phase, setup = "connecting", True
                             await self.controller.open_peer(slot.pair, self._servers)
                             slot.phase, slot.error, slot.failures = "connected", None, 0
+                            setup = False
                         if runner.peer is not None and not runner.peer.current():
                             break
                         await asyncio.sleep(0.1)
@@ -143,7 +153,7 @@ class HostDriver:
                 await self.controller.stop(slot.pair)
                 if renewing and slot.enabled and not self.closed:
                     continue  # SAME availability task, fresh admission after rotation.
-                if slot.error in _ATTENTION:
+                if _attention(slot.error, setup):
                     slot.enabled = False
                 if not slot.enabled or self.closed:
                     break
@@ -164,7 +174,8 @@ class HostDriver:
                 slot.phase, slot.error = "cleanup_pending", "connection_unavailable"
                 raise
             slot.joined = True
-            slot.phase = "needs_attention" if slot.error in _ATTENTION else "stopped"
+            attention = _attention(slot.error, setup)
+            slot.phase = "needs_attention" if attention else "stopped"
 
     async def wait_listening(self, pairing_id, maximum=20):
         _id(pairing_id)

@@ -90,7 +90,7 @@ class Session:
         self.closed, self.negotiated = False, False
         self.archive_max = ARCHIVE_MAX
         self.streams, self.snapshots, self.cursors = {}, {}, {}
-        self.seen, self.cache = {}, OrderedDict()
+        self.seen, self.cache = OrderedDict(), OrderedDict()
         self.cache_bytes = 0
 
     def close(self):
@@ -169,7 +169,6 @@ class Session:
                     request, error="busy"
                 )  # Never execute an evicted operation again.
             return self.cache[request["id"]]
-        _require(len(self.seen) < SEEN_MAX, "busy")
         args = request["args"]
         scope = set()
         if isinstance(args.get("share_id"), str) and args["share_id"] in self.indices:
@@ -183,6 +182,10 @@ class Session:
             fingerprint,
             scope,
         )  # BEFORE any read/credit mutation.
+        # A sliding window, not a lifetime ledger, so a long session never ends
+        # on a count. An ID this old is far past any retry of its request.
+        while len(self.seen) > SEEN_MAX:
+            self.seen.popitem(last=False)
         try:
             result = self._dispatch(request)
             self._current()

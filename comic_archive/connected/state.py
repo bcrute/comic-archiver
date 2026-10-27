@@ -11,7 +11,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from .files import SharedRoot, SourceError, _directory
+from .files import SharedRoot, SourceError, _directory, _selected
 from .jsoncodec import dumps, loads, require
 from .renewal import validate as validate_renewal
 from .signaling import Identity, _bundle, _identity_record, _restore_identity
@@ -163,6 +163,7 @@ class HostState:
 
             path = Path(path).absolute()
             require(".." not in path.parts and path.name not in {"", ".", ".."})
+            path = _selected(path)
             for root in roots:
                 require(isinstance(root, SharedRoot))
                 root.current()
@@ -416,11 +417,27 @@ class HostState:
     def _pending(self, pairing_id):
         _id(pairing_id)
         pairs = self.records()
-        require(
-            len(pairs) < PAIRINGS_MAX
-            and all(p["pairing_id"] != pairing_id for p in pairs),
-            "resource_limit",
-        )
+        require(all(p["pairing_id"] != pairing_id for p in pairs), "resource_limit")
+        if len(pairs) >= PAIRINGS_MAX:
+            # The cap bounds live pairings, not history. Drop just enough revoked
+            # rows: claims never approved first, then the oldest tombstones
+            # (which can then no longer be passed to retry-revoke).
+            held = {
+                item["pairing_id"]
+                for name in ("renewals", "renewed")
+                for item in self._data.get(name, [])
+            }
+            retired = sorted(
+                (
+                    number
+                    for number, row in enumerate(pairs)
+                    if row["status"] == "revoked" and row["pairing_id"] not in held
+                ),
+                key=lambda number: (pairs[number]["approval_id"] is not None, number),
+            )
+            dropped = set(retired[: len(pairs) - PAIRINGS_MAX + 1])
+            pairs = [row for number, row in enumerate(pairs) if number not in dropped]
+        require(len(pairs) < PAIRINGS_MAX, "resource_limit")
         pairs.append(
             dict(
                 pairing_id=pairing_id,

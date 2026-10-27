@@ -159,6 +159,32 @@ class ConnectedLibraryTests(unittest.TestCase):
         with self.assertRaises(SourceError):
             Index(self.library / "private" / "index.sqlite", self.root)
 
+    def test_linked_folder_above_the_selected_root_is_followed_but_links_inside_are_not(
+        self,
+    ):
+        target = self.book()
+        alias = self.base / "linked-home"  # Like a home folder reached by a link.
+        alias.symlink_to(self.base, target_is_directory=True)
+        linked = self.base / "linked-root"
+        linked.symlink_to(self.library, target_is_directory=True)
+        for selected in [alias / "shared", linked]:
+            with self.subTest(selected=selected.name):
+                root = SharedRoot(selected)
+                self.addCleanup(root.close)
+                self.assertEqual(root.identity, self.root.identity)
+                root.current()
+                root.open("series/issue.cbz").close()
+        (self.library / "series" / "link.cbz").symlink_to(target)
+        with self.assertRaises(SourceError):
+            root.open("series/link.cbz")
+        index = Index(alias / "private" / "second.sqlite", root)
+        self.addCleanup(index.close)
+        self.assertEqual(
+            index.path.parent, Path(os.path.realpath(self.base / "private"))
+        )
+        with self.assertRaises(SourceError):
+            Index(alias / "shared" / "private" / "index.sqlite", root)
+
     def test_half_published_bad_hash_and_unsupported_format_never_register(self):
         target = self.book()
         metadata = target.with_suffix(".json")

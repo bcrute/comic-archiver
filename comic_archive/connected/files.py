@@ -86,6 +86,17 @@ def _directory(path):
         raise
 
 
+def _selected(path, *, itself=False):
+    # Resolve once, at selection: links ABOVE a chosen location (a linked home
+    # or mount), and a chosen root that is itself a link. Paths below it are
+    # still walked no-follow, so links inside a shared tree stay refused.
+    value = Path(path).absolute()
+    _require(".." not in value.parts, "not_found")
+    if itself:
+        return Path(os.path.realpath(value))
+    return Path(os.path.realpath(value.parent)) / value.name
+
+
 @dataclass(frozen=True)
 class Stamp:
     device: int
@@ -119,7 +130,7 @@ class Stamp:
 
 class SharedRoot:
     def __init__(self, path):
-        self.path = Path(path).absolute()
+        self.path = _selected(path, itself=True)
         try:
             self.fd = _directory(self.path)
             value = os.fstat(self.fd)
@@ -435,7 +446,7 @@ class Index:
 
     def __init__(self, path, root, *, create=True):
         self.root = root
-        self.path = Path(path).absolute()
+        self.path = _selected(path)
         _require(not self.path.is_relative_to(root.path), "resource_limit")
         if create:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

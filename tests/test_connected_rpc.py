@@ -11,6 +11,7 @@ import unittest
 import uuid
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from comic_archive.connected.files import Index, SharedRoot, SourceError
 from comic_archive.connected.rpc import Session, parse_control
@@ -141,6 +142,26 @@ class ConnectedRpcTests(unittest.TestCase):
         with self.assertRaises(SourceError):
             self.session.handle(json.dumps(changed))
         self.assertTrue(self.session.closed)
+
+    def test_seen_request_ids_slide_instead_of_ending_a_long_session(self):
+        with patch("comic_archive.connected.rpc.SEEN_MAX", 200):
+            first = self.request("ping", session_challenge=self.challenge)
+            self.session.handle(first)
+            for _ in range(300):
+                self.assertIn("ok", self.call("ping", session_challenge=self.challenge))
+            self.assertEqual(len(self.session.seen), 200)
+            self.assertFalse(self.session.closed)
+            self.assertNotIn(json.loads(first)["id"], self.session.seen)
+            read_id = self.open()
+            text = self.request("read.credit", read_id=read_id, bytes=1)
+            self.session.handle(text)
+            for _ in range(130):
+                self.call("ping", session_challenge=self.challenge)
+            # Still inside the window: evicted from the reply cache, never rerun.
+            self.assertEqual(
+                json.loads(self.session.handle(text))["error"]["code"], "busy"
+            )
+            self.assertEqual(self.session.streams[read_id][0].credit, 1)
 
     def test_cursor_binds_revision_share_limit_and_expiry(self):
         self.book("two", b"second synthetic page")
