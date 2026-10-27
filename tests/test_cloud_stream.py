@@ -598,6 +598,14 @@ class B2DirectTests(unittest.TestCase):
         cloud.upload_pending(self.root)
         self.assertEqual(self.target()['verified'], 1)
 
+    def test_until_the_web_reader_ships_a_direct_upload_writes_no_reader_records(self):
+        from comic_archive import reader_catalogue
+        with patch.object(reader_catalogue, 'publish', side_effect=AssertionError('nothing is published')):
+            self.publish((self.episode,), MemoryAdapter())
+        self.assertTrue(self.b2())
+        self.assertFalse([name for name in self.b2() if '/.reader/' in name])
+        self.assertEqual(self.target()['verified'], 1)
+
     def test_reader_publication_follows_direct_receipt_history_and_intent_retirement(self):
         from comic_archive import reader_catalogue
         actual = reader_catalogue.publish
@@ -608,7 +616,7 @@ class B2DirectTests(unittest.TestCase):
             self.assertTrue(list((root / '.archive-state/cloud/history/b2').glob('*/*.json')))
             observations.append(actual(root, transfer, record, library, target, **options))
             return observations[-1]
-        with patch.object(reader_catalogue, 'publish', observe):
+        with patch.object(reader_catalogue, 'publish', observe), patch.object(reader_catalogue, 'PUBLISHING', True):
             self.publish((self.episode,), MemoryAdapter())
         self.assertEqual(observations, [True])
         self.assertTrue(any('/.reader/' in name for name in self.b2()))
@@ -759,10 +767,7 @@ class B2DirectTests(unittest.TestCase):
         self.assertTrue(cloud.offloaded(self.root, archive))
         # The history alone: an upload stopped before its outbox record was written, as earlier versions wrote them.
         cloud.upload_pending(self.root)  # The history is written as the episode's upload is confirmed.
-        updated = self.b2()
-        self.assertEqual({name:data for name,data in updated.items() if '/.reader/' not in name}, sent)
-        self.assertTrue(any('/.reader/' in name for name in updated))
-        sent = updated  # New optional metadata; every original above stays exact.
+        self.assertEqual(self.b2(), sent)
         history = json.loads(next((self.root/'.archive-state/cloud/history/b2').glob('*/*.json')).read_text())
         intent = self.root/'.archive-state/cloud/direct/b2'/(history['episode_id'] + '.json')
         cloud._write(intent, {'schema_version': 1, 'library_id': history['library_id'], 'target_id': history['target_id'],

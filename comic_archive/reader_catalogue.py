@@ -17,6 +17,8 @@ from .osdep import WINDOWS
 from .publication import valid_export_id, validate_public_metadata
 from .storage import safe_root
 
+# Off until the web reader that reads these records ships: until then a B2 upload writes none, as before.
+PUBLISHING = False
 PUBLIC = "comic-archiver.reader-b2/1"
 PRIVATE = "comic-archiver.reader-publication/1"
 MAXIMUM = 16384

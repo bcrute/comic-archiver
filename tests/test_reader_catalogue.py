@@ -18,12 +18,41 @@ from comic_archive.models import ArchiveError, Episode, Manifest, Page
 from comic_archive.publication import PublicationStore
 
 
-class ReaderCatalogueTests(unittest.TestCase):
+# Read before any test switches publishing on.
+SHIPPED = catalogue.PUBLISHING
+
+
+class ReaderCatalogueOffTests(unittest.TestCase):
     setUp = helpers.CloudTests.setUp
     publish = helpers.CloudTests.publish
     configured = helpers.CloudTests.configured
     ready = helpers.CloudTests.ready
+
+    def test_until_the_web_reader_ships_an_upload_writes_no_reader_records_and_reports_none_pending(self):
+        self.assertFalse(SHIPPED)
+        self.publish()
+        self.ready()
+        with patch.object(catalogue, "publish", side_effect=AssertionError("nothing is published")), \
+                patch.object(catalogue, "needs", side_effect=AssertionError("nothing is backfilled")):
+            self.publish("82")
+            report = cloud.upload_pending(self.root)
+        self.assertNotIn("reader_catalogue_pending", report)
+        self.assertTrue(helpers.FakeTransfer.files)
+        self.assertFalse([key for _, key in helpers.FakeTransfer.files if "/.reader/" in key])
+        self.assertFalse((self.root / ".archive-state/cloud/reader").exists())
+
+
+class ReaderCatalogueTests(unittest.TestCase):
+    publish = helpers.CloudTests.publish
+    configured = helpers.CloudTests.configured
+    ready = helpers.CloudTests.ready
     publish_page = helpers.CloudTests.publish_page
+
+    def setUp(self):
+        helpers.CloudTests.setUp(self)
+        switch = patch.object(catalogue, "PUBLISHING", True)
+        switch.start()
+        self.addCleanup(switch.stop)
 
     def receipt(self, episode=None):
         found = [

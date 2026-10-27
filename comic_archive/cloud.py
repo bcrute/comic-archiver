@@ -563,7 +563,8 @@ def upload_pending(root, *, limit=None, provider=None):
                 if limit is not None and report['uploaded_episodes'] >= limit:break
                 record = _json(path)
                 if record.get('state') == 'verified' and record.get('target_id') == target['target_id']:
-                    if name == 'b2':
+                    from . import reader_catalogue
+                    if name == 'b2' and reader_catalogue.PUBLISHING:
                         from .reader_catalogue import needs, publish
                         if needs(root, value['library_id'], target['target_id'], record):
                             if reader_backfills >= 20:
@@ -624,7 +625,8 @@ def upload_pending(root, *, limit=None, provider=None):
                     verified.pop('error_code', None)
                     _write(path, verified)
                     report['uploaded_episodes'] += 1
-                    if name == 'b2':
+                    from . import reader_catalogue
+                    if name == 'b2' and reader_catalogue.PUBLISHING:
                         from .reader_catalogue import publish
                         if not publish(root, transfer, verified, value['library_id'], target['target_id'], advance=True):
                             reader_pending += 1
@@ -808,8 +810,8 @@ class DirectUpload:
         retain(self.root, 'b2', verified)
         self.intent.unlink()
         _directory_sync(self.intent.parent)
-        from .reader_catalogue import publish
-        self.reader_catalogue_pending = not publish(
+        from . import reader_catalogue
+        self.reader_catalogue_pending = reader_catalogue.PUBLISHING and not reader_catalogue.publish(
             self.root, self.transfer, verified, self.value['library_id'],
             self.target['target_id'], advance=True)
         _prepare_cache_for_offload(self.root, self.archive, saved=False)
