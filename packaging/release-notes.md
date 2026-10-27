@@ -1,12 +1,21 @@
 ## Changes in {version}
 
-- **Nothing downloads until you press Go.** Opening Comic Archiver could carry on saving episodes from an earlier
-  download by itself, without Go. It now waits for **Go**, and Go picks up where the download left off.
-- **The window shows a download that is still saving.** When a download stopped on a problem, episodes could keep
-  saving while the window showed it as stopped. The window now shows the download as working until it has nothing
-  left to save, and **Pause** stops it.
-- **Pause stops a download left by an older version.** Before, Pause could fail with "No account export is
-  configured" and the download went on.
+- **Bought paid-only Tapas episodes are saved.** A paid-only Tapas episode was skipped without a message even after
+  you bought it, so a download could stop short of the end of a series. It is saved now.
+- **The window checks your sign-in when it opens.** A sign-in the site no longer accepts showed as connected until
+  Go found it had expired. The window now asks the site when it opens or you change site, and shows **Sign-in
+  needed** straight away.
+- **Windows: setup closes an open Comic Archiver.** Running a new setup while Comic Archiver was open could fail.
+  Setup now closes it first; a download pauses until you press Go.
+- **Linux: starting a new copy while the old one is open says so.** Before, it only brought the old window
+  forward, which looked as if the update had done nothing. The old-copies question now offers only older versions
+  and answers No unless you choose Yes.
+- **Two series with one name keep their own folders.** Two Webtoon Canvas series with the same name could share a
+  folder. A later one now gets its site number added; folders you already have keep their names.
+- **Fixes.** A Backblaze upload left unfinished no longer fails every retry once the series changes. A starting
+  download is no longer sometimes reported as stopped. A cookie the site ends is no longer sent again. Replacing a
+  Backblaze sign-in removes the old key. If uninstalling cannot forget every sign-in, it keeps the settings that
+  let you uninstall again. Updated certificate roots.
 
 ## Download
 
