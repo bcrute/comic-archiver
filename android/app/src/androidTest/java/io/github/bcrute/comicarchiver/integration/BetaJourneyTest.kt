@@ -67,6 +67,7 @@ class BetaJourneyTest {
         // This Application refuses real devices/accounts. Keep the genuine
         // controller/worker/network observation before instrumentation exits.
         save("timeout.json", JSONObject().put("waiting_for", label)
+            .put("sign_in", app.controller.state.value.signIn.toString())
             .put("download", app.controller.state.value.download.toString())
             .put("settings", app.controller.state.value.settings.toString())
             .put("notice", app.controller.state.value.notice.toString())
@@ -344,14 +345,32 @@ class BetaJourneyTest {
             assertFalse(app.workspace.root.resolve(".comic-automation/source-queue.json").exists())
             assertEquals(ExportPhaseUi.NOT_PICKED, app.exports.panel.value.phase)
             assertEquals(DownloadState.Held, app.controller.state.value.download)
-            await("account verified for adopted binding") { app.controller.state.value.signIn is SignInState.SignedIn }
+            // Read-only adoption excludes source session records. Restore needs
+            // such a record; the existing browser cookie alone is not authority.
+            // Verify the preserved binding through a new explicit UI sign-in.
+            await("adopted library starts without a saved sign-in", 20_000) {
+                app.controller.state.value.signIn == SignInState.SignedOut
+            }
+            assertEquals(0, observe().getInt("asset_requests"))
+            click("Downloads")
+            click("Sign in to Tapas")
+            nativeClick(By.text("Sign in to fixture"), "Adopted library sign-in", 20_000)
+            await("account verified for adopted binding", 30_000) { app.controller.state.value.signIn is SignInState.SignedIn }
+            assertEquals(DownloadState.Held, app.controller.state.value.download)
+            assertEquals(0, observe().getInt("asset_requests"))
             assertEquals(originalFiles.toString(), originals(original.root).toString())
             savedSource.forEach { (uri, expected) ->
                 val observed = requireNotNull(app.contentResolver.openInputStream(uri)).use { hash(it.readBytes()) }
                 assertEquals(expected, observed)
             }
+            click("Settings")
+            if (device.wait(Until.hasObject(By.text("All settings")), 1_500)) click("All settings")
+            click("Working libraries")
             click("Use this working library") // Only the retained original is not current.
             await("original working library restored") { app.workspace.libraryId == original.libraryId && !app.controller.state.value.libraryBusy }
+            await("original account restored without a new sign-in", 30_000) {
+                app.controller.state.value.signIn is SignInState.SignedIn
+            }
             assertEquals(originalFiles.toString(), originals().toString())
             assertEquals(originalExportPhase, app.exports.panel.value.phase)
             assertEquals(DownloadState.Held, app.controller.state.value.download)
