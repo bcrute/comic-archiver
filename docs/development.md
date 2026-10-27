@@ -83,10 +83,10 @@ python3 scripts/qt_engine_smoke.py         # the app's real web engine against a
 None of these sign in anywhere or contact a comic site. They are heavy; this project runs them on its CI hosts
 rather than on a development PC. Validation includes Ruff lint and security rules, and pip-audit.
 
-Desktop dependencies are constrained by `packaging/linux-requirements.txt` and
+Desktop dependencies are pinned, with the hash of each file, by `packaging/linux-requirements.txt` and
 `packaging/windows-requirements.txt`. Both packagers audit the exact installed third-party versions before
 writing a download, and include `requirements-frozen.txt` and `dependency-audit.json` in the app folder.
-Update the constraints deliberately when updating dependencies.
+Regenerate them, as their first lines say, when updating dependencies.
 
 For a release, validate and build the exact commit on the fleet, stage all three downloads and
 `release-evidence.json` in a draft GitHub release authored by the repository owner. Set the draft's target to

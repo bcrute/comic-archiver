@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import stat
@@ -325,12 +326,21 @@ class CommandLineTests(WorkspaceCase):
     def test_packages_install_into_the_bundled_python(self):
         with patch.dict(os.environ, {'VIRTUAL_ENV': '/leak', 'PYTHONPATH': '/leak'}):
             build.uv_install(Path('/app/python/bin/python3'), ['/w/x.whl[desktop,validation]'])
-        args, kwargs = self.calls[0]
-        self.assertEqual(args, ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages',
-                                '--compile-bytecode', '--constraint', str(build.PACKAGING / 'linux-requirements.txt'),
-                                '/w/x.whl[desktop,validation]'])
-        self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
-        self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
+        command = ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages', '--compile-bytecode']
+        self.assertEqual([args for args, _ in self.calls],
+                         [[*command, '--require-hashes', '--requirement', str(build.PACKAGING / 'linux-requirements.txt')],
+                          [*command, '--no-deps', '/w/x.whl[desktop,validation]']])
+        for _, kwargs in self.calls:
+            self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
+            self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
+
+    def test_every_bundled_package_is_pinned_with_its_hashes(self):
+        for name in ('linux', 'windows'):
+            text = (build.PACKAGING / f'{name}-requirements.txt').read_text()
+            pins = re.findall(r'^([a-z0-9-]+)==\S+ \\\n((?:    --hash=sha256:[0-9a-f]{64}(?: \\)?\n)+)', text, re.M)
+            with self.subTest(name):
+                self.assertIn('pyside6', [pin for pin, _ in pins])
+                self.assertEqual(len(pins), len(re.findall(r'^[a-z0-9-]+==', text, re.M)))
 
     def test_a_host_package_mirror_or_extra_index_never_reaches_the_bundled_install(self):
         leaks = dict.fromkeys(('UV_INDEX_URL', 'UV_EXTRA_INDEX_URL', 'UV_INDEX', 'UV_DEFAULT_INDEX', 'UV_FIND_LINKS',

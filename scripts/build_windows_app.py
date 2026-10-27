@@ -148,10 +148,11 @@ def bundle_python(app):
 
 def install_packages(app, wheel):
     """Put the Windows builds of the app's packages into the bundled Python without running it."""
-    common.run(['uv', 'pip', 'install', '--target', site_packages(app), '--python-platform', PLATFORM,
-                '--python-version', PYTHON_VERSION, '--only-binary', ':all:', '--no-compile',
-                '--constraint', common.PACKAGING / 'windows-requirements.txt',
-                f'{wheel}[{common.EXTRAS}]'])
+    command = ['uv', 'pip', 'install', '--target', site_packages(app), '--python-platform', PLATFORM,
+               '--python-version', PYTHON_VERSION, '--only-binary', ':all:', '--no-compile']
+    # Every package is checked against its pinned hash; the app's own wheel, built here, then needs none of its own.
+    common.run([*command, '--require-hashes', '--requirement', common.PACKAGING / 'windows-requirements.txt'])
+    common.run([*command, '--no-deps', f'{wheel}[{common.EXTRAS}]'])
     # Starters for the command line that name the build path; the app is started through its shortcut.
     shutil.rmtree(site_packages(app) / 'bin', ignore_errors=True)
     for name in ('PySide6/QtWebEngineCore.pyd', 'PySide6/QtWebEngineProcess.exe', 'zstandard', 'PIL', 'comic_archive'):

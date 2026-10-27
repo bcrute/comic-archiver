@@ -7,7 +7,7 @@ Run on a Linux CI host that has uv, never on the development PC:
 Output: dist/ComicArchiver-<version>-linux-x86_64.tar.gz and a .sha256 file.
 
 Pinned downloads: CPython from python-build-standalone (SHA-256 below).
-Python packages come from PyPI constrained by packaging/linux-requirements.txt;
+Python packages come from PyPI pinned, with their hashes, by packaging/linux-requirements.txt;
 the exact installed versions are audited and recorded in requirements-frozen.txt. The app carries no separate
 browser: the downloader uses the Qt web engine that comes with PySide6.
 This script reads no Tapas
@@ -152,8 +152,10 @@ def build_wheel(work):
 
 def uv_install(python, requirements):
     # No venv (they are not relocatable); the flag is harmless if the interpreter is not marked externally managed.
-    run(['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--compile-bytecode',
-         '--constraint', PACKAGING / 'linux-requirements.txt', *requirements])
+    # Every package is checked against its pinned hash; the app's own wheel, built here, then needs none of its own.
+    command = ['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--compile-bytecode']
+    run([*command, '--require-hashes', '--requirement', PACKAGING / 'linux-requirements.txt'])
+    run([*command, '--no-deps', *requirements])
 
 
 def drop_entry_scripts(app):
