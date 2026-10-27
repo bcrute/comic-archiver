@@ -4382,5 +4382,13 @@
   "new": "        return False\n",
   "test_file": "test_tappytoon.py",
   "test": "test_a_cookie_the_site_expires_is_dropped_and_not_sent_again"
+ },
+ {
+  "id": "publication-same-name-series-share-a-folder",
+  "source": "comic_archive/publication.py",
+  "old": "            if not taken(key): break\n",
+  "new": "            break\n",
+  "test_file": "test_publication.py",
+  "test": "test_two_series_with_one_name_keep_their_own_folders_and_the_first_keeps_its_name"
  }
 ]

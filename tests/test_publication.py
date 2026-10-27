@@ -119,6 +119,26 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(len(list(self.root.glob('*/*.cbz'))),1)
         self.assertEqual(verify(self.root),[])
 
+    def test_two_series_with_one_name_keep_their_own_folders_and_the_first_keeps_its_name(self):
+        def publish(number, episode):
+            series=replace(self.series,id='same-name',slug='same-name',platform_id=number,
+                           source_url=f'https://tapas.io/series/{number}/info')
+            store=PublicationStore(self.root)
+            try:
+                folder=store.archive(Manifest(series,(replace(self.episode,id=episode,series_id=series.id),)),
+                                     MemoryAdapter(),progress=lambda _:None)
+                return folder,store.series_export_key('tapas','same-name',number)
+            finally:store.close()
+        first,first_key=publish('111','818181')
+        second,second_key=publish('222','818182')
+        self.assertNotEqual(first,second)
+        self.assertEqual((first_key,second_key),('same-name','same-name-222'))
+        self.assertEqual(json.loads((second/'series.json').read_text())['source_series_id'],'222')
+        self.assertEqual(publish('111','818181'),(first,'same-name'))
+        self.assertEqual(publish('222','818182'),(second,'same-name-222'))
+        self.assertEqual(len(list(self.root.glob('*/*.cbz'))),2)
+        self.assertEqual(verify(self.root),[])
+
     def test_tar_terminator_crossing_a_record_boundary_survives_publication_and_offline_restore(self):
         # A complete PNG with a valid ancillary text chunk makes a 9,216-byte page.
         # Header + page fill 9,728 bytes; the two TAR end blocks need another record.

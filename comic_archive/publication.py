@@ -327,9 +327,19 @@ class PublicationStore(Store):
         canonical=platform_id or series_id
         row=self.db.execute('SELECT series_id FROM export_series_keys WHERE source=? AND source_series_id=?',(source,canonical)).fetchone()
         if row: return row[0]
-        self.db.execute('INSERT INTO export_series_keys VALUES (?,?,?)',(source,canonical,series_id))
+        # Two series can share a name (Webtoon Canvas series are named by their creators); the later one
+        # takes its site number too, or both would share a folder. A key already given never changes.
+        key,taken=series_id,lambda key:self.db.execute(
+            'SELECT 1 FROM export_series_keys WHERE source=? AND series_id=?',(source,key)).fetchone()
+        for count in range(1,1000):
+            if not taken(key): break
+            suffix='-'+canonical+('' if count==1 else f'-{count}')
+            key=series_id[:100-len(suffix)]+suffix
+        else:
+            raise ArchiveError('Too many series share one name; existing files are retained.')
+        self.db.execute('INSERT INTO export_series_keys VALUES (?,?,?)',(source,canonical,key))
         self.db.commit()
-        return series_id
+        return key
 
     def export_id(self, source, series_id, episode_id=''):
         row = self.db.execute('SELECT id FROM export_ids WHERE source=? AND series_id=? AND episode_id=?',
