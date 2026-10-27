@@ -139,6 +139,13 @@ def run(app, tests, manifest):
                 if 'Current WebView package (name, version): (com.android.webview,' not in actual['tail']:
                     raise RuntimeError('The selected provider is not active')
                 checked('test-install.json', [*prefix, 'install', '-r', test_apk], timeout=240)
+                # This APK's provider is an independent process. Instrumentation
+                # shares the target classpath and cannot prove that cold boundary.
+                cold = checked('fixture-provider-cold-start.json', [*prefix, 'shell', 'content', 'call',
+                    '--uri', beta.CONTROL, '--method', 'status'], timeout=30, keep_bytes=16000)
+                empty = beta.provider_status(cold['tail'])
+                if empty['blocked'] or empty['partial_bytes'] != 0 or empty['files']:
+                    raise RuntimeError('Expected a fresh independent SAF fixture provider')
                 method = TARGET + '.integration.CookieBridgeTest#pythonResponseCookiesReachTheChapterAssetHost'
                 result = checked('cookie-bridge-instrumentation.json', [*prefix, 'shell', 'am', 'instrument', '-w', '-r',
                     '-e', 'class', method, '-e', 'disposable_emulator', 'true', '-e', 'run_token', secrets.token_hex(16),
