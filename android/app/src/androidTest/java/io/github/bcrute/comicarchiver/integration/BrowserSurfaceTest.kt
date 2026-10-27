@@ -117,32 +117,29 @@ class BrowserSurfaceTest {
             // Seed a real active worker in the actual sign-in profile. The next
             // Go must unregister it and discard the controlled reading window;
             // otherwise who-am-i/discovery receive this worker's stale content.
-            json("""(() => {
-                globalThis.workerRegistered = null;
-                navigator.serviceWorker.register('$WORKER_URL', {scope:'/'})
-                  .then(() => navigator.serviceWorker.ready)
-                  .then(() => {globalThis.workerRegistered = true;}, () => {globalThis.workerRegistered = false;});
-                return JSON.stringify({started:true});
-            })()""")
+            // A site's worker belongs to the page world. Chromium intentionally
+            // does not expose serviceWorker.ready in isolated worlds, and an
+            // isolated fetch bypasses the page worker. Trigger the page's own
+            // handlers and observe their DOM results across the world boundary.
+            json("""(() => {document.getElementById('start-worker').click();
+                return JSON.stringify({started:true});})()""")
             val workerDeadline = SystemClock.elapsedRealtime() + 20_000
             do {
-                seen = json("""JSON.stringify({registered:globalThis.workerRegistered,
-                    controlled:!!navigator.serviceWorker.controller})""")
+                seen = json("""JSON.stringify({
+                    registered:document.body.dataset.workerRegistered === 'true',
+                    controlled:document.body.dataset.workerControlled === 'true',
+                    error:document.body.dataset.workerError || ''})""")
                 if (seen.optBoolean("registered") && seen.optBoolean("controlled")) break
                 SystemClock.sleep(50)
             } while (SystemClock.elapsedRealtime() < workerDeadline)
-            assertTrue("Fixture worker did not activate", seen.optBoolean("registered"))
+            assertTrue("Fixture worker did not activate: $seen", seen.optBoolean("registered"))
             assertTrue("Fixture document is not controlled", seen.optBoolean("controlled"))
-            json("""(() => {
-                globalThis.workerCached = null;
-                fetch('https://tapas.io/reader-cached-fixture').then(answer => answer.text())
-                  .then(text => {globalThis.workerCached = text === '$STALE';},
-                    () => {globalThis.workerCached = false;});
-                return JSON.stringify({started:true});
-            })()""")
+            json("""(() => {document.getElementById('probe-worker').click();
+                return JSON.stringify({started:true});})()""")
             val cacheDeadline = SystemClock.elapsedRealtime() + 10_000
             do {
-                seen = json("JSON.stringify({cached:globalThis.workerCached})")
+                seen = json("""JSON.stringify({cached:document.body.dataset.workerCached === undefined
+                    ? null : document.body.dataset.workerCached === 'true'})""")
                 if (!seen.isNull("cached")) break
                 SystemClock.sleep(50)
             } while (SystemClock.elapsedRealtime() < cacheDeadline)
@@ -169,10 +166,28 @@ class BrowserSurfaceTest {
             self.addEventListener('fetch', event => event.respondWith(new Response('$STALE',
                 {status:200, headers:{'Content-Type':'text/html'}})));""".trimIndent()
         private val HTML = """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-            <div id="page-probe"></div><script>
+            <body><div id="page-probe"></div><button id="start-worker">Start fixture worker</button>
+            <button id="probe-worker">Probe fixture worker</button><script>
                 globalThis.pageOwned = 'page-value';
                 globalThis.comicArchive = {next: 'poisoned by site'};
                 document.getElementById('page-probe').textContent = typeof globalThis.comicArchiveReader;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    document.body.dataset.workerControlled = String(!!navigator.serviceWorker.controller);
+                });
+                document.getElementById('start-worker').onclick = () => {
+                    navigator.serviceWorker.register('$WORKER_URL', {scope:'/'})
+                        .then(() => navigator.serviceWorker.ready)
+                        .then(() => {
+                            document.body.dataset.workerRegistered = 'true';
+                            document.body.dataset.workerControlled = String(!!navigator.serviceWorker.controller);
+                        }).catch(error => {document.body.dataset.workerError = String(error);});
+                };
+                document.getElementById('probe-worker').onclick = () => {
+                    fetch('https://tapas.io/reader-cached-fixture').then(answer => answer.text())
+                        .then(text => {document.body.dataset.workerCached = String(text === '$STALE');},
+                            error => {document.body.dataset.workerError = String(error);
+                                document.body.dataset.workerCached = 'false';});
+                };
             </script>""".trimIndent()
     }
 }

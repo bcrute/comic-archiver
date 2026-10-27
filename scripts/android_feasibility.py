@@ -1346,7 +1346,7 @@ def phase_instrumentation_build(paths, wheels):
     return ok
 
 
-def phase_in_app(paths, test_apk=None):
+def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
     if not _emulator_capable():
         record("in_app", "pending", reason="no accessible /dev/kvm in this job; native emulator gate pending")
         record("beta_integration", "pending", reason="no accessible /dev/kvm in this job")
@@ -1388,7 +1388,7 @@ def phase_in_app(paths, test_apk=None):
         process = subprocess.Popen(
             [str(emulator), "-avd", avd_name, "-port", str(port), "-no-window", "-no-snapshot",
              "-no-audio", "-no-boot-anim", "-gpu", "swiftshader_indirect"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+            stdout=emulator_output if emulator_output is not None else subprocess.DEVNULL, stderr=subprocess.STDOUT,
             env={**os.environ, "ANDROID_AVD_HOME": str(avd_home), "ANDROID_HOME": str(sdk),
                  "ANDROID_SDK_ROOT": str(sdk)})
         run_tool([str(adb), "-s", serial, "wait-for-device"], timeout=600)
@@ -1441,11 +1441,11 @@ def phase_in_app(paths, test_apk=None):
             else:
                 from android_beta_integration import run as beta_journey
             try:
-                result = beta_journey(adb, serial, avd_name, test_apk,
+                result = (journey or beta_journey)(adb, serial, avd_name, test_apk,
                                       REPO.parent / "artifacts/beta-integration", run_tool)
                 record("beta_integration", "passed", **result)
             except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-                record("beta_integration", "failed", error_type=type(error).__name__)
+                record("beta_integration", "failed", error_type=type(error).__name__, reason=str(error)[:400])
     except (ValueError, OSError, RuntimeError) as error:
         record("in_app", "failed", reason="emulator or selfcheck observation failed",
                error_type=type(error).__name__)

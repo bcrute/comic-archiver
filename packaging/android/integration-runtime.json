@@ -1,0 +1,12 @@
+{
+  "system_image": "system-images;android-37.0;google_apis;x86_64",
+  "webview": {
+    "url": "https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1727718/chrome-android-desktop.zip",
+    "revision": "1727718",
+    "bytes": 505174753,
+    "sha256": "96a1b1f6f7abdb08dbfb9e840274d8d8bf2361a15f170b23a55ddf9e1797baed",
+    "apk_member": "chrome-android-desktop/apks/SystemWebView.apk",
+    "apk_bytes": 418507465,
+    "apk_sha256": "6c331ba41d95bf5cb0740f3cb0d00af60b02b20c12e3a0bd05d518028c8f07fa"
+  }
+}
