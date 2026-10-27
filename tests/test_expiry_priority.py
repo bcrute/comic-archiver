@@ -33,7 +33,7 @@ class ExpiryPriorityTests(unittest.TestCase):
     def test_temporary_access_requires_an_explicit_readable_grant_and_future_known_timestamp(self):
         self.assertEqual(access_state(self.flags|{'closing_date':self.stamp(1)}),'tapas_unlocked')
         self.assertEqual(access_state(self.flags|{'free':True,'closing_date':self.stamp(1)}),'tapas_free')
-        for changes in ({'must_pay':True},{'unlocked':False},{'closing_date':self.stamp(0)},{'closing_date':self.stamp(-1)}):
+        for changes in ({'unlocked':False},{'closing_date':self.stamp(0)},{'closing_date':self.stamp(-1)}):
             with self.assertRaises(AccessDenied): access_state(self.flags|{'closing_date':self.stamp(1)}|changes)
         for value in ('unknown','2026-10-08T20:00:00',True,False,123,{'expiry':'PRIVATE'}):
             with self.assertRaises(UnsupportedContent): access_state(self.flags|{'closing_date':value})

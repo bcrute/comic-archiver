@@ -201,7 +201,7 @@ class NovelTests(unittest.TestCase):
     def test_novel_authorization_requires_current_free_or_unlock_and_keeps_other_holds(self):
         self.assertEqual(access_state(INFO), 'tapas_free')
         self.assertEqual(access_state(INFO | {'free': False, 'unlocked': True}), 'tapas_unlocked')
-        for updates in ({'free': False}, {'must_pay': True}, {'scheduled': True},
+        for updates in ({'free': False}, {'free': False, 'must_pay': True}, {'scheduled': True},
                         {'closing_date': 'temporary'}, {'unlocked': 1}, {'book': 'true'}):
             with self.assertRaises(ArchiveError):
                 access_state(INFO | updates)
@@ -220,7 +220,7 @@ class NovelTests(unittest.TestCase):
             'https://tapas.io/episode/81', 'https://tapas.io/series/42'])
 
     def test_locked_novel_stops_before_reader_and_wrong_series_content_stops_capture(self):
-        for updates in ({'must_pay': True}, {'free': False}, {'scheduled': True}, {'closing_date': 'temporary'}):
+        for updates in ({'free': False, 'must_pay': True}, {'free': False}, {'scheduled': True}, {'closing_date': 'temporary'}):
             transport = Mock()
             transport.get.side_effect = [envelope({'user': {'id': 11}}), envelope(INFO | updates)]
             with self.assertRaises(ArchiveError):

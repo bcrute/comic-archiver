@@ -20,11 +20,10 @@ def unsupported(message, code):
 
 
 def access_state(info):
-    """WUF/preview availability and must_pay=false alone never grant access."""
-    if any(type(info.get(key)) is not bool for key in ("must_pay", "scheduled", "book", "free", "unlocked")) or "closing_date" not in info:
+    """Only free or unlocked grants access; WUF/preview availability never does. must_pay is how Tapas sells
+    an episode, not whether this account has it: a bought paid-only episode keeps must_pay=true."""
+    if any(type(info.get(key)) is not bool for key in ("scheduled", "book", "free", "unlocked")) or "closing_date" not in info:
         raise MetadataError("Episode authorization fields are missing or unexpected; inspection is required.")
-    if info["must_pay"] is True:
-        raise AccessDenied("Episode requires an unlock; no reader or purchase action will be requested.")
     if info["scheduled"] is True:
         raise unsupported('Scheduled episodes are not supported by this importer.','scheduled')
     if info["closing_date"] is not None:

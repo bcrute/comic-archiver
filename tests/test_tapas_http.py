@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from comic_archive.adapters.tapas_http import TapasHTTPAdapter, access_state
 from comic_archive.models import ArchiveError, Page, Series
-from comic_archive.errors import MetadataError, UnsupportedContent
+from comic_archive.errors import AccessDenied, MetadataError, UnsupportedContent
 
 
 def envelope(value):
@@ -182,9 +182,9 @@ class TapasHTTPTests(unittest.TestCase):
         self.assertFalse(hasattr(caught.exception,'source_retry_episode_id'))
 
     def test_locked_wuf_preview_and_inconsistent_flags_stop_before_reader_or_assets(self):
-        for updates in ({"free": False, "unlocked": False}, {"must_pay": True},
+        for updates in ({"free": False, "unlocked": False}, {"free": False, "unlocked": False, "must_pay": True},
                         {"scheduled": True}, {"closing_date": "expired"},
-                        {"free": "true", "unlocked": 1}, {"must_pay": 0}):
+                        {"free": "true", "unlocked": 1}):
             with self.subTest(updates=updates):
                 self.transport.reset_mock()
                 self.responses(info=self.info | updates)
@@ -195,7 +195,14 @@ class TapasHTTPTests(unittest.TestCase):
     def test_unlocked_flag_requires_explicit_boolean_and_current_allowed_state(self):
         self.assertEqual(access_state(self.info | {"free": False, "unlocked": True}), "tapas_unlocked")
         with self.assertRaises(ArchiveError):
-            access_state(self.info | {"free": False, "unlocked": True, "must_pay": True})
+            access_state(self.info | {"free": False, "unlocked": "true"})
+
+    def test_a_bought_paid_only_episode_is_readable_and_an_unbought_one_is_not(self):
+        # Tapas keeps must_pay=true on a paid-only episode after the account buys it.
+        paid_only = self.info | {"free": False, "must_pay": True}
+        self.assertEqual(access_state(paid_only | {"unlocked": True}), "tapas_unlocked")
+        with self.assertRaises(AccessDenied):
+            access_state(paid_only | {"unlocked": False})
 
     def test_no_session_and_wrong_episode_stop_before_reader(self):
         for user in ({}, {"id": 0}, {"id": True}, {"id": "123"}):
@@ -294,21 +301,23 @@ class TapasHTTPTests(unittest.TestCase):
             self.assertEqual(episode["access_state"], "tapas_unlocked")
 
     def test_series_metadata_retains_denied_and_unsupported_reasons_without_reader_or_private_values(self):
-        items=[self.info|{'id':81,'scene':1},self.info|{'id':82,'scene':2,'must_pay':True},
+        items=[self.info|{'id':81,'scene':1},self.info|{'id':82,'scene':2,'free':False,'must_pay':True},
                self.info|{'id':83,'scene':3,'book':True},self.info|{'id':84,'scene':4,'scheduled':True},
-               self.info|{'id':85,'scene':5,'closing_date':'EXPIRY_PRIVATE'}]
+               self.info|{'id':85,'scene':5,'closing_date':'EXPIRY_PRIVATE'},
+               self.info|{'id':86,'scene':6,'free':False,'unlocked':True,'must_pay':True}]
         self.transport.get.side_effect=[envelope({'user':{'id':123}}),envelope({'id':42,'title':'S'}),
-            envelope({'pagination':{'page':2,'has_next':False,'total':5},'episodes':items})]
+            envelope({'pagination':{'page':2,'has_next':False,'total':6},'episodes':items})]
         result=self.adapter.inspect_series('42')
         self.assertEqual([row['authorization_reason'] for row in result['episodes']],
-                         [None,'access_denied',None,'scheduled','temporary_access'])
+                         [None,'access_denied',None,'scheduled','temporary_access',None])
         self.assertEqual([row['access_state'] for row in result['episodes']],
-                         ['tapas_free','unavailable_or_unverified','tapas_free','unavailable_or_unverified','unavailable_or_unverified'])
+                         ['tapas_free','unavailable_or_unverified','tapas_free','unavailable_or_unverified','unavailable_or_unverified',
+                          'tapas_unlocked'])
         self.assertEqual(self.transport.get.call_count,3)
         self.assertNotIn('PRIVATE',json.dumps(result))
 
     def test_missing_or_nonboolean_allow_flags_fail_closed(self):
-        for key in ("must_pay", "scheduled", "book", "closing_date"):
+        for key in ("scheduled", "book", "closing_date"):
             info = dict(self.info)
             del info[key]
             with self.assertRaises(ArchiveError):
