@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-archive"
+version = "0.2.3"
+description = "Personal comic and novel preservation: CBZ, EPUB, and source-neutral JSON"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+dependencies = ["httpx>=0.27,<1", "zstandard>=0.25,<1", "tzdata>=2025.1; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+# Opt-in read-only CL-1 bridge; imports start no listener. Transitive/native
+# installation and packaging are qualified at the matched reader CI point.
+connected = ["jwcrypto==1.6.1", "aiortc==1.15.0", "websockets==15.0.1"]
+browser = ["playwright>=1.45,<2"]
+validation = ["Pillow>=10"]
+desktop = ["PySide6>=6.11.2,<6.12"]
+test = ["Pillow>=10", "playwright>=1.45,<2", "coverage>=7,<8", "build>=1.5,<2", "ruff>=0.6,<1", "pip-audit>=2.7,<3"]
+
+[project.gui-scripts]
+comic-archiver = "comic_archive.desktop_app:main"
+
+[tool.setuptools.packages.find]
+include = ["comic_archive*"]
+
+[tool.setuptools.package-data]
+comic_archive = ["window/*.png"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# Mistakes (F, E9), likely bugs (B) and security rules (S, the checks Bandit makes).
+select = ["F", "E9", "B", "S"]
+ignore = [
+    "S603",  # Every subprocess call passes a list to a fixed program, never a shell.
+    "S110",  # The empty excepts are best-effort cleanup that must not replace the error being reported.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Query text is built only from the fixed sets in sites.py and fixed column names, never from input.
+"comic_archive/{hosted,inventory,session}.py" = ["S608"]
+# These parse the app's own EPUB files and fragments it builds; DOCTYPE and ENTITY are refused, and
+# ElementTree never loads external entities.
+"comic_archive/{novels,migration}.py" = ["S314"]
+# Opening a saved file hands it to the system's own opener (os.startfile, or xdg-open by name).
+"comic_archive/local_library.py" = ["S606", "S607"]
+# Tests and checks assert, use fixed temporary paths, fake secrets and seeded randomness, and define
+# helpers inside loops that they call in the same pass.
+"tests/**" = ["S101", "S104", "S105", "S108", "S310", "S311", "S314", "S324", "S607", "S608", "B023"]
+"scripts/**" = ["S101", "S108", "S310", "S311", "S607", "B023"]

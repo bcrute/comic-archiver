@@ -1,0 +1,37 @@
+{
+  "head": "0dca28f",
+  "files": {
+    "comic_archive/window/arrow-dark.png": {
+      "bytes": 267,
+      "sha256": "af33d0397fad20a78c6645efcec5aaeea26cf4cdd3694868818fd737e92837d9"
+    },
+    "comic_archive/window/arrow-dark@2x.png": {
+      "bytes": 287,
+      "sha256": "0647b2bc568a1428bbc4c99af6789247bb3c1917af9b45ebbf86cdc6568385f3"
+    },
+    "comic_archive/window/arrow-light.png": {
+      "bytes": 255,
+      "sha256": "8a35f4ccb74b0ce940b1f3a420e3774ff855fc30d317476d36e4d9b5fe3425a4"
+    },
+    "comic_archive/window/arrow-light@2x.png": {
+      "bytes": 268,
+      "sha256": "802be292fabf8d7a8766d2a59492d8258f990ae00e6cd246bcbd4ab6ed5471e9"
+    },
+    "comic_archive/window/check-dark.png": {
+      "bytes": 385,
+      "sha256": "9d8edbc6b77235167704cf599fea21f942605c3fe5a262961e6ecee80e97c890"
+    },
+    "comic_archive/window/check-dark@2x.png": {
+      "bytes": 543,
+      "sha256": "4e38b2aad96ad488d78b3ea80b74d200f2f008c33c7cbbdaf18a01654d24d631"
+    },
+    "comic_archive/window/check-light.png": {
+      "bytes": 221,
+      "sha256": "73b55bd02aa9ae6c54c33c00f2fcacb18e766248fe3e8c8b9db6579a32a2b9cc"
+    },
+    "comic_archive/window/check-light@2x.png": {
+      "bytes": 280,
+      "sha256": "7b8992d8c01b35132bfed616576b76c0b69ff393a9e8d6b292db43e533072252"
+    }
+  }
+}

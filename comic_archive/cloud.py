@@ -323,6 +323,17 @@ class Transfer:
         finally:
             pipe.close()
 
+    def size(self, remote_path):
+        """Stat one exact immutable object for a bounded reader projection."""
+        try:
+            value = json.loads(self.run('lsjson', self.remote(remote_path), '--stat').decode('utf-8'))
+            if (not isinstance(value, dict) or value.get('IsDir') is not False
+                    or type(value.get('Size')) is not int or value['Size'] < 0):
+                raise ValueError
+            return value['Size']
+        except (ValueError, TypeError, KeyError):
+            raise CloudTransferError('cloud_verification') from None
+
     def delete_upload(self, remote_path):
         """Delete every version of one file an interrupted direct upload recorded."""
         from .b2_cleanup import cleanup_file
@@ -531,6 +542,7 @@ def upload_pending(root, *, limit=None, provider=None):
     report = {'uploaded_episodes':0, 'local_archives_deleted':0, 'freed_bytes':0}
     if settings(root) is None:return report
     failure = None
+    reader_pending, reader_backfills = 0, 0
     with LibraryLock(root):
         value = settings(root)
         if not value:return report
@@ -550,7 +562,23 @@ def upload_pending(root, *, limit=None, provider=None):
             for path in sorted(folder.glob('*.json')):
                 if limit is not None and report['uploaded_episodes'] >= limit:break
                 record = _json(path)
-                if record.get('state') == 'verified' and record.get('target_id') == target['target_id']:continue
+                if record.get('state') == 'verified' and record.get('target_id') == target['target_id']:
+                    if name == 'b2':
+                        from .reader_catalogue import needs, publish
+                        if needs(root, value['library_id'], target['target_id'], record):
+                            if reader_backfills >= 20:
+                                reader_pending += 1
+                            else:
+                                reader_backfills += 1
+                                try:
+                                    transfer = transfer or transfer_for(root, name, target)
+                                except (ArchiveError, OSError, ValueError, TypeError):
+                                    reader_pending += 1
+                                    reader_backfills = 20
+                                    continue
+                                if not publish(root, transfer, record, value['library_id'], target['target_id']):
+                                    reader_pending += 1
+                    continue
                 try:
                     if record.get('library_id') != value['library_id'] or not isinstance(record.get('archive'), str):
                         raise ArchiveError('Cloud retry state is invalid.')
@@ -596,6 +624,10 @@ def upload_pending(root, *, limit=None, provider=None):
                     verified.pop('error_code', None)
                     _write(path, verified)
                     report['uploaded_episodes'] += 1
+                    if name == 'b2':
+                        from .reader_catalogue import publish
+                        if not publish(root, transfer, verified, value['library_id'], target['target_id'], advance=True):
+                            reader_pending += 1
                 except (ArchiveError, OSError, ValueError, KeyError, TypeError) as error:
                     code = safe_code(error)
                     _write(path, record | {'state':'failed', 'error_code':code})
@@ -609,6 +641,8 @@ def upload_pending(root, *, limit=None, provider=None):
         report.update(deleted)
     if failure:
         raise CloudTransferError(failure)
+    if reader_pending:
+        report['reader_catalogue_pending'] = reader_pending
     return report
 
 
@@ -774,6 +808,10 @@ class DirectUpload:
         retain(self.root, 'b2', verified)
         self.intent.unlink()
         _directory_sync(self.intent.parent)
+        from .reader_catalogue import publish
+        self.reader_catalogue_pending = not publish(
+            self.root, self.transfer, verified, self.value['library_id'],
+            self.target['target_id'], advance=True)
         _prepare_cache_for_offload(self.root, self.archive, saved=False)
 
 
