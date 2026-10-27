@@ -211,9 +211,36 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                                      stderr=subprocess.STDOUT)
             ready = None
             deadline = time.monotonic() + 300
+            last_stage, observed_stage_at, next_stage_read = None, 0, 0
+            traces_reported = set()
             while time.monotonic() < deadline:
                 if first.poll() is not None:
                     raise RuntimeError('The preparation test ended before a verified live copy')
+                if time.monotonic() >= next_stage_read:
+                    checkpoint = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                                         'files/integration-code/checkpoint.json'], timeout=15, keep_bytes=16000)
+                    next_stage_read = time.monotonic() + 2
+                    try:
+                        point = json.loads(checkpoint['tail']) if checkpoint['returncode'] == 0 else {}
+                    except ValueError:
+                        point = {}
+                    stage = point.get('phase') if point.get('run_token') == token else None
+                    if stage in {'cold_start', 'signed_in', 'transfer_blocked', 'recreating', 'recreated',
+                                 'paused', 'acquiring_archives', 'choosing_export_tree', 'export_tree_granted', 'copy_blocked'}:
+                        (artifacts / 'last-checkpoint.json').write_text(json.dumps(point, indent=2) + '\n')
+                        if stage != last_stage:
+                            last_stage, observed_stage_at = stage, time.monotonic()
+                            print(json.dumps({'native_journey_stage': stage}), flush=True)
+                        if stage == 'recreating' and time.monotonic() - observed_stage_at >= 20:
+                            for name in ('recreation-java-main.txt', 'recreation-python.txt'):
+                                if name in traces_reported:
+                                    continue
+                                trace = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                                                'files/integration-code/' + name], timeout=15, keep_bytes=12000)
+                                if trace['returncode'] == 0:
+                                    (artifacts / name).write_text(trace['tail'])
+                                    print(json.dumps({'native_recreation_trace': name, 'tail': trace['tail'][-8000:]}), flush=True)
+                                    traces_reported.add(name)
                 result = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
                                  'files/integration-code/ready.json'], timeout=15)
                 if result['returncode'] == 0:
@@ -241,6 +268,7 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                 raise RuntimeError('The target process was not stopped')
             first.wait(timeout=30)
             summary['phase1_intentionally_stopped'] = True
+            print(json.dumps({'native_journey_stage': 'host_stop_verified'}), flush=True)
         second = runner(instrument('recoverAfterHostStopWithoutGo'), timeout=300, keep_bytes=32000)
         (artifacts / 'recover.log').write_text(second['tail'])
         if second['returncode'] != 0 or not recovery_test_passed(second['tail']):
@@ -258,6 +286,19 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
             'working_library_adoption': True, 'preserved_account_binding': True, 'held_library_switch': True})
         return summary
     finally:
+        checkpoint = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                             'files/integration-code/checkpoint.json'], timeout=15, keep_bytes=16000)
+        try:
+            point = json.loads(checkpoint['tail']) if checkpoint['returncode'] == 0 else {}
+        except ValueError:
+            point = {}
+        if point.get('run_token') == token:
+            (artifacts / 'last-checkpoint.json').write_text(json.dumps(point, indent=2) + '\n')
+            for name in ('recreation-java.txt', 'recreation-java-main.txt', 'recreation-python.txt'):
+                trace = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                                'files/integration-code/' + name], timeout=15, keep_bytes=64000)
+                if trace['returncode'] == 0:
+                    (artifacts / name).write_text(trace['tail'])
         # Assertion timeouts write fixture-only facts before Android tears down
         # the instrumentation process. Preserve them beside the primary log.
         diagnostic = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',

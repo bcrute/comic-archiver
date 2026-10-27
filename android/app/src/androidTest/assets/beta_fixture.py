@@ -8,6 +8,7 @@ import hashlib
 import json
 import struct
 import threading
+import time
 import zlib
 
 import httpx
@@ -23,6 +24,8 @@ _asset_cookie_leaks = 0
 _unexpected = 0
 _browser_agent_seen = False
 _fast_asset_clients = 0
+_transfer_gate = {}
+_recreation_trace = None
 
 
 def png(seed):
@@ -86,11 +89,17 @@ class PageStream(httpx.SyncByteStream):
         for offset in range(0, len(self.data), 65536):
             yield self.data[offset:offset + 65536]
             if self.block and offset == 0:
+                with _lock:
+                    _transfer_gate.update(started=time.monotonic(), timed_out=False)
                 _blocked.set()
                 try:
                     if not _release.wait(120):
+                        with _lock:
+                            _transfer_gate['timed_out'] = True
                         raise httpx.ReadTimeout('The stand-in transfer was not released.')
                 finally:
+                    with _lock:
+                        _transfer_gate['finished'] = time.monotonic()
                     _blocked.clear()
 
 
@@ -261,7 +270,27 @@ def install():
 
 
 def release_transfer():
+    with _lock:
+        _transfer_gate['release_requested'] = time.monotonic()
     _release.set()
+
+
+def begin_recreation_watch():
+    """Dump actual Python threads if native Activity recreation stalls; no timeout change."""
+    import faulthandler
+    from pathlib import Path
+    global _recreation_trace
+    _recreation_trace = Path(__file__).with_name('recreation-python.txt').open('w')
+    faulthandler.dump_traceback_later(15, repeat=True, file=_recreation_trace)
+
+
+def end_recreation_watch():
+    import faulthandler
+    global _recreation_trace
+    faulthandler.cancel_dump_traceback_later()
+    if _recreation_trace is not None:
+        _recreation_trace.close()
+        _recreation_trace = None
 
 
 def pause_requested(root):
@@ -277,7 +306,8 @@ def observation():
     with _lock:
         return json.dumps({'native_library_diagnostics': list(_native_library_diagnostics),
                            'native_operation_counts': dict(_native_operation_counts),
-                           'native_failures': list(_native_failures), 'blocked_transfer': _blocked.is_set(), 'asset_requests': _asset_requests,
+                           'native_failures': list(_native_failures), 'blocked_transfer': _blocked.is_set(),
+                           'transfer_gate': dict(_transfer_gate), 'asset_requests': _asset_requests,
                            'asset_cookie_leaks': _asset_cookie_leaks, 'unexpected_requests': _unexpected,
                            'browser_agent_seen': _browser_agent_seen,
                            'fast_asset_clients': _fast_asset_clients,

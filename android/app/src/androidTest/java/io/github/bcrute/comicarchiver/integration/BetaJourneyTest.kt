@@ -9,6 +9,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Direction
@@ -32,6 +34,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Pattern
 import java.util.zip.CRC32
 import java.util.zip.ZipFile
@@ -58,7 +63,7 @@ class BetaJourneyTest {
         }
         failure("Timed out: $label")
     }
-    private fun failure(label: String): Nothing {
+    private fun captureFailure(label: String) {
         // This Application refuses real devices/accounts. Keep the genuine
         // controller/worker/network observation before instrumentation exits.
         save("timeout.json", JSONObject().put("waiting_for", label)
@@ -70,7 +75,60 @@ class BetaJourneyTest {
                 .put("session_root", app.workspace.session.absolutePath).toString()))))
         device.takeScreenshot(evidence.resolve("timeout.png"))
         device.dumpWindowHierarchy(evidence.resolve("timeout-hierarchy.xml"))
+    }
+    private fun failure(label: String): Nothing {
+        captureFailure(label)
         throw AssertionError(label)
+    }
+    private fun stage(name: String, details: JSONObject = JSONObject()) {
+        save("checkpoint.json", details.put("phase", name).put("elapsed_ms", SystemClock.elapsedRealtime()))
+    }
+    private fun recreateObserved() {
+        stage("recreating")
+        val started = SystemClock.elapsedRealtime()
+        val testThread = Thread.currentThread()
+        val done = CountDownLatch(1)
+        runCatching { app.fixture().callAttr("begin_recreation_watch") }
+        val watcher = Thread({
+            if (!done.await(15, TimeUnit.SECONDS)) runCatching {
+                val rows = Thread.getAllStackTraces().entries.sortedBy { it.key.name }
+                fun trace(row: Map.Entry<Thread, Array<StackTraceElement>>) =
+                    row.key.name + " [" + row.key.state + "]\n" + row.value.joinToString("\n") + "\n\n"
+                evidence.resolve("recreation-java.txt").writeText(rows.joinToString("") { trace(it) }.take(60_000))
+                evidence.resolve("recreation-java-main.txt").writeText(rows.filter {
+                    it.key.name == "main" || it.key === testThread
+                }.joinToString("") { trace(it) }.take(12_000))
+            }
+        }, "fixture-recreation-watch").apply { isDaemon = true; start() }
+        try {
+            // ActivityScenario.recreate first waits indefinitely for UI idleness.
+            // Exercise real framework recreation while saving is deliberately
+            // active, then verify actual destruction and a new resumed instance.
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val previous = AtomicReference<MainActivity>()
+            instrumentation.runOnMainSync {
+                val current = ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED).filterIsInstance<MainActivity>().single()
+                previous.set(current)
+                current.recreate()
+            }
+            await("native Activity destruction and resumed replacement", 30_000) {
+                var replaced = false
+                instrumentation.runOnMainSync {
+                    val monitor = ActivityLifecycleMonitorRegistry.getInstance()
+                    replaced = monitor.getLifecycleStageOf(previous.get()) == Stage.DESTROYED &&
+                        monitor.getActivitiesInStage(Stage.RESUMED)
+                            .filterIsInstance<MainActivity>().any { it !== previous.get() }
+                }
+                replaced
+            }
+        }
+        finally {
+            done.countDown()
+            watcher.join(1_000)
+            runCatching { app.fixture().callAttr("end_recreation_watch") }
+        }
+        stage("recreated", JSONObject().put("duration_ms", SystemClock.elapsedRealtime() - started))
     }
     private fun clickIfPresent(selector: BySelector, timeout: Long = 1_500,
                                before: (UiObject2) -> Unit = {}): Boolean {
@@ -349,6 +407,8 @@ class BetaJourneyTest {
         // merely compiling BrowserSurfaceTest is not isolation/viewport evidence.
         BrowserSurfaceTest().readingWindowHasAViewportAndPageScriptsCannotReachItsCommandWorld()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+          try {
+            stage("cold_start")
             await("cold signed-out startup") { !app.controller.state.value.siteBusy &&
                 app.controller.state.value.signIn == SignInState.SignedOut }
             assertEquals(DownloadState.Held, app.controller.state.value.download)
@@ -358,6 +418,7 @@ class BetaJourneyTest {
             await("verified native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
             assertEquals(0, observe().getInt("asset_requests"))
             assertEquals(0, app.readingSurfaceCreations.get())
+            stage("signed_in")
             allowFixtureConnectionIfHeld()
             startSaving()
             await("real asset transfer blocked", terminal = { app.controller.state.value.download is DownloadState.Failed }) {
@@ -365,10 +426,11 @@ class BetaJourneyTest {
             }
             assertTrue(app.controller.state.value.download is DownloadState.Running ||
                 app.controller.state.value.download is DownloadState.Planning)
+            stage("transfer_blocked")
             val controller = app.controller
-            scenario.recreate()
+            recreateObserved()
             assertSame(controller, app.controller)
-            assertTrue(observe().getBoolean("blocked_transfer"))
+            if (!observe().getBoolean("blocked_transfer")) failure("Transfer did not remain blocked across recreation")
             click("Pause")
             await("production Pause cancellation", 10_000) {
                 app.fixture().callAttr("pause_requested", app.workspace.root.absolutePath).toBoolean()
@@ -380,12 +442,14 @@ class BetaJourneyTest {
                 state.optJSONObject("result")?.optString("state") == "ready"
             }
             assertTrue(archives().none { it.extension == "cbz" })
+            stage("paused")
             click("Settings")
             click("Download preferences")
             click("Fast")
             await("stored native Fast choice") { app.controller.state.value.settings?.speed == "fast" &&
                 app.controller.state.value.settings?.speeds?.any { it.key == "fast" && it.available } == true }
             click("Downloads")
+            stage("acquiring_archives")
             startSaving()
             await("complete comic and novel catalog records", 180_000,
                 terminal = { app.controller.state.value.download is DownloadState.Failed }) { exportableCount() == 2 }
@@ -398,7 +462,9 @@ class BetaJourneyTest {
             clickIfPresent(By.text("Pause"), 2_000)
             verifyOutputs()
             click("Library")
+            stage("choosing_export_tree")
             pickTree()
+            stage("export_tree_granted")
             documents("arm")
             val before = originals()
             click("Export all")
@@ -416,8 +482,13 @@ class BetaJourneyTest {
                 .put("native_fast_verified", true).put("native_discovery_verified", true))
             // The fleet coordinator independently verifies the live partial/journal,
             // then kills this process. Returning normally is a failed interruption gate.
+            stage("copy_blocked")
             SystemClock.sleep(150_000)
             fail("The host did not stop the app while the export was in flight.")
+          } catch (error: Throwable) {
+            if (!evidence.resolve("timeout.json").exists()) runCatching { captureFailure(error.toString()) }
+            throw error
+          }
         }
     }
 
