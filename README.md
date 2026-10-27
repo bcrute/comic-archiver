@@ -61,6 +61,10 @@ read in its phone app, such as Daily Pass and Fast Pass ones, aren't on the webs
 If you'd like a copy in the cloud as well, the app can also save to your own Backblaze B2 storage. Settings walks
 you through setting it up.
 
+To update, install the new version over the old one; don't uninstall first. On Windows, run the new setup file. On
+Linux, unpack the new version and start it; it offers to delete the older copy. Either way you stay signed in, and
+your settings and saved episodes stay.
+
 Uninstalling signs the app out of every site and removes your Backblaze key from this computer. Your saved episodes
 stay. On Windows, uninstall it from **Settings → Apps** as usual. On Linux, right-click Comic Archiver in your
 applications menu, choose **Uninstall**, then delete the folder you unpacked it into.

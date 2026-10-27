@@ -20,6 +20,10 @@ Your saved episodes are in the folder "Comic Archiver" in your user folder
 (C:\Users\<your name>\Comic Archiver): Tapas in "Library", Tappytoon in
 "Tappytoon\Library", Webtoon in "Webtoon\Library". Comics are CBZ files and
 novels are EPUB files; they open in comic and e-book reader apps.
+To update, use the same download as before: run the new setup file over
+this version, or unpack the new zip and start it (it offers to delete this
+older copy). Don't uninstall first. You stay signed in, and your settings
+and saved episodes stay.
 Uninstalling Comic Archiver signs it out of every site and removes your
 Backblaze key from this computer; your saved episodes are kept.
 
