@@ -27,16 +27,31 @@ def retire(root, folder, config):
     """Delete the connection file a new sign-in replaced, with the sign-in it holds.
 
     As when a library is first linked, a test still to be cleaned up keeps the file it names. A file
-    named on the command line stays, and so does one the libraries sharing cloud storage use.
+    named on the command line stays, and so does one any library sharing cloud storage still uses.
     """
-    if (folder != root / '.archive-state/cloud' or config.parent != folder or not config.name.startswith('connection-')
-            or any(t['config'] == str(config) for t in cloud.settings(root)['targets'].values())):
+    if folder != cloud.connection_folder(root) or config.parent != folder or not config.name.startswith('connection-'):
         return
-    for receipt in (root / '.archive-state/cloud/tests').glob('*.json'):
-        record = cloud._json(receipt)
-        if (record.get('state') != 'cleaned' and isinstance(record.get('connection'), dict)
-                and record['connection'].get('config') == str(config)):
+    from . import shared
+    store = folder.parent if folder != root / '.archive-state/cloud' else None
+    if store is None:
+        _retire(config, [root])
+        return
+    from .sites import SITES, folder as site_folder
+    libraries = [root, *(site_folder(store.parent, site) / 'Library' for site in SITES)]
+    with LibraryLock(store):
+        _retire(config, [library for library in dict.fromkeys(libraries)
+                         if library == root or (library / shared.LINK).is_file() and shared.folder(library) == store])
+
+
+def _retire(config, libraries):
+    for library in libraries:
+        if any(t['config'] == str(config) for t in (cloud.settings(library) or {'targets': {}})['targets'].values()):
             return
+        for receipt in (library / '.archive-state/cloud/tests').glob('*.json'):
+            record = cloud._json(receipt)
+            if (record.get('state') != 'cleaned' and isinstance(record.get('connection'), dict)
+                    and record['connection'].get('config') == str(config)):
+                return
     config.unlink(missing_ok=True)
 
 

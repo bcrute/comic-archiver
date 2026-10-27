@@ -64,6 +64,33 @@ class CloudSignInTests(unittest.TestCase):
         sign_in()
         self.assertFalse(third.exists())
 
+    def test_a_new_sign_in_with_shared_storage_deletes_the_shared_file_it_replaces_unless_another_site_needs_it(self):
+        store = self.root.parent/'.comic-shared'
+        shared.link(self.root, store)
+        other = self.root.parent/'Webtoon/Library'; other.mkdir(parents=True)
+        shared.link(other, store)
+
+        def sign_in():
+            with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
+                    patch('comic_archive.cloud.Transfer'):
+                self.signin.start('b2', self.credentials)
+                self.assertEqual(self.finish()['status'], 'connected')
+            return Path(cloud.settings(self.root)['targets']['b2']['config'])
+        first = sign_in()
+        self.assertEqual(first.parent, store/'cloud')
+        second = sign_in()
+        self.assertFalse(first.exists()); self.assertTrue(second.is_file())
+        self.assertEqual(cloud.settings(other)['targets']['b2']['config'], str(second))
+        target = cloud.settings(other)['targets']['b2']
+        receipt = other/'.archive-state/cloud/tests'/(str(uuid.uuid4()) + '.json')
+        cloud._write(receipt, {'provider': 'b2', 'state': 'cleanup_pending',
+                               'connection': {k: target[k] for k in ('remote', 'config', 'target_id')}})
+        third = sign_in()
+        self.assertTrue(second.is_file())  # The other site's test still has to clean up with it.
+        cloud._write(receipt, json.loads(receipt.read_text()) | {'state': 'cleaned'})
+        sign_in()
+        self.assertFalse(third.exists())
+
     def test_duplicate_signin_is_rejected_and_shutdown_cancels_owned_work(self):
         entered = threading.Event()
         def connection(root, credentials, cancel):

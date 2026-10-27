@@ -2144,6 +2144,14 @@
   "test": "test_a_backblaze_sign_in_for_a_site_that_shares_its_storage_keeps_the_connection_with_the_shared_settings"
  },
  {
+  "id": "b2-sign-in-shared-file-retired-for-this-site-only",
+  "source": "comic_archive/cloud_auth.py",
+  "old": "    store = folder.parent if folder != root / '.archive-state/cloud' else None\n",
+  "new": "    store = None\n",
+  "test_file": "test_cloud_auth.py",
+  "test": "test_a_new_sign_in_with_shared_storage_deletes_the_shared_file_it_replaces_unless_another_site_needs_it"
+ },
+ {
   "id": "cloud-join-empty-record-kept-separate",
   "source": "comic_archive/cloud.py",
   "old": "    if not own['targets']:\n        return 'shared'\n",
