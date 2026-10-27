@@ -7,14 +7,17 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+import httpx
+
 from support import PRIVATE_FILE, PRIVATE_FOLDER
+from comic_archive import sites
 from comic_archive.account_ui import DESKTOP_REQUEST_INTERVAL
 from comic_archive.workspace import Workspace
 from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
 from comic_archive.network import NetworkPolicyHold
 from comic_archive.errors import LibraryBusy
-from comic_archive.session import load_session, store_session
+from comic_archive.session import forget_session, load_session, store_session
 from comic_archive.window_signin import WindowSignIn, storage_state
 
 RUNNING = {'status': 'running'}
@@ -357,6 +360,102 @@ class WindowSignInTests(unittest.TestCase):
             self.stop.assert_not_called(); self.untouched()
         worker.join(10)
         self.assertEqual(results, [{'status': 'connected'}])
+
+
+AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+WHO_AM_I = 'https://tapas.io/who-am-i'
+
+
+def tapas_user(user_id):
+    return json.dumps({'code': 200, 'data': {'user': {'id': user_id, 'uname': 'PRIVATE_NAME'}}, 'error_details': None}).encode()
+
+
+class SavedSignInCheckTests(unittest.TestCase):
+    """When the window opens, the site is asked whether the saved sign-in still works."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.workspace = Workspace('a' * 32, Path(temporary.name).resolve())
+        with Inventory(self.workspace.library): pass
+        self.guard = Mock()
+        wrapper = patch('comic_archive.window_signin.NetworkGuard', self.guard); wrapper.start(); self.addCleanup(wrapper.stop)
+        self.signin = WindowSignIn(self.workspace)
+        self.save()
+        self.asked = []
+
+    def save(self, site=sites.DEFAULT, domain='.tapas.io'):
+        store_session({'cookies': [cookie(domain=domain, expires=-1)], 'origins': []}, self.workspace.session, site)
+
+    def check(self, *answers, signin=None, asks=True):
+        answers = list(answers)
+
+        def request(value):
+            self.asked.append((str(value.url), value.headers.get('User-Agent'), value.headers.get('Cookie')))
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer if isinstance(answer, httpx.Response) else httpx.Response(200, content=answer)
+        with httpx.Client(transport=httpx.MockTransport(request)) as client:
+            if not asks:
+                return (signin or self.signin).check(AGENT, client=client)
+            with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
+                result = (signin or self.signin).check(AGENT, client=client)
+        self.assertNotIn('PRIVATE', ''.join(logs.output))
+        return result
+
+    def test_the_site_naming_the_account_confirms_it_and_one_that_no_longer_does_asks_for_a_sign_in(self):
+        self.assertEqual(self.check(tapas_user(11)), {'status': 'verified'})
+        self.assertEqual(self.signin.status(), {'status': 'verified'})
+        # Asked as the app's browser, with the saved sign-in, and only who is signed in.
+        self.assertEqual(self.asked, [(WHO_AM_I, AGENT, 'session=PRIVATE_COOKIE')])
+        self.guard.assert_called_with(self.workspace.library)
+        self.assertEqual(self.check(tapas_user(-1), signin=WindowSignIn(self.workspace)), {'status': 'expired'})
+
+    def test_no_answer_from_the_site_leaves_the_saved_sign_in_as_it_was(self):
+        for answer in (httpx.Response(403, content=b'PRIVATE_PAGE'), httpx.Response(200, content=b'<html>PRIVATE_PAGE')):
+            with self.subTest(status=answer.status_code):
+                self.assertEqual(self.check(answer), {'status': 'idle'})
+        self.guard.return_value.check.side_effect = NetworkPolicyHold('metered')
+        self.asked.clear()
+        self.assertEqual(self.check(), {'status': 'idle'})
+        self.assertEqual(self.asked, [])  # The network policy holds the question itself.
+
+    def test_nothing_is_asked_without_a_saved_sign_in_or_while_a_sign_in_is_open(self):
+        forget_session(self.workspace.session)
+        self.assertEqual(self.check(asks=False), {'status': 'idle'})
+        self.save()
+        self.signin.start()
+        self.assertEqual(self.check(asks=False), RUNNING)
+        self.assertEqual(self.asked, [])
+
+    def test_a_sign_in_begun_or_ended_while_the_site_answers_stands_over_the_answer(self):
+        def meanwhile(change, expected):
+            signin = WindowSignIn(self.workspace)
+
+            def answer(value):
+                change(signin)
+                return httpx.Response(200, content=tapas_user(-1))
+            with self.subTest(expected=expected), httpx.Client(transport=httpx.MockTransport(answer)) as client:
+                self.assertEqual(signin.check(AGENT, client=client), expected)
+                self.assertEqual(signin.status(), expected)
+        meanwhile(lambda signin: signin.start(), RUNNING)
+        with patch('comic_archive.window_signin.background.stop', Mock(return_value={'running': False})):
+            meanwhile(lambda signin: signin.sign_out(), {'status': 'idle'})
+        self.assertFalse((self.workspace.session / 'state.json').exists())
+
+    def test_webtoon_and_tappytoon_are_asked_their_own_way(self):
+        from comic_archive.adapters.tappytoon import KEY_PAGE
+        from test_tappytoon import page_data
+        from test_webtoon import USER_INFO, who
+        webtoon, tappytoon = sites.named('webtoon'), sites.named('tappytoon')
+        self.save(webtoon, '.webtoons.com')
+        for answer, expected in ((who('PRIVATE_NAME'), 'verified'), (who(), 'expired')):
+            with self.subTest(site='webtoon', expected=expected):
+                self.assertEqual(self.check(answer, signin=WindowSignIn(self.workspace, site=webtoon)), {'status': expected})
+        self.save(tappytoon, '.tappytoon.com')
+        self.assertEqual(self.check(page_data(account=321), signin=WindowSignIn(self.workspace, site=tappytoon)),
+                         {'status': 'verified'})
+        self.assertEqual([url for url, _, _ in self.asked], [USER_INFO, USER_INFO, KEY_PAGE])
 
 
 class StoreSessionTests(unittest.TestCase):

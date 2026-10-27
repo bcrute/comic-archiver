@@ -132,7 +132,8 @@ def fake_qt():
             QMessageBox=kind('QMessageBox', critical=Mock(), information=Mock(), question=Mock(), warning=Mock(),
                              StandardButton=SimpleNamespace(Yes=1, No=2)),
             QFileDialog=kind('QFileDialog', getExistingDirectory=Mock(return_value=''))),
-        'QtWebEngineCore': module('QtWebEngineCore', QWebEngineProfile=kind('QWebEngineProfile', httpUserAgent=Mock(return_value=QT_AGENT)), QWebEnginePage=kind('QWebEnginePage',
+        'QtWebEngineCore': module('QtWebEngineCore', QWebEngineProfile=kind('QWebEngineProfile', httpUserAgent=Mock(return_value=QT_AGENT),
+            defaultProfile=Mock(return_value=SimpleNamespace(httpUserAgent=lambda: QT_AGENT))), QWebEnginePage=kind('QWebEnginePage',
             RenderProcessTerminationStatus=SimpleNamespace(NormalTerminationStatus='normal'),
             NavigationType=SimpleNamespace(NavigationTypeBackForward='back')),
             QWebEngineUrlRequestInterceptor=kind('QWebEngineUrlRequestInterceptor'),
@@ -287,6 +288,21 @@ class DesktopAppTests(unittest.TestCase):
             self.assertIs(shell.ask('Sign out of Tapas?'), agreed)
             self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', 'Sign out of Tapas?', 3, 2))
 
+    def test_the_dashboard_asks_the_site_about_the_saved_sign_in_once_it_opens_and_shows_the_answer_at_once(self):
+        shell = self.opened()
+        self.signin.check.assert_not_called()  # Not while the downloader is starting.
+        shell.load()
+        # Asked off the window's thread, as the app's browser, which needs no profile of its own for its name.
+        self.signin.check.assert_called_once_with(QT_AGENT.replace(' QtWebEngine/6.11.2', ''))
+        self.assertEqual(self.q.QtWebEngineCore.QWebEngineProfile.made, [])
+        shell.pages.poll.assert_not_called()
+        emit(self.core.QTimer.made[-1].timeout)
+        shell.pages.poll.assert_called_once_with()
+        # A self-test asks no site anything.
+        self.signin.check.reset_mock()
+        tested = self.opened(probe=Mock()); tested.load()
+        self.signin.check.assert_not_called()
+
     def test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
         hidden = replace(sites.DEFAULT, key='hidden', name='Hidden', available=False)
@@ -332,6 +348,7 @@ class DesktopAppTests(unittest.TestCase):
             # The pages stay in the window and read the other site's library, afresh.
             self.assertEqual((shell.runtime, shell.phase, pages.reopened.call_count), (self.runtime, 'open', 2))
             pages.reopened.assert_called_with()
+            self.assertEqual(self.signin.check.call_count, 2)  # The other site's saved sign-in is asked about too.
             self.box.information.assert_called_once()
             # The site asked for cannot be opened: it stays as it was, with the reason in words.
             change.return_value = 'That folder cannot be written to.'

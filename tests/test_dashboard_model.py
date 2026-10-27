@@ -205,6 +205,16 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(relogin['signin_visible'])
         self.assertTrue(relogin['status'].startswith('Paused: Tapas signed you out.'))
 
+    def test_a_saved_sign_in_the_site_no_longer_knows_asks_for_a_sign_in_before_go(self):
+        expired = view(site_auth={'status': 'expired'})
+        self.assertFalse(expired['go_enabled']); self.assertTrue(expired['signin_visible'] and expired['signin_enabled'])
+        self.assertEqual((expired['title'], expired['state'], expired['session']), ('Sign in again', 'Sign-in needed', 'Tapas · Sign-in needed'))
+        self.assertEqual(expired['status'], 'Tapas has signed you out. Saved files are safe. Sign in to Tapas again, then hit Go.')
+        # One the site still names is connected, whatever the last run found; an unanswered check changes nothing.
+        verified = view(site_auth={'status': 'verified'}, account={'status': 'held', 'code': 'login_required'})
+        self.assertTrue(verified['go_enabled']); self.assertEqual(verified['session'], 'Tapas · Connected')
+        self.assertTrue(view()['go_enabled']); self.assertEqual(view()['session'], 'Tapas · Session saved')
+
     def test_pause_allow_site_and_folder_follow_a_running_download(self):
         running = view(account=account())
         self.assertTrue(running['pause_visible'] and running['pause_enabled'])

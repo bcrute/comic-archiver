@@ -285,8 +285,10 @@ def view(s, now):
     worker = worker_state(s, now)
     progress = status.get('progress') if isinstance(status.get('progress'), dict) else {}
     batch_running = worker == 'busy' or progress.get('status') == 'running'
-    needs_login = not status.get('session_configured') or (
-        account.get('code') == 'login_required' and (s.site_auth or {}).get('status') != 'connected')
+    # The site's own answer about the saved sign-in, asked when the window opens, outweighs what the last run found.
+    auth_status = (s.site_auth or {}).get('status')
+    needs_login = not status.get('session_configured') or auth_status == 'expired' or (
+        account.get('code') == 'login_required' and auth_status not in ('connected', 'verified'))
     since = s.since_account(now)
     go_wait = 0 if running else max(0, number(account.get('go_after_seconds')) - since)
     net = s.network
@@ -371,7 +373,10 @@ def view(s, now):
         message = f'Finish signing in to {site} in the window that opened.'
     elif needs_login:
         message = (f'Paused: {site} signed you out. Saved files are safe. Sign in to {site} again, then hit Go to continue.'
-                   if account.get('code') == 'login_required' else f'Sign in to {site} to get started.')
+                   if account.get('code') == 'login_required'
+                   else f'{site} has signed you out. Saved files are safe. Sign in to {site} again, then hit Go.'
+                   if (s.site_auth or {}).get('status') == 'expired'
+                   else f'Sign in to {site} to get started.')
     elif running:
         message = phases.get(account.get('phase'), 'Downloading your library…')
     elif account_status == 'held' and network_held:
@@ -482,7 +487,8 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
         elif signing_in:
             title, label, tone = 'Finish signing in', 'Signing in', 'working'
         elif needs_login:
-            title, label, tone = 'Sign in to get started', 'Sign-in needed', 'warning'
+            title = 'Sign in again' if (s.site_auth or {}).get('status') == 'expired' else 'Sign in to get started'
+            label, tone = 'Sign-in needed', 'warning'
         elif running:
             phases = {'lists': ('Finding your series', 'Finding series'), 'series': ('Checking your library', 'Checking series'),
                       'archive': ('Saving your episodes', 'Downloading'), 'verify': ('Checking saved files', 'Checking files'),
@@ -506,7 +512,7 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
             title, label, tone = 'Ready to save', 'Ready', 'success'
     site = s.site()
     session = ('Checking…' if s.status is None else 'Signing in' if signing_in else 'Sign-in needed' if needs_login
-               else 'Connected' if (s.site_auth or {}).get('status') == 'connected' else 'Session saved')
+               else 'Connected' if (s.site_auth or {}).get('status') in ('connected', 'verified') else 'Session saved')
     # Before the first sign-in the downloader has nothing to start with: that is not a fault to warn about.
     not_yet = needs_login and worker not in WORKING
     downloader = ('Checking…' if s.status is None else 'Status unknown' if disconnected else 'Working' if worker == 'busy'

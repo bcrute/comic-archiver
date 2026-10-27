@@ -472,6 +472,7 @@ class Shell:
         self.signin_heard = None
         self.awake = False
         self.cookies = CookieRecords()
+        self.agent = None  # What the app's browser calls itself, once asked.
 
     def listen(self, name):
         """Let a second launch ask this one to come forward."""
@@ -622,6 +623,22 @@ class Shell:
         self.poll_clock.start()
         self.tick_clock.start()
         self.signin_clock.start()
+        self.check_signin()
+
+    def check_signin(self):
+        """Ask the site, off the window's thread, whether the saved sign-in still works, so an expired one shows
+        before Go rather than after it. Go still checks."""
+        if self.probe:
+            return  # A self-test asks no site anything.
+        signin, agent = self.runtime.signin, self.engine_agent()
+        self.background(lambda: signin.check(agent), self.refresh)
+
+    def engine_agent(self):
+        """The name the app's browser gives sites: the sign-in page and the downloader send the same."""
+        if self.agent is None:
+            # Qt's default profile is off the record; only its name is read.
+            self.agent = common_agent(self.q.QtWebEngineCore.QWebEngineProfile.defaultProfile().httpUserAgent())
+        return self.agent
 
     def answered(self, ok):
         """--self-test: the first refresh has come back, and the dashboard drew it, or it did not."""
@@ -1098,6 +1115,7 @@ class Shell:
             if outcome[0]:
                 box.information(self.window, APP_NAME, SITE_FAILED.format(site=previous.name, reason=outcome[0]))
             self.pages.reopened()
+            self.check_signin()
         self.background(lambda: outcome.append(self.runtime.change_site(site)), done)
 
     def relocate(self, root):

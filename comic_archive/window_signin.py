@@ -13,7 +13,8 @@ from .app_runtime import LOG, describe
 from .errors import AuthenticationError, LibraryBusy
 from .models import ArchiveError
 from .network import NetworkGuard, NetworkPolicyHold
-from .session import cookie_expiry_seconds, forget_session, store_session
+from .session import cookie_expiry_seconds, forget_session, load_session, store_session
+from .transport import Transport
 
 SIGNIN_SECONDS = 900
 CODES = {'network_held', 'account_mismatch', 'signin_failed', 'signin_incomplete'}
@@ -54,6 +55,39 @@ def storage_state(cookies, local_storage=(), site=sites.DEFAULT):
     return {'cookies': [kept[key] for key in sorted(kept)], 'origins': origins if entries else []}
 
 
+def saved_signin(workspace, site, agent, client=None):
+    """What the site says of the saved sign-in: 'verified', 'expired', or None when it could not be asked.
+
+    Only the site's own answer about who is signed in counts. No network, the network policy, a refusal or an
+    unexpected answer leave it unknown: Go checks again.
+    """
+    try:
+        state = load_session(workspace.session)
+        transport = Transport(state['cookies'], client=client, site=site, agent=agent,
+                              network_guard=NetworkGuard(workspace.library))
+    except (ArchiveError, OSError):
+        return None
+    try:
+        if site == sites.DEFAULT:
+            from .adapters.tapas_http import TapasHTTPAdapter
+            reader = TapasHTTPAdapter(transport=transport)
+        elif site.key == 'webtoon':
+            from .adapters.webtoon import WebtoonAdapter
+            reader = WebtoonAdapter(transport=transport)
+        else:
+            from .adapters.tappytoon import TappytoonAdapter
+            reader = TappytoonAdapter(transport=transport)
+        reader.account_identity()
+        return 'verified'
+    except AuthenticationError:
+        return 'expired'
+    except Exception as error:
+        LOG.info('the saved sign-in could not be checked: %s', describe(error))
+        return None
+    finally:
+        transport.close()
+
+
 class WindowSignIn:
     """The dashboard's sign-in control, with the same states and codes as tapas_auth.SignIn.
 
@@ -90,6 +124,23 @@ class WindowSignIn:
     def status(self):
         with self._lock:
             self._waiting()
+            return dict(self._state)
+
+    def check(self, agent, client=None):
+        """Blocking: ask the site whether the saved sign-in still works, so the window can say so before Go.
+
+        'agent' is the name the app's browser gives the site, which refuses requests without one. Whatever
+        happens to the sign-in meanwhile (a new one, signing out) stands over this answer.
+        """
+        with self._lock:
+            before = self._state
+            if before['status'] != 'idle' or not (self.workspace.session / 'state.json').is_file():
+                return dict(before)
+        answer = saved_signin(self.workspace, self.site, agent, client)
+        LOG.info('the saved sign-in was checked: %s', answer or 'no answer')
+        with self._lock:
+            if answer is not None and self._state is before:
+                self._state = {'status': answer}
             return dict(self._state)
 
     def start(self):
