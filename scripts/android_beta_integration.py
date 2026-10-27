@@ -258,6 +258,18 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
             'working_library_adoption': True, 'preserved_account_binding': True, 'held_library_switch': True})
         return summary
     finally:
+        # Assertion timeouts write fixture-only facts before Android tears down
+        # the instrumentation process. Preserve them beside the primary log.
+        diagnostic = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                             'files/integration-code/timeout.json'], timeout=15, keep_bytes=32000)
+        if diagnostic['returncode'] == 0:
+            try:
+                value = json.loads(diagnostic['tail'])
+                if value.get('run_token') == token:
+                    (artifacts / 'timeout.json').write_text(json.dumps(value, indent=2) + '\n')
+                    screenshot('timeout.png')
+            except (ValueError, OSError, RuntimeError):
+                pass  # The primary failure remains authoritative.
         if first is not None and first.poll() is None:
             runner([*prefix, 'shell', 'am', 'force-stop', TARGET], timeout=30)
             first.terminate()

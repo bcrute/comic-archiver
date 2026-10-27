@@ -137,6 +137,7 @@ class CloudScreensTest {
         compose.setContent { MaterialTheme {
             CloudScreen(cloudFixture(), false, null, true, true, {}, {}, pages::add)
         } }
+        compose.onNodeWithText("Need a bucket or key? Setup guide").performScrollTo().performClick()
         compose.onNodeWithText("Open Buckets").performScrollTo().performClick()
         assertEquals(listOf(B2Page.BUCKETS), pages)
         assertTrue(pages.single().url.startsWith("https://secure.backblaze.com/"))
@@ -151,6 +152,7 @@ class CloudScreensTest {
                     if (pages.size == 1) throw IllegalStateException("PRIVATE browser refusal")
                 })
         } }
+        compose.onNodeWithText("Need a bucket or key? Setup guide").performScrollTo().performClick()
         compose.onNodeWithText("Open Buckets").performScrollTo().performClick()
         val message = "Could not open Backblaze. Check that a browser is available and try this link again."
         compose.onNodeWithText(message).performScrollTo().assertIsDisplayed()

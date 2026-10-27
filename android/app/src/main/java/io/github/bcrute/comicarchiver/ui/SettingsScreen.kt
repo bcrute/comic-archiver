@@ -100,7 +100,7 @@ fun SettingsScreen(
                     null -> ""
                 }
                 Text("Current connection: $connection$metering")
-                if (!settings.allowed) Text("Saving is held by your connection choice. Press Go when ready.")
+                if (!settings.allowed) Text("Saving is held by your connection choice. Return to Downloads and start saving when ready.")
             }
         }
         Card(Modifier.fillMaxWidth()) {
@@ -117,9 +117,9 @@ fun SettingsScreen(
                     }
                 }
                 Text(if (saving) "Pause saving to change the speed."
-                     else "The stored choice applies when you press Go. It never starts saving on its own.")
+                     else "The stored choice applies when you start saving. It never starts saving on its own.")
                 if (settings.speeds.none { it.key == settings.speed && it.available })
-                    Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before pressing Go.")
+                    Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before starting saving.")
                 if (settings.speeds.any { it.key == "fast" && !it.available })
                     Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
             }
@@ -127,7 +127,7 @@ fun SettingsScreen(
         if (settings.otherSites.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Other sites", style = MaterialTheme.typography.titleMedium)
-                Text("Save a speed choice without switching sites or starting a download. It applies the next time you press Go on that site.")
+                Text("Save a speed choice without switching sites or starting a download. It applies the next time you start saving on that site.")
                 settings.otherSites.forEach { site ->
                     var expanded by rememberSaveable(site.key) { mutableStateOf(false) }
                     val label = site.speeds.firstOrNull { it.key == site.speed }?.label ?: "Unavailable"

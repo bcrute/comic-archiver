@@ -42,7 +42,7 @@ object NoticeText {
         ),
         PublicIssue.WORKER_OFFLINE to IssueWords(
             "The saving engine is not running.",
-            "Press Go to start it again.",
+            "Return to Downloads to start saving again.",
         ),
         PublicIssue.UNSUPPORTED_SITE to IssueWords(
             "This site's sign-in is unavailable on this device.",

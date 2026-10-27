@@ -114,9 +114,9 @@ fun WorkingLibrariesScreen(state: WorkingLibrariesState, actions: WorkingLibrary
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(preview.label, style = MaterialTheme.typography.titleMedium)
                 Text("${preview.files} files to check; ${workingBytes(preview.knownBytes)}${if (preview.unknownSizes > 0) " plus files with unknown sizes" else ""}")
-                Text("The source stays unchanged. This phone keeps a verified working copy, so space is needed for capture and preparation. Sign-in is checked separately before Go.")
+                Text("The source stays unchanged. This phone keeps a verified working copy, so space is needed for capture and preparation. Sign-in is checked separately before saving.")
                 Text("New downloads stay in this working copy. Use Export for finished copies in a folder of your choice.")
-                if (preview.empty) Text("This location is empty. A later Go saves into a new library here; the previous working library is kept.")
+                if (preview.empty) Text("This location is empty. Starting saving later uses a new library here; the previous working library is kept.")
                 if (preview.refreshedCopy || preview.existingCopy) Text("Refreshing creates a new copy from the source. Previous copies, including files saved on this phone, stay available below.")
                 if (state.pending) Text("Continue the held capture. Refresh from the source later to include newer source changes.")
                 Button(onClick = { actions.confirm(preview.refreshedCopy) }) {

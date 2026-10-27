@@ -65,20 +65,38 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
                   compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {},
-                  onSiteSpeed: (String, String) -> Unit = { _, _ -> }) {
-    var savedPage by rememberSaveable { mutableStateOf("Downloads") }
+                  onSiteSpeed: (String, String) -> Unit = { _, _ -> },
+                  onAbout: () -> Unit = {}, onAccount: () -> Unit = {}) {
+    var savedPage by rememberSaveable { mutableStateOf("Overview") }
     val page = selectedPage ?: savedPage
-    val pageScroll = rememberScrollState()
+    fun choose(name: String) {
+        savedPage = name; onPageSelected(name)
+        if (name in setOf("Storage", "B2 setup")) onCloudRefresh()
+        if (name == "Downloads") onRefresh()
+    }
     Column(Modifier.fillMaxSize()) {
-        if (!compactEditing) Row(Modifier.fillMaxWidth().horizontalScroll(pageScroll),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (listOf("Downloads") + if (workingLibraries.enabled) listOf("Libraries", "Storage", "B2 setup") else listOf("Storage", "B2 setup")).forEach { name ->
-                FilterChip(selected = page == name, onClick = {
-                    savedPage = name; onPageSelected(name)
-                    if (name !in setOf("Downloads", "Libraries")) onCloudRefresh()
-                }, label = { Text(name, maxLines = 1, softWrap = false) })
+        if (page == "Overview") {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
+                Text("Make saving fit your setup.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SettingsDestination("Download preferences", "Connection, speed and appearance") { choose("Downloads") }
+                SettingsDestination("Storage & destination", "Choose where new episodes are saved") { choose("Storage") }
+                SettingsDestination("Backblaze B2", "Connect your own bucket or reuse an existing key") { choose("B2 setup") }
+                if (workingLibraries.enabled) SettingsDestination("Working libraries", "Switch, import or name a library") { choose("Libraries") }
+                SettingsDestination("About & help", "App information, help and sign out", onAbout)
+                val siteName = state.sites.firstOrNull { it.key == state.site }?.name
+                    ?: if (state.site == "tapas") "Tapas" else state.site
+                Text("$siteName account", style = MaterialTheme.typography.titleMedium)
+                Text(if (state.signIn is SignInState.SignedIn) "Signed in on this phone" else "Sign-in needed")
+                TextButton(onClick = onAccount, enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady) {
+                    Text(if (state.signOutPending) "Retry sign-out"
+                        else if (state.signIn is SignInState.SignedIn) "Sign out of $siteName" else "Sign in to $siteName")
+                }
             }
+            return@Column
         }
+        if (!compactEditing) TextButton(onClick = { choose("Overview") }) { Text("All settings") }
         when (page) {
             "Libraries" -> WorkingLibrariesScreen(workingLibraries, workingLibraryActions)
             "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || state.signOutPending || !state.workspaceReady,
@@ -103,6 +121,17 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
 }
 
 @Composable
+private fun SettingsDestination(title: String, description: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(description, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
 internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, setup: Boolean,
                          signedIn: Boolean, onRefresh: () -> Unit,
                          onAction: (CloudRequest) -> Unit, onPage: (B2Page) -> Unit,
@@ -113,6 +142,7 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
     var keyId by remember { mutableStateOf("") }
     var applicationKey by remember { mutableStateOf("") }
     var showSteps by rememberSaveable { mutableStateOf(false) }
+    var replaceKey by rememberSaveable { mutableStateOf(false) }
     var showCost by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.authStatus, setup) {
         if (state.authStatus == "connected" || !setup) {
@@ -179,22 +209,15 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             B2Link(B2Page.BILLING, onPage)
             B2Link(B2Page.CAPS, onPage)
         }
-        if (state.bucket.isNotBlank())
-            TextButton(onClick = { showSteps = !showSteps }) {
-                Text(if (showSteps) "Hide setup steps" else "Show setup steps or replace key")
-            }
-        if (state.bucket.isBlank() || showSteps) {
-            Text("1. Use your own Backblaze account", style = MaterialTheme.typography.titleMedium)
-            B2Link(B2Page.ACCOUNT, onPage)
-            B2Link(B2Page.SIGN_IN, onPage)
-            Text("2. Create a private bucket. Disable Object Lock for this library's test cleanup. Use the same bucket name here and in Backblaze.")
-            B2Link(B2Page.BUCKETS, onPage)
+        if (state.bucket.isNotBlank()) TextButton(onClick = { replaceKey = !replaceKey }) {
+            Text(if (replaceKey) "Cancel key replacement" else "Replace connection key")
+        }
+        if (state.bucket.isBlank() || replaceKey) {
+            Text("Connect your bucket", style = MaterialTheme.typography.titleMedium)
+            Text("Already use B2 on your computer? Reuse that bucket and application key here. Your key stays on this device.")
             OutlinedTextField(value = bucket, onValueChange = { bucket = it.filterNot(Char::isWhitespace).take(63) },
                 label = { Text("Bucket name") }, enabled = state.canConnect && !busy,
                 singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text("3. Add an application key for this bucket only: Read and Write, no name prefix or expiry. Leave List All Bucket Names off. Keep the applicationKey page open until connected.")
-            B2Link(B2Page.KEYS, onPage)
-            Text("4. Paste the two key values. They stay on this device.")
             OutlinedTextField(value = keyId, onValueChange = { keyId = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("keyID") }, enabled = state.canConnect && !busy,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
@@ -215,7 +238,8 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
         }
         if (state.showCancel)
             OutlinedButton(enabled = state.canCancel && !busy, onClick = { onAction(CloudRequest.Cancel) }) { Text("Cancel B2 sign-in") }
-        Text("5. Test the connection with two finished episodes: upload, read back, verify and remove the test copies. Local originals stay here.")
+        Text("Verify your connection", style = MaterialTheme.typography.titleMedium)
+        Text("The test uploads two finished episodes, verifies them and removes the test copies. Your local originals stay here.")
         if (!signedIn) Text("Sign in to the site before starting cloud tests or retries.")
         Button(enabled = state.canTest && signedIn && !busy, onClick = { onAction(CloudRequest.Test) }) { Text("Test cloud connection") }
         state.cleanups.forEach { cleanup ->
@@ -223,11 +247,22 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
                 onClick = { onAction(CloudRequest.Cleanup(cleanup.id)) },
                 modifier = Modifier.testTag("cloud-cleanup-${cleanup.id}")) { Text(cleanup.label) }
         }
-        Text("6. After the test passes, choose Backblaze B2 on Storage. Verified uploads follow that destination's retention policy; a failed upload keeps its local original.")
+        Text("After a successful test, choose Backblaze B2 in Storage & destination. A failed upload keeps its local original.")
         if (state.cleanupRemaining > 0)
             Text("${state.cleanupRemaining} additional recorded cleanups remain. Finish these and refresh to see the next ones.")
         OutlinedButton(enabled = state.canRetry && signedIn && !busy,
             onClick = { onAction(CloudRequest.Retry) }) { Text("Retry unfinished uploads") }
+        TextButton(onClick = { showSteps = !showSteps }) {
+            Text(if (showSteps) "Hide setup guide" else "Need a bucket or key? Setup guide")
+        }
+        if (showSteps) {
+            Text("1. Use your own Backblaze account", style = MaterialTheme.typography.titleMedium)
+            B2Link(B2Page.ACCOUNT, onPage); B2Link(B2Page.SIGN_IN, onPage)
+            Text("2. Create a private bucket. Disable Object Lock so the connection test can remove its copies.")
+            B2Link(B2Page.BUCKETS, onPage)
+            Text("3. Create an application key for this bucket with Read and Write, no name prefix or expiry. Leave List All Bucket Names off. Copy keyID and applicationKey into the fields above.")
+            B2Link(B2Page.KEYS, onPage)
+        }
         listOf(B2Page.BROWSE, B2Page.REPORTS, B2Page.BILLING, B2Page.CAPS, B2Page.KEYS).forEach { page ->
             B2Link(page, onPage)
         }

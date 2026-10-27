@@ -12,11 +12,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -45,57 +55,58 @@ fun DownloadsScreen(
     val now = dashboardNowMillis()
     val statusDelayed = dashboardDelayed(state.statusReadFailed, now,
         state.observations?.receivedAtMillis ?: state.admittedAtMillis.takeIf { state.download is DownloadsViewUi.Running })
+    var details by rememberSaveable { mutableStateOf(false) }
+    val running = state.download is DownloadsViewUi.Running
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("downloads-scroll"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).testTag("downloads-scroll"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Saving", style = MaterialTheme.typography.headlineSmall)
-
-        PhaseBanner(if (statusDelayed && state.download is DownloadsViewUi.Running)
-            state.download.copy(description = "Saving status is unavailable.") else state.download)
-        if (statusDelayed)
-            Text("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
-        if (state.download is DownloadsViewUi.Running) {
-            if (statusDelayed) Text(if (state.observations != null) "At the last successful status check:"
-                else "Waiting for the first status update.")
-            ProgressCard(state.download)
-        }
-        if (state.remaining > 0) {
-            Text(
-                "${state.remaining} more to save",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        state.notice?.let { NoticeCard(it, onDismiss = onDismissNotice) }
-
-        Spacer(Modifier.height(4.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = onGo,
-                enabled = state.controlsEnabled && state.download.goEnabled(),
-                modifier = Modifier.weight(1f),
-            ) { Text(if (state.download is DownloadsViewUi.Running) {
-                if (statusDelayed) "Status unknown" else "Running"
-            } else "Go") }
-            OutlinedButton(
-                onClick = onPause,
-                enabled = state.controlsEnabled && state.download.pauseEnabled(),
-                modifier = Modifier.weight(1f),
-            ) { Text("Pause") }
-        }
-        if (notificationAccess != DownloadNotificationAccess.ENABLED) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Download notifications are off. Enable them for the background saving notice and its Stop action. Go and Pause still work here.")
-                    notificationError?.let { Text(it) }
-                    OutlinedButton(onClick = onNotificationAccess, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (notificationAccess == DownloadNotificationAccess.ASK_PERMISSION)
-                            "Allow download notifications" else "Notification settings")
-                    }
+        Text("Downloads", style = MaterialTheme.typography.headlineMedium)
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(when {
+                    running && statusDelayed -> "Status unknown"
+                    running -> "Saving your episodes"
+                    state.download is DownloadsViewUi.Finished -> "Saving finished"
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.PAUSED_BY_USER -> "Saving paused"
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.METERED_OR_UNKNOWN_NETWORK -> "Waiting for your connection"
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.CONNECTION_UNVERIFIED -> "Check your connection"
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.FAILED -> "Saving stopped"
+                    else -> "Ready to save"
+                }, style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                PhaseBanner(if (statusDelayed && state.download is DownloadsViewUi.Running)
+                    state.download.copy(description = "Saving status is unavailable.") else state.download)
+                if (statusDelayed) Text("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
+                if (state.download is DownloadsViewUi.Running) {
+                    if (statusDelayed) Text(if (state.observations != null) "At the last successful status check:"
+                        else "Waiting for the first status update.")
+                    ProgressCard(state.download)
+                }
+                state.observations?.savedEpisodes?.let {
+                    Text("$it episodes saved", style = MaterialTheme.typography.titleMedium)
+                }
+                if (state.remaining > 0) Text("${state.remaining} more to save")
+                Button(onClick = if (running) onPause else onGo,
+                    enabled = state.controlsEnabled && (if (running) state.download.pauseEnabled() else state.download.goEnabled()),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("saving-action")) {
+                    Text(if (running) "Pause" else state.download.startLabel())
                 }
             }
         }
-        DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog)
+        state.notice?.let { NoticeCard(it, onDismiss = onDismissNotice) }
+        DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog, details)
+        TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (details) "Hide download details" else "Download details")
+        }
+        if (notificationAccess != DownloadNotificationAccess.ENABLED) {
+            Text(notificationError ?: "Notifications are off. Enable them to control saving while the app is in the background.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onNotificationAccess) {
+                Text(if (notificationAccess == DownloadNotificationAccess.ASK_PERMISSION)
+                    "Allow download notifications" else "Notification settings")
+            }
+        }
     }
 }
 
@@ -103,21 +114,19 @@ fun DownloadsScreen(
 private fun PhaseBanner(download: DownloadsViewUi) {
     val text = when (download) {
         is DownloadsViewUi.Held -> when (download.reason) {
-            HoldReasonUi.NOT_STARTED -> "Nothing downloads until you press Go."
-            HoldReasonUi.PAUSED_BY_USER -> "Paused. Press Go to continue."
+            HoldReasonUi.NOT_STARTED -> "Save the episodes you can access as CBZ and EPUB files. Nothing starts until you choose Start saving."
+            HoldReasonUi.PAUSED_BY_USER -> "Your progress is kept. Resume when you’re ready."
             HoldReasonUi.METERED_OR_UNKNOWN_NETWORK ->
-                "Saving was held by your network setting. Check your connection and metered-data choice in Settings, then press Go."
+                "Saving was held by your network setting. Check your connection and metered-data choice in Settings, then choose Resume."
             HoldReasonUi.CONNECTION_UNVERIFIED ->
-                "Held: the connection could not be verified. Press Go to try again."
-            HoldReasonUi.FAILED -> "Stopped. Press Go to try again."
+                "Your connection could not be verified. Check it and try again."
+            HoldReasonUi.FAILED -> "Saving stopped. Your saved files are kept. Try again when ready."
         }
         is DownloadsViewUi.Running ->
             download.description ?: if (download.totalUnits == 0) "Preparing…" else "Saving."
         is DownloadsViewUi.Finished -> "Finished. ${download.summary}"
     }
-    Card(Modifier.fillMaxWidth()) {
-        Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
-    }
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
@@ -141,4 +150,14 @@ private fun ProgressCard(running: DownloadsViewUi.Running) {
             }
         }
     }
+}
+
+/** Labels describe the next action; the controller still owns admission. */
+internal fun DownloadsViewUi.startLabel(): String = when (this) {
+    is DownloadsViewUi.Held -> when (reason) {
+        HoldReasonUi.NOT_STARTED -> "Start saving"
+        HoldReasonUi.FAILED, HoldReasonUi.CONNECTION_UNVERIFIED -> "Try again"
+        else -> "Resume"
+    }
+    else -> "Start saving"
 }

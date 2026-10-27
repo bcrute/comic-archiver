@@ -50,17 +50,17 @@ internal fun dashboardNowMillis(): Long {
 
 @Composable
 internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSettings: () -> Unit,
-    onStorageSettings: () -> Unit, onOpenCatalog: (String) -> Unit) {
+    onStorageSettings: () -> Unit, onOpenCatalog: (String) -> Unit, details: Boolean = true) {
     val running = state.download is DownloadsViewUi.Running
     val observation = state.observations
     val delayed = dashboardDelayed(state.statusReadFailed, now, observation?.receivedAtMillis)
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    if (details) Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Download status", style = MaterialTheme.typography.titleMedium)
             Text(if (state.signedIn) "Account: Signed in to ${state.siteName}" else "Account: Sign-in needed")
             Text("${if (delayed) "Last reported downloader" else "Downloader"}: ${observation?.worker?.label ?: "Not checked yet"}")
             if (running) state.admittedAtMillis?.let {
-                Text("Elapsed since Go: ${dashboardDuration(dashboardAge(now, it))}")
+                Text("Elapsed since starting: ${dashboardDuration(dashboardAge(now, it))}")
             }
             observation?.let { observed ->
                 val age = dashboardAge(now, observed.receivedAtMillis)
@@ -101,7 +101,7 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
     val cloud = state.cloud
     val overview = cloud?.overview
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Your saved library", style = MaterialTheme.typography.titleMedium)
             Text(when (cloud?.destination) {
                 "device" -> "New episodes save to this device's working library."
@@ -110,9 +110,9 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
             })
             if (dashboardDelayed(state.cloudReadFailed, now, state.cloudCheckedAtMillis))
                 Text("Storage updates are delayed. These are the last recorded counts and destination.")
-            state.cloudCheckedAtMillis?.let { Text("Storage checked ${dashboardDuration(dashboardAge(now, it))} ago") }
+            if (details) state.cloudCheckedAtMillis?.let { Text("Storage checked ${dashboardDuration(dashboardAge(now, it))} ago") }
             Text(overview?.summary ?: "Saved file counts have not been read. Open View saved files to check them.")
-            if (overview?.available == true) {
+            if (details && overview?.available == true) {
                 overview.metrics.forEach { Text("${it.label}: ${it.value}") }
                 overview.locations.forEach { place ->
                     OutlinedButton(onClick = { onOpenCatalog(place.id) }, enabled = state.controlsEnabled,
@@ -123,13 +123,13 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
                     }
                 }
             }
-            cloud?.timeEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
-            cloud?.spaceEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
+            if (details) cloud?.timeEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
+            if (details) cloud?.spaceEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
             OutlinedButton(onClick = { onOpenCatalog("all") }, enabled = state.controlsEnabled,
                 modifier = Modifier.fillMaxWidth()) { Text("View saved files") }
             OutlinedButton(onClick = onStorageSettings, enabled = state.controlsEnabled,
                 modifier = Modifier.fillMaxWidth()) { Text("Change saving destination") }
-            Text("Finished exports are separate copies. Comics use CBZ; novels use EPUB.")
+            if (details) Text("Finished exports are separate copies. Comics use CBZ; novels use EPUB.")
         }
     }
 }

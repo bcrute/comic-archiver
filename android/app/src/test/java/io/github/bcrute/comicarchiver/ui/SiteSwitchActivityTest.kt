@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -50,7 +51,27 @@ class SiteSwitchActivityTest {
             app.controller.state.value.signIn == SignInState.SignedIn(key) &&
             app.controller.state.value.library.isNotEmpty() && app.controller.state.value.settings != null
     }
-    private fun select(label: String) = compose.onNode(hasText(label) and hasClickAction()).performClick()
+    private fun select(label: String) {
+        when (label) {
+            "Go" -> compose.onNodeWithTag("saving-action").performClick()
+            "About" -> {
+                compose.onNodeWithTag("nav-settings").performClick()
+                compose.onNodeWithText("About & help").performScrollTo().performClick()
+            }
+            "Settings" -> {
+                compose.onNodeWithTag("nav-settings").performClick()
+                compose.onNodeWithText("Download preferences").performScrollTo().performClick()
+            }
+            "Library" -> {
+                compose.onNodeWithTag("nav-library").performClick()
+                compose.onNodeWithText("Series").performClick()
+            }
+            else -> {
+                compose.onNodeWithTag("source-picker").performClick()
+                compose.onNode(hasText(label) and hasClickAction() and !hasTestTag("source-picker")).performClick()
+            }
+        }
+    }
 
     @Test fun idleSwitchUsesTheOtherWorkspaceAndRestoresHeldLibraryWithoutGo() {
         ready()
@@ -148,7 +169,7 @@ class SiteSwitchActivityTest {
         await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
         compose.onNodeWithText("The sign-in page could not be opened. Update Android System WebView and try sign-in again.")
             .assertIsDisplayed()
-        compose.onNodeWithText("Press Go to start it again.").assertDoesNotExist()
+        compose.onNodeWithText("Return to Downloads to start saving again.").assertDoesNotExist()
         compose.runOnIdle { (app as SurfaceFailureTestApp).failSurface = false }
         compose.onNodeWithText("Sign in to Tapas").performClick()
         await { app.controller.state.value.signIn is SignInState.Page }
@@ -163,7 +184,7 @@ class SiteSwitchActivityTest {
         compose.onNodeWithText("Sign out").performClick()
         await { app.controller.state.value.signOutPending && !app.controller.state.value.siteBusy }
         assertEquals(0, app.wire.count("signout_record"))
-        compose.onNode(hasText("Webtoon") and hasClickAction()).assertIsNotEnabled()
+        compose.onNodeWithTag("source-picker").assertIsNotEnabled()
         compose.runOnIdle { app.controller.go(); app.controller.selectSite("webtoon") }
         assertEquals("tapas", app.controller.state.value.site)
         assertEquals(0, app.wire.count("go"))

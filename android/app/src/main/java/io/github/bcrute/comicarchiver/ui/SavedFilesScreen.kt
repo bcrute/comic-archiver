@@ -51,6 +51,7 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
     val page = state.page
     val browser = LocalUriHandler.current
     var draft by rememberSaveable { mutableStateOf(query.query) }
+    var filters by rememberSaveable { mutableStateOf(false) }
     var pageDraft by rememberSaveable { mutableStateOf("1") }
     LaunchedEffect(query.query) { draft = query.query }
     LaunchedEffect(query.offset, query.limit) { pageDraft = (query.offset / query.limit + 1).toString() }
@@ -72,7 +73,8 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                     }) { Text("Clear") }
                     TextButton(enabled = !state.loading, onClick = { onQuery(query, true) }) { Text("Refresh files") }
                 }
-                if (page != null) {
+                TextButton(onClick = { filters = !filters }) { Text(if (filters) "Hide filters" else "Filters & sort") }
+                if (page != null && filters) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         CatalogMenu("File types", page.kinds, query.kind, !state.loading, Modifier.weight(1f)) {
                             onQuery(query.copy(kind = it, offset = 0), false)
@@ -97,17 +99,21 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
         if (!state.loading && state.error == null && page != null) {
             item { Text(page.summary) }
             item { Text(page.range.ifBlank { page.notice }) }
+            if (page.rows.isEmpty()) item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No saved files in this view", style = MaterialTheme.typography.titleMedium)
+                        Text(if (query.query.isNotBlank()) "Try clearing your search or changing the filters."
+                            else "Save episodes from Downloads, change the storage filter, or open a folder from Library.")
+                    }
+                }
+            }
             items(page.rows, key = { it.key }) { file ->
                 Card(Modifier.fillMaxWidth().testTag("saved-file-${file.key}")) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(file.series, style = MaterialTheme.typography.titleSmall)
                         Text(file.title)
-                        Text(file.filename, style = MaterialTheme.typography.bodySmall)
                         Text("${file.type} · ${file.size} · ${file.storage}")
-                        file.savedEpoch?.let { epoch ->
-                            Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                                .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
-                        }
                         file.openId?.let { id ->
                             if (state.feedbackFor == id) state.feedback?.let {
                                 Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -119,6 +125,17 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                                 }) {
                                 Text(if (state.openingId == id) "Opening…" else "Open")
                             }
+                        }
+                        var details by rememberSaveable(file.key) { mutableStateOf(false) }
+                        TextButton(onClick = { details = !details }, modifier = Modifier.testTag("file-details-${file.key}")) {
+                            Text(if (details) "Hide file details" else "File details")
+                        }
+                        if (details) {
+                            Text(file.filename, style = MaterialTheme.typography.bodySmall)
+                        file.savedEpoch?.let { epoch ->
+                            Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
+                        }
                         }
                         if (file.b2Copy) {
                             var browserFailed by rememberSaveable(file.key, file.filename, file.series, file.storage) {

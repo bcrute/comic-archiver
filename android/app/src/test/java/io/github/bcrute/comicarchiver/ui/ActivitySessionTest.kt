@@ -121,7 +121,7 @@ class ActivitySessionTest {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.onNodeWithText("Notification settings").assertDoesNotExist()
-        compose.onNodeWithText("Go").assertIsDisplayed()
+        compose.onNodeWithTag("saving-action").assertIsDisplayed()
         assertEquals(DownloadState.Held, app.controller.state.value.download)
         assertEquals(0, app.fake.count("worker_start"))
         assertEquals(0, app.fake.count("go"))
@@ -133,7 +133,8 @@ class ActivitySessionTest {
         assertEquals(0, app.fake.count("go"))
         assertEquals(0, app.fake.count("worker_start"))
         assertEquals(1, app.fake.count("signin_restore"))
-        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-library").performClick()
+        compose.onNodeWithText("Series").performClick()
         compose.onNodeWithText("1 of 1 series").assertIsDisplayed()
     }
 
@@ -142,16 +143,17 @@ class ActivitySessionTest {
         app.fake.speed = "fast"
         compose.runOnIdle { app.controller.refreshSettings() }
         awaitState { app.controller.state.value.settings?.speed == "fast" }
-        compose.onNodeWithText("Go").performClick()
+        compose.onNodeWithTag("saving-action").performClick()
         awaitState { app.controller.state.value.notice?.message?.contains("stored speed") == true }
         assertEquals(0, app.fake.count("worker_start"))
         assertEquals(0, app.fake.count("go"))
-        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.onNodeWithText("Download preferences").performScrollTo().performClick()
         compose.onNodeWithText("Fast").performScrollTo().assertIsSelected().assertIsNotEnabled()
         compose.onNodeWithText("Medium").performScrollTo().performClick()
         awaitState { app.controller.state.value.settings?.speed == "medium" && !app.controller.state.value.settingsBusy }
-        compose.onNode(hasText("Saving") and hasClickAction()).performClick()
-        compose.onNodeWithText("Go").performClick()
+        compose.onNode(hasText("Downloads") and hasClickAction()).performClick()
+        compose.onNodeWithTag("saving-action").performClick()
         awaitState { app.controller.state.value.download is DownloadState.Running }
         assertEquals(1, app.fake.count("go"))
     }
@@ -185,10 +187,10 @@ class ActivitySessionTest {
     @Test fun activityRecreationKeepsLiveAdmissionAndDoesNotRestartOrReauthenticate() {
         ready()
         val controller = app.controller
-        compose.onNodeWithText("Go").performClick()
+        compose.onNodeWithTag("saving-action").performClick()
         awaitState { controller.state.value.download is DownloadState.Running }
         compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("Running").assertIsNotEnabled()
+        compose.onNodeWithText("Saving your episodes").assertIsDisplayed()
         assertSame(controller, app.controller)
         assertTrue(controller.state.value.signIn is SignInState.SignedIn)
         assertEquals(1, app.fake.count("prepare_workspace"))
@@ -198,7 +200,8 @@ class ActivitySessionTest {
 
     @Test fun settingsUseTheControllerBridgeAndSurviveRecreationWithoutGo() {
         ready()
-        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.onNodeWithText("Download preferences").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
         awaitState { app.controller.state.value.settings?.wifiOnly == false &&
             !app.controller.state.value.settingsBusy }
@@ -214,7 +217,8 @@ class ActivitySessionTest {
 
     @Test fun failedPolicyRefreshHidesStaleMobileConsentInsteadOfReusingIt() {
         ready()
-        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.onNodeWithText("Download preferences").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").performClick()
         awaitState { app.controller.state.value.settings?.wifiOnly == false &&
             !app.controller.state.value.settingsBusy }
@@ -229,7 +233,8 @@ class ActivitySessionTest {
     @Test fun activityRecreationRetainsExportCoordinatorAndLibraryQuery() {
         ready()
         val exports = app.exports
-        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-library").performClick()
+        compose.onNodeWithText("Series").performClick()
         compose.onNodeWithText("Find saved series").performTextInput("Test")
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("Clear search").assertIsDisplayed()
@@ -240,7 +245,8 @@ class ActivitySessionTest {
 
     @Test fun filesUseTheControllerBridgeAndSurviveRecreationWithoutGo() {
         ready()
-        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-library").performClick()
+        compose.onNodeWithText("Series").performClick()
         compose.onNodeWithText("Files").performClick()
         awaitState { app.controller.state.value.catalog.page != null &&
             !app.controller.state.value.catalog.loading }
@@ -258,7 +264,8 @@ class ActivitySessionTest {
 
     @Test fun appearancePersistsAndSurvivesActivityRecreationWithoutGo() {
         ready()
-        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.onNodeWithText("Download preferences").performScrollTo().performClick()
         compose.onNodeWithText("Dark").performClick().assertIsSelected()
         assertEquals("DARK", app.getSharedPreferences("comicarchiver_appearance", 0).getString("theme", null))
         compose.activityRule.scenario.recreate()
@@ -269,7 +276,8 @@ class ActivitySessionTest {
 
     @Test fun openingFailureIsShownBesideItsFileRatherThanAboveTheWholeCatalog() {
         ready()
-        compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithTag("nav-library").performClick()
+        compose.onNodeWithText("Series").performClick()
         compose.onNodeWithText("Files").performClick()
         awaitState { app.controller.state.value.catalog.page != null }
         compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("Open"))
@@ -306,21 +314,22 @@ class ActivitySessionTest {
         ready()
         assertSame(controller, app.controller)
         assertEquals(DownloadState.Held, controller.state.value.download)
+        compose.onNodeWithText("Download details").performScrollTo().performClick()
         compose.onNodeWithText("Open download settings").performScrollTo().performClick()
-        compose.onNodeWithText("Downloads").assertIsSelected()
+        compose.onNodeWithText("Connections").assertIsDisplayed()
         assertEquals(0, app.fake.count("go"))
         assertEquals(0, app.fake.count("worker_start"))
     }
 
     @Test fun losingStatusAndLibraryReadsKeepsLivePauseAndRecoveryDoesNotReadmitGo() {
         ready()
-        compose.onNodeWithText("Go").performClick()
+        compose.onNodeWithTag("saving-action").performClick()
         awaitState { app.controller.state.value.download is DownloadState.Running }
         app.fake.statusReadable = false
         app.fake.libraryReadable = false
         awaitState { app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Running)
-        compose.onNodeWithText("Status unknown").assertIsNotEnabled()
+        compose.onNodeWithText("Status unknown").assertIsDisplayed()
         // Recover before Pause starts its new held poll; do not race the ten-second
         // held refresh interval against the test's observation timeout.
         app.fake.statusReadable = true
@@ -330,7 +339,7 @@ class ActivitySessionTest {
         awaitState { !app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Paused)
         assertEquals(1, app.fake.count("go"))
-        compose.onNodeWithText("Go").assertIsDisplayed()
+        compose.onNodeWithTag("saving-action").assertIsDisplayed()
     }
 
     @Test fun aLateRunningObservationCannotReplaceTheNewerPausedAdmission() {
@@ -340,7 +349,7 @@ class ActivitySessionTest {
             "account":{"status":"running","phase":"archive"},"counts":{"saved_episodes":999}}"""
         app.fake.statusGate = entered to release
         try {
-            compose.onNodeWithText("Go").performClick()
+            compose.onNodeWithTag("saving-action").performClick()
             awaitState { entered.count == 0L }
             app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},
                 "account":{"status":"stopped"},"counts":{"saved_episodes":7}}"""
@@ -359,8 +368,9 @@ class ActivitySessionTest {
     @Test fun b2SetupIsReachableThroughTheActualActivityWithoutGoOrAnotherWorker() {
         ready()
         awaitState { app.controller.state.value.cloud != null }
-        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
-        compose.onNodeWithText("B2 setup").performClick()
+        compose.onNodeWithTag("nav-settings").performClick()
+        compose.onNodeWithText("Backblaze B2").performScrollTo().performClick()
+        compose.onNodeWithText("Need a bucket or key? Setup guide").performScrollTo().performClick()
         compose.onNodeWithText("Open Buckets").performScrollTo().assertIsDisplayed()
         assertTrue(app.fake.count("cloud_status") >= 1)
         assertEquals(0, app.fake.count("go"))

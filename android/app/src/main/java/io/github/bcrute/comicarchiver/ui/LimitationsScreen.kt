@@ -60,7 +60,7 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
             Limitation("Comic Archiver saves CBZ and EPUB files. Use Open to read a saved file in another app.")
             Limitation("Reading positions and bookmarks stay with the working library. Export copies finished archives; it does not copy reading progress.")
             Limitation(
-                "After an app update or process restart, saving waits until you press Go. " +
+                "After an app update or process restart, saving waits until you choose Start saving. " +
                     "Returning to an active save keeps its progress visible.",
             )
             Limitation(
@@ -76,7 +76,7 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
                     "to your chosen export folder or verified in your B2 bucket stay there.",
             )
             Limitation(
-                "Long saves can be stopped by the system after a while; pressing Go " +
+                "Long saves can be stopped by the system after a while; choosing Start saving " +
                     "continues them.",
             )
             Limitation("B2 storage uses your own private bucket. Connect and pass the upload/readback test before choosing it as a destination.")

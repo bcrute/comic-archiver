@@ -80,7 +80,7 @@ enum class HoldReasonUi {
     /** The connection could not be verified as the site's own. */
     CONNECTION_UNVERIFIED,
 
-    /** The run failed; pressing Go tries again. */
+    /** The run failed; choosing Start saving tries again. */
     FAILED,
 }
 

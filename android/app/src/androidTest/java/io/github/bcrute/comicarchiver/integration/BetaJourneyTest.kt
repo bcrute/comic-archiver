@@ -51,17 +51,52 @@ class BetaJourneyTest {
             if (condition()) return
             SystemClock.sleep(100)
         }
+        // This Application refuses real devices/accounts. Keep the genuine
+        // controller/worker/network observation before instrumentation exits.
+        save("timeout.json", JSONObject().put("waiting_for", label)
+            .put("download", app.controller.state.value.download.toString())
+            .put("settings", app.controller.state.value.settings.toString())
+            .put("notice", app.controller.state.value.notice.toString())
+            .put("observation", observe())
+            .put("worker", JSONObject(app.bridge.dispatch("worker_status", JSONObject()
+                .put("session_root", app.workspace.session.absolutePath).toString()))))
+        device.takeScreenshot(evidence.resolve("timeout.png"))
         fail("Timed out: $label")
     }
     private fun click(text: String) {
+        val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
         repeat(8) {
-            val node = device.findObjects(By.text(text)).minByOrNull { it.visibleBounds.top }
+            val node = if (destination != null) device.findObject(By.res(destination))
+                else device.findObjects(By.text(text)).filter { it.isClickable }.minByOrNull { it.visibleBounds.top }
             if (node != null) { assertTrue("Control disabled: $text", node.isEnabled); node.click(); return }
             device.findObjects(By.scrollable(true)).maxByOrNull { it.visibleBounds.height() }
                 ?.scroll(Direction.DOWN, 0.7f)
             SystemClock.sleep(100)
         }
         fail("Control not reachable: $text")
+    }
+    private fun startSaving() {
+        val button = requireNotNull(device.wait(Until.findObject(By.res("saving-action")), 10_000))
+        assertTrue(button.isEnabled)
+        assertTrue(device.hasObject(By.text("Start saving")) || device.hasObject(By.text("Resume")) || device.hasObject(By.text("Try again")))
+        button.click()
+    }
+    private fun openLibraryOptions() {
+        requireNotNull(device.wait(Until.findObject(By.desc("Library options")), 10_000)).click()
+    }
+    private fun openExport() { openLibraryOptions(); click("Export files") }
+    private fun allowFixtureConnectionIfHeld() {
+        await("native connection settings") { app.controller.state.value.settings != null }
+        if (app.controller.state.value.settings?.allowed == false) {
+            // An emulator's real default route may be metered/unknown. Exercise
+            // the user's normal explicit opt-in, never falsify platform facts.
+            click("Settings"); click("Download preferences")
+            val toggle = requireNotNull(device.wait(Until.findObject(
+                By.desc("Also save on metered and mobile connections")), 10_000))
+            assertTrue(toggle.isEnabled); assertFalse(toggle.isChecked); toggle.click()
+            await("explicit metered connection choice") { app.controller.state.value.settings?.allowed == true }
+            click("Downloads")
+        }
     }
     private fun save(name: String, value: JSONObject) {
         value.put("run_token", FixtureSafety.runToken)
@@ -123,6 +158,7 @@ class BetaJourneyTest {
     }
 
     private fun pickTree() {
+        openExport()
         click("Choose export folder")
         val title = "Archive integration fixture"
         if (!device.wait(Until.hasObject(By.text(title)), 1500)) {
@@ -178,6 +214,7 @@ class BetaJourneyTest {
             for (input in original.library.resolve(".archive-state/provenance").listFiles().orEmpty()) file(provenance, input.name, input.readBytes())
             file(directory(source, ".comic-session"), "import-secret.json", "SOURCE_COOKIE_MUST_STAY_HERE".toByteArray())
             file(directory(source, ".comic-automation"), "source-queue.json", "SOURCE_QUEUE_MUST_NOT_RUN".toByteArray())
+            openLibraryOptions()
             click("Change working library")
             await("working choices") { !app.workingLibraries.state.value.loading }
             click("Choose working library folder")
@@ -247,7 +284,7 @@ class BetaJourneyTest {
                 click("Sign in to Tapas")
                 requireNotNull(device.wait(Until.findObject(By.text("Sign in to fixture")), 20_000)).click()
                 await("verified native fixture sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
-                click("Go")
+                startSaving()
                 await("native list observations", 150_000) {
                     val rows = observe().getJSONArray("native_library_diagnostics")
                     rows.length() >= 4 || (0 until rows.length()).any { !rows.getJSONObject(it).optBoolean("complete") }
@@ -285,7 +322,8 @@ class BetaJourneyTest {
             await("verified native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
             assertEquals(0, observe().getInt("asset_requests"))
             assertEquals(0, app.readingSurfaceCreations.get())
-            click("Go")
+            allowFixtureConnectionIfHeld()
+            startSaving()
             await("real asset transfer blocked") { observe().getBoolean("blocked_transfer") }
             assertTrue(app.controller.state.value.download is DownloadState.Running ||
                 app.controller.state.value.download is DownloadState.Planning)
@@ -305,11 +343,12 @@ class BetaJourneyTest {
             }
             assertTrue(archives().none { it.extension == "cbz" })
             click("Settings")
+            click("Download preferences")
             click("Fast")
             await("stored native Fast choice") { app.controller.state.value.settings?.speed == "fast" &&
                 app.controller.state.value.settings?.speeds?.any { it.key == "fast" && it.available } == true }
-            click("Saving")
-            click("Go")
+            click("Downloads")
+            startSaving()
             await("complete comic and novel catalog records", 180_000) { exportableCount() == 2 }
             await("real Recent/Free browser pagination and native Fast engine", 90_000) {
                 val facts = observe()
@@ -357,6 +396,7 @@ class BetaJourneyTest {
             documents("abandon") // Close the old provider pipe before opening the same document again.
             sameOriginals(before.getJSONArray("originals"))
             click("Library")
+            openExport()
             click("Export all")
             await("verified SAF recovery", 30_000) { app.exports.panel.value.phase == ExportPhaseUi.ALL_VERIFIED }
             val expected = before.getJSONArray("originals")

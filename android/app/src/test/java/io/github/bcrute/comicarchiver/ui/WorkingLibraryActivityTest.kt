@@ -48,6 +48,7 @@ class WorkingLibraryActivityTest {
         app.controller.state.value.signIn == SignInState.SignedIn("tapas") }
     private fun enterPreview() {
         compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("Library options").performClick()
         compose.onNodeWithText("Change working library").performClick()
         compose.onNodeWithText("Working libraries").assertIsDisplayed()
         compose.runOnIdle {
@@ -174,6 +175,7 @@ class WorkingLibraryActivityTest {
         assertFalse(app.controller.state.value.workspaceReady)
         assertFalse(missing.missing.exists()); assertEquals(0, app.wire.count("prepare_workspace"))
         compose.onNode(hasText("Library") and hasClickAction()).performClick()
+        compose.onNodeWithContentDescription("Library options").performClick()
         compose.onNodeWithText("Change working library").performClick()
         compose.onNodeWithText("Working libraries").assertIsDisplayed()
         compose.runOnIdle { app.workingLibraries.select("default") }

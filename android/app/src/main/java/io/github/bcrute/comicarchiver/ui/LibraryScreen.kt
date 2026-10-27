@@ -1,5 +1,8 @@
 package io.github.bcrute.comicarchiver.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -55,10 +62,13 @@ fun LibraryScreen(
     onFolderQuery: (CatalogQuery, Boolean) -> Unit = { _, _ -> }, onOpenFolderFile: (String) -> Unit = {},
     actionsEnabled: Boolean = true,
     compactEditing: Boolean = false,
+    onWorkingLibrary: (() -> Unit)? = null,
     showFilesRequested: Boolean = false,
     onFilesRequestConsumed: () -> Unit = {},
 ) {
-    var view by rememberSaveable { mutableStateOf("Series") }
+    var view by rememberSaveable { mutableStateOf("Files") }
+    var options by remember { mutableStateOf(false) }
+    BackHandler(enabled = view == "Export") { view = "Files" }
     LaunchedEffect(showFilesRequested) {
         if (showFilesRequested) { view = "Files"; onFilesRequestConsumed() }
     }
@@ -73,32 +83,44 @@ fun LibraryScreen(
             onCatalogQuery(catalog.query, false)
     }
     Column(Modifier.fillMaxSize()) {
-        if (!compactEditing) LazyRow(Modifier.padding(horizontal = 16.dp), state = viewScroll,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(listOf("Series", "Files", "Folder")) { choice ->
-                FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
+        if (!compactEditing) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            LazyRow(Modifier.weight(1f), state = viewScroll, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("Files", "Series", "Folder")) { choice ->
+                    FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
+                }
+            }
+            Box {
+                IconButton(onClick = { options = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Library options")
+                }
+                DropdownMenu(options, onDismissRequest = { options = false }) {
+                    DropdownMenuItem(text = { Text("Export files") }, onClick = { options = false; view = "Export" })
+                    onWorkingLibrary?.let { action ->
+                        DropdownMenuItem(text = { Text("Change working library") }, onClick = { options = false; action() })
+                    }
+                }
             }
         }
+        if (view != "Export" && exportState.phase == ExportPhaseUi.RUNNING)
+            TextButton(onClick = { view = "Export" }) { Text("Export running · View progress") }
+
         Box(Modifier.weight(1f)) {
-            if (view == "Series") SeriesLibraryScreen(series, exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
-            else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
-                onCloseFolder, onFolderQuery, onOpenFolderFile)
-            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {
+            if (view == "Export") Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Export files", style = MaterialTheme.typography.headlineMedium)
+                Text("Copy finished archives to a folder you choose.")
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
+            else if (view == "Series") SeriesLibraryScreen(series)
+            else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
+                onCloseFolder, onFolderQuery, onOpenFolderFile)
+            else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {}
         }
     }
 }
 
 @Composable
-private fun SeriesLibraryScreen(
-    series: List<LibrarySeriesUi>,
-    exportState: ExportPanelStateUi,
-    onPickFolder: () -> Unit,
-    onStartExport: () -> Unit,
-    onStopExport: () -> Unit,
-    actionsEnabled: Boolean,
-) {
+private fun SeriesLibraryScreen(series: List<LibrarySeriesUi>) {
     var query by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf("All") }
     var sort by rememberSaveable { mutableStateOf("Title A–Z") }
@@ -160,7 +182,6 @@ private fun SeriesLibraryScreen(
                 }
             }
         }
-        item { ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled) }
         if (series.isEmpty()) {
             item {
                 Text(
