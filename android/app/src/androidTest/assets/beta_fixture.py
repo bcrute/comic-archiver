@@ -123,7 +123,7 @@ def serve(request):
         if not authenticated:
             return httpx.Response(401)
         if path == '/' and host == 'tapas.io':
-            return httpx.Response(200, text='<html><body><a href="/reading-list">Library</a></body></html>')
+            return httpx.Response(200, html='<html><body><a href="/reading-list">Library</a></body></html>')
         if path == '/reading-list':
             category = request.url.params.get('category', 'UPDATED')
             page = request.url.params.get('pageNumber', '1')
@@ -139,7 +139,7 @@ def serve(request):
                 return httpx.Response(200, json={'data': {'pagination': {'total': len(episodes), 'has_next': False},
                                                          'episodes': episodes}})
             if path in {f'/series/{info["url"]}', f'/series/{info["url"]}/info'}:
-                return httpx.Response(200, text=f'<html><script>var seriesId={key};</script>'
+                return httpx.Response(200, html=f'<html><script>var seriesId={key};</script>'
                                       '<div class="js-series-description"><span class="description__body">'
                                       'Offline integration fixture.</span></div></html>')
         for key in (9001, 9003, 9100):
@@ -147,10 +147,10 @@ def serve(request):
                 return httpx.Response(200, json={'data': episode(key, novel=key == 9100, locked=key == 9003)})
         if path == '/episode/9001':
             images = ''.join(f'<img class="content__img" data-src="{url}">' for url in ASSETS)
-            return httpx.Response(200, text='<script>var seriesId=1001;</script>'
+            return httpx.Response(200, html='<script>var seriesId=1001;</script>'
                                   f'<div id="episode-9001"><article>{images}</article></div>')
         if path == '/episode/9100':
-            return httpx.Response(200, text='<script>var seriesId=2002;</script>'
+            return httpx.Response(200, html='<script>var seriesId=2002;</script>'
                                   f'<div id="episode-9100"><div id="epub-9100" class="ep-epub-content"><p>{NOVEL_TEXT}</p>'
                                   '<p><em>Comics and novels use the real writers.</em></p></div></div>')
     with _lock:

@@ -111,7 +111,8 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
             if (dashboardDelayed(state.cloudReadFailed, now, state.cloudCheckedAtMillis))
                 Text("Storage updates are delayed. These are the last recorded counts and destination.")
             if (details) state.cloudCheckedAtMillis?.let { Text("Storage checked ${dashboardDuration(dashboardAge(now, it))} ago") }
-            Text(overview?.summary ?: "Saved file counts have not been read. Open View saved files to check them.")
+            Text(if (!details && overview?.available == true) "Find your finished CBZ and EPUB files."
+                else overview?.summary ?: "Saved file counts have not been read. Open View saved files to check them.")
             if (details && overview?.available == true) {
                 overview.metrics.forEach { Text("${it.label}: ${it.value}") }
                 overview.locations.forEach { place ->

@@ -84,7 +84,7 @@ fun DownloadsScreen(
                     ProgressCard(state.download)
                 }
                 state.observations?.savedEpisodes?.let {
-                    Text("$it episodes saved", style = MaterialTheme.typography.titleMedium)
+                    Text("$it ${if (it == 1L) "episode" else "episodes"} saved", style = MaterialTheme.typography.titleMedium)
                 }
                 if (state.remaining > 0) Text("${state.remaining} more to save")
                 Button(onClick = if (running) onPause else onGo,

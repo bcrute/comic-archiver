@@ -86,6 +86,10 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                     CatalogMenu("Storage", page.locations, query.location, !state.loading) {
                         onQuery(query.copy(location = it, offset = 0), false)
                     }
+                    CatalogMenu("Files per page", page.pageSizes.map { CatalogChoice(it.toString(), it.toString()) },
+                        query.limit.toString(), !state.loading) {
+                        onQuery(query.copy(limit = it.toInt(), offset = 0), false)
+                    }
                 }
                 if (state.loading) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -97,8 +101,11 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
         }
         item { exportPanel() }
         if (!state.loading && state.error == null && page != null) {
-            item { Text(page.summary) }
-            item { Text(page.range.ifBlank { page.notice }) }
+            item { Text("${page.total} ${if (page.total == 1) "file" else "files"}") }
+            if (page.total > query.limit) item {
+                Text("Showing ${query.offset + 1}–${(query.offset + page.rows.size).coerceAtMost(page.total)}")
+            }
+            if (page.notice.isNotBlank()) item { Text(page.notice) }
             if (page.rows.isEmpty()) item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -157,7 +164,8 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
             }
             item {
                 val pages = maxOf(1L, (page.total.toLong() + query.limit - 1) / query.limit).toInt()
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (pages > 1) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(enabled = query.offset > 0, onClick = {
                         onQuery(query.copy(offset = (query.offset - query.limit).coerceAtLeast(0)), false)
                     }) { Text("Previous") }
@@ -176,9 +184,6 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                             .coerceAtMost(10_000_000).toInt()), false)
                     }) { Text("Go to page") }
                 }
-                CatalogMenu("Files per page", page.pageSizes.map { CatalogChoice(it.toString(), it.toString()) },
-                    query.limit.toString(), true) {
-                    onQuery(query.copy(limit = it.toInt(), offset = 0), false)
                 }
             }
         }

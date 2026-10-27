@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,7 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit) {
 @Composable
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 internal fun MainNavigation(tab: AppTab, onSelect: (AppTab) -> Unit) {
+    val largeText = LocalDensity.current.fontScale >= 1.5f
     // MainActivity already consumes system safeDrawing insets.
     NavigationBar(windowInsets = WindowInsets(0, 0, 0, 0),
         modifier = Modifier.semantics { testTagsAsResourceId = true }) {
@@ -75,7 +77,9 @@ internal fun MainNavigation(tab: AppTab, onSelect: (AppTab) -> Unit) {
             NavigationBarItem(selected = tab == candidate || tab == AppTab.ABOUT && candidate == AppTab.SETTINGS,
                 onClick = { onSelect(candidate) },
                 icon = { Icon(icon, contentDescription = null) },
-                label = { Text(candidate.label, maxLines = 2) },
+                // Keep whole words at the user's font size. "Downloads" can
+                // otherwise strand its final letter under a fixed-width item.
+                label = { Text(if (largeText && candidate == AppTab.SAVING) "Save" else candidate.label, maxLines = 1) },
                 modifier = Modifier.testTag("nav-${candidate.name.lowercase()}"))
         }
     }

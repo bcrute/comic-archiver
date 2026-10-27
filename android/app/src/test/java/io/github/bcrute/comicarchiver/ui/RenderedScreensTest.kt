@@ -24,6 +24,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyChild
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -204,7 +205,10 @@ class RenderedScreensTest {
         compose.onNodeWithText("keyID").performScrollTo().performTextInput("FIXTURE_ID123")
         compose.onNodeWithText("applicationKey").performScrollTo().performTextInput("FIXTURE_KEY123")
         compose.onNodeWithText("Connect B2").performScrollTo().assertIsEnabled().performClick()
-        assertEquals(listOf(CloudRequest.Connect("fixture-library", "FIXTURE_ID123", "FIXTURE_KEY123")), controller.cloudRequests)
+        val request = controller.cloudRequests.single() as CloudRequest.Connect
+        assertEquals("fixture-library", request.bucket)
+        assertEquals("FIXTURE_ID123", request.keyId)
+        assertEquals("FIXTURE_KEY123", request.applicationKey)
         assertEquals(0, controller.goCalls)
     }
 
@@ -365,13 +369,14 @@ class RenderedScreensTest {
                 { export++ }, {}, {}, onOpenFolder = { folder++ }, onFolderLoad = { load++ }) }
         }
         library()
+        val catalogBeforeFolder = controller.catalogRequests.toList()
         compose.onNodeWithText("Folder").performScrollTo().performClick()
         compose.onNodeWithText("Open library folder").performScrollTo().performClick()
         assertEquals(1, folder)
         assertEquals(1, load)
         assertEquals(0, export)
         assertEquals(0, controller.goCalls)
-        assertTrue(controller.catalogRequests.isEmpty())
+        assertEquals(catalogBeforeFolder, controller.catalogRequests)
     }
 
     // Compose 1.7.5's String semantics rebuilds MultiParagraph with the parent's
@@ -607,7 +612,9 @@ class RenderedScreensTest {
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)).performClick()
             assertEquals(id, controller.openRequests.last())
         }
-        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasText("chapter.json"))
+        compose.onNodeWithTag("saved-files-list").performScrollToNode(hasTestTag("saved-file-metadata"))
+        compose.onNodeWithTag("file-details-metadata").performClick()
+        compose.onNodeWithText("chapter.json").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("chapter.json", substring = true).assertDoesNotExist()
         assertEquals(listOf(comic.openId, novel.openId), controller.openRequests)
         assertEquals(0, controller.goCalls)
@@ -823,9 +830,10 @@ class RenderedScreensTest {
             }
         }
         val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("Settings", useUnmergedTree = true)
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertTrue(layouts.isNotEmpty())
+        for (label in listOf("Save", "Library", "Settings"))
+            compose.onNodeWithText(label, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertTrue(layouts.size >= 3)
         assertTrue("Tab text layouts: " + layouts.joinToString { "lines=${it.lineCount}, " +
             "overflow=${it.didOverflowWidth}, size=${it.size}, paragraphWidth=${it.multiParagraph.width}, " +
             "intrinsic=${it.multiParagraph.maxIntrinsicWidth}, constraints=${it.layoutInput.constraints}, " +
@@ -985,7 +993,7 @@ class RenderedScreensTest {
                 }
             }
         }
-        compose.onNode(hasText("Settings") and hasClickAction()).performScrollTo().performClick()
+        preferences()
         fun wholeLabel(label: String) {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(label, useUnmergedTree = true)
