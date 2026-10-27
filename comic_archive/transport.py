@@ -1,8 +1,10 @@
 """HTTPS retrieval with shared request spacing; never log URLs or secrets."""
+import re
 import time
 import logging
 import threading
 from http.cookiejar import CookieJar, DefaultCookiePolicy
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 from .models import ArchiveError
 from . import sites
@@ -62,6 +64,18 @@ def cookie_matches(domain, host):
     """Whether a browser would send a cookie set for this domain to this host."""
     domain = domain.lstrip('.')
     return host == domain or host.endswith('.' + domain)
+
+
+def _expired(max_age, expires):
+    """Whether a Set-Cookie deletes its cookie: Max-Age, when given, decides before Expires (RFC 6265)."""
+    if max_age is not None:
+        return max_age <= 0
+    if not expires:
+        return False
+    try:
+        return parsedate_to_datetime(expires).timestamp() <= time.time()
+    except (TypeError, ValueError, OverflowError):
+        return False  # A date that cannot be read is ignored, as browsers do.
 
 
 class Transport:
@@ -184,18 +198,29 @@ class Transport:
         return "; ".join(pair for domain, pair in self.cookies if cookie_matches(domain, host))
 
     def _take_cookies(self, values, host):
-        """Keep the cookies a site's host sets for itself; a cookie for another site is ignored."""
+        """Keep the cookies a site's host sets for itself; a cookie for another site is ignored.
+
+        One the site expires, as it does on signing out, is dropped rather than sent again.
+        """
         kept = {(domain.lstrip('.'), pair.split('=', 1)[0]): pair for domain, pair in self.cookies}
         for value in values:
             pair, *attributes = value.split(';')
             name, equals, content = pair.strip().partition('=')
-            domain = host
+            domain, max_age, expires = host, None, None
             for attribute in attributes:
                 key, _, setting = attribute.strip().partition('=')
-                if key.lower() == 'domain' and setting.strip():
-                    domain = setting.strip().lower()
+                key, setting = key.lower(), setting.strip()
+                if key == 'domain' and setting:
+                    domain = setting.lower()
+                elif key == 'max-age' and re.fullmatch(r'-?\d+', setting):
+                    max_age = int(setting)
+                elif key == 'expires':
+                    expires = setting
             if equals and name and self.site.keeps_cookie(domain) and cookie_matches(domain, host):
-                kept[(domain.lstrip('.'), name)] = f'{name}={content}'
+                if _expired(max_age, expires):
+                    kept.pop((domain.lstrip('.'), name), None)
+                else:
+                    kept[(domain.lstrip('.'), name)] = f'{name}={content}'
         self.cookies = tuple((domain, pair) for (domain, _), pair in kept.items())
 
     def _check_budget(self):

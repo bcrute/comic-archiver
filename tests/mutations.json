@@ -4366,5 +4366,21 @@
   "new": "    if not state.get('configured'):\n        return False\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_sets_a_plan_without_an_account_download_to_wait_for_go_and_go_continues_it"
+ },
+ {
+  "id": "transport-expired-cookie-sent-again",
+  "source": "comic_archive/transport.py",
+  "old": "                if _expired(max_age, expires):",
+  "new": "                if False:",
+  "test_file": "test_tappytoon.py",
+  "test": "test_a_cookie_the_site_expires_is_dropped_and_not_sent_again"
+ },
+ {
+  "id": "transport-cookie-max-age-ignored",
+  "source": "comic_archive/transport.py",
+  "old": "        return max_age <= 0\n",
+  "new": "        return False\n",
+  "test_file": "test_tappytoon.py",
+  "test": "test_a_cookie_the_site_expires_is_dropped_and_not_sent_again"
  }
 ]

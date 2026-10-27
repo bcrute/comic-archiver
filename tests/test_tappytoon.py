@@ -474,6 +474,21 @@ class KeyAndCookieTests(unittest.TestCase):
                 transport.get(url, authorization=KEY)
         self.assertEqual(len(client.calls), 1)
 
+    def test_a_cookie_the_site_expires_is_dropped_and_not_sent_again(self):
+        client = Site({f'{API}/x': Answer(b'{}', headers=[
+            ('Set-Cookie', 'CloudFront-Signature=; Domain=.tappytoon.com; Path=/; Max-Age=0'),
+            ('Set-Cookie', 'CloudFront-Policy=gone; Domain=tappytoon.com; Expires=Thu, 01 Jan 1970 00:00:00 GMT'),
+            ('Set-Cookie', 'CloudFront-Key-Pair-Id=kept; Domain=tappytoon.com; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT'),
+            ('Set-Cookie', 'session=new; Domain=tappytoon.com; Expires=Wed, 21 Oct 2099 07:28:00 GMT'),
+            ('Set-Cookie', 'odd=kept; Domain=tappytoon.com; Expires=not a date')])})
+        transport = Transport([{'name': 'CloudFront-Signature', 'value': 'old', 'domain': '.tappytoon.com'},
+                               {'name': 'CloudFront-Policy', 'value': 'old', 'domain': 'tappytoon.com'}], client=client,
+                              site=sites.named('tappytoon'))
+        with patch('comic_archive.transport.time.sleep'):
+            transport.get(f'{API}/x', authorization=KEY, take_cookies=True)
+        self.assertEqual(transport.cookie_header('api-global.tappytoon.com'),
+                         'CloudFront-Key-Pair-Id=kept; session=new; odd=kept')
+
 
 if __name__ == '__main__':
     unittest.main()
