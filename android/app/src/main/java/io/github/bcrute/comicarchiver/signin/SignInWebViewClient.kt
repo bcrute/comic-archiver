@@ -52,9 +52,12 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
         if (request.isForMainFrame) fail()
     }
 
-    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
-        if (request.isForMainFrame && errorResponse.statusCode >= 400) fail()
-    }
+    /** An HTTP error page is still the site talking to the person: a rejected password
+     * (401/403), a bot challenge that clears itself in script (403/503) or a stray 404 all
+     * render their own page and leave the sign-in usable. Ending the attempt here showed
+     * a generic failure instead. The session's bound and Back still end it; transport
+     * and TLS failures above still fail it. */
+    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) = Unit
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
         handler.cancel()

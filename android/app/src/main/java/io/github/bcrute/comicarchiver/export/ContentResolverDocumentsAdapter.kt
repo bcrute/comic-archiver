@@ -96,7 +96,15 @@ class ContentResolverDocumentsAdapter(private val resolver: ContentResolver) : D
         queryColumn(file.uriString, DocumentsContract.Document.COLUMN_SIZE)?.toLongOrNull() ?: -1L
 
     override fun openOutput(file: DocumentsFile): OutputStream = try {
-        resolver.openOutputStream(parseDoc(file.uriString), "w")
+        val uri = parseDoc(file.uriString)
+        // "w" does not truncate on several providers (Android 10+ external storage among
+        // them): rewriting a resumed target with a smaller archive kept the old tail, so
+        // verification always failed and deleted the copy. Prefer "wt"; a provider that
+        // refuses the mode gets plain "w".
+        val stream = try { resolver.openOutputStream(uri, "wt") }
+            catch (_: IllegalArgumentException) { null }
+            catch (_: UnsupportedOperationException) { null }
+        (stream ?: resolver.openOutputStream(uri, "w"))
             ?: throw DocumentsException(DocumentsCode.TARGET_REFUSED, "null output stream")
     } catch (e: SecurityException) {
         throw grantLost(e)

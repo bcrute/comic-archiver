@@ -33,7 +33,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
     private val scope: CoroutineScope,
     private val documents: PortableDocuments = ResolverPortableDocuments(context.applicationContext),
 ) {
-    private val preferences = context.getSharedPreferences("comicarchiver_opened_library", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val cache = context.cacheDir.resolve("opened-library")
     @Volatile private var tree: Uri? = preferences.getString("tree", null)?.let(Uri::parse)
     private var selection = 0L
@@ -153,7 +153,8 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
         tree = null; cached?.file?.delete(); cached = null
         preferences.edit().clear().apply()
         _state.value = FolderLibraryState()
-        // Do not release a shared system grant: it may also serve the separate export destination.
+        // Do not release a shared system grant here: it may also serve the separate export
+        // destination. The next start releases it if nothing records it any more.
     }
 
     fun open(id: String) {
@@ -196,4 +197,11 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
         }
     }
 
+    companion object {
+        private const val PREFS = "comicarchiver_opened_library"
+
+        /** The folder this library records, which startup keeps its permission for. */
+        internal fun recordedTree(context: Context): String? =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("tree", null)
+    }
 }

@@ -104,6 +104,28 @@ class CloudTests(unittest.TestCase):
                 self.assertEqual(caught.exception.cloud_code, code); self.assertEqual(upload.call_count, 1)
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 2)
 
+    def test_a_retry_replaces_a_series_file_that_changed_after_an_unfinished_upload(self):
+        self.publish(); self.ready()
+        real = FakeTransfer.upload
+        def interrupted(transfer, source, destination, expected):
+            real(transfer, source, destination, expected)
+            if destination.endswith('/series.json'):raise CloudTransferError('cloud_connection')
+        with patch.object(FakeTransfer, 'upload', interrupted):
+            with self.assertRaises(CloudTransferError): self.publish('82')
+        FakeTransfer.fail_upload = True
+        with self.assertRaises(ArchiveError): self.publish('83')  # The series count changes after 82's attempt.
+        FakeTransfer.fail_upload = False
+        series = (self.root / json.loads(next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json')).read_text())['archive']).parent / 'series.json'
+        left = [path for _, path in FakeTransfer.files if path.endswith('/series.json') and '/tests/' not in path]
+        self.assertEqual(len(left), 1); self.assertNotEqual(FakeTransfer.files[('b2', left[0])], series.read_bytes())
+        def immutable(transfer, source, destination, expected):
+            if FakeTransfer.files.get((transfer.provider, destination), Path(source).read_bytes()) != Path(source).read_bytes():
+                raise CloudTransferError('cloud_verification')
+            real(transfer, source, destination, expected)
+        with patch.object(FakeTransfer, 'upload', immutable):
+            self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 2)
+        self.assertEqual(FakeTransfer.files[('b2', left[0])], series.read_bytes())
+
     def test_an_episode_deleted_before_its_upload_is_set_aside_until_it_is_back(self):
         self.publish(); self.ready(); FakeTransfer.fail_upload = True
         with self.assertRaises(ArchiveError): self.publish('82')

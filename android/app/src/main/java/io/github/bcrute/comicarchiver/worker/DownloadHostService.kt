@@ -98,6 +98,8 @@ class DownloadHostService : Service() {
                 app.bridge.dispatch("pause", JSONObject().put("root", root).toString())
                 app.bridge.dispatch("worker_stop", JSONObject().put("session_root", session)
                     .put("wait_seconds", waitSeconds).toString())
+            } catch (_: Exception) {
+                // This scope has no handler: a bridge failure here would crash the process.
             } finally {
                 // A delayed old Stop must not tear down a subsequent Start's notification.
                 if (stopSelfResult(startId)) stopForeground(STOP_FOREGROUND_REMOVE)

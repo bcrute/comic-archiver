@@ -59,7 +59,22 @@ class SiteBrowserProfile internal constructor(val key: String, address: SiteAddr
 
     private fun clear(done: (Boolean) -> Unit) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)) {
-            done(false) // No global-cookie fallback that could clear another provider.
+            if (profileName != null) {
+                done(false) // No global-cookie fallback that could clear another provider.
+                return
+            }
+            // Tapas alone uses the default profile, and isolated providers need this same
+            // feature, so the default jar holds no other provider's sign-in. Without this
+            // an older WebView could never complete a Tapas sign-out, and the pending
+            // sign-out then blocked sign-in and Go indefinitely.
+            val cookies = CookieManager.getInstance()
+            cookies.removeAllCookies {
+                try {
+                    cookies.flush()
+                    WebStorage.getInstance().deleteAllData()
+                    done(true)
+                } catch (_: Exception) { done(false) }
+            }
             return
         }
         val storage = if (profileName == null) WebStorage.getInstance() else named.webStorage

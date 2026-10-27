@@ -611,8 +611,11 @@ class DefaultAppController(
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
         val target = location; val version = siteVersion
         scope.launch(Dispatchers.IO) {
-            val envelope = JSONObject(bridge.dispatch(
-                "export_manifest", JSONObject().put("root", target.root.absolutePath).toString()))
+            val envelope = try {
+                JSONObject(bridge.dispatch(
+                    "export_manifest", JSONObject().put("root", target.root.absolutePath).toString()))
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { JSONObject().put("ok", false) }
             if (!envelope.optBoolean("ok")) {
                 withContext(Dispatchers.Main) { if (current(target, version)) _state.value = _state.value.copy(notice = Notice(
                     envelope.optString("code", BetaCodes.JOB_FAILED),

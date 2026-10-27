@@ -72,6 +72,18 @@ class BridgeEnvelopeTests(unittest.TestCase):
         self.assertFalse(value["ok"])
         self.assertEqual(value["code"], "bad_request")
 
+    def test_unexpected_handler_failures_answer_a_private_envelope(self):
+        from unittest.mock import patch
+
+        def broken(args):
+            raise FileNotFoundError("/data/user/0/private/Library/vanished.cbz")
+
+        with patch.dict(app_bridge.HANDLERS, {"ping": broken}):
+            value = self.call('{"v":1,"op":"ping","args":{}}')
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["code"], "job_failed")
+        self.assertNotIn("/", value["message"])
+
     def test_every_op_in_the_envelope_vocabulary_answers(self):
         # Every §2 op (and the flagged native-line extensions) is a real op now: each one
         # answers its own envelope, never the scaffold's not_implemented.

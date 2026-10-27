@@ -56,7 +56,11 @@ class DefaultDownloadHost(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             actions.withLock {
                 withContext(Dispatchers.IO) {
-                    bridge.dispatch("pause", JSONObject().put("root", workspaceRoot()).toString())
+                    // A failed pause is observed by the status poll; it must not crash the
+                    // process from this fire-and-forget coroutine.
+                    try { bridge.dispatch("pause", JSONObject().put("root", workspaceRoot()).toString()) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { }
                 }
             }
         }
@@ -67,7 +71,9 @@ class DefaultDownloadHost(
         // drain the worker through the existing protocol — in order, so the drain cannot
         // overtake the pause — and the service stops itself after.
         scope.launch(Dispatchers.IO) {
-            drain()
+            try { drain() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { }
         }
     }
 

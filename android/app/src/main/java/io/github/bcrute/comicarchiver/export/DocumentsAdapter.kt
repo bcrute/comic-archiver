@@ -157,11 +157,17 @@ object SafeName {
     /**
      * Reduces an arbitrary manifest string to a display name a documents provider will
      * accept: control characters and separators removed, edge whitespace/dots trimmed,
-     * length bounded. Empty results (or names that carried no information beyond
-     * separators) fall back to [fallback].
+     * length bounded. A short extension survives the bound: the core names episodes up
+     * to ~105 characters, and cutting `.cbz` off would refuse the export as the wrong
+     * kind. Empty results (or names that carried no information beyond separators)
+     * fall back to [fallback].
      */
     fun of(raw: String, fallback: String): String {
-        val cleaned = FORBIDDEN.replace(raw, "_").trim().trim('.').take(MAX_LEN)
-        return if (cleaned.isEmpty() || cleaned.all { it == '_' }) fallback else cleaned
+        val cleaned = FORBIDDEN.replace(raw, "_").trim().trim('.')
+        val dot = cleaned.lastIndexOf('.')
+        val extension = if (dot > 0 && cleaned.length - dot in 2..9) cleaned.substring(dot) else ""
+        val bounded = if (cleaned.length <= MAX_LEN) cleaned
+            else cleaned.take(MAX_LEN - extension.length).trimEnd(' ', '.') + extension
+        return if (bounded.isEmpty() || bounded.all { it == '_' }) fallback else bounded
     }
 }

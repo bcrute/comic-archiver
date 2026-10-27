@@ -132,4 +132,14 @@ class SafeNameTest {
         val long = "x".repeat(500)
         assertEquals(96, SafeName.of(long, "fallback").length)
     }
+
+    @Test
+    fun `bounds length without losing the archive extension`() {
+        // The core's episode name: "NNN - <title up to 80> [<12 hex>].cbz".
+        val episode = "001 - " + "t".repeat(80) + " [0123456789ab].cbz"
+        val bounded = SafeName.of(episode, "fallback")
+        assertEquals(96, bounded.length)
+        assertEquals(ExportKind.CBZ, ExportKind.fromFilename(bounded))
+        assertEquals(ExportKind.EPUB, ExportKind.fromFilename(SafeName.of("x".repeat(200) + ".epub", "fallback")))
+    }
 }

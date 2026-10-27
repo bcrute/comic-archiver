@@ -576,11 +576,20 @@ def upload_pending(root, *, limit=None, provider=None):
                     if remote_root != CLOUD_ROOT:
                         raise ArchiveError('Cloud retry namespace is invalid.')
                     prefix = f"{remote_root}/{value['library_id']}/{bundle['series_id']}/{bundle['episode_id']}/{bundle['version']}"
-                    for item in bundle['files']:
+                    for index, item in enumerate(bundle['files']):
                         from .cloud_stream import promote_stream
-                        promoted = (item is bundle['files'][0] and name in STREAM_PROVIDERS
+                        promoted = (index == 0 and name in STREAM_PROVIDERS
                                     and promote_stream(root, transfer, bundle, prefix + '/' + item['name']))
-                        if not promoted:
+                        if promoted:continue
+                        try:
+                            transfer.upload(root / item['path'], prefix + '/' + item['name'], item['sha256'])
+                        except CloudTransferError as error:
+                            # Only the episode and its sidecar name the version. The series file or cover an
+                            # unfinished attempt left here may be older than the library's own, and uploads
+                            # never overwrite: it is replaced, or every retry would fail the same way.
+                            if index < 2 or error.cloud_code in CONNECTION_FAILURES:
+                                raise
+                            transfer.delete_upload(prefix + '/' + item['name'])
                             transfer.upload(root / item['path'], prefix + '/' + item['name'], item['sha256'])
                     verified = record | bundle | {'state':'verified', 'target_id':target['target_id'],
                                                    'verified_at':datetime.now(timezone.utc).isoformat()}

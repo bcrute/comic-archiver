@@ -1025,6 +1025,11 @@ def dispatch(request):
         return _response(ok=True, result=HANDLERS[envelope["op"]](envelope["args"]))
     except _BridgeError as error:
         return _response(ok=False, code=error.code, message=error.message)
+    except Exception:
+        # Filesystem races, Java exceptions from native seams and other unexpected
+        # failures stay private: an uncaught throw crashes several native callers.
+        return _response(ok=False, code="job_failed",
+                         message="The app could not finish that action. Try again.")
 
 
 def _response(*, ok, code=None, message=None, result=None):

@@ -175,6 +175,16 @@ class SafExportRuntime(
         private const val PREFS_TREE = "tree_uri"
         private const val LIBRARY_DIR = "Library"
 
+        /** Every export destination any site or working library still records. */
+        internal fun recordedTrees(context: Context): Set<String> {
+            val folder = File(context.applicationInfo.dataDir, "shared_prefs")
+            return (folder.listFiles() ?: emptyArray())
+                .map { it.name.removeSuffix(".xml") }
+                .filter { it == PREFS || it.startsWith(PREFS + "_") }
+                .mapNotNull { context.getSharedPreferences(it, Context.MODE_PRIVATE).getString(PREFS_TREE, null) }
+                .toSet()
+        }
+
         /**
          * Resolves a manifest relpath under [libraryRoot], refusing any path that would
          * escape it (absolute paths, `..`, symlinked targets). Public-safe: returns null

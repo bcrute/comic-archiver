@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.runtime.ChaquopyBridge
+import io.github.bcrute.comicarchiver.runtime.FolderGrants
 import io.github.bcrute.comicarchiver.runtime.NetworkStatusWriter
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import io.github.bcrute.comicarchiver.runtime.PythonRuntime
@@ -186,7 +187,26 @@ open class App : Application() {
     override fun onCreate() {
         super.onCreate()
         cookieStore = WebViewCookieStore(WebViewSignInEngine.BETA_SITES.getValue("tapas").cookieHosts)
+        releaseUnrecordedFolderGrants()
         startRuntime()
+    }
+
+    /** Before any activity exists, so no picker result can be mid-way to its record. */
+    protected open fun releaseUnrecordedFolderGrants() {
+        try {
+            val exports = SafExportRuntime.recordedTrees(this)
+            val opened = io.github.bcrute.comicarchiver.library.OpenedLibrary.recordedTree(this)
+            val working = (libraryLocations.libraries().mapNotNull { it.source } +
+                listOfNotNull(libraryLocations.pending()?.source)).map { it.key }.toSet()
+            FolderGrants.releaseUnrecorded(contentResolver) { uri ->
+                val text = uri.toString()
+                text in exports || text == opened || try {
+                    io.github.bcrute.comicarchiver.runtime.WorkingLibraryCapture.source(uri).key in working
+                } catch (_: Exception) { false }
+            }
+        } catch (_: Exception) {
+            // Unsure what is recorded (for example an unreadable library list): keep them all.
+        }
     }
 
     /** The host bootstrap seam: screen/lifecycle tests supply a synthetic bridge. */

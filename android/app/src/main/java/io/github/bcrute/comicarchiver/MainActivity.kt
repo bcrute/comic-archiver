@@ -75,7 +75,10 @@ class MainActivity : ComponentActivity() {
 
         val app = applicationContext as App
 
-        if (intent.getBooleanExtra("selfcheck", false)) {
+        // The launcher activity is exported: only a debuggable (fleet/qualification) build
+        // lets another app's intent run the selfcheck.
+        val debuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable && intent.getBooleanExtra("selfcheck", false)) {
             Thread {
                 val result = try {
                     val ping = app.bridge.dispatch("ping", "{}")

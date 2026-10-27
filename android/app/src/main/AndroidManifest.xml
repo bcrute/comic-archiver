@@ -12,9 +12,12 @@
     <application
         android:name=".App"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="@string/app_name"
         android:theme="@style/Theme.ComicArchiver">
-        <!-- Backups are off: the app-private workspace and cookie store never leave the device. -->
+        <!-- Backups are off: the app-private workspace and cookie store never leave the device.
+             allowBackup covers cloud backup; dataExtractionRules also stops Android 12+
+             device-to-device transfer, which allowBackup alone does not. -->
 
         <activity
             android:name=".MainActivity"
