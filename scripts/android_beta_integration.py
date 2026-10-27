@@ -268,6 +268,11 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                 if value.get('run_token') == token:
                     (artifacts / 'timeout.json').write_text(json.dumps(value, indent=2) + '\n')
                     screenshot('timeout.png')
+                    hierarchy = runner([*prefix, 'shell', 'run-as', TARGET, 'cat',
+                                        'files/integration-code/timeout-hierarchy.xml'],
+                                       timeout=15, keep_bytes=64000)
+                    if hierarchy['returncode'] == 0:
+                        (artifacts / 'timeout-hierarchy.xml').write_text(hierarchy['tail'])
             except (ValueError, OSError, RuntimeError):
                 pass  # The primary failure remains authoritative.
         if first is not None and first.poll() is None:

@@ -66,20 +66,25 @@ class BetaJourneyTest {
             .put("worker", JSONObject(app.bridge.dispatch("worker_status", JSONObject()
                 .put("session_root", app.workspace.session.absolutePath).toString()))))
         device.takeScreenshot(evidence.resolve("timeout.png"))
+        device.dumpWindowHierarchy(evidence.resolve("timeout-hierarchy.xml"))
         throw AssertionError(label)
     }
     private fun click(text: String) {
         val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
+        val selector = if (destination != null) By.res(destination) else By.text(text)
         repeat(8) {
-            val node = if (destination != null) device.findObject(By.res(destination))
-                // Compose can expose the label as a non-clickable child of the
-                // button. UiAutomator clicks its visible bounds; requiring the
-                // Text node itself to be clickable incorrectly hid sign-in.
-                else device.findObjects(By.text(text)).minByOrNull { it.visibleBounds.top }
+            // Navigation and scrolling return before Compose publishes the new
+            // accessibility tree. Let the requested control arrive before the
+            // next scroll; repeated immediate queries can outrun it entirely.
+            // A label can also be a non-clickable child: click its real bounds.
+            val node = device.wait(Until.findObject(selector), 1_500)
             if (node != null) { assertTrue("Control disabled: $text", node.isEnabled); node.click(); return }
             device.findObjects(By.scrollable(true)).maxByOrNull { it.visibleBounds.height() }
                 ?.scroll(Direction.DOWN, 0.7f)
-            SystemClock.sleep(100)
+        }
+        // Include the view exposed by the final scroll in the same contract.
+        device.wait(Until.findObject(selector), 1_500)?.let { node ->
+            assertTrue("Control disabled: $text", node.isEnabled); node.click(); return
         }
         failure("Control not reachable: $text")
     }
