@@ -50,6 +50,11 @@ from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
+try:
+    from scripts import android_release
+except ImportError:  # Run as scripts/android_feasibility.py, with scripts/ on the path.
+    import android_release
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SDIST_DIR = REPO / "packaging/android/zstandard-wheel"
 PINS = json.loads((REPO / "packaging/android/toolchain-pins.json").read_text())
@@ -72,6 +77,16 @@ TOOLS_DIR = REPO / "android/.fleet-sdk"
 DEBUG_KEYSTORE_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_B64"
 DEBUG_CERT_SHA256_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_CERT_SHA256"
 DEBUG_KEYSTORE = TOOLS_DIR / "debug-signing/debug.keystore"
+# The owner's release key reaches only a release-apk job, from a one-off private fleet
+# config, never the shared one: the store and its password are materialized as 0600 job
+# files, Gradle gets their paths, and both are deleted before the job ends. Nothing is
+# ever generated on this path; a missing or different key fails the job.
+RELEASE_KEYSTORE_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_B64"
+RELEASE_PASSWORD_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_PASSWORD"
+RELEASE_CERT_SHA256_ENV = "COMIC_ARCHIVER_RELEASE_CERT_SHA256"
+RELEASE_ALIAS = "comic-archiver"
+RELEASE_SIGNING_DIR = TOOLS_DIR / "release-signing"
+RELEASE_APK = REPO / "android/app/build/outputs/apk/release/app-release.apk"
 SELF_IDENTITY = "comic-archiver/android-selfcheck/1"
 SELF_TAG = "ComicArchiverSelfcheck"
 APP_ACTIVITY = "io.github.bcrute.comicarchiver/.MainActivity"
@@ -742,13 +757,13 @@ def _decode_debug_keystore_b64(value):
     return decoded, None
 
 
-def _cert_sha256(java, keystore, runner):
+def _cert_sha256(java, keystore, runner, alias="androiddebugkey", password=("-storepass", "android")):
     """The keystore certificate's SHA-256 fingerprint — public data — via the pinned
-    JDK's keytool, which also proves the store reads back with the standard debug
-    credentials. Nothing from keytool's output beyond the fingerprint is retained."""
+    JDK's keytool, which also proves the store reads back with its credentials (the
+    standard debug ones, or the release password by file so it never appears in an
+    argument list). Nothing from keytool's output beyond the fingerprint is retained."""
     result = runner([str(pathlib.Path(java).parent / "keytool"), "-list", "-v",
-                     "-alias", "androiddebugkey",
-                     "-keystore", str(keystore), "-storepass", "android"], timeout=120)
+                     "-alias", alias, "-keystore", str(keystore), *password], timeout=120)
     # keytool indents the certificate fields (observed output: "    SHA256: AA:.."),
     # and the alias is requested so the pin is this store's debug key, not the
     # first certificate any store happens to show.
@@ -839,6 +854,54 @@ def phase_debug_signing(tools, env=None, runner=run_tool, keystore_path=None,
         facts["private_artifact"] = str(artifact)
     record("debug_signing", "passed", **facts)
     return str(keystore)
+
+
+def phase_release_signing(tools, env=None, runner=run_tool, directory=None):
+    """Materialize the owner's injected release key for this job, or fail.
+
+    The store, its password and its expected certificate must all be injected; there
+    is no generated fallback, since every later update must carry this one identity.
+    The store and a password file land 0600 in a 0700 directory; the receipt keeps
+    only the public fingerprint. Returns (store, password file) or None.
+    """
+    env = os.environ if env is None else env
+    folder = RELEASE_SIGNING_DIR if directory is None else pathlib.Path(directory)
+    java = tools.get("java") if tools else None
+    if not java or not (pathlib.Path(java).parent / "keytool").is_file():
+        record("release_signing", "pending", reason="no pinned JDK keytool available")
+        return None
+    values = [(env.get(name) or "").strip() for name in
+              (RELEASE_KEYSTORE_ENV, RELEASE_PASSWORD_ENV, RELEASE_CERT_SHA256_ENV)]
+    if not all(values):
+        record("release_signing", "failed",
+               reason="the release key, its password and its certificate must all be injected")
+        return None
+    encoded, password, expected = values
+    decoded, reason = _decode_debug_keystore_b64(encoded)
+    if decoded is None:
+        record("release_signing", "failed", reason=reason)
+        return None
+    keystore, password_file = folder / "release.p12", folder / "release.pass"
+    _write_private_file(keystore, decoded)
+    _write_private_file(password_file, password.encode("utf-8"))
+    fingerprint = _cert_sha256(java, keystore, runner, alias=RELEASE_ALIAS,
+                               password=("-storetype", "PKCS12", "-storepass:file", str(password_file)))
+    if fingerprint is None:
+        remove_release_signing(folder)
+        record("release_signing", "failed", reason="keytool could not read the release key back")
+        return None
+    if fingerprint != expected.replace(":", "").lower():
+        remove_release_signing(folder)
+        record("release_signing", "failed",
+               reason="certificate fingerprint differs from the expected value")
+        return None
+    record("release_signing", "passed", cert_sha256=fingerprint)
+    return str(keystore), str(password_file)
+
+
+def remove_release_signing(directory=None):
+    """Delete the job's copy of the release key and its password file."""
+    shutil.rmtree(RELEASE_SIGNING_DIR if directory is None else directory, ignore_errors=True)
 
 
 def _java_version(java):
@@ -1124,6 +1187,10 @@ def _gradle_invocation(paths, task, wheels):
     # without it AGP's default per-user debug keystore behavior applies unchanged.
     if paths.get("debug_keystore"):
         argv.append(f"-PdebugKeystore={paths['debug_keystore']}")
+    # Likewise the release key: its path and its password file's path, never the password.
+    if paths.get("release_keystore"):
+        argv.extend([f"-PreleaseKeystore={paths['release_keystore']}",
+                     f"-PreleaseKeystorePasswordFile={paths['release_password_file']}"])
     if mirror:
         init = TOOLS_DIR / "ci-package-mirror.init.gradle"
         init.parent.mkdir(parents=True, exist_ok=True)
@@ -1544,12 +1611,87 @@ def development_apk(wheels):
     return code
 
 
+def release_apk():
+    """Build the release APK signed with the owner's key, from the pinned wheel source.
+
+    The finished APK must pass the publisher's own inspection: exactly the expected
+    signer, the tagged source's identity, nothing debuggable or test-only, and 16 KB
+    zip alignment. The job's copy of the key is deleted however the build ends.
+    Device, suite and matrix evidence are separate checks.
+    """
+    required = ("provision", "release_signing", "preflight", "sdist", "wheels", "release_apk")
+    artifacts = REPO.parent / "artifacts"
+    artifacts.mkdir(exist_ok=True)
+    code = 1
+    try:
+        tools = phase_provision()
+        if report["phases"].get("provision", {}).get("status") != "passed":
+            code = _verdict(required)
+            return code
+        signing = phase_release_signing(tools)
+        if signing is None:
+            code = _verdict(required)
+            return code
+        ready, paths = phase_preflight(tools)
+        wheels = phase_wheels(paths, phase_sdist()) if ready else None
+        if wheels is None:
+            code = _verdict(required)
+            return code
+        paths["release_keystore"], paths["release_password_file"] = signing
+        env, argv, _, _ = _gradle_invocation(paths, "assembleRelease", wheels)
+        result = run_tool(argv, timeout=3600, env_extra=env, keep_bytes=8000)
+        remove_release_signing()
+        if result["returncode"] != 0 or not RELEASE_APK.is_file():
+            failed = re.findall(r"> Task :(\S+) FAILED", result["tail"])
+            record("release_apk", "failed", returncode=result["returncode"],
+                   classification=f"task_failed:{failed[-1]}" if failed else None, tail=result["tail"])
+            code = _verdict(required)
+            return code
+        installed = sorted(tool for tool in (pathlib.Path(paths["sdk"]) / "build-tools").iterdir()
+                           if (tool / "apksigner").is_file() and (tool / "aapt2").is_file())
+        java_bin = pathlib.Path(paths["java"]).parent
+        os.environ.update(JAVA_HOME=str(java_bin.parent), PATH=f"{java_bin}:{os.environ['PATH']}")
+        try:
+            identity = android_release.inspect_apk(RELEASE_APK, installed[-1])
+        except (ValueError, IndexError) as error:
+            record("release_apk", "failed", reason=str(error)[:400] or "no SDK build tools to inspect it")
+            code = _verdict(required)
+            return code
+        expected = dict(android_release.identity_from_source(REPO),
+                        certificate_sha256=report["phases"]["release_signing"]["cert_sha256"])
+        if identity != expected:
+            record("release_apk", "failed", reason="the APK differs from the tagged source or approved signer",
+                   observed=identity, expected=expected)
+            code = _verdict(required)
+            return code
+        target = artifacts / f"ComicArchiver-{identity['version_name']}-android-universal.apk"
+        shutil.copyfile(RELEASE_APK, target)
+        record("release_apk", "passed", identity=identity, artifact=str(target), apk_bytes=target.stat().st_size,
+               apk_sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+        code = _verdict(required)
+    except (OSError, ValueError) as error:
+        record("release_apk", "failed", reason=str(error)[:400])
+    finally:
+        remove_release_signing()
+        report.update(selected_required_phases=list(required), tests_run=False,
+                      verdict={0: "release_apk_ready", 1: "failed", 3: "pending"}[code])
+        text = json.dumps(report, indent=2)
+        (REPO / "android-release.json").write_text(text + "\n")
+        (artifacts / "android-release.json").write_text(text + "\n")
+        print(text)
+    return code
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase", default="dev-apk", choices=["dev-apk", "all", "preflight", "sdist"],
-                        help="dev-apk builds for phone work; all runs final qualification after parity")
+    parser.add_argument("--phase", default="dev-apk",
+                        choices=["dev-apk", "release-apk", "all", "preflight", "sdist"],
+                        help="dev-apk builds for phone work; release-apk signs with the injected owner key; "
+                             "all runs final qualification after parity")
     parser.add_argument("--wheels", type=pathlib.Path, help="Retained Android wheels (required for dev-apk)")
     args = parser.parse_args()
+    if args.phase == "release-apk":
+        return release_apk()
     if args.phase == "dev-apk":
         if args.wheels is None:
             parser.error("dev-apk needs --wheels; full qualification requires explicit --phase all after parity")

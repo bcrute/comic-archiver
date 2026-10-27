@@ -43,6 +43,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // The owner's release key, only when scripts/android_feasibility.py --phase release-apk
+    // materializes it job-private: Gradle receives the store's path and the path of a file
+    // holding its password, never the password itself. Without them a release APK stays
+    // unsigned, which no release check accepts.
+    signingConfigs {
+        providers.gradleProperty("releaseKeystore").orNull?.let { store ->
+            val password = file(providers.gradleProperty("releaseKeystorePasswordFile").get()).readText()
+            create("release") {
+                storeFile = file(store)
+                storeType = "pkcs12"
+                storePassword = password
+                keyAlias = "comic-archiver"
+                keyPassword = password
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // One managed debug signing identity for fleet builds: scripts/android_feasibility.py
@@ -50,8 +67,8 @@ android {
             // generated on the job) and passes its path as -PdebugKeystore=... The alias and both
             // passwords are the public Android debug defaults, so only the store file changes.
             // Without the property AGP's default behavior (a per-user auto-generated debug
-            // keystore, unique per job and lost with it) applies unchanged; the release build
-            // type keeps no signing config at all.
+            // keystore, unique per job and lost with it) applies unchanged. The release key
+            // never reaches a debug build.
             providers.gradleProperty("debugKeystore").orNull?.let { managed ->
                 signingConfigs.getByName("debug") {
                     storeFile = file(managed)
@@ -62,8 +79,7 @@ android {
             }
         }
         release {
-            // Release hygiene (signing, shrinking) is native-line work after the beta scope
-            // is proven; no signing keys are created before the release owner's procedure.
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
         }
     }
