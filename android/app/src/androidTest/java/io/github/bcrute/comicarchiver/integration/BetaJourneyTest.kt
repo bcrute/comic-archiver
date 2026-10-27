@@ -45,12 +45,17 @@ class BetaJourneyTest {
     private fun documents(action: String = "status"): Bundle =
         requireNotNull(app.contentResolver.call(control, action, null, null))
 
-    private fun await(label: String, timeout: Long = 90_000, condition: () -> Boolean) {
+    private fun await(label: String, timeout: Long = 90_000,
+                      terminal: () -> Boolean = { false }, condition: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeout
         while (SystemClock.elapsedRealtime() < deadline) {
             if (condition()) return
+            if (terminal()) failure("Stopped before $label")
             SystemClock.sleep(100)
         }
+        failure("Timed out: $label")
+    }
+    private fun failure(label: String): Nothing {
         // This Application refuses real devices/accounts. Keep the genuine
         // controller/worker/network observation before instrumentation exits.
         save("timeout.json", JSONObject().put("waiting_for", label)
@@ -61,7 +66,7 @@ class BetaJourneyTest {
             .put("worker", JSONObject(app.bridge.dispatch("worker_status", JSONObject()
                 .put("session_root", app.workspace.session.absolutePath).toString()))))
         device.takeScreenshot(evidence.resolve("timeout.png"))
-        fail("Timed out: $label")
+        throw AssertionError(label)
     }
     private fun click(text: String) {
         val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
@@ -76,7 +81,7 @@ class BetaJourneyTest {
                 ?.scroll(Direction.DOWN, 0.7f)
             SystemClock.sleep(100)
         }
-        fail("Control not reachable: $text")
+        failure("Control not reachable: $text")
     }
     private fun startSaving() {
         val button = requireNotNull(device.wait(Until.findObject(By.res("saving-action")), 10_000))
@@ -160,16 +165,26 @@ class BetaJourneyTest {
         assertEquals(2, facts.getJSONArray("subscribed_pages").length())
     }
 
-    private fun pickTree() {
-        openExport()
-        click("Choose export folder")
+    private fun openFixtureRoot() {
+        val picker = By.pkg(Pattern.compile("com\\.(?:android|google\\.android)\\.documentsui"))
+        await("system folder picker", 15_000) { device.hasObject(picker) }
         val title = "Archive integration fixture"
         if (!device.wait(Until.hasObject(By.text(title)), 1500)) {
-            val drawer = device.findObject(By.desc(Pattern.compile("(?i)(show roots|open navigation drawer)")))
-            assertNotNull("System folder picker roots are unavailable", drawer)
+            val drawer = device.wait(Until.findObject(By.desc(Pattern.compile(
+                "(?i)(show roots|open navigation drawer|show navigation drawer)"))), 15_000)
+                ?: failure("System folder picker roots are unavailable")
             drawer.click()
         }
-        requireNotNull(device.wait(Until.findObject(By.text(title)), 15_000)).click()
+        val root = device.wait(Until.findObject(By.text(title)), 15_000)
+            ?: failure("Fixture root is unavailable in the system picker")
+        root.click()
+    }
+
+    private fun pickTree() {
+        documents() // Start the independent fixture provider before the picker queries roots.
+        openExport()
+        click("Choose export folder")
+        openFixtureRoot()
         requireNotNull(device.wait(Until.findObject(By.text(Pattern.compile("(?i)(use this folder|select)"))),
             15_000)).click()
         device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))), 2000)?.click()
@@ -221,12 +236,7 @@ class BetaJourneyTest {
             click("Change working library")
             await("working choices") { !app.workingLibraries.state.value.loading }
             click("Choose working library folder")
-            val title = "Archive integration fixture"
-            if (!device.wait(Until.hasObject(By.text(title)), 1500)) {
-                val drawer = device.findObject(By.desc(Pattern.compile("(?i)(show roots|open navigation drawer)")))
-                assertNotNull(drawer); drawer.click()
-            }
-            requireNotNull(device.wait(Until.findObject(By.text(title)), 15_000)).click()
+            openFixtureRoot()
             requireNotNull(device.wait(Until.findObject(By.text("Integration working library")), 15_000)).click()
             requireNotNull(device.wait(Until.findObject(By.text(Pattern.compile("(?i)(use this folder|select)"))), 15_000)).click()
             device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))), 2000)?.click()
@@ -327,7 +337,9 @@ class BetaJourneyTest {
             assertEquals(0, app.readingSurfaceCreations.get())
             allowFixtureConnectionIfHeld()
             startSaving()
-            await("real asset transfer blocked") { observe().getBoolean("blocked_transfer") }
+            await("real asset transfer blocked", terminal = { app.controller.state.value.download is DownloadState.Failed }) {
+                observe().getBoolean("blocked_transfer")
+            }
             assertTrue(app.controller.state.value.download is DownloadState.Running ||
                 app.controller.state.value.download is DownloadState.Planning)
             val controller = app.controller
@@ -352,7 +364,8 @@ class BetaJourneyTest {
                 app.controller.state.value.settings?.speeds?.any { it.key == "fast" && it.available } == true }
             click("Downloads")
             startSaving()
-            await("complete comic and novel catalog records", 180_000) { exportableCount() == 2 }
+            await("complete comic and novel catalog records", 180_000,
+                terminal = { app.controller.state.value.download is DownloadState.Failed }) { exportableCount() == 2 }
             await("real Recent/Free browser pagination and native Fast engine", 90_000) {
                 val facts = observe()
                 facts.getJSONArray("recent_pages").length() >= 2 && facts.getJSONArray("free_pages").length() >= 2 &&
