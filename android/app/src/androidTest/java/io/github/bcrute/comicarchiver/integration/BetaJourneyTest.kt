@@ -10,7 +10,10 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Direction
+import androidx.test.uiautomator.StaleObjectException
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.core.content.FileProvider
@@ -69,33 +72,53 @@ class BetaJourneyTest {
         device.dumpWindowHierarchy(evidence.resolve("timeout-hierarchy.xml"))
         throw AssertionError(label)
     }
+    private fun clickIfPresent(selector: BySelector, timeout: Long = 1_500,
+                               before: (UiObject2) -> Unit = {}): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeout
+        while (SystemClock.elapsedRealtime() < deadline) {
+            try {
+                val node = device.wait(Until.findObject(selector),
+                    minOf(500L, maxOf(1L, deadline - SystemClock.elapsedRealtime()))) ?: continue
+                assertTrue("Control disabled: $selector", node.isEnabled)
+                before(node)
+                node.click()
+                return true
+            } catch (_: StaleObjectException) {
+                // DocumentsUI can replace a row between lookup and click.
+                // Re-find that same selector, as the platform API requires;
+                // do not retry a completed action or suppress other failures.
+                SystemClock.sleep(100)
+            }
+        }
+        return false
+    }
+    private fun nativeClick(selector: BySelector, label: String, timeout: Long = 15_000,
+                            before: (UiObject2) -> Unit = {}) {
+        if (!clickIfPresent(selector, timeout, before)) failure("Control not reachable: $label")
+    }
     private fun click(text: String) {
         val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
         val selector = if (destination != null) By.res(destination) else By.text(text)
         repeat(8) {
-            // Navigation and scrolling return before Compose publishes the new
-            // accessibility tree. Let the requested control arrive before the
-            // next scroll; repeated immediate queries can outrun it entirely.
-            // A label can also be a non-clickable child: click its real bounds.
-            val node = device.wait(Until.findObject(selector), 1_500)
-            if (node != null) { assertTrue("Control disabled: $text", node.isEnabled); node.click(); return }
-            device.findObjects(By.scrollable(true)).maxByOrNull { it.visibleBounds.height() }
-                ?.scroll(Direction.DOWN, 0.7f)
+            // Wait for Compose's accessibility publication before scrolling.
+            // A label may be a non-clickable child: click its real bounds.
+            if (clickIfPresent(selector)) return
+            try {
+                device.findObjects(By.scrollable(true)).maxByOrNull { it.visibleBounds.height() }
+                    ?.scroll(Direction.DOWN, 0.7f)
+            } catch (_: StaleObjectException) {
+                // Re-query the current scroll container on the next iteration.
+            }
         }
-        // Include the view exposed by the final scroll in the same contract.
-        device.wait(Until.findObject(selector), 1_500)?.let { node ->
-            assertTrue("Control disabled: $text", node.isEnabled); node.click(); return
-        }
-        failure("Control not reachable: $text")
+        nativeClick(selector, text, 1_500) // Include the final scroll's result.
     }
     private fun startSaving() {
-        val button = requireNotNull(device.wait(Until.findObject(By.res("saving-action")), 10_000))
-        assertTrue(button.isEnabled)
-        assertTrue(device.hasObject(By.text("Start saving")) || device.hasObject(By.text("Resume")) || device.hasObject(By.text("Try again")))
-        button.click()
+        nativeClick(By.res("saving-action"), "Start saving", 10_000) {
+            assertTrue(device.hasObject(By.text("Start saving")) || device.hasObject(By.text("Resume")) || device.hasObject(By.text("Try again")))
+        }
     }
     private fun openLibraryOptions() {
-        requireNotNull(device.wait(Until.findObject(By.desc("Library options")), 10_000)).click()
+        nativeClick(By.desc("Library options"), "Library options", 10_000)
     }
     private fun openExport() { openLibraryOptions(); click("Export files") }
     private fun allowFixtureConnectionIfHeld() {
@@ -104,9 +127,9 @@ class BetaJourneyTest {
             // An emulator's real default route may be metered/unknown. Exercise
             // the user's normal explicit opt-in, never falsify platform facts.
             click("Settings"); click("Download preferences")
-            val toggle = requireNotNull(device.wait(Until.findObject(
-                By.desc("Also save on metered and mobile connections")), 10_000))
-            assertTrue(toggle.isEnabled); assertFalse(toggle.isChecked); toggle.click()
+            nativeClick(By.desc("Also save on metered and mobile connections"), "Metered connection opt-in", 10_000) {
+                assertFalse(it.isChecked)
+            }
             await("explicit metered connection choice") { app.controller.state.value.settings?.allowed == true }
             click("Downloads")
         }
@@ -175,14 +198,10 @@ class BetaJourneyTest {
         await("system folder picker", 15_000) { device.hasObject(picker) }
         val title = "Archive integration fixture"
         if (!device.wait(Until.hasObject(By.text(title)), 1500)) {
-            val drawer = device.wait(Until.findObject(By.desc(Pattern.compile(
-                "(?i)(show roots|open navigation drawer|show navigation drawer)"))), 15_000)
-                ?: failure("System folder picker roots are unavailable")
-            drawer.click()
+            nativeClick(By.desc(Pattern.compile("(?i)(show roots|open navigation drawer|show navigation drawer)")),
+                "System folder picker roots")
         }
-        val root = device.wait(Until.findObject(By.text(title)), 15_000)
-            ?: failure("Fixture root is unavailable in the system picker")
-        root.click()
+        nativeClick(By.text(title), "Fixture root in system picker")
     }
 
     private fun pickTree() {
@@ -190,9 +209,8 @@ class BetaJourneyTest {
         openExport()
         click("Choose export folder")
         openFixtureRoot()
-        requireNotNull(device.wait(Until.findObject(By.text(Pattern.compile("(?i)(use this folder|select)"))),
-            15_000)).click()
-        device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))), 2000)?.click()
+        nativeClick(By.text(Pattern.compile("(?i)(use this folder|select)")), "Use this export folder")
+        clickIfPresent(By.text(Pattern.compile("(?i)allow")), 2_000)
         await("persisted fixture tree", 15_000) { app.exports.panel.value.phase == ExportPhaseUi.READY }
         val uri = app.getSharedPreferences("comicarchiver_export", 0).getString("tree_uri", null)
         assertEquals("io.github.bcrute.comicarchiver.test.documents", Uri.parse(requireNotNull(uri)).authority)
@@ -242,9 +260,9 @@ class BetaJourneyTest {
             await("working choices") { !app.workingLibraries.state.value.loading }
             click("Choose working library folder")
             openFixtureRoot()
-            requireNotNull(device.wait(Until.findObject(By.text("Integration working library")), 15_000)).click()
-            requireNotNull(device.wait(Until.findObject(By.text(Pattern.compile("(?i)(use this folder|select)"))), 15_000)).click()
-            device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))), 2000)?.click()
+            nativeClick(By.text("Integration working library"), "Integration working library")
+            nativeClick(By.text(Pattern.compile("(?i)(use this folder|select)")), "Use this working library folder")
+            clickIfPresent(By.text(Pattern.compile("(?i)allow")), 2_000)
             await("working source preview", 30_000) { app.workingLibraries.state.value.phase == WorkingLibraryPhase.PREVIEW }
             assertEquals(original.libraryId, app.workspace.libraryId)
             click("Copy, verify and use")
@@ -300,7 +318,7 @@ class BetaJourneyTest {
                 await("cold fixture startup") { !app.controller.state.value.siteBusy &&
                     app.controller.state.value.signIn == SignInState.SignedOut }
                 click("Sign in to Tapas")
-                requireNotNull(device.wait(Until.findObject(By.text("Sign in to fixture")), 20_000)).click()
+                nativeClick(By.text("Sign in to fixture"), "Fixture sign-in", 20_000)
                 await("verified native fixture sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
                 startSaving()
                 await("native list observations", 150_000) {
@@ -336,7 +354,7 @@ class BetaJourneyTest {
             assertEquals(DownloadState.Held, app.controller.state.value.download)
             assertEquals(0, observe().getInt("asset_requests"))
             click("Sign in to Tapas")
-            requireNotNull(device.wait(Until.findObject(By.text("Sign in to fixture")), 20_000)).click()
+            nativeClick(By.text("Sign in to fixture"), "Fixture sign-in", 20_000)
             await("verified native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn }
             assertEquals(0, observe().getInt("asset_requests"))
             assertEquals(0, app.readingSurfaceCreations.get())
@@ -377,7 +395,7 @@ class BetaJourneyTest {
                     facts.getInt("fast_asset_clients") > 0
             }
             // Pause leaves the library ready for the separate export journey.
-            device.findObject(By.text("Pause"))?.takeIf { it.isEnabled }?.click()
+            clickIfPresent(By.text("Pause"), 2_000)
             verifyOutputs()
             click("Library")
             pickTree()
