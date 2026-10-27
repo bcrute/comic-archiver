@@ -67,7 +67,10 @@ class BetaJourneyTest {
         val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
         repeat(8) {
             val node = if (destination != null) device.findObject(By.res(destination))
-                else device.findObjects(By.text(text)).filter { it.isClickable }.minByOrNull { it.visibleBounds.top }
+                // Compose can expose the label as a non-clickable child of the
+                // button. UiAutomator clicks its visible bounds; requiring the
+                // Text node itself to be clickable incorrectly hid sign-in.
+                else device.findObjects(By.text(text)).minByOrNull { it.visibleBounds.top }
             if (node != null) { assertTrue("Control disabled: $text", node.isEnabled); node.click(); return }
             device.findObjects(By.scrollable(true)).maxByOrNull { it.visibleBounds.height() }
                 ?.scroll(Direction.DOWN, 0.7f)
