@@ -761,6 +761,35 @@ class DesktopAppTests(unittest.TestCase):
         self.widgets.QApplication.exec.assert_not_called()
         self.box.information.assert_not_called(); self.box.critical.assert_not_called()
 
+    def test_a_newer_copy_started_while_an_older_one_is_open_says_how_to_switch(self):
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / 'desktop.lock').write_text('4242\npython3.14\nhost\n', encoding='ascii')
+        here, there = self.home / 'new', self.home / 'old'
+        versions = {here: (0, 2, 4)}
+        with patch('comic_archive.uninstall.this_copy', return_value=here), \
+                patch('comic_archive.uninstall.running_copy', side_effect=lambda pid: there if pid == 4242 else None), \
+                patch('comic_archive.uninstall.copy_version', side_effect=lambda folder: versions[folder]):
+            for open_version, told in (((0, 2, 3), True), ((0, 2, 4), False), ((0, 3, 0), False)):
+                versions[there] = open_version
+                self.held_lock(answered=True, stale=False)
+                self.assertEqual(desktop_app.run(self.q, None), 0)
+                self.network.QLocalSocket.made[-1].write.assert_called_once_with(b'raise\n')  # Brought forward as well.
+                if told:
+                    self.box.information.assert_called_once_with(
+                        None, 'Comic Archiver', desktop_app.NEWER_WAITING.format(new='0.2.4', old='0.2.3'))
+                else:
+                    self.box.information.assert_not_called()
+                self.box.information.reset_mock()
+            # The open window is this very copy (one version), or the lock names no process: it only comes forward.
+            for text in ('4242\n', 'garbled\n', ''):
+                versions[there] = (0, 2, 3)
+                (self.state / 'desktop.lock').write_text(text, encoding='ascii')
+                with patch('comic_archive.uninstall.running_copy', return_value=here if text == '4242\n' else there):
+                    self.held_lock(answered=True, stale=False)
+                    self.assertEqual(desktop_app.run(self.q, None), 0)
+                self.box.information.assert_not_called()
+        self.runtime_kind.assert_not_called(); self.widgets.QApplication.exec.assert_not_called()
+
     def test_lock_left_by_a_crash_is_recovered_but_a_silent_live_owner_is_never_displaced(self):
         self.held_lock(answered=False, stale=True)
         with self.assertLogs('comic_archive.desktop', 'INFO'):
@@ -1810,7 +1839,7 @@ class DesktopAppTests(unittest.TestCase):
             self.box.question.side_effect = [1, 2]
             desktop_app.remove_older_copies(self.q)
         self.assertEqual([call.args for call in self.box.question.call_args_list],
-                         [(None, 'Comic Archiver', desktop_app.OLD_COPY.format(folder=folder), 3, 1) for folder in older])
+                         [(None, 'Comic Archiver', desktop_app.OLD_COPY.format(folder=folder), 3, 2) for folder in older])
         remove.assert_called_once_with(self.home / 'old')
         self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.OLD_COPY_LEFT.format(folder=self.home / 'old'))
         self.box.question.reset_mock(side_effect=True); self.box.warning.reset_mock()

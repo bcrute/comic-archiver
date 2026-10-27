@@ -182,11 +182,12 @@ def unpacked(folder):
 
 
 def older_copies():
-    """Copies of the app started on this computer before this one, of this version or older, that may be deleted.
+    """Copies of the app started on this computer before this one, of an older version, that may be deleted.
 
     Each start notes the copy that ran. On Linux the launcher also passes the copy the menu entry started until
     now (COMIC_ARCHIVER_PREVIOUS), which finds copies from before copies were noted. A newer copy is never
-    offered, nor an installed one (its uninstaller would forget the sign-ins), nor one with a library inside.
+    offered, nor one of the same version, nor an installed one (its uninstaller would forget the sign-ins), nor
+    one with a library inside.
     """
     here = this_copy()
     if here is None:
@@ -206,6 +207,8 @@ def older_copies():
         if theirs is not None and theirs > mine:
             newest = False
             continue
+        if theirs == mine:
+            continue  # Another copy of this version may be the one kept on purpose.
         inside = [here, *libraries()]
         if unpacked(folder) and not any(path == folder or folder in path.parents or path in folder.parents
                                         for path in inside):
@@ -214,6 +217,16 @@ def older_copies():
         (record.parent / 'app.new').write_text(f'{here}\n', encoding='utf-8')
         replace_file(record.parent / 'app.new', record)
     return found
+
+
+def running_copy(pid, proc=Path('/proc')):
+    """The unpacked copy of the app a running process started from, or None. Linux only: read from /proc."""
+    try:
+        program = (proc / str(int(pid)) / 'exe').resolve(strict=True)
+    except (OSError, ValueError, RuntimeError):
+        return None
+    folder = program.parents[2]  # <copy>/python/bin/python3.x
+    return folder if unpacked(folder) else None
 
 
 def remove_copy(folder):

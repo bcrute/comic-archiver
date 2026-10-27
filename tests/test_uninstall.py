@@ -241,17 +241,20 @@ class OlderCopyTests(unittest.TestCase):
             self.assertIsNone(uninstall.copy_version(self.here))
         self.assertIsNone(uninstall.copy_version(self.home / 'missing'))
 
-    def test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer(self):
+    def test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_older(self):
         old, same, windows = app_copy(self.home / 'old', '0.2.1'), app_copy(self.home / 'same', '0.2.10'), \
             app_copy(self.home / 'zip', '0.1.9', 'Comic Archiver.cmd')
         self.assertEqual(uninstall.older_copies(), [])
         self.assertEqual(self.record.read_text(), f'{self.here}\n')
         with self.previous(old):
             self.assertEqual(uninstall.older_copies(), [old])
-        for folder in (same, windows):
+        for folder, offered in ((same, []), (windows, [windows])):
             self.record.write_text(f'{folder}\n')
-            self.assertEqual(uninstall.older_copies(), [folder])
+            self.assertEqual(uninstall.older_copies(), offered)  # Another copy of this version may be kept on purpose.
             self.assertEqual(self.record.read_text(), f'{self.here}\n')  # Asked once: this copy is noted now.
+        with self.previous(same):
+            self.assertEqual(uninstall.older_copies(), [])
+        self.assertTrue((same / 'VERSION').exists())
         self.record.write_text(f'{old}\n')
         with self.previous(old):
             self.assertEqual(uninstall.older_copies(), [old])
@@ -300,6 +303,20 @@ class OlderCopyTests(unittest.TestCase):
         with self.previous(app_copy(self.home / 'old', '0.2.1')):
             self.assertEqual(uninstall.older_copies(), [])
         self.assertFalse(self.record.exists())
+
+    @unittest.skipIf(os.name == 'nt', 'Making a symlink on Windows needs a privilege.')
+    def test_the_copy_an_open_window_started_from_is_read_from_its_program(self):
+        old, installed = app_copy(self.home / 'old', '0.2.3'), app_copy(self.home / 'installed', '0.2.3', installed=True)
+        proc = self.home / 'proc'
+        for pid, program in ((42, old / 'python/bin/python3.14'), (43, installed / 'python/bin/python3.14'),
+                             (44, self.home / 'usr/bin/python3.14'), (45, self.home / 'gone/bin/python3')):
+            (proc / str(pid)).mkdir(parents=True)
+            (proc / str(pid) / 'exe').symlink_to(program)
+            if pid != 45:
+                program.parent.mkdir(parents=True, exist_ok=True); program.write_text('python')
+        self.assertEqual(uninstall.running_copy(42, proc), old)
+        for pid in (43, 44, 45, 46, 'not a number'):
+            self.assertIsNone(uninstall.running_copy(pid, proc), pid)
 
     def test_an_older_copy_is_deleted_whole(self):
         old = app_copy(self.home / 'old', '0.2.1')

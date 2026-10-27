@@ -139,6 +139,9 @@ CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and sto
 CLOSE_SIGNIN = 'Signing in to {site} is not finished. Close anyway?\n\nYou will need to sign in again.'
 ALREADY_RUNNING = ('Comic Archiver is already open or still starting. The first start can take up to a minute; '
                    'its window then appears by itself.')
+NEWER_WAITING = ('Comic Archiver {old} is still open, so the new version {new} cannot start yet.\n\n'
+                 'Close the open window, then open Comic Archiver again to switch to {new}. You stay signed in, '
+                 'and a download that was running continues when you press Go.')
 UNINSTALL_ASK = ('Uninstall Comic Archiver?\n\nThis signs Comic Archiver out of every comic site and removes your '
                  'Backblaze B2 key from this computer. Your accounts aren\'t changed, and your saved episodes stay where '
                  'they are.')
@@ -356,7 +359,7 @@ def remove_older_copies(q):
         LOG.warning('older copies could not be looked for: %s', app_runtime.describe(error))
         return
     for folder in copies:
-        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
+        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.No) != buttons.Yes:
             continue
         if removal.remove_copy(folder):
             LOG.info('an older copy was removed')
@@ -436,6 +439,24 @@ def notify(q, name):
     return bool(delivered)
 
 
+def newer_than_open():
+    """(this version, the open one's) when this copy is newer than the copy whose window is open, else None.
+
+    Starting a newer copy only brings the open window forward, which looks as if the update did nothing.
+    """
+    from . import uninstall as removal
+    try:
+        # A Qt lock file starts with its owner's process id.
+        owner = int((app_runtime.state_dir() / 'desktop.lock').read_text(encoding='ascii').split()[0])
+    except (ArchiveError, OSError, ValueError, IndexError):
+        return None
+    here, there = removal.this_copy(), removal.running_copy(owner)
+    if here is None or there is None:
+        return None
+    mine, theirs = removal.copy_version(here), removal.copy_version(there)
+    return ('.'.join(map(str, mine)), '.'.join(map(str, theirs))) if mine > theirs else None
+
+
 def claim(q, lock, name):
     """True when this process is the one instance; False after handing over to the other."""
     if lock.tryLock(0):
@@ -443,6 +464,9 @@ def claim(q, lock, name):
     if lock.error() != q.QtCore.QLockFile.LockError.LockFailedError:
         raise ArchiveError('Comic Archiver cannot write to its settings folder.')
     if notify(q, name):
+        newer = newer_than_open()
+        if newer:
+            q.QtWidgets.QMessageBox.information(None, APP_NAME, NEWER_WAITING.format(new=newer[0], old=newer[1]))
         return False
     # Nobody answered. Qt removes the lock only when its owner no longer holds it.
     if lock.removeStaleLockFile() and lock.tryLock(0):

@@ -59,7 +59,8 @@ key from this computer; your saved episodes are kept.
 
 **Linux.** Unpack the file, open the folder and double-click `comic-archiver` (choose "Run" if asked). After the
 first start it is in your applications menu. Files go to `Comic Archiver` in your home folder, as above. To
-update, unpack the new version and start it: it offers to delete the older copy, and you stay signed in. To
+update, close Comic Archiver, unpack the new version and start it: it offers to delete the older copy, and you
+stay signed in. To
 uninstall, right-click Comic Archiver in the applications menu, choose **Uninstall**, then delete the folder.
 
 `SHA256SUMS.txt` lists each file's SHA-256, to check a download against. These files were built and self-tested

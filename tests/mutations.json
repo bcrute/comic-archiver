@@ -4197,7 +4197,7 @@
   "old": "        replace_file(record.parent / 'app.new', record)\n",
   "new": "",
   "test_file": "test_uninstall.py",
-  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_older"
  },
  {
   "id": "older-copy-record-ignored",
@@ -4205,7 +4205,7 @@
   "old": "        candidates.append(record.read_text(encoding='utf-8').strip())",
   "new": "        pass",
   "test_file": "test_uninstall.py",
-  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_older"
  },
  {
   "id": "older-copy-menu-copy-ignored",
@@ -4213,7 +4213,7 @@
   "old": "    candidates = [os.environ.get(PREVIOUS) or '']",
   "new": "    candidates = ['']",
   "test_file": "test_uninstall.py",
-  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_not_newer"
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_older"
  },
  {
   "id": "older-copy-relative-path-taken",
@@ -4266,7 +4266,7 @@
  {
   "id": "older-copy-not-asked",
   "source": "comic_archive/desktop_app.py",
-  "old": "        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:\n            continue",
+  "old": "        if box.question(None, APP_NAME, OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.No) != buttons.Yes:\n            continue",
   "new": "        pass",
   "test_file": "test_desktop_app.py",
   "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
@@ -4462,5 +4462,45 @@
   "new": "        self.signin_clock.start()\n",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_asks_the_site_about_the_saved_sign_in_once_it_opens_and_shows_the_answer_at_once"
+ },
+ {
+  "id": "same-version-copy-offered",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if theirs == mine:\n            continue  # Another copy",
+  "new": "        if False:\n            continue  # Another copy",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_copy_the_menu_started_before_and_the_one_noted_last_are_offered_when_older"
+ },
+ {
+  "id": "older-copy-removal-is-the-default",
+  "source": "comic_archive/desktop_app.py",
+  "old": "OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.No)",
+  "new": "OLD_COPY.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
+ },
+ {
+  "id": "running-copy-any-program",
+  "source": "comic_archive/uninstall.py",
+  "old": "    return folder if unpacked(folder) else None",
+  "new": "    return folder",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_copy_an_open_window_started_from_is_read_from_its_program"
+ },
+ {
+  "id": "newer-copy-waits-silently",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if newer:\n            q.QtWidgets.QMessageBox.information(",
+  "new": "        if False:\n            q.QtWidgets.QMessageBox.information(",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_newer_copy_started_while_an_older_one_is_open_says_how_to_switch"
+ },
+ {
+  "id": "same-or-older-copy-told-it-is-newer",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if mine > theirs else None",
+  "new": "if mine != theirs else None",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_newer_copy_started_while_an_older_one_is_open_says_how_to_switch"
  }
 ]
