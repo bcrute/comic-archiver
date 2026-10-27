@@ -165,7 +165,7 @@ class Transport:
             headers["User-Agent"] = self.agent
         # Jar cookies (the desktop path) are attached once; a live source is consulted per
         # attempt below, after policy admission, and never mixes with the jar.
-        if host in self.site.cookie_hosts and self.cookie_source is None:
+        if self.cookie_source is None:
             cookie = self.cookie_header(host)
             if cookie:
                 headers["Cookie"] = cookie

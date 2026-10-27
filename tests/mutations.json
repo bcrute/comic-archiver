@@ -1682,8 +1682,8 @@
  {
   "id": "tappytoon-bought-list-dropped",
   "source": "comic_archive/sites.py",
-  "old": "         '/en/login', ('unlocked', 'subscribed', 'recent')),",
-  "new": "         '/en/login', ('subscribed', 'recent')),",
+  "old": "         '/en/login', ('unlocked', 'subscribed', 'recent'), ()),",
+  "new": "         '/en/login', ('subscribed', 'recent'), ()),",
   "test_file": "test_tappytoon.py",
   "test": "test_the_accounts_bought_subscribed_and_recent_lists_name_their_series"
  },
@@ -1778,7 +1778,7 @@
  {
   "id": "b2-bucket-mismatch",
   "source": "comic_archive/b2_auth.py",
-  "old": "            if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():\n                raise CloudTransferError('b2_bucket_mismatch')\n",
+  "old": "        if credentials.get('bucket') and credentials['bucket'].lower() != bucket['name'].lower():\n            raise CloudTransferError('b2_bucket_mismatch')\n",
   "new": "",
   "test_file": "test_b2_auth.py",
   "test": "test_key_must_be_for_the_bucket_named_in_setup"
@@ -4106,8 +4106,8 @@
  {
   "id": "uninstall-stale-lock-blocks",
   "source": "comic_archive/desktop_app.py",
-  "old": "(lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0))",
-  "new": "(lock.error() == failed and lock.removeStaleLockFile() and False)",
+  "old": "    if not (lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and lock.tryLock(0))):",
+  "new": "    if not (lock.tryLock(0) or (lock.error() == failed and lock.removeStaleLockFile() and False)):",
   "test_file": "test_desktop_app.py",
   "test": "test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used"
  },
