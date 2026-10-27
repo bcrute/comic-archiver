@@ -327,6 +327,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         with self.assertRaises(ValueError):
             self.verify()
 
+    @unittest.skipIf(os.name == 'nt', 'The release workflow runs its shell steps on Linux.')
     def test_workflow_executes_beta_publication_without_promoting_latest(self):
         workflow = (Path(__file__).parents[1] / '.github/workflows/release.yml').read_text()
         script = textwrap.dedent(workflow[workflow.index('          if test '):])
