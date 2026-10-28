@@ -628,8 +628,11 @@ def phase_provision(*, development=False):
                                   "version": PINS["android_commandline_tools"]["version"],
                                   "sha256": digest if ok else None}
 
-    gradle = shutil.which("gradle")
-    if gradle is None and not (TOOLS_DIR / "gradle/bin/gradle").is_file():
+    # Always the pinned Gradle, never the host's: the app's Android Gradle Plugin
+    # supports a bounded Gradle range (observed: an image's Gradle 9.6 removed an
+    # internal API AGP 8.13 needs, failing the release build).
+    gradle = None
+    if not (TOOLS_DIR / "gradle/bin/gradle").is_file():
         bundle = TOOLS_DIR / "downloads/gradle.zip"
         ok, digest = _fetch_pinned("gradle", bundle)
         ok = ok and _extract_zip_data(bundle, TOOLS_DIR / "downloads/gradle-x")
@@ -639,7 +642,7 @@ def phase_provision(*, development=False):
                 inner.rename(TOOLS_DIR / "gradle")
         steps["gradle"] = {"status": "installed" if (TOOLS_DIR / "gradle/bin/gradle").is_file() else "unavailable",
                            "version": PINS["gradle"]["version"], "sha256": digest if ok else None}
-    gradle = gradle or (str(TOOLS_DIR / "gradle/bin/gradle") if (TOOLS_DIR / "gradle/bin/gradle").is_file() else None)
+    gradle = str(TOOLS_DIR / "gradle/bin/gradle") if (TOOLS_DIR / "gradle/bin/gradle").is_file() else None
 
     # Task-private CPython 3.13: it must match the app's embedded 3.13 major.minor to serve
     # as Chaquopy's buildPython, whatever python3 the host itself ships (the executor has 3.14).
@@ -913,6 +916,27 @@ def _java_version(java):
     return int(match[1]) if match else None
 
 
+def _pinned_gradle(tools, java):
+    """The provisioned Gradle, accepted only at its pinned version: (path, version, probes)."""
+    candidates = [value for value in ((tools.get("gradle") if tools else None),
+                                      str(TOOLS_DIR / "gradle/bin/gradle")) if value]
+    gradle_probes = []
+    for candidate in dict.fromkeys(candidates):
+        # Attempt 6's probe inherited neither JAVA_HOME nor a java on PATH, and the bare
+        # host has none; the launcher refuses to run in that state. Hand it ours and keep
+        # the probe's own words so a still-failing launcher says why in the receipt.
+        probe = run_tool([candidate, "--version"], timeout=300,
+                         env_extra={"JAVA_HOME": str(pathlib.Path(java).parent.parent),
+                                    "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"}
+                         if java else None)
+        match = re.search(r"^Gradle (\S+)\s*$", probe["tail"], re.MULTILINE)
+        if match and match[1] == PINS["gradle"]["version"]:
+            return candidate, match[1], gradle_probes
+        gradle_probes.append({"candidate": candidate, "returncode": probe["returncode"],
+                              "tail": probe["tail"][-300:]})
+    return None, None, gradle_probes
+
+
 def phase_preflight(tools):
     missing, found = set(), {}
     java = tools.get("java") if tools else shutil.which("java")
@@ -933,26 +957,7 @@ def phase_preflight(tools):
     if not found["ndk"]:
         missing.add("ndk")
 
-    gradle, gradle_version = None, None
-    candidates = [value for value in ((tools.get("gradle") if tools else None), shutil.which("gradle"),
-                                      str(TOOLS_DIR / "gradle/bin/gradle")) if value]
-    gradle_probes = []
-    for candidate in candidates:
-        # Attempt 6's probe inherited neither JAVA_HOME nor a java on PATH, and the bare
-        # host has none; the launcher refuses to run in that state. Hand it ours and keep
-        # the probe's own words so a still-failing launcher says why in the receipt.
-        probe = run_tool([candidate, "--version"], timeout=300,
-                         env_extra={"JAVA_HOME": str(pathlib.Path(java).parent.parent),
-                                    "PATH": f"{pathlib.Path(java).parent}:{os.environ['PATH']}"}
-                         if java else None)
-        match = re.search(r"^Gradle (\d+(?:\.\d+)?)", probe["tail"], re.MULTILINE)
-        if match:
-            digits = tuple(int(piece) for piece in match[1].split(".")[:2])
-            if digits >= (8, 10):
-                gradle, gradle_version = candidate, match[1]
-                break
-        gradle_probes.append({"candidate": candidate, "returncode": probe["returncode"],
-                              "tail": probe["tail"][-300:]})
+    gradle, gradle_version, gradle_probes = _pinned_gradle(tools, java)
     if gradle is None:
         missing.add("gradle")
 

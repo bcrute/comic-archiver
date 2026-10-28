@@ -215,6 +215,35 @@ class CibuildwheelCacheTests(unittest.TestCase):
         self.assertFalse((self.cache / "virtualenv-21.14.12.pyz").exists())
 
 
+class PinnedGradleTests(unittest.TestCase):
+    """The app's Android Gradle Plugin supports a bounded Gradle range, so a host's own
+    Gradle is never used, whatever its version."""
+
+    def probe(self, versions):
+        def run(argv, **kwargs):
+            version = versions.get(argv[0])
+            return {"returncode": 0 if version else 127,
+                    "tail": f"\n------------------------------------------------------------\nGradle {version}\n"
+                            if version else "not found"}
+        return run
+
+    def test_only_the_provisioned_gradle_at_its_pinned_version_is_accepted(self):
+        pinned = feasibility.PINS["gradle"]["version"]
+        provisioned = str(feasibility.TOOLS_DIR / "gradle/bin/gradle")
+        with patch.object(feasibility.shutil, "which", return_value="/usr/local/bin/gradle"), \
+                patch.object(feasibility, "run_tool",
+                             self.probe({"/usr/local/bin/gradle": "9.6", provisioned: pinned})):
+            gradle, version, _ = feasibility._pinned_gradle({"gradle": provisioned}, None)
+        self.assertEqual((gradle, version), (provisioned, pinned))
+
+    def test_another_version_is_refused_even_when_it_is_newer(self):
+        provisioned = str(feasibility.TOOLS_DIR / "gradle/bin/gradle")
+        with patch.object(feasibility, "run_tool", self.probe({provisioned: "9.6"})):
+            gradle, version, probes = feasibility._pinned_gradle({"gradle": provisioned}, None)
+        self.assertEqual((gradle, version), (None, None))
+        self.assertEqual([probe["candidate"] for probe in probes], [provisioned])
+
+
 class ReleaseApkTests(ReleaseSigningTestCase):
     def setUp(self):
         super().setUp()
