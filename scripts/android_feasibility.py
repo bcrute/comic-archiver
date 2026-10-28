@@ -29,6 +29,7 @@ as on success.
 import argparse
 import base64
 import binascii
+import fnmatch
 import hashlib
 import html
 import http.client
@@ -1018,7 +1019,7 @@ def phase_sdist():
 
 def _seed_cibw_cache():
     """Fetch what the pinned cibuildwheel would download itself — each app ABI's CPython
-    Android build and virtualenv — into its cache over the acquiring path. Its own
+    Android build, virtualenv and its build Python — into its cache over the acquiring path. Its own
     downloads go straight out, which a disposable job cannot (observed: "Network is
     unreachable"); it skips any file already cached. Each file must match the sha256 in
     the pinned builder's own resource tables. Returns None, or why it could not."""
@@ -1031,7 +1032,13 @@ def _seed_cibw_cache():
         wanted = [(builds[f"cp313-android_{arch}"]["url"], builds[f"cp313-android_{arch}"]["url"].rpartition("/")[-1],
                    builds[f"cp313-android_{arch}"]["sha256"]) for arch in WHEEL_ABI_ARCHS]
         wanted.append((virtualenv["url"], f"virtualenv-{virtualenv['version']}.pyz", virtualenv["sha256"]))
-    except (OSError, KeyError, ValueError):
+        # The build Python it unpacks for each wheel: the first listed 3.13 linux
+        # x86_64 asset, chosen exactly as the builder chooses it.
+        releases = json.loads((resources / "python-build-standalone-releases.json").read_text())["releases"]
+        standalone = next(asset for release in releases for asset in release["assets"] if fnmatch.fnmatch(
+            asset["name"], "cpython-3.13.*-x86_64-unknown-linux-gnu-install_only.tar.gz"))
+        wanted.append((standalone["url"], standalone["name"], standalone["sha256"]))
+    except (OSError, KeyError, ValueError, StopIteration):
         return "pinned builder's resource tables unreadable"
     for url, name, expected in wanted:
         target = CIBW_CACHE / name

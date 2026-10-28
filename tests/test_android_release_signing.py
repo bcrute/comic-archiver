@@ -168,7 +168,8 @@ class CibuildwheelCacheTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.files = {"https://maven.example/python-3.13.15-aarch64-linux-android.tar.gz": b"arm",
                       "https://maven.example/python-3.13.15-x86_64-linux-android.tar.gz": b"x86",
-                      "https://github.example/virtualenv.pyz": b"venv"}
+                      "https://github.example/virtualenv.pyz": b"venv",
+                      "https://github.example/cpython-3.13.16%2B20261020-x86_64-unknown-linux-gnu-install_only.tar.gz": b"pbs"}
         digest = {url: hashlib.sha256(body).hexdigest() for url, body in self.files.items()}
         resources = self.root / "tools/cibw-venv/lib/python3.13/site-packages/cibuildwheel/resources"
         resources.mkdir(parents=True)
@@ -178,6 +179,13 @@ class CibuildwheelCacheTests(unittest.TestCase):
         url = "https://github.example/virtualenv.pyz"
         (resources / "virtualenv.toml").write_text(
             f'default = {{ version = "21.14.12", url = "{url}", sha256 = "{digest[url]}" }}\n')
+        standalone = "https://github.example/cpython-3.13.16%2B20261020-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        (resources / "python-build-standalone-releases.json").write_text(json.dumps({"releases": [
+            {"tag": "20261020", "assets": [
+                {"name": "cpython-3.12.13+20261020-x86_64-unknown-linux-gnu-install_only.tar.gz",
+                 "url": "https://github.example/other.tar.gz", "sha256": "00"},
+                {"name": "cpython-3.13.16+20261020-x86_64-unknown-linux-gnu-install_only.tar.gz",
+                 "url": standalone, "sha256": digest[standalone]}]}]}))
         self.cache = self.root / "tools/cibw-cache"
         for name, value in (("TOOLS_DIR", self.root / "tools"), ("CIBW_CACHE", self.cache)):
             patcher = patch.object(feasibility, name, value)
@@ -197,7 +205,8 @@ class CibuildwheelCacheTests(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual(fetched, list(self.files))
         self.assertEqual(sorted(path.name for path in self.cache.iterdir()),
-                         ["python-3.13.15-aarch64-linux-android.tar.gz",
+                         ["cpython-3.13.16+20261020-x86_64-unknown-linux-gnu-install_only.tar.gz",
+                          "python-3.13.15-aarch64-linux-android.tar.gz",
                           "python-3.13.15-x86_64-linux-android.tar.gz", "virtualenv-21.14.12.pyz"])
 
     def test_a_file_that_differs_from_the_builders_pin_is_refused_and_removed(self):
