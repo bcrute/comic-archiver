@@ -85,7 +85,7 @@ DEBUG_KEYSTORE = TOOLS_DIR / "debug-signing/debug.keystore"
 # files, Gradle gets their paths, and both are deleted before the job ends. Nothing is
 # ever generated on this path; a missing or different key fails the job.
 RELEASE_KEYSTORE_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_B64"
-RELEASE_PASSWORD_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_PASSWORD"
+RELEASE_PASSWORD_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_PASSWORD"  # noqa: S105 - the variable's name, not a password
 RELEASE_CERT_SHA256_ENV = "COMIC_ARCHIVER_RELEASE_CERT_SHA256"
 RELEASE_ALIAS = "comic-archiver"
 RELEASE_SIGNING_DIR = TOOLS_DIR / "release-signing"

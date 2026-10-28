@@ -174,7 +174,7 @@ class CibuildwheelCacheTests(unittest.TestCase):
         resources = self.root / "tools/cibw-venv/lib/python3.13/site-packages/cibuildwheel/resources"
         resources.mkdir(parents=True)
         rows = "\n".join(f'  {{ identifier = "cp313-android_{arch}", url = "{url}", sha256 = "{digest[url]}" }},'
-                         for arch, url in zip(("arm64_v8a", "x86_64"), self.files))
+                         for arch, url in zip(("arm64_v8a", "x86_64"), list(self.files)[:2], strict=True))
         (resources / "build-platforms.toml").write_text(f"[android]\npython_configurations = [\n{rows}\n]\n")
         url = "https://github.example/virtualenv.pyz"
         (resources / "virtualenv.toml").write_text(
