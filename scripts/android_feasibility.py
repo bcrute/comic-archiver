@@ -71,6 +71,7 @@ APK = REPO / "android/app/build/outputs/apk/debug/app-debug.apk"
 TEST_APK = REPO / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 JOB_DIR = REPO / "android/.fleet-job"
 TOOLS_DIR = REPO / "android/.fleet-sdk"
+CIBW_CACHE = TOOLS_DIR / "cibw-cache"
 # One managed debug signing identity per job: an owner-private injected keystore
 # (COMIC_ARCHIVER_DEBUG_KEYSTORE_B64, never in the repo or snapshot) or, with
 # nothing injected, a NEW dedicated project debug key generated on the job and
@@ -1015,6 +1016,37 @@ def phase_sdist():
     return target
 
 
+def _seed_cibw_cache():
+    """Fetch what the pinned cibuildwheel would download itself — each app ABI's CPython
+    Android build and virtualenv — into its cache over the acquiring path. Its own
+    downloads go straight out, which a disposable job cannot (observed: "Network is
+    unreachable"); it skips any file already cached. Each file must match the sha256 in
+    the pinned builder's own resource tables. Returns None, or why it could not."""
+    resources = TOOLS_DIR / "cibw-venv/lib/python3.13/site-packages/cibuildwheel/resources"
+    try:
+        builds = {item["identifier"]: item for item in
+                  tomllib.loads((resources / "build-platforms.toml").read_text())["android"]["python_configurations"]}
+        virtualenv = tomllib.loads((resources / "virtualenv.toml").read_text())
+        virtualenv = virtualenv.get("py313", virtualenv["default"])
+        wanted = [(builds[f"cp313-android_{arch}"]["url"], builds[f"cp313-android_{arch}"]["url"].rpartition("/")[-1],
+                   builds[f"cp313-android_{arch}"]["sha256"]) for arch in WHEEL_ABI_ARCHS]
+        wanted.append((virtualenv["url"], f"virtualenv-{virtualenv['version']}.pyz", virtualenv["sha256"]))
+    except (OSError, KeyError, ValueError):
+        return "pinned builder's resource tables unreadable"
+    for url, name, expected in wanted:
+        target = CIBW_CACHE / name
+        try:
+            if not _download(url, target):
+                return f"{name} download failed"
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        except (OSError, ValueError):
+            return f"{name} unreadable"
+        if digest != expected:
+            target.unlink(missing_ok=True)
+            return f"{name} sha256 mismatch: {digest}"
+    return None
+
+
 def _cibw_required_ndk(sdk, packages):
     """Install, over the Python network path, the NDK version cibuildwheel's pinned
     CPython Android build hard-requires. That build's android-env.sh runs the JVM
@@ -1031,7 +1063,7 @@ def _cibw_required_ndk(sdk, packages):
         build = next(item for item in builds if item.get("identifier") == "cp313-android_x86_64")
     except (OSError, KeyError, StopIteration, ValueError):
         return None, "pinned builder's android table unreadable"
-    bundle = TOOLS_DIR / "downloads/cpython-android.tar.gz"
+    bundle = CIBW_CACHE / build["url"].rpartition("/")[-1]
     try:
         if not _download(build["url"], bundle):
             return None, "cpython android build download failed"
@@ -1136,7 +1168,12 @@ def phase_wheels(paths, sdist):
     # The pinned CPython Android build's android-env.sh hard-requires one specific NDK
     # and otherwise installs it with the JVM sdkmanager (broken on this fleet).
     ndk_version, ndk_note = _cibw_required_ndk(paths["sdk"], _sdk_repository_packages())
+    unseeded = _seed_cibw_cache()
+    if unseeded:
+        record("wheels", "failed", reason=unseeded, required_ndk={"version": ndk_version, "note": ndk_note})
+        return None
     env = {"ANDROID_HOME": str(paths["sdk"]), "ANDROID_SDK_ROOT": str(paths["sdk"]),
+           "CIBW_CACHE_PATH": str(CIBW_CACHE),
            "JAVA_HOME": str(pathlib.Path(paths["java"]).parent.parent),
            "PATH": f"{pathlib.Path(paths['java']).parent}:{os.environ['PATH']}",
            "CIBW_BUILD": "cp313-*",

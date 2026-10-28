@@ -8,6 +8,7 @@ the SDK are all faked; the "keystores" here are arbitrary bytes.
 
 import base64
 import contextlib
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -157,6 +158,52 @@ class SdistSourceTests(unittest.TestCase):
                              return_value=self.listing('<a href="zstandard-0.24.0.tar.gz">old</a>')):
             with self.assertRaises(ValueError):
                 feasibility._sdist_url()
+
+
+class CibuildwheelCacheTests(unittest.TestCase):
+    """cibuildwheel's own downloads go straight out, so the job puts them in its cache."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.files = {"https://maven.example/python-3.13.15-aarch64-linux-android.tar.gz": b"arm",
+                      "https://maven.example/python-3.13.15-x86_64-linux-android.tar.gz": b"x86",
+                      "https://github.example/virtualenv.pyz": b"venv"}
+        digest = {url: hashlib.sha256(body).hexdigest() for url, body in self.files.items()}
+        resources = self.root / "tools/cibw-venv/lib/python3.13/site-packages/cibuildwheel/resources"
+        resources.mkdir(parents=True)
+        rows = "\n".join(f'  {{ identifier = "cp313-android_{arch}", url = "{url}", sha256 = "{digest[url]}" }},'
+                         for arch, url in zip(("arm64_v8a", "x86_64"), self.files))
+        (resources / "build-platforms.toml").write_text(f"[android]\npython_configurations = [\n{rows}\n]\n")
+        url = "https://github.example/virtualenv.pyz"
+        (resources / "virtualenv.toml").write_text(
+            f'default = {{ version = "21.14.12", url = "{url}", sha256 = "{digest[url]}" }}\n')
+        self.cache = self.root / "tools/cibw-cache"
+        for name, value in (("TOOLS_DIR", self.root / "tools"), ("CIBW_CACHE", self.cache)):
+            patcher = patch.object(feasibility, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def fetch(self, tampered=None):
+        def download(url, target):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"tampered" if url == tampered else self.files[url])
+            return True
+        with patch.object(feasibility, "_download", side_effect=download) as fetched:
+            return feasibility._seed_cibw_cache(), [call.args[0] for call in fetched.call_args_list]
+
+    def test_both_abis_and_virtualenv_land_under_the_names_cibuildwheel_looks_for(self):
+        reason, fetched = self.fetch()
+        self.assertIsNone(reason)
+        self.assertEqual(fetched, list(self.files))
+        self.assertEqual(sorted(path.name for path in self.cache.iterdir()),
+                         ["python-3.13.15-aarch64-linux-android.tar.gz",
+                          "python-3.13.15-x86_64-linux-android.tar.gz", "virtualenv-21.14.12.pyz"])
+
+    def test_a_file_that_differs_from_the_builders_pin_is_refused_and_removed(self):
+        reason, _ = self.fetch(tampered="https://github.example/virtualenv.pyz")
+        self.assertIn("virtualenv-21.14.12.pyz sha256 mismatch", reason)
+        self.assertFalse((self.cache / "virtualenv-21.14.12.pyz").exists())
 
 
 class ReleaseApkTests(ReleaseSigningTestCase):
