@@ -30,6 +30,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import html
 import http.client
 import io
 import json
@@ -46,7 +47,7 @@ import tempfile
 import time
 import tomllib
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -977,16 +978,32 @@ def phase_preflight(tools):
     return required_ok, {"sdk": sdk_path, "gradle": gradle, "java": java, "buildpython": buildpython}
 
 
+def _sdist_url():
+    """The pinned sdist's link on the package index pip itself uses. A disposable job
+    reaches PyPI only through that index (its acquiring cache refuses PyPI's JSON API:
+    observed HTTPError), and the file's pinned sha256 is checked whatever serves it."""
+    index = os.environ.get("PIP_INDEX_URL", "").strip()
+    if not index:
+        with urllib.request.urlopen(_acquisition_url(PYPI_JSON), timeout=60) as response:
+            links = json.load(response)["urls"]
+        return _acquisition_url(next(item["url"] for item in links if item["filename"] == PINNED_SDIST))
+    page = index.rstrip("/") + "/" + PINNED_SDIST.rsplit("-", 1)[0] + "/"
+    with urllib.request.urlopen(page, timeout=60) as response:
+        listing = response.read().decode("utf-8", "replace")
+    for link in re.findall(r'href="([^"]+)"', listing):
+        link = html.unescape(link)
+        if urlsplit(link).path.rsplit("/", 1)[-1] == PINNED_SDIST:
+            return urljoin(page, link)
+    raise ValueError(f"{PINNED_SDIST} is not on the package index")
+
+
 def phase_sdist():
     cache = SDIST_DIR / "cache"
     cache.mkdir(parents=True, exist_ok=True)
     target = cache / PINNED_SDIST
     try:
         if not target.is_file():
-            with urllib.request.urlopen(_acquisition_url(PYPI_JSON), timeout=60) as response:
-                links = json.load(response)["urls"]
-            url = next(item["url"] for item in links if item["filename"] == PINNED_SDIST)
-            urllib.request.urlretrieve(_acquisition_url(url), target)
+            urllib.request.urlretrieve(_sdist_url(), target)
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
     except (OSError, ValueError, StopIteration) as error:
         record("sdist", "failed", error=type(error).__name__)

@@ -15,7 +15,7 @@ import shutil
 import stat
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts import android_feasibility as feasibility
 from test_android_debug_signing import fake_jdk
@@ -129,6 +129,34 @@ class InjectionTests(ReleaseSigningTestCase):
         with self.quiet_gradle():
             _env, argv, _flags, _url = feasibility._gradle_invocation(paths, "assembleDebug", "wheels")
         self.assertFalse(any(argument.startswith("-PreleaseKeystore") for argument in argv))
+
+
+class SdistSourceTests(unittest.TestCase):
+    """A disposable job reaches PyPI only through the job's package index."""
+
+    def listing(self, body):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = body.encode()
+        return response
+
+    def test_the_pinned_sdist_is_found_on_the_jobs_package_index(self):
+        body = ('<a href="../../+f/1a/zstandard-0.24.0.tar.gz#sha256=00">old</a>\n'
+                f'<a href="../../+f/77/{feasibility.PINNED_SDIST}#sha256=7713">pinned</a>\n'
+                '<a href="https://elsewhere/zstandard-0.25.0-cp313-cp313-manylinux.whl">wheel</a>')
+        with patch.dict(os.environ, {"PIP_INDEX_URL": "https://index.example/root/pypi/+simple/"}), \
+                patch.object(feasibility.urllib.request, "urlopen", return_value=self.listing(body)) as opened:
+            url = feasibility._sdist_url()
+        self.assertEqual(opened.call_args.args[0], "https://index.example/root/pypi/+simple/zstandard/")
+        self.assertEqual(url, f"https://index.example/root/pypi/+f/77/{feasibility.PINNED_SDIST}#sha256=7713")
+
+    def test_an_index_without_the_pinned_sdist_fails(self):
+        with patch.dict(os.environ, {"PIP_INDEX_URL": "https://index.example/simple"}), \
+                patch.object(feasibility.urllib.request, "urlopen",
+                             return_value=self.listing('<a href="zstandard-0.24.0.tar.gz">old</a>')):
+            with self.assertRaises(ValueError):
+                feasibility._sdist_url()
 
 
 class ReleaseApkTests(ReleaseSigningTestCase):
