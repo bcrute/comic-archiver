@@ -1,7 +1,7 @@
 package io.github.bcrute.comicarchiver.signin
 
 /**
- * Live per-URL Cookie header provider (docs/android-beta-contracts.md §4), consumed by the
+ * Live per-URL Cookie header provider, consumed by the
  * embedded Python Transport through its cookie_source seam.
  *
  * Implementations (WebView/session line) must:

@@ -1,7 +1,7 @@
 package io.github.bcrute.comicarchiver.runtime
 
 /**
- * Kotlin side of the versioned JSON bridge (docs/android-beta-contracts.md §2), frozen.
+ * Kotlin side of the versioned JSON bridge, frozen.
  *
  * The native line owns the Chaquopy-backed implementation. [op] must be one of the frozen op
  * names; [argsJson] is a JSON object; the return value is the response envelope as JSON text.

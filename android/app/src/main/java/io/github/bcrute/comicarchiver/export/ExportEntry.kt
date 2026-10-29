@@ -18,9 +18,8 @@ enum class ExportKind(val extension: String, val mimeType: String) {
 
 /**
  * One finished archive from the controller's export manifest. Field-for-field the frozen
- * bridge manifest entry `{seriesId, episodeId, kind, filename, bytes, sha256, relpath}`
- * (docs/android-beta-contracts.md section 5); the native line maps the bridge JSON onto
- * this class.
+ * bridge manifest entry `{seriesId, episodeId, kind, filename, bytes, sha256, relpath}`;
+ * the native line maps the bridge JSON onto this class.
  *
  * `relpath` is the app-private location of the original. It is never written under the
  * user's tree, never shown in UI copy, and never persisted anywhere public.

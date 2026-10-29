@@ -4,7 +4,6 @@
 The disposable runtime uses the fleet's vendor SDK manager and an official pinned
 x86_64 WebView. Compile SDK/NDK/JDK/Gradle pins remain independent. Inputs are
 public test APKs plus a source/hash manifest; no accounts or phone data are used.
-See docs/android-ci-integration.md for the fleet invocation and input contract.
 """
 import argparse
 import hashlib

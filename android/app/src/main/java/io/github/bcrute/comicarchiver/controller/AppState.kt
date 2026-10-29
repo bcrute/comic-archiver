@@ -1,6 +1,6 @@
 package io.github.bcrute.comicarchiver.controller
 
-/** Frozen beta DTOs (docs/android-beta-contracts.md §1). The UI renders these; it never owns policy. */
+/** Frozen beta DTOs. The UI renders these; it never owns policy. */
 
 data class AppState(
     val site: String,

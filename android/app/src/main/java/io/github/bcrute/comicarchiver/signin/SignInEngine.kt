@@ -5,7 +5,7 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Frozen sign-in/session contract (docs/android-beta-contracts.md §4).
+ * Frozen sign-in/session contract.
  *
  * The concrete implementation is owned by the WebView/session line (its own leaf component
  * may be richer internally; this is the surface AppController and the native runtime

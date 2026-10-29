@@ -65,7 +65,6 @@ pending. Until that receipt exists this recipe is a pin, not proof.
 ## Pivot (only on a recorded failure)
 
 If the sdist cannot be built for Android with the pinned cibuildwheel toolchain, the
-options in `docs/android-roadmap.md` Block 1 apply: a vendored newer sdist with a new
-pinned digest (still >=0.25), or a reviewed archive-format pivot for the Android build.
-Both go through Codex review with the failure receipt before any contract changes; the
-version floor is not one of the choices.
+options are a vendored newer sdist with a new pinned digest (still >=0.25), or a
+reviewed archive-format pivot for the Android build. Either is reviewed with the failure
+receipt before any contract changes; the version floor is not one of the choices.

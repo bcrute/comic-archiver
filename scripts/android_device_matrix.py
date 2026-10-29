@@ -9,7 +9,6 @@ API 29 (the minimum) and API 36 with 16 KB memory pages (modern, target and 16 K
 The exact release APK, after the publisher's own inspection, is installed and
 started; the row passes only if it launches, stays running in front with embedded
 Python loaded, and nothing of the app's crashes. The arm64 row comes from a phone.
-See docs/android-release-contract.md for the evidence this feeds.
 """
 import argparse
 import hashlib

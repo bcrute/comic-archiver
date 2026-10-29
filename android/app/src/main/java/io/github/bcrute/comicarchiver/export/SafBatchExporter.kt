@@ -25,7 +25,7 @@ data class ExportSummary(
  * per-series folders under one ACTION_OPEN_DOCUMENT_TREE tree, verifying size and SHA-256
  * of every copy before recording it VERIFIED.
  *
- * Invariants (see the beta contract, section 5, and the roadmap's Block 5):
+ * Invariants:
  * - The app-private original is never modified or deleted; export is copy-only.
  * - Nothing but the archive files named in the manifest is ever written to the tree —
  *   no credentials, provenance, queue data or private metadata.

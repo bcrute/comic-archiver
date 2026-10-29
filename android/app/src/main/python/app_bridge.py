@@ -1,6 +1,6 @@
 """Versioned JSON bridge between the Kotlin app and the embedded Python runtime.
 
-Contract: docs/android-beta-contracts.md §2. One entry point, dispatch(request) -> response;
+One entry point, dispatch(request) -> response;
 requests are {"v":1,"op":name,"args":{...}}; responses are {"v":1,"ok":true,"result":...} or
 {"v":1,"ok":false,"code":...,"message":...} with public-safe messages. The bridge validates
 envelope and argument shapes and refuses unknown ops. Downloads run on the Python worker
@@ -255,7 +255,7 @@ def _prepare_workspace(args):
 
     The core's queue paths are workspace-relative (Library, .comic-session), so the process
     cwd is the workspace root — set here, once, only while no downloader is running, per the
-    reviewed roadmap's one-active-workspace rule.
+    one-active-workspace rule.
     """
     root = _path_arg(args, "root")
     base = _path_arg(args, "base_root") if "base_root" in args else root

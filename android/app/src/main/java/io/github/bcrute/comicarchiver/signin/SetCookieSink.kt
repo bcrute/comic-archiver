@@ -1,7 +1,7 @@
 package io.github.bcrute.comicarchiver.signin
 
 /**
- * Own-origin Set-Cookie forwarding (docs/android-beta-contracts.md §4), frozen.
+ * Own-origin Set-Cookie forwarding, frozen.
  *
  * The embedded Python Transport hands the site's own hosts' raw Set-Cookie response values
  * here, exactly as the server sent them; the implementation applies them to the platform's

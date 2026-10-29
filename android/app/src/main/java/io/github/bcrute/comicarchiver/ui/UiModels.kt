@@ -6,7 +6,7 @@ import io.github.bcrute.comicarchiver.controller.DownloadObservations
 
 /**
  * The beta's public issue codes, exactly the frozen contract's set — wire-identical to
- * controller `BetaCodes` (docs/android-beta-contracts.md section 7): one UI notice and
+ * controller `BetaCodes`: one UI notice and
  * one recovery action each, and none is ever reported as success.
  */
 enum class PublicIssue(val wireName: String) {

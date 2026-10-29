@@ -1,7 +1,7 @@
 package io.github.bcrute.comicarchiver.worker
 
 /**
- * Frozen lifecycle seam (docs/android-beta-contracts.md §3). The native line owns the
+ * Frozen lifecycle seam. The native line owns the
  * implementation: a dataSync foreground service that runs the Python worker in-process with
  * an explicit workspace root (background.py's subprocess launcher is not used on Android).
  *

@@ -3,7 +3,7 @@ package io.github.bcrute.comicarchiver.controller
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Frozen beta controller contract (docs/android-beta-contracts.md §1).
+ * Frozen beta controller contract.
  *
  * Ownership: the phone UI/export line consumes this interface and never implements or
  * extends it; the native/build/runtime line owns the single runtime implementation and its
