@@ -27,6 +27,7 @@ class AccountAdapter:
         self.downloads = []
         self.denied = set()
         self.access = {"81": "tapas_free", "82": "tapas_unlocked", "83": "unavailable_or_unverified"}
+        self.reasons = {}
         self.visible = ["42"]
         self.series = Series("s", "Series", platform_id="42")
 
@@ -65,6 +66,7 @@ class AccountAdapter:
         self.calls.append(("series", key))
         return {"complete": True, "authenticated": True, "source_series_id": key, "title": "S",
                 "episodes": [{"id": id, "title": "E" + id, "order": int(id)-80, "access_state": access}
+                             | ({"authorization_reason": self.reasons[id]} if id in self.reasons else {})
                              for id, access in self.access.items()]}
 
 
@@ -537,6 +539,23 @@ class JobTests(unittest.TestCase):
         self.assertIn(("series", "42"), self.adapter.calls)
         self.assertEqual(result["archived_episode_ids"], ["83"])
         self.assertEqual(len(list(self.root.rglob("*.cbz"))), 3)
+        self.assertEqual(verify(self.root), [])
+
+    @patch("builtins.print")
+    def test_an_episode_refused_by_an_earlier_version_is_saved_once_a_sync_sees_it_readable(self, output):
+        # 0.2.3 recorded bought paid-only Tapas episodes as access_denied and skipped them
+        # quietly; after updating, the next sync must save them, not keep the old refusal.
+        self.adapter.reasons["83"] = "access_denied"
+        first = sync(self.adapter, self.root)
+        self.assertNotIn("83", first["archived_episode_ids"])
+        with Inventory(self.root, read_only=True) as inventory:
+            row = inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='83'").fetchone()
+            self.assertEqual(tuple(row), ("unavailable", "access_denied"))
+        self.adapter.access["83"] = "tapas_unlocked"
+        del self.adapter.reasons["83"]
+        second = sync(self.adapter, self.root)
+        self.assertEqual(second["archived_episode_ids"], ["83"])
+        self.assertEqual(second["inventory"]["episodes_by_status"], {"archived": 3})
         self.assertEqual(verify(self.root), [])
 
     @patch('builtins.print')
