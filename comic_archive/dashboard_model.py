@@ -133,6 +133,28 @@ def space_needed(estimate):
     return f'Your whole library should take about {room(saved + left)} of space{parts}.{rough}{disk}'
 
 
+# Why a checked episode was not saved, in the order the dashboard lists them. An episode still waiting to be
+# saved is not one of them.
+NOT_SAVED = {'scheduled': 'not released yet',
+             'temporary_access': 'time-limited, with access the app couldn’t confirm is still current',
+             'novel': 'from novels this site’s download doesn’t support'}
+
+
+def not_saved(status, site):
+    """Why checked episodes were not saved, so a short folder is never a mystery; empty when every one was."""
+    counts = status.get('episodes_by_status') or {}
+    reasons = status.get('unsupported_by_reason') if isinstance(status.get('unsupported_by_reason'), dict) else {}
+    known = {key: number(reasons.get(key)) for key in NOT_SAVED}
+    other = max(0, number(counts.get('unsupported')) - sum(known.values()))
+    parts = [f"{display(counts.get('unavailable'))} locked on your {site} account (buy or unlock them on {site}, "
+             'then hit Go)' if number(counts.get('unavailable')) else '']
+    parts += [f'{display(count)} {NOT_SAVED[key]}' for key, count in known.items() if count]
+    parts += [f'{display(other)} in a form the app can’t save yet' if other else '',
+              f"{display(counts.get('failed'))} with download errors" if number(counts.get('failed')) else '']
+    parts = [part for part in parts if part]
+    return 'Not saved: ' + ' · '.join(parts) + '.' if parts else ''
+
+
 def held_message(code, site, go_wait, missing):
     """Why a held download stopped, and what the person can do about it, in one sentence each."""
     if code == 'archive_incomplete':
@@ -421,6 +443,7 @@ def view(s, now):
     v['detail'] = ('Loading saved-episode count…' if s.status is None else
                    f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'} saved."
                    + (' ' + step if step else '') + older)
+    v['not_saved'] = not_saved(status, site) if s.status is not None else ''
     v['estimate'] = time_left(status.get('estimate')) if account.get('configured') and not finished else ''
     v['space'] = space_needed(status.get('estimate')) if v['estimate'] else ''
     v['live_visible'] = running

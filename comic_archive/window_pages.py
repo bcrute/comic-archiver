@@ -328,10 +328,11 @@ class Dashboard:
             live.addWidget(part)
         box.addWidget(self.live)
         self.detail = kit.label('', 'muted')
+        self.not_saved = kit.label('', 'muted')
         self.estimate = kit.label('', 'muted')
         self.space = kit.label('', 'muted')
         self.footnote = kit.label('', 'footnote')
-        for part in (self.detail, self.estimate, self.space, self.footnote):
+        for part in (self.detail, self.not_saved, self.estimate, self.space, self.footnote):
             box.addWidget(part)
         return self.card
 
@@ -435,6 +436,7 @@ class Dashboard:
         say(self.activity, v['activity'])
         tone(self.activity, 'tone', 'warning' if v['live_waiting'] else '')
         say(self.detail, v['detail'])
+        say(self.not_saved, v['not_saved'])
         say(self.estimate, v['estimate'])
         say(self.space, v['space'])
         say(self.footnote, v['footnote'])

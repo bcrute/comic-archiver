@@ -4598,5 +4598,13 @@
   "new": "not reader_catalogue.publish(",
   "test_file": "test_cloud_stream.py",
   "test": "test_until_the_web_reader_ships_a_direct_upload_writes_no_reader_records"
+ },
+ {
+  "id": "dashboard-hides-locked-episodes-not-saved",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "'then hit Go)' if number(counts.get('unavailable')) else '']",
+  "new": "'then hit Go)' if False else '']",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_checked_episodes_that_were_not_saved_are_counted_with_why"
  }
 ]
