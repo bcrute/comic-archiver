@@ -12,6 +12,10 @@ CHECKS = {'build', 'jvm', 'native_integration', 'real_comic_novel', 'saf_recover
           'lifecycle_network', 'retained_signer_update', 'release_hygiene',
           'dependency_audit', 'license_audit', 'zip_alignment', 'page_size_16k'}
 PLATFORMS = {'desktop', 'android'}
+# Sign-in needs WebView features (isolated script worlds, profiles) that only WebViews far
+# newer than Chrome 139 have, and Chrome 139 onward requires Android 10. An older phone
+# could install the app but never sign in, so it is not supported.
+MIN_SDK = 29
 
 
 def identity_from_source(project):
@@ -100,7 +104,7 @@ def check_evidence(value, commit, version, identity, certificate):
         raise ValueError('Android evidence differs from the tagged source or approved signer.')
     if (identity.get('version_name') != version
             or type(identity.get('version_code')) is not int or identity['version_code'] < 1
-            or type(identity.get('min_sdk')) is not int or identity['min_sdk'] != 24
+            or type(identity.get('min_sdk')) is not int or identity['min_sdk'] != MIN_SDK
             or type(identity.get('target_sdk')) is not int or identity['target_sdk'] < 35
             or identity.get('abis') != ['arm64-v8a', 'x86_64']):
         raise ValueError('Android source version/API/ABI identity is not a supported release.')
@@ -118,7 +122,7 @@ def check_evidence(value, commit, version, identity, certificate):
     identities = set()
     for row in matrix:
         if (not isinstance(row, dict) or set(row) != {'api', 'abi', 'page_size', 'passed'}
-                or type(row['api']) is not int or row['api'] < 24
+                or type(row['api']) is not int or row['api'] < MIN_SDK
                 or row['abi'] not in identity['abis'] or type(row['page_size']) is not int
                 or row['page_size'] not in (4096, 16384) or row['passed'] is not True):
             raise ValueError('The Android matrix includes an invalid or unpassed environment.')
@@ -127,7 +131,7 @@ def check_evidence(value, commit, version, identity, certificate):
             raise ValueError('Duplicate Android environments do not add matrix coverage.')
         identities.add(key)
     if (not all(any(row['abi'] == abi for row in matrix) for abi in identity['abis'])
-            or not any(row['api'] == 24 for row in matrix)
+            or not any(row['api'] == MIN_SDK for row in matrix)
             or not any(row['api'] >= 35 for row in matrix)
             or not any(row['api'] == identity['target_sdk'] for row in matrix)
             or not any(row['api'] >= 35 and row['page_size'] == 16384 for row in matrix)):

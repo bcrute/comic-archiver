@@ -24,7 +24,7 @@ from test_android_debug_signing import fake_jdk
 FINGERPRINT = "9a" * 32
 PASSWORD = "correct horse battery staple"
 IDENTITY = {"package_id": "io.github.bcrute.comicarchiver", "version_name": "0.3.0-beta1",
-            "version_code": 1, "min_sdk": 24, "target_sdk": 36, "abis": ["arm64-v8a", "x86_64"]}
+            "version_code": 1, "min_sdk": 29, "target_sdk": 36, "abis": ["arm64-v8a", "x86_64"]}
 
 
 def keytool_fake(fail_list=False, fingerprint=FINGERPRINT):

@@ -5,7 +5,7 @@ Run as `python3 scripts/android_feasibility.py --phase device-matrix --apk <apk>
 fleet job of project comic-archiver/android, so the job gets a disposable guest.
 
 Each environment is a fresh job-private emulator from the fleet's vendor SDK manager:
-API 24 (the minimum) and API 36 with 16 KB memory pages (modern, target and 16 KB).
+API 29 (the minimum) and API 36 with 16 KB memory pages (modern, target and 16 KB).
 The exact release APK, after the publisher's own inspection, is installed and
 started; the row passes only if it launches, stays running in front with embedded
 Python loaded, and nothing of the app's crashes. The arm64 row comes from a phone.
@@ -32,10 +32,10 @@ JAVA = Path('/usr/lib/jvm/java-17-openjdk-amd64/bin/java')
 PACKAGE = build.APP_ACTIVITY.split('/')[0]
 # A fresh Google APIs image emulating 16 KB pages exhausts the default 2.5 GB within
 # seconds of boot (observed: the low-memory killer took the launcher, Play services and
-# then the app), so it gets 4 GB of a fleet slot's 16 GiB. API 24's image does not
-# finish booting with 4 GB (observed) and runs at its default.
+# then the app), so it gets 4 GB of a fleet slot's 16 GiB. The minimum's image runs at its
+# default, as older images may not boot with more (observed on API 24).
 MATRIX = (
-    {'image': 'system-images;android-24;google_apis;x86_64', 'api': 24, 'page_size': 4096, 'memory_mb': None},
+    {'image': 'system-images;android-29;google_apis;x86_64', 'api': 29, 'page_size': 4096, 'memory_mb': None},
     {'image': 'system-images;android-36;google_apis_ps16k;x86_64', 'api': 36, 'page_size': 16384,
      'memory_mb': 4096},
 )
@@ -43,7 +43,7 @@ MATRIX = (
 
 def page_size(getconf, smaps):
     """The page size apps see, in bytes. x86_64 16 KB images emulate it over a 4 KB kernel,
-    so getconf (Android's documented check) wins; API 24 has no getconf, so smaps answers."""
+    so getconf (Android's documented check) wins; where an image has no getconf, smaps answers."""
     if getconf.strip().isdigit():
         return int(getconf.strip())
     match = re.search(r'^KernelPageSize:\s+(\d+) kB\s*$', smaps, re.M)
@@ -72,7 +72,7 @@ def screen_text(hierarchy):
 def coverage(rows, identity):
     """The release contract's matrix conditions these passed rows still leave open."""
     passed = [row for row in rows if row['passed']]
-    wanted = {'api_24': any(row['api'] == 24 for row in passed),
+    wanted = {'min_api': any(row['api'] == identity['min_sdk'] for row in passed),
               'api_35_plus': any(row['api'] >= 35 for row in passed),
               'target_api': any(row['api'] == identity['target_sdk'] for row in passed),
               'page_size_16k_api_35_plus': any(row['api'] >= 35 and row['page_size'] == 16384 for row in passed)}
@@ -90,9 +90,11 @@ def observe(adb, serial, apk, expected, folder, runner=build.run_tool):
     checks, facts = {}, {}
     # The image's own userdebug build lets this job read the app process's memory map.
     checks['userdebug'] = shell('getprop', 'ro.build.type')['tail'].strip() in {'userdebug', 'eng'}
-    rooted = runner([*prefix, 'root'], timeout=60)
+    # adbd restarts as root; the command itself can report the dropped connection, so
+    # the device's own answer is the check (observed: a failed exit, then root anyway).
+    runner([*prefix, 'root'], timeout=60)
     runner([*prefix, 'wait-for-device'], timeout=300)
-    checks['root'] = rooted['returncode'] == 0
+    checks['root'] = shell('id', '-u')['tail'].strip() == '0'
     api = shell('getprop', 'ro.build.version.sdk')['tail'].strip()
     facts['api'] = int(api) if api.isdigit() else None
     facts['abi'] = shell('getprop', 'ro.product.cpu.abi')['tail'].strip()

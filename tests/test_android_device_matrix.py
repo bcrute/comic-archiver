@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from scripts import android_device_matrix as matrix
 
-IDENTITY = {"target_sdk": 36, "abis": ["arm64-v8a", "x86_64"]}
+IDENTITY = {"min_sdk": 29, "target_sdk": 36, "abis": ["arm64-v8a", "x86_64"]}
 ROW = {"image": "system-images;android-36;google_apis_ps16k;x86_64", "api": 36, "page_size": 16384}
 SCREEN = '<hierarchy><node text="Library" content-desc=""><node text="" content-desc="Settings"/></node></hierarchy>'
 
@@ -44,6 +44,8 @@ class FakeEmulator:
             out = self.facts["install"]
         elif command[:2] == ["am", "start"]:
             out = self.facts["start"]
+        elif command == ["id", "-u"]:
+            out = self.facts.get("uid", "0")
         elif command[:1] == ["pidof"]:
             out = self.facts["pid"]
         elif command[:1] == ["cat"] and command[1].endswith("/maps"):
@@ -77,7 +79,7 @@ class ObserveTests(unittest.TestCase):
                  "python_loaded": {"maps": "7f00-7f10 r-xp 0 00:00 1 /system/lib64/libc.so"},
                  "in_front": {"focus": "  mCurrentFocus=Window{1 u0 com.android.launcher3/.Launcher}"},
                  "no_crash": {"crash": "FATAL EXCEPTION: main\nProcess: io.github.bcrute.comicarchiver"},
-                 "userdebug": {"type": "user"}}
+                 "userdebug": {"type": "user"}, "root": {"uid": "2000"}}
         for check, changes in cases.items():
             with self.subTest(check=check):
                 row, _ = self.observe(**changes)
@@ -120,7 +122,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(matrix.screen_text("ERROR: null root node"), [])
 
     def test_coverage_names_what_passed_rows_leave_open(self):
-        rows = [{"api": 24, "abi": "x86_64", "page_size": 4096, "passed": True},
+        rows = [{"api": 29, "abi": "x86_64", "page_size": 4096, "passed": True},
                 {"api": 36, "abi": "x86_64", "page_size": 16384, "passed": True}]
         self.assertEqual(matrix.coverage(rows, IDENTITY), ["abi_arm64-v8a"])
         rows[1]["passed"] = False

@@ -141,7 +141,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         super().setUp()
         self.certificate = 'c' * 64
         self.identity = {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': self.version,
-                         'version_code': 1, 'min_sdk': 24, 'target_sdk': 36,
+                         'version_code': 1, 'min_sdk': 29, 'target_sdk': 36,
                          'abis': ['arm64-v8a', 'x86_64']}
         self.apk = f'ComicArchiver-{self.version}-android-universal.apk'
         path = self.folder / self.apk
@@ -153,13 +153,13 @@ class AndroidReleaseGateTests(ReleaseGateTests):
                               'checks': dict.fromkeys(android_release.CHECKS, True),
                               'tests': {'tests_run': 300, 'failures': 0, 'errors': 0, 'skipped': []},
                               'device_matrix': [
-                                  {'api': 24, 'abi': 'x86_64', 'page_size': 4096, 'passed': True},
+                                  {'api': 29, 'abi': 'x86_64', 'page_size': 4096, 'passed': True},
                                   {'api': 35, 'abi': 'arm64-v8a', 'page_size': 16384, 'passed': True},
                                   {'api': 36, 'abi': 'x86_64', 'page_size': 4096, 'passed': True}]})
         self.save()
         self.signature = f'Verifies\nSigner #1 certificate SHA-256 digest: {self.certificate}\n'
         self.badging = (f"package: name='{self.identity['package_id']}' versionCode='1' versionName='{self.version}'\n"
-                        "sdkVersion:'24'\ntargetSdkVersion:'36'\nnative-code: 'arm64-v8a' 'x86_64'\n")
+                        "sdkVersion:'29'\ntargetSdkVersion:'36'\nnative-code: 'arm64-v8a' 'x86_64'\n")
         patcher = patch.object(android_release, 'tool_output', side_effect=self.sdk_output)
         self.tool = patcher.start()
         self.addCleanup(patcher.stop)
@@ -225,7 +225,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         original = copy.deepcopy(self.value)
         for key, value in (('certificate_sha256', 'f' * 64), ('commit', 'b' * 40), ('version_code', 2),
                            ('version_name', '0.3.0-beta2'), ('package_id', 'other.app'),
-                           ('abis', ['arm64-v8a']), ('min_sdk', 25), ('target_sdk', 35),
+                           ('abis', ['arm64-v8a']), ('min_sdk', 30), ('min_sdk', 24), ('target_sdk', 35),
                            ('artifact', '../app.apk')):
             self.value = copy.deepcopy(original)
             self.value['android'][key] = value
@@ -243,7 +243,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         for value in (original.replace("versionCode='1'", "versionCode='2'"),
                       original.replace(self.version, '0.3.0-beta2'),
                       original.replace(self.identity['package_id'], 'other.app'),
-                      original.replace("sdkVersion:'24'", "sdkVersion:'25'"),
+                      original.replace("sdkVersion:'29'", "sdkVersion:'30'"),
                       original.replace("targetSdkVersion:'36'", "targetSdkVersion:'35'"),
                       original.replace(" 'x86_64'", ''), original + 'application-debuggable\n',
                       original + "testOnly='1'\n", original + "instrumentation: name='Runner'\n",
@@ -285,12 +285,12 @@ class AndroidReleaseGateTests(ReleaseGateTests):
 
     def test_accepts_modern_min_sdk_badging_and_refuses_ambiguous_or_missing_api_levels(self):
         legacy = self.badging
-        self.badging = legacy.replace("sdkVersion:'24'", "minSdkVersion:'24'")
+        self.badging = legacy.replace("sdkVersion:'29'", "minSdkVersion:'29'")
         self.assertEqual(self.verify(), self.value)
         modern = self.badging
-        for value in (modern + "sdkVersion:'24'\n", modern + "minSdkVersion:'25'\n",
+        for value in (modern + "sdkVersion:'29'\n", modern + "minSdkVersion:'30'\n",
                       legacy + "minSdkVersion:'Preview'\n",
-                      modern.replace("minSdkVersion:'24'", "minSdkVersion:'Preview'"),
+                      modern.replace("minSdkVersion:'29'", "minSdkVersion:'Preview'"),
                       modern.replace("targetSdkVersion:'36'\n", '')):
             self.badging = value
             with self.subTest(badging=value), self.assertRaises(ValueError):
@@ -302,7 +302,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         for rows in ([], matrix[1:], matrix[:2], [matrix[0], matrix[2]],
                      [row | {'abi': 'arm64-v8a'} for row in matrix], matrix + [matrix[0]],
                      matrix + [matrix[0] | {'passed': False}], matrix + [matrix[0] | {'api': True}],
-                     matrix + [matrix[0] | {'page_size': 8192}], matrix + [matrix[0] | {'abi': 'armeabi-v7a'}]):
+                     matrix + [matrix[0] | {'page_size': 8192}], matrix + [matrix[0] | {'api': 24}], matrix + [matrix[0] | {'abi': 'armeabi-v7a'}]):
             self.value = copy.deepcopy(original)
             self.value['android']['device_matrix'] = rows
             self.save()
@@ -405,7 +405,7 @@ class AndroidSDKReaderTests(unittest.TestCase):
     def test_actual_source_identity_is_read_without_executing_gradle(self):
         identity = android_release.identity_from_source(Path(__file__).parents[1])
         self.assertEqual(identity, {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': '0.3.0-beta1',
-                                    'version_code': 1, 'min_sdk': 24, 'target_sdk': 36,
+                                    'version_code': 1, 'min_sdk': 29, 'target_sdk': 36,
                                     'abis': ['arm64-v8a', 'x86_64']})
 
     def test_refuses_missing_or_ambiguous_source_identity(self):
