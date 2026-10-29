@@ -345,15 +345,22 @@ class DashboardTests(PagesCase):
         self.assertEqual((d.signin.text(), d.signin.isEnabled()), ('Signing in…', False))
         self.assertEqual(d.status.text(), 'Finish signing in to Tapas in the window that opened.')
 
-    def test_episodes_that_were_not_saved_are_said_under_the_saved_count_only_when_there_are_some(self):
+    def test_undownloaded_episodes_are_counted_on_the_dashboard_and_explained_first_in_download_settings(self):
         self.open()
         self.assertFalse(self.dashboard.not_saved.isVisible())
+        self.pages.go_to('settings/downloads')
+        self.assertTrue(self.settings.not_downloaded_row.isVisible())
+        self.assertEqual(self.settings.not_downloaded.text(), 'Every episode the app has checked is downloaded.')
+        self.pages.go_to('dashboard')
         self.actions.reading['status']['episodes_by_status'] = {'archived': 100, 'unavailable': 44}
         self.clock[0] += 5
         self.pages.poll()
         self.assertTrue(self.dashboard.not_saved.isVisible())
-        self.assertEqual(self.dashboard.not_saved.text(),
-                         'Not saved: 44 locked on your Tapas account (buy or unlock them on Tapas, then hit Go).')
+        self.assertIn('44 checked episodes were not downloaded.', self.dashboard.not_saved.text())
+        self.dashboard.not_saved.linkActivated.emit('settings/downloads')
+        self.assertTrue(self.settings.panels['downloads'].isVisible())
+        self.assertEqual(self.settings.not_downloaded.text(),
+                         '44 locked on your Tapas account. Buy or unlock them on Tapas, then hit Go.')
 
     def test_a_refusal_is_said_on_the_dashboard_and_in_settings_until_the_next_action(self):
         self.open()
