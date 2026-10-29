@@ -135,23 +135,22 @@ def space_needed(estimate):
 
 # Why a checked episode was not downloaded, in the order Settings lists them. An episode still waiting to be
 # downloaded is not one of them.
-NOT_DOWNLOADED = {'scheduled': 'not released yet.',
-                  'temporary_access': 'time-limited, with access the app couldn’t confirm is still current.',
-                  'novel': 'from novels this site’s download doesn’t support.'}
+NOT_DOWNLOADED = {'scheduled': 'Not released yet',
+                  'temporary_access': 'Time-limited, with access the app couldn’t confirm is still current',
+                  'novel': 'Novels this site’s download doesn’t support'}
 
 
 def not_downloaded(status, site):
-    """(how many, line) for each reason checked episodes were not downloaded, so a short folder is never a
-    mystery; empty when every one was."""
+    """Settings' table of why checked episodes were not downloaded: every reason, with how many, so a short
+    folder is never a mystery."""
     counts = status.get('episodes_by_status') or {}
     reasons = status.get('unsupported_by_reason') if isinstance(status.get('unsupported_by_reason'), dict) else {}
     known = {key: number(reasons.get(key)) for key in NOT_DOWNLOADED}
-    rows = [(number(counts.get('unavailable')),
-             f'locked on your {site} account. Buy or unlock them on {site}, then hit Go.')]
-    rows += [(count, NOT_DOWNLOADED[key]) for key, count in known.items()]
-    rows += [(max(0, number(counts.get('unsupported')) - sum(known.values())), 'in a form the app can’t save yet.'),
-             (number(counts.get('failed')), 'stopped by download errors.')]
-    return [(count, f'{display(count)} {line}') for count, line in rows if count]
+    rows = [(f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go', number(counts.get('unavailable')))]
+    rows += [(NOT_DOWNLOADED[key], count) for key, count in known.items()]
+    rows += [('In a form the app can’t save yet', max(0, number(counts.get('unsupported')) - sum(known.values()))),
+             ('Stopped by download errors', number(counts.get('failed')))]
+    return [{'reason': reason, 'count': display(count)} for reason, count in rows]
 
 
 def held_message(code, site, go_wait, missing):
@@ -442,14 +441,11 @@ def view(s, now):
     v['detail'] = ('Loading saved-episode count…' if s.status is None else
                    f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'} saved."
                    + (' ' + step if step else '') + older)
-    # The dashboard says how many; Settings › Downloads says why.
+    # Settings › Downloads opens with why checked episodes were not downloaded, once the library is read.
     skipped = not_downloaded(status, site) if s.status is not None else []
-    total = sum(count for count, _ in skipped)
-    v['not_saved'] = (f"{display(total)} checked {'episode was' if total == 1 else 'episodes were'} not downloaded. "
-                      '<a href="settings/downloads">See why in Settings</a>' if total else '')
-    v['not_downloaded_visible'] = s.status is not None and (bool(skipped) or bool(status.get('session_configured')))
-    v['not_downloaded'] = ('\n'.join(line for _, line in skipped) if skipped
-                           else 'Every episode the app has checked is downloaded.')
+    v['not_downloaded_visible'] = bool(skipped) and (bool(status.get('session_configured'))
+                                                     or any(row['count'] != '0' for row in skipped))
+    v['not_downloaded'] = skipped if v['not_downloaded_visible'] else []
     v['estimate'] = time_left(status.get('estimate')) if account.get('configured') and not finished else ''
     v['space'] = space_needed(status.get('estimate')) if v['estimate'] else ''
     v['live_visible'] = running

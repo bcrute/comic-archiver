@@ -328,11 +328,10 @@ class Dashboard:
             live.addWidget(part)
         box.addWidget(self.live)
         self.detail = kit.label('', 'muted')
-        self.not_saved = kit.label('', 'muted', rich=True)
         self.estimate = kit.label('', 'muted')
         self.space = kit.label('', 'muted')
         self.footnote = kit.label('', 'footnote')
-        for part in (self.detail, self.not_saved, self.estimate, self.space, self.footnote):
+        for part in (self.detail, self.estimate, self.space, self.footnote):
             box.addWidget(part)
         return self.card
 
@@ -436,7 +435,6 @@ class Dashboard:
         say(self.activity, v['activity'])
         tone(self.activity, 'tone', 'warning' if v['live_waiting'] else '')
         say(self.detail, v['detail'])
-        say(self.not_saved, v['not_saved'])
         say(self.estimate, v['estimate'])
         say(self.space, v['space'])
         say(self.footnote, v['footnote'])
@@ -509,7 +507,19 @@ class Settings:
         self.signin_note = kit.label('Sign in to a site to choose how fast it saves.', 'muted')
         box.addWidget(self.signin_note)
         # First on the tab: which checked episodes were not downloaded, and why.
-        self.not_downloaded = kit.label('')
+        self.not_downloaded = kit.w.QTableWidget(0, 2)
+        self.not_downloaded.setHorizontalHeaderLabels(['Reason', 'Episodes'])
+        self.not_downloaded.setEditTriggers(kit.w.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.not_downloaded.setSelectionMode(kit.w.QAbstractItemView.SelectionMode.NoSelection)
+        self.not_downloaded.setWordWrap(True)
+        self.not_downloaded.verticalHeader().setVisible(False)
+        self.not_downloaded.setShowGrid(False)
+        self.not_downloaded.setVerticalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.not_downloaded.setHorizontalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        modes = kit.w.QHeaderView.ResizeMode
+        self.not_downloaded.horizontalHeader().setSectionResizeMode(0, modes.Stretch)
+        self.not_downloaded.horizontalHeader().setSectionResizeMode(1, modes.ResizeToContents)
+        self.not_downloaded.setAccessibleName('Episodes not downloaded, by reason')
         self.not_downloaded_row = kit.w.QWidget()
         row = kit.w.QVBoxLayout(self.not_downloaded_row)
         row.setContentsMargins(0, 0, 0, 8)
@@ -551,6 +561,19 @@ class Settings:
         row.addWidget(kit.row(self.signout))
         box.addWidget(self.signout_row)
         return card
+
+    def _not_downloaded(self, rows):
+        table, w = self.not_downloaded, self.kit.w
+        table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            table.setItem(index, 0, w.QTableWidgetItem(row['reason']))
+            count = w.QTableWidgetItem(row['count'])
+            count.setTextAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignRight | self.kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(index, 1, count)
+        table.resizeRowsToContents()
+        # The whole table shows at once: it is short, and sits in a page that scrolls.
+        table.setFixedHeight(table.horizontalHeader().height() + sum(table.rowHeight(i) for i in range(len(rows)))
+                             + 2 * table.frameWidth())
 
     def _storage(self, kit, pages):
         w = kit.w
@@ -818,7 +841,7 @@ class Settings:
         self.signout.setEnabled(v['signout_enabled'])
         self.signout_help.setText(v['signout_help'])
         self.not_downloaded_row.setVisible(v['not_downloaded_visible'])
-        self.not_downloaded.setText(v['not_downloaded'])
+        self._not_downloaded(v['not_downloaded'])
         # Storage.
         choice = storage_model.storage_choice(s)
         self.choice.setVisible(choice['visible'])

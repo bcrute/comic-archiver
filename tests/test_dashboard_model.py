@@ -330,43 +330,40 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(series['list_count'], '12 known series still awaiting checks.')
         self.assertFalse(series['meter_visible'])
 
-    def test_checked_episodes_that_were_not_downloaded_are_counted_and_settings_says_why(self):
+    def test_download_settings_tables_why_checked_episodes_were_not_downloaded(self):
         # The first outside report: a folder stopped at 100 of 144 with nothing on screen to say why.
         reported = view(status={'session_configured': True, 'episodes_by_status': {'archived': 100, 'unavailable': 44}})
         self.assertEqual(reported['detail'], '100 episodes saved.')
-        self.assertEqual(reported['not_saved'],
-                         '44 checked episodes were not downloaded. <a href="settings/downloads">See why in Settings</a>')
+        self.assertNotIn('not_saved', reported)
         self.assertTrue(reported['not_downloaded_visible'])
-        self.assertEqual(reported['not_downloaded'], '44 locked on your Tapas account. Buy or unlock them on Tapas, then hit Go.')
+        self.assertEqual([(row['reason'], row['count']) for row in reported['not_downloaded']], [
+            ('Locked on your Tapas account. Buy or unlock them on Tapas, then hit Go', '44'),
+            ('Not released yet', '0'),
+            ('Time-limited, with access the app couldn’t confirm is still current', '0'),
+            ('Novels this site’s download doesn’t support', '0'),
+            ('In a form the app can’t save yet', '0'),
+            ('Stopped by download errors', '0')])
         every = view(sites=[dict(TAPAS, name='Webtoon')], status={
             'episodes_by_status': {'archived': 5, 'queued': 7, 'unavailable': 1200, 'unsupported': 9, 'failed': 2},
             'unsupported_by_reason': {'scheduled': 3, 'temporary_access': 2, 'novel': 1, 'reader_manifest_incomplete': 3}})
-        self.assertTrue(every['not_saved'].startswith('1,211 checked episodes were not downloaded.'))
-        self.assertEqual(every['not_downloaded'].split('\n'), [
-            '1,200 locked on your Webtoon account. Buy or unlock them on Webtoon, then hit Go.',
-            '3 not released yet.',
-            '2 time-limited, with access the app couldn’t confirm is still current.',
-            '1 from novels this site’s download doesn’t support.',
-            '3 in a form the app can’t save yet.',
-            '2 stopped by download errors.'])
-        self.assertTrue(view(status={'episodes_by_status': {'failed': 1}})['not_saved'].startswith('1 checked episode was'))
+        self.assertTrue(every['not_downloaded_visible'])
+        self.assertEqual([row['count'] for row in every['not_downloaded']], ['1,200', '3', '2', '1', '3', '2'])
+        self.assertTrue(every['not_downloaded'][0]['reason'].startswith('Locked on your Webtoon account.'))
 
-    def test_nothing_is_said_about_undownloaded_episodes_when_there_are_none_or_the_count_is_unread(self):
-        for status in ({'episodes_by_status': {'archived': 3, 'queued': 4}}, {},
-                       {'episodes_by_status': {'unavailable': -1, 'failed': '2', 'unsupported': True}}):
-            with self.subTest(status=status):
-                self.assertEqual(view(status=status)['not_saved'], '')
-                self.assertEqual(view(status=status)['not_downloaded'], 'Every episode the app has checked is downloaded.')
-        self.assertTrue(view()['not_downloaded_visible'])
-        self.assertFalse(view(status={})['not_downloaded_visible'])
+    def test_the_not_downloaded_table_waits_for_the_library_and_never_invents_or_loses_episodes(self):
         unread = view(status=None)
-        self.assertEqual((unread['not_saved'], unread['not_downloaded_visible']), ('', False))
-        # Reasons without counted episodes, or a missing breakdown, never invent or lose any.
+        self.assertEqual((unread['not_downloaded_visible'], unread['not_downloaded']), (False, []))
+        # Signed in with nothing skipped: the table shows, all zero. Signed out with nothing skipped: no table.
+        self.assertEqual([row['count'] for row in view()['not_downloaded']], ['0'] * 6)
+        self.assertFalse(view(status={'episodes_by_status': {'archived': 3}})['not_downloaded_visible'])
+        self.assertTrue(view(status={'episodes_by_status': {'failed': 1}})['not_downloaded_visible'])
+        odd = view(status={'session_configured': True,
+                           'episodes_by_status': {'unavailable': -1, 'failed': '2', 'unsupported': True}})
+        self.assertEqual([row['count'] for row in odd['not_downloaded']], ['0'] * 6)
         for reasons in (None, ['scheduled'], {'scheduled': 0}):
             with self.subTest(reasons=reasons):
-                self.assertEqual(view(status={'episodes_by_status': {'unsupported': 2},
-                                              'unsupported_by_reason': reasons})['not_downloaded'],
-                                 '2 in a form the app can’t save yet.')
+                rows = view(status={'episodes_by_status': {'unsupported': 2}, 'unsupported_by_reason': reasons})['not_downloaded']
+                self.assertEqual([row['count'] for row in rows], ['0', '0', '0', '0', '2', '0'])
 
     def test_the_saved_count_estimate_and_space_follow_what_was_read(self):
         self.assertEqual(view(status=None)['detail'], 'Loading saved-episode count…')

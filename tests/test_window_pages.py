@@ -345,22 +345,18 @@ class DashboardTests(PagesCase):
         self.assertEqual((d.signin.text(), d.signin.isEnabled()), ('Signing in…', False))
         self.assertEqual(d.status.text(), 'Finish signing in to Tapas in the window that opened.')
 
-    def test_undownloaded_episodes_are_counted_on_the_dashboard_and_explained_first_in_download_settings(self):
-        self.open()
-        self.assertFalse(self.dashboard.not_saved.isVisible())
-        self.pages.go_to('settings/downloads')
-        self.assertTrue(self.settings.not_downloaded_row.isVisible())
-        self.assertEqual(self.settings.not_downloaded.text(), 'Every episode the app has checked is downloaded.')
-        self.pages.go_to('dashboard')
+    def test_download_settings_open_with_a_table_of_why_episodes_were_not_downloaded(self):
         self.actions.reading['status']['episodes_by_status'] = {'archived': 100, 'unavailable': 44}
-        self.clock[0] += 5
-        self.pages.poll()
-        self.assertTrue(self.dashboard.not_saved.isVisible())
-        self.assertIn('44 checked episodes were not downloaded.', self.dashboard.not_saved.text())
-        self.dashboard.not_saved.linkActivated.emit('settings/downloads')
-        self.assertTrue(self.settings.panels['downloads'].isVisible())
-        self.assertEqual(self.settings.not_downloaded.text(),
-                         '44 locked on your Tapas account. Buy or unlock them on Tapas, then hit Go.')
+        self.open('settings/downloads')
+        self.assertFalse(hasattr(self.dashboard, 'not_saved'))
+        table = self.settings.not_downloaded
+        self.assertTrue(self.settings.not_downloaded_row.isVisible())
+        self.assertEqual([table.horizontalHeaderItem(i).text() for i in range(2)], ['Reason', 'Episodes'])
+        self.assertEqual([(table.item(i, 0).text(), table.item(i, 1).text()) for i in range(table.rowCount())][:2], [
+            ('Locked on your Tapas account. Buy or unlock them on Tapas, then hit Go', '44'), ('Not released yet', '0')])
+        self.assertEqual(table.rowCount(), 6)
+        # Every row shows without scrolling the table itself.
+        self.assertGreaterEqual(table.viewport().height(), sum(table.rowHeight(i) for i in range(6)))
 
     def test_a_refusal_is_said_on_the_dashboard_and_in_settings_until_the_next_action(self):
         self.open()
