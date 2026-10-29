@@ -32,11 +32,12 @@ JAVA = Path('/usr/lib/jvm/java-17-openjdk-amd64/bin/java')
 PACKAGE = build.APP_ACTIVITY.split('/')[0]
 # A fresh Google APIs image emulating 16 KB pages exhausts the default 2.5 GB within
 # seconds of boot (observed: the low-memory killer took the launcher, Play services and
-# then the app); a fleet slot has 16 GiB.
-EMULATOR_MEMORY_MB = 4096
+# then the app), so it gets 4 GB of a fleet slot's 16 GiB. API 24's image does not
+# finish booting with 4 GB (observed) and runs at its default.
 MATRIX = (
-    {'image': 'system-images;android-24;google_apis;x86_64', 'api': 24, 'page_size': 4096},
-    {'image': 'system-images;android-36;google_apis_ps16k;x86_64', 'api': 36, 'page_size': 16384},
+    {'image': 'system-images;android-24;google_apis;x86_64', 'api': 24, 'page_size': 4096, 'memory_mb': None},
+    {'image': 'system-images;android-36;google_apis_ps16k;x86_64', 'api': 36, 'page_size': 16384,
+     'memory_mb': 4096},
 )
 
 
@@ -178,7 +179,7 @@ def run(apk):
                 try:
                     with startup.open('wb') as output, \
                             build.job_emulator(paths, environment['image'], emulator_output=output,
-                                              memory_mb=EMULATOR_MEMORY_MB) as (adb, serial, _):
+                                              memory_mb=environment['memory_mb']) as (adb, serial, _):
                         row = observe(adb, serial, apk, environment, artifacts)
                 except (OSError, ValueError, RuntimeError) as error:
                     row = {'image': environment['image'], 'passed': False,
