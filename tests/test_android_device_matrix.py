@@ -19,7 +19,7 @@ SCREEN = '<hierarchy><node text="Library" content-desc=""><node text="" content-
 
 class FakeEmulator:
     def __init__(self, **changes):
-        self.facts = {"api": "36", "page": "16", "install": "Success", "start": "Status: ok", "pid": "4242",
+        self.facts = {"api": "36", "getconf": "16384", "install": "Success", "start": "Status: ok", "pid": "4242",
                       "maps": "7f00-7f10 r-xp 0 00:00 1 /data/app/lib/x86_64/libpython3.13.so",
                       "focus": "  mCurrentFocus=Window{1 u0 io.github.bcrute.comicarchiver/.MainActivity}",
                       "crash": "", "type": "userdebug"} | changes
@@ -36,8 +36,10 @@ class FakeEmulator:
             out = self.facts["api"]
         elif command[:2] == ["getprop", "ro.product.cpu.abi"]:
             out = "x86_64"
+        elif command == ["getconf", "PAGE_SIZE"]:
+            out = self.facts["getconf"]
         elif command == ["cat", "/proc/self/smaps"]:
-            out = f"Size:                  4 kB\nKernelPageSize:       {self.facts['page']} kB\n"
+            out = "Size:                  4 kB\nKernelPageSize:        4 kB\n"
         elif verb == "install":
             out = self.facts["install"]
         elif command[:2] == ["am", "start"]:
@@ -68,7 +70,7 @@ class ObserveTests(unittest.TestCase):
         self.assertEqual(row["screen_text"], ["Library", "Settings"])
 
     def test_each_missing_observation_fails_its_own_check(self):
-        cases = {"page_size": {"page": "4"}, "api": {"api": "35"}, "installed": {"install": "Failure"},
+        cases = {"page_size": {"getconf": "4096"}, "api": {"api": "35"}, "installed": {"install": "Failure"},
                  "launched": {"start": "Error: Activity not started"}, "running": {"pid": ""},
                  "python_loaded": {"maps": "7f00-7f10 r-xp 0 00:00 1 /system/lib64/libc.so"},
                  "in_front": {"focus": "  mCurrentFocus=Window{1 u0 com.android.launcher3/.Launcher}"},
@@ -87,10 +89,22 @@ class ObserveTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
-    def test_page_size_reads_the_kernel_page_size_not_the_mapping_size(self):
-        self.assertEqual(matrix.page_size("Size: 8 kB\nKernelPageSize:        4 kB\n"), 4096)
-        self.assertEqual(matrix.page_size("KernelPageSize:       16 kB\n"), 16384)
-        self.assertIsNone(matrix.page_size("cat: /proc/self/smaps: No such file"))
+    def test_page_size_is_what_apps_see_with_the_kernels_only_without_getconf(self):
+        smaps = "Size: 8 kB\nKernelPageSize:        4 kB\n"
+        self.assertEqual(matrix.page_size("16384\n", smaps), 16384)
+        self.assertEqual(matrix.page_size("/system/bin/sh: getconf: not found", smaps), 4096)
+        self.assertIsNone(matrix.page_size("", "cat: /proc/self/smaps: No such file"))
+
+    def test_python_shows_as_libpython_or_chaquopys_extracted_cpython_313_modules(self):
+        maps = ("7f00-7f10 r-xp 00000000 fe:00 1 /data/app/~~x==/io.github.bcrute.comicarchiver-y==/base.apk\n"
+                "7f10-7f20 r-xp 00000000 fe:00 2 /data/user/0/io.github.bcrute.comicarchiver/files/chaquopy/"
+                "AssetFinder/stdlib-x86_64/_json.cpython-313-x86_64-linux-android.so\n"
+                "7f20-7f30 r-xp 00000000 fe:00 3 /data/local/tmp/other.cpython-313.so\n"
+                "7f30-7f40 rw-p 00000000 00:00 0 \n")
+        self.assertEqual(matrix.python_mappings(maps), [
+            "/data/user/0/io.github.bcrute.comicarchiver/files/chaquopy/AssetFinder/stdlib-x86_64/"
+            "_json.cpython-313-x86_64-linux-android.so"])
+        self.assertEqual(matrix.python_mappings("7f00-7f10 r-xp 0 00:00 1 /system/lib64/libc.so"), [])
 
     def test_unreadable_screen_dump_has_no_text(self):
         self.assertEqual(matrix.screen_text("ERROR: null root node"), [])

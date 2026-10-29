@@ -36,10 +36,22 @@ MATRIX = (
 )
 
 
-def page_size(smaps):
-    """The kernel page size from a process's smaps ("KernelPageSize:  16 kB"), in bytes."""
+def page_size(getconf, smaps):
+    """The page size apps see, in bytes. x86_64 16 KB images emulate it over a 4 KB kernel,
+    so getconf (Android's documented check) wins; API 24 has no getconf, so smaps answers."""
+    if getconf.strip().isdigit():
+        return int(getconf.strip())
     match = re.search(r'^KernelPageSize:\s+(\d+) kB\s*$', smaps, re.M)
     return int(match[1]) * 1024 if match else None
+
+
+def python_mappings(maps):
+    """The app process's mapped files that show embedded Python is running: libpython itself,
+    or the CPython 3.13 extension modules Chaquopy extracts (a release build maps libpython
+    straight out of the APK, so its own name need not appear)."""
+    paths = {line.split(None, 5)[5].strip() for line in maps.splitlines() if len(line.split(None, 5)) == 6}
+    return sorted(path for path in paths if 'libpython3.13.so' in path or
+                  ('/chaquopy/' in path and '.cpython-313' in path and path.endswith('.so')))
 
 
 def screen_text(hierarchy):
@@ -79,14 +91,16 @@ def observe(adb, serial, apk, expected, folder, runner=build.run_tool):
     api = shell('getprop', 'ro.build.version.sdk')['tail'].strip()
     facts['api'] = int(api) if api.isdigit() else None
     facts['abi'] = shell('getprop', 'ro.product.cpu.abi')['tail'].strip()
-    facts['page_size'] = page_size(shell('cat', '/proc/self/smaps', keep_bytes=200000)['tail'])
+    facts['page_size'] = page_size(shell('getconf', 'PAGE_SIZE')['tail'],
+                                   shell('cat', '/proc/self/smaps', keep_bytes=200000)['tail'])
     checks['api'] = facts['api'] == expected['api']
     checks['page_size'] = facts['page_size'] == expected['page_size']
     checks['abi'] = facts['abi'] in build.ABI_FILTERS
 
     install = runner([*prefix, 'install', str(apk)], timeout=600)
     checks['installed'] = install['returncode'] == 0 and 'Success' in install['tail'].splitlines()
-    checks['log_cleared'] = runner([*prefix, 'logcat', '-b', 'all', '-c'], timeout=60)['returncode'] == 0
+    checks['log_cleared'] = runner([*prefix, 'logcat', '-b', 'main', '-b', 'system', '-b', 'crash', '-c'],
+                                   timeout=60)['returncode'] == 0
     launched = shell('am', 'start', '-W', '-n', build.APP_ACTIVITY, timeout=120)
     checks['launched'] = launched['returncode'] == 0 and 'Status: ok' in launched['tail'].splitlines()
     time.sleep(30)
@@ -94,7 +108,9 @@ def observe(adb, serial, apk, expected, folder, runner=build.run_tool):
     pid = shell('pidof', PACKAGE)['tail'].strip()
     checks['running'] = pid.isdigit()
     maps = shell('cat', f'/proc/{pid}/maps', keep_bytes=400000)['tail'] if checks['running'] else ''
-    checks['python_loaded'] = 'libpython3.13.so' in maps
+    (folder / f"api{expected['api']}-maps.txt").write_text(maps)
+    facts['python_mappings'] = python_mappings(maps)[:20]
+    checks['python_loaded'] = bool(facts['python_mappings'])
     windows = shell('dumpsys', 'window', keep_bytes=200000)['tail']
     focus = [line.strip() for line in windows.splitlines() if 'mCurrentFocus' in line]
     facts['focus'] = focus[:2]
