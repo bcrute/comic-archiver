@@ -1485,10 +1485,11 @@ class EmulatorError(RuntimeError):
 
 
 @contextlib.contextmanager
-def job_emulator(paths, image, *, emulator_output=None):
+def job_emulator(paths, image, *, emulator_output=None, memory_mb=None):
     """Create, boot and own one job-private AVD of `image`, yielding (adb, serial, avd name).
 
-    The AVD is retired and deleted however the caller's work ends.
+    `memory_mb` overrides the image's default RAM. The AVD is retired and deleted however
+    the caller's work ends.
     """
     sdk = pathlib.Path(paths["sdk"])
     adb = sdk / "platform-tools/adb"
@@ -1513,7 +1514,8 @@ def job_emulator(paths, image, *, emulator_output=None):
         serial = f"emulator-{port}"
         process = subprocess.Popen(
             [str(emulator), "-avd", avd_name, "-port", str(port), "-no-window", "-no-snapshot",
-             "-no-audio", "-no-boot-anim", "-gpu", "swiftshader_indirect"],
+             "-no-audio", "-no-boot-anim", "-gpu", "swiftshader_indirect",
+             *(["-memory", str(memory_mb)] if memory_mb else [])],
             stdout=emulator_output if emulator_output is not None else subprocess.DEVNULL, stderr=subprocess.STDOUT,
             env={**os.environ, "ANDROID_AVD_HOME": str(avd_home), "ANDROID_HOME": str(sdk),
                  "ANDROID_SDK_ROOT": str(sdk)})
