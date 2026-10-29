@@ -161,6 +161,37 @@ class ConnectedIceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         await self.assert_retired(left, owner)
 
 
+    async def test_a_check_arriving_before_the_peers_credentials_waits_for_them(self):
+        first, left, owner = await self.native()
+        second, right, _ = await self.native()
+        owner.connection.ice_controlling = True
+        # The silent candidate alone gives the left side a check list, so the
+        # right side's checks arrive from an address it has not been told about.
+        await left.addRemoteCandidate(self.silent_candidate())
+        for candidate in first.getLocalCandidates():
+            await right.addRemoteCandidate(candidate)
+        answering = asyncio.create_task(right.start(first.getLocalParameters()))
+        try:
+            end = self.loop.time() + 4
+            while not any(
+                pair.remote_addr != self.address for pair in owner.connection._check_list
+            ):
+                self.assertLess(self.loop.time(), end)
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
+            self.assertIsNone(owner.connection.remote_password)
+            self.assertEqual(
+                [pair.task for pair in owner.connection._check_list if pair.task], []
+            )
+            await asyncio.wait_for(left.start(second.getLocalParameters()), 8)
+            await asyncio.wait_for(answering, 8)
+            self.assertEqual((left.state, right.state), ("completed", "completed"))
+            await self.assert_retired(left, owner)
+        finally:
+            if not answering.done():
+                answering.cancel()
+                await asyncio.gather(answering, return_exceptions=True)
+
 class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.pcs, self.owners, self.errors = [], [], []

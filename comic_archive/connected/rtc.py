@@ -78,7 +78,10 @@ class _IceRetirement:
         return result
 
     def start(self, pair):
-        if not self.retiring:
+        # A peer's check can arrive before its credentials do; aioice would start
+        # the triggered check anyway, fail on the missing password and strand the
+        # pair. Leave it waiting: connect() checks it once the credentials arrive.
+        if not self.retiring and self.connection.remote_password is not None:
             self._original_start(pair)
 
     def incoming(self, *args):

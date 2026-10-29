@@ -4606,5 +4606,13 @@
   "new": "    rows = [(f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go', 0)]",
   "test_file": "test_dashboard_model.py",
   "test": "test_download_settings_tables_why_checked_episodes_were_not_downloaded"
+ },
+ {
+  "id": "ice-triggered-check-before-peer-credentials",
+  "source": "comic_archive/connected/rtc.py",
+  "old": "        if not self.retiring and self.connection.remote_password is not None:\n",
+  "new": "        if not self.retiring:\n",
+  "test_file": "test_connected_rtc_lifecycle.py",
+  "test": "test_a_check_arriving_before_the_peers_credentials_waits_for_them"
  }
 ]
