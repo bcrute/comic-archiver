@@ -29,6 +29,7 @@ as on success.
 import argparse
 import base64
 import binascii
+import contextlib
 import fnmatch
 import hashlib
 import html
@@ -1479,26 +1480,20 @@ def phase_instrumentation_build(paths, wheels):
     return ok
 
 
-def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
-    if not _emulator_capable():
-        record("in_app", "pending", reason="no accessible /dev/kvm in this job; native emulator gate pending")
-        record("beta_integration", "pending", reason="no accessible /dev/kvm in this job")
-        return
-    sdk = paths["sdk"]
+class EmulatorError(RuntimeError):
+    """This job's own emulator could not be created, booted or proven to be ours."""
+
+
+@contextlib.contextmanager
+def job_emulator(paths, image, *, emulator_output=None):
+    """Create, boot and own one job-private AVD of `image`, yielding (adb, serial, avd name).
+
+    The AVD is retired and deleted however the caller's work ends.
+    """
+    sdk = pathlib.Path(paths["sdk"])
     adb = sdk / "platform-tools/adb"
     emulator = sdk / "emulator/emulator"
     avdmanager = sdk / "cmdline-tools/latest/bin/avdmanager"
-    preflight = report["phases"].get("preflight", {})
-    images = preflight.get("system_images") or []
-    image = next((item for item in images if item.endswith(";x86_64")),
-                 next((item for item in images if item.endswith(";arm64-v8a")), None))
-    if not (adb.is_file() and emulator.is_file() and avdmanager.is_file() and image):
-        record("in_app", "pending", reason="no avdmanager/emulator/system image",
-               adb=adb.is_file(), emulator=emulator.is_file(), avdmanager=avdmanager.is_file(),
-               system_image=image)
-        record("beta_integration", "pending", reason="native emulator prerequisites unavailable")
-        return
-
     avd_home = JOB_DIR / "avd"
     avd_home.mkdir(parents=True, exist_ok=True)
     avd_name = f"comic-archiver-feasibility-{os.getpid()}"
@@ -1510,10 +1505,8 @@ def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
     created = run_tool([str(avdmanager), "create", "avd", "-n", avd_name, "-k", image, "--force"],
                        timeout=300, env_extra=env_java, input_bytes="no\n")
     if created["returncode"] != 0:
-        record("in_app", "failed", reason="avd creation failed", tail=created["tail"])
-        record("beta_integration", "skipped", reason="avd creation failed")
         shutil.rmtree(avd_home, ignore_errors=True)
-        return
+        raise EmulatorError(f"avd creation failed: {created['tail'][-400:]}")
     serial, process, owned = None, None, False
     try:
         port = _free_port()
@@ -1535,54 +1528,12 @@ def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
                 break
             time.sleep(5)
         if not booted:
-            record("in_app", "failed", reason="job emulator did not finish booting")
-            record("beta_integration", "skipped", reason="job emulator did not finish booting")
-            return
+            raise EmulatorError("job emulator did not finish booting")
         identity = run_tool([str(adb), "-s", serial, "emu", "avd", "name"], timeout=60)
         if identity["returncode"] != 0 or identity["tail"].splitlines()[:1] != [avd_name]:
-            record("in_app", "failed", reason="selected emulator is not this job's AVD")
-            record("beta_integration", "skipped", reason="emulator ownership was not verified")
-            return
+            raise EmulatorError("selected emulator is not this job's AVD")
         owned = True
-        properties = {}
-        for key, prop in (("abi", "ro.product.cpu.abi"), ("api", "ro.build.version.sdk")):
-            properties[key] = run_tool([str(adb), "-s", serial, "shell", "getprop", prop], timeout=60)["tail"].strip()
-        install = run_tool([str(adb), "-s", serial, "install", "-r", str(APK)], timeout=600)
-        cleared = run_tool([str(adb), "-s", serial, "logcat", "-c"], timeout=60)
-        launched = run_tool([str(adb), "-s", serial, "shell", "am", "start", "-W", "-n", APP_ACTIVITY,
-                             "--ez", "selfcheck", "true"], timeout=120)
-        time.sleep(20)
-        log = run_tool([str(adb), "-s", serial, "logcat", "-d", "-s", SELF_TAG, "-v", "raw"], timeout=120)
-        line = next((json.loads(piece) for piece in log["tail"].splitlines()
-                     if piece.strip().startswith("{") and SELF_IDENTITY in piece and _json_ok(piece)), None)
-        checks = _evaluate_selfcheck(line)
-        checks["install_ok"] = install["returncode"] == 0 and "Success" in install["tail"].splitlines()
-        checks["log_cleared"] = cleared["returncode"] == 0
-        checks["launch_ok"] = launched["returncode"] == 0 and "Status: ok" in launched["tail"].splitlines()
-        checks["log_read"] = log["returncode"] == 0
-        checks["abi_allowed"] = properties["abi"] in ABI_FILTERS
-        record("in_app", "passed" if checks and all(checks.values()) else "failed",
-               install_ok=checks["install_ok"], evidence=line, checks=checks,
-               abi=properties["abi"], api=properties["api"], tail=log["tail"][:2000])
-        if not all(checks.values()):
-            record("beta_integration", "skipped", reason="native selfcheck did not pass")
-        elif test_apk is None:
-            record("beta_integration", "pending", reason="required instrumentation APK not selected")
-        else:
-            if __package__:
-                from .android_beta_integration import run as beta_journey
-            else:
-                from android_beta_integration import run as beta_journey
-            try:
-                result = (journey or beta_journey)(adb, serial, avd_name, test_apk,
-                                      REPO.parent / "artifacts/beta-integration", run_tool)
-                record("beta_integration", "passed", **result)
-            except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-                record("beta_integration", "failed", error_type=type(error).__name__, reason=str(error)[:400])
-    except (ValueError, OSError, RuntimeError) as error:
-        record("in_app", "failed", reason="emulator or selfcheck observation failed",
-               error_type=type(error).__name__)
-        record("beta_integration", "skipped", reason="native execution failed")
+        yield adb, serial, avd_name
     finally:
         if serial and owned:
             run_tool([str(adb), "-s", serial, "emu", "kill"], timeout=120)
@@ -1594,6 +1545,71 @@ def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
             process.kill()
         run_tool([str(avdmanager), "delete", "avd", "-n", avd_name], timeout=120, env_extra=env_java)
         shutil.rmtree(avd_home, ignore_errors=True)
+
+
+def phase_in_app(paths, test_apk=None, *, journey=None, emulator_output=None):
+    if not _emulator_capable():
+        record("in_app", "pending", reason="no accessible /dev/kvm in this job; native emulator gate pending")
+        record("beta_integration", "pending", reason="no accessible /dev/kvm in this job")
+        return
+    sdk = paths["sdk"]
+    adb = sdk / "platform-tools/adb"
+    emulator = sdk / "emulator/emulator"
+    avdmanager = sdk / "cmdline-tools/latest/bin/avdmanager"
+    preflight = report["phases"].get("preflight", {})
+    images = preflight.get("system_images") or []
+    image = next((item for item in images if item.endswith(";x86_64")),
+                 next((item for item in images if item.endswith(";arm64-v8a")), None))
+    if not (adb.is_file() and emulator.is_file() and avdmanager.is_file() and image):
+        record("in_app", "pending", reason="no avdmanager/emulator/system image",
+               adb=adb.is_file(), emulator=emulator.is_file(), avdmanager=avdmanager.is_file(),
+               system_image=image)
+        record("beta_integration", "pending", reason="native emulator prerequisites unavailable")
+        return
+    try:
+        with job_emulator(paths, image, emulator_output=emulator_output) as (adb, serial, avd_name):
+            properties = {}
+            for key, prop in (("abi", "ro.product.cpu.abi"), ("api", "ro.build.version.sdk")):
+                properties[key] = run_tool([str(adb), "-s", serial, "shell", "getprop", prop], timeout=60)["tail"].strip()
+            install = run_tool([str(adb), "-s", serial, "install", "-r", str(APK)], timeout=600)
+            cleared = run_tool([str(adb), "-s", serial, "logcat", "-c"], timeout=60)
+            launched = run_tool([str(adb), "-s", serial, "shell", "am", "start", "-W", "-n", APP_ACTIVITY,
+                                 "--ez", "selfcheck", "true"], timeout=120)
+            time.sleep(20)
+            log = run_tool([str(adb), "-s", serial, "logcat", "-d", "-s", SELF_TAG, "-v", "raw"], timeout=120)
+            line = next((json.loads(piece) for piece in log["tail"].splitlines()
+                         if piece.strip().startswith("{") and SELF_IDENTITY in piece and _json_ok(piece)), None)
+            checks = _evaluate_selfcheck(line)
+            checks["install_ok"] = install["returncode"] == 0 and "Success" in install["tail"].splitlines()
+            checks["log_cleared"] = cleared["returncode"] == 0
+            checks["launch_ok"] = launched["returncode"] == 0 and "Status: ok" in launched["tail"].splitlines()
+            checks["log_read"] = log["returncode"] == 0
+            checks["abi_allowed"] = properties["abi"] in ABI_FILTERS
+            record("in_app", "passed" if checks and all(checks.values()) else "failed",
+                   install_ok=checks["install_ok"], evidence=line, checks=checks,
+                   abi=properties["abi"], api=properties["api"], tail=log["tail"][:2000])
+            if not all(checks.values()):
+                record("beta_integration", "skipped", reason="native selfcheck did not pass")
+            elif test_apk is None:
+                record("beta_integration", "pending", reason="required instrumentation APK not selected")
+            else:
+                if __package__:
+                    from .android_beta_integration import run as beta_journey
+                else:
+                    from android_beta_integration import run as beta_journey
+                try:
+                    result = (journey or beta_journey)(adb, serial, avd_name, test_apk,
+                                          REPO.parent / "artifacts/beta-integration", run_tool)
+                    record("beta_integration", "passed", **result)
+                except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                    record("beta_integration", "failed", error_type=type(error).__name__, reason=str(error)[:400])
+    except EmulatorError as error:
+        record("in_app", "failed", reason=str(error))
+        record("beta_integration", "skipped", reason=str(error))
+    except (ValueError, OSError, RuntimeError) as error:
+        record("in_app", "failed", reason="emulator or selfcheck observation failed",
+               error_type=type(error).__name__)
+        record("beta_integration", "skipped", reason="native execution failed")
 
 
 def _json_ok(text):
@@ -1751,11 +1767,21 @@ def release_apk():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", default="dev-apk",
-                        choices=["dev-apk", "release-apk", "all", "preflight", "sdist"],
+                        choices=["dev-apk", "release-apk", "device-matrix", "all", "preflight", "sdist"],
                         help="dev-apk builds for phone work; release-apk signs with the injected owner key; "
+                             "device-matrix runs a release APK on the matrix's emulators; "
                              "all runs final qualification after parity")
     parser.add_argument("--wheels", type=pathlib.Path, help="Retained Android wheels (required for dev-apk)")
+    parser.add_argument("--apk", type=pathlib.Path, help="The inspected release APK (required for device-matrix)")
     args = parser.parse_args()
+    if args.phase == "device-matrix":
+        if args.apk is None:
+            parser.error("device-matrix needs --apk")
+        if __package__:
+            from .android_device_matrix import run as device_matrix
+        else:
+            from android_device_matrix import run as device_matrix
+        return device_matrix(args.apk.resolve(strict=True))
     if args.phase == "release-apk":
         return release_apk()
     if args.phase == "dev-apk":
