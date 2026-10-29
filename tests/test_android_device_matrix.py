@@ -48,6 +48,8 @@ class FakeEmulator:
             out = self.facts["pid"]
         elif command[:1] == ["cat"] and command[1].endswith("/maps"):
             out = self.facts["maps"]
+        elif command[:3] == ["dumpsys", "activity", "exit-info"]:
+            out = self.facts.get("exits", "")
         elif command[:2] == ["dumpsys", "window"]:
             out = self.facts["focus"]
         elif verb == "logcat" and "crash" in argv:
@@ -81,6 +83,14 @@ class ObserveTests(unittest.TestCase):
                 row, _ = self.observe(**changes)
                 self.assertFalse(row["passed"])
                 self.assertFalse(row["checks"][check])
+
+    def test_androids_exit_reasons_for_the_app_are_kept(self):
+        exits = ("  package: io.github.bcrute.comicarchiver\n    ApplicationExitInfo #0:\n"
+                 "      timestamp=2026-10-29 00:25:40.000 pid=4242 realUid=10190 packageUid=10190\n"
+                 "      reason=3 (LOW_MEMORY) subreason=0 (UNKNOWN) status=0\n")
+        row, _ = self.observe(exits=exits, pid="")
+        self.assertEqual(row["exit_reasons"], ["LOW_MEMORY"])
+        self.assertFalse(row["passed"])
 
     def test_the_exact_apk_is_installed_fresh_without_replacing_or_test_flags(self):
         _, fake = self.observe()

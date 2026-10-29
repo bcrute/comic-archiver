@@ -126,7 +126,13 @@ def observe(adb, serial, apk, expected, folder, runner=build.run_tool):
     checks['screen_has_text'] = bool(facts['screen_text'])
     shell('screencap', '-p', '/sdcard/matrix.png')
     runner([*prefix, 'pull', '/sdcard/matrix.png', str(folder / f"api{expected['api']}.png")], timeout=120)
-    logs = runner([*prefix, 'logcat', '-d', '-t', '800'], timeout=60, keep_bytes=120000)
+    if (facts['api'] or 0) >= 30:
+        # Android's own record of why the app's process last ended (killed, low memory, ANR...).
+        exits = shell('dumpsys', 'activity', 'exit-info', PACKAGE, keep_bytes=40000)['tail']
+        (folder / f"api{expected['api']}-exit-info.txt").write_text(exits)
+        facts['exit_reasons'] = sorted(set(re.findall(r'(?<!sub)reason=\d+ \(([A-Z_ ]+)\)', exits)))
+    logs = runner([*prefix, 'logcat', '-d', '-b', 'main', '-b', 'system', '-b', 'crash'],
+                  timeout=120, keep_bytes=4000000)
     (folder / f"api{expected['api']}-logcat.txt").write_text(logs['tail'])
     return {**facts, 'image': expected['image'], 'checks': checks, 'passed': all(checks.values())}
 
