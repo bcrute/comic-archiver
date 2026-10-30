@@ -180,12 +180,18 @@ class BetaJourneyTest {
         nativeClick(By.desc("Library options"), "Library options", 10_000)
     }
     private fun openExport() { openLibraryOptions(); click("Export files") }
+    private fun openSetting(name: String) {
+        click("Settings")
+        // Settings reopens on the page it last showed; start again from its list.
+        if (device.wait(Until.hasObject(By.text("All settings")), 1_500)) click("All settings")
+        click(name)
+    }
     private fun allowFixtureConnectionIfHeld() {
         await("native connection settings") { app.controller.state.value.settings != null }
         if (app.controller.state.value.settings?.allowed == false) {
             // An emulator's real default route may be metered/unknown. Exercise
             // the user's normal explicit opt-in, never falsify platform facts.
-            click("Settings"); click("Download preferences")
+            openSetting("Download preferences")
             nativeClick(By.desc("Also save on metered and mobile connections"), "Metered connection opt-in", 10_000) {
                 assertFalse(it.isChecked)
             }
@@ -370,9 +376,7 @@ class BetaJourneyTest {
                 val observed = requireNotNull(app.contentResolver.openInputStream(uri)).use { hash(it.readBytes()) }
                 assertEquals(expected, observed)
             }
-            click("Settings")
-            if (device.wait(Until.hasObject(By.text("All settings")), 1_500)) click("All settings")
-            click("Working libraries")
+            openSetting("Working libraries")
             click("Use this working library") // Only the retained original is not current.
             await("original working library restored") { app.workspace.libraryId == original.libraryId && !app.controller.state.value.libraryBusy }
             await("original account restored without a new sign-in", 30_000) {
@@ -469,8 +473,7 @@ class BetaJourneyTest {
             }
             assertTrue(archives().none { it.extension == "cbz" })
             stage("paused")
-            click("Settings")
-            click("Download preferences")
+            openSetting("Download preferences")
             click("Fast")
             await("stored native Fast choice") { app.controller.state.value.settings?.speed == "fast" &&
                 app.controller.state.value.settings?.speeds?.any { it.key == "fast" && it.available } == true }
