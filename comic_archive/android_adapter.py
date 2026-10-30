@@ -390,10 +390,16 @@ def signed_in_probe(cookie_source=None, cookie_sink=None, transport=None, expect
     URL or cookie ever leaves this call or is written anywhere.
     """
     try:
-        with AndroidTapasAdapter(cookie_source=cookie_source, cookie_sink=cookie_sink,
-                                 transport=transport, expected_account_id=expected_account_id,
-                                 network_guard=network_guard):
-            return {'signed_in': True, 'verified': True, 'reason': None}
+        adapter = AndroidTapasAdapter(cookie_source=cookie_source, cookie_sink=cookie_sink,
+                                      transport=transport, expected_account_id=expected_account_id,
+                                      network_guard=network_guard)
+        try:
+            adapter.__enter__()
+        finally:
+            # A refused who-am-i raises out of __enter__, where a with block would never
+            # close the connection; the probe repeats until sign-in, so each one would stay open.
+            adapter.transport.close()
+        return {'signed_in': True, 'verified': True, 'reason': None}
     except AuthenticationError:
         return {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'}
     except ArchiveError:

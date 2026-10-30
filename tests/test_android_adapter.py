@@ -361,6 +361,14 @@ class SignedInProbeTests(unittest.TestCase):
         self.assertEqual(signed_in_probe(transport=failing),
                          {'signed_in': False, 'verified': False, 'reason': 'unavailable'})
 
+    def test_every_probe_closes_its_connection_whatever_the_answer(self):
+        signed_in = library_transport()
+        denying = SyntheticTransport({WHO_AM_I: body({'data': {}})})
+        failing = SyntheticTransport({WHO_AM_I: ArchiveError('unavailable')}, store=Store(broken=True))
+        for transport in (signed_in, denying, failing):
+            signed_in_probe(transport=transport)
+            self.assertTrue(transport.client_fake.closed)
+
     def test_an_expected_account_change_is_reported_by_the_probe_not_signed_in(self):
         # The probe runs the real who-am-i gate with its expected-account rule: the same
         # live cookies, the wrong account, is still not a sign-in.

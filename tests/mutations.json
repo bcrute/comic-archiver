@@ -4614,5 +4614,13 @@
   "new": "        if not self.retiring:\n",
   "test_file": "test_connected_rtc_lifecycle.py",
   "test": "test_a_check_arriving_before_the_peers_credentials_waits_for_them"
+ },
+ {
+  "id": "signin-probe-closes-on-refusal",
+  "source": "comic_archive/android_adapter.py",
+  "old": "        try:\n            adapter.__enter__()\n        finally:\n",
+  "new": "        adapter.__enter__()\n        if True:\n",
+  "test_file": "test_android_adapter.py",
+  "test": "test_every_probe_closes_its_connection_whatever_the_answer"
  }
 ]
