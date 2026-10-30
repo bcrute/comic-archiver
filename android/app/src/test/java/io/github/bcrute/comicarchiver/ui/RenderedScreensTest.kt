@@ -1136,7 +1136,7 @@ class RenderedScreensTest {
     }
 
     @Test
-    @Config(sdk = [24])
+    @Config(sdk = [29])
     @Suppress("DEPRECATION")
     fun aboutKeepsVersionWhenApkCannotBeReadOnTheOldestSupportedApi() {
         val app = RuntimeEnvironment.getApplication()

@@ -17,7 +17,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [24, 34])
+@Config(application = Application::class, sdk = [29, 34])
 class DownloadNotificationsTest {
     @Test fun appPermissionAndChannelBlocksOfferTheRightRecovery() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
