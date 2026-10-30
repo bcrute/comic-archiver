@@ -562,6 +562,9 @@ def _sdk_build_packages(names, *, emulator_capable):
                          if re.fullmatch(r"system-images;android-\d+(?:\.\d+)?;[a-z0-9_]+;x86_64", name)),
                         key=lambda name: (tuple(int(part) for part in name.split(";")[1][8:].split(".")), name))
         images = [name for name in images if "ps16k" not in name] or images
+        # AVD Manager does not register a minor-release image such as android-37.0 (its
+        # zip has no package.xml), so the newest whole-number API level boots instead.
+        images = [name for name in images if "." not in name.split(";")[1]] or images
         wanted.append("emulator")
         if images:
             wanted.append(images[-1])

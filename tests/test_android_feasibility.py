@@ -28,12 +28,22 @@ class EmulatorCapacityTests(unittest.TestCase):
         self.assertIn("system-images;android-36;google_apis;x86_64", wanted)
         self.assertNotIn("system-images;android-36;google_apis_ps16k;x86_64", wanted)
 
+    def test_a_whole_api_level_is_preferred_over_minor_images_avd_manager_cannot_register(self):
+        images = {"system-images;android-37.0;google_apis;x86_64",
+                  "system-images;android-37.10;google_apis;x86_64"}
+        wanted = feasibility._sdk_build_packages(self.PACKAGES | images, emulator_capable=True)
+        self.assertEqual([name for name in wanted if name.startswith("system-images;")],
+                         ["system-images;android-36;google_apis;x86_64"])
+
     def test_stable_minor_images_are_ordered_numerically_and_preview_names_are_excluded(self):
         images = {"system-images;android-37.2;google_apis;x86_64",
                   "system-images;android-37.10;google_apis;x86_64",
                   "system-images;android-38.0-beta1;google_apis;x86_64",
                   "system-images;android-38.0;google_apis_ps16k;x86_64"}
-        wanted = feasibility._sdk_build_packages(self.PACKAGES | images, emulator_capable=True)
+        whole = {"system-images;android-36;google_apis;x86_64",
+                 "system-images;android-36;google_apis_ps16k;x86_64"}
+        # Only when no whole-number image exists does the newest minor release stand in.
+        wanted = feasibility._sdk_build_packages((self.PACKAGES - whole) | images, emulator_capable=True)
         self.assertEqual([name for name in wanted if name.startswith("system-images;")],
                          ["system-images;android-37.10;google_apis;x86_64"])
         wanted = feasibility._sdk_build_packages(self.PACKAGES | images, emulator_capable=False)
