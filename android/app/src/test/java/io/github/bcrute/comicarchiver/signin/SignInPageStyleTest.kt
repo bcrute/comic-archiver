@@ -9,11 +9,14 @@ class SignInPageStyleTest {
     @Test fun tapasHidesItsCookieNoticeOnItsOwnSignInPagesOnly() {
         assertEquals(listOf("#gdpr-cookie-message"), tapas.signInHidden)
         assertEquals(setOf("https://m.tapas.io", "https://tapas.io"), SignInPageStyle.origins(tapas))
+        val rule = "\"#gdpr-cookie-message{display:none!important}\""
         val script = requireNotNull(SignInPageStyle.script(tapas.signInHidden))
-        assertTrue(script.contains("\"#gdpr-cookie-message{display:none!important}\""))
-        // A style rule only: nothing is clicked, answered, sent or read back.
+        assertTrue(script.contains(rule))
+        // A style rule only: nothing is clicked, answered, sent or read back. The rule
+        // itself names the notice, so only the code around it is checked.
+        val code = script.replace(rule, "")
         listOf("click", "postMessage", "cookie", "fetch", "localStorage").forEach {
-            assertFalse("The hide rule must not use $it", script.contains(it))
+            assertFalse("The hide rule must not use $it", code.contains(it))
         }
     }
 
