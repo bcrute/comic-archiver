@@ -25,8 +25,7 @@ class LocalLibraryTests(unittest.TestCase):
         self.registry = LocalWorkspaceRegistry(self.root)
         self.workspace = self.registry.resolve(LOCAL_OWNER, self.registry.workspace_id)
         # What the window asks of the library goes through the same calls the window makes.
-        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder=self.workspace.library,
-                                       site_settings=SimpleNamespace(list=list))
+        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder=self.workspace.library)
         self.actions = Actions(lambda: self.runtime)
 
     def file_to_open(self):

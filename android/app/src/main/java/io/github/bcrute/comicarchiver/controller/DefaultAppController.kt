@@ -439,11 +439,6 @@ class DefaultAppController(
         changeSettings(JSONObject().put("speed", value))
     }
 
-    override fun setSiteDownloadSpeed(site: String, value: String) {
-        if (site == location.key) return
-        changeSettings(JSONObject().put("site_key", site).put("speed", value))
-    }
-
     override fun refreshCloud() {
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
         val target = location; val version = siteVersion

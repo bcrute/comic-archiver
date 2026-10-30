@@ -55,8 +55,6 @@ class FakeActions:
     def __init__(self):
         self.calls, self.refused, self.answers = [], {}, []
         self.cloud_offered, self.summary_fails, self.task_result, self.total = True, False, None, 2
-        self.site_settings = [{'key': 'tapas', 'name': 'Tapas', 'current': True, 'speed': 'fast'},
-                              {'key': 'tappytoon', 'name': 'Tappytoon', 'current': False, 'speed': 'slow'}]
         self.reading = {
             'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}, 'episodes_by_status': {'archived': 60}},
             'account': {'status': 'stopped', 'configured': True, 'speed': 'fast'},
@@ -81,7 +79,7 @@ class FakeActions:
                           {'key': 'tappytoon', 'name': 'Tappytoon', 'available': True, 'current': False},
                           {'key': 'webtoon', 'name': 'Webtoon', 'available': True, 'current': False},
                           {'key': 'later', 'name': 'Elsewhere', 'available': False, 'current': False}],
-                'site_settings': copy.deepcopy(self.site_settings), 'library_folder': FOLDER,
+                'library_folder': FOLDER,
                 'cloud_offered': self.cloud_offered, 'workspace_id': '0123456789abcdef0123456789abcdef'}
 
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):
@@ -123,13 +121,6 @@ class FakeActions:
     def speed(self, value):
         self.record('speed', value)
         return self.account(speed=value)
-
-    def site_speed(self, key, value):
-        self.record('site_speed', key, value)
-        for item in self.site_settings:
-            if item['key'] == key:
-                item['speed'] = value
-        return copy.deepcopy(self.site_settings)
 
     def wifi_only(self, value):
         self.record('wifi_only', value)
@@ -355,6 +346,7 @@ class DashboardTests(PagesCase):
         self.assertEqual([(table.item(i, 0).text(), table.item(i, 1).text()) for i in range(table.rowCount())][:2], [
             ('Locked on your Tapas account. Buy or unlock them on Tapas, then hit Go', '44'), ('Not released yet', '0')])
         self.assertEqual(table.rowCount(), 6)
+        self.assertTrue(table.alternatingRowColors())  # Wrapped reasons stay matched to their counts.
         # Every row shows without scrolling the table itself.
         self.assertGreaterEqual(table.viewport().height(), sum(table.rowHeight(i) for i in range(6)))
 
@@ -528,7 +520,7 @@ class NavigationTests(PagesCase):
 
 
 class DownloadSettingsTests(PagesCase):
-    def test_speeds_are_chosen_for_the_open_site_and_each_other_one(self):
+    def test_only_the_open_sites_speed_is_chosen_here(self):
         self.open('settings/downloads')
         s = self.settings
         self.assertEqual((s.speed_label.text(), s.speed.currentData()), ('Speed on Tapas', 'fast'))
@@ -536,16 +528,8 @@ class DownloadSettingsTests(PagesCase):
         pick(s.speed, 'medium')
         self.assertEqual(self.actions.named('speed')[0][1], ('medium',))
         self.assertEqual((s.speed.currentData(), s.speed_help.text()), ('medium', 'About four images a second.'))
-        _, label, combo, help_text = s.speed_rows['tappytoon']
-        self.assertEqual((label.text(), combo.currentData(), help_text.text()),
-                         ('Speed on Tappytoon', 'slow', 'Used the next time you hit Go on Tappytoon.'))
-        pick(combo, 'fast')
-        self.assertEqual(self.actions.named('site_speed')[0][1], ('tappytoon', 'fast'))
-        self.assertEqual(self.pages.state.site_settings[1]['speed'], 'fast')
-        self.actions.site_settings = self.actions.site_settings[:1]
-        self.pages.reopened()
-        self.assertEqual(list(s.speed_rows), [])
-        self.assertEqual(s.speed_label.text(), 'Speed')
+        # Another site's speed is chosen on that site: the header's site list opens it.
+        self.assertFalse(hasattr(s, 'speed_rows') or hasattr(s, 'other_speeds'))
 
     def test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again(self):
         self.open('settings/downloads')
@@ -593,21 +577,15 @@ class DownloadSettingsTests(PagesCase):
         self.pages.sign_out()
         self.assertEqual(self.shell.calls, [])
 
-    def test_another_site_with_no_speed_saved_shows_the_first_one(self):
-        self.actions.site_settings[1]['speed'] = None
-        self.open('settings/downloads')
-        _, _, combo, _ = self.settings.speed_rows['tappytoon']
-        self.assertEqual(combo.currentData(), combo.itemData(0))
-
     def test_the_speed_waits_while_saving_and_a_signed_out_site_has_none(self):
         self.actions.reading['account']['status'] = 'running'
         self.open('settings/downloads')
         self.assertFalse(self.settings.speed.isEnabled())
         self.assertEqual(self.settings.speed_help.text(), 'Pause to change the speed.')
         self.actions.reading['status']['session_configured'] = False
-        self.actions.site_settings = self.actions.site_settings[:1]
         self.pages.reopened()
         self.assertTrue(self.settings.signin_note.isVisible())
+        self.assertEqual(self.settings.signin_note.text(), 'Sign in to Tapas to choose how fast it saves.')
         self.assertFalse(self.settings.speed_row.isVisible())
 
     def test_the_connection_choice_is_saved_and_then_shown_as_saved(self):

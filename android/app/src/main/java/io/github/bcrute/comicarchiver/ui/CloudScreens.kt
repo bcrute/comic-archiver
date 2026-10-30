@@ -65,7 +65,6 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
                   compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {},
-                  onSiteSpeed: (String, String) -> Unit = { _, _ -> },
                   onAbout: () -> Unit = {}, onAccount: () -> Unit = {}) {
     var savedPage by rememberSaveable { mutableStateOf("Overview") }
     val page = selectedPage ?: savedPage
@@ -101,7 +100,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
             "Libraries" -> WorkingLibrariesScreen(workingLibraries, workingLibraryActions)
             "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || state.signOutPending || !state.workspaceReady,
                 state.download is DownloadState.Running || state.download is DownloadState.Planning,
-                state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme, onSiteSpeed,
+                state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme,
                 // Shown once the library is read, while signed in or when anything was held back.
                 state.observations?.notDownloaded?.takeIf { counts ->
                     state.signIn is SignInState.SignedIn || counts.values.any { it > 0 } },

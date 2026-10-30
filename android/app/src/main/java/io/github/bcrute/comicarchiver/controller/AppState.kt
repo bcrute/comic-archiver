@@ -44,11 +44,7 @@ data class DownloadSettings(
     val connection: String,
     val metered: Boolean?,
     val allowed: Boolean,
-    val otherSites: List<OtherSiteDownloadSettings> = emptyList(),
 )
-
-data class OtherSiteDownloadSettings(val key: String, val name: String, val speed: String?,
-    val speeds: List<SpeedChoice>, val enabled: Boolean = true, val notice: String? = null)
 
 sealed interface SignInState {
     data object SignedOut : SignInState

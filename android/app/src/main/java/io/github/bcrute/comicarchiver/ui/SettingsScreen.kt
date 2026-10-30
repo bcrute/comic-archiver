@@ -1,18 +1,17 @@
 package io.github.bcrute.comicarchiver.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,10 +19,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,7 +40,6 @@ fun SettingsScreen(
     onRefresh: () -> Unit,
     theme: AppTheme = AppTheme.SYSTEM,
     onTheme: (AppTheme) -> Unit = {},
-    onSiteSpeed: (String, String) -> Unit = { _, _ -> },
     notDownloaded: Map<String, Long>? = null,
     siteName: String = "Tapas",
 ) {
@@ -110,7 +104,8 @@ fun SettingsScreen(
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Download speed", style = MaterialTheme.typography.titleMedium)
+                // Another site's speed is chosen on that site, through the source list at the top.
+                Text("Download speed on $siteName", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     settings.speeds.forEach { speed ->
                         FilterChip(
@@ -127,29 +122,6 @@ fun SettingsScreen(
                     Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before starting saving.")
                 if (settings.speeds.any { it.key == "fast" && !it.available })
                     Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
-            }
-        }
-        if (settings.otherSites.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Other sites", style = MaterialTheme.typography.titleMedium)
-                Text("Save a speed choice without switching sites or starting a download. It applies the next time you start saving on that site.")
-                settings.otherSites.forEach { site ->
-                    var expanded by rememberSaveable(site.key) { mutableStateOf(false) }
-                    val label = site.speeds.firstOrNull { it.key == site.speed }?.label ?: "Unavailable"
-                    Box {
-                        OutlinedButton(onClick = { expanded = true }, enabled = !busy && site.enabled,
-                            modifier = Modifier.fillMaxWidth()) { Text("${site.name} speed: $label") }
-                        DropdownMenu(expanded = expanded && !busy && site.enabled,
-                            onDismissRequest = { expanded = false }) {
-                            site.speeds.forEach { choice ->
-                                DropdownMenuItem(enabled = choice.available, text = { Text(choice.label) },
-                                    modifier = Modifier.semantics { contentDescription = "${choice.label} speed on ${site.name}" },
-                                    onClick = { expanded = false; onSiteSpeed(site.key, choice.key) })
-                            }
-                        }
-                    }
-                    site.notice?.let { Text(it) }
-                }
             }
         }
     }
@@ -171,17 +143,24 @@ private fun NotDownloadedCard(counts: Map<String, Long>, site: String) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Not downloaded", style = MaterialTheme.typography.titleMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Reason", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                Text("Episodes", style = MaterialTheme.typography.labelLarge)
-            }
-            counts.forEach { (key, count) ->
-                val reason = notDownloadedReason(key, site)
-                val episodes = "%,d".format(count)
-                Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+            Column {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(reason, Modifier.weight(1f))
-                    Text(episodes, textAlign = TextAlign.End)
+                    Text("Reason", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    Text("Episodes", style = MaterialTheme.typography.labelLarge)
+                }
+                // Alternate rows are shaded, so a reason that wraps stays matched to its count.
+                val shade = MaterialTheme.colorScheme.surfaceContainer
+                counts.entries.forEachIndexed { index, (key, count) ->
+                    val reason = notDownloadedReason(key, site)
+                    val episodes = "%,d".format(count)
+                    val band = if (index % 2 == 0) Modifier.background(shade, RoundedCornerShape(6.dp)) else Modifier
+                    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 8.dp, vertical = 8.dp)
+                        .semantics(mergeDescendants = true) {},
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(reason, Modifier.weight(1f))
+                        Text(episodes, textAlign = TextAlign.End)
+                    }
                 }
             }
         }

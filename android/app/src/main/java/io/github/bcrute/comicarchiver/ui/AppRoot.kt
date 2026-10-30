@@ -206,7 +206,6 @@ fun ComicArchiverAppRoot(
                             onTheme = controller::setTheme,
                             onWifiOnly = controller::setWifiOnly,
                             onSpeed = controller::setDownloadSpeed,
-                            onSiteSpeed = controller::setSiteDownloadSpeed,
                             onRefresh = controller::refreshSettings,
                             onCloudRefresh = controller::refreshCloud,
                             onCloudAction = controller::cloudAction,

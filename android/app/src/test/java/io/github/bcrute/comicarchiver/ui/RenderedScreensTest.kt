@@ -75,7 +75,6 @@ import io.github.bcrute.comicarchiver.controller.LibraryMetric
 import io.github.bcrute.comicarchiver.controller.LibraryPlace
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
-import io.github.bcrute.comicarchiver.controller.OtherSiteDownloadSettings
 import io.github.bcrute.comicarchiver.controller.SpeedChoice
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
@@ -1026,7 +1025,7 @@ class RenderedScreensTest {
         wholeLabel("Dark")
         compose.onNodeWithText("Dark").performClick().assertIsSelected()
         assertEquals(AppTheme.DARK, controller.state.value.theme)
-        compose.onNodeWithText("Download speed").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Download speed on Tapas").performScrollTo().assertIsDisplayed()
         // Reveal the whole row vertically before scrolling its choices
         // horizontally. Scrolling the heading alone can leave the row below it.
         compose.onNode(hasScrollAction() and hasAnyChild(hasText("Slow"))).performScrollTo()
@@ -1039,26 +1038,12 @@ class RenderedScreensTest {
 
     @Test
     @Config(qualifiers = "w360dp-h640dp")
-    fun anotherSitesSpeedCanChangeWhileCurrentSavingAndItsSpeedStayUntouched() {
-        val running = UiFixtures.running.download
-        val settings = controller.state.value.settings!!
-        controller.state.value = controller.state.value.copy(download = running,
-            settings = settings.copy(otherSites = listOf(OtherSiteDownloadSettings("webtoon", "Webtoon", "medium",
-                settings.speeds.map { it.copy(available = true) }))))
+    fun onlyTheOpenSitesSpeedIsOfferedAndAnotherSiteIsChosenAtTheTop() {
         show()
         preferences()
-        compose.onNodeWithText("Slow").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("Webtoon speed: Medium").performScrollTo().performClick()
-        compose.onNodeWithContentDescription("Slow speed on Webtoon").assertIsEnabled().performClick()
-        compose.onNodeWithText("Webtoon speed: Slow").assertIsDisplayed()
-        assertEquals(listOf("webtoon" to "slow"), controller.siteSpeedRequests)
-        assertEquals("medium", controller.state.value.settings?.speed)
-        assertEquals("tapas", controller.state.value.site)
-        assertEquals(running, controller.state.value.download)
-        assertEquals(0, controller.goCalls)
-        assertEquals(0, controller.pauseCalls)
-        compose.onNodeWithTag("nav-saving").performClick()
-        compose.onNodeWithText("Pause").assertIsEnabled()
+        compose.onNodeWithText("Download speed on Tapas").performScrollTo().assertIsDisplayed()
+        assertTrue(compose.onAllNodes(hasText("Other sites")).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodes(hasText("Webtoon", substring = true)).fetchSemanticsNodes().isEmpty())
     }
 
     @Test
@@ -1209,7 +1194,6 @@ private class ScreenController : AppController {
     var goCalls = 0
     var pauseCalls = 0
     var signOutCalls = 0
-    val siteSpeedRequests = mutableListOf<Pair<String, String>>()
     val catalogRequests = mutableListOf<Pair<CatalogQuery, Boolean>>()
     val openRequests = mutableListOf<String>()
     val cloudRequests = mutableListOf<CloudRequest>()
@@ -1237,12 +1221,6 @@ private class ScreenController : AppController {
     }
     override fun setDownloadSpeed(value: String) {
         state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
-    }
-    override fun setSiteDownloadSpeed(site: String, value: String) {
-        siteSpeedRequests.add(site to value)
-        state.value = state.value.copy(settings = state.value.settings?.let { settings ->
-            settings.copy(otherSites = settings.otherSites.map { if (it.key == site) it.copy(speed = value) else it })
-        })
     }
     override fun requestExport(folderUri: String) {}
     override fun cancelExport() {}

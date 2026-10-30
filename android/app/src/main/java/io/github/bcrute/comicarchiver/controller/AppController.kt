@@ -27,8 +27,6 @@ interface AppController {
     fun refreshSettings()
     fun setWifiOnly(value: Boolean)
     fun setDownloadSpeed(value: String)
-    /** Save another site's preference without selecting it or changing the current task. */
-    fun setSiteDownloadSpeed(site: String, value: String)
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
     fun setTheme(value: AppTheme)

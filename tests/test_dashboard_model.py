@@ -229,21 +229,19 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(held['allow_visible'] and held['allow_enabled'])
         self.assertFalse(view(network={'wifi_only': False, 'allowed': False})['allow_visible'])
 
-    def test_speeds_are_offered_for_the_open_site_and_each_other_one(self):
+    def test_only_the_open_sites_speed_is_offered(self):
         alone = view()
-        self.assertEqual((alone['speed_label'], alone['speed'], alone['other_speeds']), ('Speed', 'fast', []))
+        self.assertEqual((alone['speed_label'], alone['speed']), ('Speed on Tapas', 'fast'))
+        self.assertNotIn('other_speeds', alone)
         self.assertTrue(alone['speed_visible'] and alone['speed_enabled'] and not alone['signin_note_visible'])
         self.assertIn('If Tapas keeps pausing', alone['speed_help'])
-        both = view(sites=[TAPAS, TAPPYTOON], site_settings=[dict(TAPAS, speed='fast'), dict(TAPPYTOON, speed='slow')],
-                    account={'status': 'stopped', 'speed': 'medium'})
+        both = view(sites=[TAPAS, TAPPYTOON], account={'status': 'stopped', 'speed': 'medium'})
         self.assertEqual((both['speed_label'], both['speed'], both['speed_help']), ('Speed on Tapas', 'medium', 'About four images a second.'))
-        self.assertEqual(both['other_speeds'], [{'key': 'tappytoon', 'label': 'Speed on Tappytoon', 'speed': 'slow',
-                                                 'help': 'Used the next time you hit Go on Tappytoon.', 'enabled': True}])
-        self.assertIsNone(view(site_settings=[dict(TAPPYTOON, speed='warp')])['other_speeds'][0]['speed'])
         self.assertEqual(view(account=account(speed='bogus'))['speed_help'], 'Pause to change the speed.')
         self.assertFalse(view(account=account())['speed_enabled'])
         signed_out = view(status={'worker': {'reported_state': 'ready'}})
         self.assertTrue(signed_out['signin_note_visible'] and not signed_out['speed_visible'])
+        self.assertEqual(signed_out['signin_note'], 'Sign in to Tapas to choose how fast it saves.')
 
     def test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in(self):
         idle = view()

@@ -557,29 +557,6 @@ def _speed_choices(site_key):
             for key in account_ui.SPEEDS]
 
 
-def _other_site_settings():
-    from comic_archive import android_download, sites
-    from comic_archive.models import ArchiveError
-    from comic_archive.workspace import Workspace
-    if _workspace['root'] is None or _workspace['base'] is None:
-        return []
-    result = []
-    for site in sites.SITES:
-        if not site.available or site.key == _workspace['site_key']:
-            continue
-        row = {"key": site.key, "name": site.name, "speeds": _speed_choices(site.key),
-               "enabled": True, "notice": None}
-        try:
-            workspace = Workspace(id="default", root=sites.folder(_workspace['base'], site))
-            if any(path.exists() and not path.is_dir() for path in (workspace.root, workspace.session)):
-                raise ArchiveError("This site's working folder is unavailable.")
-            row['speed'] = android_download.selected_speed(workspace)
-        except (ArchiveError, OSError):
-            row.update(speed=None, enabled=False, notice="This site's working folder is unavailable. Choose an available working library.")
-        result.append(row)
-    return result
-
-
 def _settings_unlocked(root):
     from comic_archive import android_download, network, network_android
     from comic_archive.workspace import Workspace
@@ -587,8 +564,7 @@ def _settings_unlocked(root):
     workspace = Workspace(id="default", root=root)
     saved = android_download.selected_speed(workspace)
     return network.status(workspace.library) | {
-        "speed": saved, "speeds": _speed_choices(_workspace['site_key']),
-        "other_sites": _other_site_settings()}
+        "speed": saved, "speeds": _speed_choices(_workspace['site_key'])}
 
 
 def _settings(args):
@@ -598,10 +574,7 @@ def _settings(args):
 
 def _configure_settings(args):
     root = _path_arg(args, "root")
-    other_site = "site_key" in args
-    if other_site and (set(args) != {"root", "site_key", "speed"} or not isinstance(args['site_key'], str)):
-        raise _BridgeError("bad_request", "Choose another site's speed without changing the connection choice.")
-    if set(args) - {"root", "wifi_only", "speed", "site_key"} or not ({"wifi_only", "speed"} & set(args)):
+    if set(args) - {"root", "wifi_only", "speed"} or not ({"wifi_only", "speed"} & set(args)):
         raise _BridgeError("bad_request", "Choose a download setting to change.")
     if "wifi_only" in args and type(args["wifi_only"]) is not bool:
         raise _BridgeError("bad_request", "The mobile data choice must be explicit.")
@@ -613,24 +586,6 @@ def _configure_settings(args):
         from comic_archive.locking import LibraryLock
         with _workspace_lock:
             _active_root(root, ArchiveError)
-            if other_site:
-                from comic_archive import android_session, sites, worker_host
-                from comic_archive.state_paths import private_folder
-                if _workspace['root'] != root or _workspace['base'] is None:
-                    raise ArchiveError("Open the working library before changing another site's speed.")
-                site = sites.find(args['site_key'])
-                value = args['speed']
-                if site is None or site.key == _workspace['site_key']:
-                    raise ArchiveError("Choose another supported site's speed.")
-                if not isinstance(value, str) or not android_download.speed_available(site.key, value, _browser['factory']):
-                    raise ArchiveError("That speed is not available in this Android build.")
-                target = Workspace(id="default", root=sites.folder(_workspace['base'], site))
-                with LibraryLock(target.session / ".account-ui"):
-                    if account_ui.status(target).get('status') == 'running' or worker_host.status(target.session)['running']:
-                        raise ArchiveError("Pause saving on that site before changing its speed.")
-                    android_session.prepare_site(private_folder(target.root, 'session'), site)
-                    account_ui.choose_speed(target, value)
-                return _settings_unlocked(root)
             with LibraryLock(workspace.session / ".account-ui"):
                 # Validate the entire request before writing either setting.
                 if "speed" in args:

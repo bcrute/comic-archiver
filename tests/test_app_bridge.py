@@ -384,53 +384,17 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertFalse(self.call('go', {'root': str(self.root)})['ok'])
         self.assertEqual(factory.opens, [])
 
-    def test_other_site_speed_defaults_are_readonly_and_writes_follow_the_selected_library(self):
-        from comic_archive import account_ui
-        from comic_archive.workspace import Workspace
+    def test_settings_hold_only_the_open_sites_speed_and_another_sites_cannot_be_written_here(self):
+        from comic_archive import network
         self.assertTrue(self.call('prepare_workspace', {'root': str(self.root)})['ok'])
         settings = self.call('settings', {'root': str(self.root)})['result']
-        self.assertEqual([(s['key'], s['speed']) for s in settings['other_sites']],
-                         [('webtoon', 'medium'), ('tappytoon', 'medium')])
-        webtoon = self.root / 'Webtoon'
-        self.assertFalse(webtoon.exists())
-        changed = self.call('configure_settings', {'root': str(self.root), 'site_key': 'webtoon', 'speed': 'slow'})
-        self.assertTrue(changed['ok'], changed)
-        self.assertEqual(changed['result']['speed'], 'medium')
-        self.assertEqual(app_bridge._workspace['root'], self.root)
-        self.assertEqual(app_bridge._workspace['site_key'], 'tapas')
-        self.assertFalse((self.root / '.comic-session' / account_ui.SPEED_FILE).exists())
-        self.assertFalse((webtoon / '.comic-session/android.json').exists())
-        self.assertTrue(self.call('prepare_workspace', {'root': str(webtoon), 'base_root': str(self.root),
-                                                       'site_key': 'webtoon'})['ok'])
-        self.assertEqual(self.call('settings', {'root': str(webtoon)})['result']['speed'], 'slow')
-        stale = self.call('configure_settings', {'root': str(self.root), 'site_key': 'tappytoon', 'speed': 'slow'})
-        self.assertFalse(stale['ok'])
-        self.assertFalse((self.root / 'Tappytoon').exists())
-        self.assertEqual(account_ui.speed(Workspace('other', webtoon)), 'slow')
-
-    def test_other_site_speed_refuses_mixed_unknown_and_symlinked_targets_without_mobile_consent(self):
-        import tempfile
-        from comic_archive import network
-        self.call('prepare_workspace', {'root': str(self.root)})
-        for change in ({'site_key': 'webtoon', 'speed': 'slow', 'wifi_only': False},
-                       {'site_key': '../escape', 'speed': 'slow'},
-                       {'site_key': 'webtoon', 'speed': 'missing'},
-                       {'site_key': 'tapas', 'speed': 'slow'}, {'site_key': [], 'speed': 'slow'}):
+        self.assertNotIn('other_sites', settings)
+        # Another site's speed is chosen once that site is open.
+        for change in ({'site_key': 'webtoon', 'speed': 'slow'}, {'site_key': 'webtoon', 'speed': 'slow', 'wifi_only': False}):
             with self.subTest(change=change):
                 self.assertFalse(self.call('configure_settings', {'root': str(self.root)} | change)['ok'])
                 self.assertFalse((self.root / 'Webtoon').exists())
                 self.assertTrue(network.policy(self.root / 'Library')['wifi_only'])
-        with tempfile.TemporaryDirectory() as outside:
-            target = Path(outside)
-            (self.root / 'Webtoon').symlink_to(target, target_is_directory=True)
-            settings = self.call('settings', {'root': str(self.root)})
-            self.assertTrue(settings['ok'], settings)
-            row = next(s for s in settings['result']['other_sites'] if s['key'] == 'webtoon')
-            self.assertFalse(row['enabled'])
-            self.assertIsNone(row['speed'])
-            self.assertFalse(self.call('configure_settings', {'root': str(self.root),
-                'site_key': 'webtoon', 'speed': 'slow'})['ok'])
-            self.assertEqual(list(target.iterdir()), [])
 
     def test_a_delayed_foreign_workspace_setting_is_refused_before_any_write(self):
         from comic_archive import account_ui, network
@@ -489,12 +453,6 @@ class BridgeLifecycleTests(unittest.TestCase):
         (queue / "responses").mkdir()
         self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
         before = account_ui.speed(Workspace(id="default", root=self.root))
-        requests = {str(p.relative_to(queue)): p.read_bytes() for p in queue.rglob('*.json')}
-        changed = self.call('configure_settings', {'root': str(self.root), 'site_key': 'webtoon', 'speed': 'slow'})
-        self.assertTrue(changed['ok'], changed)
-        self.assertEqual(account_ui.status(Workspace(id='default', root=self.root))['status'], 'running')
-        self.assertEqual({str(p.relative_to(queue)): p.read_bytes() for p in queue.rglob('*.json')}, requests)
-        self.assertEqual(account_ui.speed(Workspace(id='default', root=self.root)), before)
         result = self.call("configure_settings", {"root": str(self.root), "speed": "slow", "wifi_only": False})
         self.assertFalse(result["ok"])
         self.assertEqual(account_ui.speed(Workspace(id="default", root=self.root)), before)

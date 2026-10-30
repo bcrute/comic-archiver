@@ -70,14 +70,9 @@ class Actions:
             raise Refused('service_unavailable', failed or error_text('service_unavailable', site)) from None
 
     def context(self):
-        """What the window shows around the library: the sites, their settings and the folder."""
+        """What the window shows around the library: the sites and the folder."""
         runtime, registry = self._registry()
-        try:
-            settings = runtime.site_settings.list()
-        except Exception as error:
-            LOG.warning('the sites\' settings were not read: %s', described(error))
-            settings = []
-        return {'sites': sites.choices(runtime.site), 'site_settings': settings, 'library_folder': str(runtime.folder),
+        return {'sites': sites.choices(runtime.site), 'library_folder': str(runtime.folder),
                 'cloud_offered': cloud_runtime.offered(), 'workspace_id': registry.workspace_id}
 
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):
@@ -113,15 +108,6 @@ class Actions:
 
     def speed(self, value):
         return self._call('choose_speed', value)
-
-    def site_speed(self, key, value):
-        """Another site's speed; the open site's goes through its own account, which may be downloading."""
-        runtime, _ = self._registry()
-        try:
-            with self._turn:
-                return runtime.site_settings.choose_speed(key, value)
-        except ArchiveError:
-            raise Refused('request_unavailable', error_text('request_unavailable', runtime.site.name)) from None
 
     def wifi_only(self, value):
         if type(value) is not bool:

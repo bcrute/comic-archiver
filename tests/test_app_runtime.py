@@ -238,10 +238,8 @@ class AppRuntimeTests(unittest.TestCase):
         store = self.root / '.comic-shared'
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)), patch('comic_archive.osdep.hide') as hide:
             self.runtime.start()
-            settings = self.runtime.site_settings
-            self.assertEqual((settings.root, settings.site), (self.root, sites.DEFAULT))
             self.assertIsNone(self.runtime.change_site(example))
-            self.assertEqual(self.runtime.site_settings.site, example)
+            self.assertEqual(self.runtime.site, example)
         self.assertEqual([shared.folder(place / 'Library') for place in (self.root, self.root / 'Example')], [store, store])
         self.assertIn(store, {call.args[0] for call in hide.call_args_list})
         self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
@@ -255,38 +253,6 @@ class AppRuntimeTests(unittest.TestCase):
                 self.assertEqual(self.library(runtime), self.root / 'Library')
                 self.assertNotIn('PRIVATE', '\n'.join(logged.output))
                 runtime.stop(0)
-
-    def test_settings_list_the_speed_of_each_site_with_a_sign_in_the_open_one_first_and_change_the_others(self):
-        example = replace(sites.DEFAULT, key='example', name='Example', available=True)
-        later = replace(sites.DEFAULT, key='later', name='Later', available=False)
-        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, later)):
-            settings = app_runtime.SiteSettings(self.root, example)
-            self.assertEqual(settings.list(), [])
-            self.sign_in()
-            for name in ('Example', 'Later'):
-                session = self.root / name / '.comic-session'; session.mkdir(parents=True)
-                (session / 'state.json').write_text('{}')
-            (self.root / 'Example/.comic-session/download-speed').write_text('slow\n')
-            self.assertEqual(settings.list(), [{'key': 'example', 'name': 'Example', 'current': True, 'speed': 'slow'},
-                                               {'key': 'tapas', 'name': 'Tapas', 'current': False, 'speed': 'fast'}])
-            self.assertEqual(settings.choose_speed('tapas', 'medium')[1]['speed'], 'medium')
-            self.assertEqual((self.root / '.comic-session/download-speed').read_text(), 'medium\n')
-            # The open site's speed goes through its account; a site that cannot be chosen, or a speed that is not one, never.
-            for key, speed in (('example', 'fast'), ('later', 'fast'), ('nowhere', 'fast'), ('tapas', 'warp')):
-                with self.assertRaises(ArchiveError):
-                    settings.choose_speed(key, speed)
-            self.assertEqual((self.root / '.comic-session/download-speed').read_text(), 'medium\n')
-            # A site without a sign-in has no settings to show or change.
-            (self.root / '.comic-session/state.json').unlink()
-            with self.assertRaises(ArchiveError):
-                settings.choose_speed('tapas', 'slow')
-            self.assertEqual([item['key'] for item in settings.list()], ['example'])
-            # A folder that cannot be looked at is left out.
-            (self.root / 'Example').rename(self.root / 'Example-real'); (self.root / 'Example').symlink_to(self.root / 'Example-real')
-            self.assertEqual(settings.list(), [])
-            (self.root / 'Example').unlink(); (self.root / 'Example-real').rename(self.root / 'Example')
-            with patch.object(Path, 'is_file', side_effect=PermissionError('PRIVATE')):
-                self.assertEqual(settings.list(), [])
 
     def test_the_theme_follows_the_computer_until_one_is_chosen_and_the_choice_outlives_the_app(self):
         theme, saved = self.runtime.theme, self.state / 'comic-archiver/theme'
@@ -315,7 +281,7 @@ class AppRuntimeTests(unittest.TestCase):
         registry = self.runtime.registry
         self.assertEqual((self.library(self.runtime), registry.ids(LOCAL_OWNER), registry.ids('someone-else')),
                          (self.root / 'Library', [registry.workspace_id], []))
-        self.assertEqual((self.runtime.site_settings.root, self.runtime.site_settings.site), (self.root, sites.DEFAULT))
+        self.assertEqual((self.runtime.root, self.runtime.site), (self.root, sites.DEFAULT))
         signin = registry.site_signin
         self.assertIsInstance(signin, WindowSignIn)  # No separate browser window: the app's own window signs in.
         self.assertIs(signin, self.runtime.signin)

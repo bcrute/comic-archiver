@@ -499,12 +499,11 @@ class Settings:
         column.addLayout(layout)
         column.addStretch(1)
         self.widget = kit.scroll(content)
-        self.speed_rows = {}
 
     def _downloads(self, kit, pages):
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
         box.addWidget(kit.label('Downloads', 'sectionTitle'))
-        self.signin_note = kit.label('Sign in to a site to choose how fast it saves.', 'muted')
+        self.signin_note = kit.label('', 'muted')
         box.addWidget(self.signin_note)
         # First on the tab: which checked episodes were not downloaded, and why.
         self.not_downloaded = kit.w.QTableWidget(0, 2)
@@ -514,6 +513,7 @@ class Settings:
         self.not_downloaded.setWordWrap(True)
         self.not_downloaded.verticalHeader().setVisible(False)
         self.not_downloaded.setShowGrid(False)
+        self.not_downloaded.setAlternatingRowColors(True)  # Wrapped reasons stay readable across to their counts.
         self.not_downloaded.setVerticalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.not_downloaded.setHorizontalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         modes = kit.w.QHeaderView.ResizeMode
@@ -538,9 +538,6 @@ class Settings:
         row.addWidget(kit.row(self.speed))
         row.addWidget(self.speed_help)
         box.addWidget(self.speed_row)
-        self.other_speeds = kit.w.QVBoxLayout()
-        self.other_speeds.setSpacing(12)
-        box.addLayout(self.other_speeds)
         self.network = kit.w.QCheckBox('Also save on metered and mobile connections')
         self.network.toggled.connect(pages.wifi_choice)
         self.network_help = kit.label('', 'muted')
@@ -759,32 +756,6 @@ class Settings:
         self.key_id.clear()
         self.application_key.clear()
 
-    def _speeds(self, others):
-        for key in list(self.speed_rows):
-            if key not in [item['key'] for item in others]:
-                self.speed_rows.pop(key)[0].deleteLater()
-        for item in others:
-            if item['key'] not in self.speed_rows:
-                holder = self.kit.w.QWidget()
-                row = self.kit.w.QVBoxLayout(holder)
-                row.setContentsMargins(0, 0, 0, 0)
-                row.setSpacing(6)
-                label = self.kit.label('', 'strong')
-                combo = self.kit.combo([(key, SPEED_NAMES[key]) for key in SPEEDS],
-                                       lambda value, key=item['key']: self.pages.site_speed(key, value))
-                help_text = self.kit.label('', 'muted')
-                row.addWidget(label)
-                row.addWidget(self.kit.row(combo))
-                row.addWidget(help_text)
-                self.other_speeds.addWidget(holder)
-                self.speed_rows[item['key']] = (holder, label, combo, help_text)
-            _, label, combo, help_text = self.speed_rows[item['key']]
-            label.setText(item['label'])
-            if item['speed']:
-                choose(combo, item['speed'])
-            combo.setEnabled(item['enabled'])
-            help_text.setText(item['help'])
-
     def _storage_options(self, options):
         if [(o['key'], o['label']) for o in self.options] != [(o['key'], o['label']) for o in options]:
             for button in self.option_buttons:
@@ -822,13 +793,13 @@ class Settings:
         for key, panel in self.panels.items():
             panel.setVisible(key == tab)
         say(self.status, v['settings_status'], v['settings_status_error'])
+        self.signin_note.setText(v['signin_note'])
         self.signin_note.setVisible(v['signin_note_visible'])
         self.speed_row.setVisible(v['speed_visible'])
         self.speed_label.setText(v['speed_label'])
         choose(self.speed, v['speed'])
         self.speed.setEnabled(v['speed_enabled'])
         self.speed_help.setText(v['speed_help'])
-        self._speeds(v['other_speeds'])
         self.network_row.setVisible(v['network_visible'])
         if not s.network_saving and self.network.isChecked() != v['network_checked']:
             blocked = self.network.blockSignals(True)
@@ -1192,7 +1163,7 @@ class Pages:
 
     def received_context(self, value):
         s = self.state
-        s.sites, s.site_settings = value['sites'], value['site_settings']
+        s.sites = value['sites']
         s.library_folder, s.cloud_offered = value['library_folder'], value['cloud_offered']
         s.workspace_id = value['workspace_id']
         self.render()
@@ -1311,11 +1282,6 @@ class Pages:
 
     def speed(self, value):
         self.account_act(lambda: self.actions.speed(value), lambda account: self.state.received_account(account, self.now()))
-
-    def site_speed(self, key, value):
-        def kept(settings):
-            self.state.site_settings = settings
-        self.act(lambda: self.actions.site_speed(key, value), kept)
 
     def wifi_choice(self, allowed):
         s = self.state

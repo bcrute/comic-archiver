@@ -11,7 +11,6 @@ import sqlite3
 import threading
 import time
 import traceback
-from types import SimpleNamespace
 
 from . import background, osdep, shared, sites
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
@@ -19,7 +18,7 @@ from .errors import LibraryBusy
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from .models import ArchiveError
 from .session import load_session, store_session
-from .state_paths import private_folder, session_path
+from .state_paths import private_folder
 from .storage import safe_root
 from .worker import WORKER_VERSION
 
@@ -172,41 +171,6 @@ def remember_site(site):
         LOG.warning('the site choice could not be saved; it lasts until the app closes')
 
 
-class SiteSettings:
-    """The settings of each site the library folder has a sign-in for, as Settings lists them.
-
-    A site counts once a sign-in to it is saved. The open site comes first; its speed is changed through
-    its own account, which may be downloading, and the others' here, while their downloaders are stopped.
-    """
-
-    def __init__(self, root, site):
-        self.root, self.site = root, site
-
-    def _session(self, site):
-        return session_path(sites.folder(self.root, site))
-
-    def list(self):
-        from .account_ui import speed
-        found = []
-        for site in sorted((s for s in sites.SITES if s.available), key=lambda s: s.key != self.site.key):
-            try:
-                session = self._session(site)
-                if (session / 'state.json').is_file():
-                    found.append({'key': site.key, 'name': site.name, 'current': site.key == self.site.key,
-                                  'speed': speed(SimpleNamespace(session=session))})
-            except (ArchiveError, OSError):
-                pass  # A folder that cannot be read is left out until it can.
-        return found
-
-    def choose_speed(self, key, value):
-        from .account_ui import choose_speed
-        site = sites.find(key)
-        if site is None or site.key == self.site.key or not (self._session(site) / 'state.json').is_file():
-            raise ArchiveError('Choose a site you are signed in to, other than the open one.')
-        choose_speed(SimpleNamespace(session=self._session(site)), value)
-        return self.list()
-
-
 class Theme:
     """The look chosen for the app: the computer's own light or dark setting unless the person picks one."""
 
@@ -274,7 +238,7 @@ class Runtime:
         self.project_root = project_root
         self.site = site or sites.DEFAULT
         self.registry = self.session = self.state = self.signin = None
-        self.root = self.folder = self.site_settings = None
+        self.root = self.folder = None
         self.theme = theme or Theme()
         self._closing = threading.Event()
         self._launch = threading.Lock()
@@ -316,7 +280,6 @@ class Runtime:
         """Read this site's own library from now on."""
         # Sign-in happens in the app's own window. The downloader it starts uses the same engine, unseen.
         from .window_signin import WindowSignIn
-        self.site_settings = SiteSettings(self.root, self.site)
         self.folder = registry.resolve(LOCAL_OWNER, registry.workspace_id).library
         self._reopen(registry, session)
         self.signin = registry.site_signin = WindowSignIn(registry.resolve(LOCAL_OWNER, registry.workspace_id),

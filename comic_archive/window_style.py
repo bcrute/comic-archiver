@@ -111,7 +111,8 @@ QCheckBox:disabled, QRadioButton:disabled { color: %(disabled-text)s; }
 QProgressBar { min-height: 14px; max-height: 14px; border: 1px solid %(border)s; border-radius: 7px; background: %(surface-soft)s; }
 QProgressBar::chunk { border-radius: 6px; background: %(accent)s; }
 
-QTableWidget { background: %(surface)s; border: 1px solid %(border)s; border-radius: 8px; gridline-color: %(border)s;
+QTableWidget { background: %(surface)s; alternate-background-color: %(surface-soft)s; border: 1px solid %(border)s;
+               border-radius: 8px; gridline-color: %(border)s;
                selection-background-color: %(notice)s; selection-color: %(text)s; }
 QHeaderView::section { background: %(surface)s; color: %(muted)s; font-size: 13px; font-weight: 600; padding: 8px;
                        border: none; border-bottom: 1px solid %(border)s; }

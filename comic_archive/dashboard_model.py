@@ -216,7 +216,6 @@ class Message:
 class State:
     """What the window last read from the app, and what it is doing itself. Times are time.time() seconds."""
     sites: list = field(default_factory=list)
-    site_settings: list = field(default_factory=list)
     library_folder: str = None
     cloud_offered: bool = True
     status: dict = None
@@ -340,23 +339,19 @@ def view(s, now):
     v['folder_tooltip'] = 'Pause saving before you change the folder.' if locked else ''
     v['folder_lock'] = ('The folder can’t be changed while episodes are downloading. Press Pause on the dashboard first.'
                         if locked else '')
-    # Settings lists the speed of each site there is a sign-in for; one that is not signed in has none to choose.
+    # The open site's own speed: the site list in the header chooses which one Settings shows.
     speeds = {'fast': f'The quickest. If {site} keeps pausing the download, choose a slower speed.',
               'medium': 'About four images a second.',
               'slow': 'About one image a second. A large library can take months at this speed.'}
     speed = account.get('speed') if account.get('speed') in speeds else 'fast'
-    others = [item for item in s.site_settings if not item.get('current')]
     signed_in = bool(status.get('session_configured'))
     v['speed_visible'] = signed_in
-    v['speed_label'] = f'Speed on {site}' if others else 'Speed'
+    v['speed_label'] = f'Speed on {site}'
     v['speed'] = speed
     v['speed_enabled'] = not (s.busy or running or signing_in or s.account is None)
     v['speed_help'] = 'Pause to change the speed.' if running else speeds[speed]
-    v['other_speeds'] = [{'key': item['key'], 'label': f"Speed on {item['name']}",
-                          'speed': item.get('speed') if item.get('speed') in SPEEDS else None,
-                          'help': f"Used the next time you hit Go on {item['name']}.", 'enabled': not s.busy}
-                         for item in others]
-    v['signin_note_visible'] = not signed_in and not others
+    v['signin_note'] = f'Sign in to {site} to choose how fast it saves.'
+    v['signin_note_visible'] = not signed_in
     v['signout_visible'] = signed_in
     v['signout_text'] = f'Sign out of {site}'
     v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)

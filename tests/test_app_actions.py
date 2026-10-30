@@ -21,10 +21,7 @@ class ActionsTests(unittest.TestCase):
 
     def setUp(self):
         self.registry = Mock(workspace_id=LIBRARY)
-        self.settings = Mock()
-        self.settings.list.return_value = [{'key': 'tapas', 'name': 'Tapas', 'current': True, 'speed': 'fast'}]
-        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder='/library folder',
-                                       site_settings=self.settings)
+        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder='/library folder')
         self.actions = Actions(lambda: self.runtime)
 
     def refused(self, work, *args, **options):
@@ -76,11 +73,11 @@ class ActionsTests(unittest.TestCase):
         with self.assertLogs('comic_archive.desktop', 'ERROR'):
             self.assertEqual(self.refused(self.actions.saved_files), ('service_unavailable', UNAVAILABLE))
 
-    def test_the_context_names_the_sites_their_settings_and_the_folder(self):
+    def test_the_context_names_the_sites_and_the_folder(self):
         with patch('comic_archive.cloud_tools.offered', return_value=False):
             context = self.actions.context()
-        self.assertEqual(context, {'sites': sites.choices(sites.DEFAULT), 'site_settings': self.settings.list.return_value,
-                                   'library_folder': '/library folder', 'cloud_offered': False, 'workspace_id': LIBRARY})
+        self.assertEqual(context, {'sites': sites.choices(sites.DEFAULT), 'library_folder': '/library folder',
+                                   'cloud_offered': False, 'workspace_id': LIBRARY})
         self.assertEqual([(site['key'], site['available'], site['current']) for site in context['sites']],
                          [('tapas', True, True), ('webtoon', True, False), ('tappytoon', True, False)])
         # Only a site that works can be chosen.
@@ -88,10 +85,6 @@ class ActionsTests(unittest.TestCase):
         with patch.object(sites, 'SITES', sites.SITES + (later,)):
             self.assertIsNone(sites.find('later')); self.assertIsNone(sites.find('nowhere'))
             self.assertIs(sites.find('tapas'), sites.DEFAULT); self.assertIs(sites.find('webtoon'), sites.named('webtoon'))
-        self.settings.list.side_effect = OSError('PRIVATE settings')
-        with self.assertLogs('comic_archive.desktop', 'WARNING') as logged:
-            self.assertEqual(self.actions.context()['site_settings'], [])
-        self.assertNotIn('PRIVATE', '\n'.join(logged.output))
 
     def test_a_refresh_reads_what_it_is_asked_for_and_a_failed_count_leaves_the_rest_standing(self):
         reading = self.actions.poll(network=False, cloud=False)
@@ -172,15 +165,6 @@ class ActionsTests(unittest.TestCase):
         holder.join(5); waiting.join(5)
         self.assertTrue(done.is_set())
         self.registry.pause_account.assert_called_once_with(LOCAL_OWNER, LIBRARY)
-
-    def test_another_site_s_speed_goes_through_the_sites_settings(self):
-        self.settings.choose_speed.return_value = ['chosen']
-        self.assertEqual(self.actions.site_speed('tappytoon', 'slow'), ['chosen'])
-        self.settings.choose_speed.assert_called_once_with('tappytoon', 'slow')
-        self.settings.choose_speed.side_effect = ArchiveError('PRIVATE the open site')
-        self.assertEqual(self.refused(self.actions.site_speed, 'tapas', 'slow'),
-                         ('request_unavailable', error_text('request_unavailable')))
-        self.assertEqual(self.registry.mock_calls, [])
 
 
 class ReceivedTests(unittest.TestCase):

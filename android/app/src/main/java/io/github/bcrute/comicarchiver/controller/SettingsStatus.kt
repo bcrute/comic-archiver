@@ -23,26 +23,7 @@ object SettingsStatus {
             (connection !in setOf("wifi", "wired") || metered != false)) return null
         if (speeds.map { it.key }.distinct().size != speeds.size ||
             speeds.none { it.key == speed }) return null
-        val otherRows = if (value.has("other_sites")) value.optJSONArray("other_sites") ?: return null else JSONArray()
-        if (otherRows.length() > 2) return null
-        val otherSites = (0 until otherRows.length()).map { index ->
-            val row = otherRows.optJSONObject(index) ?: return null
-            val key = row.optString("key")
-            val name = row.optString("name")
-            val enabled = row.opt("enabled") as? Boolean ?: return null
-            val choices = speedChoices(row.optJSONArray("speeds") ?: return null) ?: return null
-            val selected = when (val raw = row.opt("speed")) {
-                null, JSONObject.NULL -> null
-                is String -> raw.takeIf(String::isNotBlank)
-                else -> return null
-            }
-            if (key !in setOf("tapas", "webtoon", "tappytoon") || name.isBlank() ||
-                (selected != null && choices.none { it.key == selected }) || enabled && selected == null) return null
-            OtherSiteDownloadSettings(key, name, selected, choices, enabled,
-                row.optString("notice").takeUnless { it.isBlank() || it == "null" })
-        }
-        if (otherSites.map { it.key }.distinct().size != otherSites.size) return null
-        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed, otherSites)
+        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed)
     }
 
     private fun speedChoices(rows: JSONArray): List<SpeedChoice>? {

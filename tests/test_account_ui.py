@@ -29,7 +29,7 @@ class AccountUITests(unittest.TestCase):
         private_json(self.queue/'status.json',{'state':'ready'})
         private_json(self.workspace.session/'state.json',{'cookies':[],'origins':[]})
         # What the window's calls go through: the open site's library, as the app's runtime holds it.
-        runtime=SimpleNamespace(registry=self.registry,site=sites.DEFAULT,folder=self.workspace.library,site_settings=None)
+        runtime=SimpleNamespace(registry=self.registry,site=sites.DEFAULT,folder=self.workspace.library)
         self.actions=Actions(lambda:runtime)
 
     def test_go_pause_and_signin_reach_only_this_librarys_own_account_and_queue_nothing_themselves(self):
