@@ -43,8 +43,9 @@ object DownloadStatus {
                     }
                 }
                 val details = buildList {
-                    count(counts, "saved_episodes")?.let { add("$it episodes saved") }
+                    count(counts, "saved_episodes")?.let { add(if (it == 1L) "1 episode saved" else "$it episodes saved") }
                     if (phase == "account_list") {
+                        add(LIST_FIRST)
                         val series = count(progress, "observed_library_series_count")
                         val pages = count(progress, "reading_list_page_count")
                         if (series != null) add("$series series found in this list")
@@ -72,6 +73,9 @@ object DownloadStatus {
             else -> DownloadState.Failed(BetaCodes.JOB_FAILED)
         }
     }
+
+    // Lists are pages in a shifting order: read in one go, a series cannot slip past unseen.
+    const val LIST_FIRST = "Saving starts once every list is read, so nothing is missed. A large library takes a few minutes."
 
     private fun count(value: JSONObject?, key: String): Long? {
         val raw = value?.opt(key)

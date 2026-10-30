@@ -71,8 +71,8 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="billing">Billing</a>: your card and your monthly bills.</li>'
                  '<li><a href="caps">Caps &amp; Alerts</a>: the most you allow a day, and Backblaze’s emails as you near it.</li>'
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
-LIST_HELP = ('Sites supply lists in separate pages. We read each page and check the account between pages; '
-             'large lists can take several minutes.')
+LIST_HELP = ('Saving starts once every list is read, so nothing in your account is missed. Sites supply lists '
+             'in separate pages; a large library can take several minutes.')
 
 
 def route_of(name, cloud_offered):

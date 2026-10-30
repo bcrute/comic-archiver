@@ -63,6 +63,12 @@ class DownloadStatusTest {
         assertTrue(result.detail!!.contains("265 series found"))
         assertTrue(result.detail!!.contains("53 list pages"))
         assertTrue(result.detail!!.contains("Last progress 8 s ago"))
+        assertTrue(result.detail!!.contains(DownloadStatus.LIST_FIRST))
+    }
+
+    @Test fun one_saved_episode_is_singular() {
+        val result = live("""{"phase":"archive"}""", """{"saved_episodes":1}""")
+        assertEquals("1 episode saved", result.detail)
     }
 
     @Test fun absent_invalid_and_unknown_counters_do_not_become_progress() {
