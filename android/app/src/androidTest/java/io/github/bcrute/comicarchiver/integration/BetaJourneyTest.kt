@@ -283,7 +283,7 @@ class BetaJourneyTest {
     }
 
     /** Real system picker -> read-only capture -> JNI/shared verifier -> held root switch, with test-owned data. */
-    private fun verifyWorkingLibraryChange(): JSONObject {
+    private fun verifyWorkingLibraryChange(stopped: DownloadState): JSONObject {
         val original = app.workspace
         val originalExportPhase = app.exports.panel.value.phase
         val originalFiles = originals()
@@ -384,7 +384,7 @@ class BetaJourneyTest {
             }
             assertEquals(originalFiles.toString(), originals().toString())
             assertEquals(originalExportPhase, app.exports.panel.value.phase)
-            assertEquals(DownloadState.Held, app.controller.state.value.download)
+            assertEquals(stopped, app.controller.state.value.download)
             assertEquals(0, observe().getInt("asset_requests"))
         } finally {
             // Explicit test teardown through the original writable fixture grant, after source-retention checks.
@@ -488,7 +488,7 @@ class BetaJourneyTest {
                     facts.getInt("fast_asset_clients") > 0
             }
             // Pause leaves the library ready for the separate export journey.
-            clickIfPresent(By.text("Pause"), 2_000)
+            val paused = clickIfPresent(By.text("Pause"), 2_000)
             verifyOutputs()
             click("Library")
             stage("choosing_export_tree")
@@ -508,7 +508,7 @@ class BetaJourneyTest {
                 .put("expected_cbz_bytes", original.length()).put("partial_bytes", partial.getLong("partial_bytes"))
                 .put("document_id", partial.getString("document_id")).put("native_pause_verified", true)
                 .put("native_recreation_verified", true).put("comic_and_novel_verified", true)
-                .put("native_fast_verified", true).put("native_discovery_verified", true))
+                .put("native_fast_verified", true).put("native_discovery_verified", true).put("user_paused", paused))
             // The fleet coordinator independently verifies the live partial/journal,
             // then kills this process. Returning normally is a failed interruption gate.
             stage("copy_blocked")
@@ -525,10 +525,12 @@ class BetaJourneyTest {
         FixtureSafety.requireEmulator()
         val before = JSONObject(evidence.resolve("ready.json").readText())
         assertEquals(FixtureSafety.runToken, before.getString("run_token"))
+        // A download the user paused reads as paused after the stop; either way nothing resumes without Go.
+        val stopped = if (before.getBoolean("user_paused")) DownloadState.Paused("user") else DownloadState.Held
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             await("restored native sign-in") { app.controller.state.value.signIn is SignInState.SignedIn &&
                 !app.controller.state.value.siteBusy }
-            assertEquals(DownloadState.Held, app.controller.state.value.download)
+            assertEquals(stopped, app.controller.state.value.download)
             assertEquals(0, app.readingSurfaceCreations.get())
             assertEquals(0, observe().getInt("asset_requests"))
             assertTrue(journal().all().any { row -> row.state == JournalState.COPYING })
@@ -556,9 +558,9 @@ class BetaJourneyTest {
             assertTrue(completed.all { row -> row.state == JournalState.VERIFIED })
             sameOriginals(expected)
             assertEquals(0, observe().getInt("asset_requests"))
-            assertEquals(DownloadState.Held, app.controller.state.value.download)
+            assertEquals(stopped, app.controller.state.value.download)
             assertTrue(device.takeScreenshot(evidence.resolve("recovered.png")))
-            val libraryProof = verifyWorkingLibraryChange()
+            val libraryProof = verifyWorkingLibraryChange(stopped)
             save("result.json", JSONObject().put("phase", "recovered").put("held_without_go", true)
                 .put("originals_unchanged", true).put("same_partial_document_recovered", true)
                 .put("verified_exports", 2).put("comic_and_novel_verified", true).apply {
