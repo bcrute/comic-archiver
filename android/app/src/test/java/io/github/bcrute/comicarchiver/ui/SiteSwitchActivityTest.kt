@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.Looper
 import android.webkit.WebView
 import android.view.ViewGroup
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
@@ -90,12 +93,15 @@ class SiteSwitchActivityTest {
         assertEquals("Tapas book", app.controller.state.value.library.single().title)
     }
 
-    @Test fun switchingDuringSavingRefusesWithVisibleRecoveryAndKeepsTheOriginalSite() {
+    @Test fun theSiteCannotBeChangedWhileSavingAndALateRequestIsRefused() {
         ready()
         select("Go")
         await { app.controller.state.value.download is DownloadState.Running }
         select("Library")
-        select("Webtoon")
+        // As on desktop, the site list is grayed out until saving is paused.
+        compose.onNodeWithTag("source-picker").assertIsNotEnabled()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Pause saving to change the site."))
+        compose.runOnIdle { app.controller.selectSite("webtoon") }
         compose.onNodeWithText("Finish sign-in, saving, export or cloud activity before switching sites.")
             .assertIsDisplayed()
         assertEquals("tapas", app.controller.state.value.site)

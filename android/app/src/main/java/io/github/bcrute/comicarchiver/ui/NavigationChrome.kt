@@ -30,25 +30,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppState
+import io.github.bcrute.comicarchiver.controller.DownloadState
+import io.github.bcrute.comicarchiver.controller.SignInState
 
 @Composable
-internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit) {
+internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
+    // As on desktop, the site stays put while saving, signing in or another task runs.
+    val saving = state.download is DownloadState.Running || state.download is DownloadState.Planning ||
+        state.cloud?.taskRunning == true || exporting
+    val working = saving || state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
+        state.settingsBusy || state.cloudBusy || state.cloud?.authStatus == "running"
+    val enabled = !working && !state.siteBusy && !state.libraryBusy && !state.signOutPending
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("Comic Archiver", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         if (state.sites.isNotEmpty()) Box {
             val current = state.sites.firstOrNull { it.key == state.site }
-            TextButton(onClick = { expanded = true },
-                enabled = !state.siteBusy && !state.libraryBusy && !state.signOutPending,
-                modifier = Modifier.testTag("source-picker")) {
+            TextButton(onClick = { expanded = true }, enabled = enabled,
+                modifier = Modifier.testTag("source-picker").semantics {
+                    if (saving) stateDescription = "Pause saving to change the site."
+                }) {
                 Text(current?.name ?: state.site)
                 Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose source")
             }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(expanded && enabled, onDismissRequest = { expanded = false }) {
                 state.sites.forEach { site ->
                     DropdownMenuItem(enabled = site.enabled,
                         text = { Column { Text(site.name); site.reason?.let {

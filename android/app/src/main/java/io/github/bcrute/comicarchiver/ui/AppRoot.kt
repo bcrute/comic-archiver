@@ -142,7 +142,7 @@ fun ComicArchiverAppRoot(
         // Keep the selected editor mounted; dismissing IME restores its navigation.
         val compactEditing = keyboardVisible && maxHeight < 320.dp
         Column(Modifier.fillMaxSize()) {
-            if (!compactEditing) SourceHeader(state, controller::selectSite)
+            if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING)
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
