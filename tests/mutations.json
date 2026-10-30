@@ -4602,8 +4602,8 @@
  {
   "id": "settings-hides-locked-episodes-not-downloaded",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    rows = [(f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go', number(counts.get('unavailable')))]",
-  "new": "    rows = [(f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go', 0)]",
+  "old": "    return {'locked': number(counts.get('unavailable'))} | known | {",
+  "new": "    return {'locked': 0} | known | {",
   "test_file": "test_dashboard_model.py",
   "test": "test_download_settings_tables_why_checked_episodes_were_not_downloaded"
  },

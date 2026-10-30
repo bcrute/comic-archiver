@@ -140,17 +140,23 @@ NOT_DOWNLOADED = {'scheduled': 'Not released yet',
                   'novel': 'Novels this site’s download doesn’t support'}
 
 
-def not_downloaded(status, site):
-    """Settings' table of why checked episodes were not downloaded: every reason, with how many, so a short
-    folder is never a mystery."""
+def not_downloaded_counts(status):
+    """How many checked episodes each reason kept from being downloaded, in the order Settings lists them. The
+    Android app gets these counts and words the reasons itself."""
     counts = status.get('episodes_by_status') or {}
     reasons = status.get('unsupported_by_reason') if isinstance(status.get('unsupported_by_reason'), dict) else {}
     known = {key: number(reasons.get(key)) for key in NOT_DOWNLOADED}
-    rows = [(f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go', number(counts.get('unavailable')))]
-    rows += [(NOT_DOWNLOADED[key], count) for key, count in known.items()]
-    rows += [('In a form the app can’t save yet', max(0, number(counts.get('unsupported')) - sum(known.values()))),
-             ('Stopped by download errors', number(counts.get('failed')))]
-    return [{'reason': reason, 'count': display(count)} for reason, count in rows]
+    return {'locked': number(counts.get('unavailable'))} | known | {
+        'unsupported': max(0, number(counts.get('unsupported')) - sum(known.values())),
+        'failed': number(counts.get('failed'))}
+
+
+def not_downloaded(status, site):
+    """Settings' table of why checked episodes were not downloaded: every reason, with how many, so a short
+    folder is never a mystery."""
+    reasons = {'locked': f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go'} | NOT_DOWNLOADED | {
+        'unsupported': 'In a form the app can’t save yet', 'failed': 'Stopped by download errors'}
+    return [{'reason': reasons[key], 'count': display(count)} for key, count in not_downloaded_counts(status).items()]
 
 
 def held_message(code, site, go_wait, missing):

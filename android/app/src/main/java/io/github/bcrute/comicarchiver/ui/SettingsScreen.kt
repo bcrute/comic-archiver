@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.Notice
@@ -45,12 +46,16 @@ fun SettingsScreen(
     theme: AppTheme = AppTheme.SYSTEM,
     onTheme: (AppTheme) -> Unit = {},
     onSiteSpeed: (String, String) -> Unit = { _, _ -> },
+    notDownloaded: Map<String, Long>? = null,
+    siteName: String = "Tapas",
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        // First on the page: which checked episodes were not downloaded, and why.
+        notDownloaded?.let { NotDownloadedCard(it, siteName) }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Appearance", style = MaterialTheme.typography.titleMedium)
@@ -144,6 +149,39 @@ fun SettingsScreen(
                         }
                     }
                     site.notice?.let { Text(it) }
+                }
+            }
+        }
+    }
+}
+
+/** Why a checked episode was not downloaded, as Settings words each reason. */
+fun notDownloadedReason(key: String, site: String): String = when (key) {
+    "locked" -> "Locked on your $site account. Buy or unlock them on $site, then start saving again"
+    "scheduled" -> "Not released yet"
+    "temporary_access" -> "Time-limited, with access the app couldn’t confirm is still current"
+    "novel" -> "Novels this site’s download doesn’t support"
+    "unsupported" -> "In a form the app can’t save yet"
+    "failed" -> "Stopped by download errors"
+    else -> error("Unknown reason $key")
+}
+
+@Composable
+private fun NotDownloadedCard(counts: Map<String, Long>, site: String) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Not downloaded", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Reason", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                Text("Episodes", style = MaterialTheme.typography.labelLarge)
+            }
+            counts.forEach { (key, count) ->
+                val reason = notDownloadedReason(key, site)
+                val episodes = "%,d".format(count)
+                Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(reason, Modifier.weight(1f))
+                    Text(episodes, textAlign = TextAlign.End)
                 }
             }
         }

@@ -616,12 +616,17 @@ class Inventory:
         return self.db.execute("""SELECT COALESCE(SUM(CAST(substr(file_signature,2) AS INTEGER)),0)
             FROM episodes WHERE status='archived' AND file_signature IS NOT NULL""").fetchone()[0]
 
-    def status(self):
+    def episode_counts(self):
+        """(episodes by status, unsupported episodes by reason)."""
         counts = {row[0]: row[1] for row in self.db.execute("SELECT status,COUNT(*) FROM episodes GROUP BY status")}
         unsupported = {}
         for code,count in self.db.execute("SELECT error_code,COUNT(*) FROM episodes WHERE status='unsupported' GROUP BY error_code"):
             reason=code if isinstance(code,str) and code in UNSUPPORTED_REASONS else 'content_unsupported'
             unsupported[reason]=unsupported.get(reason,0)+count
+        return counts, unsupported
+
+    def status(self):
+        counts, unsupported = self.episode_counts()
         last = self.db.execute("SELECT id,started_at,finished_at,status,summary FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
         scan = self.db.execute("SELECT value FROM settings WHERE key='last_completed_scan'").fetchone()
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()

@@ -128,7 +128,8 @@ class AndroidStatusTests(unittest.TestCase):
     def test_real_inventory_and_current_progress_are_projected_without_private_fields(self):
         self.seed()
         result = self.snapshot()
-        self.assertEqual(result['counts'], {'saved_episodes': 1, 'observed_series': 1})
+        nothing_held = {'locked': 0, 'scheduled': 0, 'temporary_access': 0, 'novel': 0, 'unsupported': 0, 'failed': 0}
+        self.assertEqual(result['counts'], {'saved_episodes': 1, 'observed_series': 1, 'not_downloaded': nothing_held})
         self.assertEqual(result['progress']['phase'], 'archive')
         self.assertEqual(result['progress']['downloaded_pages'], 10)
         self.assertEqual(result['progress']['downloaded_bytes'], 1048576)
@@ -136,6 +137,20 @@ class AndroidStatusTests(unittest.TestCase):
         for private in ['run_id', 'episode_id', 'source_slug', 'message', 'url']:
             self.assertNotIn(private, result['progress'])
         self.assertNotIn('PRIVATE', str(result))
+
+    def test_checked_episodes_that_were_not_downloaded_are_counted_by_reason(self):
+        from comic_archive.inventory import Inventory
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('1001', 'Fixture Series', [
+                {'id': str(9001 + index), 'title': f'Part {index}', 'order': index + 1, 'access_state': 'tapas_free'}
+                for index in range(6)], 'subscribed')
+            inventory.mark('9001', 'archived')
+            inventory.mark('9002', 'unavailable')
+            inventory.mark('9003', 'unsupported', 'scheduled')
+            inventory.mark('9004', 'unsupported', 'reader_manifest_incomplete')
+            inventory.mark('9005', 'failed', 'job_failed')
+        self.assertEqual(self.snapshot(busy=False)['counts']['not_downloaded'], {
+            'locked': 1, 'scheduled': 1, 'temporary_access': 0, 'novel': 0, 'unsupported': 1, 'failed': 1})
 
     def test_new_progress_reaches_the_next_snapshot(self):
         self.seed()

@@ -14,6 +14,8 @@ data class DownloadObservations(
     val currentList: String? = null,
     val retrySeconds: Long? = null,
     val retryReason: String? = null,
+    /** Why checked episodes were not downloaded: a count for every reason, in [NOT_DOWNLOADED] order. */
+    val notDownloaded: Map<String, Long>? = null,
 ) {
     companion object {
         fun parse(envelope: JSONObject, receivedAtMillis: Long): DownloadObservations? {
@@ -48,7 +50,16 @@ data class DownloadObservations(
             return DownloadObservations(receivedAtMillis, state, count(counts, "saved_episodes"),
                 count(counts, "observed_series"), count(progress, "age_seconds"), checked,
                 total.takeIf { checked != null }, current, count(retry, "seconds"),
-                retry?.optString("reason")?.takeIf { it in setOf("source", "images", "connection") })
+                retry?.optString("reason")?.takeIf { it in setOf("source", "images", "connection") },
+                notDownloaded(counts?.optJSONObject("not_downloaded")))
+        }
+
+        /** The reasons Settings lists, in its order. All must be counted, or none is shown. */
+        val NOT_DOWNLOADED = listOf("locked", "scheduled", "temporary_access", "novel", "unsupported", "failed")
+
+        private fun notDownloaded(value: JSONObject?): Map<String, Long>? {
+            if (value == null || value.length() != NOT_DOWNLOADED.size) return null
+            return NOT_DOWNLOADED.associateWith { count(value, it) ?: return null }
         }
 
         private fun count(value: JSONObject?, key: String): Long? = when (val raw = value?.opt(key)) {

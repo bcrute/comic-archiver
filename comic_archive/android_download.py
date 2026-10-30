@@ -64,6 +64,7 @@ def status(workspace):
     import time
 
     from . import worker_host
+    from .dashboard_model import not_downloaded_counts
     from .inventory import Inventory
     from .monitoring import _progress, _read
 
@@ -77,6 +78,10 @@ def status(workspace):
             counts['saved_episodes'] = inventory.db.execute(
                 "SELECT COUNT(*) FROM episodes WHERE status='archived'").fetchone()[0]
             counts['observed_series'] = inventory.db.execute('SELECT COUNT(*) FROM series').fetchone()[0]
+            # Why checked episodes were not downloaded, as counts by reason; Settings words them.
+            by_status, unsupported = inventory.episode_counts()
+            counts['not_downloaded'] = not_downloaded_counts(
+                {'episodes_by_status': by_status, 'unsupported_by_reason': unsupported})
             last = inventory.db.execute(
                 'SELECT id,status FROM runs ORDER BY started_at DESC LIMIT 1').fetchone()
         if (account.get('status') == 'running' and worker.get('running') is True

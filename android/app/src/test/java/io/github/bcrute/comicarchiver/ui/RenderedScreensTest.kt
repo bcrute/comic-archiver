@@ -519,6 +519,27 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun downloadPreferencesOpenWithWhyCheckedEpisodesWereNotDownloaded() {
+        val counts = DownloadObservations.NOT_DOWNLOADED.associateWith { 0L } + mapOf("locked" to 1204L, "failed" to 2L)
+        controller.state.value = controller.state.value.copy(observations = DownloadObservations(
+            SystemClock.elapsedRealtime(), ObservedWorker.READY, notDownloaded = counts))
+        show()
+        preferences()
+        compose.onNodeWithText("Not downloaded").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Locked on your Tapas account. Buy or unlock them on Tapas, then start saving again")
+            and hasText("1,204")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Stopped by download errors") and hasText("2")).assertExists()
+        compose.onNode(hasText("Not released yet") and hasText("0")).assertExists()
+        // Signed out, a table of zeros says nothing; anything held back is still shown.
+        controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut,
+            observations = controller.state.value.observations!!.copy(notDownloaded = counts.mapValues { 0L }))
+        compose.onNodeWithText("Not downloaded").assertDoesNotExist()
+        controller.state.value = controller.state.value.copy(observations =
+            controller.state.value.observations!!.copy(notDownloaded = counts))
+        compose.onNodeWithText("Not downloaded").performScrollTo().assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun speedCannotBeChangedWhileSavingButNetworkChoiceStaysAvailable() {
         controller.state.value = controller.state.value.copy(download = DownloadState.Planning)
         show()

@@ -54,6 +54,22 @@ class DownloadObservationsTest {
         assertFalse(value.toString().contains("SECRET"))
     }
 
+    @Test fun notDownloadedCountsArriveWholeAndInSettingsOrderOrNotAtAll() {
+        fun counts(notDownloaded: String) = observation("""{"worker":{"running":false},"account":{"status":"stopped"},
+            "counts":{"saved_episodes":3,"not_downloaded":$notDownloaded}}""")!!.notDownloaded
+        val value = counts("""{"failed":6,"unsupported":5,"novel":4,"temporary_access":3,"scheduled":2,"locked":1}""")!!
+        assertEquals(DownloadObservations.NOT_DOWNLOADED, value.keys.toList())
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L, 6L), value.values.toList())
+        for (partial in listOf("{}", """{"locked":1}""",
+            """{"locked":-1,"scheduled":0,"temporary_access":0,"novel":0,"unsupported":0,"failed":0}""",
+            """{"locked":"1","scheduled":0,"temporary_access":0,"novel":0,"unsupported":0,"failed":0}""",
+            """{"locked":1,"scheduled":0,"temporary_access":0,"novel":0,"unsupported":0,"SECRET":0}""",
+            """{"locked":1,"scheduled":0,"temporary_access":0,"novel":0,"unsupported":0,"failed":0,"SECRET":0}""")) {
+            assertNull(partial, counts(partial))
+        }
+        assertNull(observation("""{"worker":{"running":false},"account":{"status":"stopped"}}""")!!.notDownloaded)
+    }
+
     @Test fun workerStatesRemainObservationsBetweenRuns() {
         for ((worker, expected) in listOf(
             """{"running":false,"state":"busy"}""" to ObservedWorker.OFF,
