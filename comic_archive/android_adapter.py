@@ -41,7 +41,8 @@ def site_addresses():
     return [{'key': site.key, 'name': original.name,
              'folder': '' if original == sites.DEFAULT else original.name,
              'home': site.home, 'signInPath': site.signin_path,
-             'cookieHosts': list(site.cookie_hosts), 'signinHosts': list(site.signin_hosts)}
+             'cookieHosts': list(site.cookie_hosts), 'signinHosts': list(site.signin_hosts),
+             'signinHidden': list(site.signin_hidden)}
             for original in sites.SITES if original.available
             for site in (ANDROID_TAPAS if original.key == 'tapas' else original,)]
 

@@ -341,8 +341,9 @@ class SignedInProbeTests(unittest.TestCase):
         tapas = next(entry for entry in table if entry['key'] == 'tapas')
         self.assertEqual(tapas, {'key': 'tapas', 'name': 'Tapas', 'folder': '', 'home': 'https://m.tapas.io',
                                  'signInPath': '/account/signin', 'cookieHosts': ['m.tapas.io'],
-                                 'signinHosts': ['tapas.io']})
-        self.assertTrue(all(set(entry) == {'key', 'name', 'folder', 'home', 'signInPath', 'cookieHosts', 'signinHosts'}
+                                 'signinHosts': ['tapas.io'], 'signinHidden': ['#gdpr-cookie-message']})
+        self.assertTrue(all(set(entry) == {'key', 'name', 'folder', 'home', 'signInPath', 'cookieHosts', 'signinHosts',
+                                           'signinHidden'}
                             for entry in table))
         # Android uses the authenticated mobile origin, with exact cookie scope;
         # canonical public identities remain navigation hosts, never cookie targets.

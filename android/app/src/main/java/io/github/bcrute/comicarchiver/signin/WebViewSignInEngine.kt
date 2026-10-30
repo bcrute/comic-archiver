@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.webkit.WebView
+import androidx.webkit.ScriptHandler
 import io.github.bcrute.comicarchiver.controller.SignInState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,7 @@ data class SiteAddress(
     val signInHosts: Set<String> = emptySet(),
     val name: String = "",
     val workspaceFolder: String = "",
+    val signInHidden: List<String> = emptyList(),
 )
 
 /** The sign-in journey's landing-host rule, kept pure so its boundary is testable off-device:
@@ -54,7 +56,8 @@ object SignInLanding {
  * The site address table is caller-supplied ([sites]), so there is no second sites table
  * here once the bridge feeds it from the Python sites module; [BETA_SITES] is the beta
  * minimum. JavaScript never gains a callable surface: no addJavascriptInterface, no script
- * evaluation. Nothing is logged — no cookie value, URL or account detail.
+ * evaluation. The one script, [SignInPageStyle], only adds a style rule from a separate
+ * world. Nothing is logged — no cookie value, URL or account detail.
  *
  * Engine methods are called from the app's main thread; WebView callbacks arrive there too.
  * [load] prepares the platform cookie store on the main thread, before any worker thread
@@ -96,6 +99,7 @@ class WebViewSignInEngine(
     private var startedAtMillis = 0L
     private var boundMs = timeoutMs
     private var restoreAttempted = false
+    private var pageStyle: ScriptHandler? = null
     @Volatile private var visibleOrigin: String? = null
     private var hasAuthority = true
     private val timeout = Runnable {
@@ -162,6 +166,9 @@ class WebViewSignInEngine(
         }
         if (!beginAttempt()) return
         webView.webViewClient = SignInWebViewClient(this, sessionId)
+        // A hide rule that cannot be installed leaves the page as the site serves it.
+        pageStyle?.remove()
+        pageStyle = try { SignInPageStyle.install(webView, site) } catch (_: Exception) { null }
         val page = site.home + site.signInPath
         visibleOrigin = site.home
         _state.value = SignInState.Page(site.home)
@@ -362,6 +369,7 @@ class WebViewSignInEngine(
             "tapas" to SiteAddress(
                 "https://m.tapas.io", "/account/signin",
                 setOf("m.tapas.io"), setOf("tapas.io"),
+                signInHidden = listOf("#gdpr-cookie-message"),
             ),
         )
     }

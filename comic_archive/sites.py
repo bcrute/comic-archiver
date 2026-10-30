@@ -27,6 +27,9 @@ class Site:
     # mobile mirror): the sign-in surface may finish pages there. NOT cookie targets — the
     # downloader never sends cookies to a host outside cookie_hosts.
     signin_hosts: tuple[str, ...]
+    # Page parts the Android sign-in screen hides (CSS id/class selectors): the site's cookie
+    # notice covers its own login links on a phone. Hidden only, never answered or clicked.
+    signin_hidden: tuple[str, ...] = ()
 
     @property
     def host(self):
@@ -59,7 +62,7 @@ class Site:
 
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',
-         ('subscribed', 'updated', 'recent', 'free_episodes'), ('m.tapas.io',)),
+         ('subscribed', 'updated', 'recent', 'free_episodes'), ('m.tapas.io',), ('#gdpr-cookie-message',)),
     Site('webtoon', 'Webtoon', True, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
          ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed',), ()),
     Site('tappytoon', 'Tappytoon', True, 'https://www.tappytoon.com', ('tappytoon.com', 'www.tappytoon.com'),

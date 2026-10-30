@@ -191,6 +191,18 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
         return [*prefix, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', TEST_CLASS + '#' + method,
                 '-e', 'disposable_emulator', 'true', '-e', 'run_token', token, component]
 
+    # The sign-in screen's hide rule, in the real WebView, before the journey's own state.
+    styled = subprocess.run([*prefix, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+                             TARGET + '.integration.SignInPageStyleTest', '-e', 'disposable_emulator', 'true',
+                             '-e', 'run_token', token, component], capture_output=True, text=True, timeout=180,
+                            check=False)
+    (artifacts / 'signin-page-style.log').write_text(styled.stdout[-32000:] + styled.stderr[-4000:])
+    if 'OK (1 test)' not in styled.stdout or 'INSTRUMENTATION_CODE: -1' not in styled.stdout:
+        raise RuntimeError('The sign-in page style test did not pass')
+    # The journey starts from fresh app data, as after the integration gate's cookie check.
+    if 'Success' not in command('shell', 'pm', 'clear', TARGET).splitlines():
+        raise RuntimeError('Fixture reset after the sign-in page style test failed')
+
     def screenshot(name):
         destination = artifacts / name
         with destination.open('wb') as output:
