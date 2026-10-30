@@ -245,6 +245,24 @@ class InstrumentationBuildTests(unittest.TestCase):
                 self.assertIsNone(data)
 
 
+class JvmFailureTests(unittest.TestCase):
+    def test_failed_tests_are_named_from_the_junit_reports(self):
+        with tempfile.TemporaryDirectory() as folder:
+            results = pathlib.Path(folder)
+            (results / 'TEST-a.Passing.xml').write_text(
+                '<testsuite><testcase classname="a.Passing" name="fine"/></testsuite>')
+            (results / 'TEST-b.Failing.xml').write_text(
+                '<testsuite><testcase classname="b.Failing" name="times_out">'
+                '<failure message="ComposeTimeoutException: idle&#10;more">trace</failure></testcase>'
+                '<testcase classname="b.Failing" name="throws"><error>NullPointerException\n\tat x</error></testcase>'
+                '</testsuite>')
+            (results / 'TEST-c.Broken.xml').write_text('<testsuite')
+            self.assertEqual(feasibility.jvm_failures(results), [
+                {'test': 'b.Failing.times_out', 'message': 'ComposeTimeoutException: idle'},
+                {'test': 'b.Failing.throws', 'message': 'NullPointerException'}])
+            self.assertEqual(feasibility.jvm_failures(results / 'missing'), [])
+
+
 class EmulatorPortTests(unittest.TestCase):
     def test_console_and_adb_pair_must_both_be_free_in_androids_range(self):
         addresses = []

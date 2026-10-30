@@ -71,6 +71,7 @@ PYPI_JSON = PINS["zstandard"]["pypi_json"]
 WHEEL_ABI_ARCHS = ("arm64_v8a", "x86_64")
 APK = REPO / "android/app/build/outputs/apk/debug/app-debug.apk"
 TEST_APK = REPO / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+JVM_RESULTS = REPO / "android/app/build/test-results/testDebugUnitTest"
 JOB_DIR = REPO / "android/.fleet-job"
 TOOLS_DIR = REPO / "android/.fleet-sdk"
 CIBW_CACHE = TOOLS_DIR / "cibw-cache"
@@ -1414,8 +1415,26 @@ def phase_jvm_tests(paths, wheels):
     classification = f"task_failed:{failed_tasks[-1]}" if failed_tasks else (
         "tests_failed" if result["returncode"] != 0 else None)
     record("jvm_tests", "passed" if result["returncode"] == 0 else "failed",
-           minutes=result["minutes"], classification=classification, tail=tail)
+           minutes=result["minutes"], classification=classification,
+           failures=jvm_failures(JVM_RESULTS), tail=tail)
     return result["returncode"] == 0
+
+
+def jvm_failures(results, limit=20):
+    """The failed tests from Gradle's JUnit reports, with each one's first message line:
+    the output's tail is often taken up by a later test's warnings."""
+    failures = []
+    for report in sorted(results.glob("TEST-*.xml")) if results.is_dir() else ():
+        try:
+            cases = ET.parse(report).getroot().iter("testcase")  # noqa: S314 - this job's own Gradle output
+        except ET.ParseError:
+            continue
+        for case in cases:
+            for problem in [*case.findall("failure"), *case.findall("error")]:
+                message = (problem.get("message") or problem.text or "").strip().splitlines()
+                failures.append({"test": f"{case.get('classname')}.{case.get('name')}",
+                                 "message": message[0][:300] if message else ""})
+    return failures[:limit]
 
 
 def _free_port():
