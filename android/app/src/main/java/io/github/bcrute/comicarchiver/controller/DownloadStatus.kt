@@ -74,6 +74,14 @@ object DownloadStatus {
         }
     }
 
+    /**
+     * What a cold start shows for the stored plan without admitting it: a download the user
+     * paused reads as paused again after a restart or update. Only Go resumes it.
+     */
+    fun restored(envelope: JSONObject): DownloadState? =
+        envelope.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optJSONObject("account")
+            ?.takeIf { it.optString("status") == "stopped" }?.let { DownloadState.Paused("user") }
+
     // Lists are pages in a shifting order: read in one go, a series cannot slip past unseen.
     const val LIST_FIRST = "Saving starts once every list is read, so nothing is missed. A large library takes a few minutes."
 

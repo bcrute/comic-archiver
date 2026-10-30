@@ -68,8 +68,9 @@ sealed interface SignInState {
 
 sealed interface DownloadState {
     /**
-     * The only state at cold start, after process death and after update. Every transition
-     * into Running requires the go() action; nothing resumes on its own.
+     * The only state at cold start, after process death and after update; a plan the user
+     * paused then reads as Paused. Every transition into Running requires the go() action;
+     * nothing resumes on its own.
      */
     data object Held : DownloadState
     data object Planning : DownloadState

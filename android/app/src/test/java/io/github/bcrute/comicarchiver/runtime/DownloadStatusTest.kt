@@ -66,6 +66,14 @@ class DownloadStatusTest {
         assertTrue(result.detail!!.contains(DownloadStatus.LIST_FIRST))
     }
 
+    @Test fun a_cold_start_shows_a_paused_download_as_paused_and_nothing_else() {
+        fun restored(status: String) = DownloadStatus.restored(JSONObject(
+            """{"ok":true,"result":{"worker":{"running":false},"account":{"status":"$status"}}}"""))
+        assertEquals(DownloadState.Paused("user"), restored("stopped"))
+        listOf("running", "held", "finished").forEach { assertNull(restored(it)) }
+        assertNull(DownloadStatus.restored(JSONObject("""{"ok":false}""")))
+    }
+
     @Test fun one_saved_episode_is_singular() {
         val result = live("""{"phase":"archive"}""", """{"saved_episodes":1}""")
         assertEquals("1 episode saved", result.detail)

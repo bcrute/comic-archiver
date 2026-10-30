@@ -704,7 +704,9 @@ class DefaultAppController(
             // Reading a held plan never admits it. A failed observation also cannot
             // prove that a live task stopped: retain its Pause action and refuse Go.
             if (!admitted || observation == null) {
-                _state.value = observed
+                val restored = if (observation != null && observed.download is DownloadState.Held)
+                    DownloadStatus.restored(envelope) else null
+                _state.value = if (restored != null) observed.copy(download = restored) else observed
                 return@withContext
             }
             val download = DownloadStatus.fromEnvelope(envelope)
