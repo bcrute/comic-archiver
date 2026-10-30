@@ -46,15 +46,19 @@ class WorkingLibraryActivityTest {
     private fun await(condition: () -> Boolean) = compose.waitUntil(10_000) { shadowOf(Looper.getMainLooper()).idle(); condition() }
     private fun ready() = await { !app.controller.state.value.siteBusy && !app.workingLibraries.state.value.loading &&
         app.controller.state.value.signIn == SignInState.SignedIn("tapas") }
+    // The picker opens once the library has settled; a busy machine can still be loading it.
+    private fun pickerTicket(): String {
+        var ticket: String? = null
+        await { ticket = app.workingLibraries.requestPicker(); ticket != null }
+        return ticket!!
+    }
     private fun enterPreview() {
         compose.onNode(hasText("Library") and hasClickAction()).performClick()
         compose.onNodeWithContentDescription("Library options").performClick()
         compose.onNodeWithText("Change working library").performClick()
         compose.onNodeWithText("Working libraries").assertIsDisplayed()
-        compose.runOnIdle {
-            val ticket = app.workingLibraries.requestPicker()!!
-            app.workingLibraries.picked(source, ticket)
-        }
+        val ticket = pickerTicket()
+        compose.runOnIdle { app.workingLibraries.picked(source, ticket) }
         await { app.workingLibraries.state.value.phase == WorkingLibraryPhase.PREVIEW }
     }
     private fun confirm() {
@@ -80,8 +84,8 @@ class WorkingLibraryActivityTest {
         assertArrayEquals(app.sourceDocuments.chapter, selected.library.resolve("Series/chapter.cbz").readBytes())
         assertEquals("retained original", sentinel.readText())
         assertEquals(DownloadState.Held, app.controller.state.value.download)
-        assertNotSame(exports, app.exports)
-        assertNotSame(surface, app.surfaces.last())
+        // The new library's export panel and sign-in surface are made just after the switch settles.
+        await { app.exports !== exports && app.surfaces.last() !== surface }
         assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
         compose.runOnIdle { app.workingLibraries.select("default") }
         await { app.controller.state.value.libraryId == "default" && !app.controller.state.value.libraryBusy }
@@ -127,8 +131,8 @@ class WorkingLibraryActivityTest {
         assertEquals("default", app.controller.state.value.libraryId)
         assertNull(app.libraryLocations.pending()); assertEquals(1, app.libraryLocations.libraries().size)
         assertEquals(0, app.sourceDocuments.opens.get())
+        val old = pickerTicket()
         compose.runOnIdle {
-            val old = app.workingLibraries.requestPicker()!!
             app.workingLibraries.picked(null, old)
             app.workingLibraries.picked(source, old)
         }
