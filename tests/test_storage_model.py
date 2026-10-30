@@ -70,7 +70,7 @@ class SummaryTests(unittest.TestCase):
         self.assertTrue(model.auth_text({'status': 'running', 'stage': 'preparing'}).startswith('Preparing cloud sign-in.'))
         self.assertEqual(model.auth_text({'status': 'running'}), 'Checking your B2 key and private library bucket…')
         self.assertEqual(model.auth_text({'status': 'connected'}), 'Signed in. Next, click Test cloud connection.')
-        self.assertEqual(model.auth_text({'status': 'cancelled'}), 'Sign-in cancelled. Your saved files are safe.')
+        self.assertEqual(model.auth_text({'status': 'cancelled'}), 'Sign-in canceled. Your saved files are safe.')
         self.assertTrue(model.auth_text({'status': 'error', 'code': 'signin_network_held'}).startswith('Mobile data is off.'))
         self.assertEqual(model.auth_text({'status': 'error', 'code': 'b2_private_bucket'}), CLOUD_HINTS['b2_private_bucket'])
         self.assertTrue(model.auth_text({'status': 'error', 'code': 'x'}).startswith('Sign-in did not finish.'))

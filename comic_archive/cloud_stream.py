@@ -278,7 +278,7 @@ class StreamingEpisode:
                         with self.condition:
                             while original.order not in self.pages and not self.stopped:
                                 self.condition.wait(.2)
-                            if self.stopped: raise ArchiveError('Streaming assembly cancelled; cached pages are retained.')
+                            if self.stopped: raise ArchiveError('Streaming assembly canceled; cached pages are retained.')
                             page = self.pages[original.order]
                         blob = self.store.cache / page['sha256']
                         with blob.open('rb') as source:

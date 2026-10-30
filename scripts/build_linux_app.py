@@ -174,8 +174,8 @@ def drop_entry_scripts(app):
             path.unlink()
 
 
-def collect_licences(app):
-    """Gather the licence texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
+def collect_licenses(app):
+    """Gather the license texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
     lib = app / 'python/lib'
     found = []
     for source in [*lib.glob('python*'), *lib.glob('python*/site-packages/PySide6'), *lib.glob('python*/site-packages/*.dist-info')]:
@@ -192,7 +192,7 @@ def collect_licences(app):
                 shutil.copy2(path, target)
                 found.append(target)
     if not any('LESSER GENERAL PUBLIC LICENSE' in p.read_text('utf-8', 'replace').upper() for p in found):
-        raise RuntimeError('No LGPL licence text for Qt was found in the installed packages; add it before shipping')
+        raise RuntimeError('No LGPL license text for Qt was found in the installed packages; add it before shipping')
     return found
 
 
@@ -303,7 +303,7 @@ def build():
     wheel = build_wheel(work)
     uv_install(python, [f'{wheel}[{EXTRAS}]'])
     drop_entry_scripts(app)
-    collect_licences(app)
+    collect_licenses(app)
     # list --format freeze reports installed versions even for CPython's preinstalled
     # pip, whose direct_url metadata points at the Python builder's private wheel path.
     listing = run(['uv', 'pip', 'list', '--format', 'freeze', '--python', python], capture=True).stdout

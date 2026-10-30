@@ -131,7 +131,7 @@ class PackagingTests(WorkspaceCase):
         self.assertEqual((action['Name'], action['Exec']), ('Uninstall', 'comic-archiver --uninstall'))
         self.assertTrue(ElementTree.parse(PROJECT / 'packaging/comic-archiver.svg').getroot().tag.endswith('svg'))
 
-    def test_install_packaging_lays_out_launcher_icon_and_licences(self):
+    def test_install_packaging_lays_out_launcher_icon_and_licenses(self):
         app = self.root / 'ComicArchiver-1.2.3'
         build.install_packaging(app, '1.2.3')
         self.assertTrue(os.access(app / 'comic-archiver', os.X_OK))
@@ -156,7 +156,7 @@ class PackagingTests(WorkspaceCase):
         build.drop_entry_scripts(app)
         self.assertEqual(sorted(p.name for p in bin_.iterdir()), ['pip3', 'python3', 'python3.14'])
 
-    def test_collect_licences_copies_package_texts_and_demands_the_qt_lgpl(self):
+    def test_collect_licenses_copies_package_texts_and_demands_the_qt_lgpl(self):
         app = self.root / 'App'
         site = app / 'python/lib/python3.14/site-packages'
         (site / 'httpx-1.dist-info/licenses').mkdir(parents=True)
@@ -164,11 +164,11 @@ class PackagingTests(WorkspaceCase):
         (site / 'httpx-1.dist-info/METADATA').write_text('Name: httpx')
         (app / 'python/lib/python3.14/LICENSE.txt').write_text('PSF')
         with self.assertRaisesRegex(RuntimeError, 'LGPL'):
-            build.collect_licences(app)
+            build.collect_licenses(app)
         (site / 'PySide6').mkdir()
         (site / 'PySide6/LICENSE.LGPLv3').write_text('GNU LESSER GENERAL PUBLIC LICENSE Version 3')
         (site / 'PySide6/QtCore.so').write_text('binary')
-        build.collect_licences(app)
+        build.collect_licenses(app)
         kept = sorted(p.relative_to(app / 'licenses').as_posix() for p in (app / 'licenses').rglob('*') if p.is_file())
         self.assertEqual(kept, ['PySide6/LICENSE.LGPLv3', 'httpx-1.dist-info/licenses/LICENSE.md', 'python3.14/LICENSE.txt'])
 

@@ -300,8 +300,8 @@ def installed(app):
     return '\n'.join(sorted(found)) + '\n'
 
 
-def collect_licences(app):
-    """Gather the licence texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
+def collect_licenses(app):
+    """Gather the license texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
     found = []
     for source in [app / 'python', site_packages(app) / 'PySide6', *site_packages(app).glob('*.dist-info')]:
         prefixes = ('LICENSE', 'LICENCE', 'COPYING', 'NOTICE')
@@ -312,7 +312,7 @@ def collect_licences(app):
                 shutil.copy2(path, target)
                 found.append(target)
     if not any('LESSER GENERAL PUBLIC LICENSE' in p.read_text('utf-8', 'replace').upper() for p in found):
-        raise RuntimeError('No LGPL licence text for Qt was found in the installed packages; add it before shipping')
+        raise RuntimeError('No LGPL license text for Qt was found in the installed packages; add it before shipping')
     return found
 
 
@@ -369,7 +369,7 @@ def build():
     install_packages(app, common.build_wheel(work))
     leave_out_unused(app)
     compile_bytecode(app)
-    collect_licences(app)
+    collect_licenses(app)
     (app / 'requirements-frozen.txt').write_text(common.frozen_requirements(installed(app), release))
     common.run([sys.executable, common.PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
                 '--output', app / 'dependency-audit.json'])

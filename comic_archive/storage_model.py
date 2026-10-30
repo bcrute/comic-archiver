@@ -93,7 +93,7 @@ def auth_text(auth):
     if auth.get('status') == 'connected':
         return 'Signed in. Next, click Test cloud connection.'
     if auth.get('status') == 'cancelled':
-        return 'Sign-in cancelled. Your saved files are safe.'
+        return 'Sign-in canceled. Your saved files are safe.'
     if auth.get('code') == 'signin_network_held':
         return ('Mobile data is off. Connect to Wi-Fi or tick Also save on metered and mobile connections in Settings, '
                 'then try again.')

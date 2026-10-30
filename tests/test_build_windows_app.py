@@ -180,15 +180,15 @@ class PackagingTests(WorkspaceCase):
         self.assertEqual(build.installed(app), 'PySide6==6.11.2\ncomic-archive==1.2.3\n')
         self.assertEqual(build.common.frozen_requirements(build.installed(app), '1.2.3'), 'comic-archive==1.2.3\nPySide6==6.11.2\n')
 
-    def test_licences_are_collected_from_the_windows_layout_and_the_qt_lgpl_is_demanded(self):
+    def test_licenses_are_collected_from_the_windows_layout_and_the_qt_lgpl_is_demanded(self):
         app = self.root / 'app'; packages = build.site_packages(app)
         for path, text in ((app / 'python/LICENSE.txt', 'PSF'), (packages / 'PySide6/LICENSE.LGPLv3', 'GNU LESSER GENERAL PUBLIC LICENSE'),
                            (packages / 'httpx-1.dist-info/licenses/LICENSE.md', 'BSD'), (packages / 'httpx-1.dist-info/METADATA', 'no')):
             path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
-        found = sorted(p.relative_to(app / 'licenses').as_posix() for p in build.collect_licences(app))
+        found = sorted(p.relative_to(app / 'licenses').as_posix() for p in build.collect_licenses(app))
         self.assertEqual(found, ['PySide6/LICENSE.LGPLv3', 'httpx-1.dist-info/licenses/LICENSE.md', 'python/LICENSE.txt'])
         (packages / 'PySide6/LICENSE.LGPLv3').write_text('something else')
-        with self.assertRaisesRegex(RuntimeError, 'LGPL'): build.collect_licences(app)
+        with self.assertRaisesRegex(RuntimeError, 'LGPL'): build.collect_licenses(app)
 
 
 def program_file(path, loads=(), on_first_use=()):

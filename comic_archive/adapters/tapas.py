@@ -1310,7 +1310,7 @@ class TapasAdapter:
             answer = input(
                 "Is the FULL episode readable on your account (not just a preview)? [y/N]: ")
             if answer.strip().lower() not in {"y", "yes"}:
-                raise ArchiveError("Capture cancelled: full reader access was not confirmed.")
+                raise ArchiveError("Capture canceled: full reader access was not confirmed.")
             self._reader_confirmed_url = url
         else:
             print("Reusing your previous full-reader confirmation for this episode.")

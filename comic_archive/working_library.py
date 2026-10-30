@@ -42,7 +42,7 @@ MESSAGES = {
     'incomplete': 'Some saved records are missing their files or provenance. The previous library is retained.',
     'changed': 'The source library changed during import. Pause it and choose the folder again.',
     'destination': 'The private library copy is not empty. Resume or cancel that copy first.',
-    'cancelled': 'Library copying was cancelled. The previous library is retained.',
+    'cancelled': 'Library copying was canceled. The previous library is retained.',
 }
 SERIES_PRIVATE = {'schema_version', 'source', 'source_series_id', 'library_series_id',
                   'source_series_id_kind', 'source_series_slug', 'source_url', 'description',

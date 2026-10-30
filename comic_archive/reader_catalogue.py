@@ -47,7 +47,7 @@ FIELDS = {
 def require(value):
     if not value:
         raise ArchiveError(
-            "Reader catalogue metadata is inconsistent; originals are retained."
+            "Reader catalog metadata is inconsistent; originals are retained."
         )
 
 

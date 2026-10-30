@@ -25,7 +25,7 @@ internal enum class LibraryCaptureFailure(val words: String) {
     INCOMPLETE("This folder is incomplete or unsupported. Choose a complete project or Library folder."),
     CHANGED("The source library changed. Pause it before trying the copy again."),
     SPACE("There is not enough free space for a verified working copy. Free space and retry or cancel."),
-    CANCELLED("Library copying was cancelled. The previous library is retained."),
+    CANCELLED("Library copying was canceled. The previous library is retained."),
     PRIVATE_COPY("The private library copy could not be read. Retry or cancel; the previous library is retained."),
 }
 

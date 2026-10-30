@@ -16,5 +16,5 @@ choose "Uninstall". That signs it out of every site and removes your
 Backblaze key from this computer; your saved episodes are kept. Then
 delete this folder.
 
-Comic Archiver is released under the MIT licence; see LICENSE and
+Comic Archiver is released under the MIT license; see LICENSE and
 THIRD-PARTY-NOTICES.md in this folder.

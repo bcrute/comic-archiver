@@ -52,7 +52,7 @@ account first (sign in the usual way in your web browser and look in the site's 
 settings), then sign in to the app with your email and that password. Copying and pasting from a password manager
 works; browser extensions don't run inside the app.
 
-On Tappytoon it saves free chapters and the ones you've bought or are renting. A rented chapter is labelled with
+On Tappytoon it saves free chapters and the ones you've bought or are renting. A rented chapter is labeled with
 the date the rental ends.
 
 On Webtoon it saves the series you subscribe to, every episode the website shows. Episodes Webtoon only lets you
@@ -104,6 +104,6 @@ uninstalled on Windows 11, and built and started on Linux. A release goes out on
 
 Comic Archiver is written with the help of AI coding tools, and every change goes through those same checks.
 
-## Licence
+## License
 
 MIT; see [LICENSE](LICENSE). Bundled components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

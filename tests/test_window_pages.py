@@ -792,7 +792,7 @@ class B2SettingsTests(PagesCase):
         s.cancel.click()
         self.assertEqual(len(self.actions.named('cloud_cancel')), 1)
         self.assertFalse(s.cancel.isVisible())
-        self.assertEqual(s.auth.text(), 'Sign-in cancelled. Your saved files are safe.')
+        self.assertEqual(s.auth.text(), 'Sign-in canceled. Your saved files are safe.')
 
     def test_sharing_one_backblaze_setup_is_switched_on_its_tab(self):
         self.open('settings/b2')
