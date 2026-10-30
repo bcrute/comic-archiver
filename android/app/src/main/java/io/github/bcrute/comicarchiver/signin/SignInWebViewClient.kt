@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver.signin
 
+import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -44,7 +45,13 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
         } else engine.pageStarted(url, session)
     }
 
+    /** The page is ready to draw without a white flash: show the surface the sign-in hid. */
+    override fun onPageCommitVisible(view: WebView, url: String) {
+        view.visibility = View.VISIBLE
+    }
+
     override fun onPageFinished(view: WebView, url: String) {
+        view.visibility = View.VISIBLE
         if (engine.currentSession() == session) engine.onPageFinished(url)
     }
 

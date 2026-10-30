@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.signin
 
 import android.app.Application
 import android.os.Looper
+import android.view.View
 import android.webkit.WebView
 import io.github.bcrute.comicarchiver.controller.SignInState
 import org.junit.Assert.*
@@ -80,6 +81,24 @@ class NativeSignInCommitTest {
         assertEquals(SignInState.Page("https://accounts.example.test"), engine.state.value)
         engine.cancelSignIn()
         assertNull(engine.currentOrigin())
+        surface.destroy()
+    }
+
+    @Test fun theSurfaceStaysHiddenUntilItsPageIsReadyToDraw() {
+        val engine = WebViewSignInEngine(store())
+        val surface = WebView(context)
+        engine.load("tapas")
+        engine.startSignIn(surface)
+        assertEquals(View.INVISIBLE, surface.visibility)
+        val client = surface.webViewClient as SignInWebViewClient
+        client.onPageCommitVisible(surface, "https://m.tapas.io/account/signin")
+        assertEquals(View.VISIBLE, surface.visibility)
+        // A retry hides the surface again; a page that finishes shows it even if the
+        // ready-to-draw signal never came.
+        engine.startSignIn(surface)
+        assertEquals(View.INVISIBLE, surface.visibility)
+        (surface.webViewClient as SignInWebViewClient).onPageFinished(surface, "https://m.tapas.io/account/signin")
+        assertEquals(View.VISIBLE, surface.visibility)
         surface.destroy()
     }
 

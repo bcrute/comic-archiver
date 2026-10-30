@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.View
 import android.webkit.WebView
 import androidx.webkit.ScriptHandler
 import io.github.bcrute.comicarchiver.controller.SignInState
@@ -171,6 +172,9 @@ class WebViewSignInEngine(
         pageStyle = try { SignInPageStyle.install(webView, site) } catch (_: Exception) { null }
         val page = site.home + site.signInPath
         visibleOrigin = site.home
+        // Until its first page is ready to draw, a WebView paints the whole window white,
+        // not only its own box, which blanked the sign-in screen; the client shows it.
+        webView.visibility = View.INVISIBLE
         _state.value = SignInState.Page(site.home)
         webView.loadUrl(page)
         main.removeCallbacks(timeout)
