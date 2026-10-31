@@ -4574,5 +4574,21 @@
   "new": "        adapter.__enter__()\n        if True:\n",
   "test_file": "test_android_adapter.py",
   "test": "test_every_probe_closes_its_connection_whatever_the_answer"
+ },
+ {
+  "id": "scan-round-from-older-rules-kept",
+  "source": "comic_archive/inventory.py",
+  "old": "if cycle is None or rules is None or rules[0] != SCAN_RULES:",
+  "new": "if cycle is None:",
+  "test_file": "test_jobs.py",
+  "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
+ },
+ {
+  "id": "scan-round-old-refusals-not-first",
+  "source": "comic_archive/inventory.py",
+  "old": "ORDER BY CASE WHEN scans.observed_at < ? AND",
+  "new": "ORDER BY CASE WHEN scans.observed_at > ? AND",
+  "test_file": "test_jobs.py",
+  "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
  }
 ]

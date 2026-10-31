@@ -637,6 +637,41 @@ class JobTests(unittest.TestCase):
             inventory.record_series_scan('43')
             self.assertTrue(inventory.finish_scan_cycle())
 
+    @patch("builtins.print")
+    def test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals(self, output):
+        # 0.2.3 refused bought episodes in series it checked early in a round; the
+        # updated app must check those series again, not only the ones still to come.
+        with Inventory(self.root) as inventory:
+            inventory.observe("43", "Unchecked", [], "subscribed")
+        original = self.adapter.inspect_series
+        def inspect(key, strict_order=False):
+            if key == "42":
+                return original(key, strict_order)
+            self.adapter.calls.append(("series", key))
+            return {"complete": True, "authenticated": True, "source_series_id": key, "title": "S", "episodes": []}
+        self.adapter.inspect_series = inspect
+        self.adapter.reasons["83"] = "access_denied"
+        first = sync(self.adapter, self.root, scan_limit=1)
+        self.assertNotIn("83", first["archived_episode_ids"])
+        with Inventory(self.root) as inventory:
+            self.assertEqual([row["id"] for row in inventory.scan_candidates()], ["43"])
+            # The round as an earlier version left it: no rules recorded.
+            inventory.db.execute("DELETE FROM settings WHERE key='scan_cycle_rules'")
+            inventory.db.commit()
+        self.adapter.access["83"] = "tapas_unlocked"
+        del self.adapter.reasons["83"]
+        with Inventory(self.root) as inventory:
+            inventory.observe("44", "Never checked", [], "subscribed")
+        self.adapter.calls.clear()
+        # The series holding the old refusal is checked ahead of ones never checked.
+        second = sync(self.adapter, self.root, scan_limit=1)
+        self.assertEqual([call for call in self.adapter.calls if call[0] == "series"], [("series", "42")])
+        self.assertEqual(second["archived_episode_ids"], ["83"])
+        self.assertEqual(second["inventory"]["scan_remaining_series_count"], 2)
+        with Inventory(self.root) as inventory:
+            self.assertEqual([row["id"] for row in inventory.scan_candidates()], ["43", "44"])
+        self.assertEqual(verify(self.root), [])
+
     @patch('builtins.print')
     def test_history_resume_is_forwarded_without_accepting_cursor_values(self,output):
         from unittest.mock import Mock

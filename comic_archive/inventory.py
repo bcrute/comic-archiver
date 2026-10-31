@@ -18,6 +18,10 @@ from .locking import LibraryLock
 from .models import ArchiveError
 from .osdep import anchored
 ASSET_RETRY_COOLDOWN_SECONDS = 300
+# Raise when an update changes how a series check sorts its episodes: a round of
+# checks begun under older rules starts over, so series it already checked are
+# checked again and their earlier refusals are corrected (0.2.3's access_denied).
+SCAN_RULES = '1'
 # An episode a job failed on this many times is held as failed, so the queue goes on past it.
 MAX_FAILED_ATTEMPTS = 3
 UNSUPPORTED_REASONS=frozenset({'scheduled','novel','temporary_access','order_unverified',
@@ -418,18 +422,27 @@ class Inventory:
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ArchiveError('Series scan limit must be a positive integer.')
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
-        if cycle is None:
+        rules = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_rules'").fetchone()
+        if cycle is None or rules is None or rules[0] != SCAN_RULES:
             started = timestamp()
             self.db.execute("INSERT INTO settings VALUES ('scan_cycle_started',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(started,))
+            if rules is None or rules[0] != SCAN_RULES:
+                self.db.execute("INSERT INTO settings VALUES ('scan_rules_since',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(started,))
+            self.db.execute("INSERT INTO settings VALUES ('scan_cycle_rules',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(SCAN_RULES,))
             self.db.commit()
         else:
             started = cycle[0]
             observation_time(started)
+        since = self.db.execute("SELECT value FROM settings WHERE key='scan_rules_since'").fetchone()
         held={gap['source_series_id'] for gap in self.scan_gaps() if gap['observed_at']>=started}
+        # Series still holding refusals from older rules go first: they are where
+        # a fix shows, while a large library's round takes many runs to finish.
         rows = [dict(row) for row in self.db.execute('''SELECT s.id,s.title FROM series s
             LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?
-            ORDER BY COALESCE(scans.observed_at,''),s.id''',(started,))
+            ORDER BY CASE WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e
+                WHERE e.series_id=s.id AND e.status='unavailable') THEN 0 ELSE 1 END,
+                COALESCE(scans.observed_at,''),s.id''',(started,since[0] if since else ''))
             if row['id'] not in held]
         return rows if limit is None else rows[:limit]
 
