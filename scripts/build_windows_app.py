@@ -49,10 +49,13 @@ PLATFORM = 'x86_64-pc-windows-msvc'
 # How the app is started. -I keeps Python to this folder (no PYTHON* settings, no user packages, no code
 # from the folder it was started in); -X utf8 reads and writes text the same way on every computer.
 START = ('-I', '-X', 'utf8', '-m', 'comic_archive.desktop_app')
-# Inno Setup 7 reads the same definition as 6; the newer one is taken when both are installed.
-# Qt comes as one package holding every module Qt has. These are the ones the app imports; what they load is
-# worked out from the files themselves, and the rest of Qt's program files are left out of the app.
-QT_MODULES = ('QtCore', 'QtGui', 'QtNetwork', 'QtQuick', 'QtWebEngineCore', 'QtWebEngineWidgets', 'QtWidgets')
+# The license texts that come with no package in the app: Qt's, Python's and those of the libraries built into
+# Python for Windows. Python's own LICENSE.txt, which adds the conditions of that build, comes with it.
+LICENSE_TEXTS = ('GPL-3.0', 'LGPL-3.0', 'python-3.14', 'bzip2', 'expat', 'libffi', 'liblzma', 'mpdecimal', 'openssl',
+                 'sqlite', 'zlib', 'zstd')
+# The Qt modules the app imports; what they load is worked out from the files themselves, and the rest of Qt's
+# program files are left out of the app.
+QT_MODULES = common.QT_MODULES
 # Loaded by name while the app runs, which no file shows: the process that draws the pages, and the drawing in
 # software that Qt turns to on a computer whose graphics it cannot use.
 QT_LOADED_BY_NAME = ('QtWebEngineProcess.exe', 'opengl32sw.dll')
@@ -70,6 +73,7 @@ PYTHON_UNUSED = ('Lib/site-packages/pip', 'Lib/site-packages/pip-*.dist-info', '
                  'DLLs/_tkinter.pyd', 'DLLs/tcl*.dll', 'DLLs/libtommath.dll', 'DLLs/zlib1.dll',
                  'Lib/site-packages/PIL/_imagingtk.*', 'DLLs/_test*.pyd', 'DLLs/_ctypes_test.pyd')
 PROGRAM_FILES = ('.dll', '.pyd', '.exe')
+# Inno Setup 7 reads the same definition as 6; the newer one is taken when both are installed.
 ISCC_PLACES = tuple((name, f'{folder}Inno Setup {version}/ISCC.exe') for version in (7, 6)
                     for name, folder in (('LOCALAPPDATA', 'Programs/'), ('ProgramFiles', ''), ('ProgramFiles(x86)', '')))
 
@@ -301,7 +305,7 @@ def installed(app):
 
 
 def collect_licenses(app):
-    """Gather the license texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
+    """Gather the license texts the packages ship into app/licenses, and the ones that come with none."""
     found = []
     for source in [app / 'python', site_packages(app) / 'PySide6', *site_packages(app).glob('*.dist-info')]:
         prefixes = ('LICENSE', 'LICENCE', 'COPYING', 'NOTICE')
@@ -311,9 +315,7 @@ def collect_licenses(app):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
                 found.append(target)
-    if not any('LESSER GENERAL PUBLIC LICENSE' in p.read_text('utf-8', 'replace').upper() for p in found):
-        raise RuntimeError('No LGPL license text for Qt was found in the installed packages; add it before shipping')
-    return found
+    return found + common.copy_license_texts(app, LICENSE_TEXTS)
 
 
 def install_packaging(app, release):

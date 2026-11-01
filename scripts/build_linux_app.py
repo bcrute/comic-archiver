@@ -9,7 +9,8 @@ Output: dist/ComicArchiver-<version>-linux-x86_64.tar.gz and a .sha256 file.
 Pinned downloads: CPython from python-build-standalone (SHA-256 below).
 Python packages come from PyPI pinned, with their hashes, by packaging/linux-requirements.txt;
 the exact installed versions are audited and recorded in requirements-frozen.txt. The app carries no separate
-browser: the downloader uses the Qt web engine that comes with PySide6.
+browser: the downloader uses the Qt web engine that comes with PySide6. Qt's package holds every module Qt has, and
+Python comes with Tk windows and the like; only what the app loads is kept in the folder.
 This script reads no Tapas
 session and makes no Tapas requests.
 """
@@ -21,6 +22,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -39,6 +41,36 @@ PBS_URL = ('https://github.com/astral-sh/python-build-standalone/releases/downlo
            + PBS_NAME.replace('+', '%2B'))
 PBS_SHA256 = 'ddc902fd26460f728758c67d80417c1031edf97589f1f162c4ba3aa158a35998'
 EXTRAS = 'desktop,validation'
+# The license texts that come with no package in the app: Qt's (LGPL-3.0, which builds on GPL-3.0), Python's and
+# those of the libraries built into this Python. They are kept in packaging/licenses; see SOURCES.md there.
+LICENSES = PACKAGING / 'licenses'
+LICENSE_TEXTS = ('GPL-3.0', 'LGPL-3.0', 'python-3.14', 'bzip2', 'expat', 'libedit', 'libffi', 'liblzma', 'libuuid',
+                 'mpdecimal', 'ncurses', 'openssl', 'sqlite', 'zlib', 'zlib-ng', 'zstd')
+# Qt comes as one package holding every module Qt has. These are the ones the app imports; what they load is
+# worked out from the files themselves, and the rest of Qt's program files are left out of the app.
+QT_MODULES = ('QtCore', 'QtGui', 'QtNetwork', 'QtQuick', 'QtWebEngineCore', 'QtWebEngineWidgets', 'QtWidgets')
+# Started by name while the app runs, which no file shows: the process that draws the pages.
+QT_LOADED_BY_NAME = ('Qt/libexec/QtWebEngineProcess',)
+# The plugins that put the window on the screen, on X11, on Wayland or on the bare screen, kept with what they load:
+# which of them Qt asks for depends on the desktop of the computer the app runs on.
+QT_SCREEN_PLUGINS = ('platforms', 'platformthemes', 'xcbglintegrations', 'egldeviceintegrations', 'wayland-decoration-client',
+                     'wayland-graphics-integration-client', 'wayland-shell-integration')
+# The other kinds of plugin a window with web pages asks Qt for, kept where they load nothing more. The other
+# kinds belong to modules that are left out.
+QT_PLUGINS = ('generic', 'iconengines', 'imageformats', 'networkinformation', 'platforminputcontexts', 'tls')
+# In Qt's package for people who write programs with Qt, not for running one: the QML modules (the window is
+# made of widgets), translations of Qt's own dialogs (the app shows none in another language), the pages'
+# engine in its debugging form and the tools that inspect a page, type descriptions, headers and tools.
+QT_UNUSED = ('Qt/qml', 'Qt/metatypes', 'Qt/translations/*.qm', 'Qt/resources/*.debug.*',
+             'Qt/resources/qtwebengine_devtools_resources.pak', 'typesystems', 'include', 'glue', 'lib', 'doc', 'scripts',
+             'QtAsyncio', '*.pyi')
+# In the Python for Linux, and never loaded by the app: Tk windows (with Tcl and its libraries), the Berkeley DB
+# module, Python's own editor and turtle drawings, and making new environments. pip stays, to replace Qt with.
+PYTHON_UNUSED = ('bin/idle3*', 'lib/libtcl*', 'lib/tcl9*', 'lib/tk9*', 'lib/itcl*', 'lib/thread3*',
+                 'lib/python3.*/tkinter', 'lib/python3.*/idlelib', 'lib/python3.*/turtledemo', 'lib/python3.*/turtle.py',
+                 'lib/python3.*/__pycache__/turtle.*', 'lib/python3.*/ensurepip', 'lib/python3.*/venv',
+                 'lib/python3.*/lib-dynload/_tkinter.*', 'lib/python3.*/lib-dynload/_dbm.*',
+                 'lib/python3.*/site-packages/PIL/_imagingtk.*')
 
 
 def version():
@@ -174,8 +206,146 @@ def drop_entry_scripts(app):
             path.unlink()
 
 
+def site_packages(app):
+    found = list((app / 'python/lib').glob('python3.*/site-packages'))
+    if len(found) != 1:
+        raise RuntimeError('Expected exactly one site-packages folder in the bundled Python')
+    return found[0]
+
+
+def needed_names(path):
+    """The names of the libraries Linux loads along with this program file, read from its dynamic section."""
+    data = Path(path).read_bytes()
+    try:
+        if data[:4] != b'\x7fELF' or data[4:6] != b'\x02\x01':
+            raise ValueError
+        start, = struct.unpack_from('<Q', data, 0x20)
+        size, count = struct.unpack_from('<HH', data, 0x36)
+        loads, dynamic = [], None
+        for n in range(count):
+            kind, _, offset, address, _, stored, memory, _ = struct.unpack_from('<IIQQQQQQ', data, start + size * n)
+            if kind == 1:
+                loads.append((address, max(stored, memory), offset))
+            elif kind == 2:
+                dynamic = (offset, stored)
+        if dynamic is None:
+            return set()
+
+        def place(address):
+            for begin, length, offset in loads:
+                if begin <= address < begin + length:
+                    return offset + address - begin
+            raise ValueError
+
+        entries = []
+        for n in range(dynamic[1] // 16):
+            tag, value = struct.unpack_from('<qQ', data, dynamic[0] + 16 * n)
+            if tag == 0:
+                break
+            entries.append((tag, value))
+        strings = place(next(value for tag, value in entries if tag == 5))
+        names = set()
+        for tag, value in entries:
+            if tag == 1:
+                name = strings + value
+                names.add(data[name:data.index(b'\0', name)].decode('ascii'))
+        return names
+    except (ValueError, StopIteration, struct.error, UnicodeDecodeError):
+        raise RuntimeError(f'{Path(path).name} is not a Linux program file that can be read') from None
+
+
+def qt_needed(needs):
+    """The program files of Qt's package that the app can come to load.
+
+    needs gives, for every program file in the package's folder (by its path inside it), the names it loads.
+    Kept are the app's own Qt modules, the files named above, the plugins that show the window, whatever those
+    load in turn, and the plugins of the other kinds the app asks for that load nothing but what is kept.
+    """
+    libraries = {name.rsplit('/', 1)[-1]: name for name in needs if '/' not in name or name.startswith('Qt/lib/')}
+    wanted = [*(module + '.abi3.so' for module in QT_MODULES), *QT_LOADED_BY_NAME]
+    absent = sorted(name for name in wanted if name not in needs)
+    if absent:
+        raise RuntimeError('The Qt package lacks ' + ', '.join(absent))
+    plugins = {name: name.split('/')[2] for name in needs if name.startswith('Qt/plugins/') and name.count('/') == 3}
+    wanted += [name for name, kind in plugins.items() if kind in QT_SCREEN_PLUGINS]
+    kept = set()
+    while wanted:
+        name = wanted.pop()
+        if name in kept:
+            continue
+        kept.add(name)
+        wanted += [libraries[loaded] for loaded in needs[name] if loaded in libraries]
+        # A Qt library's Python module is imported by the Python modules of the libraries built on it,
+        # which no dynamic section shows: QtWebEngineWidgets imports QtPrintSupport.
+        library = name.rsplit('/', 1)[-1]
+        if library.startswith('libQt6') and library.endswith('.so.6'):
+            wanted += [module for module in ['Qt' + library[6:-5] + '.abi3.so'] if module in needs]
+    for name, kind in plugins.items():
+        if kind in QT_PLUGINS and all(libraries[loaded] in kept for loaded in needs[name] if loaded in libraries):
+            kept.add(name)
+    return kept
+
+
+def programs(folder):
+    found = []
+    for path in folder.rglob('*'):
+        if path.is_file() and not path.is_symlink():
+            with path.open('rb') as stream:
+                if stream.read(4) == b'\x7fELF':
+                    found.append(path)
+    return found
+
+
+def leave_out_unused(app):
+    """Remove from the app folder what the app never loads, which is most of what Qt's package holds.
+
+    Afterwards no program file that is left may load one that was taken out.
+    """
+    before = sum(path.stat().st_size for path in app.rglob('*') if path.is_file() and not path.is_symlink())
+    shipped = {path.name for path in programs(app)}
+    qt = site_packages(app) / 'PySide6'
+    for folder, patterns in ((app / 'python', PYTHON_UNUSED), (qt, QT_UNUSED)):
+        for pattern in patterns:
+            for path in list(folder.glob(pattern)):
+                shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
+    needs = {path.relative_to(qt).as_posix(): needed_names(path) for path in programs(qt)}
+    for name in needs.keys() - qt_needed(needs):
+        (qt / name).unlink()
+    for folder in sorted(qt.glob('Qt/plugins/*')):
+        if not any(folder.iterdir()):
+            folder.rmdir()
+    left = programs(app)
+    gone = shipped - {path.name for path in left}
+    for path in left:
+        missing = sorted(gone & needed_names(path))
+        if missing:
+            raise RuntimeError(f'{path.name} loads {", ".join(missing)}, which was left out of the app')
+    after = sum(path.stat().st_size for path in app.rglob('*') if path.is_file() and not path.is_symlink())
+    print(f'Left out what the app never loads: {(before - after) // 1_000_000} of {before // 1_000_000} MB', flush=True)
+
+
+def copy_license_texts(app, names):
+    """Copy the license texts named from packaging/licenses into app/licenses/other.
+
+    Qt may only be passed on with the LGPL and the GPL it builds on, so both must be there and be version 3.
+    """
+    other = app / 'licenses/other'
+    other.mkdir(parents=True, exist_ok=True)
+    found = []
+    for name in names:
+        source = LICENSES / f'{name}.txt'
+        if not source.is_file():
+            raise RuntimeError(f'The license text {source.name} is missing from packaging/licenses')
+        found.append(Path(shutil.copy2(source, other / source.name)))
+    for name, title in (('LGPL-3.0', 'GNU LESSER GENERAL PUBLIC LICENSE'), ('GPL-3.0', 'GNU GENERAL PUBLIC LICENSE')):
+        head = (other / f'{name}.txt').read_text('utf-8', 'replace')[:400] if (other / f'{name}.txt').is_file() else ''
+        if title not in head or 'Version 3' not in head:
+            raise RuntimeError(f'Qt cannot be passed on without the {name} license text in licenses/other/{name}.txt')
+    return found
+
+
 def collect_licenses(app):
-    """Gather the license texts the packages ship into app/licenses; the Qt LGPL text must be among them."""
+    """Gather the license texts the packages ship into app/licenses, and the ones that come with none."""
     lib = app / 'python/lib'
     found = []
     for source in [*lib.glob('python*'), *lib.glob('python*/site-packages/PySide6'), *lib.glob('python*/site-packages/*.dist-info')]:
@@ -191,9 +361,7 @@ def collect_licenses(app):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
                 found.append(target)
-    if not any('LESSER GENERAL PUBLIC LICENSE' in p.read_text('utf-8', 'replace').upper() for p in found):
-        raise RuntimeError('No LGPL license text for Qt was found in the installed packages; add it before shipping')
-    return found
+    return found + copy_license_texts(app, LICENSE_TEXTS)
 
 
 def frozen_requirements(text, release):
@@ -303,6 +471,7 @@ def build():
     wheel = build_wheel(work)
     uv_install(python, [f'{wheel}[{EXTRAS}]'])
     drop_entry_scripts(app)
+    leave_out_unused(app)
     collect_licenses(app)
     # list --format freeze reports installed versions even for CPython's preinstalled
     # pip, whose direct_url metadata points at the Python builder's private wheel path.

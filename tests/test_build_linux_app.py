@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import shutil
 import stat
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -156,25 +157,180 @@ class PackagingTests(WorkspaceCase):
         build.drop_entry_scripts(app)
         self.assertEqual(sorted(p.name for p in bin_.iterdir()), ['pip3', 'python3', 'python3.14'])
 
-    def test_collect_licenses_copies_package_texts_and_demands_the_qt_lgpl(self):
+    def test_collect_licenses_copies_package_texts_and_the_ones_no_package_brings(self):
         app = self.root / 'App'
         site = app / 'python/lib/python3.14/site-packages'
         (site / 'httpx-1.dist-info/licenses').mkdir(parents=True)
         (site / 'httpx-1.dist-info/licenses/LICENSE.md').write_text('BSD')
         (site / 'httpx-1.dist-info/METADATA').write_text('Name: httpx')
-        (app / 'python/lib/python3.14/LICENSE.txt').write_text('PSF')
-        with self.assertRaisesRegex(RuntimeError, 'LGPL'):
-            build.collect_licenses(app)
         (site / 'PySide6').mkdir()
-        (site / 'PySide6/LICENSE.LGPLv3').write_text('GNU LESSER GENERAL PUBLIC LICENSE Version 3')
-        (site / 'PySide6/QtCore.so').write_text('binary')
+        (site / 'PySide6/QtCore.abi3.so').write_text('binary')
+        (app / 'python/lib/python3.14/LICENSE.txt').write_text('PSF')
         build.collect_licenses(app)
         kept = sorted(p.relative_to(app / 'licenses').as_posix() for p in (app / 'licenses').rglob('*') if p.is_file())
-        self.assertEqual(kept, ['PySide6/LICENSE.LGPLv3', 'httpx-1.dist-info/licenses/LICENSE.md', 'python3.14/LICENSE.txt'])
+        self.assertEqual(kept, sorted(['httpx-1.dist-info/licenses/LICENSE.md', 'python3.14/LICENSE.txt',
+                                       *(f'other/{name}.txt' for name in build.LICENSE_TEXTS)]))
+        for name in build.LICENSE_TEXTS:
+            self.assertEqual((app / f'licenses/other/{name}.txt').read_bytes(), (PROJECT / f'packaging/licenses/{name}.txt').read_bytes())
+
+    def test_qt_is_not_passed_on_without_the_lgpl_and_the_gpl_it_builds_on(self):
+        texts = self.root / 'texts'
+        texts.mkdir()
+        (texts / 'LGPL-3.0.txt').write_text('GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n')
+        (texts / 'GPL-3.0.txt').write_text('GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n')
+        (texts / 'zlib.txt').write_text('zlib')
+        with patch.object(build, 'LICENSES', texts):
+            found = build.copy_license_texts(self.root / 'one', ('GPL-3.0', 'LGPL-3.0', 'zlib'))
+            self.assertEqual(sorted(p.name for p in found), ['GPL-3.0.txt', 'LGPL-3.0.txt', 'zlib.txt'])
+            with self.assertRaisesRegex(RuntimeError, 'missing.txt is missing'):
+                build.copy_license_texts(self.root / 'two', ('GPL-3.0', 'LGPL-3.0', 'missing'))
+            with self.assertRaisesRegex(RuntimeError, 'without the GPL-3.0'):
+                build.copy_license_texts(self.root / 'three', ('LGPL-3.0', 'zlib'))
+            # A text that only names the license is not the license: certifi's MPL text names the LGPL.
+            (texts / 'LGPL-3.0.txt').write_text('Mozilla Public License\n... the GNU Lesser General Public License ...')
+            with self.assertRaisesRegex(RuntimeError, 'without the LGPL-3.0'):
+                build.copy_license_texts(self.root / 'four', ('GPL-3.0', 'LGPL-3.0'))
+
+    def test_every_license_text_kept_for_the_apps_says_where_it_comes_from(self):
+        folder = PROJECT / 'packaging/licenses'
+        sources = (folder / 'SOURCES.md').read_text('utf-8')
+        for path in folder.glob('*.txt'):
+            self.assertIn(f'`{path.name}`', sources)
+        for name in build.LICENSE_TEXTS:
+            self.assertTrue((folder / f'{name}.txt').is_file(), name)
+        notices = (PROJECT / 'THIRD-PARTY-NOTICES.md').read_text('utf-8')
+        self.assertIn('Copyright (c) 2026 Ben Crute', (PROJECT / 'LICENSE').read_text('utf-8'))
+        self.assertIn('licenses/other/', notices)
 
     def test_frozen_requirements_pin_this_project_without_build_paths(self):
         text = build.frozen_requirements('zstandard==0.25.0\ncomic-archive @ file:///tmp/x.whl\n\nhttpx==0.28.1\n', '0.1.0')
         self.assertEqual(text, 'comic-archive==0.1.0\nhttpx==0.28.1\nzstandard==0.25.0\n')
+
+
+def program_file(path, loads=(), dynamic=True):
+    """Write a Linux program file that holds nothing but its dynamic section and the names in it."""
+    base, strings_at = 0x400000, 64 + 56 * 2
+    strings, entries = bytearray(b'\0'), []
+    for name in loads:
+        entries.append((1, len(strings))); strings.extend(name.encode() + b'\0')
+    entries += [(5, base + strings_at), (0, 0)]
+    table = b''.join(struct.pack('<qQ', tag, value) for tag, value in entries)
+    table_at = strings_at + len(strings)
+    size = table_at + len(table)
+    head = b'\x7fELF\x02\x01\x01' + bytes(9) + struct.pack('<HHIQQQIHHHHHH', 3, 0x3e, 1, 0, 64, 0, 0, 64, 56, 2, 64, 0, 0)
+    load = struct.pack('<IIQQQQQQ', 1, 4, 0, base, base, size, size, 0x1000)
+    found = struct.pack('<IIQQQQQQ', 2 if dynamic else 4, 4, table_at, base + table_at, base + table_at, len(table), len(table), 8)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(head + load + found + bytes(strings) + table)
+
+
+class LeftOutTests(WorkspaceCase):
+    def test_the_qt_modules_kept_in_the_package_are_the_ones_the_app_imports(self):
+        # A module the app starts to import and the package lacks would only show as an app that does not start.
+        imported = set()
+        for source in (PROJECT / 'comic_archive').rglob('*.py'):
+            text = source.read_text('utf-8')
+            for names in re.findall(r'^\s*from PySide6 import ([\w, ]+)', text, re.M):
+                imported.update(name.strip() for name in names.split(','))
+            imported.update(re.findall(r'^\s*(?:from|import) PySide6\.(\w+)', text, re.M))
+        self.assertEqual(imported, set(build.QT_MODULES))
+
+    def test_what_a_program_file_loads_is_read_from_its_dynamic_section(self):
+        program_file(self.root / 'a.so', loads=('libQt6Core.so.6', 'libc.so.6'))
+        program_file(self.root / 'static', loads=('libQt6Core.so.6',), dynamic=False)
+        self.assertEqual(build.needed_names(self.root / 'a.so'), {'libQt6Core.so.6', 'libc.so.6'})
+        self.assertEqual(build.needed_names(self.root / 'static'), set())
+        (self.root / 'text.so').write_bytes(b'not a program at all' * 40)
+        with self.assertRaisesRegex(RuntimeError, 'text.so'): build.needed_names(self.root / 'text.so')
+
+    def qt(self, **changed):
+        """What each program file of a small Qt package loads, shaped like the real one."""
+        lib = lambda name: 'Qt/lib/libQt6' + name + '.so.6'
+        needs = {module + '.abi3.so': {f'libQt6{module[2:]}.so.6', 'libpyside6.abi3.so.6.11', 'libshiboken6.abi3.so.6.11'}
+                 for module in build.QT_MODULES}
+        needs.update({name: set() for name in ('libpyside6.abi3.so.6.11', 'Qt/lib/libicuuc.so.73', lib('Svg'), 'designer',
+                                               'Qt/lib/libavcodec.so.61')})
+        needs.update({lib('Core'): {'libicuuc.so.73', 'libc.so.6'}, lib('Gui'): {'libQt6Core.so.6'},
+                      lib('Network'): {'libQt6Core.so.6'}, lib('Widgets'): {'libQt6Gui.so.6'},
+                      lib('Quick'): {'libQt6Gui.so.6', 'libQt6Qml.so.6'}, lib('Qml'): {'libQt6Network.so.6'},
+                      'QtQml.abi3.so': {'libQt6Qml.so.6'}, lib('WebEngineCore'): {'libQt6Quick.so.6', 'libnss3.so'},
+                      'Qt/libexec/QtWebEngineProcess': {'libQt6WebEngineCore.so.6'},
+                      lib('WebEngineWidgets'): {'libQt6WebEngineCore.so.6', 'libQt6PrintSupport.so.6'},
+                      lib('PrintSupport'): {'libQt6Widgets.so.6'}, 'QtPrintSupport.abi3.so': {'libQt6PrintSupport.so.6'},
+                      lib('XcbQpa'): {'libQt6Gui.so.6', 'libxcb.so.1'}, 'Qt/plugins/platforms/libqxcb.so': {'libQt6XcbQpa.so.6'},
+                      lib('Multimedia'): {'libQt6Gui.so.6', 'libavcodec.so.61'}, 'QtMultimedia.abi3.so': {'libQt6Multimedia.so.6'},
+                      'QtSvg.abi3.so': {'libQt6Svg.so.6'}, 'Qt/plugins/imageformats/libqico.so': {'libQt6Gui.so.6'},
+                      'Qt/plugins/imageformats/libqsvg.so': {'libQt6Gui.so.6', 'libQt6Svg.so.6'},
+                      'Qt/plugins/sqldrivers/libqsqlite.so': {'libQt6Core.so.6'}})
+        needs.update(changed)
+        return {name: names for name, names in needs.items() if names is not None}
+
+    def test_qt_keeps_the_apps_modules_what_they_load_the_screen_plugins_and_the_plugins_that_need_nothing_more(self):
+        kept = build.qt_needed(self.qt())
+        left_out = {'Qt/lib/libQt6Multimedia.so.6', 'QtMultimedia.abi3.so', 'Qt/lib/libavcodec.so.61', 'Qt/lib/libQt6Svg.so.6',
+                    'QtSvg.abi3.so', 'designer', 'Qt/plugins/imageformats/libqsvg.so', 'Qt/plugins/sqldrivers/libqsqlite.so'}
+        self.assertEqual(kept, self.qt().keys() - left_out)
+        # The X11 plugin is kept with the library only it loads; the window could not open without it.
+        self.assertLessEqual({'Qt/plugins/platforms/libqxcb.so', 'Qt/lib/libQt6XcbQpa.so.6'}, kept)
+        # No dynamic section shows that QtWebEngineWidgets imports QtPrintSupport, nor QtQuick QtQml: Python does that.
+        self.assertLessEqual({'QtPrintSupport.abi3.so', 'QtQml.abi3.so'}, kept)
+        for lacking in ('QtWebEngineWidgets.abi3.so', 'Qt/libexec/QtWebEngineProcess'):
+            with self.assertRaisesRegex(RuntimeError, lacking): build.qt_needed(self.qt(**{lacking: None}))
+
+    def python_tree(self, app):
+        python, packages = app / 'python', 'lib/python3.14/site-packages/'
+        for name, loads in (('bin/python3.14', ('libpython3.14.so.1.0',)), ('lib/libpython3.14.so.1.0', ()),
+                            ('lib/python3.14/lib-dynload/_tkinter.cpython-314-x86_64-linux-gnu.so', ('libtcl9tk9.0.so',)),
+                            ('lib/libtcl9tk9.0.so', ('libtcl9.0.so',)), ('lib/libtcl9.0.so', ()),
+                            ('lib/python3.14/lib-dynload/_dbm.cpython-314-x86_64-linux-gnu.so', ()),
+                            (packages + 'PIL/_imaging.cpython-314-x86_64-linux-gnu.so', ()),
+                            (packages + 'PIL/_imagingtk.cpython-314-x86_64-linux-gnu.so', ()),
+                            (packages + 'shiboken6/libshiboken6.abi3.so.6.11', ())):
+            program_file(python / name, loads)
+        for name in ('bin/idle3.14', 'bin/pip3', 'include/python3.14/Python.h', 'lib/python3.14/os.py', 'lib/python3.14/turtle.py',
+                     'lib/python3.14/__pycache__/turtle.cpython-314.pyc', 'lib/python3.14/tkinter/__init__.py',
+                     'lib/python3.14/idlelib/idle.py', 'lib/python3.14/turtledemo/__main__.py', 'lib/python3.14/venv/__init__.py',
+                     'lib/python3.14/ensurepip/__init__.py', 'lib/tcl9.0/init.tcl', 'lib/tk9.0/tk.tcl', 'lib/itcl4.3.8/itcl.tcl',
+                     'lib/thread3.0.6/pkgIndex.tcl', packages + 'pip/__init__.py', packages + 'comic_archive/cli.py'):
+            (python / name).parent.mkdir(parents=True, exist_ok=True); (python / name).write_text('x')
+
+    def test_the_app_folder_loses_what_the_app_never_loads_and_keeps_the_rest(self):
+        app = self.root / 'app'; python = app / 'python'
+        self.python_tree(app)
+        qt = build.site_packages(app) / 'PySide6'
+        for name, loads in self.qt().items():
+            program_file(qt / name, loads)
+        for name in ('__init__.py', 'QtCore.pyi', 'support/__init__.py', 'lib/cmake/Shiboken6.cmake', 'include/pyside.h',
+                     'Qt/qml/QtQuick/qmldir', 'Qt/metatypes/qt6core.json', 'Qt/translations/qt_de.qm',
+                     'Qt/translations/qtwebengine_locales/en-US.pak', 'Qt/resources/qtwebengine_resources.pak',
+                     'Qt/resources/icudtl.dat', 'Qt/resources/qtwebengine_resources.debug.pak',
+                     'Qt/resources/qtwebengine_devtools_resources.pak'):
+            (qt / name).parent.mkdir(parents=True, exist_ok=True); (qt / name).write_text('x')
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            build.leave_out_unused(app)
+        self.assertRegex(said.getvalue(), r'^Left out what the app never loads: \d+ of \d+ MB\n$')
+        left = {path.relative_to(python).as_posix() for path in python.rglob('*') if path.is_file()}
+        packages = 'lib/python3.14/site-packages/'
+        self.assertEqual({name for name in left if not name.startswith(packages + 'PySide6/')},
+                         {'bin/python3.14', 'bin/pip3', 'include/python3.14/Python.h', 'lib/libpython3.14.so.1.0',
+                          'lib/python3.14/os.py', packages + 'PIL/_imaging.cpython-314-x86_64-linux-gnu.so',
+                          packages + 'shiboken6/libshiboken6.abi3.so.6.11', packages + 'pip/__init__.py',
+                          packages + 'comic_archive/cli.py'})
+        self.assertEqual({name[len(packages + 'PySide6/'):] for name in left if name.startswith(packages + 'PySide6/')},
+                         build.qt_needed(self.qt()) | {'__init__.py', 'support/__init__.py', 'Qt/translations/qtwebengine_locales/en-US.pak',
+                                                       'Qt/resources/qtwebengine_resources.pak', 'Qt/resources/icudtl.dat'})
+        self.assertFalse((qt / 'Qt/plugins/sqldrivers').exists())
+        self.assertFalse((python / 'lib/tcl9.0').exists())
+
+    def test_a_kept_file_that_loads_one_that_was_left_out_stops_the_build(self):
+        # Such an app starts on no computer; the build host must say so, not the first person to install it.
+        app = self.root / 'app'
+        self.python_tree(app)
+        for name, loads in self.qt().items():
+            program_file(app / 'python/lib/python3.14/site-packages/PySide6' / name, loads)
+        program_file(app / 'python/lib/python3.14/lib-dynload/_tcl.cpython-314-x86_64-linux-gnu.so', ('libtcl9.0.so',))
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, r'_tcl\.cpython.* loads libtcl9\.0\.so'):
+            build.leave_out_unused(app)
 
 
 class ArchiveTests(WorkspaceCase):
@@ -238,13 +394,13 @@ class OrchestrationTests(WorkspaceCase):
             script(app / 'python/bin/python3', '#!/bin/sh\n')
             script(app / 'python/bin/comic-archive', f'#!{app}/python/bin/python3\n')
             (app / 'python/lib/python3.14/site-packages/PySide6').mkdir(parents=True)
-            (app / 'python/lib/python3.14/site-packages/PySide6/LICENSE.LGPLv3').write_text('GNU Lesser General Public License')
             return app / 'python/bin/python3'
 
         self.bundle = patch.object(build, 'bundle_python', side_effect=python).start()
         patch.object(build, 'build_wheel', return_value=self.root / 'comic_archive-0.whl').start()
         patch.object(build, 'uv_install', side_effect=lambda *args: self.installs.append(args[1])).start()
         self.run = patch.object(build, 'run', return_value=MagicMock(stdout='httpx==0.28.1\ncomic-archive @ file:///x.whl\n')).start()
+        self.left_out = patch.object(build, 'leave_out_unused').start()
 
     def test_build_assembles_and_packs_the_app(self):
         app, archive, checksum = build.build()
@@ -262,7 +418,8 @@ class OrchestrationTests(WorkspaceCase):
         self.assertIn(f'{app.name}/comic-archiver', names)
         self.assertFalse([n for n in names if 'browsers' in n.split('/')])
         self.assertNotIn(f'{app.name}/python/bin/comic-archive', names)
-        self.assertIn(f'{app.name}/licenses/PySide6/LICENSE.LGPLv3', names)
+        self.left_out.assert_called_once_with(app)
+        self.assertIn(f'{app.name}/licenses/other/LGPL-3.0.txt', names)
         self.assertIn(f'{app.name}/share/applications/comic-archiver.desktop', names)
         self.assertEqual(frozen, f'comic-archive=={release}\nhttpx==0.28.1\n')
 
