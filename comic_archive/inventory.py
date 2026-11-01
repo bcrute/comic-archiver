@@ -643,10 +643,14 @@ class Inventory:
         last = self.db.execute("SELECT id,started_at,finished_at,status,summary FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
         scan = self.db.execute("SELECT value FROM settings WHERE key='last_completed_scan'").fetchone()
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
+        rules = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_rules'").fetchone()
+        # A round begun under other rules starts over at its next check, so every series is still to come;
+        # counted from the old round, that check would look like no progress and hold the account's download.
+        since = cycle and (cycle[0] if rules is not None and rules[0] == SCAN_RULES else timestamp())
         gaps=self.scan_gaps()
-        held={gap['source_series_id'] for gap in gaps if cycle and gap['observed_at']>=cycle[0]}
+        held={gap['source_series_id'] for gap in gaps if cycle and gap['observed_at']>=since}
         remaining = sum(row['id'] not in held for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
-            WHERE scans.observed_at IS NULL OR scans.observed_at < ?''',(cycle[0],))) if cycle else 0
+            WHERE scans.observed_at IS NULL OR scans.observed_at < ?''',(since,))) if cycle else 0
         now=observation_time(timestamp())
         # Missing checkpoints cannot establish when an earlier observation was
         # complete. "never_checked" describes recorded successful checks only.

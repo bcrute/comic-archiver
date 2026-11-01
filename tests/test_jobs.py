@@ -663,6 +663,8 @@ class JobTests(unittest.TestCase):
         del self.adapter.reasons["83"]
         with Inventory(self.root) as inventory:
             inventory.observe("44", "Never checked", [], "subscribed")
+            # Before the round starts over, every series counts as still to check, so its first check is progress.
+            self.assertEqual(inventory.status()["scan_remaining_series_count"], 3)
         self.adapter.calls.clear()
         # The series holding the old refusal is checked ahead of ones never checked.
         second = sync(self.adapter, self.root, scan_limit=1)

@@ -4806,5 +4806,21 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_a_library_folder_renamed_while_the_app_was_closed_is_found_again_and_never_made_in_its_old_place"
+ },
+ {
+  "id": "scan-round-from-older-rules-counted-from-old-round",
+  "source": "comic_archive/inventory.py",
+  "old": "since = cycle and (cycle[0] if rules is not None and rules[0] == SCAN_RULES else timestamp())",
+  "new": "since = cycle and cycle[0]",
+  "test_file": "test_jobs.py",
+  "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
+ },
+ {
+  "id": "scan-round-unrecorded-rules-counted-from-old-round",
+  "source": "comic_archive/inventory.py",
+  "old": "since = cycle and (cycle[0] if rules is not None and rules[0] == SCAN_RULES else timestamp())",
+  "new": "since = cycle and (cycle[0] if rules is None or rules[0] == SCAN_RULES else timestamp())",
+  "test_file": "test_jobs.py",
+  "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
  }
 ]
