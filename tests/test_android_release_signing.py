@@ -263,7 +263,7 @@ class ReleaseApkTests(ReleaseSigningTestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
-    def build(self, gradle_ok=True, observed=None):
+    def build(self, gradle_ok=True, observed=None, license_problems=()):
         def provision(**kwargs):
             feasibility.record("provision", "passed")
             return {"java": self.java}
@@ -299,6 +299,7 @@ class ReleaseApkTests(ReleaseSigningTestCase):
                 patch.object(feasibility.android_release, "identity_from_source", return_value=dict(IDENTITY)), \
                 patch.object(feasibility.android_release, "inspect_apk",
                              return_value=observed or dict(IDENTITY, certificate_sha256=FINGERPRINT)), \
+                patch.object(feasibility.android_release, "license_problems", return_value=list(license_problems)), \
                 patch("builtins.print"):
             return feasibility.release_apk()
 
@@ -323,6 +324,13 @@ class ReleaseApkTests(ReleaseSigningTestCase):
                 self.assertEqual(self.build(observed=observed), 1)
                 self.assertFalse((self.root / "artifacts/ComicArchiver-0.3.0-beta1-android-universal.apk").exists())
                 self.assertFalse(self.folder.exists())
+
+    def test_an_apk_without_its_license_texts_is_refused(self):
+        self.assertEqual(self.build(license_problems=["The APK lacks the license text other/Apache-2.0.txt."]), 1)
+        self.assertFalse((self.root / "artifacts/ComicArchiver-0.3.0-beta1-android-universal.apk").exists())
+        self.assertFalse(self.folder.exists())
+        self.assertEqual(feasibility.report["phases"]["release_apk"]["license_problems"],
+                         ["The APK lacks the license text other/Apache-2.0.txt."])
 
 
 if __name__ == "__main__":

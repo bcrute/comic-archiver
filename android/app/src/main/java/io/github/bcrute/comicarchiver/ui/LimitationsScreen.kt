@@ -35,7 +35,7 @@ import kotlinx.coroutines.withContext
  * public roadmap; never soften a limitation to make a date.
  */
 @Composable
-fun LimitationsScreen(modifier: Modifier = Modifier) {
+fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}) {
     val context = LocalContext.current.applicationContext
     val identity by produceState<InstalledIdentity?>(null, context) {
         value = withContext(Dispatchers.IO) { installedIdentity(context) }
@@ -51,6 +51,8 @@ fun LimitationsScreen(modifier: Modifier = Modifier) {
         Text(identity?.fingerprint ?: "Reading APK fingerprint…")
         Text("Include this version and fingerprint when reporting a problem.",
             style = MaterialTheme.typography.bodySmall)
+        Text(LICENSE_SUMMARY, style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onLicenses) { Text("Licenses") }
         Text("What this beta does not do", style = MaterialTheme.typography.headlineSmall)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Limitation("Choose a source site above. Each site keeps its sign-in and library separate.")

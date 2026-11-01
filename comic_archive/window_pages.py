@@ -7,11 +7,11 @@ window's own, and its answer comes back here.
 import html
 import time
 
-from . import app_actions, dashboard_model, library_model, storage_model
+from . import app_actions, dashboard_model, library_model, license_texts, storage_model
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 
-ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2')
-TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'))
+ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
+TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
 SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
             '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
             '\n\nYour saved episodes stay where they are. To download again, sign in again.')
@@ -71,6 +71,8 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="billing">Billing</a>: your card and your monthly bills.</li>'
                  '<li><a href="caps">Caps &amp; Alerts</a>: the most you allow a day, and Backblaze’s emails as you near it.</li>'
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
+ABOUT = ('Copyright 2026 Ben Crute. Comic Archiver is free software under the MIT license. It is built with '
+         'other people’s software, each under its own license; every one of those licenses can be read here.')
 LIST_HELP = ('Saving starts once every list is read, so nothing in your account is missed. Sites supply lists '
              'in separate pages; a large library can take several minutes.')
 
@@ -449,7 +451,7 @@ class Dashboard:
 
 
 class Settings:
-    """Downloads, Storage and Backblaze B2, each on a tab of its own."""
+    """Downloads, Storage, Backblaze B2 and About, each on a tab of its own."""
 
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
@@ -485,7 +487,8 @@ class Settings:
         self.status = kit.label('')
         panels.addWidget(self.status)
         # Only the open tab takes room, so a short one is not as tall as the longest.
-        self.panels = {'downloads': self._downloads(kit, pages), 'storage': self._storage(kit, pages), 'b2': self._b2(kit, pages)}
+        self.panels = {'downloads': self._downloads(kit, pages), 'storage': self._storage(kit, pages), 'b2': self._b2(kit, pages),
+                       'about': self._about(kit)}
         from .window_style import READING
         for panel in self.panels.values():
             panels.addWidget(panel)
@@ -558,6 +561,26 @@ class Settings:
         row.addWidget(kit.row(self.signout))
         box.addWidget(self.signout_row)
         return card
+
+    def _about(self, kit):
+        card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
+        box.addWidget(kit.label('About', 'sectionTitle'))
+        box.addWidget(kit.label(f'Comic Archiver {license_texts.version()}', 'strong'))
+        box.addWidget(kit.label(ABOUT, 'muted'))
+        self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
+        self.license_choice.setAccessibleName('License to read')
+        box.addWidget(kit.row(self.license_choice))
+        self.license_text = kit.w.QPlainTextEdit()
+        self.license_text.setReadOnly(True)
+        self.license_text.setMinimumHeight(420)
+        self.license_text.setAccessibleName('License text')
+        box.addWidget(self.license_text)
+        self._license(self.license_choice.itemData(0))
+        return card
+
+    def _license(self, path):
+        text = license_texts.read(path)
+        self.license_text.setPlainText('This text could not be read.' if text is None else text)
 
     def _not_downloaded(self, rows):
         table, w = self.not_downloaded, self.kit.w

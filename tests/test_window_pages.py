@@ -500,6 +500,22 @@ class NavigationTests(PagesCase):
         nav['dashboard'].click()
         self.assertEqual(self.pages.stack.currentWidget(), self.dashboard.widget)
 
+    def test_about_names_the_author_and_shows_every_license_the_app_carries(self):
+        self.open()
+        self.settings.tabs['about'].click()
+        s = self.settings
+        self.assertEqual(self.pages.route, 'settings/about')
+        self.assertTrue(s.panels['about'].isVisible() and not s.panels['downloads'].isVisible())
+        words = ' '.join(label.text() for label in s.panels['about'].findChildren(QtWidgets.QLabel))
+        self.assertIn('Ben Crute', words)
+        self.assertIn('MIT license', words)
+        choice = s.license_choice
+        self.assertEqual([choice.itemText(i) for i in range(2)], ['Comic Archiver (MIT license)', 'Third-party notices'])
+        self.assertIn('Copyright (c) 2026 Ben Crute', s.license_text.toPlainText())
+        self.assertTrue(s.license_text.isReadOnly())
+        choice.activated.emit(1)
+        self.assertTrue(s.license_text.toPlainText().startswith('# Third-party notices'))
+
     def test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer(self):
         self.actions.cloud_offered = False
         self.open('settings/b2')

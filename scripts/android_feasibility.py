@@ -1335,6 +1335,13 @@ def phase_build(paths, wheels):
         elif apk_cert != expected_cert:
             ok = False
             classification = "signing_certificate_mismatch"
+    license_problems = None
+    if ok:
+        # The About page shows these texts; an APK without them may not be passed on.
+        license_problems = android_release.license_problems(APK, REPO)
+        if license_problems:
+            ok = False
+            classification = "license_texts_missing"
     if not ok and classification is None:
         # The last task Gradle marked FAILED, when present, is the truthful failure
         # point. The bare "zstandard" match once mislabelled attempt 17 as a wheel
@@ -1394,7 +1401,7 @@ def phase_build(paths, wheels):
            apk_cert_sha256=apk_cert, signing_verifier=verifier,
            apk_artifact=str(artifact) if artifact else None,
            apk_sha256=artifact_sha256, apk_bytes=APK.stat().st_size if APK.is_file() else None,
-           pip_index_url=index_url, buildpython=paths.get("buildpython"), tail=tail)
+           pip_index_url=index_url, buildpython=paths.get("buildpython"), license_problems=license_problems, tail=tail)
     return ok
 
 
@@ -1768,6 +1775,11 @@ def release_apk():
         if identity != expected:
             record("release_apk", "failed", reason="the APK differs from the tagged source or approved signer",
                    observed=identity, expected=expected)
+            code = _verdict(required)
+            return code
+        problems = android_release.license_problems(RELEASE_APK, REPO)
+        if problems:
+            record("release_apk", "failed", reason="the APK lacks license texts it must carry", license_problems=problems)
             code = _verdict(required)
             return code
         target = artifacts / f"ComicArchiver-{identity['version_name']}-android-universal.apk"

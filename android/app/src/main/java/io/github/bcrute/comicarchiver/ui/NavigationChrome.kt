@@ -84,7 +84,7 @@ internal fun MainNavigation(tab: AppTab, onSelect: (AppTab) -> Unit) {
                 AppTab.LIBRARY -> Icons.AutoMirrored.Filled.List
                 else -> Icons.Default.Settings
             }
-            NavigationBarItem(selected = tab == candidate || tab == AppTab.ABOUT && candidate == AppTab.SETTINGS,
+            NavigationBarItem(selected = tab == candidate || (tab == AppTab.ABOUT || tab == AppTab.LICENSES) && candidate == AppTab.SETTINGS,
                 onClick = { onSelect(candidate) },
                 icon = { Icon(icon, contentDescription = null) },
                 // Keep whole words at the user's font size. "Downloads" can

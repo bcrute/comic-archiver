@@ -29,6 +29,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -154,6 +155,26 @@ class RenderedScreensTest {
         compose.onNodeWithText("About & help").performScrollTo().performClick()
         compose.onNodeWithTag("nav-settings").assertIsSelected()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun aboutNamesTheAuthorAndOpensEveryLicenseTheApkCarries() {
+        show()
+        about()
+        compose.onNodeWithText(LICENSE_SUMMARY).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Licenses") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("nav-settings").assertIsSelected()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Comic Archiver (MIT license)").fetchSemanticsNodes().isNotEmpty() }
+        // The texts come from the APK's own assets, as packed by the build.
+        for (title in listOf("Third-party notices", "Apache-2.0", "chaquopy", "python-3.13", "httpx: LICENSE.md", "certifi: LICENSE")) {
+            compose.onNodeWithText(title).performScrollTo().assertIsDisplayed()
+        }
+        compose.onNodeWithText("Comic Archiver (MIT license)").performScrollTo().performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Copyright (c) 2026 Ben Crute", substring = true)).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNode(hasText("About") and hasClickAction()).performClick()
+        compose.onNodeWithText(LICENSE_SUMMARY).performScrollTo().assertIsDisplayed()
         assertEquals(0, controller.goCalls)
     }
 

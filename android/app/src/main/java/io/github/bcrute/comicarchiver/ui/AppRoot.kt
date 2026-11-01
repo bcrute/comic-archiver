@@ -93,7 +93,8 @@ fun ComicArchiverAppRoot(
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.signIn is SignInState.Restoring
     BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
-        if (tab == AppTab.ABOUT) tab = AppTab.SETTINGS
+        if (tab == AppTab.LICENSES) tab = AppTab.ABOUT
+        else if (tab == AppTab.ABOUT) tab = AppTab.SETTINGS
         else if (tab == AppTab.SETTINGS && settingsPage != "Overview") settingsPage = "Overview"
         else if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
@@ -218,7 +219,7 @@ fun ComicArchiverAppRoot(
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text("All settings") }
-                            LimitationsScreen(modifier = Modifier.weight(1f))
+                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES })
                             OutlinedButton(
                                 onClick = accountAction,
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -230,11 +231,15 @@ fun ComicArchiverAppRoot(
                                      else "Go to sign in")
                             }
                         }
+                        AppTab.LICENSES -> Column(Modifier.fillMaxSize()) {
+                            TextButton(onClick = { tab = AppTab.ABOUT }) { Text("About") }
+                            LicensesScreen(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
             if (!compactEditing) MainNavigation(tab) { selected ->
-                if (tab == AppTab.ABOUT && selected == AppTab.SETTINGS) settingsPage = "Overview"
+                if ((tab == AppTab.ABOUT || tab == AppTab.LICENSES) && selected == AppTab.SETTINGS) settingsPage = "Overview"
                 tab = selected
             }
         }
@@ -248,9 +253,9 @@ internal enum class RootRoute { SIGN_IN, APP }
 internal fun routeFor(signIn: SignInState): RootRoute =
     if (signIn is SignInState.SignedIn) RootRoute.APP else RootRoute.SIGN_IN
 
-/** About is a Settings subpage; only the first three destinations appear in navigation. */
+/** About, and the Licenses it leads to, are Settings subpages; only the first three destinations appear in navigation. */
 internal enum class AppTab(val label: String) {
-    SAVING("Downloads"), LIBRARY("Library"), SETTINGS("Settings"), ABOUT("About")
+    SAVING("Downloads"), LIBRARY("Library"), SETTINGS("Settings"), ABOUT("About"), LICENSES("Licenses")
 }
 
 /**

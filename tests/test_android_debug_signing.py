@@ -245,14 +245,25 @@ class ApkCertificateTests(DebugSigningTestCase):
 
         return run
 
-    def run_build(self, digest, returncode=0, warnings=False):
+    def run_build(self, digest, returncode=0, warnings=False, license_problems=()):
         paths = {"sdk": self.sdk, "gradle": "gradle", "java": self.java,
                  "buildpython": "python3", "debug_keystore": str(self.keystore)}
         with patch.object(feasibility, "run_tool", self.apksigner_fake(digest, returncode, warnings)), \
                 patch.object(feasibility, "APK", self.apk), \
-                patch.object(feasibility, "REPO", self.root / "repo"):
+                patch.object(feasibility, "REPO", self.root / "repo"), \
+                patch.object(feasibility.android_release, "license_problems", return_value=list(license_problems)) as check:
             ok = feasibility.phase_build(paths, "wheels")
+        self.license_check = check
         return ok, feasibility.report["phases"]["build"]
+
+    def test_an_apk_without_its_license_texts_fails_the_build(self):
+        ok, phase = self.run_build(FINGERPRINT)
+        self.assertTrue(ok)
+        self.license_check.assert_called_once_with(self.apk, self.root / "repo")
+        ok, phase = self.run_build(FINGERPRINT, license_problems=["The APK lacks the license text LICENSE."])
+        self.assertFalse(ok)
+        self.assertEqual((phase["classification"], phase["license_problems"]),
+                         ("license_texts_missing", ["The APK lacks the license text LICENSE."]))
 
     def test_parser_reads_signer_one_sha256_only(self):
         digest, diagnostics = feasibility._apk_signer_cert_sha256(

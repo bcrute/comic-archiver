@@ -4590,5 +4590,117 @@
   "new": "ORDER BY CASE WHEN scans.observed_at > ? AND",
   "test_file": "test_jobs.py",
   "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
+ },
+ {
+  "id": "linux-qt-screen-plugins-dropped",
+  "source": "scripts/build_linux_app.py",
+  "old": "    wanted += [name for name, kind in plugins.items() if kind in QT_SCREEN_PLUGINS]\n",
+  "new": "    wanted += []\n",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_qt_keeps_the_apps_modules_what_they_load_the_screen_plugins_and_the_plugins_that_need_nothing_more"
+ },
+ {
+  "id": "linux-qt-python-module-of-library-dropped",
+  "source": "scripts/build_linux_app.py",
+  "old": "        if library.startswith('libQt6') and library.endswith('.so.6'):",
+  "new": "        if False:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_qt_keeps_the_apps_modules_what_they_load_the_screen_plugins_and_the_plugins_that_need_nothing_more"
+ },
+ {
+  "id": "linux-left-out-loads-unchecked",
+  "source": "scripts/build_linux_app.py",
+  "old": "        missing = sorted(gone & needed_names(path))",
+  "new": "        missing = []",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_a_kept_file_that_loads_one_that_was_left_out_stops_the_build"
+ },
+ {
+  "id": "linux-tk-kept",
+  "source": "scripts/build_linux_app.py",
+  "old": "'lib/python3.*/lib-dynload/_tkinter.*', 'lib/python3.*/lib-dynload/_dbm.*',",
+  "new": "'lib/python3.*/lib-dynload/_dbm.*',",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_the_app_folder_loses_what_the_app_never_loads_and_keeps_the_rest"
+ },
+ {
+  "id": "linux-elf-dynamic-section-missed",
+  "source": "scripts/build_linux_app.py",
+  "old": "            elif kind == 2:",
+  "new": "            elif kind == 3:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_what_a_program_file_loads_is_read_from_its_dynamic_section"
+ },
+ {
+  "id": "qt-license-guard-takes-any-text",
+  "source": "scripts/build_linux_app.py",
+  "old": "        if title not in head or 'Version 3' not in head:",
+  "new": "        if not head:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_qt_is_not_passed_on_without_the_lgpl_and_the_gpl_it_builds_on"
+ },
+ {
+  "id": "linux-license-texts-not-copied",
+  "source": "scripts/build_linux_app.py",
+  "old": "    return found + copy_license_texts(app, LICENSE_TEXTS)",
+  "new": "    return found",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_collect_licenses_copies_package_texts_and_the_ones_no_package_brings"
+ },
+ {
+  "id": "windows-license-texts-not-copied",
+  "source": "scripts/build_windows_app.py",
+  "old": "    return found + common.copy_license_texts(app, LICENSE_TEXTS)",
+  "new": "    return found",
+  "test_file": "test_build_windows_app.py",
+  "test": "test_licenses_are_collected_from_the_windows_layout_with_the_texts_no_package_brings"
+ },
+ {
+  "id": "apk-changed-license-text-accepted",
+  "source": "scripts/android_release.py",
+  "old": "            elif archive.read(carried[path]) != source.read_bytes():",
+  "new": "            elif False:",
+  "test_file": "test_android_licenses.py",
+  "test": "test_a_missing_changed_or_strange_text_is_named"
+ },
+ {
+  "id": "apk-package-licenses-unchecked",
+  "source": "scripts/android_release.py",
+  "old": "                    if found is None:",
+  "new": "                    if True:",
+  "test_file": "test_android_licenses.py",
+  "test": "test_a_python_package_without_its_own_license_beside_it_is_named"
+ },
+ {
+  "id": "apk-build-license-check-skipped",
+  "source": "scripts/android_feasibility.py",
+  "old": "        license_problems = android_release.license_problems(APK, REPO)",
+  "new": "        license_problems = []",
+  "test_file": "test_android_debug_signing.py",
+  "test": "test_an_apk_without_its_license_texts_fails_the_build"
+ },
+ {
+  "id": "apk-release-license-check-skipped",
+  "source": "scripts/android_feasibility.py",
+  "old": "        problems = android_release.license_problems(RELEASE_APK, REPO)",
+  "new": "        problems = []",
+  "test_file": "test_android_release_signing.py",
+  "test": "test_an_apk_without_its_license_texts_is_refused"
+ },
+ {
+  "id": "about-licenses-qt-texts-not-first",
+  "source": "comic_archive/license_texts.py",
+  "old": "        files.sort(key=lambda path: path.parts[0] != 'other')",
+  "new": "        files.sort(key=lambda path: path.parts[0] == 'other')",
+  "test_file": "test_license_texts.py",
+  "test": "test_the_apps_licenses_folder_is_found_beside_its_python_and_read_in_order"
+ },
+ {
+  "id": "about-licenses-own-license-twice",
+  "source": "comic_archive/license_texts.py",
+  "old": " and not path.relative_to(place).parts[0].startswith('comic_archive-'))",
+  "new": ")",
+  "test_file": "test_license_texts.py",
+  "test": "test_the_apps_licenses_folder_is_found_beside_its_python_and_read_in_order"
  }
 ]

@@ -4,8 +4,10 @@ The trusted certificate comes from release-owner configuration, never the draft.
 Runtime/device results remain owner attestations bound to the exact APK hash;
 SDK inspection cannot manufacture missing acceptance evidence.
 """
+import io
 import re
 import subprocess
+import zipfile
 
 
 CHECKS = {'build', 'jvm', 'native_integration', 'real_comic_novel', 'saf_recovery',
@@ -16,6 +18,10 @@ PLATFORMS = {'desktop', 'android'}
 # newer than Chrome 139 have, and Chrome 139 onward requires Android 10. An older phone
 # could install the app but never sign in, so it is not supported.
 MIN_SDK = 29
+# The license texts an APK carries under assets/licenses, as android/app/build.gradle.kts packs them: Comic Archiver's
+# own license and the notices, these texts from packaging/licenses that no package brings, and each Python package's own.
+LICENSE_TEXTS = ('Apache-2.0', 'chaquopy', 'python-3.13', 'bzip2', 'expat', 'libffi', 'liblzma', 'mpdecimal', 'openssl',
+                 'sqlite', 'zlib')
 
 
 def identity_from_source(project):
@@ -140,3 +146,42 @@ def check_evidence(value, commit, version, identity, certificate):
     if android.get('artifact') != asset:
         raise ValueError('Android evidence must name the exact universal release APK.')
     return asset
+
+
+def license_problems(apk, project):
+    """What an APK lacks of the license texts it must carry, in plain sentences; none when it carries them all.
+
+    Each text it carries must be the repository's own, byte for byte. Every Python package in it must have its
+    license among them, as it was when packaging/licenses/android/<package>/ took it from that package.
+    """
+    licenses = project / 'packaging/licenses'
+    expected = {'LICENSE': project / 'LICENSE', 'THIRD-PARTY-NOTICES.md': project / 'THIRD-PARTY-NOTICES.md'}
+    expected |= {f'other/{name}.txt': licenses / f'{name}.txt' for name in LICENSE_TEXTS}
+    expected |= {path.relative_to(licenses / 'android').as_posix(): path
+                 for path in (licenses / 'android').rglob('*') if path.is_file()}
+    problems = []
+    with zipfile.ZipFile(apk) as archive:
+        names = archive.namelist()
+        carried = {name.removeprefix('assets/licenses/'): name for name in names
+                   if name.startswith('assets/licenses/') and not name.endswith('/')}
+        for path, source in sorted(expected.items()):
+            if path not in carried:
+                problems.append(f'The APK lacks the license text {path}.')
+            elif archive.read(carried[path]) != source.read_bytes():
+                problems.append(f'The license text {path} in the APK differs from the repository\'s.')
+        problems += [f'The APK carries {path}, which is no license text of the repository.'
+                     for path in sorted(carried.keys() - expected.keys())]
+        for name in names:
+            if not re.fullmatch(r'assets/chaquopy/[\w-]+\.imy', name):
+                continue
+            with zipfile.ZipFile(io.BytesIO(archive.read(name))) as bundle:
+                for inner in bundle.namelist():
+                    found = re.fullmatch(r'(?:.*/)?([A-Za-z0-9_.]+?)-[^-/]+\.dist-info/(?:.*/)?((?:LICEN[CS]E|COPYING)[^/]*)', inner)
+                    if found is None:
+                        continue
+                    path = f'{found[1]}/{found[2]}'
+                    if path not in carried:
+                        problems.append(f'The Python package {found[1]} in the APK has no license text {path} beside it.')
+                    elif archive.read(carried[path]) != bundle.read(inner):
+                        problems.append(f'{found[1]}\'s own {found[2]} is not the one in packaging/licenses/android.')
+    return problems

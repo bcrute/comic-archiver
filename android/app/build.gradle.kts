@@ -13,6 +13,23 @@ val syncCorePython = tasks.register<Sync>("syncCorePython") {
     into(layout.buildDirectory.dir("generated/core-python/comic_archive"))
 }
 
+// The license texts the About page shows, packed as assets: Comic Archiver's own license, the
+// third-party notices, the texts no package brings (Apache-2.0 for AndroidX, Compose and Kotlin;
+// Chaquopy's; Python's and those of the libraries built into it) and each Python package's own.
+// scripts/android_feasibility.py checks that a built APK carries exactly these.
+val syncLicenses = tasks.register<Sync>("syncLicenses") {
+    val project = rootProject.projectDir.resolve("..")
+    // Named one by one: a pattern over the repository would walk this build's own output.
+    from(project.resolve("LICENSE"), project.resolve("THIRD-PARTY-NOTICES.md"))
+    from(project.resolve("packaging/licenses")) {
+        include(listOf("Apache-2.0", "chaquopy", "python-3.13", "bzip2", "expat", "libffi", "liblzma",
+            "mpdecimal", "openssl", "sqlite", "zlib").map { "$it.txt" })
+        into("other")
+    }
+    from(project.resolve("packaging/licenses/android"))
+    into(layout.buildDirectory.dir("generated/license-assets/licenses"))
+}
+
 android {
     namespace = "io.github.bcrute.comicarchiver"
     // Raising to 37 is pending fleet SDK availability; the dev phone at API 37 runs 36 targets.
@@ -88,6 +105,12 @@ android {
         compose = true
     }
 
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(layout.buildDirectory.dir("generated/license-assets"))
+        }
+    }
+
     // Render and interact with Compose on the CI fleet without requiring KVM. These
     // screen tests complement (and do not replace) device/WebView/SAF qualification.
     testOptions {
@@ -157,7 +180,12 @@ chaquopy {
 }
 
 tasks.named("preBuild") {
-    dependsOn(syncCorePython)
+    dependsOn(syncCorePython, syncLicenses)
+}
+
+// The same for the tasks that read the assets, as for the Python sources below.
+tasks.matching { it.name.endsWith("Assets") }.configureEach {
+    dependsOn(syncLicenses)
 }
 
 // Chaquopy's per-variant Python source merge consumes the directory syncCorePython
