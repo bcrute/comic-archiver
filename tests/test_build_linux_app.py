@@ -139,7 +139,7 @@ class PackagingTests(WorkspaceCase):
                      'share/icons/hicolor/scalable/apps/comic-archiver.svg'):
             self.assertTrue((app / name).is_file(), name)
         self.assertEqual((app / 'VERSION').read_text(), '1.2.3\n')
-        self.assertIn('Copyright (c) 2026 Comic Archiver contributors', (app / 'LICENSE').read_text())
+        self.assertIn('Copyright (c) 2026 Ben Crute', (app / 'LICENSE').read_text())
         self.assertIn('LGPL', (app / 'THIRD-PARTY-NOTICES.md').read_text())
         self.assertFalse((app / 'comic-archiver.desktop').exists())  # Only a menu entry with absolute paths works.
 
