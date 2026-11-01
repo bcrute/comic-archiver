@@ -338,6 +338,20 @@ class BatchTests(unittest.TestCase):
         task,_=self.publish();value=self.finish(task,pages=0,byte_count=0,remaining=50)
         self.assertEqual(value['status'],'paused');self.assertEqual(value['code'],'no_progress')
 
+    def test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts(self):
+        for name, extra in (('checked', {'refresh': {'state': 'partial', 'remaining_series_count': 60,
+                                                     'series_checks_completed': 2}}),
+                            ('settled', {'unavailable_episode_ids': ['83']})):
+            with self.subTest(name):
+                self.start();task,_=self.publish();self.finish(task,pages=0,byte_count=0,remaining=50)
+                task,_=self.publish()
+                value={'task_id':task,'status':'ok','result':{'status':'limited','downloaded_pages':0,
+                    'downloaded_bytes':0,'pending_episode_count':10,'archived_episode_ids':[],
+                    'refresh':{'state':'partial','remaining_series_count':60}} | extra}
+                atomic_json(self.root/'responses'/f'{task}.json',value)
+                (self.root/'requests'/f'{task}.json').unlink()
+                self.assertEqual(self.step()['status'],'running')
+
     def test_completed_scan_switches_to_archiving_until_new_series_are_reported(self):
         self.start({'max_batches':4});task,_=self.publish();self.finish(task,remaining=0)
         task,request=self.publish()

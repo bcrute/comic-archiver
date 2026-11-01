@@ -4822,5 +4822,37 @@
   "new": "since = cycle and (cycle[0] if rules is None or rules[0] == SCAN_RULES else timestamp())",
   "test_file": "test_jobs.py",
   "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
+ },
+ {
+  "id": "progress-ignores-series-checks",
+  "source": "comic_archive/batches.py",
+  "old": "                or type(checked) is int and checked > 0\n",
+  "new": "",
+  "test_file": "test_batches.py",
+  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
+ },
+ {
+  "id": "progress-ignores-settled-episodes",
+  "source": "comic_archive/batches.py",
+  "old": "for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids')))",
+  "new": "for key in ()))",
+  "test_file": "test_batches.py",
+  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
+ },
+ {
+  "id": "batch-progress-from-saved-pages-only",
+  "source": "comic_archive/batches.py",
+  "old": "elif (not cooling and not progressed(result)",
+  "new": "elif (not cooling and not result['archived_episode_ids'] and not result['downloaded_pages']",
+  "test_file": "test_batches.py",
+  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
+ },
+ {
+  "id": "series-scan-progress-from-counts-only",
+  "source": "comic_archive/account_export.py",
+  "old": "elif not batches.progressed(result) and remaining >= pending['before_remaining']:",
+  "new": "elif remaining >= pending['before_remaining']:",
+  "test_file": "test_account_export.py",
+  "test": "test_a_scan_that_checked_series_goes_on_even_when_more_are_left_than_before"
  }
 ]

@@ -351,6 +351,18 @@ def _valid_accounting(result, pending, remaining, *, failed=False):
             and len(set(result['archived_episode_ids'])) == len(result['archived_episode_ids']))
 
 
+def progressed(result):
+    """Whether a receipt shows its task got something done: episodes saved or settled, or series checked.
+
+    Counts of what is left cannot tell: they also rise when a round of checks starts over or a series appears."""
+    refresh = result.get('refresh')
+    checked = refresh.get('series_checks_completed') if isinstance(refresh, dict) else None
+    return bool(result.get('archived_episode_ids') or result.get('downloaded_pages')
+                or type(checked) is int and checked > 0
+                or any(isinstance(result.get(key), list) and result[key]
+                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids')))
+
+
 def _charge(state, result):
     state['completed_batches'] += 1
     state['archived_episodes'] += len(result['archived_episode_ids'])
@@ -473,7 +485,7 @@ def step(session,library=Path('Library'),*,observe_only=False):
                 elif state['status']=='paused' and state['code']=='source_access_changed':pass
                 elif result['pending_episode_count']==0 and (remaining==0 or state['budgets']['archive_only']):
                     state['status']='known_backlog_drained'
-                elif (not cooling and not result['archived_episode_ids'] and not result['downloaded_pages']
+                elif (not cooling and not progressed(result)
                         and state['previous_pending_count'] is not None and state['previous_scan_remaining'] is not None
                         and result['pending_episode_count']>=state['previous_pending_count']
                         and remaining>=state['previous_scan_remaining']):

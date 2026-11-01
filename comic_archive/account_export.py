@@ -198,7 +198,7 @@ def _advance(root, session, library, value):
             remaining = _inventory(library)['scan_remaining_series_count']
             if remaining == 0:
                 value['phase'] = 'archive'
-            elif remaining >= pending['before_remaining']:
+            elif not batches.progressed(result) and remaining >= pending['before_remaining']:
                 value.update(status='held', code='scan_no_progress')
         elif value['phase'] == 'verify':
             value['audit'] = result

@@ -126,6 +126,22 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(account_export.status(self.session, self.library)['code'], 'scan_no_progress')
         self.assertEqual(list((self.root / 'requests').glob('*.json')), [])
 
+    def test_a_scan_that_checked_series_goes_on_even_when_more_are_left_than_before(self):
+        # A round of checks that starts over, or series found meanwhile, leave more to check than before the step.
+        account_export.configure(self.session, self.library)
+        self.lists()
+        path, _ = self.request()
+        with Inventory(self.library) as inv:
+            inv.record_series_scan('42')
+            inv.observe('43', 'New', [], 'subscribed')
+            inv.observe('44', 'Newer', [], 'subscribed')
+        self.finish(path, {'status': 'limited', 'refresh': {'series_checks_completed': 1}})
+        value = account_export.status(self.session, self.library)
+        self.assertEqual(value['status'], 'running')
+        self.assertIsNone(value.get('code'))
+        path, req = self.request()
+        self.assertTrue(req['args']['scan_only'])
+
     def test_newly_discovered_access_is_saved_before_the_next_scan(self):
         account_export.configure(self.session, self.library)
         self.lists()
