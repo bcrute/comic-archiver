@@ -28,6 +28,19 @@ class CompletionTests(unittest.TestCase):
 
     def tick(self):return completion.tick(self.session,self.library)
 
+    def test_go_after_a_stop_between_windows_starts_the_reserved_window(self):
+        self.configure(until_drained=True);task,_=self.publish();self.finish(task)
+        for _ in range(6):
+            if completion._load(self.root)['reserved_window']:break
+            self.tick()
+        reserved=completion._load(self.root)['reserved_window'];self.assertIsNotNone(reserved)
+        completion.request_stop(self.session,self.library)
+        # What Go does: the window, then the plan.
+        batches._start(self.root,None,True);completion.configure(self.session,self.library,resume=True)
+        self.assertEqual(self.tick()['status'],'running')
+        self.assertEqual(batches._load(self.root)['started_at'],reserved['started_at'])
+        self.assertNotEqual(self.publish()[0],task)
+
     def test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals(self):
         self.configure(until_drained=True)
         plan=json.loads((self.root/'completion.json').read_text())

@@ -4902,5 +4902,13 @@
   "new": "**{key:earlier[-1][key] for key in METRICS}",
   "test_file": "test_completion.py",
   "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
+ },
+ {
+  "id": "reserved-window-refuses-resumed-window",
+  "source": "comic_archive/completion.py",
+  "old": "window['status'] not in {'budget_reached','running'}",
+  "new": "window['status']!='budget_reached'",
+  "test_file": "test_completion.py",
+  "test": "test_go_after_a_stop_between_windows_starts_the_reserved_window"
  }
 ]

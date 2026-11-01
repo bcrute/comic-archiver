@@ -239,7 +239,9 @@ def _advance(root,session,library,value):
         if window is None or window['started_at']!=reserved['started_at']:
             if window:
                 if not _credit(value,window):return
-                if (window['pending'] is not None or window['status']!='budget_reached'
+                # Go after a stop resumes the window the plan had already finished with: nothing is out from it,
+                # so the reserved window still replaces it.
+                if (window['pending'] is not None or window['status'] not in {'budget_reached','running'}
                         or window['code'] is not None or window['stop_requested']):
                     value.update(status='paused',code=window['code'] or 'window_changed');return
             # Persisted timestamp makes publication idempotent, even if the
