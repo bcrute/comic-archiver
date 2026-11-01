@@ -204,9 +204,11 @@ def reader(site):
 def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
                fast_session_factory=None):
     from .locking import LibraryLock
+    from .archive_paths import kept
     # One process consumes each private queue; separate user workers remain independent.
     root=directory(Path(session)/'worker')
-    with _runtime_lock(LibraryLock(root/'.runtime')):
+    # The site's folder holds the library and this queue; if it moves, the worker stops rather than make it again.
+    with kept(Path(session).absolute().parent), _runtime_lock(LibraryLock(root/'.runtime')):
         return _run_worker(session,preferred,headless,interval,adapter_factory,fast_session_factory)
 
 
@@ -260,6 +262,7 @@ class _EmbeddedFastUnavailable:
 
 def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
                 fast_session_factory=None):
+    place = Path(session).absolute().parent
     root = directory(session / "worker")
     root.chmod(0o700)
     requests = directory(root / "requests")
@@ -296,7 +299,17 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
             print("Archives check account access and capture HTML page manifests automatically.", flush=True)
             print("Comic images may show broken icons in this browser: originals download separately into compressed archives. No scrolling is needed for automatic imports.", flush=True)
             failing = set()
+
+            def moved():
+                # Nothing more can be saved or answered there, and nothing is made again in its old place. A task
+                # that ended meanwhile is left queued in the folder, to run again when it is opened.
+                if place.is_dir():
+                    return False
+                print('The library folder was renamed, moved or deleted; the worker stops.', flush=True)
+                return True
             while True:
+                if moved():
+                    return
                 if drain_requested(root, worker_id):
                     return
                 from .completion import worker_tick
@@ -364,6 +377,8 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                     except Exception:
                         value = {"task_id": task_id, "status": "error",
                                  "error": "Worker task failed; raw exceptions suppressed to protect credentials."}
+                    if moved():
+                        return
                     try:
                         private_json(response, value)
                     except (OSError, TypeError, ValueError):
@@ -386,6 +401,8 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
             last_error = 'startup_failed'
         raise
     finally:
-        publish({"state": "stopped", **({"last_error_code":last_error} if last_error else {})})
-        if drain_requested(root, worker_id):
-            (root / 'drain.json').unlink(missing_ok=True)
+        # A status that went with a moved folder stays as it was: the runtime lock tells the window it has stopped.
+        if place.is_dir():
+            publish({"state": "stopped", **({"last_error_code":last_error} if last_error else {})})
+            if drain_requested(root, worker_id):
+                (root / 'drain.json').unlink(missing_ok=True)

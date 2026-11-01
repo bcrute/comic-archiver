@@ -12,9 +12,9 @@ import threading
 import time
 import traceback
 
-from . import background, osdep, shared, sites
+from . import archive_paths, background, osdep, shared, sites
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
-from .errors import LibraryBusy
+from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from .models import ArchiveError
 from .session import load_session, store_session
@@ -32,6 +32,8 @@ END_WAIT_SECONDS = 5
 THEMES = ('system', 'light', 'dark')
 UNWRITABLE = ('The library folder cannot be opened or created. Check that it is a folder you can write to '
               'and that the disk is not full.')
+GONE = ('Comic Archiver cannot find its library folder:\n{folder}\n\nIt was renamed, moved or deleted. '
+        'Choose the folder where it is now.')
 
 
 def default_root():
@@ -84,6 +86,12 @@ def present(folder):
         return folder.is_dir()
     except (OSError, ValueError):
         return False
+
+
+def vanished(folder):
+    """True for a library folder the app has opened before that is no longer there: renamed, moved or deleted.
+    Making it again would start an empty library and save everything a second time."""
+    return not present(folder) and Path(folder).absolute() in opened_libraries()
 
 
 def unused(folder):
@@ -240,6 +248,7 @@ class Runtime:
         self.registry = self.session = self.state = self.signin = None
         self.root = self.folder = None
         self.theme = theme or Theme()
+        self._kept = None
         self._closing = threading.Event()
         self._launch = threading.Lock()
         self._retry = None
@@ -247,6 +256,8 @@ class Runtime:
 
     def _place(self, site):
         """The site's own library, sign-in and downloader, inside the library folder."""
+        if vanished(self.project_root):
+            raise LibraryMoved(GONE.format(folder=self.project_root))
         try:
             root = safe_root(self.project_root)
             root.mkdir(mode=0o700, exist_ok=True)
@@ -272,9 +283,14 @@ class Runtime:
             LOG.error('library cannot be opened: %s', describe(error))
             raise ArchiveError(UNWRITABLE) from None
         self.root = root
+        self._kept = archive_paths.keep(root)
         remember_library(root)
         self._serve(registry, session, state)
         LOG.info('the library is open')
+
+    def vanished(self):
+        """True once the open library folder was renamed, moved or deleted; nothing in it is made again."""
+        return self.root is not None and not present(self.root)
 
     def _serve(self, registry, session, state):
         """Read this site's own library from now on."""
@@ -460,6 +476,15 @@ class Runtime:
         if self._stopped:
             return 'stopped_before'
         self._stopped = True
+        try:
+            return self._stop(wait_seconds)
+        finally:
+            # Only now: stopping the downloader must not make a folder that moved away either.
+            if self._kept is not None:
+                archive_paths.release(self._kept)
+                self._kept = None
+
+    def _stop(self, wait_seconds):
         self._closing.set()
         deadline = time.monotonic() + wait_seconds
         if self.registry is None:

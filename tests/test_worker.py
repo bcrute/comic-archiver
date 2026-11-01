@@ -433,6 +433,42 @@ class WorkerTests(unittest.TestCase):
             value=json.loads((session/'worker/responses/test-task.json').read_text())
             self.assertEqual(value['status'],'ok')
 
+    def test_a_worker_whose_library_folder_was_renamed_stops_without_making_it_again(self):
+        with tempfile.TemporaryDirectory() as work:
+            library=Path(work)/'Comic Archiver';session=library/'session';requests=session/'worker/requests'
+            requests.mkdir(parents=True)
+            private_json(requests/'test-task.json',{'operation':'cloud_upload','args':{}})
+            class Renaming(RecordingAdapter):
+                def upload(self,*args,**kwargs):
+                    library.rename(Path(work)/'Renamed')  # While its task runs.
+                    return super().upload(*args,**kwargs)
+            adapter=Renaming()
+            with patch('builtins.print') as output,patch('comic_archive.worker.TapasAdapter',return_value=adapter), \
+                    patch('comic_archive.cloud.upload_pending',side_effect=adapter.upload), \
+                    patch('comic_archive.worker.time.sleep',side_effect=KeyboardInterrupt):
+                self.assertIsNone(run_worker(session,'firefox'))  # Ended by itself, not by the sleep that follows a pass.
+            self.assertEqual(adapter.calls,['upload'])
+            self.assertIn('The library folder was renamed, moved or deleted; the worker stops.',
+                          [call.args[0] for call in output.call_args_list if call.args])
+            self.assertFalse(library.exists())
+            # Its task is left queued in the folder, to run again when the folder is opened where it is now.
+            moved=Path(work)/'Renamed/session/worker'
+            self.assertTrue((moved/'requests/test-task.json').is_file())
+            self.assertFalse((moved/'responses/test-task.json').exists())
+            self.assertFalse(background.running(moved))
+
+    def test_an_idle_worker_whose_library_folder_was_renamed_stops_at_its_next_look(self):
+        with tempfile.TemporaryDirectory() as work:
+            library=Path(work)/'Comic Archiver';session=library/'session';(session/'worker/requests').mkdir(parents=True)
+            def renamed(_session):
+                if library.exists():library.rename(Path(work)/'Renamed')
+            with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
+                    patch('comic_archive.account_export.worker_tick'), \
+                    patch('comic_archive.completion.worker_tick',side_effect=renamed), \
+                    patch('comic_archive.worker.time.sleep',side_effect=[None,KeyboardInterrupt]):
+                self.assertIsNone(run_worker(session,'firefox'))
+            self.assertFalse(library.exists())
+
     def test_a_result_that_cannot_be_saved_ends_its_task_with_a_fixed_error(self):
         class Unsaveable(RecordingAdapter):
             def upload(self,*args,**kwargs):

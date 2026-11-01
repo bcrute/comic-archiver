@@ -10,7 +10,8 @@ from unittest.mock import patch
 from support import PRIVATE_FILE
 from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import verify, sidecar_path
-from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, RunLimit
+from comic_archive import archive_paths
+from comic_archive.errors import AccessDenied, AuthenticationError, LibraryMoved, MetadataError, RunLimit
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import DownloadBudget, archive_discovered, sync
 from comic_archive.locking import LibraryLock, wait_for_library
@@ -909,6 +910,28 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.adapter.downloads,[]);self.assertEqual(result['archived_episode_ids'],[])
         with Inventory(self.root) as inventory:
             self.assertEqual([row['id'] for row in inventory.pending()],['82','81'])
+
+    @patch('builtins.print')
+    def test_a_library_folder_renamed_while_saving_is_never_made_again_and_no_episode_is_blamed(self,output):
+        moved=Path(self.work.name)/'Renamed'
+        capture=self.adapter.capture_automatic
+        def renamed(url):
+            manifest=capture(url)
+            if not moved.exists():self.root.rename(moved)  # While the first episode is on its way.
+            return manifest
+        self.adapter.capture_automatic=renamed
+        with archive_paths.kept(self.root):
+            with self.assertRaises(LibraryMoved):archive_discovered(self.adapter,self.root,self.report)
+        self.assertFalse(self.root.exists())
+        self.assertEqual(list(moved.rglob('*.cbz')),[])
+        # The record went with the folder: both episodes wait to be saved, neither counted as failing.
+        with Inventory(moved,read_only=True) as inventory:
+            self.assertEqual(inventory.status()['episodes_by_status'],{'queued':2})
+            self.assertEqual({code for code, in inventory.db.execute('SELECT error_code FROM episodes')},{'interrupted',None})
+            self.assertEqual(inventory.status()['last_run']['status'],'paused')
+        # Opened where it is now, it carries on.
+        result=archive_discovered(self.adapter,moved,moved/'discovery.json')
+        self.assertEqual(sorted(result['archived_episode_ids']),['81','82'])
 
     @patch('builtins.print')
     def test_source_refusal_keeps_only_bounded_waits_and_the_exact_retry_candidate(self,output):

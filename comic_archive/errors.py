@@ -36,3 +36,11 @@ class NetworkUnavailable(ArchiveError):
 
 class AssetReadUnavailable(NetworkUnavailable):
     """An original CDN asset exhausted retries without an HTTP refusal."""
+
+
+class LibraryMoved(ArchiveError):
+    """The open library folder was renamed, moved or deleted. It is never made again in its old place."""
+
+    def __init__(self, message='The library folder was renamed, moved or deleted, so nothing more is saved. '
+                               'Choose the folder again where it is now.'):
+        super().__init__(message)

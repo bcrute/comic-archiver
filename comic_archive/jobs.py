@@ -10,7 +10,8 @@ from urllib.parse import urlsplit
 from . import sites
 from .publication import PublicationStore as Store
 from .archive import atomic_json, verify_episode
-from .errors import AccessDenied, AssetReadUnavailable, AuthenticationError, MetadataError, NetworkUnavailable, RunLimit, UnsupportedContent
+from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, LibraryMoved, MetadataError, NetworkUnavailable,
+                     RunLimit, UnsupportedContent)
 from .inventory import Inventory, UNSUPPORTED_REASONS
 from .models import ArchiveError
 from .cancellation import RunCancellation, RunCancelled
@@ -453,6 +454,19 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             checkpoint('paused')
             return summary
         except BaseException as error:
+            if not isinstance(error, KeyboardInterrupt) and not output.is_dir():
+                # The library folder was renamed, moved or deleted: whatever failed, that is why. The episode is
+                # not to blame, and nothing more is saved; the record is open still and goes with the folder.
+                if current is not None:
+                    inventory.mark(current['id'], 'queued', 'interrupted')
+                summary['pause_reason'] = 'library_moved'
+                try:
+                    checkpoint('paused')
+                except OSError:
+                    pass  # Its status files cannot be written where the folder was; the record has the run.
+                if isinstance(error, LibraryMoved):
+                    raise
+                raise LibraryMoved() from error
             source_status = getattr(error, 'source_http_status', None)
             if type(source_status) is int and source_status in {403, 429}:
                 summary.update(pause_reason='source_refused', source_http_status=source_status)

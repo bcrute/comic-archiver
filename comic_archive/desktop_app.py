@@ -136,6 +136,16 @@ LOCATION_MISSING = ('Comic Archiver cannot open the folder it saves to:\n{folder
                     'If it is on a drive that is not connected, choose No, connect the drive and open Comic Archiver again.\n\n'
                     'Save to the standard folder instead?\n{standard}')
 LOAD_FAILED = 'Comic Archiver could not show your library. Close this window and open Comic Archiver again.'
+LIBRARY_GONE = ('Comic Archiver cannot find its library folder any more:\n{folder}\n\n'
+                'It was renamed, moved or deleted, so saving stopped. Everything saved so far is in that folder, '
+                'wherever it is now.\n\nChoose the folder where it is now?')
+LIBRARY_GONE_START = ('Comic Archiver cannot find its library folder:\n{folder}\n\n'
+                      'If you renamed or moved it, choose Yes and pick it where it is now: your saved episodes and '
+                      'sign-in are in it.\n\nTo start a new, empty library instead, choose No, make that folder '
+                      'again, and open Comic Archiver.')
+LIBRARY_GONE_NOTICE = ('Comic Archiver cannot find its library folder any more:\n{folder}\n\n'
+                       'Close Comic Archiver, put the folder back where it was, and open Comic Archiver again.')
+NOT_A_LIBRARY = 'That folder holds no Comic Archiver library. Choose the folder that was renamed or moved.'
 CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and stop saving?\n\n'
                   'Saving stops right away. Everything saved so far is kept. The next time you open '
                   'Comic Archiver, press Go to continue.')
@@ -306,6 +316,24 @@ def standard_instead(q, folder):
     buttons = box.StandardButton
     text = LOCATION_MISSING.format(folder=folder, standard=app_runtime.default_root())
     return box.question(None, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes
+
+
+def find_library(q, parent, folder, text):
+    """Asked when the library folder opened before is gone: where is it now? The library chosen, or None."""
+    widgets = q.QtWidgets
+    box, buttons = widgets.QMessageBox, widgets.QMessageBox.StandardButton
+    if box.question(parent, APP_NAME, text.format(folder=folder), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
+        return None
+    start = next((place for place in Path(folder).parents if app_runtime.present(place)), Path.home())
+    while True:
+        chosen = widgets.QFileDialog.getExistingDirectory(parent, LOCATION_TITLE, str(start))
+        if not chosen:
+            return None
+        root = app_runtime.library_root(chosen)
+        # Anything else would be a second, empty library, saving everything again.
+        if app_runtime.is_library(root):
+            return root
+        box.information(parent, APP_NAME, NOT_A_LIBRARY)
 
 
 def uninstall(q, quiet):
@@ -534,6 +562,7 @@ class Shell:
         self.phase = 'starting'
         self.pages = None
         self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
+        self.vanished_seen = False
         self.ended = False
         self.window = self.channel = self.home = None
         # None, or what the sign-in panel shows: 'page', 'offline' or 'finishing'.
@@ -1203,6 +1232,22 @@ class Shell:
             self.check_signin()
         self.background(lambda: outcome.append(self.runtime.change_site(site)), done)
 
+    def library_gone(self):
+        """The library folder was renamed, moved or deleted while open. Nothing makes it again; once the person
+        points to where it is now, the window carries on there."""
+        LOG.warning('the library folder is not there any more')
+        folder = self.runtime.root
+        self.phase = 'failed'
+        self.vanished_seen = False
+        self.poll_clock.stop()
+        self.tick_clock.stop()
+        self.signin_clock.stop()
+        self.show_notice(LIBRARY_GONE_NOTICE.format(folder=folder))
+        self.show(self.notice)
+        root = find_library(self.q, self.window, folder, LIBRARY_GONE)
+        if root is not None and self.phase == 'failed':
+            self.relocate(root)
+
     def relocate(self, root):
         """Carry the window over to another library folder; the dashboard comes back once that one is ready."""
         previous, moved = self.runtime, []
@@ -1232,13 +1277,15 @@ class Shell:
         The runtime is asked on a thread, as a library on a drive that is asleep can take seconds to answer;
         until it does, the answer before stands.
         """
+        if self.phase == 'open' and self.vanished_seen:
+            self.library_gone()
         if self.phase == 'open' and (self.checker is None or not self.checker.is_alive()):
             runtime = self.runtime
 
             def check():
-                value = runtime.busy()
+                vanished, value = runtime.vanished(), runtime.busy()
                 if runtime is self.runtime:
-                    self.busy_seen = value
+                    self.busy_seen, self.vanished_seen = value, vanished
             self.checker = threading.Thread(target=check, daemon=True)
             self.checker.start()
         self.stay_awake(self.phase == 'open' and self.busy_seen == 'download')
@@ -1278,8 +1325,15 @@ def run(q, project_root):
             if not standard_instead(q, chosen):
                 return 0
             chosen = None
+        found = None
+        if not project_root and chosen is None and app_runtime.vanished(app_runtime.default_root()):
+            # Renamed or moved while the app was closed: asked before anything is created in its old place.
+            LOG.warning('the library folder is not there any more')
+            found = find_library(q, None, app_runtime.default_root(), LIBRARY_GONE_START)
+            if found is None:
+                return 0
         runtime = app_runtime.Runtime(Path(project_root).expanduser() if project_root
-                                      else chosen or app_runtime.default_root(), site=app_runtime.saved_site())
+                                      else chosen or found or app_runtime.default_root(), site=app_runtime.saved_site())
         shell = Shell(q, app, runtime, log_path)
         # Ending the app from outside (logging out, kill) stops the downloader as closing the window does.
         handlers = {number: signal.signal(number, shell.end) for number in ENDING_SIGNALS}
@@ -1287,6 +1341,8 @@ def run(q, project_root):
         runtime.start()
         if missing:
             app_runtime.remember_root(None)
+        if found is not None:
+            app_runtime.remember_root(found)
         shell.open()
         # The dashboard appears only afterwards, so Sign in cannot race the downloader start.
         shell.background(runtime.start_worker, shell.load)

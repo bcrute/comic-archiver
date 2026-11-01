@@ -3,7 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
-from . import sites
+from . import archive_paths, sites
 from .models import ArchiveError
 from .osdep import open_exclusive, replace_file, sync_directory
 
@@ -99,7 +99,7 @@ def store_session(state, directory: Path, site=sites.DEFAULT):
     """Write a browser storage state privately, however it was collected, with the site it belongs to."""
     if any(p.is_symlink() for p in (directory, *directory.parents)):
         raise ArchiveError("Refusing a symlink in the session directory.")
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    archive_paths.directory(directory)  # Never in the place of a library folder that moved.
     directory.chmod(0o700)
     # Keep only the site's own cookies/local storage; exclude OAuth provider sessions.
     state["cookies"] = [c for c in state["cookies"] if site.keeps_cookie(c["domain"])]

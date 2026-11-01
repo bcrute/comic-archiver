@@ -4702,5 +4702,109 @@
   "new": ")",
   "test_file": "test_license_texts.py",
   "test": "test_the_apps_licenses_folder_is_found_beside_its_python_and_read_in_order"
+ },
+ {
+  "id": "moved-library-made-again",
+  "source": "comic_archive/archive_paths.py",
+  "old": "            raise LibraryMoved()\n",
+  "new": "            pass\n",
+  "test_file": "test_archive_paths.py",
+  "test": "test_a_library_folder_renamed_while_open_is_never_made_again"
+ },
+ {
+  "id": "moved-library-let-go-too-soon",
+  "source": "comic_archive/archive_paths.py",
+  "old": "        _kept[folder] -= 1\n",
+  "new": "        _kept[folder] -= 2\n",
+  "test_file": "test_archive_paths.py",
+  "test": "test_it_stays_kept_until_everyone_who_kept_it_has_let_go"
+ },
+ {
+  "id": "moved-library-sign-in-made-again",
+  "source": "comic_archive/session.py",
+  "old": "    archive_paths.directory(directory)  # Never in the place of a library folder that moved.\n",
+  "new": "    directory.mkdir(parents=True, exist_ok=True, mode=0o700)\n",
+  "test_file": "test_archive_paths.py",
+  "test": "test_a_library_folder_renamed_while_open_is_never_made_again"
+ },
+ {
+  "id": "moved-library-unnoticed-by-the-round",
+  "source": "comic_archive/jobs.py",
+  "old": "            if not isinstance(error, KeyboardInterrupt) and not output.is_dir():\n",
+  "new": "            if False:\n",
+  "test_file": "test_jobs.py",
+  "test": "test_a_library_folder_renamed_while_saving_is_never_made_again_and_no_episode_is_blamed"
+ },
+ {
+  "id": "moved-library-blames-the-episode",
+  "source": "comic_archive/jobs.py",
+  "old": "                    inventory.mark(current['id'], 'queued', 'interrupted')\n                summary['pause_reason'] = 'library_moved'\n",
+  "new": "                    inventory.mark(current['id'], 'failed', 'job_failed')\n                summary['pause_reason'] = 'library_moved'\n",
+  "test_file": "test_jobs.py",
+  "test": "test_a_library_folder_renamed_while_saving_is_never_made_again_and_no_episode_is_blamed"
+ },
+ {
+  "id": "moved-library-worker-answers-anyway",
+  "source": "comic_archive/worker.py",
+  "old": "                    if moved():\n                        return\n                    try:\n",
+  "new": "                    try:\n",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_whose_library_folder_was_renamed_stops_without_making_it_again"
+ },
+ {
+  "id": "moved-library-idle-worker-waits-on",
+  "source": "comic_archive/worker.py",
+  "old": "            while True:\n                if moved():\n                    return\n",
+  "new": "            while True:\n",
+  "test_file": "test_worker.py",
+  "test": "test_an_idle_worker_whose_library_folder_was_renamed_stops_at_its_next_look"
+ },
+ {
+  "id": "moved-library-not-kept-by-the-runtime",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        self._kept = archive_paths.keep(root)\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_open_library_folder_is_never_made_again_once_it_is_renamed"
+ },
+ {
+  "id": "moved-library-remade-at-start",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        if vanished(self.project_root):\n",
+  "new": "        if False:\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_folder_renamed_while_closed_is_not_made_again_but_a_new_one_is_made_as_ever"
+ },
+ {
+  "id": "moved-library-unnoticed-by-the-window",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if self.phase == 'open' and self.vanished_seen:\n            self.library_gone()\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_renamed_while_open_stops_the_window_and_asks_where_it_is_now"
+ },
+ {
+  "id": "moved-library-any-folder-taken",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if app_runtime.is_library(root):\n            return root\n",
+  "new": "        if True:\n            return root\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_renamed_while_open_stops_the_window_and_asks_where_it_is_now"
+ },
+ {
+  "id": "moved-library-remade-by-the-window-at-start",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if not project_root and chosen is None and app_runtime.vanished(app_runtime.default_root()):\n",
+  "new": "        if False:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_renamed_while_the_app_was_closed_is_found_again_and_never_made_in_its_old_place"
+ },
+ {
+  "id": "moved-library-found-but-forgotten",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if found is not None:\n            app_runtime.remember_root(found)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_renamed_while_the_app_was_closed_is_found_again_and_never_made_in_its_old_place"
  }
 ]

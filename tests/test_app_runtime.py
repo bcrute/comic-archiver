@@ -12,10 +12,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment
-from comic_archive import app_runtime, sites
+from comic_archive import app_runtime, archive_paths, sites
 from comic_archive.app_actions import Actions
 from comic_archive.account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
-from comic_archive.errors import LibraryBusy
+from comic_archive.errors import LibraryBusy, LibraryMoved
 from comic_archive.local_library import LOCAL_OWNER
 from comic_archive.models import ArchiveError
 from comic_archive.session import load_session
@@ -75,6 +75,36 @@ class AppRuntimeTests(unittest.TestCase):
             for name in ('.comic-session', '.comic-web', 'Library/.archive-state'):
                 self.assertIn(place / name, hidden)
                 self.assertEqual(stat.S_IMODE((place / name).stat().st_mode), PRIVATE_FOLDER)
+
+    def test_the_open_library_folder_is_never_made_again_once_it_is_renamed(self):
+        self.runtime.start()
+        self.assertFalse(self.runtime.vanished())
+        self.root.rename(self.home / 'Renamed')
+        self.assertTrue(self.runtime.vanished())
+        with self.assertRaises(LibraryMoved):
+            archive_paths.directory(self.root / 'Library/Series')
+        # Nor while its downloader is stopped.
+        self.runtime.stop(0)
+        self.assertFalse(self.root.exists())
+
+    def test_a_library_folder_renamed_while_closed_is_not_made_again_but_a_new_one_is_made_as_ever(self):
+        self.runtime.start(); self.runtime.stop(0)
+        self.root.rename(self.home / 'Renamed')
+        self.assertTrue(app_runtime.vanished(self.root))
+        again = app_runtime.Runtime(self.root); self.addCleanup(again.stop, 0)
+        with self.assertRaises(LibraryMoved) as caught:
+            again.start()
+        self.assertEqual(str(caught.exception), app_runtime.GONE.format(folder=self.root))
+        self.assertFalse(self.root.exists())
+        # Opened where it is now, it is the same library.
+        moved = app_runtime.Runtime(self.home / 'Renamed'); self.addCleanup(moved.stop, 0)
+        moved.start()
+        self.assertEqual(self.library(moved), self.home / 'Renamed/Library')
+        # A folder never opened before is made, as on a first start.
+        self.assertFalse(app_runtime.vanished(self.home / 'New'))
+        fresh = app_runtime.Runtime(self.home / 'New'); self.addCleanup(fresh.stop, 0)
+        fresh.start()
+        self.assertTrue((self.home / 'New/Library').is_dir())
 
     def test_a_picked_folder_becomes_a_library_folder_without_mixing_into_other_files(self):
         pick = app_runtime.library_root
