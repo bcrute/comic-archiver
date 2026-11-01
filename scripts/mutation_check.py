@@ -59,7 +59,9 @@ def check(item, unchanged):
     if code:
         return f'BROKEN   {name}: fails before anything is changed ({why})'
     path = Path(item['source'])
-    if not item['source'].startswith('comic_archive/') or not path.is_file():
+    # The app and the scripts that build and check what ships, never this checker itself.
+    if (not item['source'].startswith(('comic_archive/', 'scripts/')) or item['source'] == 'scripts/mutation_check.py'
+            or not path.is_file()):
         return f'NOSOURCE {name}: {path}'
     text = path.read_text()
     if text.count(item['old']) != 1:
