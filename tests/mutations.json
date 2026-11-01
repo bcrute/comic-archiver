@@ -3282,8 +3282,8 @@
  {
   "id": "header-theme-backwards",
   "source": "comic_archive/window_pages.py",
-  "old": "self.theme.setText('\u2600' if dark else '\u263e')",
-  "new": "self.theme.setText('\u263e' if dark else '\u2600')",
+  "old": "self.theme.setText('☀' if dark else '☾')",
+  "new": "self.theme.setText('☾' if dark else '☀')",
   "test_file": "test_window_pages.py",
   "test": "test_the_theme_switch_shows_where_it_leads"
  },
@@ -4878,5 +4878,29 @@
   "new": "",
   "test_file": "test_transport.py",
   "test": "test_a_retry_uses_rotated_or_deleted_cookies_even_when_the_response_body_breaks"
+ },
+ {
+  "id": "plan-record-read-at-state-limit",
+  "source": "comic_archive/completion.py",
+  "old": "value=batches._read(root/'completion.json',limit=PLAN_LIMIT)",
+  "new": "value=batches._read(root/'completion.json')",
+  "test_file": "test_completion.py",
+  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
+ },
+ {
+  "id": "plan-windows-never-folded",
+  "source": "comic_archive/completion.py",
+  "old": "    value['windows']=_fold(value['windows'])\n    return value",
+  "new": "    return value",
+  "test_file": "test_completion.py",
+  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
+ },
+ {
+  "id": "plan-fold-loses-earlier-totals",
+  "source": "comic_archive/completion.py",
+  "old": "**{key:sum(window[key] for window in earlier) for key in METRICS}",
+  "new": "**{key:earlier[-1][key] for key in METRICS}",
+  "test_file": "test_completion.py",
+  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
  }
 ]

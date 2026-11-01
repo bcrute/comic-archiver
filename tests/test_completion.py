@@ -28,6 +28,22 @@ class CompletionTests(unittest.TestCase):
 
     def tick(self):return completion.tick(self.session,self.library)
 
+    def test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals(self):
+        self.configure(until_drained=True)
+        plan=json.loads((self.root/'completion.json').read_text())
+        start=datetime(2026,10,12,tzinfo=timezone.utc)
+        plan['windows']=[{'started_at':(start+timedelta(hours=n)).isoformat(),**{key:n+1 for key in completion.METRICS}}
+                         for n in range(80)]
+        atomic_json(self.root/'completion.json',plan)
+        self.assertGreater((self.root/'completion.json').stat().st_size,16384)
+        value=completion.status(self.session,self.library)
+        self.assertEqual(value['downloaded_pages'],sum(range(1,81)))
+        self.assertEqual(value['window_count'],completion.KEPT_WINDOWS)
+        self.tick()
+        self.assertLess((self.root/'completion.json').stat().st_size,16384)
+        value=completion.status(self.session,self.library)
+        self.assertEqual(value['downloaded_pages'],sum(range(1,81)));self.assertEqual(value['window_count'],completion.KEPT_WINDOWS)
+
     def publish(self):
         for _ in range(12):
             self.tick()

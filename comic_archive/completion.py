@@ -24,6 +24,10 @@ STATES={'running','paused','stopped','budget_reached','known_backlog_drained'}
 REASONS={None,*batches.CODES,'window_changed','accounting_changed','controller_failed',
          'network_recovery_limit','source_recovery_limit'}
 AGGREGATE_LIMITS={'max_windows','max_days','max_pages','max_bytes'}
+# A plan that runs until drained lasts as long as its library, a window or more a day. Its record keeps the latest
+# windows apiece and folds the earlier ones into one, whose totals still count; 47 windows once made it unreadable.
+KEPT_WINDOWS=8
+PLAN_LIMIT=256*1024
 
 
 def limits(values=None, *, until_drained=False):
@@ -42,8 +46,15 @@ def limits(values=None, *, until_drained=False):
     return result
 
 
+def _fold(windows):
+    if len(windows)<=KEPT_WINDOWS:return windows
+    earlier=windows[:-(KEPT_WINDOWS-1)]
+    return [{'started_at':earlier[0]['started_at'],**{key:sum(window[key] for window in earlier) for key in METRICS}},
+            *windows[-(KEPT_WINDOWS-1):]]
+
+
 def _load(root):
-    value=batches._read(root/'completion.json')
+    value=batches._read(root/'completion.json',limit=PLAN_LIMIT)
     if value is None:return None
     try:
         if (type(value['schema_version']) is not int or value['schema_version']!=1
@@ -78,6 +89,7 @@ def _load(root):
                     or reserved['started_at'] in seen):raise ValueError
     except (ValueError,TypeError,KeyError,AttributeError):
         raise ArchiveError('Backlog completion checkpoint is invalid; existing work is retained.') from None
+    value['windows']=_fold(value['windows'])
     return value
 
 

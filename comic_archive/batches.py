@@ -94,12 +94,12 @@ def _root(session,library,*,require_queue=True):
     return root
 
 
-def _read(path):
+def _read(path,limit=16384):
     if any(p.is_symlink() for p in (path,*path.parents)):
         raise ArchiveError('Consecutive import state must not be symlinked.')
     if not path.exists():return None
     try:
-        if not path.is_file() or path.stat().st_size>16384:raise ValueError
+        if not path.is_file() or path.stat().st_size>limit:raise ValueError
         value=json.loads(path.read_text())
         if not isinstance(value,dict):raise ValueError
         return value
