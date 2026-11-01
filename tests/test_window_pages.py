@@ -336,6 +336,31 @@ class DashboardTests(PagesCase):
         self.assertEqual((d.signin.text(), d.signin.isEnabled()), ('Signing in…', False))
         self.assertEqual(d.status.text(), 'Finish signing in to Tapas in the window that opened.')
 
+    def test_go_then_an_expired_session_shows_signin_instead_of_the_earlier_connected_check(self):
+        self.actions.reading['site_auth'] = {'status': 'verified'}
+        self.open()
+        d = self.dashboard
+        self.assertEqual(d.session.text(), 'Tapas · Connected')
+        d.go.click()
+        self.actions.account(status='held', code='login_required')
+        self.actions.reading['status']['worker'] = {'reported_state': 'ready'}
+        self.pages.poll()
+        self.assertTrue(d.signin.isVisible() and d.signin.isEnabled())
+        self.assertFalse(d.go.isEnabled())
+        self.assertEqual(d.session.text(), 'Tapas · Sign-in needed')
+        self.assertIn('signed you out', d.status.text())
+
+    def test_go_that_fails_before_it_returns_still_requires_a_new_signin(self):
+        self.actions.reading['site_auth'] = {'status': 'verified'}
+        self.actions.reading['account'] = {'status': 'held', 'code': 'login_required'}
+        self.open()
+        self.assertTrue(self.dashboard.go.isEnabled())
+        self.actions.go = lambda: self.actions.account(status='held', code='login_required')
+        self.dashboard.go.click()
+        self.pages.poll()
+        self.assertTrue(self.dashboard.signin.isVisible())
+        self.assertFalse(self.dashboard.go.isEnabled())
+
     def test_download_settings_open_with_a_table_of_why_episodes_were_not_downloaded(self):
         self.actions.reading['status']['episodes_by_status'] = {'archived': 100, 'unavailable': 44}
         self.open('settings/downloads')

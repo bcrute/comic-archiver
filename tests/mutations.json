@@ -3282,8 +3282,8 @@
  {
   "id": "header-theme-backwards",
   "source": "comic_archive/window_pages.py",
-  "old": "self.theme.setText('☀' if dark else '☾')",
-  "new": "self.theme.setText('☾' if dark else '☀')",
+  "old": "self.theme.setText('\u2600' if dark else '\u263e')",
+  "new": "self.theme.setText('\u263e' if dark else '\u2600')",
   "test_file": "test_window_pages.py",
   "test": "test_the_theme_switch_shows_where_it_leads"
  },
@@ -4854,5 +4854,29 @@
   "new": "elif remaining >= pending['before_remaining']:",
   "test_file": "test_account_export.py",
   "test": "test_a_scan_that_checked_series_goes_on_even_when_more_are_left_than_before"
+ },
+ {
+  "id": "signin-earlier-proof-overrides-later-failure",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "s.signin_used or auth_status not in",
+  "new": "auth_status not in",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes"
+ },
+ {
+  "id": "signin-fast-go-failure-never-consumes-proof",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self.state.download_started()\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_go_that_fails_before_it_returns_still_requires_a_new_signin"
+ },
+ {
+  "id": "transport-retry-retains-deleted-cookie-header",
+  "source": "comic_archive/transport.py",
+  "old": "            headers.pop(\"Cookie\", None)\n",
+  "new": "",
+  "test_file": "test_transport.py",
+  "test": "test_a_retry_uses_rotated_or_deleted_cookies_even_when_the_response_body_breaks"
  }
 ]

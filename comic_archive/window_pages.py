@@ -1291,6 +1291,8 @@ class Pages:
     def go(self):
         def started(value):
             self.state.received_account(value, self.now())
+            # A fast failure can arrive before Go returns, with no running refresh in between.
+            self.state.download_started()
             self.state.offline = False
         self.account_act(self.actions.go, started)
 

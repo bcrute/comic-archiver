@@ -215,6 +215,34 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(verified['go_enabled']); self.assertEqual(verified['session'], 'Tapas · Connected')
         self.assertTrue(view()['go_enabled']); self.assertEqual(view()['session'], 'Tapas · Session saved')
 
+    def test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes(self):
+        for auth in ('verified', 'connected'):
+            with self.subTest(auth=auth):
+                s = state(site_auth={'status': auth})
+                s.received_account(account(), NOW + 1)
+                s.received_account({'status': 'held', 'code': 'login_required'}, NOW + 2)
+                s.received_site_auth({'status': auth}, NOW + 2)
+                failed = model.view(s, NOW + 2)
+                self.assertFalse(failed['go_enabled'])
+                self.assertTrue(failed['signin_visible'] and failed['signin_enabled'])
+                self.assertEqual(failed['session'], 'Tapas · Sign-in needed')
+                self.assertIn('signed you out', failed['status'])
+                # Signing in again clears the old failure; repeating its result does not.
+                s.received_site_auth({'status': 'running'}, NOW + 3)
+                s.received_site_auth({'status': 'connected'}, NOW + 4)
+                self.assertTrue(model.view(s, NOW + 4)['go_enabled'])
+
+    def test_a_late_startup_check_cannot_hide_a_failure_after_go_and_pause_keeps_a_valid_signin(self):
+        s = state()
+        s.download_started()
+        s.received_account({'status': 'held', 'code': 'login_required'}, NOW + 1)
+        s.received_site_auth({'status': 'verified'}, NOW + 2)
+        self.assertFalse(model.view(s, NOW + 2)['go_enabled'])
+        self.assertTrue(model.view(s, NOW + 2)['signin_visible'])
+        s.received_account({'status': 'stopped'}, NOW + 3)
+        self.assertTrue(model.view(s, NOW + 3)['go_enabled'])
+        self.assertEqual(model.view(s, NOW + 3)['session'], 'Tapas · Connected')
+
     def test_pause_allow_site_and_folder_follow_a_running_download(self):
         running = view(account=account())
         self.assertTrue(running['pause_visible'] and running['pause_enabled'])

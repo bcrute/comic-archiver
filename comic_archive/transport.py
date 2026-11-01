@@ -163,12 +163,6 @@ class Transport:
         headers = {"Referer": self.site.referer}
         if self.agent:
             headers["User-Agent"] = self.agent
-        # Jar cookies (the desktop path) are attached once; a live source is consulted per
-        # attempt below, after policy admission, and never mixes with the jar.
-        if self.cookie_source is None:
-            cookie = self.cookie_header(host)
-            if cookie:
-                headers["Cookie"] = cookie
         if authorization is not None:
             # The key goes only where the site's own cookies may go, never to a CDN.
             if (host not in self.site.cookie_hosts or not isinstance(authorization, str) or not authorization.isascii()
@@ -177,16 +171,21 @@ class Transport:
             headers["Authorization"] = authorization
         for attempt in range(3):
             self._pace()
+            # A response can rotate/delete a cookie before its body fails. Rebuild the
+            # header after admission on every attempt, using exactly one cookie authority.
+            headers.pop("Cookie", None)
+            cookie = ''
             if self.cookie_source is not None:
                 # Asked after policy/cancellation admission on every attempt, so a cookie
                 # that changed or disappeared between attempts (or on a redirect hop, which
                 # is a new request) is never reused. Jar cookies never take this path.
-                headers.pop("Cookie", None)
                 if host in self.site.cookie_hosts:
                     value = self.cookie_source(url)
                     cookie = value if isinstance(value, str) else ''
-                    if cookie:
-                        headers["Cookie"] = cookie
+            else:
+                cookie = self.cookie_header(host)
+            if cookie:
+                headers["Cookie"] = cookie
             try:
                 return self._request(url, headers, max_bytes, attempt, take_cookies)
             except _RetryRequest as retry:

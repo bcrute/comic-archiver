@@ -234,6 +234,7 @@ class State:
     account_at: float = 0  # When the account's state arrived, to count on from.
     refreshed_at: float = 0
     connected_at: float = 0
+    signin_used: bool = False  # Go has used this sign-in; a later failure outweighs its earlier check.
     network_at: float = 0
     library_at: float = 0
     loaded: bool = False  # Whether the library was read at least once.
@@ -254,10 +255,18 @@ class State:
 
     def received_account(self, value, now):
         self.account, self.account_at, self.refreshed_at = value, now, now
+        if (value or {}).get('status') == 'running':
+            self.download_started()
+
+    def download_started(self):
+        self.signin_used = True
 
     def received_site_auth(self, value, now):
         if (value or {}).get('status') == 'connected' and (self.site_auth or {}).get('status') != 'connected':
             self.connected_at = now
+            self.signin_used = False
+        elif (value or {}).get('status') == 'running':
+            self.signin_used = False
         self.site_auth = value
 
     def refreshed(self, now):
@@ -310,10 +319,10 @@ def view(s, now):
     worker = worker_state(s, now)
     progress = status.get('progress') if isinstance(status.get('progress'), dict) else {}
     batch_running = worker == 'busy' or progress.get('status') == 'running'
-    # The site's own answer about the saved sign-in, asked when the window opens, outweighs what the last run found.
+    # A fresh sign-in/check can clear an older failure, but never a failure after the next Go.
     auth_status = (s.site_auth or {}).get('status')
     needs_login = not status.get('session_configured') or auth_status == 'expired' or (
-        account.get('code') == 'login_required' and auth_status not in ('connected', 'verified'))
+        account.get('code') == 'login_required' and (s.signin_used or auth_status not in ('connected', 'verified')))
     since = s.since_account(now)
     go_wait = 0 if running else max(0, number(account.get('go_after_seconds')) - since)
     net = s.network

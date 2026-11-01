@@ -23,6 +23,32 @@ class Clock:
 
 
 class TransportLimitTests(unittest.TestCase):
+    def test_a_retry_uses_rotated_or_deleted_cookies_even_when_the_response_body_breaks(self):
+        import httpx
+
+        class Interrupted(httpx.SyncByteStream):
+            def __iter__(self):
+                yield b'partial'
+                raise httpx.ReadError('Synthetic connection loss after response headers')
+
+        for setting, expected in (('sid=; Max-Age=0', None), ('sid=ROTATED', 'sid=ROTATED')):
+            with self.subTest(setting=setting):
+                seen = []
+
+                def response(request):
+                    seen.append(request.headers.get('Cookie'))
+                    if len(seen) == 1:
+                        return httpx.Response(200, headers={'Set-Cookie': setting + '; Domain=tapas.io; Path=/'},
+                                              stream=Interrupted())
+                    return httpx.Response(200, content=b'complete')
+
+                with httpx.Client(transport=httpx.MockTransport(response)) as client:
+                    transport = Transport([{'domain': '.tapas.io', 'name': 'sid', 'value': 'SYNTHETIC'}], client=client)
+                    with patch.object(transport, '_wait'), patch.object(transport, '_pace'):
+                        self.assertEqual(transport.get('https://tapas.io/fixture', take_cookies=True), b'complete')
+                    self.assertEqual(seen, ['sid=SYNTHETIC', expected])
+                    self.assertEqual(len(client.cookies), 0)
+
     def test_httpx_cookie_jar_cannot_bypass_the_desktop_host_and_explicit_take_rules(self):
         import httpx
         seen = []
