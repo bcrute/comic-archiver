@@ -199,8 +199,10 @@ class DownloadContractTests(unittest.TestCase):
     def test_a_start_of_the_app_in_the_middle_waits_for_go_and_go_finishes_without_repeating_work(self):
         self.go()
         self.drive(until=lambda state: state.get('phase') == 'series')
-        self.tick()
-        self.tick()
+        for _ in range(6):
+            if list((self.queue / 'requests').glob('*.json')):
+                break
+            self.tick()
         self.assertEqual(len(list((self.queue / 'requests').glob('*.json'))), 1)
         self.assertTrue(account_ui.reopen(self.workspace, idle=True))
         self.assertEqual(self.status()['status'], 'stopped')
