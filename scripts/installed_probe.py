@@ -82,7 +82,7 @@ def main():
     if verify(Path('Library'), decode_images=True):
         raise RuntimeError('Installed package failed portable export verification')
     registry = LocalWorkspaceRegistry(Path.cwd())
-    runtime = SimpleNamespace(registry=registry, site=sites.DEFAULT, folder=Path('Library').absolute(),
+    runtime = SimpleNamespace(registry=registry, site=sites.DEFAULT, folder=Path('Library').absolute(), root=Path.cwd(),
                               site_settings=SimpleNamespace(list=list))
     actions = Actions(lambda: runtime)
     if actions.context()['library_folder'] != str(Path('Library').absolute()):
