@@ -1,21 +1,20 @@
 ## Changes in {version}
 
-- **Bought paid-only Tapas episodes are saved.** A paid-only Tapas episode was skipped without a message even after
-  you bought it, so a download could stop short of the end of a series. It is saved now.
-- **The window checks your sign-in when it opens.** A sign-in the site no longer accepts showed as connected until
-  Go found it had expired. The window now asks the site when it opens or you change site, and shows **Sign-in
-  needed** straight away.
-- **Windows: setup closes an open Comic Archiver.** Running a new setup while Comic Archiver was open could fail.
-  Setup now closes it first; a download pauses until you press Go.
-- **Linux: starting a new copy while the old one is open says so.** Before, it only brought the old window
-  forward, which looked as if the update had done nothing. The old-copies question now offers only older versions
-  and answers No unless you choose Yes.
-- **Two series with one name keep their own folders.** Two Webtoon Canvas series with the same name could share a
-  folder. A later one now gets its site number added; folders you already have keep their names.
-- **Fixes.** A Backblaze upload left unfinished no longer fails every retry once the series changes. A starting
-  download is no longer sometimes reported as stopped. A cookie the site ends is no longer sent again. Replacing a
-  Backblaze sign-in removes the old key. If uninstalling cannot forget every sign-in, it keeps the settings that
-  let you uninstall again. Updated certificate roots.
+- **A download keeps going after an update.** After updating to 0.2.4, a download could pause at once, saying the
+  last tries saved nothing new, because the update starts the series checks over. It now carries on. Series checked
+  before the update are checked again first, so bought episodes the older version refused are saved sooner.
+- **Long downloads no longer stop by themselves.** A download that had run for weeks could stop as if something
+  had failed, and Go after a stop could pause again straight away. Both are fixed.
+- **Settings › Downloads says why episodes were not downloaded.** It opens with a table of every reason, such as
+  locked on your account or not released yet, and how many checked episodes each one kept back.
+- **Renaming or moving the library folder while it is open is safe.** It used to split the library in two. Now
+  the download stops and the window asks where the folder went; a folder renamed while the app was closed is asked
+  for at the next start.
+- **A sign-in that stops working during a download shows Sign-in needed,** even when the check at opening said it
+  was fine.
+- **Licenses.** Settings › About shows every license the app is built under. The Linux app is about 300 MB smaller.
+- **Fixes.** The window says why the first save waits until every list is read. Settings shows the speed of the
+  open site only. Text uses American spelling.
 
 ## Download
 
