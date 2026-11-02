@@ -56,7 +56,7 @@ internal fun licenseTexts(list: (String) -> List<String>): List<LicenseText> {
             else -> 3
         }
     }
-    return files("").sortedWith(compareBy(rank) { it }).map { LicenseText(licenseTitle(it), it) }
+    return files("").sortedWith(compareBy<String>({ rank(it) }, { it })).map { LicenseText(licenseTitle(it), it) }
 }
 
 private fun assetTexts(context: Context): List<LicenseText> = licenseTexts { folder ->
