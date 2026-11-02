@@ -1,5 +1,10 @@
 ## Changes in {version}
 
+- **Every site downloads at once.** Signed in to more than one of Tapas, Tappytoon and Webtoon? Each one now
+  downloads alongside the others. **Go on all sites** and **Pause all** start and pause them together.
+- **A dashboard you can read at a glance.** One card counts everything saved from every site. Then each site has a
+  card of its own, with what it is doing in a few short lines and its own **Go**, **Pause** and **Sign in**. A wide
+  window shows two cards to a row.
 - **A download goes on by itself after a wait.** Comic Archiver now keeps one record of your download instead of
   three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
   tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,
@@ -45,13 +50,13 @@ later starts are quick.
 
 **The first time**
 
-1. Choose your site in the Site list.
-2. Choose **Sign in**, and sign in on the site's own page in the window with your email and password.
+1. On the dashboard, each site has its own card. Choose **Sign in** on your site's card, and sign in on the site's
+   own page in the window with your email and password.
    Google and Facebook sign-in buttons may not work in that window. If that is how you normally sign in, first add
    a password to your account on the comic site itself (Tapas, Tappytoon or Webtoon, not Google or Facebook): sign in to the
    comic site in your usual web browser the way you always do, open your account settings, and set a password
    there. Then sign in to Comic Archiver with your account's email and that password.
-3. Press **Go**.
+2. Press **Go** on that card. Signed in to more than one site? **Go on all sites** starts every one.
 
 **Where your files go.** Into the folder `Comic Archiver` in your user folder (on Windows
 `C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.

@@ -43,9 +43,10 @@ the warnings Windows shows because the app isn't signed yet.
 
 ## Using it
 
-1. Pick your site in the **Site** list.
-2. Click **Sign in**, and sign in with your email and password.
-3. Press **Go**.
+1. On the dashboard, each site has its own card. Click **Sign in** on your site's card, and sign in with your email
+   and password.
+2. Press **Go** on that card. If you use more than one site, sign in to each: they all download at once, and
+   **Go on all sites** starts every one.
 
 If you normally sign in with Google or Facebook, those buttons may not work inside the app. Set a password on your
 account first (sign in the usual way in your web browser and look in the site's account
