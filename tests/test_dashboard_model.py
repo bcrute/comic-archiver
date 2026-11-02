@@ -121,9 +121,9 @@ class WordingTests(unittest.TestCase):
                                               'series_check_target_count': 9}), 'Checked 2 of 9 series in this step.')
         self.assertEqual(model.step_progress({'status': 'running', 'phase': 'scan'}), '')
         self.assertEqual(model.step_progress({'status': 'running', 'phase': 'archive', 'completed': 4, 'downloaded_pages': 1}),
-                         '4 saved in this step · 1 image.')
+                         '4 saved in this step | 1 image.')
         self.assertEqual(model.step_progress({'status': 'running', 'phase': 'archive', 'completed': 1, 'downloaded_pages': 12,
-                                              'downloaded_chapters': 1}), '1 saved in this step · 11 images · 1 novel chapter.')
+                                              'downloaded_chapters': 1}), '1 saved in this step | 11 images | 1 novel chapter.')
         self.assertIn('2 novel chapters', model.step_progress({'status': 'running', 'phase': 'archive', 'downloaded_chapters': 2}))
 
 
@@ -346,7 +346,7 @@ class StatusTests(unittest.TestCase):
                  ({'account': account(), 'status': {'session_configured': True, 'worker': {'reported_state': 'busy'},
                                                     'progress': {'status': 'running', 'phase': 'archive', 'completed': 2,
                                                                  'downloaded_pages': 5}}},
-                  {'Step': ('Downloading episodes · 2 saved in this step · 5 images', False)})]
+                  {'Step': ('Downloading episodes | 2 saved in this step | 5 images', False)})]
         for changes, expected in cases:
             with self.subTest(changes):
                 said = fields(view(**changes))
@@ -365,10 +365,10 @@ class StatusTests(unittest.TestCase):
                         status={'session_configured': True, 'worker': {'reported_state': 'busy'}, 'progress': reading,
                                 'episodes_by_status': {'archived': 3}}))
         self.assertEqual(v['Step'], ('Finding your series', False))
-        self.assertEqual(v['Lists'], ('1 of 4 read · 3 pages of Subscribed · 40 series', False))
+        self.assertEqual(v['Lists'], ('1 of 4 read | 3 pages of Subscribed | 40 series', False))
         self.assertEqual(v['Saved'], ('3 episodes', False))
         scan = fields(view(account=account(phase='lists', lists=lists), status={'progress': {'status': 'running', 'phase': 'scan'}}))
-        self.assertEqual(scan['Lists'][0], '1 of 4 read · now Subscribed')
+        self.assertEqual(scan['Lists'][0], '1 of 4 read | now Subscribed')
         self.assertEqual(fields(view(account=account(phase='lists', lists={'checked': 0})))['Lists'][0], '0 of 4 read')
         series = fields(view(account=account(phase='series'), status={'scan_remaining_series_count': 12}))
         self.assertEqual(series['Step'][0], 'Checking series and downloading')
@@ -456,7 +456,7 @@ class StatusTests(unittest.TestCase):
 class LiveTests(unittest.TestCase):
     def test_running_for_counts_on_from_what_the_app_last_said(self):
         v = model.view(state(account=account(elapsed_seconds=100, progress_age_seconds=5), account_at=NOW - 10, refreshed_at=NOW - 3), NOW)
-        self.assertEqual(fields(v)['Running for'], ('1m 50s · last saved 0m 15s ago', False))
+        self.assertEqual(fields(v)['Running for'], ('1m 50s | last saved 0m 15s ago', False))
         self.assertNotIn('Running for', fields(view(account=account())))
         self.assertNotIn('Running for', fields(view(account={'status': 'stopped', 'elapsed_seconds': 100})))
 

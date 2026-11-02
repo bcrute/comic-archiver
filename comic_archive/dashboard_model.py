@@ -211,8 +211,8 @@ def step_progress(p):
         return ''
     chapters = number(p.get('downloaded_chapters'))
     images = number(p.get('downloaded_pages')) - chapters
-    novels = f" · {display(chapters)} novel {'chapter' if chapters == 1 else 'chapters'}" if chapters else ''
-    return f"{display(p.get('completed'))} saved in this step · {display(images)} {'image' if images == 1 else 'images'}{novels}."
+    novels = f" | {display(chapters)} novel {'chapter' if chapters == 1 else 'chapters'}" if chapters else ''
+    return f"{display(p.get('completed'))} saved in this step | {display(images)} {'image' if images == 1 else 'images'}{novels}."
 
 
 @dataclass
@@ -447,14 +447,14 @@ def view(s, now):
                   'series': 'Checking series and downloading', 'archive': 'Downloading episodes',
                   'verify': 'Checking saved files'}
         step = '' if list_phase else step_progress(progress).rstrip('.')
-        row('Step', ' · '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
+        row('Step', ' | '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
                         and progress.get('category') == lists.get('current'))
             row('Lists', f"{display(lists.get('checked'))} of {display(lists.get('total') or 4)} read" + (
-                f" · {display(progress['reading_list_page_count'])} pages of {active} · "
+                f" | {display(progress['reading_list_page_count'])} pages of {active} | "
                 f"{display(progress.get('observed_library_series_count'))} series"
-                if matching and type(progress.get('reading_list_page_count')) is int else f' · now {active}' if active else ''))
+                if matching and type(progress.get('reading_list_page_count')) is int else f' | now {active}' if active else ''))
         elif account.get('phase') == 'series':
             row('Series left', f"{display(status.get('scan_remaining_series_count'))} to check")
     if disconnected and running:
@@ -490,7 +490,7 @@ def view(s, now):
         space, short = space_row(status.get('estimate'))
         row('Space', space, short)
     if running and elapsed is not None:
-        row('Running for', duration(elapsed) + ('' if age is None else f' · last saved {duration(age)} ago'))
+        row('Running for', duration(elapsed) + ('' if age is None else f' | last saved {duration(age)} ago'))
     if signed_in:
         refused = account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
         row('Speed', SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
