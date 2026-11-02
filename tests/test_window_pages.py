@@ -372,6 +372,8 @@ class DashboardTests(PagesCase):
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Downloading')
         self.assertEqual(self.card.pill.text(), 'Paused')
         self.assertTrue(self.dashboard.pause_all.isVisible())
+        self.pages.poll()
+        self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
 
     def test_a_card_that_shows_time_and_space_left_says_at_its_foot_they_are_rough(self):
         self.shell.open = ['tapas', 'webtoon']
@@ -382,8 +384,6 @@ class DashboardTests(PagesCase):
         self.assertEqual((self.fields()['Time left'], self.fields()['Space']), ('15 hours', '409 GB to go | 473 GB free'))
         self.assertEqual((tapas.note.isVisible(), tapas.note.text()), (True, 'Time and space are only rough estimates.'))
         self.assertFalse(webtoon.note.isVisible())
-        self.pages.poll()
-        self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
 
     def test_go_on_all_sites_starts_each_that_can_go_and_pause_all_pauses_each_that_runs(self):
         self.shell.open = ['tapas', 'tappytoon', 'webtoon']
