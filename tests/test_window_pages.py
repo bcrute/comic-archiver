@@ -329,7 +329,7 @@ class DashboardTests(PagesCase):
         self.assertEqual(c.pill.property('tone'), 'warning')
         # What is so, a field and its value each; the buttons say what can be done.
         self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Speed': 'Fast'})
-        self.assertFalse(c.message.isVisible())
+        self.assertFalse(c.message.isVisible() or c.note.isVisible())
         self.assertTrue(c.go.isEnabled() and c.go.isVisible())
         self.assertEqual(c.go.text(), 'Go — continue')
         self.assertFalse(c.pause.isVisible() or c.signin.isVisible() or c.allow.isVisible())
@@ -372,6 +372,16 @@ class DashboardTests(PagesCase):
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Downloading')
         self.assertEqual(self.card.pill.text(), 'Paused')
         self.assertTrue(self.dashboard.pause_all.isVisible())
+
+    def test_a_card_that_shows_time_and_space_left_says_at_its_foot_they_are_rough(self):
+        self.shell.open = ['tapas', 'webtoon']
+        self.actions.reading['status']['estimate'] = {'waiting_episodes': 900, 'seconds': 54_000,
+                                                      'left_bytes': 409_000_000_000, 'free_bytes': 473_000_000_000}
+        self.open()
+        tapas, webtoon = self.dashboard.cards['tapas'], self.dashboard.cards['webtoon']
+        self.assertEqual((self.fields()['Time left'], self.fields()['Space']), ('15 hours', '409 GB to go | 473 GB free'))
+        self.assertEqual((tapas.note.isVisible(), tapas.note.text()), (True, 'Time and space are only rough estimates.'))
+        self.assertFalse(webtoon.note.isVisible())
         self.pages.poll()
         self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
 

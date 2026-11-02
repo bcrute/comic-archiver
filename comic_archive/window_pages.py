@@ -312,6 +312,8 @@ class SiteCard:
         self.pause = kit.button('Pause', lambda: pages.pause(key), 'secondary')
         box.addWidget(kit.row(self.signin, self.go, self.allow, self.pause, spacing=8))
         box.addStretch(1)
+        self.note = kit.label('', 'muted')  # At the foot of the card, beside a taller one in its row too.
+        box.addWidget(self.note)
 
     def _fields(self, rows):
         if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
@@ -336,6 +338,7 @@ class SiteCard:
             tone(self.widget, 'tone', '')
             self._fields([])
             say(self.message, '')
+            say(self.note, '')
             self.signin.setVisible(True)
             self.signin.setEnabled(True)
             self.signin.setText(f'Sign in to {self.name}')
@@ -347,6 +350,7 @@ class SiteCard:
         tone(self.widget, 'tone', 'warning' if v['tone'] == 'warning' else 'status')
         self._fields(v['rows'])
         say(self.message, v['signin_status'], v['signin_status_error'])
+        say(self.note, v['estimate_note'])
         self.signin.setVisible(v['signin_visible'])
         self.signin.setEnabled(v['signin_enabled'])
         self.signin.setText(v['signin_text'])

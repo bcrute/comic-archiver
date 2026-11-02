@@ -5118,5 +5118,37 @@
   "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in"
+ },
+ {
+  "id": "estimates-note-never-said",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''\n",
+  "new": "    v['estimate_note'] = ''\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "estimates-note-on-every-card",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''\n",
+  "new": "    v['estimate_note'] = ESTIMATE_NOTE\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "space-row-hides-free-room",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    return f'{room(left)} to go' + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short\n",
+  "new": "    return f'{room(left)} to go', short\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "card-estimates-note-not-drawn",
+  "source": "comic_archive/window_pages.py",
+  "old": "        say(self.note, v['estimate_note'])\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_card_that_shows_time_and_space_left_says_at_its_foot_they_are_rough"
  }
 ]

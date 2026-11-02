@@ -21,6 +21,8 @@ MESSAGE_SECONDS = 30
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
 SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
+# Under a card that shows how long and how much space is left.
+ESTIMATE_NOTE = 'Time and space are only rough estimates.'
 
 # Recovery hints for cloud uploads, as the window words them.
 CLOUD_HINTS = {
@@ -180,26 +182,23 @@ def held_reason(code, site, missing):
 
 
 def time_row(estimate):
-    """The card's Time left: about how long, and what is still to come."""
+    """The card's Time left: how long, and no more; the card's note says it is a rough figure."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked):
         return ''
     if type(estimate.get('seconds')) is not int:
         return 'Estimating; known after about five minutes of downloading'
-    return (f"About {span(estimate['seconds'])} · {display(waiting)} {'episode' if waiting == 1 else 'episodes'} waiting"
-            + (f", {display(unchecked)} series not checked yet, so a rough guess" if unchecked else ''))
+    return span(estimate['seconds'])
 
 
 def space_row(estimate):
-    """The card's Space: the whole library's size and the disk's free room; and whether that room is too little."""
+    """The card's Space: what is still to come and the disk's free room; and whether that room is too little."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked) or type(estimate.get('left_bytes')) is not int:
         return '', False
-    saved, left, free = number(estimate.get('saved_bytes')), estimate['left_bytes'], estimate.get('free_bytes')
-    text = (f'About {room(saved + left)} in all' + (f', {room(left)} still to come' if saved else '')
-            + (' (rough)' if unchecked else ''))
+    left, free = estimate['left_bytes'], estimate.get('free_bytes')
     short = type(free) is int and free < left
-    return text + ('' if type(free) is not int else f' · {room(free)} free' + (', not enough' if short else '')), short
+    return f'{room(left)} to go' + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short
 
 
 def step_progress(p):
@@ -497,6 +496,7 @@ def view(s, now):
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')
     v['rows'] = rows
+    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''
     v['save_place'] = save_place(s)
     return v
 
