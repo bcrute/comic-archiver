@@ -370,6 +370,7 @@ class ControllerTests(Controller):
         self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
         self.assertEqual(self.status()['audit']['missing_recorded_accessible_episode_count'], 2)
         self.go()
+        self.assertNotIn('audit', self.status())
         self.assertEqual(self.published()[1]['operation'], 'audit_account')
 
     def test_an_audit_receipt_that_cannot_be_read_is_tried_once_more_then_holds(self):
@@ -445,7 +446,7 @@ class ControllerTests(Controller):
             self.ok(counted(status='paused', pause_reason='network_policy'))
             self.tick()
             self.assertEqual((self.state()['code'], self.status()['retry']),
-                             ('network_policy', {'reason': 'connection', 'seconds': dc.POLICY_WAIT}))
+                             ('network_policy', {'reason': 'connection', 'seconds': 300}))
             self.later(dc.POLICY_WAIT)
             self.published()
 
@@ -681,6 +682,14 @@ class ControllerTests(Controller):
         before = self.state()
         self.go()
         self.assertEqual(self.state(), before)
+        # Go after a finished download starts a new round: every list is read again.
+        self.change("UPDATE state SET status='finished', code=NULL, stage='finished', wait_until=NULL")
+        self.change('UPDATE lists SET read_at=?, complete=1, observed_series_count=2', self.now.isoformat())
+        self.go()
+        value = self.state()
+        self.assertEqual((value['status'], value['stage'], value['round_started_at']),
+                         ('running', 'lists', self.now.isoformat()))
+        self.assertEqual([row['read_at'] for row in self.lists().values()], [None] * len(TAPAS_LISTS))
 
     def test_a_start_of_the_app_sets_a_going_download_to_wait_for_go_and_ends_its_unsent_or_unrun_step(self):
         self.assertFalse(dc.reopen(self.session, self.library))  # Never downloaded.
@@ -910,6 +919,11 @@ class MoveTests(Controller):
         _, request = self.published()
         self.assertEqual(request['args']['categories'], ['recent'])
         self.assertIsNotNone(self.lists()['updated']['read_at'])
+        # A step only reserved, with nothing else out: nothing is carried, and Go reserves its own.
+        self.forget()
+        self.export(pending=self.old_task(published=False))
+        self.status()
+        self.assertEqual(self.tasks(), [])
 
     def test_each_kind_of_step_sent_is_known_again(self):
         for operation, options, kind in (('sync', {'categories': ['updated'], **dc.LIST_READ}, 'list'),

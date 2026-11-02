@@ -5090,8 +5090,8 @@
  {
   "id": "dc-audit-again",
   "source": "comic_archive/download_control.py",
-  "old": "value.update(stage='verify', audit=None)",
-  "new": "value.update(audit=None)",
+  "old": "            value['audit'] = None  # Audited again",
+  "new": "            pass  # Audited again",
   "test_file": "test_download_control.py",
   "test": "test_an_audit_that_finds_something_missing_holds_and_go_audits_again"
  },

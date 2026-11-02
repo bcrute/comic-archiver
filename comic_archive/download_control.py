@@ -787,7 +787,7 @@ def start(session, library=Path('Library')):
             value.update(stage='lists', round_started_at=now, audit=None)
             db.execute('UPDATE lists SET read_at=NULL, complete=NULL, observed_series_count=NULL')
         elif value['code'] == 'archive_incomplete':
-            value.update(stage='verify', audit=None)
+            value['audit'] = None  # Audited again from where it stopped; the last counts no longer stand.
         value.update(status='running', code=None, wait_until=None, stretch_started_at=now, idle_waits=0,
                      network_waits=0, source_probes=0, failed_retries=0)
         if value['go_after'] and _now() < _instant(value['go_after']):
