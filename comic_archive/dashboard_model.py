@@ -437,6 +437,7 @@ def view(s, now):
             rows.append({'name': name, 'value': value, 'warning': bool(warning)})
     if not s.loaded:
         v['rows'] = [{'name': 'Library', 'value': 'Opening…', 'warning': False}]
+        v['estimate_note'] = ''
         v['save_place'] = save_place(s)
         return v
     row('Account', v['session_word'], v['session_tone'] == 'warning')
