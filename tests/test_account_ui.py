@@ -449,6 +449,8 @@ class AccountUITests(unittest.TestCase):
         account_ui.interrupt(self.workspace)
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
         self.assertTrue(account_ui.reopen(self.workspace))
+        # Stopped by the start itself: the cancelled receipt is not settled until the next tick.
+        self.assertEqual(self.state()['status'],'stopped')
         self.assertEqual(self.waiting_for_go(),('stopped',[]))
         self.assertFalse(account_ui.reopen(self.workspace))  # It waits already.
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
