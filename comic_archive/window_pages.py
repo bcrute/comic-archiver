@@ -204,6 +204,12 @@ def say(label, text, error=False):
     label.setVisible(bool(text))
 
 
+def placed(*widgets):
+    """Show widgets just put on a page that is already showing: Qt would show them only on its next pass."""
+    for widget in widgets:
+        widget.show()
+
+
 def discard(layout, *widgets):
     """Take widgets out of the page at once: deleted later, they would still be drawn until then."""
     for widget in widgets:
@@ -316,6 +322,7 @@ class SiteCard:
                 name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.label('', 'fieldValue')
                 self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
                 self.fields.addWidget(value, index, 1)
+                placed(name, value)
                 self.cells.append((name, value))
         for (_, value), row in zip(self.cells, rows, strict=True):
             value.setText(row['value'])
@@ -325,7 +332,7 @@ class SiteCard:
         """v is the site's view, or None for a site not opened yet: then only its way to sign in shows."""
         if v is None:
             self.pill.setText('Not signed in')
-            tone(self.pill, 'tone', 'neutral')
+            tone(self.pill, 'tone', '')  # The plain look.
             tone(self.widget, 'tone', '')
             self._fields([])
             say(self.message, '')
@@ -439,6 +446,7 @@ class Dashboard:
         names = {item['key']: item['name'] for item in sites}
         self.cards = {key: SiteCard(self.kit, self.pages, key, names[key]) for key in keys}
         self._lay_out(self.columns, force=True)
+        placed(*(card.widget for card in self.cards.values()))
 
     def _metrics(self, metrics):
         if [cell[0] for cell in self.metric_cells] == [name for _, name in metrics]:
@@ -454,6 +462,7 @@ class Dashboard:
             box.addWidget(number)
             box.addWidget(self.kit.label(name, 'muted'))
             self.metrics.addWidget(cell, index // 2, index % 2)
+            placed(cell)
             self.metric_cells.append((name, number))
 
     def _places(self, places):
@@ -469,6 +478,7 @@ class Dashboard:
                                      lambda key=place['id']: self.pages.go_to('library', location=key), 'place')
             button.setProperty('place', place['id'])
             self.places.addWidget(button)
+            placed(button)
             self.place_buttons.append(button)
 
     def show(self, s, sites, views, everything):
@@ -1494,7 +1504,7 @@ class Pages:
                 self.pause(key)
 
     def poll_soon(self):
-        self.q.QtCore.QTimer.singleShot(0, self.poll)
+        self.q.QtCore.QTimer.singleShot(0, self.widget, self.poll)  # Dropped with the pages if they go first.
 
     def speed(self, value):
         self.account_act(lambda: self.actions.speed(value), lambda account: self.state.received_account(account, self.now()))

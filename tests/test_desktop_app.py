@@ -205,7 +205,7 @@ class DesktopAppTests(unittest.TestCase):
         root = self.runtime.root = self.home / 'Comic Archiver'
         dialog, external = self.widgets.QFileDialog.getExistingDirectory, self.q.QtGui.QDesktopServices.openUrl
         self.runtime.folder = root / 'Library'
-        other = Mock(site=sites.DEFAULT); other.vanished.return_value = False
+        other = Mock(site=sites.DEFAULT); other.vanished.return_value = False; other.runtimes = {'tapas': other.runtime('tapas')}
         shell.open_folder()
         self.assertEqual([call.args[0].toString() for call in external.call_args_list], ['file://' + str(root / 'Library')])
         dialog.assert_not_called()
@@ -263,7 +263,7 @@ class DesktopAppTests(unittest.TestCase):
         self.box.information.assert_called_once()
         # The new folder cannot be used: back on the old one, with the reason in words.
         other.busy.return_value = None; other.root = self.home / 'Other'
-        back = Mock(site=sites.DEFAULT); back.vanished.return_value = False
+        back = Mock(site=sites.DEFAULT); back.vanished.return_value = False; back.runtimes = {'tapas': back.runtime('tapas')}
         # The window's clocks run on under the dialogs: a second request waits instead of opening another one.
         dialog.side_effect = lambda *_: (shell.choose_location(), str(self.home / 'Third'))[1]
         with patch('comic_archive.desktop_app.app_runtime.move', return_value=(back, 'That folder cannot be written to.')) as move:

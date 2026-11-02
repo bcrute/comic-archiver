@@ -5110,5 +5110,13 @@
   "new": "if chosen else s.library_folder or ''",
   "test_file": "test_dashboard_model.py",
   "test": "test_new_episodes_are_said_to_go_to_the_chosen_cloud_or_the_folder"
+ },
+ {
+  "id": "new-site-cards-wait-for-qt-to-show-them",
+  "source": "comic_archive/window_pages.py",
+  "old": "        placed(*(card.widget for card in self.cards.values()))\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in"
  }
 ]
