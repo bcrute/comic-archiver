@@ -9,6 +9,7 @@ import sqlite3
 import time
 
 from . import account_export, batches, completion
+from .archive import atomic_json
 from .locking import LibraryLock
 from .monitoring import _read, _progress
 from .models import ArchiveError
@@ -273,3 +274,49 @@ def status(workspace, since=None):
             'missing_recorded_accessible_episode_count', 'inventory_index_problem_count', 'unindexed_archive_count')
             if type(audit.get(key)) is int and audit[key] >= 0}
     return result
+
+
+def repair_android_list_reads(workspace):
+    """Once per phone library: lists the prototype's reader recorded as empty are read again at this Go."""
+    root = batches._root(workspace.session, workspace.library)
+    marker = workspace.session / 'android-reader-version.json'
+    with LibraryLock(root / '.android-reader-upgrade'):
+        if not marker.exists():
+            with LibraryLock(root / '.account-export-state'):
+                value = account_export._load(root, account_export.lists(workspace.session))
+                if (value and value['phase'] == 'lists' and value['status'] in {'held', 'stopped'}
+                        and any(not check['complete'] and check['observed_series_count'] == 0
+                                for check in value['list_checks'])):
+                    # The old anchor-only parser recorded the mobile lists as empty,
+                    # then RECENT failed with HTTP400. Re-read those lists on explicit
+                    # Go. Keep old task receipts and every inventory/archive intact.
+                    pending = value['pending']
+                    if pending:
+                        response = task_status(workspace.session, pending['task_id'])
+                        if response['status'] not in {'ok', 'error'}:
+                            raise ArchiveError('The previous download is still stopping; try Go again shortly.')
+                        value['last_failed_task_id'] = pending['task_id']
+                    value.update(category_index=0, list_checks=[], pending=None)
+                    account_export._save(root, value)
+            atomic_json(marker, {'version': 1})
+            marker.chmod(0o600)
+
+
+def source_recovery(session, library):
+    """The reader retry the download is waiting on, for the monitor; None when there is none."""
+    from . import background
+    folder = Path(session) / 'worker'
+    if not (folder / 'backlog.json').exists():
+        return None
+    try:
+        backlog = batches.status(session, library)
+        if not (backlog.get('source_recovery_wait') and backlog['submission_window_open']):
+            return None
+        plan = completion.status(session, library) if (folder / 'completion.json').exists() else {}
+        active = plan.get('status') == 'running' or background.running(folder, '.backlog-runtime')
+        return {'episode_id': backlog['source_recovery_episode'], 'retry_at': backlog['source_recovery_wait'],
+                'attempts': backlog['source_recovery_attempts'], 'limit': backlog['budgets']['source_recovery_limit'],
+                'learned_delay_seconds': backlog['source_recovery_delay'],
+                'automatic': bool(active and background.status(session)['running'] is True)}
+    except (ArchiveError, OSError):
+        return None

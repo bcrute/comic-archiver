@@ -260,6 +260,13 @@ class _EmbeddedFastUnavailable:
         raise ArchiveError('The native Fast reader is unavailable. Choose Medium or Slow, or update Android System WebView.')
 
 
+def controller_ticks():
+    """The download controllers the worker ticks between tasks, by name, in the order they run."""
+    from .completion import worker_tick
+    from .account_export import worker_tick as account_tick
+    return (('account export', account_tick), ('backlog', worker_tick))
+
+
 def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
                 fast_session_factory=None):
     place = Path(session).absolute().parent
@@ -312,9 +319,7 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                     return
                 if drain_requested(root, worker_id):
                     return
-                from .completion import worker_tick
-                from .account_export import worker_tick as account_tick
-                for name, tick in (('account export', account_tick), ('backlog', worker_tick)):
+                for name, tick in controller_ticks():
                     # Each controller holds itself on a failure it expects; anything else must not stop the queue.
                     try:
                         tick(session)

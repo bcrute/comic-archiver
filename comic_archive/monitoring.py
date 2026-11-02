@@ -100,18 +100,7 @@ def library_status(output,session=None):
                     worker['progress'] = _progress(progress)
             result['worker'] = worker
     result['source_recovery'] = None
-    if session is not None and (Path(session)/'worker/backlog.json').exists():
-        from . import background,batches,completion
-        from .models import ArchiveError
-        try:
-            backlog=batches.status(session,output)
-            if backlog.get('source_recovery_wait') and backlog['submission_window_open']:
-                folder=Path(session)/'worker'
-                plan=completion.status(session,output) if (folder/'completion.json').exists() else {}
-                active=(plan.get('status')=='running' or background.running(folder,'.backlog-runtime'))
-                result['source_recovery']={'episode_id':backlog['source_recovery_episode'],
-                    'retry_at':backlog['source_recovery_wait'],'attempts':backlog['source_recovery_attempts'],
-                    'limit':backlog['budgets']['source_recovery_limit'],'learned_delay_seconds':backlog['source_recovery_delay'],
-                    'automatic':bool(active and background.status(session)['running'] is True)}
-        except (ArchiveError,OSError):pass
+    if session is not None:
+        from .account_ui import source_recovery
+        result['source_recovery'] = source_recovery(session, output)
     return result
