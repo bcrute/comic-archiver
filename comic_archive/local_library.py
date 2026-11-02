@@ -224,6 +224,10 @@ class LocalWorkspaceRegistry:
         workspace = self.resolve(owner, workspace_id)
         return self.saved_catalog.page(workspace, True, **options)
 
+    def saved_snapshot(self, owner, workspace_id, refresh=False):
+        """Every saved file of this library, unpaged, for a list over every site's library."""
+        return self.saved_catalog.snapshot(self.resolve(owner, workspace_id), True, refresh)
+
     def site_signin_status(self, owner, workspace_id):
         self.resolve(owner, workspace_id)
         return self.site_signin.status()

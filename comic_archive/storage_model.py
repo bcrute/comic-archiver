@@ -233,6 +233,25 @@ def b2(s, steps_open=False, *, can_start_worker=False):
     }
 
 
+def combined(summaries):
+    """Every site's saved-file counts as one: None while any site is still counting, False when none could be
+    counted. A site whose counts could not be read is left out of the rest."""
+    if any(summary is None for summary in summaries) or not summaries:
+        return None
+    read = [summary for summary in summaries if isinstance(summary, dict)]
+    if not read:
+        return False
+    places = {}
+    for summary in read:
+        for group in summary.get('locations') or []:
+            kept = places.setdefault(group.get('id'), dict(group, episodes=0, files=0, connected=False))
+            kept['episodes'] += number(group.get('episodes'))
+            kept['files'] += number(group.get('files'))
+            kept['connected'] = kept['connected'] or bool(group.get('connected'))
+    return {'episode_count': sum(number(summary.get('episode_count')) for summary in read),
+            'file_count': sum(number(summary.get('file_count')) for summary in read), 'locations': list(places.values())}
+
+
 def library_overview(summary, cloud_offered, *, device_name='this computer'):
     """The dashboard's saved-library card: its counts, its storage places and a sentence about them."""
     if summary is None:

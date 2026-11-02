@@ -52,6 +52,8 @@ QLabel#sectionTitle { font-size: 18px; font-weight: 600; }
 QLabel#muted, QLabel#footnote { color: %(muted)s; font-size: 14px; }
 QLabel#footnote { border-top: 1px solid %(border)s; padding-top: 14px; }
 QLabel#strong { font-weight: 600; }
+QLabel#fieldName { color: %(muted)s; }
+QLabel#fieldValue[tone="warning"] { color: %(warning)s; }
 QLabel[error="true"] { color: %(error)s; }
 QLabel#activity { border-left: 3px solid %(accent-border)s; padding-left: 10px; }
 QLabel#activity[tone="warning"] { border-left-color: %(warning)s; }

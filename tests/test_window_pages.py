@@ -23,6 +23,7 @@ FILES = [{'id': 'a' * 64, 'series': 'Long Series Name', 'title': 'Episode 1', 'f
           'size': 2_345_678, 'saved_at': '2026-10-02T10:00:00+00:00', 'location': 'b2', 'date_source': 'file_modified'}]
 LOCATIONS = [{'id': 'device', 'label': 'This device', 'files': 120, 'episodes': 60, 'bytes': 3_000_000_000, 'connected': True},
              {'id': 'b2', 'label': 'Backblaze B2', 'files': 20, 'episodes': 10, 'bytes': 500_000_000, 'connected': True}]
+SITES = {'tapas': 'Tapas', 'tappytoon': 'Tappytoon', 'webtoon': 'Webtoon', 'later': 'Elsewhere'}
 APP = None
 
 
@@ -52,7 +53,8 @@ def type_into(field, text):
 class FakeActions:
     """The library's calls, answered from plain data; each call is recorded, and any can be made to be refused."""
 
-    def __init__(self):
+    def __init__(self, site='tapas'):
+        self.site = site
         self.calls, self.refused, self.answers = [], {}, []
         self.cloud_offered, self.summary_fails, self.task_result, self.total = True, False, None, 2
         self.reading = {
@@ -75,10 +77,8 @@ class FakeActions:
 
     def context(self):
         self.record('context')
-        return {'sites': [{'key': 'tapas', 'name': 'Tapas', 'available': True, 'current': True},
-                          {'key': 'tappytoon', 'name': 'Tappytoon', 'available': True, 'current': False},
-                          {'key': 'webtoon', 'name': 'Webtoon', 'available': True, 'current': False},
-                          {'key': 'later', 'name': 'Elsewhere', 'available': False, 'current': False}],
+        return {'sites': [{'key': key, 'name': name, 'available': key != 'later', 'current': key == self.site}
+                          for key, name in SITES.items()],
                 'library_folder': FOLDER,
                 'cloud_offered': self.cloud_offered, 'workspace_id': '0123456789abcdef0123456789abcdef'}
 
@@ -166,6 +166,12 @@ class FakeActions:
         return {'files': copy.deepcopy(FILES), 'total': self.total, 'offset': options['offset'], 'limit': options['limit'],
                 'file_count': 140, 'episode_count': 70, 'locations': LOCATIONS}
 
+    def saved_snapshot(self, refresh=False):
+        self.record('saved_snapshot', refresh=refresh)
+        rows = [dict(row, order=-1) for row in copy.deepcopy(FILES)]
+        return {'rows': rows, 'locations': copy.deepcopy(LOCATIONS), 'episode_count': 70, 'file_count': 140,
+                'updated_at': '2026-10-02T10:00:00+00:00'}
+
     def open_file(self, export_id):
         self.record('open_file', export_id)
         return {}
@@ -177,6 +183,13 @@ class Shell:
 
     def __init__(self):
         self.calls, self.held, self.is_dark, self.answer = [], None, False, True
+        self.open, self.chosen, self.opens = ['tapas'], 'tapas', False
+
+    def open_sites(self):
+        return list(self.open)
+
+    def chosen_site(self):
+        return self.chosen
 
     def run(self, work, done):
         if self.held is not None:
@@ -211,8 +224,15 @@ class Shell:
     def open_folder(self):
         self.calls.append(('open_folder',))
 
-    def choose_site(self, key):
+    def choose_site(self, key, then=None):
+        """Recorded; with opens set, the site opens and is chosen as the window's does, then then() follows."""
         self.calls.append(('choose_site', key))
+        if self.opens:
+            self.chosen = key
+            if key not in self.open:
+                self.open.append(key)
+            if then is not None:
+                then()
 
     def choose_location(self):
         self.calls.append(('choose_location',))
@@ -225,8 +245,9 @@ class Shell:
 class PagesCase(unittest.TestCase):
     def setUp(self):
         self.actions, self.shell, self.clock = FakeActions(), Shell(), [NOW]
+        self.sites = {'tapas': self.actions, 'tappytoon': FakeActions('tappytoon'), 'webtoon': FakeActions('webtoon')}
         self.window = QtWidgets.QMainWindow()
-        self.pages = window_pages.Pages(Q, self.shell, self.actions, now=lambda: self.clock[0])
+        self.pages = window_pages.Pages(Q, self.shell, self.sites.__getitem__, now=lambda: self.clock[0])
         self.window.setCentralWidget(self.pages.widget)
         self.window.resize(1180, 900)
         self.window.show()
@@ -245,6 +266,16 @@ class PagesCase(unittest.TestCase):
     @property
     def dashboard(self):
         return self.pages.dashboard
+
+    @property
+    def card(self):
+        """The chosen site's card."""
+        return self.pages.dashboard.cards[self.shell.chosen]
+
+    def fields(self, key=None):
+        """A site's card as {field: value}."""
+        card = self.pages.dashboard.cards[key or self.shell.chosen]
+        return {name.text(): value.text() for name, value in card.cells}
 
     @property
     def settings(self):
@@ -293,73 +324,158 @@ class DashboardTests(PagesCase):
         self.assertTrue(self.pages.drawn())
         self.assertEqual([call[0] for call in self.actions.calls], ['context', 'poll'])
         self.assertTrue(self.actions.named('poll')[0][2]['library'])
-        d = self.dashboard
-        self.assertEqual((d.title.text(), d.pill.text()), ('Your download is paused', 'Paused'))
-        self.assertEqual(d.pill.property('tone'), 'warning')
-        self.assertEqual(d.status.text(), 'Paused. Hit Go to continue from saved progress.')
-        self.assertEqual((d.session.text(), d.worker.text()), ('Tapas · Session saved', 'Downloader · Ready'))
-        self.assertTrue(d.go.isEnabled() and d.go.isVisible())
-        self.assertEqual(d.go.text(), 'Go — continue')
-        self.assertFalse(d.pause.isVisible() or d.signin.isVisible() or d.allow.isVisible() or d.live.isVisible())
+        d, c = self.dashboard, self.card
+        self.assertEqual(c.pill.text(), 'Paused')
+        self.assertEqual(c.pill.property('tone'), 'warning')
+        # What is so, a field and its value each; the buttons say what can be done.
+        self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Speed': 'Fast'})
+        self.assertFalse(c.message.isVisible())
+        self.assertTrue(c.go.isEnabled() and c.go.isVisible())
+        self.assertEqual(c.go.text(), 'Go — continue')
+        self.assertFalse(c.pause.isVisible() or c.signin.isVisible() or c.allow.isVisible())
         self.assertIn(FOLDER, d.save.text())
         self.assertEqual(d.updated.text(), 'Updated just now')
+        self.assertEqual(d.library_title.text(), 'All sites')
         self.assertEqual([cell[0] for cell in d.metric_cells],
                          ['Saved episodes', 'Saved files', 'Episodes on this device', 'Cloud episode copies'])
         self.assertEqual([number.text() for _, number in d.metric_cells], ['70', '140', '60', '10'])
         self.assertEqual(d.library_summary.text(), '70 saved episodes. View all files, or choose a storage location below.')
         self.assertEqual([b.text() for b in d.place_buttons], ['This device\n60 episodes · 120 files', 'Backblaze B2\n10 episodes · 20 files'])
 
-    def test_go_pause_and_sign_in_ask_the_library_and_show_its_answer(self):
+    def test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in(self):
         self.open()
         d = self.dashboard
-        d.go.click()
+        self.assertEqual(list(d.cards), ['tapas', 'tappytoon', 'webtoon'])
+        later = d.cards['tappytoon']
+        self.assertEqual(later.pill.text(), 'Not signed in')
+        self.assertEqual(self.fields('tappytoon'), {})
+        self.assertTrue(later.signin.isVisible() and later.signin.isEnabled())
+        self.assertEqual(later.signin.text(), 'Sign in to Tappytoon')
+        self.assertFalse(later.go.isVisible() or later.pause.isVisible() or later.allow.isVisible())
+        # One sign-in at a time, in the window: the site is chosen (and opened) first, then its sign-in starts.
+        self.shell.opens = True
+        later.signin.click()
+        self.assertEqual(self.shell.calls, [('choose_site', 'tappytoon')])
+        self.assertEqual(len(self.sites['tappytoon'].named('signin')), 1)
+        self.assertEqual(self.actions.named('signin'), [])
+
+    def test_each_site_has_its_own_go_and_pause_and_every_open_site_is_refreshed(self):
+        self.shell.open = ['tapas', 'webtoon']
+        webtoon = self.sites['webtoon']
+        webtoon.reading['account']['status'] = 'finished'
+        self.open()
+        self.assertEqual([call[0] for call in webtoon.calls], ['context', 'poll'])
+        self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Finished')
+        self.assertEqual(self.fields('webtoon')['Finished'], 'Every episode your account can read is saved')
+        self.dashboard.cards['webtoon'].go.click()
+        self.assertEqual((len(webtoon.named('go')), len(self.actions.named('go'))), (1, 0))
+        self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Downloading')
+        self.assertEqual(self.card.pill.text(), 'Paused')
+        self.assertTrue(self.dashboard.pause_all.isVisible())
+        self.pages.poll()
+        self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
+
+    def test_go_on_all_sites_starts_each_that_can_go_and_pause_all_pauses_each_that_runs(self):
+        self.shell.open = ['tapas', 'tappytoon', 'webtoon']
+        self.sites['tappytoon'].reading['status']['session_configured'] = False
+        self.open()
+        d = self.dashboard
+        self.assertTrue(d.go_all.isEnabled())
+        self.assertFalse(d.pause_all.isVisible())
+        d.go_all.click()
+        self.assertEqual([len(self.sites[key].named('go')) for key in ('tapas', 'tappytoon', 'webtoon')], [1, 0, 1])
+        self.assertTrue(d.pause_all.isVisible())
+        self.assertFalse(d.go_all.isEnabled())
+        d.pause_all.click()
+        self.assertEqual([len(self.sites[key].named('pause')) for key in ('tapas', 'tappytoon', 'webtoon')], [1, 0, 1])
+        self.assertFalse(d.pause_all.isVisible())
+
+    def test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one(self):
+        self.open()
+        d = self.dashboard
+        settle()
+
+        def places():
+            return [d.grid.getItemPosition(d.grid.indexOf(widget))[:2]
+                    for widget in (d.library_card, *(card.widget for card in d.cards.values()))]
+        self.assertEqual(d.columns, 2)
+        self.assertEqual(places(), [(0, 0), (0, 1), (1, 0), (1, 1)])
+        self.window.resize(800, 900)
+        settle()
+        self.assertEqual(d.columns, 1)
+        self.assertEqual(places(), [(0, 0), (1, 0), (2, 0), (3, 0)])
+        self.window.resize(1400, 900)
+        settle()
+        self.assertEqual(d.columns, 2)
+        # The page's own margins are not room for cards.
+        d._resized(window_pages.CARD_COLUMNS_FROM + d.margins - 1)
+        self.assertEqual(d.columns, 1)
+        d._resized(window_pages.CARD_COLUMNS_FROM + d.margins)
+        self.assertEqual(d.columns, 2)
+
+    def test_the_all_sites_card_counts_every_open_site(self):
+        self.shell.open = ['tapas', 'webtoon']
+        self.open()
+        self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['140', '280', '120', '20'])
+        self.assertEqual([b.text() for b in self.dashboard.place_buttons],
+                         ['This device\n120 episodes · 240 files', 'Backblaze B2\n20 episodes · 40 files'])
+        self.sites['webtoon'].summary_fails = True
+        self.clock[0] += 31
+        self.pages.poll()
+        # A site that could not be counted is left out; the others still show.
+        self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['70', '140', '60', '10'])
+
+    def test_go_pause_and_sign_in_ask_the_library_and_show_its_answer(self):
+        self.open()
+        c = self.card
+        c.go.click()
         self.assertEqual(len(self.actions.named('go')), 1)
-        self.assertTrue(d.pause.isVisible() and d.live.isVisible())
-        self.assertEqual((d.go.text(), d.go.isEnabled()), ('Working…', False))
-        self.assertEqual(d.status.text(), 'Downloading your episodes…')
+        self.assertTrue(c.pause.isVisible())
+        self.assertEqual((c.go.text(), c.go.isEnabled()), ('Working…', False))
+        self.assertEqual((c.pill.text(), self.fields()['Step']), ('Downloading', 'Downloading episodes'))
         polls = len(self.actions.named('poll'))
-        d.pause.click()
+        c.pause.click()
         self.assertEqual(len(self.actions.named('pause')), 1)
-        self.assertFalse(d.pause.isVisible())
+        self.assertFalse(c.pause.isVisible())
         settle()
         self.assertEqual(len(self.actions.named('poll')), polls + 1)
 
     def test_signing_in_is_offered_when_needed_and_says_where_to_finish(self):
         self.actions.reading['status']['session_configured'] = False
         self.open()
-        d = self.dashboard
-        self.assertTrue(d.signin.isVisible() and d.signin.isEnabled())
-        self.assertEqual((d.signin.text(), d.status.text()), ('Sign in to Tapas', 'Sign in to Tapas to get started.'))
-        self.assertFalse(d.go.isEnabled())
-        d.signin.click()
+        c = self.card
+        self.assertTrue(c.signin.isVisible() and c.signin.isEnabled())
+        self.assertEqual((c.signin.text(), c.pill.text(), self.fields()['Account']), ('Sign in to Tapas', 'Sign-in needed', 'Sign-in needed'))
+        self.assertFalse(c.go.isEnabled())
+        c.signin.click()
         self.assertEqual(len(self.actions.named('signin')), 1)
-        self.assertEqual((d.signin.text(), d.signin.isEnabled()), ('Signing in…', False))
-        self.assertEqual(d.status.text(), 'Finish signing in to Tapas in the window that opened.')
+        self.assertEqual((c.signin.text(), c.signin.isEnabled()), ('Signing in…', False))
+        self.assertTrue(c.message.text().startswith('Finish signing in to Tapas.'))
 
     def test_go_then_an_expired_session_shows_signin_instead_of_the_earlier_connected_check(self):
         self.actions.reading['site_auth'] = {'status': 'verified'}
         self.open()
-        d = self.dashboard
-        self.assertEqual(d.session.text(), 'Tapas · Connected')
-        d.go.click()
+        c = self.card
+        self.assertEqual(self.fields()['Account'], 'Connected')
+        c.go.click()
         self.actions.account(status='held', code='login_required')
         self.actions.reading['status']['worker'] = {'reported_state': 'ready'}
         self.pages.poll()
-        self.assertTrue(d.signin.isVisible() and d.signin.isEnabled())
-        self.assertFalse(d.go.isEnabled())
-        self.assertEqual(d.session.text(), 'Tapas · Sign-in needed')
-        self.assertIn('signed you out', d.status.text())
+        self.assertTrue(c.signin.isVisible() and c.signin.isEnabled())
+        self.assertFalse(c.go.isEnabled())
+        self.assertEqual(self.fields()['Account'], 'Sign-in needed')
+        self.assertEqual(self.fields()['Stopped'], 'Tapas signed you out')
 
     def test_go_that_fails_before_it_returns_still_requires_a_new_signin(self):
         self.actions.reading['site_auth'] = {'status': 'verified'}
         self.actions.reading['account'] = {'status': 'held', 'code': 'login_required'}
         self.open()
-        self.assertTrue(self.dashboard.go.isEnabled())
+        self.assertTrue(self.card.go.isEnabled())
         self.actions.go = lambda: self.actions.account(status='held', code='login_required')
-        self.dashboard.go.click()
+        self.card.go.click()
         self.pages.poll()
-        self.assertTrue(self.dashboard.signin.isVisible())
-        self.assertFalse(self.dashboard.go.isEnabled())
+        self.assertTrue(self.card.signin.isVisible())
+        self.assertFalse(self.card.go.isEnabled())
 
     def test_download_settings_open_with_a_table_of_why_episodes_were_not_downloaded(self):
         self.actions.reading['status']['episodes_by_status'] = {'archived': 100, 'unavailable': 44}
@@ -375,13 +491,13 @@ class DashboardTests(PagesCase):
         # Every row shows without scrolling the table itself.
         self.assertGreaterEqual(table.viewport().height(), sum(table.rowHeight(i) for i in range(6)))
 
-    def test_a_refusal_is_said_on_the_dashboard_and_in_settings_until_the_next_action(self):
+    def test_a_refusal_is_said_on_its_card_and_in_settings_until_the_next_action(self):
         self.open()
         self.actions.refused['go'] = 'An import is active. Try again after this batch finishes.'
-        self.dashboard.go.click()
-        status = self.dashboard.signin_status
-        self.assertEqual((status.text(), status.property('error')), ('An import is active. Try again after this batch finishes.', 'true'))
-        self.assertTrue(self.dashboard.signin.isVisible())
+        self.card.go.click()
+        message = self.card.message
+        self.assertEqual((message.text(), message.property('error')), ('An import is active. Try again after this batch finishes.', 'true'))
+        self.assertTrue(self.card.signin.isVisible())
         self.pages.go_to('settings')
         self.assertEqual(self.settings.status.text(), 'An import is active. Try again after this batch finishes.')
         del self.actions.refused['go']
@@ -392,9 +508,9 @@ class DashboardTests(PagesCase):
     def test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts(self):
         self.open()
         self.shell.held = []
-        self.dashboard.go.click()
-        self.assertFalse(self.dashboard.go.isEnabled() or self.dashboard.files.isEnabled())
-        self.dashboard.go.click()
+        self.card.go.click()
+        self.assertFalse(self.card.go.isEnabled() or self.dashboard.files.isEnabled())
+        self.card.go.click()
         self.pages.go()
         self.pages.poll()
         self.pages.cloud_test()
@@ -408,8 +524,9 @@ class DashboardTests(PagesCase):
         answers = []
         self.pages.reopened(answers.append)
         self.assertEqual((answers, [call[0] for call in self.actions.calls]), ([True], ['context', 'poll']))
-        self.assertFalse(self.dashboard.site_row.isVisible())
-        self.assertEqual(self.dashboard.title.text(), 'Your download is paused')
+        self.assertEqual(self.card.pill.text(), 'Paused')
+        self.pages.go_to('settings/downloads')
+        self.assertFalse(self.settings.site_row.isVisible())
 
     def test_a_failed_refresh_says_it_will_retry_and_the_next_good_one_clears_it(self):
         self.open()
@@ -417,14 +534,14 @@ class DashboardTests(PagesCase):
         answers = []
         self.pages.poll(answers.append)
         self.assertEqual(answers, [False])
-        self.assertTrue(self.dashboard.signin_status.text().startswith('Could not refresh progress.'))
+        self.assertTrue(self.card.message.text().startswith('Could not refresh progress.'))
         self.assertEqual(self.dashboard.updated.text(), 'Updates delayed · trying to reconnect')
-        self.assertEqual(self.dashboard.pill.text(), 'Reconnecting')
+        self.assertEqual(self.card.pill.text(), 'Reconnecting')
         del self.actions.refused['poll']
         self.clock[0] += 5
         self.pages.poll()
-        self.assertFalse(self.dashboard.signin_status.isVisible())
-        self.assertEqual(self.dashboard.pill.text(), 'Paused')
+        self.assertFalse(self.card.message.isVisible())
+        self.assertEqual(self.card.pill.text(), 'Paused')
 
     def test_a_refresh_for_a_library_that_was_replaced_meanwhile_is_dropped(self):
         self.open()
@@ -439,28 +556,49 @@ class DashboardTests(PagesCase):
         self.assertTrue(self.pages.state.loaded and self.pages.drawn())
         self.assertEqual(self.pages.state.refreshed_at, NOW + 10)
 
-    def test_the_connection_can_be_allowed_from_the_dashboard_when_saving_waits_for_it(self):
+    def test_the_connection_can_be_allowed_from_a_card_when_saving_waits_for_it(self):
         self.actions.reading['network'] = {'wifi_only': True, 'allowed': False, 'reason': 'metered_connection'}
         self.open()
-        d = self.dashboard
-        self.assertTrue(d.allow.isVisible() and d.allow.isEnabled())
-        self.assertTrue(d.status.text().startswith('Saving would wait: this connection is metered'))
-        d.allow.click()
+        c = self.card
+        self.assertTrue(c.allow.isVisible() and c.allow.isEnabled())
+        self.assertTrue(self.fields()['Connection'].startswith('This connection is metered'))
+        c.allow.click()
         self.assertEqual(self.actions.named('wifi_only')[0][1], (False,))
-        self.assertFalse(d.allow.isVisible())
+        self.assertFalse(c.allow.isVisible())
         self.assertEqual(self.pages.state.network, {'wifi_only': False, 'allowed': True})
 
-    def test_the_site_list_asks_the_window_to_switch_and_waits_while_saving(self):
-        self.open()
-        site = self.dashboard.site
+    def test_the_site_list_in_settings_chooses_a_site_and_stops_nothing(self):
+        self.open('settings/downloads')
+        site = self.settings.site
         self.assertEqual([site.itemText(i) for i in range(site.count())], ['Tapas', 'Tappytoon', 'Webtoon', 'Elsewhere — coming later'])
         self.assertTrue(site.model().item(2).isEnabled()); self.assertFalse(site.model().item(3).isEnabled())
         site.activated.emit(1)
         self.assertEqual(self.shell.calls, [('choose_site', 'tappytoon')])
         self.assertEqual(site.currentData(), 'tapas')
-        self.dashboard.go.click()
+        self.pages.go()
+        self.assertTrue(site.isEnabled())
+        self.actions.reading['site_auth'] = {'status': 'running'}
+        self.pages.poll()
         self.assertFalse(site.isEnabled())
-        self.assertEqual(site.toolTip(), 'Pause saving to change the site.')
+
+    def test_choosing_an_open_site_shows_its_settings_and_keeps_every_card(self):
+        self.shell.open = ['tapas', 'webtoon']
+        self.open('settings/downloads')
+        self.shell.chosen = 'webtoon'
+        self.pages.site_chosen()
+        self.assertEqual(self.settings.site.currentData(), 'webtoon')
+        self.assertEqual(self.settings.speed_label.text(), 'Speed on Webtoon')
+        self.assertEqual(self.sites['webtoon'].named('context'), [('context', (), {})])
+        self.assertTrue(self.pages.states['tapas'].loaded)
+
+    def test_a_site_being_opened_says_so_on_its_card(self):
+        self.open()
+        s = self.pages.opening('webtoon', 'Opening Webtoon…')
+        self.assertEqual(self.dashboard.cards['webtoon'].message.text(), 'Opening Webtoon…')
+        self.assertFalse(self.dashboard.cards['webtoon'].go.isEnabled())
+        s.busy, s.message = False, None
+        self.pages.render()
+        self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Not signed in')
 
     def test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count(self):
         self.open()
@@ -596,7 +734,7 @@ class DownloadSettingsTests(PagesCase):
         self.assertGreater(len(self.actions.named('poll')), polls)
         self.assertFalse(s.signout_row.isVisible())
         self.pages.go_to('dashboard')
-        self.assertTrue(self.dashboard.signin.isVisible() and self.dashboard.signin.isEnabled())
+        self.assertTrue(self.card.signin.isVisible() and self.card.signin.isEnabled())
 
     def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
         self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}
@@ -1004,6 +1142,34 @@ class LibraryTests(PagesCase):
         self.assertEqual(lib.summary.text(), '60 saved episodes across 120 files on this computer.')
         lib.open_folder.click()
         self.assertEqual(self.shell.calls, [('open_folder',)])
+
+    def test_one_site_open_lists_its_files_without_a_site_choice(self):
+        self.open('library')
+        self.assertFalse(self.library.site_box.isVisible())
+        self.assertEqual(self.actions.named('saved_snapshot'), [])
+
+    def test_with_several_sites_open_the_list_shows_every_sites_files_or_one_sites(self):
+        self.shell.open = ['tapas', 'webtoon']
+        webtoon = self.sites['webtoon']
+        self.open('library')
+        lib = self.library
+        self.assertTrue(lib.site_box.isVisible())
+        self.assertEqual([lib.site.itemText(i) for i in range(lib.site.count())], ['All sites', 'Tapas', 'Webtoon'])
+        self.assertEqual(lib.title.text(), 'Your saved library, all sites')
+        self.assertEqual((len(self.actions.named('saved_snapshot')), len(webtoon.named('saved_snapshot'))), (1, 1))
+        self.assertEqual(self.actions.named('saved_files'), [])
+        self.assertEqual(lib.table.rowCount(), 4)
+        # Each file names its site under its series, and opens through that site's own library.
+        self.assertEqual([lib.table.item(row, 0).text() for row in range(4)],
+                         ['Long Series Name\nTapas', 'Long Series Name\nWebtoon', 'Long Series Name\nTapas', 'Long Series Name\nWebtoon'])
+        lib.table.cellWidget(3, 7).findChild(QtWidgets.QPushButton).click()
+        self.assertEqual((len(webtoon.named('open_file')), len(self.actions.named('open_file'))), (1, 0))
+        lib.refresh.click()
+        self.assertEqual(webtoon.named('saved_snapshot')[-1][2], {'refresh': True})
+        pick(lib.site, 'webtoon')
+        self.assertEqual(lib.title.text(), 'Your saved Webtoon library')
+        self.assertEqual(webtoon.named('saved_files')[-1][2]['offset'], 0)
+        self.assertEqual(lib.table.item(0, 0).text(), 'Long Series Name')
 
     def test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage(self):
         self.open('library')

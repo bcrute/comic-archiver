@@ -239,8 +239,126 @@ def configure_logging():
     return path
 
 
+def used(root, site):
+    """True for a site that has a library or a sign-in in this library folder."""
+    place = sites.folder(Path(root), site)
+    try:
+        return (place / 'Library' / '.archive-state').is_dir() or (place / '.comic-session' / 'state.json').is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def together(work, items):
+    """work(item) for every item at once, each on a thread of its own; the answers in the items' order."""
+    answers = [None] * len(items)
+
+    def one(index, item):
+        try:
+            answers[index] = work(item)
+        except Exception as error:
+            LOG.error('a site did not answer: %s', describe(error))
+    threads = [threading.Thread(target=one, args=pair, daemon=True) for pair in enumerate(items)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return answers
+
+
+class Library:
+    """Every site's library in one library folder, each with its own sign-in and downloader, all at once.
+
+    The window shows one site in Settings and signs in to one at a time: that is the chosen site. Choosing
+    another stops nothing. A site opens when the library folder already has its library or its sign-in, or when it
+    is chosen; one never used makes no folder of its own until then.
+    """
+
+    def __init__(self, project_root, theme=None, site=None):
+        self.project_root = project_root
+        self.theme = theme or Theme()
+        self.site = site or sites.DEFAULT
+        self.runtimes = {}
+        self._stopped = False
+
+    def runtime(self, key=None):
+        """The site's runtime, or the chosen site's; None for a site not open."""
+        return self.runtimes.get(key or self.site.key)
+
+    def __getattr__(self, name):
+        # The chosen site's own: its library, sign-in and downloader folders.
+        if name in ('registry', 'session', 'state', 'signin', 'folder', 'root'):
+            runtime = self.runtimes.get(self.site.key)
+            return None if runtime is None else getattr(runtime, name)
+        raise AttributeError(name)
+
+    def start(self):
+        """Open the chosen site, then every other site this folder has; a failure on another site only skips it."""
+        self._open(self.site)
+        for site in sites.SITES:
+            if site.available and site.key not in self.runtimes and used(self.root, site):
+                try:
+                    self._open(site)
+                except ArchiveError as error:
+                    LOG.warning('a site was not opened: %s', describe(error))
+
+    def _open(self, site):
+        runtime = Runtime(self.project_root, self.theme, site)
+        try:
+            runtime.start()
+        except BaseException:
+            runtime.stop(0)
+            raise
+        self.runtimes[site.key] = runtime
+        return runtime
+
+    def start_worker(self):
+        """Start every open site's downloader at once; the chosen site's outcome."""
+        keys = list(self.runtimes)
+        outcomes = dict(zip(keys, together(lambda key: self.runtimes[key].start_worker(), keys), strict=True))
+        return outcomes.get(self.site.key)
+
+    def change_site(self, site):
+        """Show another site; it opens if it was not open yet, and its downloader starts.
+
+        Returns None, or the reason in words when its folder cannot be opened; the chosen site then stays as it was.
+        """
+        runtime = self.runtimes.get(site.key)
+        if runtime is None:
+            try:
+                runtime = self._open(site)
+            except ArchiveError as error:
+                LOG.warning('the site was not changed: %s', describe(error))
+                return str(error)
+            runtime.start_worker()
+        self.site = site
+        remember_site(site)
+        LOG.info('the site was changed')
+        return None
+
+    def vanished(self):
+        return any(runtime.vanished() for runtime in list(self.runtimes.values()))
+
+    def busy(self):
+        """'download' while closing the window would interrupt any site's download, 'signin' a sign-in, else None."""
+        answers = [runtime.busy() for runtime in list(self.runtimes.values())]
+        return 'download' if 'download' in answers else 'signin' if 'signin' in answers else None
+
+    def stop(self, wait_seconds=20):
+        """Stop every site's downloader at once, each within the same wait."""
+        if self._stopped:
+            return 'stopped_before'
+        self._stopped = True
+        outcomes = together(lambda runtime: runtime.stop(wait_seconds), list(self.runtimes.values()))
+        if not outcomes:
+            return 'not_started'
+        for outcome in ('failed', 'finishing', None):
+            if outcome in outcomes:
+                return 'failed' if outcome is None else outcome
+        return 'stopped'
+
+
 class Runtime:
-    """The open site's library and the downloader behind one app window."""
+    """One site's library and the downloader behind it."""
 
     def __init__(self, project_root, theme=None, site=None):
         self.project_root = project_root
@@ -303,43 +421,6 @@ class Runtime:
         self.session, self.state = session, state
         self.registry = registry
 
-    def change_site(self, site):
-        """Open the same library folder on another site, with that site's own sign-in.
-
-        Returns None, or the reason in words when the other site's folder cannot be opened; the open site then
-        stays as it was.
-        """
-        try:
-            _, place, session, state = self._place(site)
-            registry = LocalWorkspaceRegistry(place)
-        except ArchiveError as error:
-            LOG.warning('the site was not changed: %s', describe(error))
-            return str(error)
-        except (OSError, sqlite3.Error) as error:
-            LOG.warning('the site was not changed: %s', describe(error))
-            return UNWRITABLE
-        self._leave()
-        self.site = site
-        self._serve(registry, session, state)
-        remember_site(site)
-        LOG.info('the site was changed')
-        self.start_worker()
-        return None
-
-    def _leave(self, wait_seconds=20):
-        """Stop the open site's downloader and sign-ins."""
-        self._closing.set()
-        self._closing = threading.Event()  # The next site's own.
-        deadline = time.monotonic() + wait_seconds
-        held = self._launch.acquire(timeout=wait_seconds)
-        try:
-            self._stop_downloader(deadline)
-        finally:
-            if held:
-                self._launch.release()
-        self.registry.cloud_signin.close()
-        self.registry.site_signin.close()
-
     def _reopen(self, registry, session):
         """A download waits for Go at every start; one that was running when the app closed does not go on by itself."""
         from .account_ui import reopen
@@ -360,7 +441,7 @@ class Runtime:
         return outcome
 
     def _start_once(self, closing=None):
-        closing = closing or self._closing  # A wait that began before a switch to another site starts nothing after it.
+        closing = closing or self._closing  # A wait that began before closing starts nothing after it.
         with self._launch:
             if closing.is_set():
                 return 'closing'
@@ -389,7 +470,7 @@ class Runtime:
 
     def _start_when_free(self):
         """An earlier downloader is finishing its task; start ours once it has gone."""
-        closing = self._closing  # A switch to another site ends this wait.
+        closing = self._closing  # Closing ends this wait.
         while not closing.wait(RETRY_SECONDS):
             try:
                 current = background.status(self.session)
@@ -537,43 +618,53 @@ def end_downloader(session):
 
 
 def move(previous, root):
-    """Stop one runtime and start another on a different library folder; saved episodes are never moved.
+    """Stop every site and start them again on a different library folder; saved episodes are never moved.
 
-    Returns the runtime to use from now on and None, or, when the new folder cannot be used, a runtime
+    Returns the library to use from now on and None, or, when the new folder cannot be used, a library
     back on the old folder and the reason in words for the person.
     """
     empty = unused(Path(root))
-    fresh, problem = replace(previous, Runtime(root, previous.theme, previous.site), 'library folder')
+    fresh, problem = replace(previous, Library(root, previous.theme, previous.site), 'library folder')
     if problem is None:
         if empty:
-            carry(previous, fresh)
+            for site in [s for s in sites.SITES if s.key in previous.runtimes]:
+                carry(previous.runtime(site.key), fresh.runtime(site.key) or open_site(fresh, site))
         remember_root(fresh.root)
     return start_worker(fresh), problem
 
 
+def open_site(library, site):
+    """A site carried to a fresh folder opens there too, or None if it cannot."""
+    try:
+        return library._open(site)
+    except ArchiveError as error:
+        LOG.warning('a site was not opened: %s', describe(error))
+        return None
+
+
 def replace(previous, fresh, change):
-    """Stop the previous runtime and start the fresh one, or start the previous one's place again if that fails."""
+    """Stop the previous library and start the fresh one, or start the previous one's folder again if that fails."""
     previous.stop()
     try:
         fresh.start()
     except ArchiveError as error:
         LOG.warning('the %s was not changed: %s', change, describe(error))
         fresh.stop(0)
-        back = Runtime(previous.project_root, previous.theme, previous.site)
+        back = Library(previous.project_root, previous.theme, previous.site)
         back.start()
         return back, str(error)
     LOG.info('the %s was changed', change)
     return fresh, None
 
 
-def start_worker(runtime):
-    runtime.start_worker()
-    return runtime
+def start_worker(library):
+    library.start_worker()
+    return library
 
 
 def carry(previous, fresh):
     """A folder with nothing in it starts signed in as before; an existing library keeps its own sign-in."""
-    if previous.state is None or not previous.state.is_file() or fresh.state.is_file():
+    if fresh is None or previous.state is None or not previous.state.is_file() or fresh.state.is_file():
         return
     try:
         store_session(load_session(previous.session), fresh.session, sites.of_session(previous.session))

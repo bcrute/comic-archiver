@@ -159,34 +159,47 @@ def not_downloaded(status, site):
     return [{'reason': reasons[key], 'count': display(count)} for key, count in not_downloaded_counts(status).items()]
 
 
-def held_message(code, site, go_wait, missing):
-    """Why a held download stopped, and what the person can do about it, in one sentence each."""
+def held_reason(code, site, missing):
+    """Why a held download stopped, in a few words for its card; what to do is on the card's buttons."""
     if code == 'archive_incomplete':
-        if missing:
-            return (f"Finished, but {display(missing)} {'episode' if missing == 1 else 'episodes'} could not be saved. "
-                    f'{SAFE} Hit Go to check again.')
-        return f'Finished, but some saved files need another check. {SAFE} Hit Go to check again.'
-    if code in ('source_refused', 'source_recovery_limit'):
-        return (f'Paused: {site} asked the app to slow down. {SAFE} '
-                + (f'Go works again in {wait_text(go_wait)}.' if go_wait
-                   else 'Hit Go to try again. If this keeps happening, choose a slower speed in Settings.'))
-    if code == 'source_access_changed':
-        return (f'Paused: {site} still would not send an episode after waiting. {SAFE} '
-                f'Check that you can read it on {site}, then hit Go to continue.')
-    # While the connection is still held, the caller's own message names it; this one is for after it changed.
-    if code == 'network_policy':
-        return f'Paused while the connection was not Wi-Fi or wired. {SAFE} Hit Go to continue.'
-    if code in ('network_unavailable', 'network_recovery_limit'):
-        return (f'Paused: {site} could not be reached several times in a row. {SAFE} '
-                'Check your internet connection, then hit Go to continue.')
-    if code in ('no_progress', 'scan_no_progress'):
-        return (f'Paused: the last few tries saved nothing new. {SAFE} '
-                f'Hit Go to try again; if it pauses again, {site} may be having trouble, so try later.')
-    if code == 'cancelled':
-        return 'Paused. Hit Go to continue from saved progress.'
+        return (f"{display(missing)} {'episode' if missing == 1 else 'episodes'} could not be saved" if missing
+                else 'Some saved files need another check')
+    reasons = {'source_refused': f'{site} asked the app to slow down',
+               'source_recovery_limit': f'{site} asked the app to slow down',
+               'source_access_changed': f'{site} still would not send an episode after waiting',
+               # While the connection is still held, the card's Connection row says so; this is for after it changed.
+               'network_policy': 'The connection was not Wi-Fi or wired',
+               'network_unavailable': f'{site} could not be reached several times in a row',
+               'network_recovery_limit': f'{site} could not be reached several times in a row',
+               'no_progress': 'The last few tries saved nothing new',
+               'scan_no_progress': 'The last few tries saved nothing new',
+               'cancelled': ''}
     if code in CLOUD_HINTS:
-        return f'Paused: an upload to cloud storage stopped. {CLOUD_HINTS[code]} {SAFE} Hit Go to continue.'
-    return f'Paused: the download stopped unexpectedly. {SAFE} Check that this disk has free space, then hit Go to try again.'
+        return f'An upload to cloud storage stopped. {CLOUD_HINTS[code]}'
+    return reasons.get(code, 'It stopped unexpectedly; check that this disk has free space')
+
+
+def time_row(estimate):
+    """The card's Time left: about how long, and what is still to come."""
+    waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
+    if not estimate or not (waiting or unchecked):
+        return ''
+    if type(estimate.get('seconds')) is not int:
+        return 'Estimating; known after about five minutes of downloading'
+    return (f"About {span(estimate['seconds'])} · {display(waiting)} {'episode' if waiting == 1 else 'episodes'} waiting"
+            + (f", {display(unchecked)} series not checked yet, so a rough guess" if unchecked else ''))
+
+
+def space_row(estimate):
+    """The card's Space: the whole library's size and the disk's free room; and whether that room is too little."""
+    waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
+    if not estimate or not (waiting or unchecked) or type(estimate.get('left_bytes')) is not int:
+        return '', False
+    saved, left, free = number(estimate.get('saved_bytes')), estimate['left_bytes'], estimate.get('free_bytes')
+    text = (f'About {room(saved + left)} in all' + (f', {room(left)} still to come' if saved else '')
+            + (' (rough)' if unchecked else ''))
+    short = type(free) is int and free < left
+    return text + ('' if type(free) is not int else f' · {room(free)} free' + (', not enough' if short else '')), short
 
 
 def step_progress(p):
@@ -342,8 +355,8 @@ def view(s, now):
     v['allow_visible'] = network_held
     v['allow_enabled'] = not s.busy
     locked = running or batch_running
-    v['site_enabled'] = not (s.busy or locked or signing_in)
-    v['site_tooltip'] = 'Pause saving to change the site.' if locked else ''
+    # Choosing another site in Settings stops nothing; only a sign-in in progress keeps the window on its site.
+    v['site_enabled'] = not (s.busy or signing_in)
     v['folder_enabled'] = not (s.busy or locked or signing_in)
     v['folder_tooltip'] = 'Pause saving before you change the folder.' if locked else ''
     v['folder_lock'] = ('The folder can’t be changed while episodes are downloading. Press Pause on the dashboard first.'
@@ -391,97 +404,22 @@ def view(s, now):
     v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
     v['settings_status'] = s.message.text if s.message else ''
     v['settings_status_error'] = bool(s.message and s.message.error)
-    v['footnote'] = 'Saving runs only while this window is open. Closing it pauses, and Go carries on later.'
-    phases = {'existing_backlog': 'Finishing saved downloads…', 'lists': f'Finding series in your {site} account…',
-              'series': 'Checking your series and downloading accessible episodes…', 'archive': 'Downloading your episodes…',
-              'verify': 'Checking the completed library…'}
     finished = account_status == 'finished' or (account_status == 'held' and account.get('code') == 'archive_incomplete')
     missing = number((account.get('audit') or {}).get('missing_recorded_accessible_episode_count'))
-    if not s.loaded:
-        message = 'Connecting to your library…'
-    elif signing_in:
-        message = f'Finish signing in to {site} in the window that opened.'
-    elif needs_login:
-        message = (f'Paused: {site} signed you out. Saved files are safe. Sign in to {site} again, then hit Go to continue.'
-                   if account.get('code') == 'login_required'
-                   else f'{site} has signed you out. Saved files are safe. Sign in to {site} again, then hit Go.'
-                   if (s.site_auth or {}).get('status') == 'expired'
-                   else f'Sign in to {site} to get started.')
-    elif running:
-        message = phases.get(account.get('phase'), 'Downloading your library…')
-    elif account_status == 'held' and network_held:
-        message = (f'Paused: {connection_held}, and the app saves only on Wi-Fi or a wired connection. Saved files are safe. '
-                   'Connect to Wi-Fi, or press Allow this connection, then hit Go to continue.')
-    elif account_status == 'held':
-        message = held_message(account.get('code'), site, go_wait, missing)
-    elif batch_running:
-        message = ('Pausing after the image being saved. Your saved files are safe.' if progress.get('cancellation_requested')
-                   else 'Finishing the current step. Your saved files are safe.')
-    elif worker == 'starting':
-        message = 'Starting the downloader…'
-    elif worker != 'ready':
-        message = f'The downloader is offline. Click Sign in to {site} to reconnect.'
-    elif network_held:
-        message = (f'Saving would wait: {connection_held}, and the app saves only on Wi-Fi or a wired connection. '
-                   'Connect to Wi-Fi, or press Allow this connection.')
-    elif account_status == 'stopped':
-        message = (f'Paused. {site} asked the app to wait: Go works again in {wait_text(go_wait)}.' if go_wait
-                   else 'Paused. Hit Go to continue from saved progress.')
-    elif account_status == 'finished':
-        message = ('Finished. Every episode your account can read is saved. Hit Go any time to check for new ones.'
-                   if number((status.get('episodes_by_status') or {}).get('archived'))
-                   else f'Finished. No episodes your {site} account can save were found. Episodes you have bought, or can read '
-                        'for free, are saved when there are any. Hit Go to check again.')
-    else:
-        message = f'Ready. Hit Go to save your {site} library.'
     lists = account.get('lists') if isinstance(account.get('lists'), dict) else {}
     list_names = {'unlocked': 'Bought', 'subscribed': 'Subscribed', 'updated': 'Updated', 'recent': 'Recent',
                   'free_episodes': 'Free episodes'}
     list_phase = running and account.get('phase') == 'lists'
     active = list_names.get(lists.get('current'))
-    if list_phase and active:
-        message = f"Finding series — {active} list ({display(number(lists.get('checked')) + 1)} of {display(lists.get('total'))})."
-    v['status'] = message
-    # The choices a held download needs are in Settings: the dashboard leads straight to them.
-    v['settings_link_visible'] = (not network_held and account_status == 'held'
-                                  and account.get('code') in ('source_refused', 'source_recovery_limit'))
     counts = status.get('episodes_by_status') or {}
-    step = '' if list_phase else step_progress(progress)
-    older = ' Tapas’s account lists may not include every older purchase.' if finished and site == 'Tapas' else ''
-    v['detail'] = ('Loading saved-episode count…' if s.status is None else
-                   f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'} saved."
-                   + (' ' + step if step else '') + older)
     # Settings › Downloads opens with why checked episodes were not downloaded, once the library is read.
     skipped = not_downloaded(status, site) if s.status is not None else []
     v['not_downloaded_visible'] = bool(skipped) and (bool(status.get('session_configured'))
                                                      or any(row['count'] != '0' for row in skipped))
     v['not_downloaded'] = skipped if v['not_downloaded_visible'] else []
-    v['estimate'] = time_left(status.get('estimate')) if account.get('configured') and not finished else ''
-    v['space'] = space_needed(status.get('estimate')) if v['estimate'] else ''
-    v['live_visible'] = running
-    v['meter_visible'] = v['list_help_visible'] = list_phase
-    v['meter_value'] = number(lists.get('checked'))
-    v['meter_max'] = number(lists.get('total')) or 4
-    if list_phase:
-        matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
-                    and progress.get('category') == lists.get('current'))
-        v['list_count'] = (f"{display(lists.get('checked'))} of {display(lists.get('total') or 4)} lists checked. "
-                           + (f"{display(progress['reading_list_page_count'])} pages read · "
-                              f"{display(progress.get('observed_library_series_count'))} series listed in {active}."
-                              if matching and type(progress.get('reading_list_page_count')) is int
-                              else 'Checking series details before moving to the next list.'
-                              if progress.get('status') == 'running' and progress.get('phase') == 'scan'
-                              else f"Opening the {active or 'next'} list and waiting for {site}."))
-    else:
-        v['list_count'] = (f"{display(status.get('scan_remaining_series_count'))} known series still awaiting checks."
-                           if running and account.get('phase') == 'series' else '')
     age = account['progress_age_seconds'] + since if type(account.get('progress_age_seconds')) is int else None
     elapsed = account['elapsed_seconds'] + since if type(account.get('elapsed_seconds')) is int else None
     since_refresh = max(0, math.floor(now - s.refreshed_at)) if s.refreshed_at else None
-    v['clock'] = ' · '.join(part for part in (
-        None if elapsed is None else f'Elapsed: {duration(elapsed)}',
-        None if age is None else f'Last recorded activity: {duration(age)} ago',
-        None if since_refresh is None else f'Status checked {duration(since_refresh)} ago') if part)
     disconnected = s.offline or (since_refresh is not None and since_refresh >= DELAYED_SECONDS)
     # Between two steps, and while the download itself waits to try again, nothing is overdue.
     between = account['between_steps_seconds'] + since if type(account.get('between_steps_seconds')) is int else None
@@ -490,25 +428,74 @@ def view(s, now):
     waiting = not retry and (age >= 60 if age is not None else between >= 60 if between is not None
                              else elapsed is not None and elapsed >= 60)
     v['live_waiting'] = waiting or disconnected
-    if not running:
-        activity = ''
-    elif disconnected:
-        activity = 'Progress updates are delayed. The app is trying to reach its downloader again; what it is doing right now is unknown.'
-    elif retry:
-        activity = (f'{site} asked the app to wait. The download continues by itself in {retry_in}.' if retry.get('reason') == 'source'
-                    else f'Some images did not arrive. The download tries them again by itself in {retry_in}.' if retry.get('reason') == 'images'
-                    else f'Nothing new was saved in the last step. The download tries again by itself in {retry_in}.' if retry.get('reason') == 'idle'
-                    else f'Waiting: {connection_held}, and the app saves only on Wi-Fi or a wired connection. The download carries on '
-                         'by itself on Wi-Fi, or press Allow this connection.' if network_held
-                    else f'The connection to {site} was interrupted. The download tries again by itself in {retry_in}.')
-    elif waiting:
-        activity = f'No new progress for over a minute; {site} may be slow. You can wait, or press Pause.'
-    elif (status.get('worker') or {}).get('reported_state') == 'ready':
-        activity = 'Working. Getting the next step ready.'
-    else:
-        activity = 'Working. Progress updates every five seconds.'
-    v['activity'] = activity
     v.update(heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh))
+    # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
+    rows = []
+
+    def row(name, value, warning=False):
+        if value:
+            rows.append({'name': name, 'value': value, 'warning': bool(warning)})
+    if not s.loaded:
+        v['rows'] = [{'name': 'Library', 'value': 'Opening…', 'warning': False}]
+        v['save_place'] = save_place(s)
+        return v
+    row('Account', v['session_word'], v['session_tone'] == 'warning')
+    row('Downloader', v['worker_word'], v['worker_tone'] == 'warning')
+    if running and not disconnected:
+        phases = {'existing_backlog': 'Finishing saved downloads', 'lists': 'Finding your series',
+                  'series': 'Checking series and downloading', 'archive': 'Downloading episodes',
+                  'verify': 'Checking saved files'}
+        step = '' if list_phase else step_progress(progress).rstrip('.')
+        row('Step', ' · '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
+        if list_phase:
+            matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
+                        and progress.get('category') == lists.get('current'))
+            row('Lists', f"{display(lists.get('checked'))} of {display(lists.get('total') or 4)} read" + (
+                f" · {display(progress['reading_list_page_count'])} pages of {active} · "
+                f"{display(progress.get('observed_library_series_count'))} series"
+                if matching and type(progress.get('reading_list_page_count')) is int else f' · now {active}' if active else ''))
+        elif account.get('phase') == 'series':
+            row('Series left', f"{display(status.get('scan_remaining_series_count'))} to check")
+    if disconnected and running:
+        row('Updates', 'Delayed: reaching the downloader again', True)
+    elif retry:
+        row('Waiting', (f'{site} asked the app to wait' if retry.get('reason') == 'source'
+                        else 'Some images did not arrive' if retry.get('reason') == 'images'
+                        else 'The last step saved nothing new' if retry.get('reason') == 'idle'
+                        else 'For Wi-Fi or a wired connection' if network_held
+                        else f'The connection to {site} was interrupted')
+            + ('' if network_held else f'; carries on in {retry_in}'), True)
+    elif running and waiting:
+        row('Waiting', f'No progress for over a minute; {site} may be slow', True)
+    elif batch_running and not running:
+        row('Step', 'Pausing after the image being saved' if progress.get('cancellation_requested')
+            else 'Finishing the current step')
+    if account_status == 'held' and not needs_login and not running:
+        reason = held_reason(account.get('code'), site, missing)
+        row('Finished' if finished else 'Stopped', reason, True)
+    elif account.get('code') == 'login_required' and needs_login:
+        row('Stopped', f'{site} signed you out', True)
+    if not running and go_wait:
+        row('Go again in', wait_text(go_wait))
+    if network_held and not running:
+        row('Connection', f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
+    if account_status == 'finished':
+        row('Finished', 'Every episode your account can read is saved' if number(counts.get('archived'))
+            else f'No episodes your {site} account can save were found')
+    row('Saved', None if s.status is None else
+        f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
+    if account.get('configured') and not finished:
+        row('Time left', time_row(status.get('estimate')))
+        space, short = space_row(status.get('estimate'))
+        row('Space', space, short)
+    if running and elapsed is not None:
+        row('Running for', duration(elapsed) + ('' if age is None else f' · last saved {duration(age)} ago'))
+    if signed_in:
+        refused = account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
+        row('Speed', SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
+    if finished and site == 'Tapas':
+        row('Note', 'Tapas’s account lists may not include every older purchase')
+    v['rows'] = rows
     v['save_place'] = save_place(s)
     return v
 
@@ -554,7 +541,7 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
     downloader = ('Checking…' if s.status is None else 'Status unknown' if disconnected else 'Working' if worker == 'busy'
                   else 'Ready' if worker == 'ready' else 'Starting' if worker == 'starting'
                   else 'Starts after sign-in' if not_yet else 'Offline')
-    return {'title': title, 'state': label, 'tone': tone,
+    return {'title': title, 'state': label, 'tone': tone, 'session_word': session, 'worker_word': downloader,
             'session': f'{site} · {session}', 'session_tone': 'warning' if needs_login and s.status is not None else 'neutral',
             'worker': f'Downloader · {downloader}',
             'worker_tone': 'warning' if disconnected or (s.status is not None and not not_yet and worker not in WORKING) else 'neutral',

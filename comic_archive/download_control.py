@@ -26,7 +26,7 @@ STATE_FILE = 'download.sqlite3'
 SCHEMA_VERSION = 1
 STATUSES = ('running', 'waiting', 'held', 'stopped', 'finished')
 STAGES = ('lists', 'series', 'archive', 'verify', 'finished')
-# A hold is something the person must fix; each has its sentence on the page (dashboard_model.held_message).
+# A hold is something the person must fix; each has its reason on its site card (dashboard_model.held_reason).
 HOLDS = frozenset({'login_required', 'source_refused', 'source_access_changed', 'no_progress', 'task_failed',
                    'task_result_invalid', 'task_unavailable', 'controller_failed', 'archive_incomplete',
                    'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket', 'cloud_login_required',

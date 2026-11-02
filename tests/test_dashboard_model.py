@@ -27,6 +27,11 @@ def view(**changes):
     return model.view(state(**changes), NOW)
 
 
+def fields(v):
+    """A card's rows as {field: (value, warning)}."""
+    return {row['name']: (row['value'], row['warning']) for row in v['rows']}
+
+
 class WordingTests(unittest.TestCase):
     def test_a_refusal_is_worded_for_its_code_and_names_the_open_site(self):
         self.assertEqual(model.error_text('login_required', 'Webtoon'), 'Your Webtoon session needs a fresh login.')
@@ -87,24 +92,25 @@ class WordingTests(unittest.TestCase):
         self.assertTrue(model.space_needed({'waiting_episodes': 1, 'left_bytes': 10, 'free_bytes': 50_000_000_000})
                         .endswith('This disk has 50 GB free.'))
 
-    def test_a_held_download_says_why_it_stopped_and_what_to_do(self):
-        cases = {('archive_incomplete', 0, 1): 'Finished, but 1 episode could not be saved.',
-                 ('archive_incomplete', 0, 3): 'Finished, but 3 episodes could not be saved.',
-                 ('archive_incomplete', 0, 0): 'Finished, but some saved files need another check.',
-                 ('source_refused', 120, 0): 'Go works again in about 2 minutes.',
-                 ('source_recovery_limit', 0, 0): 'choose a slower speed in Settings.',
-                 ('source_access_changed', 0, 0): 'Check that you can read it on Tapas',
-                 ('network_policy', 0, 0): 'Paused while the connection was not Wi-Fi or wired.',
-                 ('network_unavailable', 0, 0): 'Tapas could not be reached several times in a row.',
-                 ('network_recovery_limit', 0, 0): 'Check your internet connection',
-                 ('no_progress', 0, 0): 'the last few tries saved nothing new',
-                 ('scan_no_progress', 0, 0): 'Tapas may be having trouble',
-                 ('cancelled', 0, 0): 'Paused. Hit Go to continue from saved progress.',
-                 ('cloud_space', 0, 0): 'an upload to cloud storage stopped. ' + model.CLOUD_HINTS['cloud_space'],
-                 ('mystery', 0, 0): 'the download stopped unexpectedly'}
-        for (code, wait, missing), part in cases.items():
+    def test_a_held_download_says_why_it_stopped_in_a_few_words_and_leaves_what_to_do_to_the_buttons(self):
+        cases = {('archive_incomplete', 1): '1 episode could not be saved',
+                 ('archive_incomplete', 3): '3 episodes could not be saved',
+                 ('archive_incomplete', 0): 'Some saved files need another check',
+                 ('source_refused', 0): 'Tapas asked the app to slow down',
+                 ('source_recovery_limit', 0): 'Tapas asked the app to slow down',
+                 ('source_access_changed', 0): 'Tapas still would not send an episode after waiting',
+                 ('network_policy', 0): 'The connection was not Wi-Fi or wired',
+                 ('network_unavailable', 0): 'Tapas could not be reached several times in a row',
+                 ('network_recovery_limit', 0): 'Tapas could not be reached several times in a row',
+                 ('no_progress', 0): 'The last few tries saved nothing new',
+                 ('scan_no_progress', 0): 'The last few tries saved nothing new',
+                 ('cancelled', 0): '',
+                 ('cloud_space', 0): 'An upload to cloud storage stopped. ' + model.CLOUD_HINTS['cloud_space'],
+                 ('mystery', 0): 'It stopped unexpectedly; check that this disk has free space'}
+        for (code, missing), said in cases.items():
             with self.subTest(code=code, missing=missing):
-                self.assertIn(part, model.held_message(code, 'Tapas', wait, missing))
+                self.assertEqual(model.held_reason(code, 'Tapas', missing), said)
+                self.assertNotIn('Go', said)
 
     def test_the_step_in_progress_is_counted_only_while_it_runs(self):
         self.assertEqual(model.step_progress(None), '')
@@ -203,13 +209,13 @@ class ButtonTests(unittest.TestCase):
         self.assertFalse(view(busy=True)['signin_enabled'])
         relogin = view(account={'status': 'held', 'code': 'login_required'})
         self.assertTrue(relogin['signin_visible'])
-        self.assertTrue(relogin['status'].startswith('Paused: Tapas signed you out.'))
+        self.assertEqual(fields(relogin)['Stopped'], ('Tapas signed you out', True))
 
     def test_a_saved_sign_in_the_site_no_longer_knows_asks_for_a_sign_in_before_go(self):
         expired = view(site_auth={'status': 'expired'})
         self.assertFalse(expired['go_enabled']); self.assertTrue(expired['signin_visible'] and expired['signin_enabled'])
         self.assertEqual((expired['title'], expired['state'], expired['session']), ('Sign in again', 'Sign-in needed', 'Tapas · Sign-in needed'))
-        self.assertEqual(expired['status'], 'Tapas has signed you out. Saved files are safe. Sign in to Tapas again, then hit Go.')
+        self.assertEqual(fields(expired)['Account'], ('Sign-in needed', True))
         # One the site still names is connected, whatever the last run found; an unanswered check changes nothing.
         verified = view(site_auth={'status': 'verified'}, account={'status': 'held', 'code': 'login_required'})
         self.assertTrue(verified['go_enabled']); self.assertEqual(verified['session'], 'Tapas · Connected')
@@ -226,7 +232,7 @@ class ButtonTests(unittest.TestCase):
                 self.assertFalse(failed['go_enabled'])
                 self.assertTrue(failed['signin_visible'] and failed['signin_enabled'])
                 self.assertEqual(failed['session'], 'Tapas · Sign-in needed')
-                self.assertIn('signed you out', failed['status'])
+                self.assertEqual(fields(failed)['Stopped'], ('Tapas signed you out', True))
                 # Signing in again clears the old failure; repeating its result does not.
                 s.received_site_auth({'status': 'running'}, NOW + 3)
                 s.received_site_auth({'status': 'connected'}, NOW + 4)
@@ -243,16 +249,20 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(model.view(s, NOW + 3)['go_enabled'])
         self.assertEqual(model.view(s, NOW + 3)['session'], 'Tapas · Connected')
 
-    def test_pause_allow_site_and_folder_follow_a_running_download(self):
+    def test_pause_allow_and_the_folder_follow_a_running_download_and_another_site_can_be_chosen_meanwhile(self):
         running = view(account=account())
         self.assertTrue(running['pause_visible'] and running['pause_enabled'])
         self.assertFalse(view(account=account(), busy=True)['pause_enabled'])
-        self.assertFalse(running['site_enabled'] or running['folder_enabled'])
-        self.assertEqual(running['site_tooltip'], 'Pause saving to change the site.')
+        # Choosing another site in Settings stops nothing; a new folder takes every site with it.
+        self.assertTrue(running['site_enabled'])
+        self.assertFalse(running['folder_enabled'])
+        self.assertNotIn('site_tooltip', running)
         self.assertIn('Press Pause on the dashboard first.', running['folder_lock'])
+        self.assertFalse(view(site_auth={'status': 'running'})['site_enabled'])
+        self.assertFalse(view(busy=True)['site_enabled'])
         idle = view()
         self.assertTrue(idle['site_enabled'] and idle['folder_enabled'] and not idle['pause_visible'])
-        self.assertEqual((idle['site_tooltip'], idle['folder_tooltip'], idle['folder_lock']), ('', '', ''))
+        self.assertEqual((idle['folder_tooltip'], idle['folder_lock']), ('', ''))
         held = view(network={'wifi_only': True, 'allowed': False})
         self.assertTrue(held['allow_visible'] and held['allow_enabled'])
         self.assertFalse(view(network={'wifi_only': False, 'allowed': False})['allow_visible'])
@@ -301,65 +311,72 @@ class ButtonTests(unittest.TestCase):
 
 
 class StatusTests(unittest.TestCase):
-    def test_each_state_of_the_download_has_its_own_sentence(self):
-        cases = [({'loaded': False}, 'Connecting to your library…'),
-                 ({'site_auth': {'status': 'running'}}, 'Finish signing in to Tapas in the window that opened.'),
-                 ({'status': {'worker': {'reported_state': 'ready'}}}, 'Sign in to Tapas to get started.'),
-                 ({'account': account(phase='verify')}, 'Checking the completed library…'),
-                 ({'account': account(phase='new')}, 'Downloading your library…'),
+    def test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions(self):
+        self.assertEqual(view(loaded=False)['rows'], [{'name': 'Library', 'value': 'Opening…', 'warning': False}])
+        self.assertEqual([(row['name'], row['value'], row['warning']) for row in view()['rows']],
+                         [('Account', 'Session saved', False), ('Downloader', 'Ready', False), ('Saved', '3 episodes', False),
+                          ('Speed', 'Fast', False)])
+        cases = [({'account': {'status': 'held', 'code': 'cancelled'}}, {}),
                  ({'account': {'status': 'held', 'code': 'cancelled'}, 'network': {'wifi_only': True, 'reason': 'metered_connection'}},
-                  'Paused: this connection is metered, and the app saves only on Wi-Fi'),
-                 ({'account': {'status': 'held', 'code': 'cancelled'}}, 'Paused. Hit Go to continue from saved progress.'),
-                 ({'status': {'session_configured': True, 'worker': {'reported_state': 'busy'}}},
-                  'Finishing the current step. Your saved files are safe.'),
-                 ({'status': {'session_configured': True, 'worker': {'reported_state': 'ready'},
-                              'progress': {'status': 'running', 'cancellation_requested': True}}}, 'Pausing after the image being saved.'),
-                 ({'status': {'session_configured': True, 'worker': {}}, 'site_auth': {'status': 'connected'}, 'connected_at': NOW},
-                  'Starting the downloader…'),
-                 ({'status': {'session_configured': True, 'worker': {}}}, 'The downloader is offline. Click Sign in to Tapas to reconnect.'),
-                 ({'network': {'wifi_only': True}}, 'Saving would wait: this computer cannot tell whether its connection is metered'),
+                  {'Connection': ('This connection is metered; saving waits for Wi-Fi or a wired connection', True)}),
+                 ({'network': {'wifi_only': True}},
+                  {'Connection': ('This computer cannot tell whether its connection is metered (a VPN can cause this); '
+                                  'saving waits for Wi-Fi or a wired connection', True)}),
+                 ({'account': {'status': 'held', 'code': 'source_refused'}},
+                  {'Stopped': ('Tapas asked the app to slow down', True), 'Speed': ('Fast (a slower speed may help)', True)}),
                  ({'account': {'status': 'stopped', 'go_after_seconds': 600}, 'account_at': NOW},
-                  'Paused. Tapas asked the app to wait: Go works again in about 10 minutes.'),
-                 ({'account': {'status': 'finished'}}, 'Finished. Every episode your account can read is saved.'),
+                  {'Go again in': ('about 10 minutes', False)}),
+                 ({'account': {'status': 'finished'}},
+                  {'Finished': ('Every episode your account can read is saved', False),
+                   'Note': ('Tapas’s account lists may not include every older purchase', False)}),
                  ({'account': {'status': 'finished'}, 'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}}},
-                  'Finished. No episodes your Tapas account can save were found.'),
-                 ({'account': {'status': 'new'}}, 'Ready. Hit Go to save your Tapas library.')]
-        for changes, start in cases:
-            with self.subTest(start):
-                self.assertTrue(view(**changes)['status'].startswith(start), view(**changes)['status'])
-
-    def test_a_download_held_for_asking_too_fast_leads_to_its_speed_setting(self):
-        self.assertTrue(view(account={'status': 'held', 'code': 'source_refused'})['settings_link_visible'])
-        self.assertFalse(view(account={'status': 'held', 'code': 'cancelled'})['settings_link_visible'])
-        self.assertFalse(view(account={'status': 'held', 'code': 'source_refused'},
-                              network={'wifi_only': True, 'allowed': False})['settings_link_visible'])
-        self.assertIn('Tapas asked the app to slow down', view(account={'status': 'held', 'code': 'source_refused'})['status'])
+                  {'Finished': ('No episodes your Tapas account can save were found', False), 'Saved': ('0 episodes', False)}),
+                 ({'account': {'status': 'held', 'code': 'archive_incomplete',
+                               'audit': {'missing_recorded_accessible_episode_count': 2}}},
+                  {'Finished': ('2 episodes could not be saved', True)}),
+                 ({'status': {'session_configured': True, 'worker': {'reported_state': 'busy'}}},
+                  {'Step': ('Finishing the current step', False)}),
+                 ({'status': {'session_configured': True, 'worker': {'reported_state': 'ready'},
+                              'progress': {'status': 'running', 'cancellation_requested': True}}},
+                  {'Step': ('Pausing after the image being saved', False)}),
+                 ({'account': account(phase='verify')}, {'Step': ('Checking saved files', False)}),
+                 ({'account': account(phase='new')}, {'Step': ('Downloading', False)}),
+                 ({'account': account(), 'status': {'session_configured': True, 'worker': {'reported_state': 'busy'},
+                                                    'progress': {'status': 'running', 'phase': 'archive', 'completed': 2,
+                                                                 'downloaded_pages': 5}}},
+                  {'Step': ('Downloading episodes · 2 saved in this step · 5 images', False)})]
+        for changes, expected in cases:
+            with self.subTest(changes):
+                said = fields(view(**changes))
+                for name, value in expected.items():
+                    self.assertEqual(said.get(name), value, said)
+                for value, _ in said.values():
+                    self.assertNotIn('Go', value)
+                    self.assertNotIn('Hit ', value)
+        self.assertNotIn('Stopped', fields(view(account={'status': 'held', 'code': 'cancelled'})))
 
     def test_finding_series_names_the_list_and_how_far_through_it_is(self):
         lists = {'current': 'subscribed', 'checked': 1, 'total': 4}
         reading = {'status': 'running', 'phase': 'account_list', 'category': 'subscribed', 'reading_list_page_count': 3,
                    'observed_library_series_count': 40}
-        v = view(account=account(phase='lists', lists=lists),
-                 status={'session_configured': True, 'worker': {'reported_state': 'busy'}, 'progress': reading,
-                         'episodes_by_status': {'archived': 3}})
-        self.assertEqual(v['status'], 'Finding series — Subscribed list (2 of 4).')
-        self.assertEqual(v['list_count'], '1 of 4 lists checked. 3 pages read · 40 series listed in Subscribed.')
-        self.assertTrue(v['meter_visible'] and v['list_help_visible'])
-        self.assertEqual((v['meter_value'], v['meter_max']), (1, 4))
-        self.assertEqual(v['detail'], '3 episodes saved.')
-        scan = view(account=account(phase='lists', lists=lists), status={'progress': {'status': 'running', 'phase': 'scan'}})
-        self.assertTrue(scan['list_count'].endswith('Checking series details before moving to the next list.'))
-        opening = view(account=account(phase='lists', lists={'checked': 0}))
-        self.assertEqual(opening['list_count'], '0 of 4 lists checked. Opening the next list and waiting for Tapas.')
-        self.assertEqual(opening['status'], 'Finding series in your Tapas account…')
-        series = view(account=account(phase='series'), status={'scan_remaining_series_count': 12})
-        self.assertEqual(series['list_count'], '12 known series still awaiting checks.')
-        self.assertFalse(series['meter_visible'])
+        v = fields(view(account=account(phase='lists', lists=lists),
+                        status={'session_configured': True, 'worker': {'reported_state': 'busy'}, 'progress': reading,
+                                'episodes_by_status': {'archived': 3}}))
+        self.assertEqual(v['Step'], ('Finding your series', False))
+        self.assertEqual(v['Lists'], ('1 of 4 read · 3 pages of Subscribed · 40 series', False))
+        self.assertEqual(v['Saved'], ('3 episodes', False))
+        scan = fields(view(account=account(phase='lists', lists=lists), status={'progress': {'status': 'running', 'phase': 'scan'}}))
+        self.assertEqual(scan['Lists'][0], '1 of 4 read · now Subscribed')
+        self.assertEqual(fields(view(account=account(phase='lists', lists={'checked': 0})))['Lists'][0], '0 of 4 read')
+        series = fields(view(account=account(phase='series'), status={'scan_remaining_series_count': 12}))
+        self.assertEqual(series['Step'][0], 'Checking series and downloading')
+        self.assertEqual(series['Series left'][0], '12 to check')
+        self.assertNotIn('Lists', series)
 
     def test_download_settings_tables_why_checked_episodes_were_not_downloaded(self):
         # The first outside report: a folder stopped at 100 of 144 with nothing on screen to say why.
         reported = view(status={'session_configured': True, 'episodes_by_status': {'archived': 100, 'unavailable': 44}})
-        self.assertEqual(reported['detail'], '100 episodes saved.')
+        self.assertEqual(fields(reported)['Saved'][0], '100 episodes')
         self.assertNotIn('not_saved', reported)
         self.assertTrue(reported['not_downloaded_visible'])
         self.assertEqual([(row['reason'], row['count']) for row in reported['not_downloaded']], [
@@ -391,21 +408,29 @@ class StatusTests(unittest.TestCase):
                 rows = view(status={'episodes_by_status': {'unsupported': 2}, 'unsupported_by_reason': reasons})['not_downloaded']
                 self.assertEqual([row['count'] for row in rows], ['0', '0', '0', '0', '2', '0'])
 
-    def test_the_saved_count_estimate_and_space_follow_what_was_read(self):
-        self.assertEqual(view(status=None)['detail'], 'Loading saved-episode count…')
-        self.assertEqual(view(status={'episodes_by_status': {'archived': 1}})['detail'], '1 episode saved.')
-        progress = {'status': 'running', 'phase': 'archive', 'completed': 2, 'downloaded_pages': 5}
-        self.assertEqual(view(status={'episodes_by_status': {'archived': 2}, 'progress': progress})['detail'],
-                         '2 episodes saved. 2 saved in this step · 5 images.')
-        self.assertTrue(view(account={'status': 'finished'})['detail'].endswith('may not include every older purchase.'))
-        webtoon = dict(TAPAS, name='Webtoon')
-        self.assertEqual(view(account={'status': 'finished'}, sites=[webtoon])['detail'], '3 episodes saved.')
+    def test_the_saved_count_time_left_and_space_follow_what_was_read(self):
+        self.assertEqual([row['name'] for row in view(status=None)['rows']], ['Account', 'Downloader'])
+        self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
+        self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))
+        planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))
+        self.assertEqual(planned['Time left'], ('About 10 minutes · 3 episodes waiting', False))
+        self.assertEqual(planned['Space'], ('About 1.0 GB in all', False))
+        rough = fields(view(status={'estimate': {'waiting_episodes': 1, 'unchecked_series': 1, 'seconds': 7200,
+                                                  'saved_bytes': 2_000_000_000, 'left_bytes': 1_000_000_000,
+                                                  'free_bytes': 50_000_000_000}}))
+        self.assertEqual(rough['Time left'][0], 'About 2 hours · 1 episode waiting, 1 series not checked yet, so a rough guess')
+        self.assertEqual(rough['Space'], ('About 3.0 GB in all, 1.0 GB still to come (rough) · 50 GB free', False))
+        short = fields(view(status={'estimate': {'waiting_episodes': 1, 'left_bytes': 1_000_000_000, 'free_bytes': 10}}))
+        self.assertEqual(short['Space'], ('About 1.0 GB in all · 1 MB free, not enough', True))
+        early = fields(view(status={'estimate': {'waiting_episodes': 4}}))
+        self.assertEqual(early['Time left'][0], 'Estimating; known after about five minutes of downloading')
+        self.assertNotIn('Space', early)
         estimate = {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}
-        planned = view(status={'estimate': estimate})
-        self.assertTrue(planned['estimate'].startswith('About 10 minutes'))
-        self.assertTrue(planned['space'].startswith('Your whole library'))
-        self.assertEqual(view(status={'estimate': estimate}, account={'status': 'finished', 'configured': True})['estimate'], '')
-        self.assertEqual(view(status={'estimate': estimate}, account={'status': 'stopped'})['space'], '')
+        finished = fields(view(status={'estimate': estimate}, account={'status': 'finished', 'configured': True}))
+        self.assertNotIn('Time left', finished)
+        self.assertNotIn('Space', fields(view(status={'estimate': estimate}, account={'status': 'stopped'})))
+        self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
+        self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
 
     def test_sign_in_messages_say_what_went_wrong_or_what_to_do_next(self):
         self.assertEqual(view(site_auth={'status': 'running'})['signin_status'],
@@ -424,34 +449,33 @@ class StatusTests(unittest.TestCase):
 
 
 class LiveTests(unittest.TestCase):
-    def test_the_clock_counts_on_from_what_the_app_last_said(self):
+    def test_running_for_counts_on_from_what_the_app_last_said(self):
         v = model.view(state(account=account(elapsed_seconds=100, progress_age_seconds=5), account_at=NOW - 10, refreshed_at=NOW - 3), NOW)
-        self.assertEqual(v['clock'], 'Elapsed: 1m 50s · Last recorded activity: 0m 15s ago · Status checked 0m 3s ago')
-        self.assertEqual(model.view(state(refreshed_at=0), NOW)['clock'], '')
+        self.assertEqual(fields(v)['Running for'], ('1m 50s · last saved 0m 15s ago', False))
+        self.assertNotIn('Running for', fields(view(account=account())))
+        self.assertNotIn('Running for', fields(view(account={'status': 'stopped', 'elapsed_seconds': 100})))
 
-    def test_activity_says_whether_updates_arrive_and_what_the_download_waits_for(self):
-        def activity(**changes):
-            return view(**changes)['activity']
-        self.assertEqual(activity(), '')
-        self.assertEqual(activity(account=account(), status={'session_configured': True, 'worker': {'reported_state': 'busy'}}),
-                         'Working. Progress updates every five seconds.')
-        self.assertEqual(activity(account=account(), status={'session_configured': True, 'worker': {'reported_state': 'ready'}}),
-                         'Working. Getting the next step ready.')
-        self.assertTrue(activity(account=account(), offline=True).startswith('Progress updates are delayed.'))
-        self.assertTrue(activity(account=account(), refreshed_at=NOW - model.DELAYED_SECONDS).startswith('Progress updates are delayed.'))
-        for reason, start in (('source', 'Tapas asked the app to wait. The download continues by itself in about a minute.'),
-                              ('images', 'Some images did not arrive.'), ('network', 'The connection to Tapas was interrupted.'),
-                              ('idle', 'Nothing new was saved in the last step. The download tries again by itself in about a minute.')):
-            self.assertTrue(activity(account=account(retry={'reason': reason, 'seconds': 60})).startswith(start))
-        self.assertTrue(activity(account=account(retry={'reason': 'network', 'seconds': 60}),
-                                 network={'wifi_only': True, 'allowed': False}).startswith('Waiting: this computer cannot tell'))
+    def test_the_card_says_whether_updates_arrive_and_what_the_download_waits_for(self):
+        self.assertEqual(fields(view(account=account(), offline=True))['Updates'], ('Delayed: reaching the downloader again', True))
+        self.assertIn('Updates', fields(view(account=account(), refreshed_at=NOW - model.DELAYED_SECONDS)))
+        self.assertNotIn('Step', fields(view(account=account(), offline=True)))
+        for reason, said in (('source', 'Tapas asked the app to wait; carries on in about a minute'),
+                             ('images', 'Some images did not arrive; carries on in about a minute'),
+                             ('idle', 'The last step saved nothing new; carries on in about a minute'),
+                             ('network', 'The connection to Tapas was interrupted; carries on in about a minute')):
+            with self.subTest(reason):
+                self.assertEqual(fields(view(account=account(retry={'reason': reason, 'seconds': 60})))['Waiting'], (said, True))
+        self.assertEqual(fields(view(account=account(retry={'reason': 'network', 'seconds': 60}),
+                                     network={'wifi_only': True, 'allowed': False}))['Waiting'],
+                         ('For Wi-Fi or a wired connection', True))
         for timing in ({'progress_age_seconds': 60}, {'between_steps_seconds': 60}, {'elapsed_seconds': 60}):
             with self.subTest(timing):
                 v = view(account=account(**timing))
-                self.assertTrue(v['activity'].startswith('No new progress for over a minute; Tapas may be slow.'))
+                self.assertEqual(fields(v)['Waiting'], ('No progress for over a minute; Tapas may be slow', True))
                 self.assertTrue(v['live_waiting'])
                 self.assertEqual((v['title'], v['state'], v['tone']), ('Waiting for a progress update', 'Waiting', 'warning'))
         self.assertFalse(view(account=account(progress_age_seconds=10, elapsed_seconds=600))['live_waiting'])
+        self.assertNotIn('Waiting', fields(view(account=account(progress_age_seconds=10, elapsed_seconds=600))))
 
     def test_the_heading_names_the_state_of_the_download_in_a_word(self):
         cases = [({'loaded': False}, ('Loading your status…', 'Loading', 'neutral')),
@@ -477,6 +501,7 @@ class LiveTests(unittest.TestCase):
     def test_the_badges_say_how_the_account_and_downloader_are(self):
         def badges(**changes):
             v = view(**changes)
+            self.assertEqual((fields(v)['Account'][0], fields(v)['Downloader'][0]), (v['session_word'], v['worker_word']))
             return v['session'], v['session_tone'], v['worker'], v['worker_tone']
         self.assertEqual(badges(status=None), ('Tapas · Checking…', 'neutral', 'Downloader · Checking…', 'neutral'))
         self.assertEqual(badges(), ('Tapas · Session saved', 'neutral', 'Downloader · Ready', 'neutral'))
@@ -494,7 +519,6 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(view(refreshed_at=NOW - 1)['updated'], 'Updated just now')
         self.assertEqual(view(refreshed_at=NOW - 9)['updated'], 'Updated 9s ago')
         self.assertEqual(view(offline=True)['updated'], 'Updates delayed · trying to reconnect')
-        self.assertEqual(view()['footnote'], 'Saving runs only while this window is open. Closing it pauses, and Go carries on later.')
 
 
 if __name__ == '__main__':

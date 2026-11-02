@@ -38,6 +38,12 @@ class AppRuntimeTests(unittest.TestCase):
         self.runtime = app_runtime.Runtime(self.root)
         self.addCleanup(self.runtime.stop, 0)
 
+    def sites(self, root=None):
+        """Every site of the library folder, as the window opens them."""
+        library = app_runtime.Library(root or self.root)
+        self.addCleanup(library.stop, 0)
+        return library
+
     def reset_logging(self):
         for handler in list(app_runtime.LOG.handlers):
             app_runtime.LOG.removeHandler(handler); handler.close()
@@ -67,9 +73,10 @@ class AppRuntimeTests(unittest.TestCase):
 
     def test_the_apps_private_folders_beside_and_inside_the_library_are_hidden_from_the_file_manager(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        library = self.sites()
         with patch('comic_archive.osdep.hide') as hide, patch('comic_archive.sites.SITES', (sites.DEFAULT, example)):
-            self.runtime.start()
-            self.assertIsNone(self.runtime.change_site(example))
+            library.start()
+            self.assertIsNone(library.change_site(example))
         hidden = {call.args[0] for call in hide.call_args_list}
         for place in (self.root, self.root / 'Example'):
             for name in ('.comic-session', '.comic-web', 'Library/.archive-state'):
@@ -164,15 +171,16 @@ class AppRuntimeTests(unittest.TestCase):
 
         def cookie(root):
             return load_session(root / '.comic-session')['cookies'][0]['value']
-        self.runtime.start()
+        library = self.sites()
+        library.start()
         signed_in(self.root, 'PRIVATE_FIRST')
         (self.root / 'Library/kept.cbz').write_text('saved')
         drive = self.home / 'drive'; drive.mkdir(); (drive / 'holiday.jpg').write_text('x')
         target = app_runtime.library_root(drive)
-        fresh, problem = app_runtime.move(self.runtime, target); self.addCleanup(fresh.stop, 0)
-        self.assertEqual((problem, fresh.root, fresh.theme, fresh.folder), (None, target, self.runtime.theme, target / 'Library'))
+        fresh, problem = app_runtime.move(library, target); self.addCleanup(fresh.stop, 0)
+        self.assertEqual((problem, fresh.root, fresh.theme, fresh.folder), (None, target, library.theme, target / 'Library'))
         # The old library and downloader are closed before the new ones open.
-        self.assertEqual(self.runtime.stop(), 'stopped_before')
+        self.assertEqual(library.stop(), 'stopped_before')
         self.assertEqual(self.background['stop'].call_args.args[0], self.root / '.comic-session')
         self.assertEqual(self.library(fresh), target / 'Library')
         # A folder with nothing in it starts signed in as before, privately, and its downloader starts.
@@ -197,14 +205,15 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', ''.join(logs.output))
 
     def test_a_folder_that_cannot_be_used_leaves_the_app_on_the_old_one_with_the_reason(self):
-        self.runtime.start()
+        library = self.sites()
+        library.start()
         self.sign_in()
         blocked = self.home / 'blocked'; blocked.write_text('a file in the way')
         with self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
-            back, problem = app_runtime.move(self.runtime, blocked / 'Comic Archiver'); self.addCleanup(back.stop, 0)
-        self.assertEqual((problem, back.root, back.theme), (app_runtime.UNWRITABLE, self.root, self.runtime.theme))
+            back, problem = app_runtime.move(library, blocked / 'Comic Archiver'); self.addCleanup(back.stop, 0)
+        self.assertEqual((problem, back.root, back.theme), (app_runtime.UNWRITABLE, self.root, library.theme))
         self.assertNotIn(str(self.home), ''.join(logs.output))
-        self.assertIsNot(back, self.runtime)
+        self.assertIsNot(back, library)
         self.assertEqual((self.library(back), app_runtime.saved_root()), (self.root / 'Library', None))
         self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
         link = self.home / 'link'; link.symlink_to(self.home / 'elsewhere', target_is_directory=True)
@@ -212,64 +221,81 @@ class AppRuntimeTests(unittest.TestCase):
             again, problem = app_runtime.move(back, link / 'Comic Archiver'); self.addCleanup(again.stop, 0)
         self.assertIn('shortcut (symlink)', problem); self.assertEqual(again.root, self.root)
 
-    def test_each_site_has_its_own_folder_sign_in_and_downloader_and_the_choice_outlives_the_app(self):
+    def test_each_site_has_its_own_folder_sign_in_and_downloader_and_every_site_runs_at_once(self):
         example, saved = replace(sites.DEFAULT, key='example', name='Example', available=True), self.state / 'comic-archiver/site'
-        actions = Actions(lambda: self.runtime)
-        def context():
-            value = actions.context()
+        third = replace(sites.DEFAULT, key='third', name='Third', available=True)
+        library = self.sites()
+
+        def context(key):
+            value = Actions(lambda: library.runtime(key)).context()
             return [site['key'] for site in value['sites'] if site['current']], value['workspace_id']
-        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, replace(sites.DEFAULT, key='later', name='Later', available=False))):
-            self.runtime.start(); self.sign_in()
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, third,
+                                                 replace(sites.DEFAULT, key='later', name='Later', available=False))):
+            library.start(); self.sign_in()
             (self.root / 'Library/kept.cbz').write_text('saved')
-            tapas = context()[1]
-            self.assertEqual(context()[0], ['tapas'])
-            self.assertIsNone(self.runtime.change_site(example))
+            # A site never used makes no folder of its own.
+            self.assertEqual((list(library.runtimes), (self.root / 'Example').exists()), (['tapas'], False))
+            self.assertEqual(library.start_worker(), 'running')
+            tapas = context('tapas')[1]
+            self.assertEqual(context('tapas')[0], ['tapas'])
+            self.assertIsNone(library.change_site(example))
             place = self.root / 'Example'
-            self.assertEqual((self.runtime.site, self.runtime.root, self.runtime.folder, self.runtime.session),
+            self.assertEqual((library.site, library.root, library.folder, library.session),
                              (example, self.root, place / 'Library', place / '.comic-session'))
-            # The window's same calls now read the other site's own library.
-            switched = context()
-            self.assertEqual((switched[0], self.library(self.runtime)), (['example'], place / 'Library'))
-            self.assertNotEqual(switched[1], tapas)
-            # Tapas's downloader was stopped; one site's sign-in is never handed to another, so the new one waits for its own.
-            self.assertEqual([call.args[0] for call in self.background['stop'].call_args_list], [self.root / '.comic-session'])
+            self.assertEqual(list(library.runtimes), ['tapas', 'example'])
+            # Each site's calls read its own library.
+            self.assertEqual(context('example')[0], ['example'])
+            self.assertNotEqual(context('example')[1], tapas)
+            self.assertEqual(self.library(library.runtime('example')), place / 'Library')
+            # Tapas's downloader goes on; one site's sign-in is never handed to another, so the new one waits for its own.
+            self.background['stop'].assert_not_called()
             self.assertFalse((place / '.comic-session/state.json').exists())
-            self.background['start'].assert_not_called()
-            self.assertEqual((app_runtime.saved_site(), saved.read_text()), (example, 'example\n'))
-            # Back to Tapas: its own library and sign-in as they were, and its downloader starts; no record is needed.
-            self.assertIsNone(self.runtime.change_site(sites.DEFAULT))
-            self.assertEqual((self.runtime.session, (self.root / 'Library/kept.cbz').read_text(), context()),
-                             (self.root / '.comic-session', 'saved', (['tapas'], tapas)))
             self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
+            self.assertEqual((app_runtime.saved_site(), saved.read_text()), (example, 'example\n'))
+            # Back to Tapas: as it was, nothing opened or stopped again; no record is needed.
+            self.assertIsNone(library.change_site(sites.DEFAULT))
+            self.assertEqual((library.session, (self.root / 'Library/kept.cbz').read_text(), library.runtime('example').site),
+                             (self.root / '.comic-session', 'saved', example))
+            self.assertEqual((self.background['start'].call_count, self.background['stop'].call_count), (1, 0))
             self.assertEqual((saved.exists(), app_runtime.saved_site()), (False, sites.DEFAULT))
-            # Another library folder keeps the site.
-            self.assertIsNone(self.runtime.change_site(example))
+            # The next start opens every site this folder has, the chosen one first; closing stops them all.
+            self.assertEqual(library.stop(0), 'stopped')
+            self.assertEqual(self.background['stop'].call_count, 2)
+            again = self.sites()
+            again.start()
+            self.assertEqual(list(again.runtimes), ['tapas', 'example'])
+            # Another library folder keeps the chosen site, and each site open there opens in the new one too.
+            self.assertIsNone(again.change_site(example))
             drive = self.home / 'drive'
-            moved, problem = app_runtime.move(self.runtime, drive); self.addCleanup(moved.stop, 0)
+            with self.assertLogs('comic_archive.desktop', 'WARNING'):  # The made-up sign-in above cannot be carried.
+                moved, problem = app_runtime.move(again, drive)
+            self.addCleanup(moved.stop, 0)
             self.assertEqual((problem, moved.site, moved.folder), (None, example, drive / 'Example/Library'))
+            self.assertEqual(sorted(moved.runtimes), ['example', 'tapas'])
             self.assertTrue(app_runtime.is_library(drive))  # A folder only another site has saved into is a library too.
             # A site that can no longer be chosen, or nonsense, counts as none.
             for text in ('later\n', 'PRIVATE nonsense', ''):
                 saved.write_text(text)
                 self.assertEqual(app_runtime.saved_site(), sites.DEFAULT)
-            # A site whose folder cannot be made leaves the app where it was, its downloader untouched, with the reason.
+            # A site whose folder cannot be made leaves the chosen site as it was, every downloader untouched, with the reason.
             self.assertIsNone(moved.change_site(sites.DEFAULT))
-            (drive / 'Example').rename(drive / 'Example-old'); (drive / 'Example').write_text('a file in the way')
+            (drive / 'Third').write_text('a file in the way')
             stops = self.background['stop'].call_count
             with self.assertLogs('comic_archive.desktop', 'WARNING'):
-                problem = moved.change_site(example)
-            self.assertEqual((problem, moved.site, moved.root, saved.exists(), self.background['stop'].call_count),
-                             (app_runtime.UNWRITABLE, sites.DEFAULT, drive, False, stops))
-            self.assertEqual(self.library(moved), drive / 'Library')
+                problem = moved.change_site(third)
+            self.assertEqual((problem, moved.site, saved.exists(), self.background['stop'].call_count),
+                             (app_runtime.UNWRITABLE, sites.DEFAULT, False, stops))
+            self.assertEqual((sorted(moved.runtimes), self.library(moved)), (['example', 'tapas'], drive / 'Library'))
 
     def test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened(self):
         from comic_archive import shared
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
         store = self.root / '.comic-shared'
+        library = self.sites()
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)), patch('comic_archive.osdep.hide') as hide:
-            self.runtime.start()
-            self.assertIsNone(self.runtime.change_site(example))
-            self.assertEqual(self.runtime.site, example)
+            library.start()
+            self.assertIsNone(library.change_site(example))
+            self.assertEqual(library.site, example)
         self.assertEqual([shared.folder(place / 'Library') for place in (self.root, self.root / 'Example')], [store, store])
         self.assertIn(store, {call.args[0] for call in hide.call_args_list})
         self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
@@ -438,20 +464,22 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.start_worker(), 'closing')
         self.background['start'].assert_called_once()
 
-    def test_a_deferred_start_ends_when_the_window_switches_to_another_site(self):
+    def test_a_deferred_start_goes_on_when_another_site_is_chosen(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
-        self.sign_in(); self.runtime.start()
+        library = self.sites()
+        self.sign_in(); library.start()
         self.background['start'].return_value = {'running': True, 'start_deferred': True}
         self.background['status'].return_value = {'running': True, 'worker_version': WORKER_VERSION, 'stop_requested': True}
-        self.assertEqual(self.runtime.start_worker(), 'deferred')
-        retry = self.runtime._retry
+        self.assertEqual(library.start_worker(), 'deferred')
+        retry = library.runtime()._retry
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)):
-            self.assertIsNone(self.runtime.change_site(example))
-        # Tapas's downloader has gone; the other site, not signed in, never gets one from Tapas's wait.
+            self.assertIsNone(library.change_site(example))
+        # Tapas's wait goes on: once its old downloader has gone its own starts; the other site, not signed in, gets none.
+        self.background['start'].return_value = {'running': True}
         self.background['status'].return_value = {'running': False}
         retry.join(10)
         self.assertFalse(retry.is_alive())
-        self.background['start'].assert_called_once()
+        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'] * 2)
 
     def test_downloader_start_failures_keep_the_library_open_and_log_no_private_text(self):
         log = app_runtime.configure_logging()
@@ -674,9 +702,10 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(process.wait(5), -15)
 
     def test_changing_to_an_empty_folder_from_a_library_never_signed_in_creates_no_sign_in(self):
-        self.runtime.start()
+        library = self.sites()
+        library.start()
         empty = self.home / 'empty'
-        fresh, problem = app_runtime.move(self.runtime, empty); self.addCleanup(fresh.stop, 0)
+        fresh, problem = app_runtime.move(library, empty); self.addCleanup(fresh.stop, 0)
         self.assertEqual((problem, fresh.root, app_runtime.saved_root()), (None, empty, empty))
         self.assertFalse((empty / '.comic-session/state.json').exists())
         self.background['start'].assert_not_called()

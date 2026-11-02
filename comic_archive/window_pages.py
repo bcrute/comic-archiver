@@ -4,18 +4,21 @@ What each page says and allows is decided in dashboard_model, storage_model and 
 puts it on screen and passes clicks on. Every call to the library runs on a thread (the shell's run), never on the
 window's own, and its answer comes back here.
 """
+import functools
 import html
 import time
 
 from . import app_actions, dashboard_model, library_model, license_texts, storage_model
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
+from .sites import DEFAULT, choices as site_choices, find as find_site
 
 ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
 TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
 SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
             '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
             '\n\nYour saved episodes stay where they are. To download again, sign in again.')
-FOOTER = 'Only episodes your account can already read, free or bought, are saved. Nothing is bought for you.'
+FOOTER = ('Saving runs only while this window is open. Only episodes your account can already read, free or bought, '
+          'are saved. Nothing is bought for you.')
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
 B2_PAGES = {
     'signup': 'https://www.backblaze.com/sign-up/s3', 'signin': 'https://secure.backblaze.com/user_signin.htm',
@@ -73,8 +76,8 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
 ABOUT = ('Copyright 2026 Ben Crute. Comic Archiver is free software under the MIT license. It is built with '
          'other people’s software, each under its own license; every one of those licenses can be read here.')
-LIST_HELP = ('Saving starts once every list is read, so nothing in your account is missed. Sites supply lists '
-             'in separate pages; a large library can take several minutes.')
+# The dashboard puts two cards in a row from this width of its page's content, and one below it.
+CARD_COLUMNS_FROM = 900
 
 
 def route_of(name, cloud_offered):
@@ -257,8 +260,94 @@ class Header:
         self.theme.setAccessibleName(tip)
 
 
+def watch_width(kit, widget, resized):
+    """resized(width) each time the widget is resized. The watcher is the widget's child, and lives as long as it."""
+    class Watcher(kit.q.QtCore.QObject):
+        def eventFilter(self, watched, event):
+            if event.type() == kit.q.QtCore.QEvent.Type.Resize:
+                resized(watched.width())
+            return False
+    watcher = Watcher(widget)
+    widget.installEventFilter(watcher)
+    return watcher
+
+
+class SiteCard:
+    """One site's download at a glance: its state, its buttons, and what is so now, a field and its value each."""
+
+    def __init__(self, kit, pages, key, name):
+        w, self.kit, self.key, self.name = kit.w, kit, key, name
+        self.widget, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
+        self.widget.setAccessibleName(name)
+        top = w.QHBoxLayout()
+        top.addWidget(kit.label(name, 'sectionTitle'), 1)
+        self.pill = kit.label('Loading', 'pill', wrap=False)
+        top.addWidget(self.pill)
+        box.addLayout(top)
+        self.fields = w.QGridLayout()
+        self.fields.setHorizontalSpacing(16)
+        self.fields.setVerticalSpacing(6)
+        self.fields.setColumnStretch(1, 1)
+        box.addLayout(self.fields)
+        self.cells = []
+        self.message = kit.label('')
+        box.addWidget(self.message)
+        self.signin = kit.button(f'Sign in to {name}', lambda: pages.signin(key), 'secondary')
+        self.go = kit.button('Go', lambda: pages.go(key), 'go')
+        self.allow = kit.button('Allow this connection', lambda: pages.allow_network(key), 'secondary')
+        self.pause = kit.button('Pause', lambda: pages.pause(key), 'secondary')
+        box.addWidget(kit.row(self.signin, self.go, self.allow, self.pause, spacing=8))
+        box.addStretch(1)
+
+    def _fields(self, rows):
+        if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
+            for name, value in self.cells:
+                name.deleteLater()
+                value.deleteLater()
+            self.cells = []
+            for index, row in enumerate(rows):
+                name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.label('', 'fieldValue')
+                self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
+                self.fields.addWidget(value, index, 1)
+                self.cells.append((name, value))
+        for (_, value), row in zip(self.cells, rows, strict=True):
+            value.setText(row['value'])
+            tone(value, 'tone', 'warning' if row['warning'] else '')
+
+    def show(self, s, v):
+        """v is the site's view, or None for a site not opened yet: then only its way to sign in shows."""
+        if v is None:
+            self.pill.setText('Not signed in')
+            tone(self.pill, 'tone', 'neutral')
+            tone(self.widget, 'tone', '')
+            self._fields([])
+            say(self.message, '')
+            self.signin.setVisible(True)
+            self.signin.setEnabled(True)
+            self.signin.setText(f'Sign in to {self.name}')
+            for button in (self.go, self.allow, self.pause):
+                button.setVisible(False)
+            return
+        self.pill.setText(v['state'])
+        tone(self.pill, 'tone', v['tone'])
+        tone(self.widget, 'tone', 'warning' if v['tone'] == 'warning' else 'status')
+        self._fields(v['rows'])
+        say(self.message, v['signin_status'], v['signin_status_error'])
+        self.signin.setVisible(v['signin_visible'])
+        self.signin.setEnabled(v['signin_enabled'])
+        self.signin.setText(v['signin_text'])
+        self.go.setVisible(True)
+        self.go.setEnabled(v['go_enabled'])
+        self.go.setText(v['go_text'])
+        self.allow.setVisible(v['allow_visible'])
+        self.allow.setEnabled(v['allow_enabled'])
+        self.pause.setVisible(v['pause_visible'])
+        self.pause.setEnabled(v['pause_enabled'])
+
+
 class Dashboard:
-    """The status of the download, with Go and Pause, and the saved library at a glance."""
+    """Every site at a glance, as cards: the saved library over all of them first, then one card for each site,
+    two to a row when the window is wide enough and one when it is not."""
 
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
@@ -270,78 +359,34 @@ class Dashboard:
         title, _ = heading(kit, 'Dashboard')
         top.addWidget(title, 1)
         self.updated = kit.label('Checking current status…', 'muted', wrap=False)
-        top.addWidget(self.updated, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
+        self.go_all = kit.button('Go on all sites', pages.go_all, 'secondary')
+        self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
+        for part in (self.updated, self.go_all, self.pause_all):
+            top.addWidget(part, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         column.addLayout(top)
-        grid = w.QHBoxLayout()
-        grid.setSpacing(20)
-        grid.addWidget(self._status(kit, pages), 16, kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(self._library(kit, pages), 10, kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
-        column.addLayout(grid)
+        self.grid_holder = w.QWidget()
+        self.grid = w.QGridLayout(self.grid_holder)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(20)
+        self.columns = 0
+        self.library_card = self._library(kit, pages)
+        self.cards = {}
+        column.addWidget(self.grid_holder)
         column.addWidget(kit.label(FOOTER, 'muted'))
         column.addStretch(1)
         self.widget = kit.scroll(content)
-
-    def _status(self, kit, pages):
-        w = kit.w
-        self.card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        tone(self.card, 'tone', 'status')
-        top = w.QHBoxLayout()
-        top.addWidget(kit.label('CURRENT STATUS', 'eyebrow'), 1)
-        self.pill = kit.label('Loading', 'pill', wrap=False)
-        top.addWidget(self.pill)
-        box.addLayout(top)
-        self.site = kit.combo([], pages.choose_site)
-        self.site.setAccessibleName('Site')
-        self.site_row = kit.row(kit.label('Site', 'strong', wrap=False), self.site)
-        box.addWidget(self.site_row)
-        self.title = kit.label('Loading your status…', 'cardTitle')
-        box.addWidget(self.title)
-        self.session = kit.label('Account · Checking…', 'badge', wrap=False)
-        self.worker = kit.label('Downloader · Checking…', 'badge', wrap=False)
-        box.addWidget(kit.row(self.session, self.worker, spacing=8))
-        self.save = kit.label('', rich=True)
-        box.addWidget(self.save)
-        self.status = kit.label('Connecting to your library…')
-        box.addWidget(self.status)
-        self.signin = kit.button('Sign in', pages.signin, 'secondary')
-        self.go = kit.button('Go', pages.go, 'go')
-        self.allow = kit.button('Allow this connection', pages.allow_network, 'secondary')
-        self.pause = kit.button('Pause', pages.pause, 'secondary')
-        box.addWidget(kit.row(self.signin, self.go, self.allow, self.pause, spacing=12))
-        self.settings_link = kit.label('<a href="settings/downloads">Open download settings</a>', rich=True)
-        box.addWidget(self.settings_link)
-        self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
-                                     '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True)
-        box.addWidget(self.cloud_entry)
-        self.signin_status = kit.label('')
-        box.addWidget(self.signin_status)
-        self.live = w.QWidget()
-        live = w.QVBoxLayout(self.live)
-        live.setContentsMargins(0, 0, 0, 0)
-        live.setSpacing(8)
-        self.list_count = kit.label('')
-        self.meter = w.QProgressBar()
-        self.meter.setTextVisible(False)
-        self.meter.setAccessibleName('Account lists checked')
-        self.list_help = kit.label(LIST_HELP, 'muted')
-        self.clock = kit.label('', 'muted')
-        self.activity = kit.label('', 'activity')
-        for part in (self.list_count, self.meter, self.list_help, self.clock, self.activity):
-            live.addWidget(part)
-        box.addWidget(self.live)
-        self.detail = kit.label('', 'muted')
-        self.estimate = kit.label('', 'muted')
-        self.space = kit.label('', 'muted')
-        self.footnote = kit.label('', 'footnote')
-        for part in (self.detail, self.estimate, self.space, self.footnote):
-            box.addWidget(part)
-        return self.card
+        self._lay_out(1)
+        # The page's own width, not the cards': two cards a row can be wider than a narrowed window.
+        self.margins = column.contentsMargins().left() + column.contentsMargins().right()
+        watch_width(kit, self.widget.viewport(), self._resized)
 
     def _library(self, kit, pages):
         w = kit.w
-        card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        self.library_title = kit.label('Your saved library', 'sectionTitle')
+        card, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
+        self.library_title = kit.label('All sites', 'sectionTitle')
         box.addWidget(self.library_title)
+        self.save = kit.label('', rich=True)
+        box.addWidget(self.save)
         self.metrics = w.QGridLayout()
         self.metrics.setSpacing(12)
         box.addLayout(self.metrics)
@@ -354,8 +399,40 @@ class Dashboard:
         self.place_buttons = []
         self.files = kit.button('View saved files  →', lambda: pages.go_to('library', location='all'), 'secondary')
         box.addWidget(kit.row(self.files))
+        self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
+                                     '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True)
+        box.addWidget(self.cloud_entry)
         box.addWidget(kit.label('Comics in CBZ. Novels in EPUB.', 'muted'))
+        box.addStretch(1)
         return card
+
+    def _resized(self, width):
+        self._lay_out(2 if width - self.margins >= CARD_COLUMNS_FROM else 1)
+
+    def _lay_out(self, columns, force=False):
+        """Put the cards back in the grid, in order, so many to a row."""
+        if columns == self.columns and not force:
+            return
+        self.columns = columns
+        cards = [self.library_card, *(card.widget for card in self.cards.values())]
+        for card in cards:
+            self.grid.removeWidget(card)
+        for index, card in enumerate(cards):
+            self.grid.addWidget(card, index // columns, index % columns)
+        for index in range(2):
+            self.grid.setColumnStretch(index, 1 if index < columns else 0)
+
+    def _sites(self, sites):
+        """One card for each site that works, in the sites' order."""
+        keys = [item['key'] for item in sites if item.get('available')]
+        if list(self.cards) == keys:
+            return
+        for card in self.cards.values():
+            self.grid.removeWidget(card.widget)
+            card.widget.deleteLater()
+        names = {item['key']: item['name'] for item in sites}
+        self.cards = {key: SiteCard(self.kit, self.pages, key, names[key]) for key in keys}
+        self._lay_out(self.columns, force=True)
 
     def _metrics(self, metrics):
         if [cell[0] for cell in self.metric_cells] == [name for _, name in metrics]:
@@ -388,63 +465,26 @@ class Dashboard:
             self.places.addWidget(button)
             self.place_buttons.append(button)
 
-    def show(self, s, v):
-        say(self.updated, v['updated'])
-        self.pill.setText(v['state'])
-        tone(self.pill, 'tone', v['tone'])
-        tone(self.card, 'tone', 'warning' if v['tone'] == 'warning' else 'status')
-        sites = [item for item in s.sites]
-        if [self.site.itemData(i) for i in range(self.site.count())] != [item['key'] for item in sites]:
-            blocked = self.site.blockSignals(True)
-            self.site.clear()
-            for item in sites:
-                self.site.addItem(item['name'] if item.get('available') else item['name'] + ' — coming later', item['key'])
-                self.site.model().item(self.site.count() - 1).setEnabled(bool(item.get('available')))
-            self.site.blockSignals(blocked)
-        choose(self.site, next((item['key'] for item in sites if item.get('current')), None))
-        self.site_row.setVisible(bool(sites))
-        self.site.setEnabled(v['site_enabled'])
-        self.site.setToolTip(v['site_tooltip'])
-        self.title.setText(v['title'])
-        self.session.setText(v['session'])
-        tone(self.session, 'tone', v['session_tone'])
-        self.worker.setText(v['worker'])
-        tone(self.worker, 'tone', v['worker_tone'])
-        place = v['save_place']
+    def show(self, s, sites, views, everything):
+        """s is the chosen site's state; views each site's state and view by key, for the sites open; everything the
+        dashboard's own: its updated line and its two buttons."""
+        say(self.updated, everything['updated'])
+        self.go_all.setEnabled(everything['go_all'])
+        self.pause_all.setVisible(everything['pause_all'])
+        self._sites(sites)
+        for key, card in self.cards.items():
+            card.show(*views.get(key, (None, None)))
+        place = dashboard_model.save_place(s)
         self.save.setText(f'<span>Saving to</span> <b>{html.escape(place)}</b> <a href="settings/storage">Change in Settings</a>'
                           if place else '')
         self.save.setVisible(bool(place))
-        say(self.status, v['status'])
-        self.signin.setVisible(v['signin_visible'])
-        self.signin.setEnabled(v['signin_enabled'])
-        self.signin.setText(v['signin_text'])
-        self.go.setEnabled(v['go_enabled'])
-        self.go.setText(v['go_text'])
-        self.allow.setVisible(v['allow_visible'])
-        self.allow.setEnabled(v['allow_enabled'])
-        self.pause.setVisible(v['pause_visible'])
-        self.pause.setEnabled(v['pause_enabled'])
-        self.settings_link.setVisible(v['settings_link_visible'])
         self.cloud_entry.setVisible(storage_model.storage_choice(s)['entry_visible'])
-        say(self.signin_status, v['signin_status'], v['signin_status_error'])
-        self.live.setVisible(v['live_visible'])
-        say(self.list_count, v['list_count'])
-        self.meter.setVisible(v['meter_visible'])
-        self.meter.setMaximum(v['meter_max'])
-        self.meter.setValue(min(v['meter_value'], v['meter_max']))
-        self.list_help.setVisible(v['list_help_visible'])
-        say(self.clock, v['clock'])
-        say(self.activity, v['activity'])
-        tone(self.activity, 'tone', 'warning' if v['live_waiting'] else '')
-        say(self.detail, v['detail'])
-        say(self.estimate, v['estimate'])
-        say(self.space, v['space'])
-        say(self.footnote, v['footnote'])
         self.files.setEnabled(not s.busy)
-        if s.summary is False:
+        summary = storage_model.combined([state.summary for state, _ in views.values()])
+        if summary is False:
             self.library_summary.setText(storage_model.LIBRARY_UNAVAILABLE)
             return
-        overview = storage_model.library_overview(s.summary or None, s.cloud_offered)
+        overview = storage_model.library_overview(summary, s.cloud_offered)
         self._metrics(overview['metrics'])
         self._places(overview['locations'])
         self.library_summary.setText(overview['summary'])
@@ -506,6 +546,11 @@ class Settings:
     def _downloads(self, kit, pages):
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
         box.addWidget(kit.label('Downloads', 'sectionTitle'))
+        # Each site has its own sign-in, speed and record of what it did not download: this tab shows the one chosen.
+        self.site = kit.combo([], pages.choose_site)
+        self.site.setAccessibleName('Site')
+        self.site_row = kit.row(kit.label('Site', 'strong', wrap=False), self.site)
+        box.addWidget(self.site_row)
         self.signin_note = kit.label('', 'muted')
         box.addWidget(self.signin_note)
         # First on the tab: which checked episodes were not downloaded, and why.
@@ -816,6 +861,17 @@ class Settings:
         for key, panel in self.panels.items():
             panel.setVisible(key == tab)
         say(self.status, v['settings_status'], v['settings_status_error'])
+        sites = list(s.sites)
+        if [self.site.itemData(i) for i in range(self.site.count())] != [item['key'] for item in sites]:
+            blocked = self.site.blockSignals(True)
+            self.site.clear()
+            for item in sites:
+                self.site.addItem(item['name'] if item.get('available') else item['name'] + ' — coming later', item['key'])
+                self.site.model().item(self.site.count() - 1).setEnabled(bool(item.get('available')))
+            self.site.blockSignals(blocked)
+        choose(self.site, next((item['key'] for item in sites if item.get('current')), None))
+        self.site_row.setVisible(bool(sites))
+        self.site.setEnabled(v['site_enabled'])
         self.signin_note.setText(v['signin_note'])
         self.signin_note.setVisible(v['signin_note_visible'])
         self.speed_row.setVisible(v['speed_visible'])
@@ -903,6 +959,7 @@ class Library:
         w, self.kit, self.pages = kit.w, kit, pages
         self.location, self.offset, self.total, self.limit = 'all', 0, 0, library_model.PAGE_SIZES[0]
         self.request, self.busy, self.value, self.desktop_only = 0, False, None, False
+        self.sites = []  # The open sites, (key, name); the list shows one, or every one's at once.
         content = w.QWidget()
         column = w.QVBoxLayout(content)
         column.setContentsMargins(32, 24, 32, 24)
@@ -910,7 +967,7 @@ class Library:
         self.notice = kit.label(library_model.LOADING, 'notice')
         column.addWidget(self.notice)
         top = w.QHBoxLayout()
-        self.title = kit.label(library_model.title('Tapas'), 'pageTitle')
+        self.title = kit.label(library_model.title(None), 'pageTitle')
         top.addWidget(self.title, 1)
         self.open_folder = kit.button('Open folder', pages.open_folder, 'secondary')
         self.refresh = kit.button('Refresh files', lambda: self.load(refresh=True), 'secondary')
@@ -932,16 +989,21 @@ class Library:
         self.kind = kit.combo(library_model.KINDS, lambda _: self.first_page())
         self.sort = kit.combo(library_model.SORTS, lambda _: self.first_page())
         choose(self.kind, 'episodes')
+        self.site = kit.combo([('all', 'All sites')], lambda _: self.first_page())
         self.find = kit.button('Search', self.first_page)
         self.clear = kit.button('Clear', self.clear_search, 'secondary')
         filters = w.QHBoxLayout()
         filters.setSpacing(12)
-        for text, widget in (('Find saved files', self.search), ('File types', self.kind), ('Sort by', self.sort)):
-            box = w.QVBoxLayout()
+        self.site_box = w.QWidget()
+        for text, widget in (('Find saved files', self.search), ('Site', self.site), ('File types', self.kind),
+                             ('Sort by', self.sort)):
+            holder = self.site_box if widget is self.site else w.QWidget()
+            box = w.QVBoxLayout(holder)
+            box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(4)
             box.addWidget(kit.label(text, 'strong', wrap=False))
             box.addWidget(widget)
-            filters.addLayout(box)
+            filters.addWidget(holder)
         filters.addWidget(self.find, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         filters.addWidget(self.clear, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         filters.addStretch(1)
@@ -982,16 +1044,27 @@ class Library:
         self.buttons()
 
     def buttons(self):
-        for widget in (self.refresh, self.find, self.clear, self.search, self.kind, self.sort, self.size, self.page, self.jump):
+        for widget in (self.refresh, self.find, self.clear, self.search, self.site, self.kind, self.sort, self.size, self.page,
+                       self.jump):
             widget.setEnabled(not self.busy)
         self.previous.setEnabled(not self.busy and self.offset > 0)
         self.next.setEnabled(not self.busy and self.offset + self.size.currentData() < self.total)
         for button in self.place_buttons:
             button.setEnabled(not self.busy)
 
-    def open_at(self, location, site, folder, desktop_only):
-        """Opened from the dashboard or Settings: at a storage place, or where it was."""
-        self.title.setText(library_model.title(site))
+    def open_at(self, location, sites, folder, desktop_only):
+        """Opened from the dashboard or Settings: at a storage place, or where it was. sites are the open sites'
+        keys and names; with more than one, the list can show each site's files or every site's at once."""
+        if sites != self.sites:
+            self.sites = list(sites)
+            blocked = self.site.blockSignals(True)
+            kept = self.site.currentData()
+            self.site.clear()
+            for key, name in [('all', 'All sites'), *self.sites] if len(self.sites) > 1 else self.sites:
+                self.site.addItem(name, key)
+            self.site.setCurrentIndex(max(0, self.site.findData(kept)))
+            self.site.blockSignals(blocked)
+        self.site_box.setVisible(len(self.sites) > 1)
         self.open_folder.setVisible(bool(folder))
         self.desktop_only = desktop_only
         if desktop_only:
@@ -1035,7 +1108,13 @@ class Library:
         options = {'location': self.location, 'query': self.search.text().strip()[:library_model.MAX_QUERY],
                    'kind': self.kind.currentData(), 'sort': self.sort.currentData(), 'offset': self.offset,
                    'limit': self.size.currentData(), 'refresh': refresh}
-        self.pages.run(lambda: self.pages.actions.saved_files(**options), lambda value, error: self.loaded(request, value, error))
+        names = dict(self.sites)
+        key = self.site.currentData()
+        self.title.setText(library_model.title(names.get(key)))
+        work = (functools.partial(self.pages.actions_for(key).saved_files, **options) if key in names else
+                functools.partial(app_actions.every_site_files, {name: self.pages.actions_for(site) for site, name in self.sites},
+                                  **options))
+        self.pages.run(work, lambda value, error: self.loaded(request, value, error))
 
     def loaded(self, request, value, error):
         if request != self.request:
@@ -1101,13 +1180,14 @@ class Library:
         button.setAccessibleName('Open ' + row['filename'])
         feedback = self.kit.label('', 'muted')
         feedback.setVisible(False)
-        button.clicked.connect(lambda checked=False: self.open_file(row['open'], button, feedback))
+        # Over every site, a file opens through its own site's library.
+        key = next((key for key, name in self.sites if name == row.get('site')), self.site.currentData())
+        button.clicked.connect(lambda checked=False: self.open_file(key, row['open'], button, feedback))
         box.addWidget(button)
         box.addWidget(feedback)
         return holder
 
-
-    def open_file(self, export_id, button, feedback):
+    def open_file(self, key, export_id, button, feedback):
         button.setEnabled(False)
         button.setText('Opening…')
         say(feedback, library_model.OPENING)
@@ -1117,21 +1197,24 @@ class Library:
             button.setText('Open')
             say(feedback, error or library_model.OPENED, error is not None)
             self.table.resizeRowsToContents()
-        self.pages.run(lambda: self.pages.actions.open_file(export_id), done)
+        self.pages.run(lambda: self.pages.actions_for(key).open_file(export_id), done)
 
 
 class Pages:
-    """The window's pages and the state they show, refreshed every few seconds while the window is open.
+    """The window's pages and every open site's state, each refreshed every few seconds while the window is open.
 
     shell gives the pages what lies outside them: run(work, done) puts work on a thread and done(value, error)
-    back on the window's; and the window's own steps for sites, folders, the theme and links.
+    back on the window's; the sites open and the one chosen, whose settings and sign-in the window shows
+    (open_sites(), chosen_site()); and the window's own steps for sites, folders, the theme and links.
+    actions_for(key) is one site's calls to its library.
     """
 
-    def __init__(self, q, shell, actions, now=time.time):
-        self.q, self.shell, self.actions, self.now = q, shell, actions, now
-        self.state = State()
+    def __init__(self, q, shell, actions_for, now=time.time):
+        self.q, self.shell, self.actions_for, self.now = q, shell, actions_for, now
+        self.states = {}
+        self.cloud_offered = True
         self.route = 'dashboard'
-        self.polling = False
+        self.polling = {}  # Each site's state with a refresh on its way.
         self.polled_task = None
         kit = Kit(q, self.link)
         w = q.QtWidgets
@@ -1149,10 +1232,46 @@ class Pages:
             self.stack.addWidget(page.widget)
         column.addWidget(self.stack, 1)
 
+    # The sites.
+
+    @property
+    def chosen(self):
+        return self.shell.chosen_site()
+
+    @property
+    def state(self):
+        """The chosen site's state: the one Settings shows."""
+        return self.of(self.chosen)
+
+    @property
+    def actions(self):
+        return self.actions_for(self.chosen)
+
+    def of(self, key):
+        """A site's state, made empty the first time it is asked for."""
+        if key not in self.states:
+            self.states[key] = State(cloud_offered=self.cloud_offered)
+        return self.states[key]
+
+    def open_keys(self):
+        return list(self.shell.open_sites())
+
+    def shown(self):
+        """The sites with a state to show: those open, and one being opened."""
+        open_keys = self.open_keys()
+        return [key for key, s in self.states.items() if key in open_keys or s.busy]
+
+    def opening(self, key, text):
+        """A site is being opened: its card says so until it is open. The site's state, for the shell to settle."""
+        s = self.of(key)
+        s.busy, s.message = True, dashboard_model.Message(text)
+        self.render()
+        return s
+
     # Moving between pages.
 
     def go_to(self, name, location=None):
-        route = route_of(name, self.state.cloud_offered)
+        route = route_of(name, self.cloud_offered)
         if self.route == 'settings/b2' and route != 'settings/b2':
             self.settings.forget_keys()
         opened = route.partition('/')[0] != self.route.partition('/')[0]
@@ -1162,9 +1281,11 @@ class Pages:
         if opened:
             page.widget.verticalScrollBar().setValue(0)
         if route == 'library':
+            names = {item['key']: item['name'] for item in self.state.sites}
             self.library.open_at(location if location is not None else
                                  None if self.library.value is not None else 'all',
-                                 self.state.site(), self.state.library_folder, not self.state.cloud_offered)
+                                 [(key, names.get(key, key)) for key in self.open_keys()],
+                                 self.state.library_folder, not self.cloud_offered)
         self.render()
 
     def link(self, target):
@@ -1177,25 +1298,35 @@ class Pages:
     # Reading the library.
 
     def start(self, then=None):
-        """The library is open: read its context, then refresh it. then(ok) follows that first refresh."""
-        def done(value, error):
-            if error is None:
-                self.received_context(value)
-            self.poll(then)
-        self.run(self.actions.context, done)
+        """The library is open: read each open site's context, then refresh it. then(ok) follows the chosen site's
+        first refresh."""
+        chosen = self.chosen
+        for key in self.open_keys():
+            self.read_context(key, then if key == chosen else None)
 
-    def received_context(self, value):
-        s = self.state
+    def read_context(self, key, then=None):
+        s = self.of(key)
+
+        def done(value, error):
+            if self.states.get(key) is not s:
+                return  # Another folder opened meanwhile; its own reading follows.
+            if error is None:
+                self.received_context(s, value)
+            self.poll_site(key, then)
+        self.run(self.actions_for(key).context, done)
+
+    def received_context(self, s, value):
         s.sites = value['sites']
         s.library_folder, s.cloud_offered = value['library_folder'], value['cloud_offered']
         s.workspace_id = value['workspace_id']
+        self.cloud_offered = value['cloud_offered']
         self.render()
 
     def reopened(self, then=None):
-        """A library is open, at the start or after another site or folder was chosen: read everything, afresh."""
-        s, route = self.state, self.route
-        self.state = State(cloud_offered=s.cloud_offered)
-        self.polling = False
+        """A library folder is open, at the start or after another folder was chosen: read every site, afresh."""
+        route = self.route
+        self.states = {}
+        self.polling = {}
         self.library.value = None
         self.settings.forget_keys()
         self.start(then)
@@ -1204,38 +1335,68 @@ class Pages:
         else:
             self.render()
 
+    def site_chosen(self):
+        """Another site was chosen in Settings, or opened: Settings shows it, and a site opened just now is read."""
+        self.settings.forget_keys()
+        if not self.state.loaded:
+            self.read_context(self.chosen)
+        self.render()
+
     def drawn(self):
-        """Whether the dashboard shows a library it has read."""
-        return self.state.loaded and self.dashboard.status.text() != 'Connecting to your library…'
+        """Whether the dashboard shows the chosen site's library, read."""
+        card = self.dashboard.cards.get(self.chosen)
+        return self.state.loaded and card is not None and [name.text() for name, _ in card.cells][:1] == ['Account']
 
     def poll(self, then=None):
-        s = self.state
-        if s.busy or self.polling:
+        """Refresh every open site; then(ok) follows the chosen site's refresh."""
+        chosen = self.chosen
+        for key in self.open_keys():
+            self.poll_site(key, then if key == chosen else None)
+
+    def poll_site(self, key, then=None):
+        s = self.of(key)
+        if s.busy or key in self.polling:
             return
-        self.polling = True
+        self.polling[key] = s
         now = self.now()
         network, library, recount = app_actions.due(s, now)
         task = s.task
 
         def done(value, error):
-            self.polling = False
-            if self.state is not s:
-                return  # Another site or folder opened meanwhile; its own refresh follows.
+            if self.polling.get(key) is s:
+                del self.polling[key]
+            if self.states.get(key) is not s:
+                return  # Another folder opened meanwhile; its own refresh follows.
             if error is not None:
                 s.refresh_failed()
-            elif app_actions.received(s, value, self.now(), task):
+            elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
                 self.settings.forget_keys()
             self.render()
             if then is not None:
                 then(error is None)
-        self.run(lambda: self.actions.poll(task, network=network, cloud=s.cloud_offered, library=library, refresh=recount), done)
+        self.run(lambda: self.actions_for(key).poll(task, network=network, cloud=s.cloud_offered, library=library,
+                                                    refresh=recount), done)
 
     def render(self):
-        s, now = self.state, self.now()
-        v = dashboard_model.view(s, now)
+        now, chosen = self.now(), self.chosen
+        s = self.state
+        views = {key: (self.states[key], dashboard_model.view(self.states[key], now)) for key in self.shown()}
+        v = views[chosen][1] if chosen in views else dashboard_model.view(s, now)
+        # Until a site's context is read, the app's own list stands in, so every open site has its card.
+        sites = (s.sites or next((state.sites for state, _ in views.values() if state.sites), None)
+                 or site_choices(find_site(chosen) or DEFAULT))
+        # Updates are as late as the latest site's; a site that could not be reached says so first.
+        oldest = min(views.values(), key=lambda pair: (not pair[0].offline, pair[0].refreshed_at), default=(s, v))
+        everything = {'updated': oldest[1]['updated'], 'go_all': any(view['go_enabled'] for _, view in views.values()),
+                      'pause_all': any(view['pause_visible'] for _, view in views.values())}
         self.header.show(self.route, self.shell.dark())
-        self.dashboard.show(s, v)
+        self.dashboard.show(s, sites, views, everything)
         if self.route.startswith('settings/'):
+            # A new folder takes every site with it, so it waits for every site's download.
+            locks = [view['folder_lock'] for _, view in views.values() if view['folder_lock']]
+            v = dict(v, folder_enabled=all(view['folder_enabled'] for _, view in views.values()) and v['folder_enabled'],
+                     folder_tooltip=next((view['folder_tooltip'] for _, view in views.values() if view['folder_tooltip']), ''),
+                     folder_lock=locks[0] if locks else '')
             self.settings.show(s, v, self.route.partition('/')[2])
 
     # What the person asks for.
@@ -1243,12 +1404,10 @@ class Pages:
     def run(self, work, done):
         self.shell.run(work, done)
 
-
-
-
-    def act(self, work, done=None, cloud=False, after=None):
-        """One change at a time: the buttons wait while it runs, and a refusal is said on the dashboard and in Settings."""
-        s = self.state
+    def act(self, work, done=None, cloud=False, after=None, key=None):
+        """One change at a time on a site: its buttons wait while it runs, and a refusal is said on its card and in
+        Settings. key is the site's; the chosen site's when None."""
+        s = self.of(key or self.chosen)
         if s.busy:
             return
         s.busy = True
@@ -1267,14 +1426,21 @@ class Pages:
             self.render()
         self.run(work, finished)
 
-    def account_act(self, work, done=None, after=None):
-        if self.state.busy:
+    def account_act(self, work, done=None, after=None, key=None):
+        s = self.of(key or self.chosen)
+        if s.busy:
             return
-        self.state.message = None
-        self.act(work, done, after=after)
+        s.message = None
+        self.act(work, done, after=after, key=key)
 
-    def signin(self):
-        self.account_act(self.actions.signin, lambda value: self.state.received_site_auth(value, self.now()))
+    def signin(self, key=None):
+        """Sign in to a site, in the window: one site at a time, so the site is chosen first."""
+        key = key or self.chosen
+        if key != self.chosen or key not in self.open_keys():
+            self.shell.choose_site(key, then=lambda: self.signin(key))
+            return
+        s = self.of(key)
+        self.account_act(self.actions_for(key).signin, lambda value: s.received_site_auth(value, self.now()), key=key)
 
     def sign_out(self):
         s = self.state
@@ -1288,19 +1454,37 @@ class Pages:
             self.poll_soon()
         self.account_act(self.actions.sign_out, signed_out)
 
-    def go(self):
-        def started(value):
-            self.state.received_account(value, self.now())
-            # A fast failure can arrive before Go returns, with no running refresh in between.
-            self.state.download_started()
-            self.state.offline = False
-        self.account_act(self.actions.go, started)
+    def go(self, key=None):
+        s = self.of(key or self.chosen)
 
-    def pause(self):
+        def started(value):
+            s.received_account(value, self.now())
+            # A fast failure can arrive before Go returns, with no running refresh in between.
+            s.download_started()
+            s.offline = False
+        self.account_act(self.actions_for(key or self.chosen).go, started, key=key)
+
+    def pause(self, key=None):
+        s = self.of(key or self.chosen)
+
         def paused(value):
-            self.state.received_account(value, self.now())
+            s.received_account(value, self.now())
             self.poll_soon()
-        self.account_act(self.actions.pause, paused)
+        self.account_act(self.actions_for(key or self.chosen).pause, paused, key=key)
+
+    def go_all(self):
+        """Go on every site that can go now; the others stay as they are."""
+        now = self.now()
+        for key in self.open_keys():
+            if dashboard_model.view(self.of(key), now)['go_enabled']:
+                self.go(key)
+
+    def pause_all(self):
+        now = self.now()
+        for key in self.open_keys():
+            v = dashboard_model.view(self.of(key), now)
+            if v['pause_visible'] and v['pause_enabled']:
+                self.pause(key)
 
     def poll_soon(self):
         self.q.QtCore.QTimer.singleShot(0, self.poll)
@@ -1320,6 +1504,8 @@ class Pages:
             return self.actions.poll(network=True, cloud=False)['network']
 
         def kept(value):
+            for other in self.states.values():
+                other.network_at = 0  # The rule is every site's.
             s.network, s.network_at = value, self.now()
 
         def settled():
@@ -1327,16 +1513,21 @@ class Pages:
             s.network_saving = False
         self.account_act(checked, kept, settled)
 
-    def allow_network(self):
-        s = self.state
+    def allow_network(self, key=None):
+        """The connection rule is every site's: allowed on one card, every site reads it again at its next refresh."""
+        key = key or self.chosen
+        s, actions = self.of(key), self.actions_for(key)
 
         def allowed():
-            self.actions.wifi_only(False)
-            return self.actions.poll(network=True, cloud=False)['network']
+            actions.wifi_only(False)
+            return actions.poll(network=True, cloud=False)['network']
 
         def kept(value):
+            for other in self.states.values():
+                other.network_at = 0
             s.network, s.network_at = value, self.now()
-        self.account_act(allowed, kept)
+            self.poll_soon()
+        self.account_act(allowed, kept, key=key)
 
     def choose_storage(self, chosen):
         s = self.state
@@ -1407,7 +1598,7 @@ class Pages:
 
     def choose_site(self, key):
         self.shell.choose_site(key)
-        self.render()  # The list shows the open site until the switch is done.
+        self.render()  # The list shows the chosen site until the other one is open.
 
     def open_folder(self):
         self.shell.open_folder()

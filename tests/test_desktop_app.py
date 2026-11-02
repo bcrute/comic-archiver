@@ -16,10 +16,10 @@ from urllib.parse import urlsplit
 from support import home_environment
 from comic_archive import app_runtime, desktop_app, qt_engine, sites, window_style
 from comic_archive.app_actions import Refused
-from comic_archive.dashboard_model import Message, error_text
+from comic_archive.dashboard_model import error_text
 from comic_archive.models import ArchiveError
 
-RUNTIME = app_runtime.Runtime
+RUNTIME = app_runtime.Library
 URL = 'http://127.0.0.1:4321/'  # An address on this computer, which no page may reach.
 SIGNIN = 'https://tapas.io/account/signin'
 QT_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) QtWebEngine/6.11.2 Chrome/140.0.0.0 Safari/537.36'
@@ -154,7 +154,10 @@ class DesktopAppTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name).resolve()
         self.state, self.log = self.home / 'state/comic-archiver', self.home / 'state/comic-archiver/desktop.log'
+        # The library's sites: the chosen one, Tapas, is the only one open, and is its own runtime here.
         self.runtime = Mock(site=sites.DEFAULT)
+        self.runtime.runtimes = {sites.DEFAULT.key: self.runtime}
+        self.runtime.runtime.side_effect = lambda key=None: self.runtime.runtimes.get(key or self.runtime.site.key)
         self.runtime.busy.return_value = None
         self.runtime.vanished.return_value = False
         self.signin = self.runtime.signin
@@ -166,6 +169,7 @@ class DesktopAppTests(unittest.TestCase):
         self.pages = []
 
         def pages(q, shell, actions):
+            # actions is the window's own: a site's key in, that site's calls out.
             made = Mock(name='pages', actions=actions, state=SimpleNamespace(busy=False, message=None))
             made.close_readers.side_effect = lambda then: then()
             self.pages.append(made)
@@ -178,7 +182,7 @@ class DesktopAppTests(unittest.TestCase):
         for wrapper in [patch.dict(os.environ, home_environment(self.home, self.home / 'state')),
                         patch.dict(sys.modules, fake_qt()),
                         patch('comic_archive.desktop_app.threading', self.threads),
-                        patch('comic_archive.desktop_app.app_runtime.Runtime', self.runtime_kind),
+                        patch('comic_archive.desktop_app.app_runtime.Library', self.runtime_kind),
                         patch('comic_archive.desktop_app.app_runtime.state_dir', self.state_dir),
                         patch('comic_archive.desktop_app.app_runtime.configure_logging', self.logging),
                         patch('comic_archive.window_pages.Pages', Mock(side_effect=pages)),
@@ -250,7 +254,8 @@ class DesktopAppTests(unittest.TestCase):
             self.assertEqual(dialog.call_count, 7)
             emit(self.core.QTimer.made[-1].timeout)
         # The same pages read the new folder's library, afresh, on clocks that run again.
-        self.assertEqual((shell.runtime, shell.phase, pages.actions._runtime()), (other, 'open', other))
+        self.assertEqual((shell.runtime, shell.phase), (other, 'open'))
+        self.assertIs(pages.actions('tapas')._runtime(), other.runtime('tapas'))
         self.assertEqual([call.args for call in pages.reopened.call_args_list], [(None,), (None,)])
         shell.stack.setCurrentWidget.assert_called_with(pages.widget)
         for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
@@ -304,68 +309,67 @@ class DesktopAppTests(unittest.TestCase):
         tested = self.opened(probe=Mock()); tested.load()
         self.signin.check.assert_not_called()
 
-    def test_a_site_chosen_in_the_dashboard_opens_its_own_library_behind_the_same_page_unless_saving_or_signing_in(self):
+    def test_a_site_chosen_in_settings_opens_beside_the_others_and_stops_nothing(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        third = replace(sites.DEFAULT, key='third', name='Third', available=True)
         hidden = replace(sites.DEFAULT, key='hidden', name='Hidden', available=False)
         shell = self.opened()
         pages, change = shell.pages, self.runtime.change_site
-        change.return_value = None
-        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, hidden)):
-            shell.choose_site('example')  # Still starting.
+
+        def changed(site):
+            self.runtime.runtimes.setdefault(site.key, self.runtime)
+            self.runtime.site = site
+        change.side_effect = changed
+        then = Mock()
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, third, hidden)):
+            shell.choose_site('example', then)  # Still starting.
             shell.load()
-            # The site already open, one that cannot be chosen and one that does not exist change nothing.
+            # The site already chosen goes straight on; one that cannot be chosen and one that does not exist change nothing.
             for key in ('tapas', 'hidden', 'nowhere'):
-                shell.choose_site(key)
-            self.box.question.assert_not_called()
-            # Asked first, in plain words; No leaves everything as it was.
-            self.box.question.return_value = 2
-            shell.choose_site('example')
-            self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', desktop_app.SITE_SWITCH.format(
-                site='Example', open='Tapas'), 3, 2))
-            # Never while saving or signing in: the dashboard goes on reading the site still open.
-            self.box.question.return_value = 1
+                shell.choose_site(key, then)
+            then.assert_called_once_with()
+            change.assert_not_called()
+            # One sign-in at a time: while one is open in the window, the site stays.
+            shell.signin_stage = 'page'
+            shell.choose_site('example', then)
+            shell.signin_stage = None
+            change.assert_not_called()
+            # A download on the open site does not stop it, and nothing is asked first.
             self.runtime.busy.return_value = 'download'
-            shell.choose_site('example')
-            self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.SITE_BUSY.format(site='Example'))
-            self.runtime.busy.return_value = None
-            # The window began closing while the question was open.
-            def closing(*_):
-                shell.phase = 'stopping'
-                return 1
-            self.box.question.side_effect = closing
-            shell.choose_site('example')
-            self.box.question.side_effect = None
-            shell.phase = 'open'
-            change.assert_not_called(); pages.render.assert_called_once_with()  # Only when the window was coloured.
             self.threads.Thread.alive = True
-            shell.choose_site('example')
+            shell.choose_site('example', then)
             change.assert_called_once_with(example)
-            # Closing waits for the switch, and the dashboard says what is going on until it is done.
-            self.assertEqual((shell.phase, pages.state.busy, pages.state.message), ('moving', True, Message('Switching to Example…')))
+            # Closing waits for the site to open, and its card says what is going on until it has.
+            self.assertEqual(shell.phase, 'moving')
+            pages.opening.assert_called_once_with('example', 'Opening Example…')
             self.assertEqual(desktop_app.close_action(shell.phase, None), 'ignore')
-            pages.render.assert_called_with()
             self.threads.Thread.alive = False
             emit(self.core.QTimer.made[-1].timeout)
-            # The pages stay in the window and read the other site's library, afresh.
-            self.assertEqual((shell.runtime, shell.phase, pages.reopened.call_count), (self.runtime, 'open', 2))
-            pages.reopened.assert_called_with()
-            self.assertEqual(self.signin.check.call_count, 2)  # The other site's saved sign-in is asked about too.
-            self.box.information.assert_called_once()
-            # The site asked for cannot be opened: it stays as it was, with the reason in words.
-            change.return_value = 'That folder cannot be written to.'
-            self.runtime.site = example
-            shell.choose_site('tapas')
+            self.assertEqual((shell.runtime, shell.phase, then.call_count), (self.runtime, 'open', 2))
+            self.assertEqual((pages.opening.return_value.busy, pages.opening.return_value.message), (False, None))
+            pages.site_chosen.assert_called_once_with()
+            pages.reopened.assert_called_once_with(None)  # Only at the start: no site is read again.
+            self.assertEqual(self.signin.check.call_count, 2)  # The site opened is asked about its saved sign-in.
+            self.box.question.assert_not_called(); self.box.information.assert_not_called()
+            self.runtime.stop.assert_not_called()
+            # A site already open is chosen at once.
+            shell.choose_site('tapas', then)
+            self.assertEqual((change.call_args.args, pages.site_chosen.call_count, then.call_count), ((sites.DEFAULT,), 2, 3))
+            self.assertEqual(shell.phase, 'open')
+            # A site that cannot be opened: Settings stays on the chosen one, with the reason in words.
+            change.side_effect = lambda site: 'That folder cannot be written to.'
+            shell.choose_site('third', then)
             emit(self.core.QTimer.made[-1].timeout)
-            self.assertEqual((shell.phase, pages.reopened.call_count), ('open', 3))
-            self.assertEqual(self.box.information.call_args.args, (shell.window, 'Comic Archiver',
-                             'Comic Archiver stays on Example.\n\nThat folder cannot be written to.'))
-            # A switch that broke off: the window says so, with where the details are, and closing still works.
+            self.assertEqual((shell.phase, pages.site_chosen.call_count, then.call_count), ('open', 2, 3))
+            self.assertEqual(self.box.information.call_args.args, (shell.window, 'Comic Archiver', desktop_app.SITE_FAILED.format(
+                site='Third', open='Tapas', reason='That folder cannot be written to.')))
+            # Opening that broke off: the window says so, with where the details are, and closing still works.
             change.side_effect = OSError('PRIVATE')
             with self.assertLogs('comic_archive.desktop', 'ERROR') as logs:
-                shell.choose_site('tapas')
+                shell.choose_site('third')
                 emit(self.core.QTimer.made[-1].timeout)
         self.assertNotIn('PRIVATE', ''.join(logs.output))
-        self.assertEqual((shell.phase, pages.reopened.call_count), ('failed', 3))
+        self.assertEqual(shell.phase, 'failed')
         shell.notice.setText.assert_called_with(f'{desktop_app.LOAD_FAILED}\n\nDetails are saved in:\n{self.log}')
         shell.stack.setCurrentWidget.assert_called_with(shell.notice)
         self.assertEqual(desktop_app.close_action(shell.phase, None), 'finish')
@@ -906,8 +910,11 @@ class DesktopAppTests(unittest.TestCase):
     def test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks(self):
         shell = self.opened()
         pages = shell.pages
-        # The pages read whichever library the window has now.
-        self.assertEqual(pages.actions._runtime(), self.runtime)
+        # The pages read each site of whichever library the window has now, with one set of calls a site.
+        self.assertEqual(pages.actions('tapas')._runtime(), self.runtime)
+        self.assertIs(pages.actions('tapas'), pages.actions('tapas'))
+        self.assertIsNone(pages.actions('webtoon')._runtime())
+        self.assertEqual((shell.open_sites(), shell.chosen_site()), (['tapas'], 'tapas'))
         self.assertEqual(shell.notice.args, (desktop_app.STARTING,))
         shell.poll_clock.setInterval.assert_called_once_with(desktop_app.POLL_MS)
         shell.tick_clock.setInterval.assert_called_once_with(desktop_app.CLOCK_MS)
@@ -1923,7 +1930,7 @@ class DesktopAppTests(unittest.TestCase):
 
         def loop():
             # What the dashboard reads, through the same calls, from the library the self-test opened.
-            actions = self.pages[-1].actions
+            actions = self.pages[-1].actions('tapas')
             read.append((actions.context(), actions.poll(network=False)))
             context, reading = read[0]
             self.answer(True, reading['account'].get('configured') is False and context['library_folder'].endswith('Library'))()

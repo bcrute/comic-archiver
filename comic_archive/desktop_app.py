@@ -128,10 +128,8 @@ LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it
                      'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}\n\n'
                      'Your library page then shows only what is saved in this folder.')
 LOCATION_FAILED = 'The folder was not changed.\n\n{reason}'
-SITE_SWITCH = 'Switch to {site}? Your {open} episodes stay saved, and you can switch back any time.'
-SITE_SWITCHING = 'Switching to {site}…'
-SITE_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then switch to {site}.'
-SITE_FAILED = 'Comic Archiver stays on {site}.\n\n{reason}'
+SITE_OPENING = 'Opening {site}…'
+SITE_FAILED = '{site} could not be opened, so Settings stays on {open}.\n\n{reason}'
 LOCATION_MISSING = ('Comic Archiver cannot open the folder it saves to:\n{folder}\n\n'
                     'If it is on a drive that is not connected, choose No, connect the drive and open Comic Archiver again.\n\n'
                     'Save to the standard folder instead?\n{standard}')
@@ -555,7 +553,7 @@ def claim(q, lock, name):
 
 
 class Shell:
-    """One window around one runtime."""
+    """One window around the library folder's sites (an app_runtime.Library, kept as runtime)."""
 
     def __init__(self, q, app, runtime, log_path=None, probe=None):
         self.q, self.app, self.runtime, self.log_path, self.probe = q, app, runtime, log_path, probe
@@ -636,8 +634,11 @@ class Shell:
         self.notice = q.QtWidgets.QLabel(STARTING)
         self.notice.setAlignment(q.QtCore.Qt.AlignmentFlag.AlignCenter)
         self.notice.setWordWrap(True)
-        # The pages read whichever runtime the window has: a change of folder replaces it.
-        self.pages = Pages(q, self, Actions(lambda: self.runtime))
+        # Each site's calls read its runtime in whichever library the window has: a change of folder replaces it.
+        # One Actions a site, so that its changes take turns.
+        self.site_actions = {}
+        self.actions_for = lambda key: self.site_actions.setdefault(key, Actions(lambda: self.runtime.runtime(key)))
+        self.pages = Pages(q, self, self.actions_for)
         self.stack = q.QtWidgets.QStackedWidget(self.window)
         self.stack.addWidget(self.notice)
         self.stack.addWidget(self.pages.widget)
@@ -666,6 +667,13 @@ class Shell:
 
     def dark(self):
         return self.app.styleHints().colorScheme() == self.q.QtCore.Qt.ColorScheme.Dark
+
+    def open_sites(self):
+        """The keys of the sites open in the library, in the sites' own order."""
+        return [site.key for site in sites.SITES if site.key in self.runtime.runtimes]
+
+    def chosen_site(self):
+        return self.runtime.site.key
 
     def theme_apply(self):
         """Give the window the look chosen in its header: the computer's own, or always light or dark."""
@@ -739,13 +747,14 @@ class Shell:
         self.signin_clock.start()
         self.check_signin()
 
-    def check_signin(self):
-        """Ask the site, off the window's thread, whether the saved sign-in still works, so an expired one shows
-        before Go rather than after it. Go still checks."""
+    def check_signin(self, keys=None):
+        """Ask each open site (or those keys'), off the window's thread, whether its saved sign-in still works, so an
+        expired one shows before Go rather than after it. Go still checks."""
         if self.probe:
             return  # A self-test asks no site anything.
-        signin, agent = self.runtime.signin, self.engine_agent()
-        self.background(lambda: signin.check(agent), self.refresh)
+        agent = self.engine_agent()
+        for runtime in [self.runtime.runtime(key) for key in keys] if keys else list(self.runtime.runtimes.values()):
+            self.background(lambda signin=runtime.signin: signin.check(agent), self.refresh)
 
     def engine_agent(self):
         """The name the app's browser gives sites: the sign-in page and the downloader send the same."""
@@ -842,7 +851,7 @@ class Shell:
         self.retry = widgets.QPushButton(SIGNIN_RETRY)
         self.retry.clicked.connect(self.signin_retry)
         self.where = widgets.QLabel('')
-        self.hint = widgets.QLabel('')  # Named for the site each time sign-in opens: the panel outlives a switch.
+        self.hint = widgets.QLabel('')  # Named for the site each time sign-in opens: the panel outlives a change of site.
         self.signin_message = widgets.QLabel('')
         self.signin_message.setAlignment(q.QtCore.Qt.AlignmentFlag.AlignCenter)
         self.signin_message.setWordWrap(True)
@@ -1194,30 +1203,28 @@ class Shell:
         if self.phase == 'open' and not self.runtime.busy():
             self.relocate(root)
 
-    def choose_site(self, key):
-        """Asked for in the dashboard's list of sites: open that site's own library and sign-in in the same window.
+    def choose_site(self, key, then=None):
+        """Asked for in Settings' list of sites, or by a site's own Sign in: show that site's settings and sign-in.
+        then() follows once it is chosen.
 
-        The pages stay and read the other site's library once the switch has settled.
+        Every other site carries on as it is. A site not open yet opens first, and the pages read it once it has.
         """
         site = sites.find(key)
-        if site is None or self.phase != 'open' or site.key == self.runtime.site.key:
-            return
-        widgets = self.q.QtWidgets
-        box, buttons = widgets.QMessageBox, widgets.QMessageBox.StandardButton
-        text = SITE_SWITCH.format(site=site.name, open=self.runtime.site.name)
-        if box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) != buttons.Yes:
-            return
-        if self.phase != 'open':
-            return  # The dialog lets time pass.
-        if self.runtime.busy():
-            box.information(self.window, APP_NAME, SITE_BUSY.format(site=site.name))
+        if site is None or self.phase != 'open' or self.signin_stage:
+            return  # One sign-in at a time: the window stays on its site until it is done.
+        if site.key == self.runtime.site.key:
+            if then is not None:
+                then()
             return
         previous, outcome = self.runtime.site, []
-        self.phase = 'moving'  # Closing waits, and no sign-in starts, until the switch is done.
-        from .dashboard_model import Message
-        state = self.pages.state
-        state.busy, state.message = True, Message(SITE_SWITCHING.format(site=site.name))
-        self.pages.render()
+        if self.runtime.runtime(site.key) is not None:
+            self.runtime.change_site(site)
+            self.pages.site_chosen()
+            if then is not None:
+                then()
+            return
+        self.phase = 'moving'  # Closing waits, and no sign-in starts, until the site is open.
+        state = self.pages.opening(site.key, SITE_OPENING.format(site=site.name))
 
         def done():
             self.phase = 'open'
@@ -1226,10 +1233,16 @@ class Shell:
                 self.show_notice(LOAD_FAILED)
                 self.show(self.notice)
                 return
+            state.busy, state.message = False, None
             if outcome[0]:
-                box.information(self.window, APP_NAME, SITE_FAILED.format(site=previous.name, reason=outcome[0]))
-            self.pages.reopened()
-            self.check_signin()
+                self.q.QtWidgets.QMessageBox.information(self.window, APP_NAME, SITE_FAILED.format(
+                    site=site.name, open=previous.name, reason=outcome[0]))
+                self.pages.render()
+                return
+            self.pages.site_chosen()
+            self.check_signin([site.key])
+            if then is not None:
+                then()
         self.background(lambda: outcome.append(self.runtime.change_site(site)), done)
 
     def library_gone(self):
@@ -1332,7 +1345,7 @@ def run(q, project_root):
             found = find_library(q, None, app_runtime.default_root(), LIBRARY_GONE_START)
             if found is None:
                 return 0
-        runtime = app_runtime.Runtime(Path(project_root).expanduser() if project_root
+        runtime = app_runtime.Library(Path(project_root).expanduser() if project_root
                                       else chosen or found or app_runtime.default_root(), site=app_runtime.saved_site())
         shell = Shell(q, app, runtime, log_path)
         # Ending the app from outside (logging out, kill) stops the downloader as closing the window does.
@@ -1391,7 +1404,7 @@ def self_test(q):
     watchdog.start()
     try:
         with tempfile.TemporaryDirectory(prefix='comic-archiver-self-test-', ignore_cleanup_errors=True) as temporary:
-            runtime = app_runtime.Runtime(Path(temporary).resolve() / 'library')
+            runtime = app_runtime.Library(Path(temporary).resolve() / 'library')
             try:
                 app = application(q)
 

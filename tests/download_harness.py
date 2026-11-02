@@ -21,7 +21,7 @@ KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'status', 'phas
 STATUSES = {'running', 'held', 'stopped', 'finished'}
 PHASES = ['existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished']
 RETRY_REASONS = {'connection', 'source', 'images', 'idle'}
-# What the download may hold for: each a reason the person can act on (see dashboard_model.held_message).
+# What the download may hold for: each a reason the person can act on (see dashboard_model.held_reason).
 HOLDS = {'login_required', 'source_refused', 'source_access_changed', 'no_progress', 'task_failed',
          'task_result_invalid', 'task_unavailable', 'controller_failed', 'archive_incomplete',
          'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket', 'cloud_login_required', 'cloud_space',

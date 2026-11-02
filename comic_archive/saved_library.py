@@ -231,6 +231,26 @@ class Catalog:
                              offset=offset, limit=limit, summary=summary)
 
 
+def merge(snapshots):
+    """Several sites' catalogs as one, for a list over every site: {site name: snapshot} in the sites' order.
+
+    Each row keeps the name of its site; each place counts what it holds on every site, and is connected if it
+    is on any.
+    """
+    rows, groups = [], {}
+    for name, value in snapshots.items():
+        rows += [dict(row, site=name) for row in value.get('rows') or []]
+        for group in value['locations']:
+            kept = groups.setdefault(group['id'], dict(group, files=0, episodes=0, bytes=0, connected=False))
+            kept['connected'] = kept['connected'] or bool(group.get('connected'))
+            for key in ('files', 'episodes', 'bytes'):
+                kept[key] += group.get(key) or 0
+    return {'rows': rows, 'locations': list(groups.values()),
+            'episode_count': sum(value['episode_count'] for value in snapshots.values()),
+            'file_count': sum(value['file_count'] for value in snapshots.values()),
+            'updated_at': max((value['updated_at'] for value in snapshots.values()), default=None)}
+
+
 def page_snapshot(value, *, location='all', query='', kind='all', sort='saved_desc', offset=0, limit=50,
                   summary=False):
     """One catalog's presentation rules, shared by filesystem and Android document facts.

@@ -82,7 +82,9 @@ def rows(value, desktop_only):
         local = item.get('location') == 'device'
         opens = (local and item.get('kind') in ('cbz', 'epub') and isinstance(item.get('id'), str)
                  and re.fullmatch(r'[a-f0-9]{64}', item['id']) is not None)
-        result.append({'series': item.get('series') or '', 'title': item.get('title') or '—', 'filename': item.get('filename') or '',
+        # Over every site, each file says which site it came from, under its series.
+        series = item.get('series') or ''
+        result.append({'series': f"{series}\n{item['site']}" if item.get('site') else series, 'site': item.get('site'), 'title': item.get('title') or '—', 'filename': item.get('filename') or '',
                        'type': TYPES.get(item.get('kind'), '—'), 'size': size(item.get('size')),
                        'saved': when[0] if when else '—', 'exact': when[1] if when else '',
                        'file_time': bool(when) and item.get('date_source') == 'file_modified',
@@ -113,7 +115,8 @@ def notice(value):
 
 
 def title(site):
-    return f'Your saved {site} library'
+    """The page's title: one site's library, or None for every site's."""
+    return f'Your saved {site} library' if site else 'Your saved library, all sites'
 
 
 def offset_for(page, limit):

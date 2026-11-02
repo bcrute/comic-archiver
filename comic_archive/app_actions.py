@@ -37,10 +37,10 @@ def described(error):
 
 
 class Actions:
-    """The open library's calls, for whichever runtime the window has now: a site or folder change replaces it."""
+    """One site's calls to its library, for whichever runtime the window has for it now: a folder change replaces it."""
 
     def __init__(self, runtime):
-        self._runtime = runtime  # A callable: the window's current runtime.
+        self._runtime = runtime  # A callable: the site's runtime now, or None while it is not open.
         self._turn = threading.RLock()
 
     def _registry(self):
@@ -164,21 +164,40 @@ class Actions:
 
     def saved_files(self, **options):
         """A page of the saved-file catalog. Read behind the catalog's own lock: a slow scan does not hold up Pause or Go."""
-        from .saved_library import options as checked
-        values = {k: ('1' if v else '0') if type(v) is bool else str(v) for k, v in options.items() if k != 'query'}
-        if options.get('query'):
-            values['q'] = options['query']
-        try:
-            chosen = checked(urlencode(values))
-        except ArchiveError:
-            raise Refused('request_unavailable', error_text('request_unavailable')) from None
-        return self._call('saved_files', locked=False, failed=UNAVAILABLE, **chosen)
+        return self._call('saved_files', locked=False, failed=UNAVAILABLE, **checked(options))
+
+    def saved_snapshot(self, refresh=False):
+        """Every saved file of this site, unpaged, for the list over every site."""
+        return self._call('saved_snapshot', locked=False, failed=UNAVAILABLE, refresh=bool(refresh))
 
     def open_file(self, export_id):
         if not isinstance(export_id, str) or not EXPORT_ID.fullmatch(export_id):
             raise Refused('request_unavailable', OPEN_FAILED)
         return self._call('open_file_on_device', export_id, failed=OPEN_FAILED)
 
+
+def checked(options):
+    """The saved-file list's options as the catalog takes them, or Refused."""
+    from .saved_library import options as parsed
+    values = {k: ('1' if v else '0') if type(v) is bool else str(v) for k, v in options.items() if k != 'query'}
+    if options.get('query'):
+        values['q'] = options['query']
+    try:
+        return parsed(urlencode(values))
+    except ArchiveError:
+        raise Refused('request_unavailable', error_text('request_unavailable')) from None
+
+
+def every_site_files(actions, **options):
+    """A page of the saved files of every open site at once: actions is {site name: that site's Actions}."""
+    from .saved_library import merge, page_snapshot
+    chosen = checked(options)
+    refresh = chosen.pop('refresh', False)
+    snapshots = {name: site.saved_snapshot(refresh) for name, site in actions.items()}
+    try:
+        return page_snapshot(merge(snapshots), **chosen)
+    except ArchiveError:
+        raise Refused('request_unavailable', UNAVAILABLE) from None
 
 
 def due(state, now):
