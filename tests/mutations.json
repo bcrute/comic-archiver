@@ -5094,5 +5094,21 @@
   "new": "    read = [summary for summary in summaries if isinstance(summary, dict)][:1]\n",
   "test_file": "test_window_pages.py",
   "test": "test_the_all_sites_card_counts_every_open_site"
+ },
+ {
+  "id": "replaced-dashboard-parts-drawn-until-deleted",
+  "source": "comic_archive/window_pages.py",
+  "old": "        widget.hide()\n        widget.deleteLater()",
+  "new": "        widget.deleteLater()",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_all_sites_card_counts_every_open_site"
+ },
+ {
+  "id": "all-sites-card-names-one-sites-folder",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if chosen else s.library_root or s.library_folder or ''",
+  "new": "if chosen else s.library_folder or ''",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_new_episodes_are_said_to_go_to_the_chosen_cloud_or_the_folder"
  }
 ]

@@ -204,6 +204,14 @@ def say(label, text, error=False):
     label.setVisible(bool(text))
 
 
+def discard(layout, *widgets):
+    """Take widgets out of the page at once: deleted later, they would still be drawn until then."""
+    for widget in widgets:
+        layout.removeWidget(widget)
+        widget.hide()
+        widget.deleteLater()
+
+
 def choose(combo, key):
     index = combo.findData(key)
     if index >= 0 and combo.currentIndex() != index:
@@ -302,8 +310,7 @@ class SiteCard:
     def _fields(self, rows):
         if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
             for name, value in self.cells:
-                name.deleteLater()
-                value.deleteLater()
+                discard(self.fields, name, value)
             self.cells = []
             for index, row in enumerate(rows):
                 name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.label('', 'fieldValue')
@@ -428,8 +435,7 @@ class Dashboard:
         if list(self.cards) == keys:
             return
         for card in self.cards.values():
-            self.grid.removeWidget(card.widget)
-            card.widget.deleteLater()
+            discard(self.grid, card.widget)
         names = {item['key']: item['name'] for item in sites}
         self.cards = {key: SiteCard(self.kit, self.pages, key, names[key]) for key in keys}
         self._lay_out(self.columns, force=True)
@@ -440,7 +446,7 @@ class Dashboard:
                 number.setText(value)
             return
         for _, number in self.metric_cells:
-            number.parentWidget().deleteLater()
+            discard(self.metrics, number.parentWidget())
         self.metric_cells = []
         for index, (value, name) in enumerate(metrics):
             cell, box = self.kit.frame('metric', margins=(12, 16, 12, 16), spacing=2)
@@ -456,7 +462,7 @@ class Dashboard:
                 button.setText(f"{place['label']}\n{place['counts']}")
             return
         for button in self.place_buttons:
-            button.deleteLater()
+            discard(self.places, button)
         self.place_buttons = []
         for place in places:
             button = self.kit.button(f"{place['label']}\n{place['counts']}",
@@ -1318,6 +1324,7 @@ class Pages:
     def received_context(self, s, value):
         s.sites = value['sites']
         s.library_folder, s.cloud_offered = value['library_folder'], value['cloud_offered']
+        s.library_root = value.get('library_root')
         s.workspace_id = value['workspace_id']
         self.cloud_offered = value['cloud_offered']
         self.render()

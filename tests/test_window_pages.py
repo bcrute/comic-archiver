@@ -424,6 +424,15 @@ class DashboardTests(PagesCase):
         self.pages.poll()
         # A site that could not be counted is left out; the others still show.
         self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['70', '140', '60', '10'])
+        # Whatever was replaced on the way is gone from the page at once, not drawn under the new until Qt deletes it.
+        d, card = self.dashboard, self.dashboard.cards['tapas']
+
+        def shown(widget, kind, name):
+            return sorted(id(w) for w in widget.findChildren(kind)
+                          if name in (w.objectName(), w.property('kind')) and not w.isHidden())
+        self.assertEqual(shown(card.widget, QtWidgets.QLabel, 'fieldName'), sorted(id(name) for name, _ in card.cells))
+        self.assertEqual(shown(d.library_card, QtWidgets.QPushButton, 'place'), sorted(map(id, d.place_buttons)))
+        self.assertEqual(shown(d.library_card, QtWidgets.QFrame, 'metric'), sorted(id(n.parentWidget()) for _, n in d.metric_cells))
 
     def test_go_pause_and_sign_in_ask_the_library_and_show_its_answer(self):
         self.open()

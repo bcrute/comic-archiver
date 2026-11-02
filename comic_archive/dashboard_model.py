@@ -230,6 +230,7 @@ class State:
     """What the window last read from the app, and what it is doing itself. Times are time.time() seconds."""
     sites: list = field(default_factory=list)
     library_folder: str = None
+    library_root: str = None  # The folder chosen in Settings, which every site's own folder is in.
     cloud_offered: bool = True
     status: dict = None
     account: dict = None
@@ -316,9 +317,9 @@ def worker_state(s, now):
 
 
 def save_place(s):
-    """Where new episodes go, in a word: the cloud storage chosen, else the library folder."""
+    """Where new episodes go, in a word: the cloud storage chosen, else the folder chosen for every site."""
     chosen = next((t for t in s.cloud_targets() if t.get('connected') and t.get('enabled')), None) if s.cloud_offered else None
-    return 'Backblaze B2' if chosen and chosen.get('provider') == 'b2' else 'Cloud storage' if chosen else s.library_folder or ''
+    return 'Backblaze B2' if chosen and chosen.get('provider') == 'b2' else 'Cloud storage' if chosen else s.library_root or s.library_folder or ''
 
 
 def view(s, now):

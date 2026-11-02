@@ -21,7 +21,7 @@ class ActionsTests(unittest.TestCase):
 
     def setUp(self):
         self.registry = Mock(workspace_id=LIBRARY)
-        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder='/library folder')
+        self.runtime = SimpleNamespace(registry=self.registry, site=sites.DEFAULT, folder='/library folder', root='/chosen folder')
         self.actions = Actions(lambda: self.runtime)
 
     def refused(self, work, *args, **options):
@@ -77,6 +77,7 @@ class ActionsTests(unittest.TestCase):
         with patch('comic_archive.cloud_tools.offered', return_value=False):
             context = self.actions.context()
         self.assertEqual(context, {'sites': sites.choices(sites.DEFAULT), 'library_folder': '/library folder',
+                                   'library_root': '/chosen folder',
                                    'cloud_offered': False, 'workspace_id': LIBRARY})
         self.assertEqual([(site['key'], site['available'], site['current']) for site in context['sites']],
                          [('tapas', True, True), ('webtoon', True, False), ('tappytoon', True, False)])

@@ -70,9 +70,10 @@ class Actions:
             raise Refused('service_unavailable', failed or error_text('service_unavailable', site)) from None
 
     def context(self):
-        """What the window shows around the library: the sites and the folder."""
+        """What the window shows around the library: the sites, the site's own folder and the folder chosen for
+        every site."""
         runtime, registry = self._registry()
-        return {'sites': sites.choices(runtime.site), 'library_folder': str(runtime.folder),
+        return {'sites': sites.choices(runtime.site), 'library_folder': str(runtime.folder), 'library_root': str(runtime.root),
                 'cloud_offered': cloud_runtime.offered(), 'workspace_id': registry.workspace_id}
 
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):

@@ -180,6 +180,8 @@ class StateTests(unittest.TestCase):
         self.assertEqual(model.save_place(state(cloud=b2, cloud_offered=False)), '/library')
         self.assertEqual(model.save_place(state(cloud={'targets': [{'provider': 'b2', 'connected': True}]})), '/library')
         self.assertEqual(model.save_place(State()), '')
+        # Every site's folder is in the one chosen in Settings: that is where saving goes.
+        self.assertEqual(model.save_place(state(library_root='/chosen')), '/chosen')
 
 
 class ButtonTests(unittest.TestCase):
