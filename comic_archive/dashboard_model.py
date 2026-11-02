@@ -497,6 +497,7 @@ def view(s, now):
     elif retry:
         activity = (f'{site} asked the app to wait. The download continues by itself in {retry_in}.' if retry.get('reason') == 'source'
                     else f'Some images did not arrive. The download tries them again by itself in {retry_in}.' if retry.get('reason') == 'images'
+                    else f'Nothing new was saved in the last step. The download tries again by itself in {retry_in}.' if retry.get('reason') == 'idle'
                     else f'Waiting: {connection_held}, and the app saves only on Wi-Fi or a wired connection. The download carries on '
                          'by itself on Wi-Fi, or press Allow this connection.' if network_held
                     else f'The connection to {site} was interrupted. The download tries again by itself in {retry_in}.')

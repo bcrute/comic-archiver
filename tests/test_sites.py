@@ -8,7 +8,7 @@ from pathlib import Path
 
 from support import PRIVATE_FILE
 from test_transport_session import Client, Response
-from comic_archive import account_export, desktop_app, sites, worker
+from comic_archive import desktop_app, download_control, sites, worker
 from comic_archive.adapters.tapas import TapasAdapter
 from comic_archive.errors import MetadataError
 from comic_archive.inventory import Inventory
@@ -42,7 +42,7 @@ class SiteProfileTests(unittest.TestCase):
         self.assertEqual([o['origin'] for o in saved['origins']], ['https://www.webtoons.com'])
         self.assertEqual(stat.S_IMODE((self.session / 'site').stat().st_mode), PRIVATE_FILE)
         self.assertIs(sites.of_session(self.session), WEBTOON)
-        self.assertEqual(account_export.lists(self.session), WEBTOON.lists)
+        self.assertEqual(download_control.lists(self.session), WEBTOON.lists)
         # Signing in again to Tapas in the same place makes it Tapas's, with only Tapas's cookies.
         store_session({'cookies': [cookie('tapas', '.tapas.io'), cookie('session', '.webtoons.com')], 'origins': []}, self.session)
         self.assertEqual([c['name'] for c in load_session(self.session)['cookies']], ['tapas'])
@@ -50,7 +50,7 @@ class SiteProfileTests(unittest.TestCase):
 
     def test_a_sign_in_saved_before_sites_existed_is_tapass_and_an_unknown_site_is_refused(self):
         self.assertIs(sites.of_session(self.session), sites.DEFAULT)
-        self.assertEqual(account_export.lists(self.session), ('subscribed', 'updated', 'recent', 'free_episodes'))
+        self.assertEqual(download_control.lists(self.session), ('subscribed', 'updated', 'recent', 'free_episodes'))
         self.session.mkdir()
         for text in ('somewhere', '', 'Webtoon'):
             (self.session / 'site').write_text(text)

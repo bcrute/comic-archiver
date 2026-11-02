@@ -262,9 +262,8 @@ class _EmbeddedFastUnavailable:
 
 def controller_ticks():
     """The download controllers the worker ticks between tasks, by name, in the order they run."""
-    from .completion import worker_tick
-    from .account_export import worker_tick as account_tick
-    return (('account export', account_tick), ('backlog', worker_tick))
+    from .download_control import worker_tick
+    return (('download', worker_tick),)
 
 
 def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,

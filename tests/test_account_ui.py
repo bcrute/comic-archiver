@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from support import PRIVATE_FILE
-from comic_archive import account_export, account_ui, batches, completion, sites
+from comic_archive import account_ui, download_control, sites
 from comic_archive.app_actions import Actions, Refused
 from comic_archive.cancellation import RunCancellation
 from comic_archive.inventory import Inventory
@@ -32,6 +32,26 @@ class AccountUITests(unittest.TestCase):
         runtime=SimpleNamespace(registry=self.registry,site=sites.DEFAULT,folder=self.workspace.library)
         self.actions=Actions(lambda:runtime)
 
+    def state(self):
+        """The download's own record, as the controller reads it."""
+        db=download_control._connect(self.queue)
+        try:return download_control._state(db)
+        finally:db.close()
+
+    def change(self,sql,*args):
+        db=download_control._connect(self.queue)
+        try:db.execute(sql,args)
+        finally:db.close()
+
+    def started(self):
+        return download_control.status(self.workspace.session,self.workspace.library)['started_at']
+
+    def outstanding(self):
+        return download_control.outstanding(self.workspace.session,self.workspace.library)
+
+    def tick(self):
+        download_control.worker_tick(self.workspace.session,self.workspace.library)
+
     def test_go_pause_and_signin_reach_only_this_librarys_own_account_and_queue_nothing_themselves(self):
         for name,method_name in [('go','start_account'),('signin','start_site_signin'),('pause','pause_account')]:
             with patch.object(self.registry,method_name,return_value={'status':'running'}) as action:
@@ -47,7 +67,7 @@ class AccountUITests(unittest.TestCase):
         account_ui.start(self.workspace)
         seen = []
         account_ui.pause(self.workspace, on_stop_requested=lambda: seen.append(
-            account_export.status(self.workspace.session, self.workspace.library)['status']))
+            download_control.status(self.workspace.session, self.workspace.library)['status']))
         self.assertEqual(seen, ['stopped'])
 
     def test_explicit_pause_can_interrupt_a_reader_even_before_an_account_plan_exists(self):
@@ -58,46 +78,46 @@ class AccountUITests(unittest.TestCase):
 
     def test_go_is_durable_account_wide_and_duplicate_go_does_not_start_another_run(self):
         before=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        self.assertFalse(before['configured']);self.assertFalse((self.queue/'account-export.json').exists())
+        self.assertFalse(before['configured']);self.assertFalse((self.queue/download_control.STATE_FILE).exists())
         result=self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.assertEqual(result['status'],'running');self.assertEqual(result['phase'],'lists')
-        checkpoint=(self.queue/'account-export.json').read_bytes()
+        saved=self.state()
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual((self.queue/'account-export.json').read_bytes(),checkpoint)
-        value=json.loads(checkpoint)
-        self.assertFalse(value['window_budgets']['free_only'])
+        self.assertEqual(self.state(),saved)
+        self.assertFalse(download_control._pace(self.workspace.session)[0]['free_only'])
         self.assertFalse(list((self.queue/'requests').glob('*.json')))
-        account_export.worker_tick(self.workspace.session,self.workspace.library)
-        account_export.worker_tick(self.workspace.session,self.workspace.library)
+        self.tick()
         request=json.loads(next((self.queue/'requests').glob('*.json')).read_text())
         self.assertEqual(request['args']['categories'],['subscribed'])
         self.assertNotIn('url',request['args']);self.assertNotIn('id',request['args'])
 
-    def pace(self,budgets):
-        return budgets['speed'],budgets['download_workers'],budgets['request_interval'],budgets['batch_bytes']
+    def pace(self,options):
+        return (options.get('speed','normal'),options.get('download_workers',1),options['request_interval'],
+                options['max_bytes'])
+
+    def next_pace(self):
+        """The pace the download's next step is asked for at."""
+        return self.pace(download_control._pace(self.workspace.session)[0])
 
     def test_go_runs_at_the_fast_speed_until_the_person_chooses_another(self):
         self.assertEqual((account_ui.DESKTOP_REQUEST_INTERVAL,account_ui.DESKTOP_BROWSER),(1.0,'qt'))
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        budgets=json.loads((self.queue/'account-export.json').read_bytes())['window_budgets']
+        task,_=self.running_batch()
+        request=json.loads((self.queue/'requests'/(task+'.json')).read_text())
         # The pace the earlier Go ran at against Tapas.
-        self.assertEqual(self.pace(budgets),('fast',3,0.25,8*1024**3))
-        self.assertTrue(budgets['archive_only'])
+        self.assertEqual(self.pace(request['args']),('fast',3,0.25,8*1024**3))
+        self.assertIs(request['args']['free_only'],False)
 
     def test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it(self):
-        path=self.queue/'account-export.json'
-        for chosen,pace in (('slow',('normal',1,1.0,batches.DEFAULTS['batch_bytes'])),
-                            ('medium',('normal',4,0.25,batches.DEFAULTS['batch_bytes'])),
+        for chosen,pace in (('slow',('normal',1,1.0,1024**3)),('medium',('normal',4,0.25,1024**3)),
                             ('fast',('fast',3,0.25,8*1024**3))):
             self.assertEqual(self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,chosen)['speed'],chosen)
             # Kept with the library, so the next start of the app finds it.
             again=LocalWorkspaceRegistry(self.root)
             self.assertEqual(again.account_status(LOCAL_OWNER,again.workspace_id)['speed'],chosen)
             self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-            saved=json.loads(path.read_bytes())
-            self.assertEqual(self.pace(saved['window_budgets']),pace)
-            self.assertTrue(saved['window_budgets']['archive_only']);self.assertEqual(saved['phase'],'lists')
+            self.assertEqual(self.next_pace(),pace)
+            self.assertEqual(self.state()['stage'],'lists')
             self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
 
     def test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused(self):
@@ -111,8 +131,8 @@ class AccountUITests(unittest.TestCase):
         for content in (b'ludicrous\n',b'\xff\xfe'):
             (self.workspace.session/account_ui.SPEED_FILE).write_bytes(content)
             self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(self.pace(json.loads((self.queue/'account-export.json').read_bytes())['window_budgets'])[0],'fast')
+        self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
+        self.assertEqual(self.next_pace()[0],'fast')
 
     def test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands(self):
         self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
@@ -135,12 +155,14 @@ class AccountUITests(unittest.TestCase):
 
     def test_pause_then_go_keeps_the_same_pending_discovery_task(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        for _ in range(2):account_export.worker_tick(self.workspace.session,self.workspace.library)
-        before=account_export.status(self.workspace.session,self.workspace.library)['pending_task_id']
+        self.tick()
+        before=self.outstanding()
+        self.assertIsNotNone(before)
         self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        self.assertEqual(account_export.status(self.workspace.session,self.workspace.library)['pending_task_id'],before)
-        self.assertEqual(len(list((self.queue/'requests').glob('*.json'))),1)
+        self.assertEqual(self.outstanding(),before)
+        self.tick()
+        self.assertEqual([p.stem for p in (self.queue/'requests').glob('*.json')],[before])
 
     def test_first_signin_and_go_work_before_any_worker_has_reported(self):
         (self.queue/'status.json').unlink();(self.workspace.session/'state.json').unlink()
@@ -161,31 +183,35 @@ class AccountUITests(unittest.TestCase):
             with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.registry.cloud_signin._state={'status':'running'}
         with self.assertRaises(ArchiveError):self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.assertFalse((self.queue/'account-export.json').exists())
+        self.assertFalse((self.queue/download_control.STATE_FILE).exists())
 
     def test_public_account_status_never_projects_private_receipts_or_unknown_errors(self):
         value={'configured':True,'status':'held','phase':'verify','code':'PRIVATE_RAW_MESSAGE',
-               'pending_task_id':'PRIVATE_TOKEN','audit':{'verified_inventory_episode_count':7,
+               'outstanding':'PRIVATE_TOKEN','started_at':'PRIVATE','audit':{'verified_inventory_episode_count':7,
                 'missing_recorded_accessible_episode_count':0,'episode_id':'PRIVATE_SOURCE_ID',
                 'inventory_index_problem_count':True,'unindexed_archive_count':-1}}
-        with patch.object(account_export,'status',return_value=value):result=account_ui.status(self.workspace)
+        with patch.object(download_control,'status',return_value=value):result=account_ui.status(self.workspace)
         self.assertNotIn('PRIVATE',json.dumps(result));self.assertNotIn('code',result)
         self.assertEqual(result['audit'],{'verified_inventory_episode_count':7,'missing_recorded_accessible_episode_count':0})
         self.assertFalse(result['coverage_verified'])
+        for key,unknown in (('status','waiting'),('phase','PRIVATE')):
+            with patch.object(download_control,'status',return_value={'configured':True,'status':'running',key:unknown}):
+                self.assertNotIn('PRIVATE',json.dumps(account_ui.status(self.workspace)))
+                self.assertNotEqual(account_ui.status(self.workspace).get(key),unknown)
 
     def test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do(self):
-        for code in ('source_recovery_limit','network_recovery_limit','window_changed','accounting_changed','archive_incomplete'):
-            with patch.object(account_export,'status',return_value={'configured':True,'status':'held','code':code}):
+        for code in sorted(download_control.HOLDS):
+            with patch.object(download_control,'status',return_value={'configured':True,'status':'held','code':code}):
                 self.assertEqual(account_ui.status(self.workspace)['code'],code)
+        with patch.object(download_control,'status',side_effect=ArchiveError('PRIVATE')):
+            shown=account_ui.status(self.workspace)
+        self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
 
     def test_list_progress_and_activity_come_from_existing_checkpoints_without_dispatch(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        checkpoint=self.queue/'account-export.json'
-        value=json.loads(checkpoint.read_text())
-        started=account_ui.batches._instant(value['started_at']).timestamp()
-        value['list_checks']=[{'category':'subscribed','complete':False,'boundary_observed':False,'observed_series_count':45}]
-        value['category_index']=1
-        private_json(checkpoint,value)
+        started=self.started()
+        self.change("UPDATE lists SET read_at=?, complete=0, observed_series_count=45 WHERE category='subscribed'",
+                    datetime.now(timezone.utc).isoformat())
         path=self.workspace.library/'.archive-state/progress.json'
         private_json(path,{'status':'running','phase':'account_list','category':'updated',
                            'reading_list_page_count':2,'message':'PRIVATE_COOKIE','source_slug':'PRIVATE_SOURCE'})
@@ -207,11 +233,8 @@ class AccountUITests(unittest.TestCase):
 
     def test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        checkpoint=self.queue/'account-export.json'
-        value=json.loads(checkpoint.read_text())
-        began=account_ui.batches._instant(value['started_at'])-timedelta(hours=14)
-        value['started_at']=began.isoformat()
-        private_json(checkpoint,value)
+        began=datetime.fromtimestamp(self.started(),timezone.utc)-timedelta(hours=14)
+        self.change('UPDATE state SET stretch_started_at=?',began.isoformat())
         path=self.workspace.library/'.archive-state/progress.json'
         private_json(path,{'status':'running','phase':'account_list','category':'subscribed'})
         # The program was closed an hour into the run and is opened again now.
@@ -230,46 +253,48 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(reopened.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
         self.assertEqual(reopened.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
         self.assertGreaterEqual(reopened.working_since,opened)
-        with patch('comic_archive.account_ui.time.time',return_value=reopened.working_since+7):
+        with patch('comic_archive.account_ui.time.time',return_value=max(reopened.working_since,self.started())+7.5):
             self.assertEqual(reopened.account_status(LOCAL_OWNER,self.workspace.id)['elapsed_seconds'],7)
 
     def test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         path=self.workspace.library/'.archive-state/progress.json'
-        started=account_ui.batches._instant(json.loads((self.queue/'account-export.json').read_text())['started_at']).timestamp()
+        started=self.started()
         private_json(path,{'status':'paused','pause_reason':'network_unavailable'});os.utime(path,(started+10,started+10))
         at=lambda seconds:datetime.fromtimestamp(started+seconds,timezone.utc).isoformat()
         status=lambda:self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        with patch('comic_archive.account_ui.time.time',return_value=started+20):
+        now=datetime.fromtimestamp(started+20,timezone.utc)
+        with patch('comic_archive.account_ui.time.time',return_value=started+20), \
+                patch('comic_archive.download_control._now',return_value=now):
             result=status()
             self.assertEqual(result['between_steps_seconds'],10)
             self.assertNotIn('progress_age_seconds',result);self.assertNotIn('retry',result)
-            for window,retry in (({'network_retry_after':at(79.5)},{'reason':'connection','seconds':60}),
-                                 ({'network_retry_after':None,'source_recovery_wait':at(320)},{'reason':'source','seconds':300}),
-                                 # The wait before images that did not arrive are tried again is not a stall either.
-                                 ({'asset_retry_after':at(50)},{'reason':'images','seconds':30}),
-                                 # A wait that is over, one that cannot be read, and no window at all.
-                                 ({'network_retry_after':at(20)},None),({'network_retry_after':'PRIVATE'},None),
-                                 ({'network_retry_after':7},None),(None,None)):
-                with patch('comic_archive.account_ui.batches._load',return_value=window):
-                    self.assertEqual(status().get('retry'),retry,window)
-            with patch('comic_archive.account_ui.batches._load',side_effect=ArchiveError('PRIVATE')):
-                self.assertNotIn('retry',status())
+            for code,until,retry in (('connection',at(79.5),{'reason':'connection','seconds':60}),
+                                     # The Wi-Fi-only wait is worded by the page from its own network view.
+                                     ('network_policy',at(319.5),{'reason':'connection','seconds':300}),
+                                     ('source',at(319.5),{'reason':'source','seconds':300}),
+                                     # The wait before images that did not arrive are tried again is not a stall either.
+                                     ('images',at(49.5),{'reason':'images','seconds':30}),
+                                     ('idle',at(919.5),{'reason':'idle','seconds':900}),
+                                     # A wait that is over is acted on at the next look.
+                                     ('connection',at(20),None)):
+                self.change("UPDATE state SET status='waiting', code=?, wait_until=?",code,until)
+                shown=status()
+                self.assertEqual((shown['status'],shown.get('retry')),('running',retry),code)
+                self.assertNotIn('code',shown)
             # A download the person paused is not about to try anything.
             self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-            with patch('comic_archive.account_ui.batches._load',return_value={'network_retry_after':at(79.5)}):
-                self.assertNotIn('retry',status())
+            self.assertNotIn('retry',status())
             # The wait the site asked for, which Go cannot cut short: the page says how long instead of Go failing.
-            for window,wait in (({'source_retry_after':at(619.5)},600),({'source_retry_after':at(20)},None),
-                                ({'source_retry_after':None},None),({'source_retry_after':'PRIVATE'},None),({},None)):
-                with patch('comic_archive.account_ui.batches._load',return_value=window):
-                    self.assertEqual(status().get('go_after_seconds'),wait,window)
-                    self.assertNotIn('retry',status())
+            for after,wait in ((at(619.5),600),(at(20),None),(None,None)):
+                self.change("UPDATE state SET status='held', code='source_refused', go_after=?",after)
+                self.assertEqual(status().get('go_after_seconds'),wait,after)
+                self.assertNotIn('retry',status())
 
     def test_activity_rejects_future_malformed_and_finished_progress(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         path=self.workspace.library/'.archive-state/progress.json'
-        started=account_ui.batches._instant(json.loads((self.queue/'account-export.json').read_text())['started_at']).timestamp()
+        started=self.started()
         for content in ('{bad','{}','{"status":"finished"}'):
             path.write_text(content);os.utime(path,(started+10,started+10))
             with patch('comic_archive.account_ui.time.time',return_value=started+20):
@@ -279,38 +304,32 @@ class AccountUITests(unittest.TestCase):
         with patch('comic_archive.account_ui.time.time',return_value=started+20):
             self.assertNotIn('progress_age_seconds',self.registry.account_status(LOCAL_OWNER,self.workspace.id))
 
-    def test_go_resumes_stopped_completion_without_resetting_window_budgets_or_usage(self):
-        with Inventory(self.workspace.library) as inventory:
-            inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':'tapas_free'}],'fixture')
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        completion.continue_discovered(self.workspace.session,self.workspace.library)
-        batches._root(self.workspace.session,self.workspace.library)
-        for _ in range(2):completion.worker_tick(self.workspace.session,self.workspace.library)
-        original=batches.status(self.workspace.session,self.workspace.library)
+    def test_go_after_pause_keeps_the_step_that_is_out_and_paces_the_next_at_the_chosen_speed(self):
+        task,run=self.running_batch()
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        resumed=batches.status(self.workspace.session,self.workspace.library)
-        # The batch that is still out was asked for at the window's pace; later windows follow the chosen speed.
-        self.assertEqual(resumed['budgets'],original['budgets'])
-        self.assertEqual(resumed['budgets']['speed'],'normal')
-        self.assertEqual(self.pace(completion.status(self.workspace.session,self.workspace.library)['window_budgets'])[0],'fast')
-        self.assertEqual(resumed['downloaded_bytes'],original['downloaded_bytes'])
-        self.assertEqual(completion.status(self.workspace.session,self.workspace.library)['status'],'running')
+        # The downloader has stopped the step, but its receipt is not settled yet.
+        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
+        self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
+        self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
+        # The step still out was asked for at the earlier pace; the steps after it follow the chosen speed.
+        self.assertEqual(self.outstanding(),task)
+        self.assertEqual(self.next_pace(),('normal',4,0.25,1024**3))
+        self.tick()
+        again=self.outstanding()
+        self.assertNotIn(again,(None,task))
+        request=json.loads((self.queue/'requests'/(again+'.json')).read_text())
+        self.assertEqual((request['args']['download_workers'],request['args']['request_interval']),(4,0.25))
+        self.assertNotIn('speed',request['args'])
 
-    def running_batch(self,account=True):
-        """A download batch the downloader has started: published request, busy worker, recorded run.
-
-        Without `account`, the plan runs on its own, as an older version or the command line left it."""
-        session,library=self.workspace.session,self.workspace.library
+    def running_batch(self):
+        """A download batch the downloader has started: published request, busy worker, recorded run."""
+        library=self.workspace.library
         with Inventory(library) as inventory:
             inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':'tapas_free'}],'fixture')
-        if account:self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        completion.continue_discovered(session,library)
-        for _ in range(5):
-            completion.worker_tick(session,library)
-            task=batches.status(session,library).get('pending_task_id')
-            if task and (self.queue/'requests'/(task+'.json')).is_file():break
-        else:self.fail('no batch was published')
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        self.tick()
+        task=self.outstanding()
+        if task is None or not (self.queue/'requests'/(task+'.json')).is_file():self.fail('no batch was published')
         private_json(self.queue/'status.json',{'state':'busy','task_id':task})
         with Inventory(library) as inventory:run=inventory.start_run()
         job_progress(library,run,phase='archive')
@@ -327,7 +346,7 @@ class AccountUITests(unittest.TestCase):
             self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
         nap.assert_not_called()
         self.assertTrue(RunCancellation(self.workspace.library,run).requested())
-        self.assertTrue(batches.status(self.workspace.session,self.workspace.library)['stop_requested'])
+        self.assertEqual(self.state()['status'],'stopped')
 
     def test_pause_asks_again_while_a_batch_that_just_started_cannot_be_stopped_yet(self):
         _,run=self.running_batch()
@@ -360,90 +379,63 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual((result['status'],adapter.calls),('cancelled',[]))
 
     def test_go_after_a_batch_stopped_by_pause_continues_without_a_hold(self):
-        session,library=self.workspace.session,self.workspace.library
         task,run=self.running_batch()
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled','archived_episode_ids':[],
-            'downloaded_pages':3,'downloaded_bytes':30,'pending_episode_count':1,
-            'inventory':{'scan_remaining_series_count':0}}})
+        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code'],window['pending_task_id'],window['downloaded_pages'],
-                          window['stop_requested']),('running',None,None,3,False))
-        for _ in range(3):
-            completion.worker_tick(session,library);account_export.worker_tick(session,library)
-        self.assertEqual(completion.status(session,library)['status'],'running')
+        # The stop that receipt answers is the Pause that Go has overruled: the download goes on.
+        self.ticks()
+        value=self.state()
+        self.assertEqual((value['status'],value['code'],value['failed_retries']),('running',None,0))
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        self.assertNotIn(batches.status(session,library)['pending_task_id'],(None,task))
+        self.assertNotIn(self.outstanding(),(None,task))
 
-    def test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window(self):
-        session,library=self.workspace.session,self.workspace.library
+    def test_a_step_cancelled_while_the_download_runs_stops_it_until_go(self):
         task,run=self.running_batch()
-        self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled','archived_episode_ids':[],
-            'downloaded_pages':3,'downloaded_bytes':30,'pending_episode_count':1,
-            'inventory':{'scan_remaining_series_count':0}}})
-        before=batches.status(session,library)['budgets']
-        self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
-        self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        medium=('normal',4,0.25,batches.DEFAULTS['batch_bytes'])
-        window=batches.status(session,library)
-        self.assertEqual(self.pace(window['budgets']),medium)
-        self.assertEqual(self.pace(completion.status(session,library)['window_budgets']),medium)
-        # Only the pace changed: the window keeps its limits and what it has used.
-        self.assertEqual(window['budgets'],before|account_ui.SPEEDS['medium'])
-        self.assertEqual(window['downloaded_pages'],3)
-        for _ in range(3):
-            completion.worker_tick(session,library);account_export.worker_tick(session,library)
-        request=json.loads((self.queue/'requests'/(batches.status(session,library)['pending_task_id']+'.json')).read_text())
-        self.assertEqual((request['args']['download_workers'],request['args']['request_interval']),(4,0.25))
-        self.assertNotIn('speed',request['args'])
+        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
+        self.ticks()
+        self.assertEqual(self.waiting_for_go(),('stopped',[]))
 
     def test_go_continues_a_paused_download_of_another_site_past_that_sites_own_lists(self):
-        session,library=self.workspace.session,self.workspace.library
-        (session/'site').write_text('tappytoon\n')
+        (self.workspace.session/'site').write_text('tappytoon\n')
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         # Tappytoon's three lists were read, then a chapter stopped the download.
-        root=batches._root(session,library)
-        value=json.loads((root/'account-export.json').read_text())
-        value.update(status='held',code='task_failed',phase='series',category_index=3,
-                     list_checks=[{'category':name,'complete':True,'boundary_observed':True,'observed_series_count':1}
-                                  for name in ('unlocked','subscribed','recent')])
-        private_json(root/'account-export.json',value)
+        self.change("UPDATE lists SET read_at=?, complete=1, observed_series_count=1",datetime.now(timezone.utc).isoformat())
+        self.change("UPDATE state SET status='held', code='task_failed', stage='series'")
+        lists=sorted(tuple(row) for row in download_control._connect(self.queue).execute('SELECT * FROM lists'))
+        self.assertEqual(len(lists),3)
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'held')
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        self.assertEqual(account_export.status(session,library)['list_checks'],value['list_checks'])
+        self.assertEqual(sorted(tuple(row) for row in download_control._connect(self.queue).execute('SELECT * FROM lists')),lists)
+        self.assertEqual(self.state()['stage'],'series')
 
     def test_go_still_meets_a_hold_that_arrived_after_pause(self):
-        session,library=self.workspace.session,self.workspace.library
         task,_=self.running_batch()
         with patch.object(account_ui,'PAUSE_WAIT_SECONDS',0):self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
         self.end_batch(task,{'status':'error','error':'Sign in again.','error_code':'login_required'})
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(batches.status(session,library)['pending_task_id'],task)
-        completion.worker_tick(session,library)
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code']),('paused','login_required'))
+        self.assertEqual(self.outstanding(),task)
+        self.tick()
+        value=self.state()
+        self.assertEqual((value['status'],value['code']),('held','login_required'))
 
     def test_closing_interrupts_whatever_the_downloader_is_on_and_leaves_the_saved_download_running(self):
         library=self.workspace.library
         account_ui.interrupt(self.workspace)  # Nothing is running and nothing is configured.
         _,run=self.running_batch()
-        before=[(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')]
+        before=self.state()
         with patch.object(account_ui.time,'sleep') as nap:account_ui.interrupt(self.workspace)
         nap.assert_not_called()
         self.assertTrue(RunCancellation(library,run).requested())
-        self.assertEqual([(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')],before)
+        self.assertEqual(self.state(),before)
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
 
     CANCELLED={'archived_episode_ids':[],'downloaded_pages':3,'downloaded_bytes':30,'pending_episode_count':1,
                'inventory':{'scan_remaining_series_count':0}}
 
     def ticks(self):
-        for _ in range(3):
-            completion.worker_tick(self.workspace.session,self.workspace.library)
-            account_export.worker_tick(self.workspace.session,self.workspace.library)
+        for _ in range(3):self.tick()
 
     def waiting_for_go(self):
         """What the page shows, and whether anything is queued for a downloader to run."""
@@ -452,132 +444,64 @@ class AccountUITests(unittest.TestCase):
                 [path.name for path in (self.queue/'requests').iterdir()])
 
     def test_a_start_of_the_app_sets_a_download_that_was_running_to_wait_for_go_and_go_continues_it(self):
-        session,library=self.workspace.session,self.workspace.library
         self.assertFalse(account_ui.reopen(self.workspace))  # A library that has never downloaded.
         task,run=self.running_batch()
         account_ui.interrupt(self.workspace)
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
         self.assertTrue(account_ui.reopen(self.workspace))
         self.assertEqual(self.waiting_for_go(),('stopped',[]))
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
         self.assertFalse(account_ui.reopen(self.workspace))  # It waits already.
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.ticks()
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code'],window['downloaded_pages']),('running',None,3))
-        self.assertNotIn(window['pending_task_id'],(None,task))
+        value=self.state()
+        self.assertEqual((value['status'],value['code']),('running',None))
+        self.assertNotIn(self.outstanding(),(None,task))
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
 
-    def test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held(self):
-        session,library=self.workspace.session,self.workspace.library
-        task,run=self.held_while_the_plan_runs()
-        # The app closed between batches: the last one ended on its own, with more left to save.
-        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'limited',**self.CANCELLED}})
-        self.assertTrue(account_ui.reopen(self.workspace))
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
-        self.ticks()
-        self.assertEqual(list((self.queue/'requests').iterdir()),[])  # Nothing for the downloader to work through.
-        self.assertFalse(account_ui.reopen(self.workspace))  # It waits already.
+    def test_a_start_of_the_app_sets_a_download_waiting_to_try_again_to_wait_for_go(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.ticks()
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code']),('running',None))
-        self.assertNotIn(window['pending_task_id'],(None,task))
-        self.assertEqual(completion.status(session,library)['status'],'running')
+        self.change("UPDATE state SET status='waiting', code='connection', wait_until=?",
+                    (datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat())
+        self.assertTrue(account_ui.reopen(self.workspace))
+        value=self.state()
+        self.assertEqual((value['status'],value['code'],value['wait_until']),('stopped',None,None))
+        self.assertEqual(self.waiting_for_go(),('stopped',[]))
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        self.tick()
+        self.assertEqual(len(list((self.queue/'requests').glob('*.json'))),1)
 
-    def held_while_the_plan_runs(self):
-        """A batch out, the plan running, and the account's own download held by a failure of its controller."""
-        session,library=self.workspace.session,self.workspace.library
-        task,run=self.running_batch()
-        with patch.object(account_export,'_advance',side_effect=RuntimeError):account_export.worker_tick(session,library)
-        self.assertEqual((account_export.status(session,library)['status'],completion.status(session,library)['status']),
-                         ('held','running'))
-        return task,run
-
-    def test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held(self):
-        from comic_archive.errors import LibraryBusy
-        session,library=self.workspace.session,self.workspace.library
-        self.held_while_the_plan_runs()
-        shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(shown['status'],'running')
-        self.assertNotIn('code',shown)  # The hold's reason is not what is happening now.
-        with self.assertRaisesRegex(LibraryBusy,'Pause the download'):self.registry.sign_out_site(LOCAL_OWNER,self.workspace.id)
-        with self.assertRaises(LibraryBusy):self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
-        self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')  # Go changes nothing.
-        self.assertEqual(account_export.status(session,library)['status'],'held')
-        with patch.object(account_ui.time,'sleep'):
-            self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
-        self.assertTrue(batches.status(session,library)['stop_requested'])
-
-    def test_the_page_shows_the_hold_again_once_the_plan_has_nothing_left_to_save(self):
-        session,library=self.workspace.session,self.workspace.library
-        self.held_while_the_plan_runs()
-        root=batches._root(session,library);plan=completion._load(root)
-        plan['status']='known_backlog_drained';completion._save(root,plan)
+    def test_the_page_still_shows_the_download_when_its_record_is_damaged(self):
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        (self.queue/download_control.STATE_FILE).write_bytes(b'PRIVATE damaged record')
         shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
         self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
-
-    def test_the_page_still_shows_the_download_when_the_plan_file_is_damaged(self):
-        self.held_while_the_plan_runs()
-        (self.queue/'completion.json').write_text('{"schema_version": 1}')
-        shown=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
-
-    def test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download(self):
-        session,library=self.workspace.session,self.workspace.library
-        self.running_batch(account=False)
-        self.assertFalse(account_export.status(session,library)['configured'])
-        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        with patch.object(account_ui.time,'sleep'):self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
-        self.assertTrue(batches.status(session,library)['stop_requested'])
-        self.assertNotIn('status',self.registry.account_status(LOCAL_OWNER,self.workspace.id))
-
-    def test_a_start_of_the_app_sets_a_plan_without_an_account_download_to_wait_for_go_and_go_continues_it(self):
-        session,library=self.workspace.session,self.workspace.library
-        task,run=self.running_batch(account=False)
-        self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'limited',**self.CANCELLED}})
-        self.assertTrue(account_ui.reopen(self.workspace))
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
-        self.ticks()
-        self.assertEqual(list((self.queue/'requests').iterdir()),[])
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.ticks()
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code']),('running',None))
-        self.assertNotIn(window['pending_task_id'],(None,task))
-        self.assertEqual((account_export.status(session,library)['status'],completion.status(session,library)['status']),
-                         ('running','running'))
+        self.assertNotIn('PRIVATE',json.dumps(shown))
 
     def test_pause_and_a_start_of_the_app_leave_a_library_that_has_never_downloaded_alone(self):
         for name in ('requests','responses'):(self.queue/name).rmdir()  # No downloader has run here yet.
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
         self.assertFalse(account_ui.reopen(self.workspace))
-        for name in ('requests','account-export.json','completion.json','backlog.json'):
+        for name in ('requests',download_control.STATE_FILE):
             self.assertFalse((self.queue/name).exists(),name)
 
     def test_a_start_of_the_app_sets_an_interrupted_check_of_the_lists_to_wait_for_go_which_queues_it_again(self):
-        session,library=self.workspace.session,self.workspace.library
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        for _ in range(2):account_export.worker_tick(session,library)  # Reserved, then published.
-        task=account_export.status(session,library)['pending_task_id']
-        self.end_batch(task,{'status':'ok','result':{'status':'cancelled'}})
+        self.tick()  # Reserved, then published.
+        task=self.outstanding()
+        self.end_batch(task,{'status':'ok','result':{'status':'cancelled',**self.CANCELLED}})
         self.assertTrue(account_ui.reopen(self.workspace))
         self.assertEqual(self.waiting_for_go(),('stopped',[]))
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        state=account_export.status(session,library)
-        self.assertEqual((state['status'],state['last_failed_task_id']),('running',task))
-        again=state['pending_task_id']
+        self.assertEqual(self.state()['status'],'running')
+        self.tick()
+        again=self.outstanding()
         self.assertNotIn(again,(None,task))
-        account_export.worker_tick(session,library)
-        self.assertEqual(json.loads((self.queue/'requests'/(again+'.json')).read_text())['operation'],'sync')
+        request=json.loads((self.queue/'requests'/(again+'.json')).read_text())
+        self.assertEqual((request['operation'],request['args']['categories']),('sync',['subscribed']))
 
     def test_a_start_of_the_app_ends_unrun_the_task_a_power_cut_left_queued_so_no_downloader_works_through_it(self):
-        session,library=self.workspace.session,self.workspace.library
         task,_=self.running_batch()  # No receipt, and the downloader's last word is that it was busy with it.
         request=self.queue/'requests'/(task+'.json');before=request.read_bytes()
-        reserved=batches._load(batches._root(session,library))['pending']['options']['max_pages']
         with patch.object(account_ui.time,'sleep') as nap:self.assertTrue(account_ui.reopen(self.workspace))
         nap.assert_not_called()
         receipt=self.queue/'responses'/(task+'.json');value=json.loads(receipt.read_bytes())
@@ -591,9 +515,9 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.waiting_for_go(),('stopped',[]))
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.ticks()
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code'],window['unreported_reserved_pages']),('running',None,reserved))
-        self.assertNotIn(window['pending_task_id'],(None,task))
+        value=self.state()
+        self.assertEqual((value['status'],value['code']),('running',None))
+        self.assertNotIn(self.outstanding(),(None,task))
 
     def test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause(self):
         task,run=self.running_batch()
@@ -605,26 +529,30 @@ class AccountUITests(unittest.TestCase):
     def test_a_start_of_the_app_leaves_a_paused_download_as_it_is_and_still_ends_its_unrun_task(self):
         task,run=self.running_batch()
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
-        saved=[(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')]
+        saved=self.state()
         self.assertFalse(account_ui.reopen(self.workspace,idle=False))
         self.assertFalse((self.queue/'responses'/(task+'.json')).exists())
         self.assertFalse(account_ui.reopen(self.workspace))  # Paused by its owner; the downloader died with the task.
         self.assertEqual(json.loads((self.queue/'responses'/(task+'.json')).read_bytes())['result']['status'],'cancelled')
-        self.assertEqual([(self.queue/name).read_bytes() for name in ('account-export.json','completion.json','backlog.json')],saved)
+        self.assertEqual(self.state(),saved)
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
         self.assertFalse(account_ui.reopen(self.workspace))  # A receipt that is there is never written over.
         self.assertEqual(json.loads((self.queue/'responses'/(task+'.json')).read_bytes())['result']['downloaded_pages'],3)
 
-    def test_go_after_pause_resumes_a_plan_whose_first_batch_never_started(self):
-        session,library=self.workspace.session,self.workspace.library
+    def test_go_after_pause_resumes_a_download_whose_next_step_was_never_sent(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        completion.continue_discovered(session,library)
-        self.assertFalse(batches.status(session,library)['configured'])
+        private_json(self.queue/'status.json',{'state':'busy','task_id':'job-'+'b'*24})
+        self.tick()  # Reserved; the downloader is busy, so it waits to be sent.
+        reserved=self.outstanding()
+        self.assertIsNotNone(reserved);self.assertFalse(list((self.queue/'requests').glob('*.json')))
         self.assertEqual(self.registry.pause_account(LOCAL_OWNER,self.workspace.id)['status'],'stopped')
-        self.assertEqual(completion.status(session,library)['status'],'stopped')
+        self.tick()
+        self.assertIsNone(self.outstanding())  # A step never sent is forgotten, not sent after Pause.
+        private_json(self.queue/'status.json',{'state':'ready'})
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        self.assertEqual(completion.status(session,library)['status'],'running')
-        self.assertFalse(batches.status(session,library)['configured'])
+        self.tick()
+        self.assertNotIn(self.outstanding(),(None,reserved))
+        self.assertEqual(len(list((self.queue/'requests').glob('*.json'))),1)
 
     def test_closing_asks_again_while_a_batch_that_just_started_cannot_be_stopped_yet(self):
         _,run=self.running_batch()
@@ -640,16 +568,16 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(naps,[0.25])
         self.assertTrue(RunCancellation(self.workspace.library,run).requested())
 
-    def test_go_after_a_start_of_the_app_counts_the_whole_allowance_of_a_batch_that_left_a_damaged_receipt(self):
-        session,library=self.workspace.session,self.workspace.library
+    def test_a_receipt_that_cannot_be_counted_is_set_aside_and_the_step_tried_again_once(self):
         task,run=self.running_batch()
-        reserved=batches._load(batches._root(session,library))['pending']['options']['max_pages']
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED,'downloaded_pages':10**9}})
+        receipt=(self.queue/'responses'/(task+'.json')).read_bytes()
         self.assertTrue(account_ui.reopen(self.workspace))
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        self.ticks()  # The receipt still cannot be counted from, so Go counted all of it and went on.
-        window=batches.status(session,library)
-        self.assertEqual((window['status'],window['code'],window['downloaded_pages'],window['unreported_reserved_pages']),
-                         ('running',None,0,reserved))
-        self.assertNotIn(window['pending_task_id'],(None,task))
-
+        self.tick()
+        value=self.state()
+        self.assertEqual((value['status'],value['code'],value['failed_retries']),('waiting','idle',1))
+        self.assertEqual((self.queue/'responses'/(task+'.json')).read_bytes(),receipt)
+        later=datetime.now(timezone.utc)+timedelta(seconds=5)
+        with patch('comic_archive.download_control._now',return_value=later):self.tick()
+        self.assertNotIn(self.outstanding(),(None,task))

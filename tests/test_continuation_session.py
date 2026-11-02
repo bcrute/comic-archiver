@@ -326,7 +326,7 @@ class ContinuationSessionTests(unittest.TestCase):
         ordinary.__enter__.return_value = ordinary
         with patch.object(worker, 'TapasAdapter', return_value=ordinary), \
                 patch('comic_archive.jobs.archive_discovered', operation), \
-                patch('comic_archive.completion.worker_tick', tick):
+                patch('comic_archive.download_control.worker_tick', tick):
             worker.run_worker(self.session, headless=True)
         receipts = [json.loads((self.session / 'worker/responses' / (name + '.json')).read_text())
                     for name in names]

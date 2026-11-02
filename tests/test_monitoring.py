@@ -167,7 +167,7 @@ class MonitoringTests(unittest.TestCase):
                 self.assertEqual(view['progress'],{'status':status})
                 self.assertNotIn('PRIVATE',json.dumps(view))
 
-    def test_damaged_backlog_checkpoint_does_not_break_the_status_view(self):
+    def test_a_damaged_download_record_does_not_break_the_status_view(self):
         with tempfile.TemporaryDirectory() as work:
             project=Path(work);root=project/'Library'
             with Inventory(root):
@@ -176,7 +176,7 @@ class MonitoringTests(unittest.TestCase):
                 with self.subTest(session=name):
                     worker=project/name/'worker'
                     for folder in ('requests','responses'):(worker/folder).mkdir(parents=True,exist_ok=True)
-                    (worker/'backlog.json').write_text('{broken')
+                    (worker/'download.sqlite3').write_bytes(b'broken record')
                     (worker/'status.json').write_text(json.dumps({'state':'ready'}))
                     result=library_status(root,project/name)
                     self.assertIsNone(result['source_recovery'])

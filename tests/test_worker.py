@@ -412,7 +412,7 @@ class WorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             session=Path(work)/'session'
             with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
-                    patch('comic_archive.account_export.worker_tick'),patch('comic_archive.completion.worker_tick'), \
+                    patch('comic_archive.download_control.worker_tick'), \
                     patch('comic_archive.worker.time.sleep',side_effect=ArchiveError('Safe failure')):
                 with self.assertRaises(ArchiveError):run_worker(session,'firefox')
             status=json.loads((session/'worker/status.json').read_text())
@@ -425,10 +425,9 @@ class WorkerTests(unittest.TestCase):
             session=Path(work)/'session';requests=session/'worker/requests';requests.mkdir(parents=True)
             private_json(requests/'test-task.json',{'operation':'cloud_upload','args':{}})
             adapter=RecordingAdapter()
-            with patch('comic_archive.account_export.worker_tick',side_effect=sqlite3.DatabaseError('PRIVATE')) as account, \
-                    patch('comic_archive.completion.worker_tick',side_effect=RuntimeError('PRIVATE')) as backlog:
+            with patch('comic_archive.download_control.worker_tick',side_effect=sqlite3.DatabaseError('PRIVATE')) as download:
                 self.serve_one_pass(session,adapter)
-            account.assert_called_once();backlog.assert_called_once()
+            download.assert_called_once()
             self.assertEqual(adapter.calls,['upload'])
             value=json.loads((session/'worker/responses/test-task.json').read_text())
             self.assertEqual(value['status'],'ok')
@@ -463,8 +462,7 @@ class WorkerTests(unittest.TestCase):
             def renamed(_session):
                 if library.exists():library.rename(Path(work)/'Renamed')
             with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
-                    patch('comic_archive.account_export.worker_tick'), \
-                    patch('comic_archive.completion.worker_tick',side_effect=renamed), \
+                    patch('comic_archive.download_control.worker_tick',side_effect=renamed), \
                     patch('comic_archive.worker.time.sleep',side_effect=[None,KeyboardInterrupt]):
                 self.assertIsNone(run_worker(session,'firefox'))
             self.assertFalse(library.exists())

@@ -268,7 +268,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(value["result"]["signed_in"])
         probe.assert_called_once()
         self.assertFalse(worker_host.status(session)["running"])
-        self.assertFalse((session / "worker/account-export.json").exists())
+        self.assertFalse((session / "worker/download.sqlite3").exists())
 
     def test_restore_expired_saved_session_does_not_authenticate(self):
         from unittest.mock import patch
@@ -306,7 +306,7 @@ class BridgeLifecycleTests(unittest.TestCase):
             self.assertIsNotNone(probe.call_args.kwargs['network_guard'])
             self.assertEqual(android_session.signed_in_site(session), site)
             self.assertFalse(worker_host.status(session)["running"])
-            self.assertFalse((session / "worker/account-export.json").exists())
+            self.assertFalse((session / "worker/download.sqlite3").exists())
 
     def test_probe_refuses_unknown_site_before_verification_or_a_record_write(self):
         from unittest.mock import patch
@@ -338,7 +338,7 @@ class BridgeLifecycleTests(unittest.TestCase):
             restored = self.call("signin_restore", {"session_root": str(session)})
         self.assertTrue(restored["result"]["signed_in"])
         probe.assert_called_once()
-        self.assertFalse((session / "worker/account-export.json").exists())
+        self.assertFalse((session / "worker/download.sqlite3").exists())
 
     def test_restore_refuses_torn_saved_record_before_network(self):
         from unittest.mock import patch
@@ -368,7 +368,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         workspace = Workspace(id="default", root=self.root)
         self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)
         self.assertFalse(worker_host.status(workspace.session)["running"])
-        self.assertFalse((workspace.session / "worker/account-export.json").exists())
+        self.assertFalse((workspace.session / "worker/download.sqlite3").exists())
 
     def test_native_fast_availability_preserves_a_stored_unavailable_choice_without_go(self):
         from test_android_browser import Factory
@@ -427,7 +427,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertFalse(reopened["wifi_only"])
         self.assertEqual(reopened["speed"], "slow")
         self.assertFalse(worker_host.status(workspace.session)["running"])
-        self.assertFalse((workspace.session / "worker/account-export.json").exists())
+        self.assertFalse((workspace.session / "worker/download.sqlite3").exists())
         self.assertTrue(self.call("configure_settings", {"root": str(self.root), "wifi_only": True})["ok"])
         self.assertFalse(self.call("settings", {"root": str(self.root)})["result"]["allowed"])
 

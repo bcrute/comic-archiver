@@ -440,7 +440,8 @@ class LiveTests(unittest.TestCase):
         self.assertTrue(activity(account=account(), offline=True).startswith('Progress updates are delayed.'))
         self.assertTrue(activity(account=account(), refreshed_at=NOW - model.DELAYED_SECONDS).startswith('Progress updates are delayed.'))
         for reason, start in (('source', 'Tapas asked the app to wait. The download continues by itself in about a minute.'),
-                              ('images', 'Some images did not arrive.'), ('network', 'The connection to Tapas was interrupted.')):
+                              ('images', 'Some images did not arrive.'), ('network', 'The connection to Tapas was interrupted.'),
+                              ('idle', 'Nothing new was saved in the last step. The download tries again by itself in about a minute.')):
             self.assertTrue(activity(account=account(retry={'reason': reason, 'seconds': 60})).startswith(start))
         self.assertTrue(activity(account=account(retry={'reason': 'network', 'seconds': 60}),
                                  network={'wifi_only': True, 'allowed': False}).startswith('Waiting: this computer cannot tell'))

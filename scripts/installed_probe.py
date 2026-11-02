@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import zlib
 
 import comic_archive
-from comic_archive import account_export, cloud, sites, storage
+from comic_archive import cloud, download_control, sites, storage
 from comic_archive.app_actions import Actions
 from comic_archive.archive import verify
 from comic_archive.local_library import LocalWorkspaceRegistry
@@ -63,7 +63,7 @@ def main():
         raise RuntimeError('Fresh installed storage policy is unsafe')
     if any(t['connected'] for t in cloud.status(Path('Library'))['targets']):
         raise RuntimeError('Fresh installed cloud state is not isolated')
-    if account_export.status(Path('.comic-session')).get('configured') is not False:
+    if download_control.status(Path('.comic-session'), Path('Library')).get('configured') is not False:
         raise RuntimeError('Clean installation unexpectedly reused account state')
     subprocess.run([sys.executable, '-m', 'comic_archive', '--browser', 'firefox', '--headless', 'doctor'], check=True, timeout=30)
     comic = Series('synthetic-comic', 'Synthetic comic', source='local')

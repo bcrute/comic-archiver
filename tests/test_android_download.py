@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from comic_archive import account_export, account_ui, android_download
+from comic_archive import account_ui, android_download, download_control
 from comic_archive.archive import atomic_json
 from comic_archive.models import ArchiveError
 from comic_archive.workspace import Workspace
@@ -18,26 +18,42 @@ class AndroidGoTests(unittest.TestCase):
         (self.root / 'responses').mkdir()
         self.workspace.library.mkdir()
 
-    def old_plan(self, *, queued=False):
-        account_export.configure(self.workspace.session, self.workspace.library)
-        account_export.worker_tick(self.workspace.session, self.workspace.library)
-        account_export.worker_tick(self.workspace.session, self.workspace.library)
-        value = account_export._load(self.root)
-        value.update(status='stopped', category_index=2, list_checks=[
-            {'category': c, 'complete': False, 'boundary_observed': False, 'observed_series_count': 0}
-            for c in ['subscribed', 'updated']])
-        task = value['pending']['task_id']
-        if not queued:
-            (self.root / 'requests' / (task + '.json')).unlink()
+    def record(self):
+        return download_control._connect(self.root)
+
+    def lists(self):
+        db = self.record()
+        try:
+            return {row['category']: (row['read_at'] is not None, row['complete'], row['observed_series_count'])
+                    for row in db.execute('SELECT * FROM lists')}
+        finally:
+            db.close()
+
+    def old_plan(self, *, queued=False, read=('subscribed', 'updated')):
+        """A paused download whose list reads the prototype's reader recorded as empty, its last task out."""
+        download_control.start(self.workspace.session, self.workspace.library)
+        task = 'job-' + 'a' * 24
+        db = self.record()
+        try:
+            db.execute("UPDATE state SET status='stopped'")
+            db.executemany('UPDATE lists SET read_at=?, complete=0, observed_series_count=0 WHERE category=?',
+                           [('2026-10-01T00:00:00+00:00', c) for c in read])
+            db.execute("INSERT INTO tasks (task_id, kind, operation, options, reserved_at, published_at) "
+                       "VALUES (?, 'list', 'sync', '{}', '2026-10-01T00:00:00+00:00', '2026-10-01T00:00:00+00:00')", (task,))
+        finally:
+            db.close()
+        if queued:
+            atomic_json(self.root / 'requests' / (task + '.json'), {'operation': 'sync', 'args': {}})
+        else:
             atomic_json(self.root / 'responses' / (task + '.json'),
                         {'task_id': task, 'status': 'error', 'error_code': 'job_failed', 'result': {'status': 'paused'}})
-        account_export._save(self.root, value)
         return task
 
     def test_go_uses_embedded_reader_pacing_instead_of_second_desktop_browser(self):
         android_download.start(self.workspace)
         self.assertEqual(account_ui.speed(self.workspace), 'medium')
-        self.assertEqual(account_export._load(self.root)['window_budgets']['speed'], 'normal')
+        self.assertEqual(download_control._pace(self.workspace.session)[1], 'normal')
+        self.assertEqual(account_ui.status(self.workspace)['status'], 'running')
 
     def test_explicit_fast_is_preserved_and_refused_when_the_native_engine_is_unavailable(self):
         account_ui.choose_speed(self.workspace, 'fast')
@@ -45,14 +61,14 @@ class AndroidGoTests(unittest.TestCase):
         with self.assertRaisesRegex(ArchiveError, 'Medium or Slow'):
             android_download.start(self.workspace)
         self.assertEqual((self.workspace.session / account_ui.SPEED_FILE).read_bytes(), before)
-        self.assertFalse((self.root / 'account-export.json').exists())
+        self.assertFalse((self.root / download_control.STATE_FILE).exists())
 
     def test_fast_admission_uses_the_real_fixed_policy_without_opening_a_browser_while_held(self):
         from test_android_browser import Factory
         factory = Factory()
         account_ui.choose_speed(self.workspace, 'fast')
         android_download.start(self.workspace, browser_factory=factory)
-        self.assertEqual(account_export._load(self.root)['window_budgets']['speed'], 'fast')
+        self.assertEqual(download_control._pace(self.workspace.session)[1], 'fast')
         self.assertEqual(account_ui.speed(self.workspace), 'fast')
         self.assertEqual(factory.opens, [])
 
@@ -61,29 +77,31 @@ class AndroidGoTests(unittest.TestCase):
         path = self.root / 'responses' / (task + '.json')
         receipt = path.read_bytes()
         android_download.start(self.workspace)
-        value = account_export._load(self.root)
-        self.assertEqual(value['category_index'], 0)
-        self.assertEqual(value['list_checks'], [])
-        self.assertIsNone(value['pending'])
+        self.assertEqual(self.lists(), {c: (False, None, None) for c in download_control.lists(self.workspace.session)})
         self.assertEqual(path.read_bytes(), receipt)
-        self.assertEqual(value['status'], 'running')
+        self.assertEqual(account_ui.status(self.workspace)['status'], 'running')
 
     def test_upgrade_does_not_discard_a_live_pending_task(self):
         self.old_plan(queued=True)
-        before = (self.root / 'account-export.json').read_bytes()
+        before = self.lists()
         with self.assertRaises(ArchiveError):
             android_download.start(self.workspace)
-        self.assertEqual((self.root / 'account-export.json').read_bytes(), before)
+        self.assertEqual(self.lists(), before)
+        self.assertEqual(account_ui.status(self.workspace)['status'], 'stopped')
+        self.assertFalse((self.workspace.session / 'android-reader-version.json').exists())
 
     def test_later_go_resumes_checkpoint_without_rewinding_again(self):
         self.old_plan()
         android_download.start(self.workspace)
-        value = account_export._load(self.root)
-        value.update(status='stopped', category_index=1, list_checks=[
-            {'category': 'subscribed', 'complete': False, 'boundary_observed': False, 'observed_series_count': 0}])
-        account_export._save(self.root, value)
+        account_ui.pause(self.workspace)
+        db = self.record()
+        try:
+            db.execute("UPDATE lists SET read_at='2026-10-02T00:00:00+00:00', complete=0, observed_series_count=0 "
+                       "WHERE category='subscribed'")
+        finally:
+            db.close()
         android_download.start(self.workspace)
-        self.assertEqual(account_export._load(self.root)['category_index'], 1)
+        self.assertEqual(self.lists()['subscribed'], (True, 0, 0))
 
 
 class AndroidStatusTests(unittest.TestCase):
@@ -95,7 +113,7 @@ class AndroidStatusTests(unittest.TestCase):
         (root / 'requests').mkdir(parents=True)
         (root / 'responses').mkdir()
         self.workspace.library.mkdir()
-        account_export.configure(self.workspace.session, self.workspace.library)
+        download_control.start(self.workspace.session, self.workspace.library)
         self.progress_path = self.workspace.library / '.archive-state/progress.json'
 
     def seed(self):

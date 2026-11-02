@@ -206,20 +206,4 @@ class SourceRecoveryTests(unittest.TestCase):
             self.assertEqual(value.get('source_retry_episode_id'),expected)
             self.assertNotIn('PRIVATE',json.dumps(value))
 
-    def test_monitor_exposes_saved_retry_and_controller_liveness_without_mutation_or_private_data(self):
-        from comic_archive.inventory import Inventory
-        from comic_archive.monitoring import library_status
-        with Inventory(self.library):pass
-        completion.configure(self.session,self.library)
-        task,_=self.publish();waiting=self.refuse(task)
-        state=batches._load(self.root);state['headers']={'Cookie':'PRIVATE'};batches._save(self.root,state)
-        before=(self.root/'backlog.json').read_bytes()
-        with patch('comic_archive.background.status',return_value={'running':True}):
-            shown=library_status(self.library,self.session)
-        self.assertEqual(shown['source_recovery']['retry_at'],waiting['source_recovery_wait'])
-        self.assertTrue(shown['source_recovery']['automatic'])
-        self.assertEqual(shown['source_recovery']['episode_id'],'82')
-        self.assertNotIn('PRIVATE',json.dumps(shown))
-        self.assertEqual((self.root/'backlog.json').read_bytes(),before)
-
 if __name__ == '__main__': unittest.main()

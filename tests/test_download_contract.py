@@ -19,7 +19,7 @@ from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from comic_archive.models import ArchiveError
 from comic_archive.run_receipts import failure_result
 from comic_archive.worker import controller_ticks, execute, private_json
-from test_account_export_integration import OfflineAdapter, library_archives
+from test_download_integration import OfflineAdapter, library_archives
 
 KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'status', 'phase', 'code', 'lists',
         'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit'}
@@ -198,7 +198,8 @@ class DownloadContractTests(unittest.TestCase):
 
     def test_a_start_of_the_app_in_the_middle_waits_for_go_and_go_finishes_without_repeating_work(self):
         self.go()
-        self.drive(until=lambda state: state.get('phase') == 'series')
+        self.drive(until=lambda state: state.get('lists', {}).get('checked') == state.get('lists', {}).get('total')
+                   and state.get('phase') in ('series', 'archive', 'verify'))
         for _ in range(6):
             if list((self.queue / 'requests').glob('*.json')):
                 break

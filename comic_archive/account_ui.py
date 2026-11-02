@@ -1,14 +1,12 @@
-"""Fixed account-wide actions for the simple local dashboard.
+"""Fixed account-wide actions for the apps: Go, Pause, the speed, a start of the app, and what they see.
 
-This wraps existing durable controllers; it never contacts Tapas itself or
-resets recovery limits. Detailed CLI and per-series workflows remain available.
+The download itself is download_control's; this never contacts a site itself or decides what is next.
 """
-import math
 from pathlib import Path
 import sqlite3
 import time
 
-from . import account_export, batches, completion
+from . import download_control
 from .archive import atomic_json
 from .locking import LibraryLock
 from .monitoring import _read, _progress
@@ -23,8 +21,8 @@ DESKTOP_REQUEST_INTERVAL = 1.0
 # at its quickest, four images at a time, and at one image a second.
 SPEEDS = {
     'fast': {'speed': 'fast', 'download_workers': 3, 'request_interval': 0.25, 'batch_bytes': 8 * 1024**3},
-    'medium': {'speed': 'normal', 'download_workers': 4, 'request_interval': 0.25, 'batch_bytes': batches.DEFAULTS['batch_bytes']},
-    'slow': {'speed': 'normal', 'download_workers': 1, 'request_interval': 1.0, 'batch_bytes': batches.DEFAULTS['batch_bytes']},
+    'medium': {'speed': 'normal', 'download_workers': 4, 'request_interval': 0.25, 'batch_bytes': 1024**3},
+    'slow': {'speed': 'normal', 'download_workers': 1, 'request_interval': 1.0, 'batch_bytes': 1024**3},
 }
 DEFAULT_SPEED = 'fast'
 SPEED_FILE = 'download-speed'
@@ -33,6 +31,7 @@ SPEED_FILE = 'download-speed'
 DESKTOP_BROWSER = 'qt'
 # A batch that has only just started cannot be told to stop until it has recorded its run; Pause waits this long for that.
 PAUSE_WAIT_SECONDS = 5
+PHASES = ('existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished')
 
 
 def speed(workspace):
@@ -56,85 +55,23 @@ def choose_speed(workspace, value):
         raise ArchiveError('Comic Archiver could not save that speed. Check that the library folder can be written to.') from None
 
 
-def _apply_speed(session, library, pacing):
-    """A saved download keeps the pace it was started with, so the present choice is written into it here."""
-    root = batches._root(session, library)
-    with LibraryLock(root / '.account-export-state'):
-        value = account_export._load(root, account_export.lists(session))
-        if value is not None and value['status'] != 'finished':
-            value['window_budgets'] = batches.budgets(value['window_budgets'] | pacing)
-            account_export._save(root, value)
-    with LibraryLock(root / '.completion-state'), LibraryLock(root / '.backlog-state'):
-        plan = completion._load(root)
-        if plan is not None:
-            plan['window_budgets'] = batches.budgets(plan['window_budgets'] | pacing)
-            completion._save(root, plan)
-        window = batches._load(root)
-        # A batch that is still out was asked for at the earlier pace and is checked against it when it comes back;
-        # the choice then holds from the next round of batches.
-        if window is not None and window['pending'] is None:
-            window['budgets'] = batches.budgets(window['budgets'] | pacing)
-            batches._save(root, window)
-
-
 def start(workspace):
-    session, library = workspace.session, workspace.library
-    pacing = SPEEDS[speed(workspace)]
-    state = account_export.status(session, library)
-    if state.get('status') == 'running':
-        return
-    held = completion.status(session, library).get('status') in {'paused', 'stopped'}
-    window = batches.status(session, library) if held else {}
-    if window.get('configured') and _cancelled(session, window.get('pending_task_id')):
-        # Read after resuming, that receipt would hold the download again.
-        batches.step(session, library, observe_only=True)
-    _apply_speed(session, library, pacing)
-    if held:
-        if window.get('configured'):
-            with LibraryLock(batches._root(session, library) / '.backlog-state'):
-                batches._start(batches._root(session, library), None, True)
-        completion.configure(session, library, resume=True)
-    resume = state.get('configured', False) and state.get('status') != 'finished'
-    account_export.configure(session, library, resume=resume, window_budgets=pacing)
-
-
-def _cancelled(session, task):
-    """Whether this batch was stopped by Pause or by closing the app and has ended as 'cancelled'."""
-    if task is None:
-        return False
-    try:
-        value = task_status(session, task)
-    except ArchiveError:
-        return False
-    result = value.get('result')
-    return value['status'] == 'ok' and isinstance(result, dict) and result.get('status') == 'cancelled'
-
-
-def _plan(session, library):
-    """The status of the plan that works through the backlog; none before a downloader has made its queue."""
-    return completion._public(completion._load(batches._root(session, library, require_queue=False)))
+    """Go: the download continues from where it stopped, or starts; the chosen speed holds from its next step."""
+    download_control.start(workspace.session, workspace.library)
 
 
 def pause(workspace, *, on_stop_requested=None):
-    """Stop further batches and the one in progress, which left alone runs for up to half an hour."""
+    """Stop further steps and the one in progress, which left alone runs for up to half an hour."""
     session, library = workspace.session, workspace.library
-    configured = account_export.status(session, library).get('configured')
-    if not (configured or _plan(session, library).get('configured')):
-        if on_stop_requested is not None:
-            on_stop_requested()
-        return  # Nothing has downloaded here yet.
-    if configured:
-        account_export.request_stop(session, library)  # The plan stops with it, unless the download had finished.
-    if _plan(session, library).get('status') in {'running', 'paused'}:
-        completion.request_stop(session, library)
+    task = download_control.outstanding(session, library)
+    download_control.request_stop(session, library)
     if on_stop_requested is not None:
         on_stop_requested()
-    tasks = {account_export.status(session, library).get('pending_task_id'),
-             batches.status(session, library).get('pending_task_id')} - {None}
+    if task is None:
+        return
     deadline = time.monotonic() + PAUSE_WAIT_SECONDS
-    for task in sorted(tasks):
-        while not _interrupted(session, library, task) and time.monotonic() < deadline:
-            time.sleep(0.25)
+    while not _interrupted(session, library, task) and time.monotonic() < deadline:
+        time.sleep(0.25)
 
 
 def interrupt(workspace):
@@ -157,26 +94,10 @@ def reopen(workspace, *, idle=True):
     left marked as running is paused. `idle` says that no downloader is running: a task still queued
     from then is ended unrun, or the downloader that starts with the sign-in would work through it.
     """
-    from .task_cancellation import end_unstarted
-    session, library = workspace.session, workspace.library
-    state, plan = account_export.status(session, library), _plan(session, library)
-    if not (state.get('configured') or plan.get('configured')):
-        return False
-    running = state.get('status') == 'running'
-    # The plan that works through the backlog goes on by itself after the account's download was held or
-    # finished, or without one (an older version's, or the command line's), so it waits for Go as well.
-    continuing = plan.get('status') == 'running'
-    if running:
-        account_export.request_stop(session, library)  # The plan stops with it.
-    elif continuing:
-        completion.request_stop(session, library)
-    running = running or continuing
-    if idle:
-        for task in sorted({state.get('pending_task_id'), batches.status(session, library).get('pending_task_id')} - {None}):
-            end_unstarted(session, library, task)
-    elif running:
+    going = download_control.reopen(workspace.session, workspace.library, idle=idle)
+    if going and not idle:
         pause(workspace)  # A downloader outlived the app: what it is on is stopped as Pause stops it.
-    return running
+    return going
 
 
 def _interrupted(session, library, task):
@@ -205,118 +126,61 @@ def _interrupted(session, library, task):
 
 
 def status(workspace, since=None):
-    state = account_export.status(workspace.session, workspace.library)
-    result = {'supported':True, 'configured':state.get('configured') is True,
-              'coverage_verified':False, 'speed':speed(workspace)}
-    for key, choices in [('status', account_export.STATES), ('phase', account_export.PHASES),
-                         ('code', batches.CODES | completion.REASONS | {'backlog_held', 'controller_failed',
-                           'archive_incomplete', 'list_checkpoint_incomplete', 'scan_no_progress', 'task_result_invalid'})]:
-        if state.get(key) in choices:
-            result[key] = state.get(key)
+    result = {'supported': True, 'configured': False, 'coverage_verified': False, 'speed': speed(workspace)}
     try:
-        saving = _plan(workspace.session, workspace.library).get('status') == 'running'
+        state = download_control.status(workspace.session, workspace.library)
     except ArchiveError:
-        saving = False  # A plan that cannot be read cannot run either.
-    if saving and result.get('status') != 'running':
-        # The plan is saving episodes although the account's download is not: the page says it is working,
-        # Pause stops it, and nothing that waits for a pause goes ahead.
-        result['status'] = 'running'
-        result.pop('code', None)
-    checks = state.get('list_checks')
-    if isinstance(checks, list):
-        categories = account_export.lists(workspace.session)
-        checked = min(len(checks), len(categories))
-        result['lists'] = {'checked':checked, 'total':len(categories)}
-        if state.get('phase') == 'lists' and checked < len(categories):
-            result['lists']['current'] = categories[checked]
-    # Use the existing durable checkpoint's modification time. This works with
-    # resident workers and never fabricates a heartbeat or exposes raw messages.
+        state = {'configured': True, 'status': 'held', 'phase': 'lists', 'code': 'controller_failed'}
+    if not state.get('configured'):
+        return result
+    result['configured'] = True
+    # Only the fixed words and counts the apps know reach them; nothing a receipt carried in passes through.
+    for key, choices in (('status', ('running', 'held', 'stopped', 'finished')), ('phase', PHASES),
+                         ('code', download_control.HOLDS)):
+        if state.get(key) in choices:
+            result[key] = state[key]
+    for key in ('lists', 'retry', 'go_after_seconds'):
+        if key in state:
+            result[key] = state[key]
+    if isinstance(state.get('audit'), dict):
+        result['audit'] = {key: state['audit'][key] for key in download_control.AUDIT_KEYS
+                           if type(state['audit'].get(key)) is int and state['audit'][key] >= 0}
+    # The clock counts the present stretch of work, from the last Go (or the window's own start).
     now = time.time()
-    try:
-        started = batches._instant(state.get('started_at')).timestamp()
+    started = state.get('started_at')
+    if type(started) is float:
         if since is not None:
-            # The time the run was first started says nothing about how long it has been working now.
             started = max(started, since)
         if started <= now:
             result['elapsed_seconds'] = int(now - started)
-            path = workspace.library / '.archive-state/progress.json'
-            progress = _progress(_read(path))
-            if 'status' in progress:
-                changed = path.stat().st_mtime
-                if started <= changed <= now:
-                    # A step that has ended is not a step that has gone quiet: the page tells the two apart.
-                    key = 'progress_age_seconds' if progress['status'] == 'running' else 'between_steps_seconds'
-                    result[key] = int(now - changed)
-    except (ArchiveError, OSError, TypeError, ValueError, AttributeError):
-        pass
-    if result.get('configured'):
-        try:
-            window = batches._load(batches._root(workspace.session, workspace.library, require_queue=False)) or {}
-            if result.get('status') == 'running':
-                # A wait the download has set itself before it tries again, so the page need not call it a stall.
-                for key, reason in (('network_retry_after', 'connection'), ('source_recovery_wait', 'source'),
-                                    ('asset_retry_after', 'images')):
-                    left = batches._instant(window[key]).timestamp() - now if window.get(key) else 0
-                    if left > 0:
-                        result['retry'] = {'reason': reason, 'seconds': math.ceil(left)}
-            elif window.get('source_retry_after'):
-                # The site asked for a wait that Go cannot cut short: the page says how long, not that Go failed.
-                left = batches._instant(window['source_retry_after']).timestamp() - now
-                if left > 0:
-                    result['go_after_seconds'] = math.ceil(left)
-        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):
-            pass
-    # Raw audit/controller receipts can contain source identities and paths.
-    # Project only the fixed completion counts needed by the interface.
-    audit = state.get('audit')
-    if isinstance(audit, dict):
-        result['audit'] = {key:audit[key] for key in ('verified_inventory_episode_count',
-            'missing_recorded_accessible_episode_count', 'inventory_index_problem_count', 'unindexed_archive_count')
-            if type(audit.get(key)) is int and audit[key] >= 0}
+            try:
+                path = workspace.library / '.archive-state/progress.json'
+                progress = _progress(_read(path))
+                if 'status' in progress:
+                    changed = path.stat().st_mtime
+                    if started <= changed <= now:
+                        # A step that has ended is not a step that has gone quiet: the page tells the two apart.
+                        key = 'progress_age_seconds' if progress['status'] == 'running' else 'between_steps_seconds'
+                        result[key] = int(now - changed)
+            except (ArchiveError, OSError, TypeError, ValueError, AttributeError):
+                pass
     return result
 
 
 def repair_android_list_reads(workspace):
     """Once per phone library: lists the prototype's reader recorded as empty are read again at this Go."""
-    root = batches._root(workspace.session, workspace.library)
+    root = download_control._root(workspace.session, workspace.library)
     marker = workspace.session / 'android-reader-version.json'
     with LibraryLock(root / '.android-reader-upgrade'):
         if not marker.exists():
-            with LibraryLock(root / '.account-export-state'):
-                value = account_export._load(root, account_export.lists(workspace.session))
-                if (value and value['phase'] == 'lists' and value['status'] in {'held', 'stopped'}
-                        and any(not check['complete'] and check['observed_series_count'] == 0
-                                for check in value['list_checks'])):
-                    # The old anchor-only parser recorded the mobile lists as empty,
-                    # then RECENT failed with HTTP400. Re-read those lists on explicit
-                    # Go. Keep old task receipts and every inventory/archive intact.
-                    pending = value['pending']
-                    if pending:
-                        response = task_status(workspace.session, pending['task_id'])
-                        if response['status'] not in {'ok', 'error'}:
-                            raise ArchiveError('The previous download is still stopping; try Go again shortly.')
-                        value['last_failed_task_id'] = pending['task_id']
-                    value.update(category_index=0, list_checks=[], pending=None)
-                    account_export._save(root, value)
+            download_control.forget_empty_list_reads(workspace.session, workspace.library)
             atomic_json(marker, {'version': 1})
             marker.chmod(0o600)
 
 
 def source_recovery(session, library):
     """The reader retry the download is waiting on, for the monitor; None when there is none."""
-    from . import background
-    folder = Path(session) / 'worker'
-    if not (folder / 'backlog.json').exists():
-        return None
     try:
-        backlog = batches.status(session, library)
-        if not (backlog.get('source_recovery_wait') and backlog['submission_window_open']):
-            return None
-        plan = completion.status(session, library) if (folder / 'completion.json').exists() else {}
-        active = plan.get('status') == 'running' or background.running(folder, '.backlog-runtime')
-        return {'episode_id': backlog['source_recovery_episode'], 'retry_at': backlog['source_recovery_wait'],
-                'attempts': backlog['source_recovery_attempts'], 'limit': backlog['budgets']['source_recovery_limit'],
-                'learned_delay_seconds': backlog['source_recovery_delay'],
-                'automatic': bool(active and background.status(session)['running'] is True)}
-    except (ArchiveError, OSError):
+        return download_control.source_recovery(session, library)
+    except ArchiveError:
         return None

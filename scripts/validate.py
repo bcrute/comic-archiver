@@ -70,12 +70,12 @@ def suites(prepare=False):
     totals = report['totals']
     line = 100 * totals['covered_lines'] / totals['num_statements']
     branch = 100 * totals['covered_branches'] / totals['num_branches']
-    controller = report['files']['comic_archive/account_export.py']['summary']
+    controller = report['files']['comic_archive/download_control.py']['summary']
     controller_line = 100 * controller['covered_lines'] / controller['num_statements']
     controller_branch = 100 * controller['covered_branches'] / controller['num_branches']
     summary = {'line_percent': round(line, 2), 'branch_percent': round(branch, 2),
-               'account_export_line_percent': round(controller_line, 2),
-               'account_export_branch_percent': round(controller_branch, 2), **stats}
+               'controller_line_percent': round(controller_line, 2),
+               'controller_branch_percent': round(controller_branch, 2), **stats}
     print(json.dumps(summary), flush=True)
     # Measured baseline floors prevent regressions; scenario gates below remain
     # mandatory. Coverage percentages alone do not prove release readiness.

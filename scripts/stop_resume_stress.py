@@ -460,10 +460,13 @@ class Bench:
 
     def receipt(self):
         """What the downloader answered to the task the account download is waiting for, when it is held."""
+        import sqlite3
         try:
-            pending = json.loads((self.session / 'worker/account-export.json').read_text()).get('pending') or {}
+            with sqlite3.connect(f"file:{self.session / 'worker/download.sqlite3'}?mode=ro", uri=True) as db:
+                row = db.execute('SELECT task_id, operation FROM tasks ORDER BY reserved_at DESC LIMIT 1').fetchone()
+            pending = {'task_id': row[0], 'operation': row[1]} if row else {}
             answer = json.loads((self.session / f'worker/responses/{pending.get("task_id")}.json').read_text())
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, sqlite3.Error):
             return None
         result = answer.get('result') if isinstance(answer.get('result'), dict) else {}
         return {'operation': pending.get('operation'), 'answer': answer.get('status'), 'error': answer.get('error'),

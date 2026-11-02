@@ -61,7 +61,7 @@ class NativeSignInAttemptTests(unittest.TestCase):
         self.assertEqual(android_session.signed_in_site(self.session), sites.DEFAULT)
         self.assertEqual(json.loads((self.session / 'state.json').read_text()), {'cookies': [], 'origins': []})
         self.assertFalse(self.commit()['ok'], 'The same prepared answer cannot be replayed')
-        self.assertFalse((self.session / 'worker/account-export.json').exists())
+        self.assertFalse((self.session / 'worker/download.sqlite3').exists())
 
     def test_cancelling_after_verification_before_native_commit_keeps_the_record_absent(self):
         self.assertTrue(self.attempt()['ok'])

@@ -532,7 +532,7 @@ class AppRuntimeTests(unittest.TestCase):
             seen.append(('look', session))
             return {'running': len(seen) < 6}
         self.background['stop'].side_effect = drain; self.background['status'].side_effect = look
-        with patch('comic_archive.account_export.request_stop') as pause, \
+        with patch('comic_archive.download_control.request_stop') as pause, \
                 patch.object(registry.site_signin, 'close', side_effect=lambda: seen.append('site sign-in closed')), \
                 patch.object(registry.cloud_signin, 'close', side_effect=lambda: seen.append('cloud sign-in closed')), \
                 patch('comic_archive.account_ui.interrupt', side_effect=lambda workspace: seen.append(workspace.library)), \
