@@ -1,21 +1,16 @@
 ## Changes in {version}
 
-- **Bought paid-only Tapas episodes are saved.** A paid-only Tapas episode was skipped without a message even after
-  you bought it, so a download could stop short of the end of a series. It is saved now.
-- **The window checks your sign-in when it opens.** A sign-in the site no longer accepts showed as connected until
-  Go found it had expired. The window now asks the site when it opens or you change site, and shows **Sign-in
-  needed** straight away.
-- **Windows: setup closes an open Comic Archiver.** Running a new setup while Comic Archiver was open could fail.
-  Setup now closes it first; a download pauses until you press Go.
-- **Linux: starting a new copy while the old one is open says so.** Before, it only brought the old window
-  forward, which looked as if the update had done nothing. The old-copies question now offers only older versions
-  and answers No unless you choose Yes.
-- **Two series with one name keep their own folders.** Two Webtoon Canvas series with the same name could share a
-  folder. A later one now gets its site number added; folders you already have keep their names.
-- **Fixes.** A Backblaze upload left unfinished no longer fails every retry once the series changes. A starting
-  download is no longer sometimes reported as stopped. A cookie the site ends is no longer sent again. Replacing a
-  Backblaze sign-in removes the old key. If uninstalling cannot forget every sign-in, it keeps the settings that
-  let you uninstall again. Updated certificate roots.
+- **A download goes on by itself after a wait.** Comic Archiver now keeps one record of your download instead of
+  three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
+  tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,
+  or a site that refuses, waits 5, 15 and then 60 minutes before the download stops and asks you.
+- **When a download stops, the window says why.** Each stop comes with what to do about it, such as signing in
+  again. Press **Go** once you have.
+- **Pause stops the download, and Go carries on from there.** Closing the window or switching off the computer
+  pauses it the same way.
+- **Your download carries on after the update.** The first start moves it to the new record, and **Go** picks up
+  where it stopped. Going back to an older version after that starts the list and series checks again; nothing
+  you have saved is lost.
 
 ## Download
 
