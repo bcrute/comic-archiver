@@ -5,6 +5,7 @@ episodes waiting are saved first, then each reading list is read, then the round
 saved files are audited. It never contacts a site itself; the worker's bounded jobs do. Holds are only for what
 the person must fix; anything that may clear by itself is a wait, and progress forgives the tries spent on it.
 """
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -52,6 +53,10 @@ SERIES_CHECK = {'refresh_lists': False, 'scan_only': True, 'scan_limit': 10, 'li
 AUDIT_ZEROES = ('missing_recorded_accessible_episode_count', 'inventory_index_problem_count', 'unindexed_archive_count')
 AUDIT_KEYS = ('verified_inventory_episode_count', *AUDIT_ZEROES)
 TASK = re.compile(r'job-[a-f0-9]{24}')
+# The three records 0.2 kept, moved into this one at the first open after the update (each under its lock).
+OLD_FILES = ('account-export.json', 'completion.json', 'backlog.json')
+OLD_LOCKS = ('.account-export-state', '.completion-state', '.backlog-state')
+OLD_LIMIT = 1024 * 1024
 EPISODE = re.compile(r'[1-9][0-9]{0,19}')
 
 SCHEMA = f'''
@@ -588,10 +593,161 @@ def _set_aside(root):
             path.unlink(missing_ok=True)
 
 
+def _old(path):
+    """An old controller's record as far as it can be read; one that cannot be is moved aside unread."""
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > OLD_LIMIT:
+            return {}
+        value = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError, RecursionError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _old_task(session, root, pending):
+    """The step an old controller had sent out, as this one's task; None when it was only reserved."""
+    if not isinstance(pending, dict):
+        return None
+    task_id, operation, options = pending.get('task_id'), pending.get('operation', 'sync'), pending.get('options')
+    if (not isinstance(task_id, str) or not TASK.fullmatch(task_id) or not isinstance(options, dict)
+            or operation not in ('sync', 'archive_discovered', 'audit_account')):
+        return None
+    if not any((root / folder / f'{task_id}.json').exists() for folder in ('requests', 'responses')):
+        return None
+    if operation == 'audit_account':
+        kind = 'audit'
+    elif operation == 'archive_discovered':
+        episode = options.get('retry_episode_id')
+        kind = 'probe' if isinstance(episode, str) and EPISODE.fullmatch(episode) else 'download'
+    else:
+        categories = options.get('categories')
+        kind = 'list' if isinstance(categories, list) and len(categories) == 1 and categories[0] in lists(session) else 'series'
+    return {'task_id': task_id, 'kind': kind, 'operation': operation, 'options': options}
+
+
+def _move_old(session, library, root):
+    """The first open after the update: the download the old controllers left becomes this one's record.
+
+    Only its place is carried: whether it finished or needs a sign-in, which lists were read, the step that is
+    out, and the reader's learned delay. Anything else was going stops, and Go continues it. The old files are
+    kept in worker/legacy for a look later; going back to an older version starts that one's download afresh."""
+    path = root / STATE_FILE
+    if path.exists() or path.is_symlink() or not any((root / name).exists() or (root / name).is_symlink()
+                                                     for name in OLD_FILES):
+        return
+    if (root / 'legacy').is_symlink():
+        raise ArchiveError('The download record must not be symlinked.')
+    with ExitStack() as locks:
+        for name in ('.download-state', *OLD_LOCKS):
+            locks.enter_context(LibraryLock(root / name))
+        if path.exists() or path.is_symlink():
+            return  # Another process moved it first.
+        export, backlog = _old(root / 'account-export.json'), _old(root / 'backlog.json')
+        now = _stamp()
+        value = {'status': 'stopped', 'code': None, 'stage': 'lists', 'round_started_at': now,
+                 'stretch_started_at': now, 'wait_until': None, 'go_after': None, 'idle_waits': 0, 'network_waits': 0,
+                 'source_probes': 0, 'source_delay': MIN_SOURCE_DELAY, 'source_episode': None, 'failed_retries': 0,
+                 'episodes_waiting': 0, 'audit': None, 'trimmed_at': None}
+        try:
+            if _instant(export['started_at']) <= _now():
+                value['round_started_at'] = export['started_at']
+        except (KeyError, TypeError, ValueError):
+            pass
+        categories = lists(session)
+        checks = export.get('list_checks') if isinstance(export.get('list_checks'), list) else []
+        checks = {c['category']: c for c in checks if isinstance(c, dict) and c.get('category') in categories}
+        phase, read = export.get('phase'), []
+        if export.get('status') == 'finished':
+            value.update(status='finished', stage='finished')
+            audit = export.get('audit') if isinstance(export.get('audit'), dict) else {}
+            value['audit'] = {key: audit[key] for key in AUDIT_KEYS if type(audit.get(key)) is int and audit[key] >= 0}
+            read = categories
+        elif phase in ('series', 'archive', 'verify', 'finished'):
+            value['stage'] = 'verify' if phase == 'finished' else phase
+            read = categories
+        elif phase == 'lists':
+            read = [c for c in categories if c in checks and checks[c].get('complete') is True]
+        if export.get('status') == 'held' and export.get('code') == 'login_required':
+            value.update(status='held', code='login_required')
+        delay, episode = backlog.get('source_recovery_delay'), backlog.get('source_recovery_episode')
+        if type(delay) is int and MIN_SOURCE_DELAY <= delay <= MAX_SOURCE_DELAY:
+            value['source_delay'] = delay
+        if isinstance(episode, str) and EPISODE.fullmatch(episode):
+            value['source_episode'] = episode
+        try:
+            value['episodes_waiting'] = _inventory(library)['pending']
+        except (ArchiveError, OSError, sqlite3.Error):
+            pass  # The first tick after Go counts them.
+        rows = []
+        for category in categories:
+            check = checks.get(category, {})
+            count = check.get('observed_series_count')
+            rows.append((category, now, None if 'complete' not in check else int(check['complete'] is True),
+                         count if type(count) is int and count >= 0 else None) if category in read
+                        else (category, None, None, None))
+        tasks = [task for task in (_old_task(session, root, export.get('pending')),
+                                   _old_task(session, root, backlog.get('pending'))) if task]
+        if len(tasks) == 2 and tasks[0]['task_id'] == tasks[1]['task_id']:
+            tasks.pop()
+        fresh = root / (STATE_FILE + '.moving')
+        try:
+            # A log left without its record would be read into the new one.
+            for name in (fresh, fresh.with_name(fresh.name + '-journal'), path.with_name(STATE_FILE + '-wal'),
+                         path.with_name(STATE_FILE + '-shm')):
+                name.unlink(missing_ok=True)
+            os.close(os.open(fresh, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0), 0o600))
+            db = sqlite3.connect(fresh, isolation_level=None)
+            try:
+                db.executescript('BEGIN;' + SCHEMA + 'COMMIT;')
+                db.execute('BEGIN')
+                db.execute("INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at) "
+                           "VALUES (1, 'stopped', 'lists', ?, ?, ?)", (now, now, now))
+                _save(db, value)
+                db.executemany('INSERT INTO lists (category, read_at, complete, observed_series_count) VALUES (?,?,?,?)',
+                               rows)
+                for task in tasks[:1]:
+                    db.execute('INSERT INTO tasks (task_id, kind, operation, options, reserved_at, published_at) '
+                               'VALUES (?,?,?,?,?,?)', (task['task_id'], task['kind'], task['operation'],
+                                                        json.dumps(task['options'], sort_keys=True), now, now))
+                db.execute('COMMIT')
+            finally:
+                db.close()
+            for task in tasks[1:]:
+                # Only one step can be out; the other, if still queued, is ended unrun as a start of the app ends it.
+                _end_unrun(session, library, root, task['task_id'])
+            os.replace(fresh, path)
+            place = root / 'legacy' / _now().strftime('%Y%m%dT%H%M%SZ')
+            place.mkdir(parents=True, exist_ok=True)
+            for folder in (root / 'legacy', place):
+                folder.chmod(0o700)
+            for name in (*OLD_FILES, 'backlog-history'):
+                if (root / name).exists() or (root / name).is_symlink():
+                    (root / name).replace(place / name)
+        except (OSError, sqlite3.Error):
+            fresh.unlink(missing_ok=True)
+            raise ArchiveError('Comic Archiver could not move the download to its new record. '
+                               'Check that the library folder can be written to.') from None
+
+
+def _end_unrun(session, library, root, task_id):
+    from .task_cancellation import end_unstarted
+    try:
+        worker = json.loads((root / 'status.json').read_text())
+    except (OSError, ValueError):
+        worker = {}
+    if isinstance(worker, dict) and worker.get('state') == 'busy' and worker.get('task_id') == task_id:
+        return  # It is running; it ends by itself and its receipt is not read.
+    try:
+        end_unstarted(session, library, task_id)
+    except (ArchiveError, OSError):
+        pass
+
+
 def _transaction(session, library, action, *, create=False, require_queue=True):
     """Run one change under the record's lock. With `create` (Go), a damaged record is set aside and begun anew."""
     root = _root(session, library, require_queue=require_queue)
     with wait_for_library(root / '.download-state', 5):
+        _move_old(session, library, root)
         for attempt in range(2):
             try:
                 db = _connect(root, create=create)
@@ -717,8 +873,11 @@ def status(session, library=Path('Library')):
     """The download as the apps see it (account_ui adds the speed and the clocks). Never raises for its record."""
     root = _root(session, library, require_queue=False)
     try:
+        _move_old(session, library, root)
         db = _connect(root)
-    except Damaged:
+    except LibraryBusy:
+        db = None  # Another process is moving or reading the old record; the next look shows it.
+    except ArchiveError:
         return {'configured': True, 'status': 'held', 'phase': 'lists', 'code': 'controller_failed'}
     if db is None:
         return {'configured': False}

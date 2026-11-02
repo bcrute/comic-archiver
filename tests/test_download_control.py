@@ -29,7 +29,9 @@ def counted(**values):
             'pending_episode_count': 0, **values}
 
 
-class ControllerTests(unittest.TestCase):
+class Controller(unittest.TestCase):
+    """A project with a ready downloader and an empty library, and the helpers to look at both."""
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -144,6 +146,27 @@ class ControllerTests(unittest.TestCase):
             self.ok(counted(refresh={'reading_lists': [{'category': category, 'complete': True,
                                                         'observed_series_count': 2}]}))
 
+    def held(self, folder):
+        """Another writer (a thread of its own, as locks are shared within one) holds the folder until released."""
+        import threading
+        from comic_archive.locking import LibraryLock
+        taken, release = threading.Event(), threading.Event()
+
+        def hold():
+            with LibraryLock(folder):
+                taken.set()
+                release.wait(10)
+        thread = threading.Thread(target=hold)
+        thread.start()
+        taken.wait(10)
+
+        def done():
+            release.set()
+            thread.join()
+        return done
+
+
+class ControllerTests(Controller):
     # The record itself.
 
     def test_go_makes_a_private_record_with_the_sites_lists_and_reads_the_first_one(self):
@@ -673,25 +696,6 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual((self.status()['status'], self.status()['code']), ('held', 'controller_failed'))
         self.assertNotIn(b'PRIVATE', (self.queue / dc.STATE_FILE).read_bytes())
 
-    def held(self, folder):
-        """Another writer (a thread of its own, as locks are shared within one) holds the folder until released."""
-        import threading
-        from comic_archive.locking import LibraryLock
-        taken, release = threading.Event(), threading.Event()
-
-        def hold():
-            with LibraryLock(folder):
-                taken.set()
-                release.wait(10)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        taken.wait(10)
-
-        def done():
-            release.set()
-            thread.join()
-        return done
-
     def test_a_busy_record_or_library_is_left_for_the_next_tick(self):
         self.go()
         release = self.held(self.queue / '.download-state')
@@ -741,6 +745,271 @@ class ControllerTests(unittest.TestCase):
             self.assertEqual(metadata, pace)
             self.assertEqual(options.get('speed', 'normal'), pace)
             self.assertEqual({k: options[k] for k in dc.DOWNLOAD}, dc.DOWNLOAD)
+
+
+class MoveTests(Controller):
+    """The first open after the update from 0.2: the old controllers' download becomes this one's record."""
+
+    def forget(self):
+        """The new record is gone again, as before the update."""
+        for suffix in ('', '-wal', '-shm'):
+            (self.queue / (dc.STATE_FILE + suffix)).unlink(missing_ok=True)
+
+    def export(self, **values):
+        """The account download's old record, as 0.2 wrote it."""
+        value = {'schema_version': 1, 'status': 'stopped', 'phase': 'lists', 'code': None, 'category_index': 0,
+                 'started_at': '2026-10-30T08:00:00+00:00', 'list_checks': [], 'audit': None, 'pending': None,
+                 'window_budgets': {'archive_only': True, 'refresh_lists': False}, **values}
+        private_json(self.queue / 'account-export.json', value)
+
+    def backlog(self, **values):
+        private_json(self.queue / 'backlog.json', {'schema_version': 1, 'status': 'stopped', 'code': None,
+                                                    'pending': None, 'source_recovery_delay': 30, **values})
+
+    def check(self, category, complete=True, count=3):
+        return {'category': category, 'complete': complete, 'boundary_observed': complete,
+                'observed_series_count': count}
+
+    def old_task(self, operation='sync', options=None, published=True):
+        task = 'job-' + os.urandom(12).hex()
+        options = {'categories': ['updated'], **dc.LIST_READ} if options is None else options
+        if published:
+            private_json(self.queue / 'requests' / (task + '.json'), {'operation': operation, 'args': options})
+        return {'task_id': task, 'operation': operation, 'options': options, 'before_remaining': 0}
+
+    def kept(self):
+        """The old files, as moved aside: {name: path}."""
+        places = list((self.queue / 'legacy').iterdir())
+        self.assertEqual(len(places), 1, places)
+        return {path.name: path for path in places[0].iterdir()}
+
+    def test_an_old_finished_download_moves_in_finished_with_its_counts_and_the_old_files_are_kept_aside(self):
+        audit = {key: 0 for key in dc.AUDIT_KEYS} | {'verified_inventory_episode_count': 140,
+                                                     'coverage_blockers': ['PRIVATE'], 'archive_integrity_passed': True}
+        self.export(status='finished', phase='finished', audit=audit, category_index=4,
+                    list_checks=[self.check(c) for c in TAPAS_LISTS])
+        private_json(self.queue / 'completion.json', {'schema_version': 1, 'status': 'known_backlog_drained'})
+        self.backlog()
+        (self.queue / 'backlog-history').mkdir()
+        private_json(self.queue / 'backlog-history' / 'window.json', {'note': 'PRIVATE'})
+        shown = self.status()
+        self.assertEqual((shown['status'], shown['phase']), ('finished', 'finished'))
+        self.assertEqual(shown['audit'], {key: audit[key] for key in dc.AUDIT_KEYS})
+        self.assertEqual(sorted(self.kept()), ['account-export.json', 'backlog-history', 'backlog.json', 'completion.json'])
+        for name in dc.OLD_FILES:
+            self.assertFalse((self.queue / name).exists())
+        for folder in (self.queue / 'legacy', *(self.queue / 'legacy').iterdir()):
+            self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((self.queue / dc.STATE_FILE).stat().st_mode & 0o777, PRIVATE_FILE)
+        self.assertNotIn(b'PRIVATE', (self.queue / dc.STATE_FILE).read_bytes())
+        self.assertEqual({c: row['complete'] for c, row in self.lists().items()}, dict.fromkeys(TAPAS_LISTS, 1))
+        self.assertFalse(dc.reopen(self.session, self.library))
+        # Go starts a new round, as after any finished download.
+        self.go()
+        _, request = self.published()
+        self.assertEqual(request['args']['categories'], ['subscribed'])
+
+    def test_a_download_that_needed_a_sign_in_still_does_and_anything_else_waits_for_go(self):
+        for export, shown in (({'status': 'held', 'code': 'login_required'}, ('held', 'login_required')),
+                              ({'status': 'held', 'code': 'window_changed'}, ('stopped', None)),
+                              ({'status': 'held', 'code': 'scan_no_progress', 'phase': 'series'}, ('stopped', None)),
+                              ({'status': 'running'}, ('stopped', None)),
+                              (None, ('stopped', None))):
+            with self.subTest(export):
+                self.forget()
+                if export is None:  # Only a plan of windows, from before the account download.
+                    private_json(self.queue / 'completion.json', {'schema_version': 1, 'status': 'running'})
+                else:
+                    self.export(**export)
+                value = self.status()
+                self.assertEqual((value['status'], value.get('code')), shown)
+                self.assertTrue(value['configured'])
+                self.assertIsNone(self.state()['wait_until'])
+
+    def test_where_the_round_had_got_to_is_kept(self):
+        for phase, checks, stage, read in (
+                ('existing_backlog', [], 'lists', []),
+                ('lists', [self.check('subscribed'), self.check('updated', complete=False, count=0)], 'lists', ['subscribed']),
+                ('series', [self.check(c) for c in TAPAS_LISTS], 'series', TAPAS_LISTS),
+                ('archive', [], 'archive', TAPAS_LISTS),
+                ('verify', [], 'verify', TAPAS_LISTS),
+                ('finished', [], 'verify', TAPAS_LISTS),  # Finished but not marked so: audited again.
+                ('a later phase', [self.check('subscribed')], 'lists', [])):
+            with self.subTest(phase):
+                self.forget()
+                self.export(phase=phase, list_checks=checks, category_index=len(checks))
+                self.status()
+                self.assertEqual(self.state()['stage'], stage)
+                rows = self.lists()
+                self.assertEqual(list(rows), TAPAS_LISTS)
+                self.assertEqual([c for c, row in rows.items() if row['read_at']], read)
+                if phase == 'lists':
+                    self.assertEqual((rows['subscribed']['complete'], rows['subscribed']['observed_series_count']), (1, 3))
+                if phase == 'archive':  # Read before, with nothing known of how.
+                    self.assertEqual((rows['recent']['complete'], rows['recent']['observed_series_count']), (None, None))
+        # From the list it stopped at, Go reads the lists not yet read.
+        self.forget()
+        self.export(phase='lists', list_checks=[self.check('subscribed')], category_index=1)
+        self.go()
+        self.assertEqual(self.published()[1]['args']['categories'], ['updated'])
+
+    def test_a_step_already_sent_is_carried_with_its_identity_and_one_only_reserved_is_dropped(self):
+        sent = self.old_task()
+        self.export(phase='lists', list_checks=[self.check('subscribed')], category_index=1, pending=sent)
+        self.backlog(pending=dict(self.old_task('archive_discovered', {'limit': 100}, published=False), phase='reserved'))
+        self.status()
+        task, = self.tasks()
+        self.assertEqual((task['task_id'], task['kind'], task['operation']), (sent['task_id'], 'list', 'sync'))
+        self.assertEqual(json.loads(task['options']), sent['options'])
+        self.assertIsNotNone(task['published_at'])
+        self.assertEqual(dc.outstanding(self.session, self.library), sent['task_id'])
+        # Go, and its receipt is settled as this controller's own: the list it read counts.
+        self.go()
+        self.tick()
+        self.assertEqual(self.requests(), [sent['task_id']])
+        self.ok(counted(refresh={'reading_lists': [self.check('updated')]}))
+        _, request = self.published()
+        self.assertEqual(request['args']['categories'], ['recent'])
+        self.assertIsNotNone(self.lists()['updated']['read_at'])
+
+    def test_each_kind_of_step_sent_is_known_again(self):
+        for operation, options, kind in (('sync', {'categories': ['updated'], **dc.LIST_READ}, 'list'),
+                                         ('sync', {'categories': ['elsewhere'], **dc.LIST_READ}, 'series'),
+                                         ('sync', dict(dc.SERIES_CHECK), 'series'),
+                                         ('archive_discovered', {'limit': 100}, 'download'),
+                                         ('archive_discovered', {'limit': 1, 'retry_episode_id': '81'}, 'probe'),
+                                         ('archive_discovered', {'limit': 1, 'retry_episode_id': 'x'}, 'download'),
+                                         ('audit_account', {}, 'audit')):
+            with self.subTest(kind=kind, options=options):
+                self.forget()
+                for path in (self.queue / 'requests').glob('*.json'):
+                    path.unlink()
+                self.backlog(pending=dict(self.old_task(operation, options), phase='queued'))
+                self.status()
+                self.assertEqual([task['kind'] for task in self.tasks()], [kind])
+        for pending in ({'task_id': 'job-1', 'operation': 'sync', 'options': {}}, ['PRIVATE'],
+                        dict(self.old_task(), operation='delete_everything'), dict(self.old_task(), options=[])):
+            with self.subTest(pending=pending):
+                self.forget()
+                self.backlog(pending=pending)
+                self.status()
+                self.assertEqual(self.tasks(), [])
+
+    def test_when_both_old_controllers_had_a_step_out_the_accounts_is_kept_and_the_other_ended_unrun(self):
+        account, plan = self.old_task(), self.old_task('archive_discovered', {'limit': 100})
+        self.export(pending=account)
+        self.backlog(pending=dict(plan, phase='queued'))
+        self.status()
+        self.assertEqual([task['task_id'] for task in self.tasks()], [account['task_id']])
+        receipt = json.loads((self.queue / 'responses' / (plan['task_id'] + '.json')).read_text())
+        self.assertEqual(receipt['result']['status'], 'cancelled')
+        # One the downloader is on is left to end by itself.
+        self.forget()
+        account, plan = self.old_task(), self.old_task('archive_discovered', {'limit': 100})
+        self.export(pending=account)
+        self.backlog(pending=dict(plan, phase='queued'))
+        private_json(self.queue / 'status.json', {'state': 'busy', 'task_id': plan['task_id']})
+        self.status()
+        self.assertFalse((self.queue / 'responses' / (plan['task_id'] + '.json')).exists())
+        # The same step named by both is carried once.
+        self.forget()
+        account = self.old_task()
+        self.export(pending=account)
+        self.backlog(pending=dict(account, phase='queued'))
+        self.status()
+        self.assertEqual([task['task_id'] for task in self.tasks()], [account['task_id']])
+        # A queue that cannot be answered does not stop the move; the other step is then an orphan, run first.
+        self.forget()
+        (self.queue / 'status.json').unlink()
+        account, plan = self.old_task(), self.old_task('archive_discovered', {'limit': 100})
+        self.export(pending=account)
+        self.backlog(pending=dict(plan, phase='queued'))
+        with patch('comic_archive.task_cancellation.end_unstarted', side_effect=ArchiveError('PRIVATE')):
+            self.status()
+        self.assertEqual([task['task_id'] for task in self.tasks()], [account['task_id']])
+        self.assertIn(plan['task_id'], self.requests())
+
+    def test_a_start_of_the_app_ends_a_carried_step_no_downloader_got_to(self):
+        sent = self.old_task('archive_discovered', {'limit': 100})
+        self.export(status='running', phase='archive', pending=sent)
+        self.assertFalse(account_ui.reopen(self.workspace))  # Already waiting for Go once moved.
+        receipt = json.loads((self.queue / 'responses' / (sent['task_id'] + '.json')).read_text())
+        self.assertEqual(receipt['result']['status'], 'cancelled')
+        self.go()
+        self.tick()
+        self.assertEqual(self.tasks()[0]['outcome'], 'ok')
+        self.assertEqual(self.state()['status'], 'running')
+
+    def test_the_readers_learned_delay_and_the_refused_episode_are_carried(self):
+        self.export(phase='archive')
+        self.backlog(status='paused', code='source_refused', source_recovery_delay=240, source_recovery_episode='81')
+        self.status()
+        value = self.state()
+        self.assertEqual((value['source_delay'], value['source_episode']), (240, '81'))
+        self.go()
+        self.assertEqual(self.published()[1]['args']['retry_episode_id'], '81')
+        for delay, episode in ((5, '0'), (10**6, 'PRIVATE'), ('240', 81)):
+            with self.subTest(delay=delay):
+                self.forget()
+                self.backlog(source_recovery_delay=delay, source_recovery_episode=episode)
+                self.status()
+                value = self.state()
+                self.assertEqual((value['source_delay'], value['source_episode']), (dc.MIN_SOURCE_DELAY, None))
+
+    def test_old_files_that_cannot_be_read_are_moved_aside_unread(self):
+        (self.queue / 'account-export.json').write_text('{"status": "finished", PRIVATE')
+        (self.queue / 'backlog.json').write_text('["PRIVATE"]')
+        (self.queue / 'completion.json').write_bytes(b'{' * (dc.OLD_LIMIT + 1))
+        self.pending_episode()
+        shown = self.status()
+        self.assertEqual((shown['status'], shown['phase']), ('stopped', 'existing_backlog'))
+        self.assertEqual(sorted(self.kept()), sorted(dc.OLD_FILES))
+        self.assertEqual(self.tasks(), [])
+        self.export(status='finished', started_at='not a time')  # Found after the move: no longer read.
+        self.assertEqual(self.status()['status'], 'stopped')
+        # A round's start that cannot be read, or is still to come, is the time of the move.
+        for started in ('2026-10-30T08:00:00', '2027-01-01T00:00:00+00:00', 5):
+            with self.subTest(started=started):
+                self.forget()
+                self.export(started_at=started)
+                self.status()
+                self.assertEqual(dc._instant(self.state()['round_started_at']), self.now)
+        self.forget()
+        self.export()
+        self.status()
+        self.assertEqual(self.state()['round_started_at'], '2026-10-30T08:00:00+00:00')
+
+    def test_a_move_another_process_is_making_is_left_to_it(self):
+        self.export(status='finished')
+        for lock in ('.download-state', *dc.OLD_LOCKS):
+            with self.subTest(lock):
+                release = self.held(self.queue / lock)
+                try:
+                    self.assertEqual(dc.status(self.session, self.library), {'configured': False})
+                    self.assertTrue((self.queue / 'account-export.json').exists())
+                finally:
+                    release()
+        self.assertEqual(self.status()['status'], 'finished')
+
+    def test_a_move_that_cannot_be_written_holds_and_leaves_the_old_files(self):
+        self.export(status='finished')
+        with patch('comic_archive.download_control.sqlite3.connect', side_effect=sqlite3.OperationalError('PRIVATE')):
+            self.assertEqual(self.status()['code'], 'controller_failed')
+            with self.assertRaises(ArchiveError):
+                self.go()
+        self.assertTrue((self.queue / 'account-export.json').exists())
+        self.assertFalse((self.queue / (dc.STATE_FILE + '.moving')).exists())
+        self.assertFalse((self.queue / dc.STATE_FILE).exists())
+        self.assertEqual(self.status()['status'], 'finished')
+
+    def test_a_symlinked_place_for_the_old_files_is_refused(self):
+        self.export(status='finished')
+        elsewhere = self.project / 'elsewhere'
+        elsewhere.mkdir()
+        (self.queue / 'legacy').symlink_to(elsewhere)
+        self.assertEqual(self.status()['code'], 'controller_failed')
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        self.assertTrue((self.queue / 'account-export.json').exists())
 
 
 if __name__ == '__main__':
