@@ -111,13 +111,14 @@ class TransferMetricsTests(unittest.TestCase):
 
     def test_controlled_floor_is_shared_by_queue_backlog_worker_and_service(self):
         from comic_archive.downloads import validate_request_interval
-        from comic_archive.batches import budgets
+        from comic_archive.account_ui import SPEEDS
         from comic_archive.queue_client import submit_job
         from comic_archive.worker import execute
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as temporary:
             session=Path(temporary);(session/'worker/requests').mkdir(parents=True)
-            self.assertEqual(budgets({'request_interval':.25})['request_interval'],.25)
+            self.assertEqual(min(speed['request_interval'] for speed in SPEEDS.values()),.25)
+            for speed in SPEEDS.values():validate_request_interval(speed['request_interval'])
             submit_job(session,'archive_discovered',{'request_interval':.25})
             adapter=Mock();adapter.interval=1.0
             with patch('comic_archive.jobs.archive_discovered') as job:

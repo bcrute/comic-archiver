@@ -144,62 +144,6 @@
   "test": "test_a_failed_or_oversized_nmcli_answer_makes_the_route_unknown_instead_of_unmetered_wifi"
  },
  {
-  "id": "batches-asset-wait",
-  "source": "comic_archive/batches.py",
-  "old": "_instant(state['asset_retry_after']) < _instant(state['started_at'])",
-  "new": "False",
-  "test_file": "test_batches.py",
-  "test": "test_a_damaged_or_tampered_checkpoint_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "batches-discovered-scan",
-  "source": "comic_archive/batches.py",
-  "old": "elif state['previous_scan_remaining']!=0 and",
-  "new": "elif False and",
-  "test_file": "test_batches.py",
-  "test": "test_a_damaged_or_tampered_checkpoint_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "batches-naive-time",
-  "source": "comic_archive/batches.py",
-  "old": "if result.tzinfo is None:raise ValueError",
-  "new": "if False:raise ValueError",
-  "test_file": "test_batches.py",
-  "test": "test_a_damaged_or_tampered_checkpoint_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "batches-unknown-code",
-  "source": "comic_archive/batches.py",
-  "old": "or state['code'] not in CODES",
-  "new": "or False",
-  "test_file": "test_batches.py",
-  "test": "test_a_damaged_or_tampered_checkpoint_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "completion-drained-caps",
-  "source": "comic_archive/completion.py",
-  "old": "if until_drained and any(value['limits']",
-  "new": "if False and any(value['limits']",
-  "test_file": "test_completion.py",
-  "test": "test_a_damaged_or_tampered_plan_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "completion-timed-unlimited",
-  "source": "comic_archive/completion.py",
-  "old": "if type(result[key]) is not int or not minimum<=result[key]<=cap:",
-  "new": "if result[key] is not None and (type(result[key]) is not int or not minimum<=result[key]<=cap):",
-  "test_file": "test_completion.py",
-  "test": "test_a_damaged_or_tampered_plan_is_refused_and_left_exactly_as_it_was"
- },
- {
-  "id": "completion-net-limit-hold",
-  "source": "comic_archive/completion.py",
-  "old": "if window['status']=='paused' and not _waiting(window):",
-  "new": "if False:",
-  "test_file": "test_completion.py",
-  "test": "test_the_last_plan_wide_network_recovery_is_cancelled_right_after_it_is_scheduled"
- },
- {
   "id": "session-browser-name",
   "source": "comic_archive/session.py",
   "old": "if preferred not in {\"auto\", \"chromium\", \"firefox\", \"qt\"}:",
@@ -960,46 +904,6 @@
   "test": "test_a_further_try_returns_to_the_site_first_when_the_failure_left_the_page_elsewhere"
  },
  {
-  "id": "progress-does-not-restore-network-recoveries",
-  "source": "comic_archive/batches.py",
-  "old": "                if result['archived_episode_ids']:state['network_recovery_attempts']=0\n",
-  "new": "",
-  "test_file": "test_network_recovery.py",
-  "test": "test_a_batch_that_saved_an_episode_gives_the_window_its_recoveries_back"
- },
- {
-  "id": "network-recoveries-restored-without-progress",
-  "source": "comic_archive/batches.py",
-  "old": "                if result['archived_episode_ids']:state['network_recovery_attempts']=0\n",
-  "new": "                state['network_recovery_attempts']=0\n",
-  "test_file": "test_network_recovery.py",
-  "test": "test_two_exponential_recoveries_then_pause_without_another_submission"
- },
- {
-  "id": "resume-keeps-spent-network-recoveries",
-  "source": "comic_archive/batches.py",
-  "old": "network_retry_after=None,network_recovery_attempts=0)",
-  "new": "network_retry_after=None)",
-  "test_file": "test_network_recovery.py",
-  "test": "test_resuming_a_window_held_after_its_recoveries_gives_them_back"
- },
- {
-  "id": "restored-recoveries-hold-the-plan",
-  "source": "comic_archive/completion.py",
-  "old": "        for earlier in value['windows']:earlier['network_recovery_attempts']=0\n",
-  "new": "        pass\n",
-  "test_file": "test_completion.py",
-  "test": "test_recoveries_given_back_to_the_window_no_longer_count_against_the_plan"
- },
- {
-  "id": "earlier-windows-recoveries-still-count",
-  "source": "comic_archive/completion.py",
-  "old": "        for earlier in value['windows']:earlier['network_recovery_attempts']=0\n",
-  "new": "        for earlier in value['windows'][-1:]:earlier['network_recovery_attempts']=0\n",
-  "test_file": "test_completion.py",
-  "test": "test_recoveries_given_back_to_the_window_no_longer_count_against_the_plan"
- },
- {
   "id": "pace-drops-the-hand-over-between-batches",
   "source": "comic_archive/estimate.py",
   "old": "later - finished <= JOINED_SECONDS",
@@ -1246,14 +1150,6 @@
   "new": "WHERE e.status IN ('queued','failed') AND e.access_state IN '''+\"('tapas_free')\"",
   "test_file": "test_sites.py",
   "test": "test_every_sites_free_and_unlocked_episodes_queue_with_unlocked_first_and_nothing_else_does"
- },
- {
-  "id": "go-lists-always-tapas",
-  "source": "comic_archive/account_export.py",
-  "old": "    return sites.of_session(Path(session)).lists",
-  "new": "    return CATEGORIES",
-  "test_file": "test_sites.py",
-  "test": "test_a_sign_in_keeps_only_its_own_sites_cookies_and_storage_and_records_whose_it_is"
  },
  {
   "id": "webtoon-saves-reduced-copies",
@@ -1872,14 +1768,6 @@
   "test": "test_a_file_outside_the_apps_own_folder_is_never_deleted"
  },
  {
-  "id": "Go after the reader retries ran out starts them over",
-  "source": "comic_archive/batches.py",
-  "old": "            previous['source_recovery_attempts']=0\n",
-  "new": "            pass\n",
-  "test_file": "test_batches.py",
-  "test": "test_go_after_the_automatic_reader_retries_ran_out_tries_the_refused_episode_alone_first"
- },
- {
   "id": "saved-library series sort orders episodes by their title words",
   "source": "comic_archive/saved_library.py",
   "old": "rows.sort(key=lambda r:(r['series'].casefold(), r['order'], r['title'].casefold()",
@@ -2270,14 +2158,6 @@
   "new": "",
   "test_file": "test_cloud_stream.py",
   "test": "test_only_an_unconfirmed_episode_saved_here_lets_the_run_go_on"
- },
- {
-  "id": "cloud pause reason flattened",
-  "source": "comic_archive/batches.py",
-  "old": "else error_code if error_code in CLOUD_CODES else 'task_failed')",
-  "new": "else 'task_failed')",
-  "test_file": "test_failure_receipts.py",
-  "test": "test_a_cloud_upload_that_stopped_a_batch_pauses_with_its_own_reason"
  },
  {
   "id": "desktop-signin-waits-for-settled-cookies",
@@ -2769,9 +2649,9 @@
  },
  {
   "id": "speed-choice-ignored-by-go",
-  "source": "comic_archive/account_ui.py",
-  "old": "    pacing = SPEEDS[speed(workspace)]",
-  "new": "    pacing = SPEEDS[DEFAULT_SPEED]",
+  "source": "comic_archive/download_control.py",
+  "old": "pace = SPEEDS[speed(SimpleNamespace(session=Path(session)))]",
+  "new": "pace = SPEEDS['fast']",
   "test_file": "test_account_ui.py",
   "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
  },
@@ -2782,38 +2662,6 @@
   "new": "",
   "test_file": "test_account_ui.py",
   "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
- },
- {
-  "id": "speed-not-written-into-saved-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "            value['window_budgets'] = batches.budgets(value['window_budgets'] | pacing)",
-  "new": "            value['window_budgets'] = batches.budgets(value['window_budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
- },
- {
-  "id": "speed-not-carried-into-plan",
-  "source": "comic_archive/account_ui.py",
-  "old": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'] | pacing)",
-  "new": "            plan['window_budgets'] = batches.budgets(plan['window_budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
- },
- {
-  "id": "speed-not-carried-into-window",
-  "source": "comic_archive/account_ui.py",
-  "old": "            window['budgets'] = batches.budgets(window['budgets'] | pacing)",
-  "new": "            window['budgets'] = batches.budgets(window['budgets'])",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_after_pause_carries_a_changed_speed_into_the_saved_plan_and_its_window"
- },
- {
-  "id": "speed-rewrites-window-whose-batch-is-out",
-  "source": "comic_archive/account_ui.py",
-  "old": "        if window is not None and window['pending'] is None:",
-  "new": "        if window is not None:",
-  "test_file": "test_account_ui.py",
-  "test": "test_go_resumes_stopped_completion_without_resetting_window_budgets_or_usage"
  },
  {
   "id": "speed-unknown-accepted",
@@ -2857,57 +2705,41 @@
  },
  {
   "id": "retry-wait-not-reported",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    if left > 0:\n                        result['retry']",
-  "new": "                    if False:\n                        result['retry']",
+  "source": "comic_archive/download_control.py",
+  "old": "        if left > 0:  # A wait that is over is acted on at the next tick.\n",
+  "new": "        if False:\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "finished-wait-reported",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    if left > 0:\n                        result['retry']",
-  "new": "                    if True:\n                        result['retry']",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "retry-wait-reported-for-a-paused-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "            if result.get('status') == 'running':\n                # A wait the download",
-  "new": "            if True:\n                # A wait the download",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
- },
- {
-  "id": "unreadable-window-breaks-the-status",
-  "source": "comic_archive/account_ui.py",
-  "old": "                    result['go_after_seconds'] = math.ceil(left)\n        except (ArchiveError, OSError, TypeError, ValueError, AttributeError):",
-  "new": "                    result['go_after_seconds'] = math.ceil(left)\n        except (OSError,):",
+  "source": "comic_archive/download_control.py",
+  "old": "        if left > 0:  # A wait that is over is acted on at the next tick.\n",
+  "new": "        if True:\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "download-goes-on-by-itself-at-a-start",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if running:\n        account_export.request_stop(session, library)  # The plan stops with it.\n    elif continuing:",
-  "new": "    if continuing:",
+  "source": "comic_archive/download_control.py",
+  "old": "        if going:\n            value.update(status='stopped', code=None, wait_until=None)\n",
+  "new": "        if False:\n            pass\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_sets_a_download_that_was_running_to_wait_for_go_and_go_continues_it"
  },
  {
   "id": "unrun-task-left-queued-at-a-start",
-  "source": "comic_archive/account_ui.py",
-  "old": "            end_unstarted(session, library, task)\n",
-  "new": "            pass\n",
+  "source": "comic_archive/download_control.py",
+  "old": "                end_unstarted(session, library, task['task_id'])\n",
+  "new": "                pass\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_ends_unrun_the_task_a_power_cut_left_queued_so_no_downloader_works_through_it"
  },
  {
   "id": "unrun-task-ended-under-a-running-downloader",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if idle:\n        for task in sorted(",
-  "new": "    if True:\n        for task in sorted(",
+  "source": "comic_archive/download_control.py",
+  "old": "        if idle and task is not None:",
+  "new": "        if task is not None:",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
  },
@@ -2977,41 +2809,41 @@
  },
  {
   "id": "go-resume-checks-tapas-lists",
-  "source": "comic_archive/account_ui.py",
-  "old": "        value = account_export._load(root, account_export.lists(session))",
-  "new": "        value = account_export._load(root)",
+  "source": "comic_archive/download_control.py",
+  "old": "    return sites.of_session(Path(session)).lists",
+  "new": "    return sites.DEFAULT.lists",
   "test_file": "test_account_ui.py",
   "test": "test_go_continues_a_paused_download_of_another_site_past_that_sites_own_lists"
  },
  {
   "id": "Status hides the image retry wait",
-  "source": "comic_archive/account_ui.py",
-  "old": ",\n                                    ('asset_retry_after', 'images')):",
-  "new": "):",
+  "source": "comic_archive/download_control.py",
+  "old": "reason = 'connection' if value['code'] in ('connection', 'network_policy') else value['code']",
+  "new": "reason = 'connection' if value['code'] in ('connection', 'network_policy', 'images') else value['code']",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "Status hides the site's cooldown from Go",
-  "source": "comic_archive/account_ui.py",
-  "old": "result['go_after_seconds'] = math.ceil(left)",
-  "new": "pass",
+  "source": "comic_archive/download_control.py",
+  "old": "            result['go_after_seconds'] = left",
+  "new": "            pass",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "Status shows a finished cooldown to Go",
-  "source": "comic_archive/account_ui.py",
-  "old": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if left > 0:",
-  "new": "                left = batches._instant(window['source_retry_after']).timestamp() - now\n                if True:",
+  "source": "comic_archive/download_control.py",
+  "old": "        if left > 0:\n            result['go_after_seconds'] = left",
+  "new": "        if True:\n            result['go_after_seconds'] = left",
   "test_file": "test_account_ui.py",
   "test": "test_a_step_that_ended_and_a_wait_before_trying_again_are_not_reported_as_a_stall"
  },
  {
   "id": "Status drops the whole download's hold reasons",
   "source": "comic_archive/account_ui.py",
-  "old": "batches.CODES | completion.REASONS | {",
-  "new": "batches.CODES | {",
+  "old": "('code', download_control.HOLDS)):",
+  "new": "('code', ('login_required',))):",
   "test_file": "test_account_ui.py",
   "test": "test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do"
  },
@@ -4240,84 +4072,12 @@
   "test": "test_each_older_copy_is_offered_for_removal_once_this_one_is_the_only_window"
  },
  {
-  "id": "reopen-leaves-a-running-plan",
-  "source": "comic_archive/account_ui.py",
-  "old": "    elif continuing:\n        completion.request_stop(session, library)\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held"
- },
- {
-  "id": "reopen-reports-a-held-plan-as-idle",
-  "source": "comic_archive/account_ui.py",
-  "old": "    running = running or continuing\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_sets_the_backlog_to_wait_for_go_even_when_the_account_download_was_held"
- },
- {
-  "id": "status-ignores-a-saving-plan",
-  "source": "comic_archive/account_ui.py",
-  "old": "        result['status'] = 'running'\n        result.pop('code', None)\n",
-  "new": "        result.pop('code', None)\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held"
- },
- {
-  "id": "status-keeps-the-hold-reason-while-saving",
-  "source": "comic_archive/account_ui.py",
-  "old": "        result.pop('code', None)\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_page_says_the_download_is_working_while_the_plan_saves_after_the_account_download_was_held"
- },
- {
-  "id": "status-shows-a-drained-plan-as-saving",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if saving and result.get('status') != 'running':\n",
-  "new": "    if result.get('status') != 'running':\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_page_shows_the_hold_again_once_the_plan_has_nothing_left_to_save"
- },
- {
-  "id": "status-fails-on-a-damaged-plan",
-  "source": "comic_archive/account_ui.py",
-  "old": "        saving = False  # A plan that cannot be read cannot run either.\n",
-  "new": "        raise\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_the_page_still_shows_the_download_when_the_plan_file_is_damaged"
- },
- {
-  "id": "pause-leaves-a-plan-without-an-account-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if _plan(session, library).get('status') in {'running', 'paused'}:\n        completion.request_stop(session, library)\n",
-  "new": "",
-  "test_file": "test_account_ui.py",
-  "test": "test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download"
- },
- {
-  "id": "pause-needs-an-account-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if configured:\n        account_export.request_stop(session, library)  # The plan stops with it, unless the download had finished.\n",
-  "new": "    account_export.request_stop(session, library)\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_pause_and_a_start_of_the_app_stop_a_plan_that_runs_without_an_account_download"
- },
- {
   "id": "pause-on-a-library-that-never-downloaded",
-  "source": "comic_archive/account_ui.py",
-  "old": "        return  # Nothing has downloaded here yet.\n",
-  "new": "        pass\n",
+  "source": "comic_archive/download_control.py",
+  "old": "        _transaction(session, library, stop, require_queue=False)\n",
+  "new": "        _transaction(session, library, stop, require_queue=False, create=True)\n",
   "test_file": "test_account_ui.py",
   "test": "test_pause_and_a_start_of_the_app_leave_a_library_that_has_never_downloaded_alone"
- },
- {
-  "id": "reopen-skips-a-plan-without-an-account-download",
-  "source": "comic_archive/account_ui.py",
-  "old": "    if not (state.get('configured') or plan.get('configured')):\n        return False\n",
-  "new": "    if not state.get('configured'):\n        return False\n",
-  "test_file": "test_account_ui.py",
-  "test": "test_a_start_of_the_app_sets_a_plan_without_an_account_download_to_wait_for_go_and_go_continues_it"
  },
  {
   "id": "transport-expired-cookie-sent-again",
@@ -4824,38 +4584,6 @@
   "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
  },
  {
-  "id": "progress-ignores-series-checks",
-  "source": "comic_archive/batches.py",
-  "old": "                or type(checked) is int and checked > 0\n",
-  "new": "",
-  "test_file": "test_batches.py",
-  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
- },
- {
-  "id": "progress-ignores-settled-episodes",
-  "source": "comic_archive/batches.py",
-  "old": "for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids')))",
-  "new": "for key in ()))",
-  "test_file": "test_batches.py",
-  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
- },
- {
-  "id": "batch-progress-from-saved-pages-only",
-  "source": "comic_archive/batches.py",
-  "old": "elif (not cooling and not progressed(result)",
-  "new": "elif (not cooling and not result['archived_episode_ids'] and not result['downloaded_pages']",
-  "test_file": "test_batches.py",
-  "test": "test_a_batch_that_settled_episodes_or_checked_series_is_progress_whatever_the_counts"
- },
- {
-  "id": "series-scan-progress-from-counts-only",
-  "source": "comic_archive/account_export.py",
-  "old": "elif not batches.progressed(result) and remaining >= pending['before_remaining']:",
-  "new": "elif remaining >= pending['before_remaining']:",
-  "test_file": "test_account_export.py",
-  "test": "test_a_scan_that_checked_series_goes_on_even_when_more_are_left_than_before"
- },
- {
   "id": "signin-earlier-proof-overrides-later-failure",
   "source": "comic_archive/dashboard_model.py",
   "old": "s.signin_used or auth_status not in",
@@ -4878,38 +4606,6 @@
   "new": "",
   "test_file": "test_transport.py",
   "test": "test_a_retry_uses_rotated_or_deleted_cookies_even_when_the_response_body_breaks"
- },
- {
-  "id": "plan-record-read-at-state-limit",
-  "source": "comic_archive/completion.py",
-  "old": "value=batches._read(root/'completion.json',limit=PLAN_LIMIT)",
-  "new": "value=batches._read(root/'completion.json')",
-  "test_file": "test_completion.py",
-  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
- },
- {
-  "id": "plan-windows-never-folded",
-  "source": "comic_archive/completion.py",
-  "old": "    value['windows']=_fold(value['windows'])\n    return value",
-  "new": "    return value",
-  "test_file": "test_completion.py",
-  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
- },
- {
-  "id": "plan-fold-loses-earlier-totals",
-  "source": "comic_archive/completion.py",
-  "old": "**{key:sum(window[key] for window in earlier) for key in METRICS}",
-  "new": "**{key:earlier[-1][key] for key in METRICS}",
-  "test_file": "test_completion.py",
-  "test": "test_a_plan_that_runs_for_weeks_keeps_its_record_small_and_its_totals"
- },
- {
-  "id": "reserved-window-refuses-resumed-window",
-  "source": "comic_archive/completion.py",
-  "old": "window['status'] not in {'budget_reached','running'}",
-  "new": "window['status']!='budget_reached'",
-  "test_file": "test_completion.py",
-  "test": "test_go_after_a_stop_between_windows_starts_the_reserved_window"
  },
  {
   "id": "dc-list-read-marked",

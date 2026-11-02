@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from comic_archive import batches, completion
+from comic_archive import download_control
 from comic_archive.archive import Store, verify
 from comic_archive.fast_import import FastBrowserAdapter, FastImportAdapter, fast_options
 from comic_archive.inventory import Inventory
@@ -109,21 +109,28 @@ class FastImportTests(unittest.TestCase):
         finally:
             browser.transport.close()
 
-    def test_fast_backlog_keeps_speed_in_saved_pending_task_and_completion_plan(self):
+    def test_the_fast_speed_is_kept_in_the_step_saved_before_it_is_sent(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); session = root / '.comic-session'; library = root / 'Library'
             worker = session / 'worker'; (worker / 'requests').mkdir(parents=True)
             (worker / 'responses').mkdir()
+            (worker / 'status.json').write_text(json.dumps({'state': 'busy'}))
+            with Inventory(library) as inventory:
+                inventory.observe('42', 'Series', [{'id': '81', 'title': 'Episode', 'order': 1,
+                                                    'access_state': 'tapas_free'}], 'fixture')
+            download_control.start(session, library)  # Fast until another speed is chosen.
+            download_control.worker_tick(session, library)
+            db = download_control._connect(worker)
+            try:
+                saved = json.loads(db.execute('SELECT options FROM tasks').fetchone()[0])
+            finally:
+                db.close()
+            self.assertEqual(saved['speed'], 'fast')
+            self.assertEqual(list((worker / 'requests').glob('*.json')), [])  # Saved, not yet sent.
             (worker / 'status.json').write_text(json.dumps({'state': 'ready'}))
-            with Inventory(library): pass
-            batches._start(worker, {'speed': 'fast', 'archive_only': True, 'refresh_lists': False}, False)
-            completion.configure(session, library, window_budgets={'speed': 'fast'})
-            batches.step(session, library)
-            state = batches._load(worker)
-            self.assertEqual(state['pending']['options']['speed'], 'fast')
-            self.assertEqual(state['budgets']['speed'], 'fast')
-            self.assertEqual(completion._load(worker)['window_budgets']['speed'], 'fast')
-            with self.assertRaises(ArchiveError): batches.budgets({'speed': 'fast'})
+            download_control.worker_tick(session, library)
+            request, = (worker / 'requests').glob('*.json')
+            self.assertEqual(json.loads(request.read_text())['args'], saved)
 
     def test_source_refusal_is_visible_without_publishing_private_worker_errors(self):
         from comic_archive.archive import atomic_json

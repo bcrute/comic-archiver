@@ -17,7 +17,7 @@ from unittest.mock import patch
 from comic_archive import account_ui
 from comic_archive.inventory import Inventory
 from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
-from comic_archive.worker import controller_ticks, private_json
+from comic_archive.worker import private_json
 from download_harness import HOLDS, Account, Worker, state_files, status_problems, tick
 
 SEEDS = range(6)
@@ -202,8 +202,6 @@ class Walk:
         return self.problems
 
 
-@unittest.skipUnless(any(name == 'download' for name, _ in controller_ticks()),
-                     'The stacked controllers fail these rules; the 0.3.0 controller is held to them (docs: road-to-0.3.0, A3).')
 class DownloadSimulationTests(unittest.TestCase):
     def setUp(self):
         previous = Path.cwd()
@@ -215,14 +213,9 @@ class DownloadSimulationTests(unittest.TestCase):
             walk = Walk(self, seed)
             os.chdir(walk.project)
             now = lambda: walk.clock  # noqa: E731
-            targets = [patch('comic_archive.batches._now', side_effect=now),
+            targets = [patch('comic_archive.download_control._now', side_effect=now),
                        patch('time.time', side_effect=walk.wall),
                        patch('time.sleep'), patch('builtins.print')]
-            try:
-                import comic_archive.download_control  # noqa: F401 - the 0.3.0 controller, once it exists
-                targets.append(patch('comic_archive.download_control._now', side_effect=now))
-            except ImportError:
-                pass
             for target in targets:
                 target.start()
             try:

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from comic_archive import batches
+from comic_archive import download_control
 from comic_archive.archive import atomic_json, verify
 from comic_archive.errors import AuthenticationError
 from comic_archive.inventory import Inventory
@@ -15,6 +15,34 @@ from test_jobs import AccountAdapter
 
 
 class FailureReceiptTests(unittest.TestCase):
+    def prepared(self, temporary):
+        """A project with two free episodes waiting and the download's first step, a download, sent out."""
+        project = Path(temporary); session = project / '.comic-session'; library = project / 'Library'
+        root = session / 'worker'
+        for name in ('requests', 'responses'): (root / name).mkdir(parents=True)
+        atomic_json(root / 'status.json', {'state': 'ready'})
+        (session / 'download-speed').write_text('slow\n')
+        with Inventory(library) as inventory:
+            inventory.observe('42', 'Series', [
+                {'id': key, 'title': 'Episode', 'order': int(key) - 80, 'access_state': 'tapas_free'}
+                for key in ('81', '82')], 'fixture')
+        download_control.start(session, library)
+        download_control.worker_tick(session, library)
+        task, = [path.stem for path in (root / 'requests').glob('*.json')]
+        self.assertEqual(json.loads((root / 'requests' / (task + '.json')).read_text())['operation'], 'archive_discovered')
+        return session, library, root, task
+
+    def answered(self, session, library, root, task, response):
+        """The worker's receipt, settled by the download; what the download now is, and the step's own row."""
+        atomic_json(root / 'responses' / (task + '.json'), {'task_id': task, **response})
+        (root / 'requests' / (task + '.json')).unlink(missing_ok=True)
+        download_control.worker_tick(session, library)
+        db = download_control._connect(root)
+        try:
+            return download_control._state(db), dict(db.execute('SELECT * FROM tasks WHERE task_id=?', (task,)).fetchone())
+        finally:
+            db.close()
+
     @patch('builtins.print')
     def check_failure(self, failure, output):
         class Adapter(AccountAdapter):
@@ -26,23 +54,12 @@ class FailureReceiptTests(unittest.TestCase):
                 return super().capture_automatic(url)
         adapter = Adapter(); adapter.access = {'81': 'tapas_free', '82': 'tapas_free'}
         with tempfile.TemporaryDirectory() as temporary:
-            project = Path(temporary); session = project / '.comic-session'; library = project / 'Library'
-            root = session / 'worker'
-            for name in ('requests', 'responses'): (root / name).mkdir(parents=True)
-            atomic_json(root / 'status.json', {'state': 'ready'})
-            with Inventory(library) as inventory:
-                inventory.observe('42', 'Series', [
-                    {'id': key, 'title': 'Episode', 'order': int(key) - 80, 'access_state': 'tapas_free'}
-                    for key in ('81', '82')], 'fixture')
-            batches._start(root, {'archive_only': True, 'refresh_lists': False, 'max_pages': 5,
-                                 'batch_pages': 4, 'max_bytes': 1048576}, False)
-            task = batches.step(session, library)['pending_task_id']
-            batches.step(session, library)
+            session, library, root, task = self.prepared(temporary)
             def archive(adapter, output, report, **options):
                 return archive_discovered(adapter, library, **options)
             with patch('comic_archive.worker.TapasAdapter', return_value=adapter), \
                     patch('comic_archive.jobs.archive_discovered', side_effect=archive), \
-                    patch('comic_archive.completion.worker_tick'), \
+                    patch('comic_archive.download_control.worker_tick'), \
                     patch('comic_archive.worker.time.sleep', side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt): run_worker(session)
             receipt = json.loads((root / 'responses' / (task + '.json')).read_text())
@@ -50,7 +67,8 @@ class FailureReceiptTests(unittest.TestCase):
             self.assertEqual(receipt['result']['downloaded_pages'], 2)
             self.assertEqual(receipt['result']['archived_episode_ids'], ['81'])
             self.assertNotIn('PRIVATE', json.dumps(receipt))
-            if getattr(failure, 'source_http_status', None) == 403:
+            refused = getattr(failure, 'source_http_status', None) == 403
+            if refused:
                 self.assertEqual(receipt['error_code'], 'source_refused')
                 self.assertEqual(receipt['result']['pause_reason'], 'source_refused')
                 self.assertEqual(receipt['result']['source_http_status'], 403)
@@ -60,16 +78,20 @@ class FailureReceiptTests(unittest.TestCase):
                         self.assertEqual(inventory.status()['last_run']['summary']['source_response_kind'],'challenge')
                     from comic_archive.monitoring import library_status
                     self.assertEqual(library_status(library)['progress']['source_response_kind'],'challenge')
-            state = batches.step(session, library)
-            self.assertEqual(state['status'], 'paused')
-            self.assertEqual(state['code'], 'login_required' if isinstance(failure, AuthenticationError) else
-                             'source_refused' if getattr(failure,'source_http_status',None)==403 else 'task_failed')
-            self.assertEqual((state['downloaded_pages'], state['unreported_reserved_pages']), (2, 0))
-            self.assertEqual(state['downloaded_bytes'], receipt['result']['downloaded_bytes'])
-            self.assertEqual(state['unreported_reserved_bytes'], 0)
-            self.assertEqual((state['completed_batches'], state['archived_episodes']), (1, 1))
-            self.assertIsNone(batches.step(session, library)['pending_task_id'])
-            self.assertEqual(batches.step(session, library)['downloaded_pages'], 2)
+            download_control.worker_tick(session, library)
+            db = download_control._connect(root)
+            try:
+                state = download_control._state(db)
+                row = dict(db.execute('SELECT * FROM tasks WHERE task_id=?', (task,)).fetchone())
+            finally:
+                db.close()
+            # What the step saved before it failed is counted, and its failure decides the wait or the hold.
+            self.assertEqual((state['status'], state['code']),
+                             ('held', 'login_required') if isinstance(failure, AuthenticationError) else
+                             ('waiting', 'source') if refused else ('waiting', 'idle'))
+            self.assertEqual((row['outcome'], row['pages'], row['episodes'], row['progressed']), ('error', 2, 1, 1))
+            self.assertEqual(row['bytes'], receipt['result']['downloaded_bytes'])
+            download_control.worker_tick(session, library)  # Nothing is sent while it waits or holds.
             self.assertEqual(list((root / 'requests').glob('*.json')), [])
             self.assertEqual(verify(library), [])
 
@@ -113,44 +135,29 @@ class FailureReceiptTests(unittest.TestCase):
             error._comic_failure_receipt = receipt
             self.assertIsNone(failure_result(error))
 
-    def test_over_budget_error_result_keeps_full_allocation_and_does_not_resume(self):
+    def test_an_error_receipt_claiming_more_than_its_step_allowed_counts_no_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
-            project = Path(temporary); session = project / '.comic-session'; library = project / 'Library'
-            root = session / 'worker'
-            for name in ('requests', 'responses'): (root / name).mkdir(parents=True)
-            atomic_json(root / 'status.json', {'state': 'ready'})
-            batches._start(root, {'archive_only': True, 'refresh_lists': False, 'max_pages': 5,
-                                 'batch_pages': 4, 'max_bytes': 1048576}, False)
-            task = batches.step(session, library)['pending_task_id']; batches.step(session, library)
-            atomic_json(root / 'responses' / (task + '.json'), {'task_id': task, 'status': 'error',
-                'error_code': 'job_failed', 'result': {'run_id': 'a' * 24, 'status': 'paused',
-                    'downloaded_pages': 5, 'downloaded_bytes': 1, 'pending_episode_count': 1,
-                    'archived_episode_ids': ['81'], 'inventory': {'scan_remaining_series_count': 0}}})
-            (root / 'requests' / (task + '.json')).unlink()
-            state = batches.step(session, library)
-            self.assertEqual(state['code'], 'task_failed')
-            self.assertEqual((state['downloaded_pages'], state['unreported_reserved_pages']), (0, 4))
-            self.assertEqual(state['unreported_reserved_bytes'], 1048576)
-            self.assertIsNone(batches.step(session, library)['pending_task_id'])
+            session, library, root, task = self.prepared(temporary)
+            download_control._connect(root).execute('UPDATE state SET idle_waits=2').connection.close()
+            state, row = self.answered(session, library, root, task, {'status': 'error', 'error_code': 'job_failed',
+                'result': {'run_id': 'a' * 24, 'status': 'paused', 'downloaded_pages': download_control.DOWNLOAD['max_pages'] + 1,
+                           'downloaded_bytes': 1, 'pending_episode_count': 1, 'archived_episode_ids': ['81'],
+                           'inventory': {'scan_remaining_series_count': 0}}})
+            self.assertEqual(row['progressed'], 0)
+            self.assertEqual((state['status'], state['code'], state['idle_waits'], state['failed_retries']),
+                             ('waiting', 'idle', 2, 1))
+            self.assertEqual(list((root / 'requests').glob('*.json')), [])
 
     def test_a_cloud_upload_that_stopped_a_batch_pauses_with_its_own_reason(self):
-        for code, expected in (('cloud_cap', 'cloud_cap'), ('cloud_verification', 'cloud_verification'),
-                               ('job_failed', 'task_failed')):
+        for code, expected in (('cloud_cap', ('held', 'cloud_cap')), ('cloud_verification', ('held', 'cloud_verification')),
+                               ('cloud_connection', ('waiting', 'connection')), ('job_failed', ('waiting', 'idle'))):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as temporary:
-                project = Path(temporary); session = project / '.comic-session'; library = project / 'Library'
-                root = session / 'worker'
-                for name in ('requests', 'responses'): (root / name).mkdir(parents=True)
-                atomic_json(root / 'status.json', {'state': 'ready'})
-                batches._start(root, {'archive_only': True, 'refresh_lists': False, 'max_pages': 5,
-                                     'batch_pages': 4, 'max_bytes': 1048576}, False)
-                task = batches.step(session, library)['pending_task_id']; batches.step(session, library)
-                atomic_json(root / 'responses' / (task + '.json'), {'task_id': task, 'status': 'error',
-                    'error_code': code, 'result': {'run_id': 'a' * 24, 'status': 'paused',
-                        'downloaded_pages': 1, 'downloaded_bytes': 1, 'pending_episode_count': 1,
-                        'archived_episode_ids': ['81'], 'inventory': {'scan_remaining_series_count': 0}}})
-                (root / 'requests' / (task + '.json')).unlink()
-                state = batches.step(session, library)
-                self.assertEqual((state['status'], state['code']), ('paused', expected))
+                session, library, root, task = self.prepared(temporary)
+                state, _ = self.answered(session, library, root, task, {'status': 'error', 'error_code': code,
+                    'result': {'run_id': 'a' * 24, 'status': 'paused', 'downloaded_pages': 1, 'downloaded_bytes': 1,
+                               'pending_episode_count': 1, 'archived_episode_ids': ['81'],
+                               'inventory': {'scan_remaining_series_count': 0}}})
+                self.assertEqual((state['status'], state['code']), expected)
 
     def test_source_refusal_receipt_is_kept_only_for_a_paused_run_with_a_refusal_status(self):
         def receipt(status='paused',http=403,retry_after=None):

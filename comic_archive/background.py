@@ -47,7 +47,7 @@ def read(path):
 
 def running(folder, runtime='.runtime'):
     """Use the runtime lock, not a possibly stale status file or recycled PID."""
-    if runtime not in {'.runtime','.backlog-runtime'}:
+    if runtime != '.runtime':
         raise ArchiveError('Unsupported worker runtime lock.')
     path = folder / runtime / ".archive-state/writer.lock"
     if any(p.is_symlink() for p in (path, *path.parents)):
