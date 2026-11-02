@@ -192,8 +192,12 @@ def _state(db):
 def _save(db, value):
     value = dict(value, updated_at=_stamp())
     value['audit'] = None if value['audit'] is None else json.dumps(value['audit'], sort_keys=True)
-    keys = [key for key in value if key != 'id']
-    db.execute(f"UPDATE state SET {', '.join(f'{key}=?' for key in keys)} WHERE id=1", [value[k] for k in keys])
+    db.execute('UPDATE state SET status=:status, code=:code, stage=:stage, round_started_at=:round_started_at, '
+               'stretch_started_at=:stretch_started_at, wait_until=:wait_until, go_after=:go_after, '
+               'idle_waits=:idle_waits, network_waits=:network_waits, source_probes=:source_probes, '
+               'source_delay=:source_delay, source_episode=:source_episode, failed_retries=:failed_retries, '
+               'episodes_waiting=:episodes_waiting, audit=:audit, trimmed_at=:trimmed_at, updated_at=:updated_at '
+               'WHERE id=1', value)
 
 
 def _outstanding(db):

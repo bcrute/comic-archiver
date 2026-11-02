@@ -94,7 +94,7 @@ class Account:
         for index in range(series):
             key = str(100 + index)
             episodes = []
-            for order in range(1, random.randint(1, 4) + 1):
+            for _ in range(random.randint(1, 4)):
                 number += 1
                 self.access[str(number)] = random.choice(['tapas_free', 'tapas_free', 'tapas_unlocked',
                                                           'unavailable_or_unverified'])
