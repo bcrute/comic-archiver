@@ -220,17 +220,21 @@ class ControllerTests(Controller):
     def test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again(self):
         self.go()
         self.published()
-        for damage in ('version', 'bytes', 'value'):
+        task = "INSERT INTO tasks (task_id, kind, operation, options, reserved_at) VALUES (?, 'list', 'sync', ?, 'x')"
+        for damage, sql, *args in (('version', 'PRAGMA user_version = 7'), ('bytes', None),
+                                   ('value', "UPDATE state SET round_started_at='PRIVATE'"),
+                                   ('episode', "UPDATE state SET source_episode='PRIVATE'"),
+                                   ('audit', 'UPDATE state SET audit=?', '["PRIVATE"]'),
+                                   ('task', task, 'job-' + 'PRIVATE' * 3 + 'PRI', '{}'),
+                                   ('options', task, 'job-' + 'a' * 24, '["PRIVATE"]')):
             with self.subTest(damage):
                 path = self.queue / dc.STATE_FILE
-                if damage == 'version':
-                    self.change('PRAGMA user_version = 7')
-                elif damage == 'bytes':
+                if sql is None:
                     for extra in ('-wal', '-shm'):
                         Path(str(path) + extra).unlink(missing_ok=True)
                     path.write_bytes(b'PRIVATE not a database')
                 else:
-                    self.change("UPDATE state SET round_started_at='PRIVATE'")
+                    self.change(sql, *args)
                 before = path.read_bytes()
                 shown = self.status()
                 self.assertEqual((shown['status'], shown['code']), ('held', 'controller_failed'))
@@ -238,6 +242,7 @@ class ControllerTests(Controller):
                 self.tick()
                 self.assertEqual(path.read_bytes(), before)
                 self.assertIsNone(dc.source_recovery(self.session, self.library))
+                self.assertIsNone(dc.outstanding(self.session, self.library))
                 dc.request_stop(self.session, self.library)  # Pause on a damaged record changes nothing.
                 self.assertFalse(dc.reopen(self.session, self.library))
                 self.assertEqual(path.read_bytes(), before)
@@ -247,7 +252,23 @@ class ControllerTests(Controller):
                 for name in self.requests():  # What the damaged record had out is answered first.
                     self.answer({'status': 'ok', 'result': {'status': 'cancelled'}}, name)
         aside = [p for p in self.queue.glob(dc.STATE_FILE + '.damaged-*') if not p.name.endswith(('-wal', '-shm'))]
-        self.assertEqual(len(aside), 3)
+        self.assertEqual(len(aside), 3)  # The newest three of seven.
+        with patch('comic_archive.download_control.sqlite3.connect', side_effect=sqlite3.OperationalError('PRIVATE')):
+            self.assertEqual(self.status()['code'], 'controller_failed')
+
+    def test_a_record_with_no_download_in_it_is_not_configured_and_does_nothing(self):
+        dc._connect(self.queue, create=True).close()
+        self.tick()
+        self.assertEqual(self.requests(), [])
+        self.assertEqual(dc.status(self.session, self.library), {'configured': False})
+        self.go()
+        self.assertEqual(self.published()[1]['args']['categories'], ['subscribed'])
+
+    def test_a_library_with_nothing_saved_yet_starts_by_reading_the_first_list(self):
+        for suffix in ('', '-wal', '-shm'):
+            (self.library / ('.archive-state/inventory.sqlite3' + suffix)).unlink(missing_ok=True)
+        self.go()
+        self.assertEqual(self.published()[1]['args']['categories'], ['subscribed'])
 
     def test_a_step_left_queued_by_a_record_set_aside_runs_before_anything_new_is_sent(self):
         self.go()
@@ -469,6 +490,24 @@ class ControllerTests(Controller):
         self.tick()
         self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'task_failed'))
         self.assertNotIn(b'PRIVATE', (self.queue / dc.STATE_FILE).read_bytes())
+
+    def test_a_step_paused_for_a_reason_it_does_not_know_counts_as_failed(self):
+        self.downloading()
+        self.ok(counted(status='paused', pause_reason='PRIVATE'))
+        self.tick()
+        value = self.state()
+        self.assertEqual((value['status'], value['code'], value['failed_retries']), ('waiting', 'idle', 1))
+        self.assertEqual(self.status()['retry']['seconds'], dc.FAILED_WAIT)
+
+    def test_a_step_reserved_before_a_hold_is_forgotten_never_sent(self):
+        self.go()
+        private_json(self.queue / 'status.json', {'state': 'busy', 'task_id': 'job-' + 'b' * 24})
+        self.tick()
+        self.assertEqual(len(self.tasks()), 1)
+        self.change("UPDATE state SET status='held', code='task_failed'")
+        private_json(self.queue / 'status.json', {'state': 'ready'})
+        self.tick()
+        self.assertEqual((self.tasks(), self.requests()), ([], []))
 
     def test_a_receipt_that_cannot_be_counted_is_left_as_it_is_tried_once_more_then_holds(self):
         for bad in ({'status': 'ok', 'result': ['PRIVATE']},

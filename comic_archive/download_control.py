@@ -773,6 +773,7 @@ def _transaction(session, library, action, *, create=False, require_queue=True):
 def start(session, library=Path('Library')):
     """Go: continue from wherever the download stopped, start a new round after a finished one, or begin."""
     def go(db, value, root):
+        _outstanding(db)  # A step that cannot be read damages the record as much as the rest: Go sets it aside.
         now = _stamp()
         if value is None:
             db.execute('INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at) '

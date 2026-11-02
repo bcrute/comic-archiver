@@ -4910,5 +4910,469 @@
   "new": "window['status']!='budget_reached'",
   "test_file": "test_completion.py",
   "test": "test_go_after_a_stop_between_windows_starts_the_reserved_window"
+ },
+ {
+  "id": "dc-list-read-marked",
+  "source": "comic_archive/download_control.py",
+  "old": "(_stamp(), int(check.get('complete') is True)",
+  "new": "(None, int(check.get('complete') is True)",
+  "test_file": "test_download_control.py",
+  "test": "test_a_round_reads_each_list_then_checks_series_then_saves_then_audits_then_finishes"
+ },
+ {
+  "id": "dc-list-unconfirmed-counts",
+  "source": "comic_archive/download_control.py",
+  "old": "check = found[0] if len(found) == 1 else {}",
+  "new": "check = found[0] if len(found) == 1 else None",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_read_that_could_not_be_confirmed_still_counts_so_the_round_moves_on"
+ },
+ {
+  "id": "dc-idle-hold-late",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['idle_waits'] >= len(IDLE_WAITS):",
+  "new": "if value['idle_waits'] > len(IDLE_WAITS):",
+  "test_file": "test_download_control.py",
+  "test": "test_steps_that_save_nothing_wait_longer_each_time_then_hold"
+ },
+ {
+  "id": "dc-images-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "_wait(value, 'images', wait)",
+  "new": "_wait(value, 'idle', wait)",
+  "test_file": "test_download_control.py",
+  "test": "test_images_that_did_not_arrive_are_waited_for_then_tried_again"
+ },
+ {
+  "id": "dc-cancel-overruled",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['status'] in ('running', 'waiting') and not overruled:",
+  "new": "if value['status'] in ('running', 'waiting'):",
+  "test_file": "test_download_control.py",
+  "test": "test_a_cancelled_step_stops_the_download_unless_go_came_after_it"
+ },
+ {
+  "id": "dc-cancel-stops",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['status'] in ('running', 'waiting') and not overruled:",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_cancelled_step_stops_the_download_unless_go_came_after_it"
+ },
+ {
+  "id": "dc-connection-backoff",
+  "source": "comic_archive/download_control.py",
+  "old": "CONNECTION_WAITS[min(tries, len(CONNECTION_WAITS) - 1)]",
+  "new": "CONNECTION_WAITS[0]",
+  "test_file": "test_download_control.py",
+  "test": "test_a_lost_connection_waits_longer_each_time_and_never_holds"
+ },
+ {
+  "id": "dc-policy-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "POLICY_WAIT = 300",
+  "new": "POLICY_WAIT = 60",
+  "test_file": "test_download_control.py",
+  "test": "test_a_connection_this_device_may_not_use_is_tried_again_every_five_minutes"
+ },
+ {
+  "id": "dc-login-holds",
+  "source": "comic_archive/download_control.py",
+  "old": "            _hold(value, 'login_required')\n",
+  "new": "            _failed(value, 'task_failed')\n",
+  "test_file": "test_download_control.py",
+  "test": "test_an_expired_sign_in_holds_until_go"
+ },
+ {
+  "id": "dc-probe-limit",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['source_probes'] > SOURCE_PROBES:",
+  "new": "if value['source_probes'] >= SOURCE_PROBES:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_refused_episode_is_tried_alone_with_doubling_waits_then_holds_and_go_tries_it_first"
+ },
+ {
+  "id": "dc-probe-doubles",
+  "source": "comic_archive/download_control.py",
+  "old": "min(MAX_SOURCE_DELAY, value['source_delay'] * 2)",
+  "new": "min(MAX_SOURCE_DELAY, value['source_delay'])",
+  "test_file": "test_download_control.py",
+  "test": "test_a_refused_episode_is_tried_alone_with_doubling_waits_then_holds_and_go_tries_it_first"
+ },
+ {
+  "id": "dc-refusal-site-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "_wait(value, 'source', max(REFUSAL_WAITS[value['source_probes'] - 1], later))",
+  "new": "_wait(value, 'source', REFUSAL_WAITS[value['source_probes'] - 1])",
+  "test_file": "test_download_control.py",
+  "test": "test_a_refusal_waits_at_least_as_long_as_the_site_asked"
+ },
+ {
+  "id": "dc-refusal-go-after",
+  "source": "comic_archive/download_control.py",
+  "old": "value['go_after'] = _stamp(_now() + timedelta(seconds=later))",
+  "new": "pass",
+  "test_file": "test_download_control.py",
+  "test": "test_a_refusal_with_nothing_to_probe_waits_five_fifteen_sixty_minutes_then_holds_past_the_sites_wait"
+ },
+ {
+  "id": "dc-go-keeps-site-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['go_after'] and _now() < _instant(value['go_after']):",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_refusal_with_nothing_to_probe_waits_five_fifteen_sixty_minutes_then_holds_past_the_sites_wait"
+ },
+ {
+  "id": "dc-probe-changed-access",
+  "source": "comic_archive/download_control.py",
+  "old": "if not (result.get('reader_probe_episode_id') == episode and",
+  "new": "if (result.get('reader_probe_episode_id') == episode and",
+  "test_file": "test_download_control.py",
+  "test": "test_a_probe_that_reaches_another_episode_holds_as_changed_access"
+ },
+ {
+  "id": "dc-cloud-waits",
+  "source": "comic_archive/download_control.py",
+  "old": "elif code in CLOUD_WAITS:",
+  "new": "elif code in ():",
+  "test_file": "test_download_control.py",
+  "test": "test_cloud_troubles_that_pass_are_waited_out_and_the_rest_hold_with_their_own_code"
+ },
+ {
+  "id": "dc-cloud-holds",
+  "source": "comic_archive/download_control.py",
+  "old": "elif code in HOLDS and code.startswith(('b2_', 'cloud_')):",
+  "new": "elif False:",
+  "test_file": "test_download_control.py",
+  "test": "test_cloud_troubles_that_pass_are_waited_out_and_the_rest_hold_with_their_own_code"
+ },
+ {
+  "id": "dc-failed-retry-once",
+  "source": "comic_archive/download_control.py",
+  "old": "FAILED_RETRIES = 1 ",
+  "new": "FAILED_RETRIES = 0 ",
+  "test_file": "test_download_control.py",
+  "test": "test_a_failed_step_is_tried_once_more_under_a_new_identity_then_holds"
+ },
+ {
+  "id": "dc-invalid-receipt",
+  "source": "comic_archive/download_control.py",
+  "old": "if not _valid(result, task) or result.get('status') not in",
+  "new": "if result.get('status') not in",
+  "test_file": "test_download_control.py",
+  "test": "test_a_receipt_that_cannot_be_counted_is_left_as_it_is_tried_once_more_then_holds"
+ },
+ {
+  "id": "dc-progress-forgives",
+  "source": "comic_archive/download_control.py",
+  "old": "    if done:\n        _forgiven(value)",
+  "new": "    if False:\n        _forgiven(value)",
+  "test_file": "test_download_control.py",
+  "test": "test_progress_moves_on_and_forgives_every_earlier_retry"
+ },
+ {
+  "id": "dc-uncountable-no-forgive",
+  "source": "comic_archive/download_control.py",
+  "old": "done = isinstance(result, dict) and _valid(result, task) and progressed(result)",
+  "new": "done = isinstance(result, dict) and progressed(result)",
+  "test_file": "test_download_control.py",
+  "test": "test_a_receipt_that_cannot_be_counted_is_left_as_it_is_tried_once_more_then_holds"
+ },
+ {
+  "id": "dc-audit-zeroes",
+  "source": "comic_archive/download_control.py",
+  "old": "type(result.get(key)) is int and result[key] == 0 for key in AUDIT_ZEROES)",
+  "new": "type(result.get(key)) is int for key in AUDIT_ZEROES)",
+  "test_file": "test_download_control.py",
+  "test": "test_an_audit_that_finds_something_missing_holds_and_go_audits_again"
+ },
+ {
+  "id": "dc-audit-again",
+  "source": "comic_archive/download_control.py",
+  "old": "value.update(stage='verify', audit=None)",
+  "new": "value.update(audit=None)",
+  "test_file": "test_download_control.py",
+  "test": "test_an_audit_that_finds_something_missing_holds_and_go_audits_again"
+ },
+ {
+  "id": "dc-audit-unreadable",
+  "source": "comic_archive/download_control.py",
+  "old": "if not isinstance(result, dict) or 'status' in result:",
+  "new": "if not isinstance(result, dict):",
+  "test_file": "test_download_control.py",
+  "test": "test_an_audit_receipt_that_cannot_be_read_is_tried_once_more_then_holds"
+ },
+ {
+  "id": "dc-vanished-once",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['failed_retries'] >= FAILED_RETRIES or value['status'] != 'running':",
+  "new": "if value['status'] != 'running':",
+  "test_file": "test_download_control.py",
+  "test": "test_a_step_whose_request_and_receipt_vanished_is_sent_again_once_then_holds"
+ },
+ {
+  "id": "dc-one-outstanding",
+  "source": "comic_archive/download_control.py",
+  "old": "CREATE UNIQUE INDEX one_outstanding",
+  "new": "CREATE INDEX one_outstanding",
+  "test_file": "test_download_control.py",
+  "test": "test_the_record_refuses_rows_that_break_its_rules"
+ },
+ {
+  "id": "dc-publish-when-empty",
+  "source": "comic_archive/download_control.py",
+  "old": " or any((root / 'requests').glob('*.json')):\n        return False\n    try:",
+  "new": ":\n        return False\n    try:",
+  "test_file": "test_download_control.py",
+  "test": "test_nothing_is_sent_while_any_request_waits_or_the_downloader_is_not_ready"
+ },
+ {
+  "id": "dc-publish-library-free",
+  "source": "comic_archive/download_control.py",
+  "old": "        with LibraryLock(library):\n            return True\n    except LibraryBusy:\n        return False",
+  "new": "        return True\n    except LibraryBusy:\n        return False",
+  "test_file": "test_download_control.py",
+  "test": "test_a_busy_record_or_library_is_left_for_the_next_tick"
+ },
+ {
+  "id": "dc-backlog-first",
+  "source": "comic_archive/download_control.py",
+  "old": "    elif waiting['pending']:\n        _reserve(db, 'download'",
+  "new": "    elif waiting['pending'] and value['stage'] != 'lists':\n        _reserve(db, 'download'",
+  "test_file": "test_download_control.py",
+  "test": "test_episodes_already_waiting_are_saved_before_the_lists_are_read"
+ },
+ {
+  "id": "dc-trim-month",
+  "source": "comic_archive/download_control.py",
+  "old": "_stamp(now - timedelta(days=HISTORY_DAYS))",
+  "new": "_stamp(now - timedelta(days=HISTORY_DAYS * 2))",
+  "test_file": "test_download_control.py",
+  "test": "test_history_is_trimmed_to_a_month_and_a_fixed_number_of_steps"
+ },
+ {
+  "id": "dc-tick-failure-holds",
+  "source": "comic_archive/download_control.py",
+  "old": "    except Exception:\n        _mark_failed(root)",
+  "new": "    except Exception:\n        pass",
+  "test_file": "test_download_control.py",
+  "test": "test_a_tick_that_fails_unexpectedly_holds_the_download_and_never_raises"
+ },
+ {
+  "id": "dc-pause-forgets-unsent",
+  "source": "comic_archive/download_control.py",
+  "old": "        if task is not None and task['published_at'] is None:\n",
+  "new": "        if False:\n",
+  "test_file": "test_download_control.py",
+  "test": "test_pause_stops_and_forgets_a_step_never_sent_but_leaves_one_out_to_answer"
+ },
+ {
+  "id": "dc-pause-stops-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "        if value is None or value['status'] not in ('running', 'waiting'):\n            return\n        task",
+  "new": "        if value is None or value['status'] not in ('running',):\n            return\n        task",
+  "test_file": "test_download_control.py",
+  "test": "test_pause_on_a_wait_stops_it"
+ },
+ {
+  "id": "dc-reopen-ends-unrun",
+  "source": "comic_archive/download_control.py",
+  "old": "                end_unstarted(session, library, task['task_id'])\n",
+  "new": "                pass\n",
+  "test_file": "test_download_control.py",
+  "test": "test_a_start_of_the_app_sets_a_going_download_to_wait_for_go_and_ends_its_unsent_or_unrun_step"
+ },
+ {
+  "id": "dc-reopen-running-left",
+  "source": "comic_archive/download_control.py",
+  "old": "        if idle and task is not None:",
+  "new": "        if task is not None:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_start_of_the_app_with_its_downloader_still_running_leaves_the_step_to_it"
+ },
+ {
+  "id": "dc-go-new-round",
+  "source": "comic_archive/download_control.py",
+  "old": "            db.execute('UPDATE lists SET read_at=NULL, complete=NULL, observed_series_count=NULL')\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_go_from_each_status"
+ },
+ {
+  "id": "dc-damaged-set-aside",
+  "source": "comic_archive/download_control.py",
+  "old": "                if not create or attempt:",
+  "new": "                if True:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
+ },
+ {
+  "id": "dc-damaged-keep-three",
+  "source": "comic_archive/download_control.py",
+  "old": "stamps[:3]",
+  "new": "stamps[:1]",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
+ },
+ {
+  "id": "dc-version-checked",
+  "source": "comic_archive/download_control.py",
+  "old": "elif version != SCHEMA_VERSION or ",
+  "new": "elif ",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
+ },
+ {
+  "id": "dc-symlink-refused",
+  "source": "comic_archive/download_control.py",
+  "old": "if path.is_symlink() or root.is_symlink():",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_symlinked_record_or_queue_is_refused_and_nothing_is_written"
+ },
+ {
+  "id": "dc-move-finished",
+  "source": "comic_archive/download_control.py",
+  "old": "value.update(status='finished', stage='finished')",
+  "new": "value.update(status='stopped', stage='finished')",
+  "test_file": "test_download_control.py",
+  "test": "test_an_old_finished_download_moves_in_finished_with_its_counts_and_the_old_files_are_kept_aside"
+ },
+ {
+  "id": "dc-move-audit-filtered",
+  "source": "comic_archive/download_control.py",
+  "old": "value['audit'] = {key: audit[key] for key in AUDIT_KEYS if type(audit.get(key)) is int and audit[key] >= 0}",
+  "new": "value['audit'] = audit",
+  "test_file": "test_download_control.py",
+  "test": "test_an_old_finished_download_moves_in_finished_with_its_counts_and_the_old_files_are_kept_aside"
+ },
+ {
+  "id": "dc-move-old-files-aside",
+  "source": "comic_archive/download_control.py",
+  "old": "for name in (*OLD_FILES, 'backlog-history'):",
+  "new": "for name in ('backlog-history',):",
+  "test_file": "test_download_control.py",
+  "test": "test_an_old_finished_download_moves_in_finished_with_its_counts_and_the_old_files_are_kept_aside"
+ },
+ {
+  "id": "dc-move-private-folder",
+  "source": "comic_archive/download_control.py",
+  "old": "folder.chmod(0o700)",
+  "new": "folder.chmod(0o755)",
+  "test_file": "test_download_control.py",
+  "test": "test_an_old_finished_download_moves_in_finished_with_its_counts_and_the_old_files_are_kept_aside"
+ },
+ {
+  "id": "dc-move-sign-in",
+  "source": "comic_archive/download_control.py",
+  "old": "if export.get('status') == 'held' and export.get('code') == 'login_required':",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_download_that_needed_a_sign_in_still_does_and_anything_else_waits_for_go"
+ },
+ {
+  "id": "dc-move-lists-complete",
+  "source": "comic_archive/download_control.py",
+  "old": "read = [c for c in categories if c in checks and checks[c].get('complete') is True]",
+  "new": "read = list(checks)",
+  "test_file": "test_download_control.py",
+  "test": "test_where_the_round_had_got_to_is_kept"
+ },
+ {
+  "id": "dc-move-stage",
+  "source": "comic_archive/download_control.py",
+  "old": "value['stage'] = 'verify' if phase == 'finished' else phase",
+  "new": "value['stage'] = 'verify'",
+  "test_file": "test_download_control.py",
+  "test": "test_where_the_round_had_got_to_is_kept"
+ },
+ {
+  "id": "dc-move-task-carried",
+  "source": "comic_archive/download_control.py",
+  "old": "for task in tasks[:1]:",
+  "new": "for task in tasks[:0]:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_step_already_sent_is_carried_with_its_identity_and_one_only_reserved_is_dropped"
+ },
+ {
+  "id": "dc-move-reserved-dropped",
+  "source": "comic_archive/download_control.py",
+  "old": "    if not any((root / folder / f'{task_id}.json').exists() for folder in ('requests', 'responses')):\n        return None\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_step_already_sent_is_carried_with_its_identity_and_one_only_reserved_is_dropped"
+ },
+ {
+  "id": "dc-move-probe-kind",
+  "source": "comic_archive/download_control.py",
+  "old": "kind = 'probe' if isinstance(episode, str) and EPISODE.fullmatch(episode) else 'download'",
+  "new": "kind = 'download'",
+  "test_file": "test_download_control.py",
+  "test": "test_each_kind_of_step_sent_is_known_again"
+ },
+ {
+  "id": "dc-move-other-ended",
+  "source": "comic_archive/download_control.py",
+  "old": "                _end_unrun(session, library, root, task['task_id'])\n",
+  "new": "                pass\n",
+  "test_file": "test_download_control.py",
+  "test": "test_when_both_old_controllers_had_a_step_out_the_accounts_is_kept_and_the_other_ended_unrun"
+ },
+ {
+  "id": "dc-move-running-left",
+  "source": "comic_archive/download_control.py",
+  "old": "        return  # It is running; it ends by itself",
+  "new": "        pass  # It is running; it ends by itself",
+  "test_file": "test_download_control.py",
+  "test": "test_when_both_old_controllers_had_a_step_out_the_accounts_is_kept_and_the_other_ended_unrun"
+ },
+ {
+  "id": "dc-move-reader-delay",
+  "source": "comic_archive/download_control.py",
+  "old": "value['source_delay'] = delay",
+  "new": "value['source_delay'] = MIN_SOURCE_DELAY",
+  "test_file": "test_download_control.py",
+  "test": "test_the_readers_learned_delay_and_the_refused_episode_are_carried"
+ },
+ {
+  "id": "dc-move-unreadable",
+  "source": "comic_archive/download_control.py",
+  "old": "    return value if isinstance(value, dict) else {}\n",
+  "new": "    return value\n",
+  "test_file": "test_download_control.py",
+  "test": "test_old_files_that_cannot_be_read_are_moved_aside_unread"
+ },
+ {
+  "id": "dc-move-round-start",
+  "source": "comic_archive/download_control.py",
+  "old": "if _instant(export['started_at']) <= _now():",
+  "new": "if True:",
+  "test_file": "test_download_control.py",
+  "test": "test_old_files_that_cannot_be_read_are_moved_aside_unread"
+ },
+ {
+  "id": "dc-move-old-locks",
+  "source": "comic_archive/download_control.py",
+  "old": "for name in ('.download-state', *OLD_LOCKS):",
+  "new": "for name in ('.download-state',):",
+  "test_file": "test_download_control.py",
+  "test": "test_a_move_another_process_is_making_is_left_to_it"
+ },
+ {
+  "id": "dc-move-failure-cleans",
+  "source": "comic_archive/download_control.py",
+  "old": "            fresh.unlink(missing_ok=True)\n            raise ArchiveError",
+  "new": "            raise ArchiveError",
+  "test_file": "test_download_control.py",
+  "test": "test_a_move_that_cannot_be_written_holds_and_leaves_the_old_files"
+ },
+ {
+  "id": "dc-move-legacy-symlink",
+  "source": "comic_archive/download_control.py",
+  "old": "if (root / 'legacy').is_symlink():",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_symlinked_place_for_the_old_files_is_refused"
  }
 ]
