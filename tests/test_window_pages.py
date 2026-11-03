@@ -382,7 +382,7 @@ class DashboardTests(PagesCase):
         self.open()
         self.assertEqual((self.fields()['Time left'], self.fields()['Space']),
                          ('15 hours (est.)', '409 GB to go (est.) | 473 GB free'))
-        hints = dict(zip((name.text() for name, _ in self.card.cells), self.card.hints))
+        hints = dict(zip((name.text() for name, _ in self.card.cells), self.card.hints, strict=True))
         self.assertEqual([name for name, hint in hints.items() if hint.isVisible()], ['Time left', 'Space'])
         self.assertTrue(hints['Time left'].toolTip().startswith('Estimated from the pace of the last five minutes'))
         # A tap shows what hovering would, for a touch screen with no pointer to hover.
