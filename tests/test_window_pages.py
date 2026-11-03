@@ -349,7 +349,8 @@ class DashboardTests(PagesCase):
         later = d.cards['tappytoon']
         self.assertEqual(later.pill.text(), 'Not signed in')
         self.assertEqual(self.fields('tappytoon'), {})
-        self.assertEqual((later.action.text(), later.action.isEnabled(), later.allow.isHidden()), ('Sign in', True, True))
+        self.assertEqual((later.action.text(), later.action.isVisible(), later.action.isEnabled(), later.allow.isHidden()),
+                         ('Sign in', True, True, True))
         # One sign-in at a time, in the window: the site is chosen (and opened) first, then its sign-in starts.
         self.shell.opens = True
         later.action.click()
