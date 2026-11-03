@@ -461,7 +461,7 @@ class StatusTests(unittest.TestCase):
                             for tip in rough.values()))
         # Nothing estimated yet, nothing to explain.
         self.assertEqual(tips(status={'estimate': {'waiting_episodes': 4}}), {'Time left': '', 'Space': ''})
-        self.assertEqual(tips(status=None), {})
+        self.assertEqual(tips(status=None), {'Time left': '', 'Space': ''})
 
     def test_sign_in_messages_say_what_went_wrong_or_what_to_do_next(self):
         self.assertEqual(view(site_auth={'status': 'running'})['signin_status'],
