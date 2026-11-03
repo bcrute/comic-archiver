@@ -5202,16 +5202,16 @@
  {
   "id": "time-left-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time_row(estimate) or NONE)\n",
-  "new": "    row('Time left', time_row(estimate))\n",
+  "old": "    row('Time left', time or NONE,\n",
+  "new": "    row('Time left', time,\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
   "id": "space-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short)\n",
-  "new": "    row('Space', space, short)\n",
+  "old": "    row('Space', space or NONE, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')\n",
+  "new": "    row('Space', space, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
