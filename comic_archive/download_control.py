@@ -106,7 +106,7 @@ class Damaged(ArchiveError):
     """The controller's own record cannot be read; the library's record is untouched."""
 
     def __init__(self):
-        super().__init__('The download record is damaged; Go starts the download again from the saved library.')
+        super().__init__('The download record is damaged; Continue starts the download again from the saved library.')
 
 
 def _now():
