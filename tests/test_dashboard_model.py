@@ -326,7 +326,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(view(loaded=False)['rows'], [{'name': 'Library', 'value': 'Opening…', 'warning': False}])
         self.assertEqual([(row['name'], row['value'], row['warning']) for row in view()['rows']],
                          [('Account', 'Session saved', False), ('Downloader', 'Ready', False), ('Saved', '3 episodes', False),
-                          ('Speed', 'Fast', False)])
+                          ('Time left', '—', False), ('Space', '—', False), ('Speed', 'Fast', False)])
         cases = [({'account': {'status': 'held', 'code': 'cancelled'}}, {}),
                  ({'account': {'status': 'held', 'code': 'cancelled'}, 'network': {'wifi_only': True, 'reason': 'metered_connection'}},
                   {'Connection': ('This connection is metered; saving waits for Wi-Fi or a wired connection', True)}),
@@ -420,7 +420,11 @@ class StatusTests(unittest.TestCase):
                 self.assertEqual([row['count'] for row in rows], ['0', '0', '0', '0', '2', '0'])
 
     def test_the_saved_count_time_left_and_space_follow_what_was_read(self):
-        self.assertEqual([row['name'] for row in view(status=None)['rows']], ['Account', 'Downloader'])
+        # Every card has the same fields, signed in or not, so cards side by side read alike.
+        unread = fields(view(status=None))
+        self.assertEqual(list(unread), ['Account', 'Downloader', 'Saved', 'Time left', 'Space', 'Speed'])
+        self.assertEqual([unread[name] for name in ('Saved', 'Time left', 'Space', 'Speed')], [('—', False)] * 4)
+        self.assertEqual([row['name'] for row in model.unopened_rows()], list(unread))
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
         self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))
         planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))
@@ -435,11 +439,11 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(short['Space'], ('1.0 GB to go (estimated) | 1 MB free, not enough', True))
         early = fields(view(status={'estimate': {'waiting_episodes': 4}}))
         self.assertEqual(early['Time left'][0], 'Estimating; known after about five minutes of downloading')
-        self.assertNotIn('Space', early)
+        self.assertEqual(early['Space'], ('—', False))
         estimate = {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}
         finished = fields(view(status={'estimate': estimate}, account={'status': 'finished', 'configured': True}))
-        self.assertNotIn('Time left', finished)
-        self.assertNotIn('Space', fields(view(status={'estimate': estimate}, account={'status': 'stopped'})))
+        self.assertEqual((finished['Time left'], finished['Space']), (('—', False), ('—', False)))
+        self.assertEqual(fields(view(status={'estimate': estimate}, account={'status': 'stopped'}))['Space'], ('—', False))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
 

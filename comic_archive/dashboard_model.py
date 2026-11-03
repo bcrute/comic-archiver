@@ -21,6 +21,7 @@ MESSAGE_SECONDS = 30
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
 SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
+NONE = '—'  # A card's field with nothing to show yet.
 
 # Recovery hints for cloud uploads, as the window words them.
 CLOUD_HINTS = {
@@ -320,6 +321,13 @@ def save_place(s):
     return 'Backblaze B2' if chosen and chosen.get('provider') == 'b2' else 'Cloud storage' if chosen else s.library_root or s.library_folder or ''
 
 
+def unopened_rows():
+    """A card for a site not signed in to yet: the same fields as every other card, with nothing known in them."""
+    return [{'name': name, 'value': value, 'warning': False}
+            for name, value in (('Account', 'Not signed in'), ('Downloader', 'Starts after sign-in'), ('Saved', NONE),
+                                ('Time left', NONE), ('Space', NONE), ('Speed', NONE))]
+
+
 def view(s, now):
     """Everything the dashboard and the Downloads settings show, from the state the window holds."""
     site = s.site()
@@ -486,17 +494,18 @@ def view(s, now):
     if account_status == 'finished':
         row('Finished', 'Every episode your account can read is saved' if number(counts.get('archived'))
             else f'No episodes your {site} account can save were found')
-    row('Saved', None if s.status is None else
+    # Saved, Time left, Space and Speed are on every card, so cards side by side read alike; NONE where nothing is known.
+    row('Saved', NONE if s.status is None else
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
-    if account.get('configured') and not finished:
-        row('Time left', time_row(status.get('estimate')))
-        space, short = space_row(status.get('estimate'))
-        row('Space', space, short)
+    estimate = status.get('estimate') if account.get('configured') and not finished else None
+    row('Time left', time_row(estimate) or NONE)
+    space, short = space_row(estimate)
+    row('Space', space or NONE, short)
     if running and elapsed is not None:
         row('Running for', duration(elapsed) + ('' if age is None else f' | last saved {duration(age)} ago'))
-    if signed_in:
-        refused = account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
-        row('Speed', SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
+    refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
+    row('Speed', NONE if not signed_in else
+        SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')
     v['rows'] = rows

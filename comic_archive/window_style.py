@@ -75,7 +75,7 @@ QPushButton { min-height: 36px; padding: 6px 14px; font-weight: 600; color: %(bu
 QPushButton:hover { background: %(button-hover)s; border-color: %(button-hover)s; }
 QPushButton[kind="secondary"] { color: %(accent)s; background: %(surface)s; }
 QPushButton[kind="secondary"]:hover { color: %(button-text)s; background: %(accent)s; }
-QPushButton[kind="go"] { min-width: 140px; min-height: 44px; font-size: 18px; }
+QPushButton[kind="go"] { min-width: 96px; }
 QPushButton[kind="link"] { min-height: 0; padding: 0; border: none; background: transparent; color: %(accent)s;
                            font-weight: 400; text-decoration: underline; text-align: left; }
 QPushButton[kind="link"]:hover { color: %(button-hover)s; background: transparent; }

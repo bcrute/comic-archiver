@@ -5190,5 +5190,45 @@
   "new": "    text = f'{room(left)} to go'\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "unopened-card-shows-no-fields",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self._fields(dashboard_model.unopened_rows())\n",
+  "new": "            self._fields([])\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in"
+ },
+ {
+  "id": "time-left-dropped-when-unknown",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    row('Time left', time_row(estimate) or NONE)\n",
+  "new": "    row('Time left', time_row(estimate))\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "space-dropped-when-unknown",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    row('Space', space or NONE, short)\n",
+  "new": "    row('Space', space, short)\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "speed-dropped-when-signed-out",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    row('Speed', NONE if not signed_in else\n",
+  "new": "    row('Speed', '' if not signed_in else\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "finished-download-still-estimates",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    estimate = status.get('estimate') if account.get('configured') and not finished else None\n",
+  "new": "    estimate = status.get('estimate') if account.get('configured') else None\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  }
 ]

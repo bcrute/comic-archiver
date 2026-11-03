@@ -328,7 +328,8 @@ class DashboardTests(PagesCase):
         self.assertEqual(c.pill.text(), 'Paused')
         self.assertEqual(c.pill.property('tone'), 'warning')
         # What is so, a field and its value each; the buttons say what can be done.
-        self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Speed': 'Fast'})
+        self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Time left': '—',
+                                         'Space': '—', 'Speed': 'Fast'})
         self.assertFalse(c.message.isVisible() or c.allow.isVisible())
         # One button, for what can be done now.
         self.assertEqual([b.text() for b in c.widget.findChildren(QtWidgets.QPushButton) if not b.isHidden()], ['Continue'])
@@ -348,7 +349,8 @@ class DashboardTests(PagesCase):
         self.assertEqual(list(d.cards), ['tapas', 'tappytoon', 'webtoon'])
         later = d.cards['tappytoon']
         self.assertEqual(later.pill.text(), 'Not signed in')
-        self.assertEqual(self.fields('tappytoon'), {})
+        self.assertEqual(self.fields('tappytoon'), {'Account': 'Not signed in', 'Downloader': 'Starts after sign-in', 'Saved': '—',
+                                                    'Time left': '—', 'Space': '—', 'Speed': '—'})
         self.assertEqual((later.action.text(), later.action.isVisible(), later.action.isEnabled(), later.allow.isHidden()),
                          ('Sign in', True, True, True))
         # One sign-in at a time, in the window: the site is chosen (and opened) first, then its sign-in starts.

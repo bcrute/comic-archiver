@@ -330,12 +330,12 @@ class SiteCard:
             tone(value, 'tone', 'warning' if row['warning'] else '')
 
     def show(self, s, v):
-        """v is the site's view, or None for a site not opened yet: then only its way to sign in shows."""
+        """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
         if v is None:
             self.pill.setText('Not signed in')
             tone(self.pill, 'tone', '')  # The plain look.
             tone(self.widget, 'tone', '')
-            self._fields([])
+            self._fields(dashboard_model.unopened_rows())
             say(self.message, '')
             self.doing = 'signin'
             self.action.setEnabled(True)
