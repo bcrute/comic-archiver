@@ -381,7 +381,18 @@ class DashboardTests(PagesCase):
                                                       'left_bytes': 409_000_000_000, 'free_bytes': 473_000_000_000}
         self.open()
         self.assertEqual((self.fields()['Time left'], self.fields()['Space']),
-                         ('15 hours (estimated)', '409 GB to go (estimated) | 473 GB free'))
+                         ('15 hours (est.)', '409 GB to go (est.) | 473 GB free'))
+        hints = dict(zip((name.text() for name, _ in self.card.cells), self.card.hints))
+        self.assertEqual([name for name, hint in hints.items() if hint.isVisible()], ['Time left', 'Space'])
+        self.assertTrue(hints['Time left'].toolTip().startswith('Estimated from the pace of the last five minutes'))
+        # A tap shows what hovering would, for a touch screen with no pointer to hover.
+        hints['Space'].click()
+        self.assertTrue(QtWidgets.QToolTip.isVisible())
+        self.assertEqual(QtWidgets.QToolTip.text(), hints['Space'].toolTip())
+        QtWidgets.QToolTip.hideText()
+        self.actions.reading['status']['estimate'] = {'waiting_episodes': 900}
+        self.pages.poll()
+        self.assertEqual([name for name, hint in hints.items() if hint.isVisible()], [])
 
     def test_go_on_all_sites_starts_each_that_can_go_and_pause_all_pauses_each_that_runs(self):
         self.shell.open = ['tapas', 'tappytoon', 'webtoon']

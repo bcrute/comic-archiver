@@ -54,6 +54,9 @@ QLabel#footnote { border-top: 1px solid %(border)s; padding-top: 14px; }
 QLabel#strong { font-weight: 600; }
 QLabel#fieldName { color: %(muted)s; }
 QLabel#fieldValue[tone="warning"] { color: %(warning)s; }
+QToolButton#hint { min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px; padding: 0; border: 1px solid %(muted)s;
+                   border-radius: 9px; color: %(muted)s; background: transparent; font-size: 11px; font-weight: 600; }
+QToolButton#hint:hover, QToolButton#hint:focus { color: %(accent)s; border-color: %(accent)s; }
 QLabel[error="true"] { color: %(error)s; }
 QLabel#activity { border-left: 3px solid %(accent-border)s; padding-left: 10px; }
 QLabel#activity[tone="warning"] { border-left-color: %(warning)s; }

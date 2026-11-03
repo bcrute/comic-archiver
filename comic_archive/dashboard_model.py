@@ -187,7 +187,7 @@ def time_row(estimate):
         return ''
     if type(estimate.get('seconds')) is not int:
         return 'Estimating; known after about five minutes of downloading'
-    return f"{span(estimate['seconds'])} (estimated)"
+    return f"{span(estimate['seconds'])} (est.)"
 
 
 def space_row(estimate):
@@ -197,8 +197,15 @@ def space_row(estimate):
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
     short = type(free) is int and free < left
-    text = f'{room(left)} to go (estimated)'
+    text = f'{room(left)} to go (est.)'
     return text + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short
+
+
+def estimate_tip(estimate, basis):
+    """What a card's "(est.)" stands for, shown from the ? beside it."""
+    rough = (' Some series have not been checked yet, so for now it is a rough guess.'
+             if number((estimate or {}).get('unchecked_series')) else '')
+    return f'Estimated from {basis}, so it changes as the download goes on.{rough}'
 
 
 def step_progress(p):
@@ -444,9 +451,9 @@ def view(s, now):
     # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
     rows = []
 
-    def row(name, value, warning=False):
+    def row(name, value, warning=False, tip=''):
         if value:
-            rows.append({'name': name, 'value': value, 'warning': bool(warning)})
+            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': tip})
     if not s.loaded:
         v['rows'] = [{'name': 'Library', 'value': 'Opening…', 'warning': False}]
         v['save_place'] = save_place(s)
@@ -498,9 +505,11 @@ def view(s, now):
     row('Saved', NONE if s.status is None else
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
     estimate = status.get('estimate') if account.get('configured') and not finished else None
-    row('Time left', time_row(estimate) or NONE)
+    time = time_row(estimate)
+    row('Time left', time or NONE,
+        tip=estimate_tip(estimate, 'the pace of the last five minutes of downloading') if '(est.)' in time else '')
     space, short = space_row(estimate)
-    row('Space', space or NONE, short)
+    row('Space', space or NONE, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')
     if running and elapsed is not None:
         row('Running for', duration(elapsed) + ('' if age is None else f' | last saved {duration(age)} ago'))
     refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')

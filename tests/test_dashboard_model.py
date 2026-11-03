@@ -428,15 +428,15 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
         self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))
         planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))
-        self.assertEqual(planned['Time left'], ('10 minutes (estimated)', False))
-        self.assertEqual(planned['Space'], ('1.0 GB to go (estimated)', False))
+        self.assertEqual(planned['Time left'], ('10 minutes (est.)', False))
+        self.assertEqual(planned['Space'], ('1.0 GB to go (est.)', False))
         rough = fields(view(status={'estimate': {'waiting_episodes': 1, 'unchecked_series': 1, 'seconds': 54_000,
                                            'saved_bytes': 2_000_000_000, 'left_bytes': 409_000_000_000,
                                            'free_bytes': 473_000_000_000}}))
-        self.assertEqual(rough['Time left'][0], '15 hours (estimated)')
-        self.assertEqual(rough['Space'], ('409 GB to go (estimated) | 473 GB free', False))
+        self.assertEqual(rough['Time left'][0], '15 hours (est.)')
+        self.assertEqual(rough['Space'], ('409 GB to go (est.) | 473 GB free', False))
         short = fields(view(status={'estimate': {'waiting_episodes': 1, 'left_bytes': 1_000_000_000, 'free_bytes': 10}}))
-        self.assertEqual(short['Space'], ('1.0 GB to go (estimated) | 1 MB free, not enough', True))
+        self.assertEqual(short['Space'], ('1.0 GB to go (est.) | 1 MB free, not enough', True))
         early = fields(view(status={'estimate': {'waiting_episodes': 4}}))
         self.assertEqual(early['Time left'][0], 'Estimating; known after about five minutes of downloading')
         self.assertEqual(early['Space'], ('—', False))
@@ -446,6 +446,22 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'estimate': estimate}, account={'status': 'stopped'}))['Space'], ('—', False))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
+
+    def test_an_estimated_time_or_space_says_what_it_is_estimated_from(self):
+        def tips(**kwargs):
+            return {row['name']: row['tip'] for row in view(**kwargs)['rows'] if row['name'] in ('Time left', 'Space')}
+        sure = tips(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}})
+        self.assertEqual(sure, {'Time left': 'Estimated from the pace of the last five minutes of downloading, so it'
+                                             ' changes as the download goes on.',
+                                'Space': 'Estimated from the size of the episodes saved so far, so it changes as the'
+                                         ' download goes on.'})
+        rough = tips(status={'estimate': {'waiting_episodes': 3, 'unchecked_series': 2, 'seconds': 600,
+                                          'left_bytes': 1_000_000_000}})
+        self.assertTrue(all(tip.endswith(' Some series have not been checked yet, so for now it is a rough guess.')
+                            for tip in rough.values()))
+        # Nothing estimated yet, nothing to explain.
+        self.assertEqual(tips(status={'estimate': {'waiting_episodes': 4}}), {'Time left': '', 'Space': ''})
+        self.assertEqual(tips(status=None), {})
 
     def test_sign_in_messages_say_what_went_wrong_or_what_to_do_next(self):
         self.assertEqual(view(site_auth={'status': 'running'})['signin_status'],

@@ -149,6 +149,17 @@ class Kit:
             button.clicked.connect(lambda checked=False: clicked())
         return button
 
+    def hint(self):
+        """A small ? that explains what is beside it: on hover, as any tooltip, and on a click or tap too."""
+        hint = self.w.QToolButton()
+        hint.setObjectName('hint')
+        hint.setText('?')
+        hint.setAccessibleName('What this means')
+        hint.setCursor(self.q.QtCore.Qt.CursorShape.WhatsThisCursor)
+        hint.clicked.connect(lambda checked=False: self.w.QToolTip.showText(
+            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), hint.toolTip(), hint))
+        return hint
+
     def frame(self, name, vertical=True, margins=(20, 20, 20, 20), spacing=10):
         frame = self.w.QFrame()
         frame.setObjectName(name)
@@ -303,7 +314,7 @@ class SiteCard:
         self.fields.setVerticalSpacing(6)
         self.fields.setColumnStretch(1, 1)
         box.addLayout(self.fields)
-        self.cells = []
+        self.cells, self.hints = [], []
         self.message = kit.label('')
         box.addWidget(self.message)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
@@ -317,17 +328,28 @@ class SiteCard:
     def _fields(self, rows):
         if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
             for name, value in self.cells:
-                discard(self.fields, name, value)
-            self.cells = []
+                discard(self.fields, name, value.parentWidget())
+            self.cells, self.hints = [], []
             for index, row in enumerate(rows):
                 name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.label('', 'fieldValue')
+                hint = self.kit.hint()
+                holder = self.kit.row(value, hint, spacing=6)
                 self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
-                self.fields.addWidget(value, index, 1)
-                placed(name, value)
+                self.fields.addWidget(holder, index, 1)
+                placed(name, holder)
                 self.cells.append((name, value))
-        for (_, value), row in zip(self.cells, rows, strict=True):
+                self.hints.append(hint)
+        for (_, value), hint, row in zip(self.cells, self.hints, rows, strict=True):
             value.setText(row['value'])
             tone(value, 'tone', 'warning' if row['warning'] else '')
+            tip = row.get('tip', '')
+            hint.setToolTip(tip)
+            hint.setAccessibleDescription(tip)
+            hint.setVisible(bool(tip))
+            # A value with a ? keeps it beside its text; one without takes the whole width, to wrap no sooner.
+            box = value.parentWidget().layout()
+            box.setStretchFactor(value, 0 if tip else 1)
+            box.setStretch(2, 1 if tip else 0)
 
     def show(self, s, v):
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
