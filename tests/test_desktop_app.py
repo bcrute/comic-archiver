@@ -233,7 +233,7 @@ class DesktopAppTests(unittest.TestCase):
             self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Library', old=root / 'Library', root=root))
             self.assertIn('Nothing is moved', first[2]); self.assertIn('already holds', second[2])
             # A new folder starts empty: Go saves everything again there, unless the whole library folder is moved first.
-            self.assertIn('Go then saves everything again in the new folder, and your library page shows only what is there.', first[2])
+            self.assertIn('The download then saves everything again in the new folder, and your library page shows only what is there.', first[2])
             self.assertIn(f'move the whole folder\n{root}\nto the new place', first[2])
             self.assertIn('library page then shows only what is saved in this folder', second[2])
             move.assert_not_called()
@@ -1540,7 +1540,7 @@ class DesktopAppTests(unittest.TestCase):
         parent, title, text, buttons, default = self.box.question.call_args.args
         self.assertEqual((parent, title, buttons, default), (shell.window, 'Comic Archiver', 3, self.box.StandardButton.No))
         self.assertEqual(text, desktop_app.CLOSE_DOWNLOAD)
-        self.assertIn('Everything saved so far is kept', text); self.assertIn('The next time you open Comic Archiver, press Go to continue', text)
+        self.assertIn('Everything saved so far is kept', text); self.assertIn('The next time you open Comic Archiver, press Continue', text)
         self.assertIn('Saving stops right away', text); self.assertNotIn('background', text)
         self.box.question.return_value = self.box.StandardButton.Yes
         shell.window.closeEvent(Mock())

@@ -7,7 +7,7 @@
 Comic Archiver saves the comics and novels you can read on Tapas, Tappytoon and Webtoon to your own computer, so you have
 your own copy of what you've bought and unlocked.
 
-You sign in to the site inside the app, press **Go**, and it works through your library. You can stop it whenever
+You sign in to the site inside the app, press **Start**, and it works through your library. You can stop it whenever
 you like; next time it picks up where it left off.
 
 Comics are saved as CBZ files and novels as EPUB files, which open in most comic and e-book reader apps. Everything
@@ -45,8 +45,8 @@ the warnings Windows shows because the app isn't signed yet.
 
 1. On the dashboard, each site has its own card. Click **Sign in** on your site's card, and sign in with your email
    and password.
-2. Press **Go** on that card. If you use more than one site, sign in to each: they all download at once, and
-   **Go on all sites** starts every one.
+2. Press **Start** on that card. If you use more than one site, sign in to each: they all download at once, and
+   **Start all** starts every one.
 
 If you normally sign in with Google or Facebook, those buttons may not work inside the app. Set a password on your
 account first (sign in the usual way in your web browser and look in the site's account
@@ -88,7 +88,7 @@ tools, and if you already read in one of them, keep using it. Comic Archiver is 
 
 - It saves **novels as well as comics**. Novels come out as EPUB files that open in any e-book reader. If you've
   bought novels on Tapas, check that the tool you choose saves them; not all do.
-- It's one program you install and press Go. No extension repositories to add, no phone, no Docker.
+- It's one program you install and press Start. No extension repositories to add, no phone, no Docker.
 - It saves what your account has bought or unlocked on Tapas, Tappytoon and Webtoon, and picks up where it left
   off.
 

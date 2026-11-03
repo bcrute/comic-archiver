@@ -329,10 +329,10 @@ class DashboardTests(PagesCase):
         self.assertEqual(c.pill.property('tone'), 'warning')
         # What is so, a field and its value each; the buttons say what can be done.
         self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Speed': 'Fast'})
-        self.assertFalse(c.message.isVisible() or c.note.isVisible())
-        self.assertTrue(c.go.isEnabled() and c.go.isVisible())
-        self.assertEqual(c.go.text(), 'Go — continue')
-        self.assertFalse(c.pause.isVisible() or c.signin.isVisible() or c.allow.isVisible())
+        self.assertFalse(c.message.isVisible() or c.allow.isVisible())
+        # One button, for what can be done now.
+        self.assertEqual([b.text() for b in c.widget.findChildren(QtWidgets.QPushButton) if not b.isHidden()], ['Continue'])
+        self.assertTrue(c.action.isEnabled())
         self.assertIn(FOLDER, d.save.text())
         self.assertEqual(d.updated.text(), 'Updated just now')
         self.assertEqual(d.library_title.text(), 'All sites')
@@ -349,12 +349,10 @@ class DashboardTests(PagesCase):
         later = d.cards['tappytoon']
         self.assertEqual(later.pill.text(), 'Not signed in')
         self.assertEqual(self.fields('tappytoon'), {})
-        self.assertTrue(later.signin.isVisible() and later.signin.isEnabled())
-        self.assertEqual(later.signin.text(), 'Sign in to Tappytoon')
-        self.assertFalse(later.go.isVisible() or later.pause.isVisible() or later.allow.isVisible())
+        self.assertEqual((later.action.text(), later.action.isEnabled(), later.allow.isHidden()), ('Sign in', True, True))
         # One sign-in at a time, in the window: the site is chosen (and opened) first, then its sign-in starts.
         self.shell.opens = True
-        later.signin.click()
+        later.action.click()
         self.assertEqual(self.shell.calls, [('choose_site', 'tappytoon')])
         self.assertEqual(len(self.sites['tappytoon'].named('signin')), 1)
         self.assertEqual(self.actions.named('signin'), [])
@@ -367,7 +365,7 @@ class DashboardTests(PagesCase):
         self.assertEqual([call[0] for call in webtoon.calls], ['context', 'poll'])
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Finished')
         self.assertEqual(self.fields('webtoon')['Finished'], 'Every episode your account can read is saved')
-        self.dashboard.cards['webtoon'].go.click()
+        self.dashboard.cards['webtoon'].action.click()
         self.assertEqual((len(webtoon.named('go')), len(self.actions.named('go'))), (1, 0))
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Downloading')
         self.assertEqual(self.card.pill.text(), 'Paused')
@@ -375,15 +373,12 @@ class DashboardTests(PagesCase):
         self.pages.poll()
         self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
 
-    def test_a_card_that_shows_time_and_space_left_says_at_its_foot_they_are_rough(self):
-        self.shell.open = ['tapas', 'webtoon']
+    def test_a_card_says_its_time_and_space_left_are_estimated(self):
         self.actions.reading['status']['estimate'] = {'waiting_episodes': 900, 'seconds': 54_000,
                                                       'left_bytes': 409_000_000_000, 'free_bytes': 473_000_000_000}
         self.open()
-        tapas, webtoon = self.dashboard.cards['tapas'], self.dashboard.cards['webtoon']
-        self.assertEqual((self.fields()['Time left'], self.fields()['Space']), ('15 hours', '409 GB to go | 473 GB free'))
-        self.assertEqual((tapas.note.isVisible(), tapas.note.text()), (True, 'Time and space are only rough estimates.'))
-        self.assertFalse(webtoon.note.isVisible())
+        self.assertEqual((self.fields()['Time left'], self.fields()['Space']),
+                         ('15 hours (estimated)', '409 GB to go (estimated) | 473 GB free'))
 
     def test_go_on_all_sites_starts_each_that_can_go_and_pause_all_pauses_each_that_runs(self):
         self.shell.open = ['tapas', 'tappytoon', 'webtoon']
@@ -447,15 +442,14 @@ class DashboardTests(PagesCase):
     def test_go_pause_and_sign_in_ask_the_library_and_show_its_answer(self):
         self.open()
         c = self.card
-        c.go.click()
+        c.action.click()
         self.assertEqual(len(self.actions.named('go')), 1)
-        self.assertTrue(c.pause.isVisible())
-        self.assertEqual((c.go.text(), c.go.isEnabled()), ('Working…', False))
+        self.assertEqual((c.action.text(), c.action.isEnabled()), ('Pause', True))
         self.assertEqual((c.pill.text(), self.fields()['Step']), ('Downloading', 'Downloading episodes'))
         polls = len(self.actions.named('poll'))
-        c.pause.click()
-        self.assertEqual(len(self.actions.named('pause')), 1)
-        self.assertFalse(c.pause.isVisible())
+        c.action.click()
+        self.assertEqual((len(self.actions.named('pause')), len(self.actions.named('go'))), (1, 1))
+        self.assertEqual(c.action.text(), 'Continue')
         settle()
         self.assertEqual(len(self.actions.named('poll')), polls + 1)
 
@@ -463,12 +457,11 @@ class DashboardTests(PagesCase):
         self.actions.reading['status']['session_configured'] = False
         self.open()
         c = self.card
-        self.assertTrue(c.signin.isVisible() and c.signin.isEnabled())
-        self.assertEqual((c.signin.text(), c.pill.text(), self.fields()['Account']), ('Sign in to Tapas', 'Sign-in needed', 'Sign-in needed'))
-        self.assertFalse(c.go.isEnabled())
-        c.signin.click()
-        self.assertEqual(len(self.actions.named('signin')), 1)
-        self.assertEqual((c.signin.text(), c.signin.isEnabled()), ('Signing in…', False))
+        self.assertTrue(c.action.isEnabled())
+        self.assertEqual((c.action.text(), c.pill.text(), self.fields()['Account']), ('Sign in', 'Sign-in needed', 'Sign-in needed'))
+        c.action.click()
+        self.assertEqual((len(self.actions.named('signin')), len(self.actions.named('go'))), (1, 0))
+        self.assertEqual((c.action.text(), c.action.isEnabled()), ('Signing in…', False))
         self.assertTrue(c.message.text().startswith('Finish signing in to Tapas.'))
 
     def test_go_then_an_expired_session_shows_signin_instead_of_the_earlier_connected_check(self):
@@ -476,12 +469,11 @@ class DashboardTests(PagesCase):
         self.open()
         c = self.card
         self.assertEqual(self.fields()['Account'], 'Connected')
-        c.go.click()
+        c.action.click()
         self.actions.account(status='held', code='login_required')
         self.actions.reading['status']['worker'] = {'reported_state': 'ready'}
         self.pages.poll()
-        self.assertTrue(c.signin.isVisible() and c.signin.isEnabled())
-        self.assertFalse(c.go.isEnabled())
+        self.assertEqual((c.action.text(), c.action.isEnabled()), ('Sign in', True))
         self.assertEqual(self.fields()['Account'], 'Sign-in needed')
         self.assertEqual(self.fields()['Stopped'], 'Tapas signed you out')
 
@@ -489,12 +481,11 @@ class DashboardTests(PagesCase):
         self.actions.reading['site_auth'] = {'status': 'verified'}
         self.actions.reading['account'] = {'status': 'held', 'code': 'login_required'}
         self.open()
-        self.assertTrue(self.card.go.isEnabled())
+        self.assertEqual((self.card.action.text(), self.card.action.isEnabled()), ('Continue', True))
         self.actions.go = lambda: self.actions.account(status='held', code='login_required')
-        self.card.go.click()
+        self.card.action.click()
         self.pages.poll()
-        self.assertTrue(self.card.signin.isVisible())
-        self.assertFalse(self.card.go.isEnabled())
+        self.assertEqual((self.card.action.text(), self.card.action.isEnabled()), ('Sign in', True))
 
     def test_download_settings_open_with_a_table_of_why_episodes_were_not_downloaded(self):
         self.actions.reading['status']['episodes_by_status'] = {'archived': 100, 'unavailable': 44}
@@ -504,7 +495,7 @@ class DashboardTests(PagesCase):
         self.assertTrue(self.settings.not_downloaded_row.isVisible())
         self.assertEqual([table.horizontalHeaderItem(i).text() for i in range(2)], ['Reason', 'Episodes'])
         self.assertEqual([(table.item(i, 0).text(), table.item(i, 1).text()) for i in range(table.rowCount())][:2], [
-            ('Locked on your Tapas account. Buy or unlock them on Tapas, then hit Go', '44'), ('Not released yet', '0')])
+            ('Locked on your Tapas account. Buy or unlock them on Tapas, then press Continue', '44'), ('Not released yet', '0')])
         self.assertEqual(table.rowCount(), 6)
         self.assertTrue(table.alternatingRowColors())  # Wrapped reasons stay matched to their counts.
         # Every row shows without scrolling the table itself.
@@ -513,10 +504,10 @@ class DashboardTests(PagesCase):
     def test_a_refusal_is_said_on_its_card_and_in_settings_until_the_next_action(self):
         self.open()
         self.actions.refused['go'] = 'An import is active. Try again after this batch finishes.'
-        self.card.go.click()
+        self.card.action.click()
         message = self.card.message
         self.assertEqual((message.text(), message.property('error')), ('An import is active. Try again after this batch finishes.', 'true'))
-        self.assertTrue(self.card.signin.isVisible())
+        self.assertEqual((self.card.action.text(), self.card.action.isEnabled()), ('Continue', True))
         self.pages.go_to('settings')
         self.assertEqual(self.settings.status.text(), 'An import is active. Try again after this batch finishes.')
         del self.actions.refused['go']
@@ -527,9 +518,9 @@ class DashboardTests(PagesCase):
     def test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts(self):
         self.open()
         self.shell.held = []
-        self.card.go.click()
-        self.assertFalse(self.card.go.isEnabled() or self.dashboard.files.isEnabled())
-        self.card.go.click()
+        self.card.action.click()
+        self.assertFalse(self.card.action.isEnabled() or self.dashboard.files.isEnabled())
+        self.card.action.click()
         self.pages.go()
         self.pages.poll()
         self.pages.cloud_test()
@@ -614,7 +605,7 @@ class DashboardTests(PagesCase):
         self.open()
         s = self.pages.opening('webtoon', 'Opening Webtoon…')
         self.assertEqual(self.dashboard.cards['webtoon'].message.text(), 'Opening Webtoon…')
-        self.assertFalse(self.dashboard.cards['webtoon'].go.isEnabled())
+        self.assertFalse(self.dashboard.cards['webtoon'].action.isEnabled())
         s.busy, s.message = False, None
         self.pages.render()
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Not signed in')
@@ -753,7 +744,7 @@ class DownloadSettingsTests(PagesCase):
         self.assertGreater(len(self.actions.named('poll')), polls)
         self.assertFalse(s.signout_row.isVisible())
         self.pages.go_to('dashboard')
-        self.assertTrue(self.card.signin.isVisible() and self.card.signin.isEnabled())
+        self.assertEqual((self.card.action.text(), self.card.action.isEnabled()), ('Sign in', True))
 
     def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
         self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}

@@ -27,6 +27,11 @@ def view(**changes):
     return model.view(state(**changes), NOW)
 
 
+def action(v):
+    """The card's one button: what it does, what it says, and whether it can be pressed."""
+    return v['action'], v['action_text'], v['action_enabled']
+
+
 def fields(v):
     """A card's rows as {field: (value, warning)}."""
     return {row['name']: (row['value'], row['warning']) for row in v['rows']}
@@ -187,8 +192,8 @@ class StateTests(unittest.TestCase):
 class ButtonTests(unittest.TestCase):
     def test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs(self):
         self.assertTrue(view()['go_enabled'])
-        self.assertEqual(view()['go_text'], 'Go — continue')
-        self.assertEqual(view(account={'status': 'finished', 'configured': True})['go_text'], 'Go')
+        self.assertEqual(action(view()), ('go', 'Continue', True))
+        self.assertEqual(action(view(account={'status': 'finished', 'configured': True})), ('go', 'Start', True))
         for name, changes in {'busy': {'busy': True}, 'task': {'task': 'job-1'}, 'cloud sign-in': {'cloud_auth': {'status': 'running'}},
                               'no account': {'account': None}, 'signed out': {'status': {'worker': {'reported_state': 'ready'}}},
                               'signing in': {'site_auth': {'status': 'running'}}, 'running': {'account': account()},
@@ -197,25 +202,29 @@ class ButtonTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertFalse(view(**changes)['go_enabled'])
         self.assertTrue(view(account={'status': 'stopped', 'go_after_seconds': 30}, account_at=NOW - 31)['go_enabled'])
-        self.assertEqual(view(account=account())['go_text'], 'Working…')
+        # While it saves, the one button pauses it.
+        self.assertEqual(action(view(account=account())), ('pause', 'Pause', True))
+        self.assertEqual(action(view(account=account(), busy=True)), ('pause', 'Pause', False))
+        # Before anything is read, the button waits.
+        self.assertEqual(action(view(status=None)), ('go', 'Continue', False))
 
-    def test_sign_in_shows_when_it_would_help_and_waits_while_saving(self):
-        self.assertFalse(view()['signin_visible'])
-        self.assertTrue(view(status={'worker': {'reported_state': 'ready'}})['signin_visible'])
-        self.assertTrue(view(status={'session_configured': True, 'worker': {'reported_state': 'offline'}})['signin_visible'])
-        self.assertTrue(view(message=Message('Refused.', True))['signin_visible'])
-        signing = view(site_auth={'status': 'running'})
-        self.assertEqual((signing['signin_text'], signing['signin_enabled']), ('Signing in…', False))
-        self.assertEqual(view()['signin_text'], 'Sign in to Tapas')
-        self.assertFalse(view(account=account())['signin_enabled'])
-        self.assertFalse(view(busy=True)['signin_enabled'])
+    def test_the_one_button_signs_in_when_that_would_help_and_waits_while_saving(self):
+        self.assertEqual(action(view(status={'worker': {'reported_state': 'ready'}})), ('signin', 'Sign in', True))
+        offline = view(status={'session_configured': True, 'worker': {'reported_state': 'offline'}})
+        self.assertEqual(action(offline), ('signin', 'Sign in', True))
+        self.assertEqual(action(view(site_auth={'status': 'running'})), ('signin', 'Signing in…', False))
+        signed_out = {'status': {'worker': {'reported_state': 'busy'}}}
+        self.assertEqual(action(view(**signed_out)), ('signin', 'Sign in', False))  # Not while a step finishes.
+        self.assertEqual(action(view(busy=True, status={'worker': {}})), ('signin', 'Sign in', False))
+        # Saving goes on while the site's sign-in lapses: the button still pauses it.
+        self.assertEqual(action(view(account=account(), status={'worker': {'reported_state': 'busy'}}))[0], 'pause')
         relogin = view(account={'status': 'held', 'code': 'login_required'})
-        self.assertTrue(relogin['signin_visible'])
+        self.assertEqual(action(relogin), ('signin', 'Sign in', True))
         self.assertEqual(fields(relogin)['Stopped'], ('Tapas signed you out', True))
 
     def test_a_saved_sign_in_the_site_no_longer_knows_asks_for_a_sign_in_before_go(self):
         expired = view(site_auth={'status': 'expired'})
-        self.assertFalse(expired['go_enabled']); self.assertTrue(expired['signin_visible'] and expired['signin_enabled'])
+        self.assertFalse(expired['go_enabled']); self.assertEqual(action(expired), ('signin', 'Sign in', True))
         self.assertEqual((expired['title'], expired['state'], expired['session']), ('Sign in again', 'Sign-in needed', 'Tapas · Sign-in needed'))
         self.assertEqual(fields(expired)['Account'], ('Sign-in needed', True))
         # One the site still names is connected, whatever the last run found; an unanswered check changes nothing.
@@ -232,7 +241,7 @@ class ButtonTests(unittest.TestCase):
                 s.received_site_auth({'status': auth}, NOW + 2)
                 failed = model.view(s, NOW + 2)
                 self.assertFalse(failed['go_enabled'])
-                self.assertTrue(failed['signin_visible'] and failed['signin_enabled'])
+                self.assertEqual(action(failed), ('signin', 'Sign in', True))
                 self.assertEqual(failed['session'], 'Tapas · Sign-in needed')
                 self.assertEqual(fields(failed)['Stopped'], ('Tapas signed you out', True))
                 # Signing in again clears the old failure; repeating its result does not.
@@ -246,7 +255,7 @@ class ButtonTests(unittest.TestCase):
         s.received_account({'status': 'held', 'code': 'login_required'}, NOW + 1)
         s.received_site_auth({'status': 'verified'}, NOW + 2)
         self.assertFalse(model.view(s, NOW + 2)['go_enabled'])
-        self.assertTrue(model.view(s, NOW + 2)['signin_visible'])
+        self.assertEqual(model.view(s, NOW + 2)['action'], 'signin')
         s.received_account({'status': 'stopped'}, NOW + 3)
         self.assertTrue(model.view(s, NOW + 3)['go_enabled'])
         self.assertEqual(model.view(s, NOW + 3)['session'], 'Tapas · Connected')
@@ -327,7 +336,7 @@ class StatusTests(unittest.TestCase):
                  ({'account': {'status': 'held', 'code': 'source_refused'}},
                   {'Stopped': ('Tapas asked the app to slow down', True), 'Speed': ('Fast (a slower speed may help)', True)}),
                  ({'account': {'status': 'stopped', 'go_after_seconds': 600}, 'account_at': NOW},
-                  {'Go again in': ('about 10 minutes', False)}),
+                  {'Continue in': ('about 10 minutes', False)}),
                  ({'account': {'status': 'finished'}},
                   {'Finished': ('Every episode your account can read is saved', False),
                    'Note': ('Tapas’s account lists may not include every older purchase', False)}),
@@ -382,7 +391,7 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn('not_saved', reported)
         self.assertTrue(reported['not_downloaded_visible'])
         self.assertEqual([(row['reason'], row['count']) for row in reported['not_downloaded']], [
-            ('Locked on your Tapas account. Buy or unlock them on Tapas, then hit Go', '44'),
+            ('Locked on your Tapas account. Buy or unlock them on Tapas, then press Continue', '44'),
             ('Not released yet', '0'),
             ('Time-limited, with access the app couldn’t confirm is still current', '0'),
             ('Novels this site’s download doesn’t support', '0'),
@@ -415,31 +424,28 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
         self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))
         planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))
-        self.assertEqual(planned['Time left'], ('10 minutes', False))
-        self.assertEqual(planned['Space'], ('1.0 GB to go', False))
-        rough = view(status={'estimate': {'waiting_episodes': 1, 'unchecked_series': 1, 'seconds': 54_000,
+        self.assertEqual(planned['Time left'], ('10 minutes (estimated)', False))
+        self.assertEqual(planned['Space'], ('1.0 GB to go (estimated)', False))
+        rough = fields(view(status={'estimate': {'waiting_episodes': 1, 'unchecked_series': 1, 'seconds': 54_000,
                                            'saved_bytes': 2_000_000_000, 'left_bytes': 409_000_000_000,
-                                           'free_bytes': 473_000_000_000}})
-        self.assertEqual(fields(rough)['Time left'][0], '15 hours')
-        self.assertEqual(fields(rough)['Space'], ('409 GB to go | 473 GB free', False))
-        self.assertEqual(rough['estimate_note'], 'Time and space are only rough estimates.')
+                                           'free_bytes': 473_000_000_000}}))
+        self.assertEqual(rough['Time left'][0], '15 hours (estimated)')
+        self.assertEqual(rough['Space'], ('409 GB to go (estimated) | 473 GB free', False))
         short = fields(view(status={'estimate': {'waiting_episodes': 1, 'left_bytes': 1_000_000_000, 'free_bytes': 10}}))
-        self.assertEqual(short['Space'], ('1.0 GB to go | 1 MB free, not enough', True))
-        early = view(status={'estimate': {'waiting_episodes': 4}})
-        self.assertEqual(fields(early)['Time left'][0], 'Estimating; known after about five minutes of downloading')
-        self.assertNotIn('Space', fields(early))
-        self.assertTrue(early['estimate_note'])
+        self.assertEqual(short['Space'], ('1.0 GB to go (estimated) | 1 MB free, not enough', True))
+        early = fields(view(status={'estimate': {'waiting_episodes': 4}}))
+        self.assertEqual(early['Time left'][0], 'Estimating; known after about five minutes of downloading')
+        self.assertNotIn('Space', early)
         estimate = {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}
-        finished = view(status={'estimate': estimate}, account={'status': 'finished', 'configured': True})
-        self.assertNotIn('Time left', fields(finished))
-        self.assertEqual(finished['estimate_note'], '')
+        finished = fields(view(status={'estimate': estimate}, account={'status': 'finished', 'configured': True}))
+        self.assertNotIn('Time left', finished)
         self.assertNotIn('Space', fields(view(status={'estimate': estimate}, account={'status': 'stopped'})))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
 
     def test_sign_in_messages_say_what_went_wrong_or_what_to_do_next(self):
         self.assertEqual(view(site_auth={'status': 'running'})['signin_status'],
-                         'Finish signing in to Tapas. We’ll detect it automatically; then return here and hit Go.')
+                         'Finish signing in to Tapas. We’ll detect it automatically; then return here to start saving.')
         for code, part in (('network_held', 'press Allow this connection'), ('account_mismatch', 'does not match this saved library'),
                            ('signin_incomplete', 'Sign-in was not completed'), ('other', 'Sign-in did not finish')):
             v = view(site_auth={'status': 'error', 'code': code})

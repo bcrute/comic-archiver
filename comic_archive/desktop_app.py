@@ -121,7 +121,7 @@ LOCATION_TITLE = 'Choose where Comic Archiver saves'
 LOCATION_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then change the folder.'
 LOCATION_CONFIRM = ('Save to this folder from now on?\n\n{new}\n\n'
                     'Nothing is moved: episodes already saved stay where they are, in\n{old}\n\n'
-                    'Go then saves everything again in the new folder, and your library page shows only what is there. '
+                    'The download then saves everything again in the new folder, and your library page shows only what is there. '
                     'To keep what is saved instead, choose No, close Comic Archiver, move the whole folder\n{root}\n'
                     'to the new place, then open Comic Archiver and choose the folder you moved.')
 LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it from now on?\n\n{new}\n\n'
@@ -146,13 +146,13 @@ LIBRARY_GONE_NOTICE = ('Comic Archiver cannot find its library folder any more:\
 NOT_A_LIBRARY = 'That folder holds no Comic Archiver library. Choose the folder that was renamed or moved.'
 CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and stop saving?\n\n'
                   'Saving stops right away. Everything saved so far is kept. The next time you open '
-                  'Comic Archiver, press Go to continue.')
+                  'Comic Archiver, press Continue.')
 CLOSE_SIGNIN = 'Signing in to {site} is not finished. Close anyway?\n\nYou will need to sign in again.'
 ALREADY_RUNNING = ('Comic Archiver is already open or still starting. The first start can take up to a minute; '
                    'its window then appears by itself.')
 NEWER_WAITING = ('Comic Archiver {old} is still open, so the new version {new} cannot start yet.\n\n'
                  'Close the open window, then open Comic Archiver again to switch to {new}. You stay signed in, '
-                 'and a download that was running continues when you press Go.')
+                 'and a download that was running continues when you press Continue.')
 UNINSTALL_ASK = ('Uninstall Comic Archiver?\n\nThis signs Comic Archiver out of every comic site and removes your '
                  'Backblaze B2 key from this computer. Your accounts aren\'t changed, and your saved episodes stay where '
                  'they are.')

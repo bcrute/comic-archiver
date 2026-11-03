@@ -21,8 +21,6 @@ MESSAGE_SECONDS = 30
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
 SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
-# Under a card that shows how long and how much space is left.
-ESTIMATE_NOTE = 'Time and space are only rough estimates.'
 
 # Recovery hints for cloud uploads, as the window words them.
 CLOUD_HINTS = {
@@ -156,7 +154,7 @@ def not_downloaded_counts(status):
 def not_downloaded(status, site):
     """Settings' table of why checked episodes were not downloaded: every reason, with how many, so a short
     folder is never a mystery."""
-    reasons = {'locked': f'Locked on your {site} account. Buy or unlock them on {site}, then hit Go'} | NOT_DOWNLOADED | {
+    reasons = {'locked': f'Locked on your {site} account. Buy or unlock them on {site}, then press Continue'} | NOT_DOWNLOADED | {
         'unsupported': 'In a form the app can’t save yet', 'failed': 'Stopped by download errors'}
     return [{'reason': reasons[key], 'count': display(count)} for key, count in not_downloaded_counts(status).items()]
 
@@ -182,13 +180,13 @@ def held_reason(code, site, missing):
 
 
 def time_row(estimate):
-    """The card's Time left: how long, and no more; the card's note says it is a rough figure."""
+    """The card's Time left: about how long, and no more."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked):
         return ''
     if type(estimate.get('seconds')) is not int:
         return 'Estimating; known after about five minutes of downloading'
-    return span(estimate['seconds'])
+    return f"{span(estimate['seconds'])} (estimated)"
 
 
 def space_row(estimate):
@@ -198,7 +196,8 @@ def space_row(estimate):
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
     short = type(free) is int and free < left
-    return f'{room(left)} to go' + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short
+    text = f'{room(left)} to go (estimated)'
+    return text + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short
 
 
 def step_progress(p):
@@ -343,15 +342,20 @@ def view(s, now):
     connection_held = ('this connection is metered' if (net or {}).get('reason') == 'metered_connection'
                        else 'this computer cannot tell whether its connection is metered (a VPN can cause this)')
     v = {'site': site}
-    # A downloader that is still starting is not offline: signing in again would not help it.
-    v['signin_visible'] = not (not needs_login and worker in WORKING and not signing_in and s.message is None)
-    v['signin_enabled'] = not (s.busy or running or batch_running or signing_in)
-    v['signin_text'] = 'Signing in…' if signing_in else f'Sign in to {site}'
     v['go_enabled'] = not (s.busy or s.task or (s.cloud_auth or {}).get('status') == 'running' or s.account is None
                            or needs_login or signing_in or running or worker != 'ready' or go_wait > 0)
-    v['go_text'] = 'Working…' if running else 'Go — continue' if account_status in ('stopped', 'held') else 'Go'
     v['pause_visible'] = running
     v['pause_enabled'] = not s.busy
+    # One button for what can be done now: signing in and saving never both need doing. A downloader that is still
+    # starting is not offline: signing in again would not help it.
+    if signing_in or (s.status is not None and not running and (needs_login or worker not in WORKING)):
+        v['action'], v['action_text'] = 'signin', 'Signing in…' if signing_in else 'Sign in'
+        v['action_enabled'] = not (s.busy or batch_running or signing_in)
+    elif running:
+        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', v['pause_enabled']
+    else:
+        v['action'], v['action_enabled'] = 'go', v['go_enabled']
+        v['action_text'] = 'Continue' if account_status in ('stopped', 'held') else 'Start'
     v['allow_visible'] = network_held
     v['allow_enabled'] = not s.busy
     locked = running or batch_running
@@ -398,7 +402,7 @@ def view(s, now):
                      'signin_incomplete': f'Sign-in was not completed. Click Sign in to {site} to try again.'}
     site_auth = s.site_auth or {}
     v['signin_status'] = (s.message.text if s.message else
-                          f'Finish signing in to {site}. We’ll detect it automatically; then return here and hit Go.' if signing_in
+                          f'Finish signing in to {site}. We’ll detect it automatically; then return here to start saving.' if signing_in
                           else auth_messages.get(site_auth.get('code'), auth_messages['signin_failed'])
                           if site_auth.get('status') == 'error' else '')
     v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
@@ -437,7 +441,6 @@ def view(s, now):
             rows.append({'name': name, 'value': value, 'warning': bool(warning)})
     if not s.loaded:
         v['rows'] = [{'name': 'Library', 'value': 'Opening…', 'warning': False}]
-        v['estimate_note'] = ''
         v['save_place'] = save_place(s)
         return v
     row('Account', v['session_word'], v['session_tone'] == 'warning')
@@ -477,7 +480,7 @@ def view(s, now):
     elif account.get('code') == 'login_required' and needs_login:
         row('Stopped', f'{site} signed you out', True)
     if not running and go_wait:
-        row('Go again in', wait_text(go_wait))
+        row('Continue in', wait_text(go_wait))
     if network_held and not running:
         row('Connection', f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
     if account_status == 'finished':
@@ -497,7 +500,6 @@ def view(s, now):
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')
     v['rows'] = rows
-    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''
     v['save_place'] = save_place(s)
     return v
 

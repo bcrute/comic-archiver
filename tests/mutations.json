@@ -2368,9 +2368,9 @@
   "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
  },
  {
-  "id": "a new save folder does not say Go saves everything again",
+  "id": "a new save folder does not say the download saves everything again",
   "source": "comic_archive/desktop_app.py",
-  "old": "                    'Go then saves everything again in the new folder, and your library page shows only what is there. '\n",
+  "old": "                    'The download then saves everything again in the new folder, and your library page shows only what is there. '\n",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
@@ -5120,35 +5120,75 @@
   "test": "test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in"
  },
  {
-  "id": "estimates-note-never-said",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''\n",
-  "new": "    v['estimate_note'] = ''\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
- },
- {
-  "id": "estimates-note-on-every-card",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "    v['estimate_note'] = ESTIMATE_NOTE if any(row['name'] in ('Time left', 'Space') for row in rows) else ''\n",
-  "new": "    v['estimate_note'] = ESTIMATE_NOTE\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
- },
- {
   "id": "space-row-hides-free-room",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    return f'{room(left)} to go' + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short\n",
-  "new": "    return f'{room(left)} to go', short\n",
+  "old": "    return text + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short\n",
+  "new": "    return text, short\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
-  "id": "card-estimates-note-not-drawn",
+  "id": "card-button-signs-in-over-a-running-download",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    if signing_in or (s.status is not None and not running and (needs_login or worker not in WORKING)):\n",
+  "new": "    if signing_in or (s.status is not None and (needs_login or worker not in WORKING)):\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_one_button_signs_in_when_that_would_help_and_waits_while_saving"
+ },
+ {
+  "id": "card-button-never-signs-in-for-an-offline-downloader",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    if signing_in or (s.status is not None and not running and (needs_login or worker not in WORKING)):\n",
+  "new": "    if signing_in or (s.status is not None and not running and (needs_login)):\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_one_button_signs_in_when_that_would_help_and_waits_while_saving"
+ },
+ {
+  "id": "card-sign-in-pressable-mid-step",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        v['action_enabled'] = not (s.busy or batch_running or signing_in)\n",
+  "new": "        v['action_enabled'] = not (s.busy or signing_in)\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_one_button_signs_in_when_that_would_help_and_waits_while_saving"
+ },
+ {
+  "id": "card-pause-pressable-while-busy",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', v['pause_enabled']\n",
+  "new": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', True\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs"
+ },
+ {
+  "id": "card-button-always-says-start",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        v['action_text'] = 'Continue' if account_status in ('stopped', 'held') else 'Start'\n",
+  "new": "        v['action_text'] = 'Start'\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs"
+ },
+ {
+  "id": "card-button-does-what-it-first-said",
   "source": "comic_archive/window_pages.py",
-  "old": "        say(self.note, v['estimate_note'])\n",
+  "old": "        self.doing = v['action']\n",
   "new": "",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_that_shows_time_and_space_left_says_at_its_foot_they_are_rough"
+  "test": "test_go_pause_and_sign_in_ask_the_library_and_show_its_answer"
+ },
+ {
+  "id": "time-left-not-marked-estimated",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    return f\"{span(estimate['seconds'])} (estimated)\"\n",
+  "new": "    return span(estimate['seconds'])\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
+ },
+ {
+  "id": "space-left-not-marked-estimated",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    text = f'{room(left)} to go (estimated)'\n",
+  "new": "    text = f'{room(left)} to go'\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  }
 ]

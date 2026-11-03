@@ -1,19 +1,20 @@
 ## Changes in {version}
 
 - **Every site downloads at once.** Signed in to more than one of Tapas, Tappytoon and Webtoon? Each one now
-  downloads alongside the others. **Go on all sites** and **Pause all** start and pause them together.
+  downloads alongside the others. **Start all** and **Pause all** start and pause them together.
 - **A dashboard you can read at a glance.** One card counts everything saved from every site. Then each site has a
-  card of its own, with what it is doing in a few short lines and its own **Go**, **Pause** and **Sign in**. A wide
-  window shows two cards to a row.
+  card of its own, with what it is doing in a few short lines and one button for what can be done now: **Sign in**,
+  **Start**, **Continue** or **Pause**. Time and space left are marked as estimated. A wide window shows two cards
+  to a row.
 - **A download goes on by itself after a wait.** Comic Archiver now keeps one record of your download instead of
   three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
   tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,
   or a site that refuses, waits 5, 15 and then 60 minutes before the download stops and asks you.
 - **When a download stops, the window says why.** Each stop comes with what to do about it, such as signing in
-  again. Press **Go** once you have.
-- **Pause stops the download, and Go carries on from there.** Closing the window or switching off the computer
+  again. Press **Continue** once you have.
+- **Pause stops the download, and Continue carries on from there.** Closing the window or switching off the computer
   pauses it the same way.
-- **Your download carries on after the update.** The first start moves it to the new record, and **Go** picks up
+- **Your download carries on after the update.** The first start moves it to the new record, and **Continue** picks up
   where it stopped. Going back to an older version after that starts the list and series checks again; nothing
   you have saved is lost.
 
@@ -56,14 +57,14 @@ later starts are quick.
    a password to your account on the comic site itself (Tapas, Tappytoon or Webtoon, not Google or Facebook): sign in to the
    comic site in your usual web browser the way you always do, open your account settings, and set a password
    there. Then sign in to Comic Archiver with your account's email and that password.
-2. Press **Go** on that card. Signed in to more than one site? **Go on all sites** starts every one.
+2. Press **Start** on that card. Signed in to more than one site? **Start all** starts every one.
 
 **Where your files go.** Into the folder `Comic Archiver` in your user folder (on Windows
 `C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
 Comics are saved as CBZ files and novels as EPUB files, which open in comic and e-book reader apps.
 
 **Updating.** Run the new setup file over the old version; don't uninstall first. If Comic Archiver is open, setup
-closes it first, and a download pauses until you press Go; version 0.2.3 or older asks you to close it yourself. You
+closes it first, and a download pauses until you press Continue; version 0.2.3 or older asks you to close it yourself. You
 stay signed in, and your settings and saved episodes stay. Uninstalling signs Comic Archiver out of every site and
 removes your Backblaze key from this computer; your saved episodes are kept.
 

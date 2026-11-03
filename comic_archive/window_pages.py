@@ -306,14 +306,13 @@ class SiteCard:
         self.cells = []
         self.message = kit.label('')
         box.addWidget(self.message)
-        self.signin = kit.button(f'Sign in to {name}', lambda: pages.signin(key), 'secondary')
-        self.go = kit.button('Go', lambda: pages.go(key), 'go')
+        # One button for what can be done now: Sign in, Start, Continue or Pause.
+        self.doing = 'signin'
+        acts = {'signin': pages.signin, 'go': pages.go, 'pause': pages.pause}
+        self.action = kit.button('Sign in', lambda: acts[self.doing](key), 'go')
         self.allow = kit.button('Allow this connection', lambda: pages.allow_network(key), 'secondary')
-        self.pause = kit.button('Pause', lambda: pages.pause(key), 'secondary')
-        box.addWidget(kit.row(self.signin, self.go, self.allow, self.pause, spacing=8))
+        box.addWidget(kit.row(self.action, self.allow, spacing=8))
         box.addStretch(1)
-        self.note = kit.label('', 'muted')  # At the foot of the card, beside a taller one in its row too.
-        box.addWidget(self.note)
 
     def _fields(self, rows):
         if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
@@ -338,29 +337,21 @@ class SiteCard:
             tone(self.widget, 'tone', '')
             self._fields([])
             say(self.message, '')
-            say(self.note, '')
-            self.signin.setVisible(True)
-            self.signin.setEnabled(True)
-            self.signin.setText(f'Sign in to {self.name}')
-            for button in (self.go, self.allow, self.pause):
-                button.setVisible(False)
+            self.doing = 'signin'
+            self.action.setEnabled(True)
+            self.action.setText('Sign in')
+            self.allow.setVisible(False)
             return
         self.pill.setText(v['state'])
         tone(self.pill, 'tone', v['tone'])
         tone(self.widget, 'tone', 'warning' if v['tone'] == 'warning' else 'status')
         self._fields(v['rows'])
         say(self.message, v['signin_status'], v['signin_status_error'])
-        say(self.note, v['estimate_note'])
-        self.signin.setVisible(v['signin_visible'])
-        self.signin.setEnabled(v['signin_enabled'])
-        self.signin.setText(v['signin_text'])
-        self.go.setVisible(True)
-        self.go.setEnabled(v['go_enabled'])
-        self.go.setText(v['go_text'])
+        self.doing = v['action']
+        self.action.setEnabled(v['action_enabled'])
+        self.action.setText(v['action_text'])
         self.allow.setVisible(v['allow_visible'])
         self.allow.setEnabled(v['allow_enabled'])
-        self.pause.setVisible(v['pause_visible'])
-        self.pause.setEnabled(v['pause_enabled'])
 
 
 class Dashboard:
@@ -377,7 +368,7 @@ class Dashboard:
         title, _ = heading(kit, 'Dashboard')
         top.addWidget(title, 1)
         self.updated = kit.label('Checking current status…', 'muted', wrap=False)
-        self.go_all = kit.button('Go on all sites', pages.go_all, 'secondary')
+        self.go_all = kit.button('Start all', pages.go_all, 'secondary')
         self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
         for part in (self.updated, self.go_all, self.pause_all):
             top.addWidget(part, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
@@ -1494,7 +1485,7 @@ class Pages:
         self.account_act(self.actions_for(key or self.chosen).pause, paused, key=key)
 
     def go_all(self):
-        """Go on every site that can go now; the others stay as they are."""
+        """Start or continue every site that can now; the others stay as they are."""
         now = self.now()
         for key in self.open_keys():
             if dashboard_model.view(self.of(key), now)['go_enabled']:
