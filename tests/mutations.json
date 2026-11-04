@@ -5176,22 +5176,6 @@
   "test": "test_go_pause_and_sign_in_ask_the_library_and_show_its_answer"
  },
  {
-  "id": "time-left-not-marked-estimated",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "    return f\"{span(estimate['seconds'])} (est.)\"\n",
-  "new": "    return span(estimate['seconds'])\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
- },
- {
-  "id": "space-left-not-marked-estimated",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "    text = f'{room(left)} to go (est.)'\n",
-  "new": "    text = f'{room(left)} to go'\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
- },
- {
   "id": "unopened-card-shows-no-fields",
   "source": "comic_archive/window_pages.py",
   "old": "            self._fields(dashboard_model.unopened_rows())\n",
@@ -5202,16 +5186,16 @@
  {
   "id": "time-left-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE,\n",
-  "new": "    row('Time left', time,\n",
+  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
+  "new": "    row('Time left', time, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
   "id": "space-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')\n",
-  "new": "    row('Space', space, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')\n",
+  "old": "    row('Space', space or NONE, short, ESTIMATE_TIP if space else '')\n",
+  "new": "    row('Space', space, short, ESTIMATE_TIP if space else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
@@ -5237,39 +5221,31 @@
   "old": "            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': tip})\n",
   "new": "            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': ''})\n",
   "test_file": "test_dashboard_model.py",
-  "test": "test_an_estimated_time_or_space_says_what_it_is_estimated_from"
+  "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "time-left-tip-while-still-estimating",
   "source": "comic_archive/dashboard_model.py",
-  "old": "        tip=estimate_tip(estimate, 'the pace of the last five minutes of downloading') if '(est.)' in time else '')\n",
-  "new": "        tip=estimate_tip(estimate, 'the pace of the last five minutes of downloading') if time else '')\n",
+  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
+  "new": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time else '')\n",
   "test_file": "test_dashboard_model.py",
-  "test": "test_an_estimated_time_or_space_says_what_it_is_estimated_from"
+  "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "time-left-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "        tip=estimate_tip(estimate, 'the pace of the last five minutes of downloading') if '(est.)' in time else '')\n",
-  "new": "        tip='')\n",
+  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
+  "new": "    row('Time left', time or NONE)\n",
   "test_file": "test_dashboard_model.py",
-  "test": "test_an_estimated_time_or_space_says_what_it_is_estimated_from"
+  "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "space-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, estimate_tip(estimate, 'the size of the episodes saved so far') if space else '')\n",
+  "old": "    row('Space', space or NONE, short, ESTIMATE_TIP if space else '')\n",
   "new": "    row('Space', space or NONE, short)\n",
   "test_file": "test_dashboard_model.py",
-  "test": "test_an_estimated_time_or_space_says_what_it_is_estimated_from"
- },
- {
-  "id": "estimate-tip-never-says-rough",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "             if number((estimate or {}).get('unchecked_series')) else '')\n",
-  "new": "             if False else '')\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_an_estimated_time_or_space_says_what_it_is_estimated_from"
+  "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "card-hint-never-shown",
@@ -5277,7 +5253,7 @@
   "old": "            hint.setVisible(bool(tip))\n",
   "new": "            hint.setVisible(False)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_estimated"
+  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  },
  {
   "id": "card-hint-always-shown",
@@ -5285,7 +5261,7 @@
   "old": "            hint.setVisible(bool(tip))\n",
   "new": "            hint.setVisible(True)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_estimated"
+  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  },
  {
   "id": "card-hint-has-no-tooltip",
@@ -5293,7 +5269,7 @@
   "old": "            hint.setToolTip(tip)\n",
   "new": "",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_estimated"
+  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  },
  {
   "id": "card-hint-tap-shows-nothing",
@@ -5301,7 +5277,7 @@
   "old": "            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), hint.toolTip(), hint))\n",
   "new": "            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), '', hint))\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_estimated"
+  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  },
  {
   "id": "all-sites-card-shares-its-row",
@@ -5334,5 +5310,13 @@
   "new": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else self.library_summary.text())\n",
   "test_file": "test_window_pages.py",
   "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+ },
+ {
+  "id": "card-hint-across-the-card-from-its-text",
+  "source": "comic_archive/window_pages.py",
+  "old": "            box.setStretch(2, 1 if tip else 0)\n",
+  "new": "            box.setStretch(2, 0)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  }
 ]
