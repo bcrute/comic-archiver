@@ -4,7 +4,7 @@ import math
 import secrets
 import re
 from pathlib import Path
-from . import sites
+from . import osdep, sites
 from .archive import atomic_json
 from .archive_paths import directory
 from .models import ArchiveError, identifier
@@ -125,7 +125,7 @@ def task_status(session, task_id):
         if any(p.is_symlink() for p in (response, *response.parents)) or response.stat().st_size > 2 * 1024 * 1024:
             raise ArchiveError("Refusing an unsafe worker response.")
         try:
-            value = json.loads(response.read_text())
+            value = json.loads(osdep.read_text(response))
             if value.get("task_id") != task_id or value.get("status") not in {"ok", "error"}:
                 raise ValueError
             return value
@@ -137,7 +137,7 @@ def task_status(session, task_id):
         busy = False
         if status.is_file() and not status.is_symlink():
             try:
-                observed = json.loads(status.read_text())
+                observed = json.loads(osdep.read_text(status))
                 busy = observed.get("state") == "busy" and observed.get("task_id") == task_id
             except (OSError, ValueError, AttributeError):
                 pass

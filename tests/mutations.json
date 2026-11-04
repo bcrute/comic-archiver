@@ -5414,5 +5414,45 @@
   "new": "            for item in sites if item['key'] in shown])\n",
   "test_file": "test_window_pages.py",
   "test": "test_about_copies_details_for_support_without_the_library_folder"
+ },
+ {
+  "id": "read-waits-off-windows",
+  "source": "comic_archive/osdep.py",
+  "old": "            if not WINDOWS or time.monotonic() >= deadline:\n                raise\n        time.sleep(.02)\n\n\ndef sync_directory",
+  "new": "            if time.monotonic() >= deadline:\n                raise\n        time.sleep(.02)\n\n\ndef sync_directory",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_a_file_being_replaced_is_read_once_the_new_one_is_in_place"
+ },
+ {
+  "id": "read-never-waits",
+  "source": "comic_archive/osdep.py",
+  "old": "        except PermissionError:\n            # On Linux a replace never gets in a reader's way",
+  "new": "        except OSError:\n            raise\n            # On Linux a replace never gets in a reader's way",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_a_file_being_replaced_is_read_once_the_new_one_is_in_place"
+ },
+ {
+  "id": "read-waits-forever",
+  "source": "comic_archive/osdep.py",
+  "old": "            if not WINDOWS or time.monotonic() >= deadline:\n                raise\n        time.sleep(.02)\n\n\ndef sync_directory",
+  "new": "            if not WINDOWS:\n                raise\n        time.sleep(.02)\n\n\ndef sync_directory",
+  "test_file": "test_osdep.py",
+  "test": "test_on_windows_a_file_being_replaced_is_read_once_the_new_one_is_in_place"
+ },
+ {
+  "id": "site-file-read-without-waiting",
+  "source": "comic_archive/sites.py",
+  "old": "        key = read_text(directory / 'site', encoding='ascii').strip()\n",
+  "new": "        key = (directory / 'site').read_text(encoding='ascii').strip()\n",
+  "test_file": "test_osdep.py",
+  "test": "test_the_downloader_and_a_sign_in_read_their_files_through_the_waiting_read"
+ },
+ {
+  "id": "worker-status-read-without-waiting",
+  "source": "comic_archive/background.py",
+  "old": "        result = json.loads(osdep.read_text(path))\n",
+  "new": "        result = json.loads(path.read_text())\n",
+  "test_file": "test_osdep.py",
+  "test": "test_the_downloader_and_a_sign_in_read_their_files_through_the_waiting_read"
  }
 ]

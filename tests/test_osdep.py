@@ -33,6 +33,35 @@ class ReplaceTests(unittest.TestCase):
             tried.assert_called_once()
         self.assertEqual(self.old.read_text(), 'old')
 
+    def test_on_windows_a_file_being_replaced_is_read_once_the_new_one_is_in_place(self):
+        real = Path.read_text; refusals = [PermissionError(13, 'delete pending'), PermissionError(13, 'delete pending')]
+        def being_replaced(path, *args, **kwargs):
+            if refusals: raise refusals.pop()
+            return real(path, *args, **kwargs)
+        with patch.object(osdep, 'WINDOWS', True), patch.object(Path, 'read_text', being_replaced), patch.object(osdep.time, 'sleep'):
+            self.assertEqual(osdep.read_text(self.old, encoding='utf-8'), 'old')
+        self.assertEqual(refusals, [])
+        with patch.object(osdep, 'WINDOWS', True), patch.object(osdep, 'READ_WAIT_SECONDS', .05):
+            with patch.object(Path, 'read_text', side_effect=PermissionError(13, 'in use')) as tried:
+                with self.assertRaises(PermissionError): osdep.read_text(self.old)
+            self.assertGreater(tried.call_count, 1)
+            with patch.object(Path, 'read_text', side_effect=FileNotFoundError(2, 'gone')) as tried:
+                with self.assertRaises(FileNotFoundError): osdep.read_text(self.old)
+            tried.assert_called_once()
+        with patch.object(osdep, 'WINDOWS', False), patch.object(Path, 'read_text', side_effect=PermissionError(13, 'no')) as tried:
+            with self.assertRaises(PermissionError): osdep.read_text(self.old)
+        tried.assert_called_once()
+
+    def test_the_downloader_and_a_sign_in_read_their_files_through_the_waiting_read(self):
+        # Both failed on a Windows computer in 0.2.5, reading a file the downloader was replacing.
+        from comic_archive import background, sites
+        folder = self.old.parent
+        (folder / 'site').write_text('tapas', encoding='ascii'); (folder / 'status.json').write_text('{"state": "ready"}')
+        with patch.object(osdep, 'read_text', wraps=osdep.read_text) as read:
+            self.assertEqual(sites.of_session(folder).key, 'tapas')
+            self.assertEqual(background.read(folder / 'status.json'), {'state': 'ready'})
+        self.assertEqual([call.args[0].name for call in read.call_args_list], ['site', 'status.json'])
+
     @unittest.skipIf(osdep.WINDOWS, 'on Windows a refusal is waited on')
     def test_off_windows_a_refusal_is_a_folder_that_cannot_be_written_and_is_reported_at_once(self):
         with patch.object(os, 'replace', side_effect=PermissionError(13, 'read-only')) as tried:

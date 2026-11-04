@@ -15,7 +15,7 @@ import re
 import secrets
 import sqlite3
 
-from . import sites
+from . import osdep, sites
 from .errors import LibraryBusy
 from .inventory import ASSET_RETRY_COOLDOWN_SECONDS, Inventory
 from .locking import LibraryLock, wait_for_library
@@ -470,7 +470,7 @@ def _trim(db, value):
 def _publishable(root, library):
     """The worker is free, nothing else is queued, and no other writer has the library."""
     try:
-        worker = json.loads((root / 'status.json').read_text())
+        worker = json.loads(osdep.read_text(root / 'status.json'))
     except (OSError, ValueError):
         return False
     if not isinstance(worker, dict) or worker.get('state') != 'ready' or any((root / 'requests').glob('*.json')):
@@ -732,7 +732,7 @@ def _move_old(session, library, root):
 def _end_unrun(session, library, root, task_id):
     from .task_cancellation import end_unstarted
     try:
-        worker = json.loads((root / 'status.json').read_text())
+        worker = json.loads(osdep.read_text(root / 'status.json'))
     except (OSError, ValueError):
         worker = {}
     if isinstance(worker, dict) and worker.get('state') == 'busy' and worker.get('task_id') == task_id:

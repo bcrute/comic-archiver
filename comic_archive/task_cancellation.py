@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 
+from . import osdep
 from .archive import atomic_json
 from .archive_paths import directory
 from .inventory import Inventory
@@ -33,7 +34,7 @@ def _read(path, maximum=16384):
         raise ArchiveError('Queued stop state is unavailable; existing files are retained.')
     try:
         if not path.is_file() or path.stat().st_size>maximum:raise ValueError
-        value=json.loads(path.read_text())
+        value=json.loads(osdep.read_text(path))
         if not isinstance(value,dict):raise ValueError
         return value
     except (OSError,ValueError,RecursionError):

@@ -4,7 +4,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import sites
+from . import osdep, sites
 from .inventory import Inventory
 
 
@@ -12,7 +12,7 @@ def _read(path):
     try:
         if any(p.is_symlink() for p in (path,*path.parents)) or path.stat().st_size > 65536:
             return {}
-        value = json.loads(path.read_text())
+        value = json.loads(osdep.read_text(path))
         return value if isinstance(value,dict) else {}
     except (OSError,ValueError,RecursionError):
         return {}

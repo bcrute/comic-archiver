@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import re
 
+from . import osdep
 from .archive import atomic_json
 from .archive_paths import directory
 from .errors import RunLimit
@@ -31,7 +32,7 @@ class RunCancellation:
         try:
             if not self.path.is_file() or self.path.stat().st_size>1024:
                 raise ValueError
-            value=json.loads(self.path.read_text())
+            value=json.loads(osdep.read_text(self.path))
             if value!={'document_type':'comic_import_stop','run_id':self.run_id}:
                 raise ValueError
         except (OSError,ValueError):

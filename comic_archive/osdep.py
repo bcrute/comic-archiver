@@ -18,6 +18,9 @@ NONBLOCK = getattr(os, 'O_NONBLOCK', 0)
 # On Windows a file another process has open cannot be replaced until that process lets go of it,
 # which a reader of a status file does within milliseconds. Replacing waits this long for that.
 REPLACE_WAIT_SECONDS = 5
+# And a file being replaced can refuse a reader for a moment, while the old one is still on its way out: reading
+# waits this long for the new one.
+READ_WAIT_SECONDS = 1
 # Windows ends a whole path at 259 characters unless a setting that most computers leave off is changed.
 PATH_LIMIT = 259 if WINDOWS else None
 # A library may be moved later. Names are cut as if the path of its folder were at least this long, so that
@@ -72,6 +75,19 @@ def replace_file(source, target):
             return os.replace(source, target)
         except PermissionError:
             # On Linux this is a folder that cannot be written to, and waiting changes nothing.
+            if not WINDOWS or time.monotonic() >= deadline:
+                raise
+        time.sleep(.02)
+
+
+def read_text(path, encoding=None):
+    """A whole file's text, read as Path.read_text does, from a file another process may be replacing just then."""
+    deadline = time.monotonic() + READ_WAIT_SECONDS
+    while True:
+        try:
+            return Path(path).read_text(encoding=encoding)
+        except PermissionError:
+            # On Linux a replace never gets in a reader's way, so this is a file that cannot be read at all.
             if not WINDOWS or time.monotonic() >= deadline:
                 raise
         time.sleep(.02)

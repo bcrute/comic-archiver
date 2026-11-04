@@ -37,7 +37,7 @@ def read(path):
     try:
         if not path.is_file() or path.stat().st_size > 16384:
             raise ValueError
-        result = json.loads(path.read_text())
+        result = json.loads(osdep.read_text(path))
         if not isinstance(result, dict):
             raise ValueError
         return result

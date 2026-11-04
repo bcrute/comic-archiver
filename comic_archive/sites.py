@@ -107,7 +107,8 @@ def folder(root, site):
 def of_session(directory):
     """The site a saved sign-in belongs to. A sign-in saved before sites could be chosen is Tapas's."""
     try:
-        key = (directory / 'site').read_text(encoding='ascii').strip()
+        from .osdep import read_text
+        key = read_text(directory / 'site', encoding='ascii').strip()
     except FileNotFoundError:
         return DEFAULT
     except (OSError, UnicodeError):
