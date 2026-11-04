@@ -638,6 +638,16 @@ class Inventory:
             unsupported[reason]=unsupported.get(reason,0)+count
         return counts, unsupported
 
+    def unsaved_codes(self):
+        """Episodes not saved that met a problem, as {'failed:job_failed': 3}: why a download fell short, for support.
+        Only the app's own codes are named; anything else counts as 'other'."""
+        codes = {}
+        for status, code, count in self.db.execute("""SELECT status,error_code,COUNT(*) FROM episodes
+                WHERE status IN ('queued','failed','downloading') AND error_code IS NOT NULL GROUP BY status,error_code"""):
+            key = f"{status}:{code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}', code) else 'other'}"
+            codes[key] = codes.get(key, 0) + count
+        return codes
+
     def status(self):
         counts, unsupported = self.episode_counts()
         last = self.db.execute("SELECT id,started_at,finished_at,status,summary FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
@@ -683,5 +693,6 @@ class Inventory:
                     WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.series_id=s.id)''').fetchone()[0],
                 "series_count": self.db.execute("SELECT COUNT(*) FROM series").fetchone()[0],
                 "episode_count": sum(counts.values()), "episodes_by_status": counts, 'unsupported_by_reason':unsupported,
+                'unsaved_by_code': self.unsaved_codes(),
                 'recent_pace': pace(self.recent_runs()), 'saved_bytes': self.saved_bytes(),
                 "last_run": dict(last) | {"summary": json.loads(last["summary"]) if last["summary"] else None} if last else None}

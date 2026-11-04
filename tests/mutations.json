@@ -5326,5 +5326,93 @@
   "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_the_dashboard_shows_the_library_once_it_is_read_and_says_it_is_drawn"
+ },
+ {
+  "id": "support-details-take-any-name",
+  "source": "comic_archive/support_details.py",
+  "old": "             if isinstance(key, str) and CODE.fullmatch(key) and _count(count) is not None]\n",
+  "new": "             if _count(count) is not None]\n",
+  "test_file": "test_support_details.py",
+  "test": "test_only_the_apps_own_codes_and_counts_go_in"
+ },
+ {
+  "id": "support-details-take-any-word",
+  "source": "comic_archive/support_details.py",
+  "old": "    return value if isinstance(value, str) and CODE.fullmatch(value) else None\n",
+  "new": "    return value if isinstance(value, str) else None\n",
+  "test_file": "test_support_details.py",
+  "test": "test_only_the_apps_own_codes_and_counts_go_in"
+ },
+ {
+  "id": "support-details-take-negative-counts",
+  "source": "comic_archive/support_details.py",
+  "old": "    return value if type(value) is int and value >= 0 else None\n",
+  "new": "    return value if type(value) is int else None\n",
+  "test_file": "test_support_details.py",
+  "test": "test_only_the_apps_own_codes_and_counts_go_in"
+ },
+ {
+  "id": "support-details-never-shortened",
+  "source": "comic_archive/support_details.py",
+  "old": "    return result if len(result) <= LIMIT else result[:LIMIT - 12].rstrip() + '\\n(shortened)'\n",
+  "new": "    return result\n",
+  "test_file": "test_support_details.py",
+  "test": "test_the_details_fit_in_one_message"
+ },
+ {
+  "id": "support-details-hide-missing-updates",
+  "source": "comic_archive/support_details.py",
+  "old": "        lines.append('Status updates: not arriving')\n",
+  "new": "        pass\n",
+  "test_file": "test_support_details.py",
+  "test": "test_only_the_apps_own_codes_and_counts_go_in"
+ },
+ {
+  "id": "support-details-skip-the-problems",
+  "source": "comic_archive/support_details.py",
+  "old": "            ('Problems', status.get('unsaved_by_code')), ('Last check', account.get('audit')))\n",
+  "new": "            ('Last check', account.get('audit')),)\n",
+  "test_file": "test_support_details.py",
+  "test": "test_a_site_says_why_its_download_stopped_and_how_many_episodes_are_in_each_state"
+ },
+ {
+  "id": "support-details-windows-without-build",
+  "source": "comic_archive/support_details.py",
+  "old": "        return f\"Windows {platform.release()} (build {platform.version().rpartition('.')[2]})\"\n",
+  "new": "        return f\"Windows {platform.release()}\"\n",
+  "test_file": "test_support_details.py",
+  "test": "test_windows_says_its_build_so_windows_11_is_told_from_10"
+ },
+ {
+  "id": "unsaved-codes-name-anything",
+  "source": "comic_archive/inventory.py",
+  "old": "            key = f\"{status}:{code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}', code) else 'other'}\"\n",
+  "new": "            key = f\"{status}:{code}\"\n",
+  "test_file": "test_jobs.py",
+  "test": "test_metadata_hold_reasons_remain_explicit_and_never_grant_access"
+ },
+ {
+  "id": "support-details-not-copied",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.q.QtGui.QGuiApplication.clipboard().setText(details)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_about_copies_details_for_support_without_the_library_folder"
+ },
+ {
+  "id": "support-copied-not-said",
+  "source": "comic_archive/window_pages.py",
+  "old": "        say(self.settings.support_note, SUPPORT_COPIED)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_about_copies_details_for_support_without_the_library_folder"
+ },
+ {
+  "id": "support-details-leave-out-closed-sites",
+  "source": "comic_archive/window_pages.py",
+  "old": "            for item in sites if item.get('available')])\n",
+  "new": "            for item in sites if item['key'] in shown])\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_about_copies_details_for_support_without_the_library_folder"
  }
 ]

@@ -721,6 +721,20 @@ class NavigationTests(PagesCase):
         choice.activated.emit(1)
         self.assertTrue(s.license_text.toPlainText().startswith('# Third-party notices'))
 
+    def test_about_copies_details_for_support_without_the_library_folder(self):
+        self.open()
+        self.settings.tabs['about'].click()
+        s = self.settings
+        self.assertFalse(s.support_note.isVisible())
+        s.support.click()
+        copied = QtGui.QGuiApplication.clipboard().text()
+        self.assertTrue(copied.startswith('Comic Archiver '))
+        self.assertIn('\n== Tapas\nSign-in: signed in', copied)
+        self.assertIn('\n== Tappytoon\nNot opened yet', copied)
+        self.assertNotIn(FOLDER, copied)
+        self.assertTrue(s.support_note.isVisible())
+        self.assertEqual(s.support_note.text(), window_pages.SUPPORT_COPIED)
+
     def test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer(self):
         self.actions.cloud_offered = False
         self.open('settings/b2')

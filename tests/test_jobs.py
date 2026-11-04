@@ -182,6 +182,11 @@ class JobTests(unittest.TestCase):
             self.assertEqual(inventory.status()['episodes_by_status'],{'unsupported':3,'unavailable':2})
             self.assertEqual(inventory.status()['unsupported_by_reason'],{'novel':1,'scheduled':1,'temporary_access':1})
             self.assertEqual(inventory.pending(),[])
+            # Why episodes not saved fell short, by the app's own codes only, for the details copied for support.
+            self.assertEqual(inventory.status()['unsaved_by_code'],{})
+            for key,(status,code) in zip(('81','82','83'),(('failed','job_failed'),('failed','A Title'),('queued','interrupted'))):
+                inventory.mark(key,status,code)
+            self.assertEqual(inventory.status()['unsaved_by_code'],{'failed:job_failed':1,'failed:other':1,'queued:interrupted':1})
             self.assertNotIn('PRIVATE',json.dumps([dict(row) for row in inventory.db.execute('SELECT * FROM episodes')]))
             self.assertEqual(self.adapter.calls,[])
 

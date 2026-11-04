@@ -173,7 +173,7 @@ class LocalWorkspaceRegistry:
     def status(self,owner,workspace_id):
         workspace=self.resolve(owner,workspace_id)
         data=library_status(workspace.library,workspace.session)
-        result={k:data[k] for k in ('inventory_complete','last_completed_scan','series_count','episode_count','episodes_by_status','unsupported_by_reason',
+        result={k:data[k] for k in ('inventory_complete','last_completed_scan','series_count','episode_count','episodes_by_status','unsupported_by_reason','unsaved_by_code',
                                    'scan_remaining_series_count','series_without_scan_checkpoint_count',
                                    'series_without_episode_observations_count','series_scan_gap_count','series_scan_gaps','scan_cycle_started','scan_freshness','progress','worker','source_recovery','queue_priority','estimate')}
         result['workspace_id']=workspace.id

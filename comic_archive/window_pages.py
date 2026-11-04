@@ -8,7 +8,7 @@ import functools
 import html
 import time
 
-from . import app_actions, dashboard_model, library_model, license_texts, storage_model
+from . import app_actions, dashboard_model, library_model, license_texts, storage_model, support_details
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
 
@@ -76,6 +76,9 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
 ABOUT = ('Copyright 2026 Ben Crute. Comic Archiver is free software under the MIT license. It is built with '
          'other people’s software, each under its own license; every one of those licenses can be read here.')
+SUPPORT = ('Asking for help? This copies a short summary of each site’s download to paste into your message: the '
+           'app’s version, counts and the app’s own codes. It has no series titles, folder names or sign-in details.')
+SUPPORT_COPIED = 'Copied. Paste it into your message or email.'
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 900
 
@@ -565,7 +568,7 @@ class Settings:
         panels.addWidget(self.status)
         # Only the open tab takes room, so a short one is not as tall as the longest.
         self.panels = {'downloads': self._downloads(kit, pages), 'storage': self._storage(kit, pages), 'b2': self._b2(kit, pages),
-                       'about': self._about(kit)}
+                       'about': self._about(kit, pages)}
         from .window_style import READING
         for panel in self.panels.values():
             panels.addWidget(panel)
@@ -644,11 +647,16 @@ class Settings:
         box.addWidget(self.signout_row)
         return card
 
-    def _about(self, kit):
+    def _about(self, kit, pages):
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
         box.addWidget(kit.label('About', 'sectionTitle'))
         box.addWidget(kit.label(f'Comic Archiver {license_texts.version()}', 'strong'))
         box.addWidget(kit.label(ABOUT, 'muted'))
+        box.addWidget(kit.label(SUPPORT, 'muted'))
+        self.support = kit.button('Copy details for support', pages.copy_support_details, 'secondary')
+        self.support_note = kit.label('', 'muted', wrap=False)
+        self.support_note.setVisible(False)
+        box.addWidget(kit.row(self.support, self.support_note))
         self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
         self.license_choice.setAccessibleName('License to read')
         box.addWidget(kit.row(self.license_choice))
@@ -1516,6 +1524,16 @@ class Pages:
         for key in self.open_keys():
             if dashboard_model.view(self.of(key), now)['go_enabled']:
                 self.go(key)
+
+    def copy_support_details(self):
+        """Put every working site's details for support on the clipboard, for the person to paste into a message."""
+        sites = self.state.sites or site_choices(find_site(self.chosen) or DEFAULT)
+        shown = self.shown()
+        details = support_details.text(license_texts.version(), [
+            (item['name'], self.states.get(item['key']) if item['key'] in shown else None)
+            for item in sites if item.get('available')])
+        self.q.QtGui.QGuiApplication.clipboard().setText(details)
+        say(self.settings.support_note, SUPPORT_COPIED)
 
     def pause_all(self):
         now = self.now()
