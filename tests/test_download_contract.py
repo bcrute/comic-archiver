@@ -240,6 +240,20 @@ class DownloadContractTests(unittest.TestCase):
         self.go()
         self.assert_saved_whole_account(self.drive())
 
+    def test_an_episode_the_app_cannot_save_yet_does_not_hold_the_download(self):
+        # A Tapas user's download stopped for 50 of these, and Go only met them again: they never stop it now.
+        self.go()
+        self.drive(until=lambda state: state.get('phase') == 'verify')
+        with Inventory(self.library) as inventory:
+            inventory.observe('99', 'Series', [{'id': '990', 'title': 'Unknown order', 'order': None,
+                                                'access_state': 'tapas_free'}], 'subscribed')
+            inventory.record_series_scan('99')
+        state = self.drive()
+        self.assertEqual(state['status'], 'finished', state)
+        self.assertEqual(state['audit']['missing_recorded_accessible_episode_count'], 1)
+        self.assertEqual(state['audit']['unsupported_recorded_accessible_episode_count'], 1)
+        self.assertEqual(state['audit']['verified_inventory_episode_count'], 3)
+
 
 if __name__ == '__main__':
     unittest.main()

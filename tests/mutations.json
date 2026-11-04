@@ -4762,7 +4762,7 @@
  {
   "id": "dc-audit-zeroes",
   "source": "comic_archive/download_control.py",
-  "old": "type(result.get(key)) is int and result[key] == 0 for key in AUDIT_ZEROES)",
+  "old": "type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in AUDIT_ZEROES)",
   "new": "type(result.get(key)) is int for key in AUDIT_ZEROES)",
   "test_file": "test_download_control.py",
   "test": "test_an_audit_that_finds_something_missing_holds_and_go_audits_again"
