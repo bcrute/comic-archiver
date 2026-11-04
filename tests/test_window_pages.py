@@ -340,6 +340,10 @@ class DashboardTests(PagesCase):
         self.assertEqual([cell[0] for cell in d.metric_cells],
                          ['Saved episodes', 'Saved files', 'Episodes on this device', 'Cloud episode copies'])
         self.assertEqual([number.text() for _, number in d.metric_cells], ['70', '140', '60', '10'])
+        # Each count is centered in its box, with its name under it.
+        for _, number in d.metric_cells:
+            for label in number.parentWidget().findChildren(QtWidgets.QLabel):
+                self.assertTrue(label.alignment() & QtCore.Qt.AlignmentFlag.AlignHCenter, label.text())
         # The counts and the places speak for themselves: no sentence repeats them, nor says what the files are.
         self.assertFalse(d.library_summary.isVisible())
         self.assertNotIn('CBZ', ' '.join(label.text() for label in d.library_card.findChildren(QtWidgets.QLabel)))

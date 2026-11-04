@@ -479,9 +479,10 @@ class Dashboard:
         self.metric_cells = []
         for index, (value, name) in enumerate(metrics):
             cell, box = self.kit.frame('metric', margins=(12, 16, 12, 16), spacing=2)
-            number = self.kit.label(value, 'metricNumber', wrap=False)
-            box.addWidget(number)
-            box.addWidget(self.kit.label(name, 'muted'))
+            number, caption = self.kit.label(value, 'metricNumber', wrap=False), self.kit.label(name, 'muted')
+            for label in (number, caption):
+                label.setAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignCenter)
+                box.addWidget(label)
             self.metrics.addWidget(cell, index // 2, index % 2)
             placed(cell)
             self.metric_cells.append((name, number))

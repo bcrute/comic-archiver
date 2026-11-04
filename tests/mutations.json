@@ -5318,5 +5318,13 @@
   "new": "            value.parentWidget().layout().setStretchFactor(value, 1)\n",
   "test_file": "test_window_pages.py",
   "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+ },
+ {
+  "id": "all-sites-counts-not-centered",
+  "source": "comic_archive/window_pages.py",
+  "old": "                label.setAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignCenter)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_dashboard_shows_the_library_once_it_is_read_and_says_it_is_drawn"
  }
 ]
