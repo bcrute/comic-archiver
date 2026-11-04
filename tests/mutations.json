@@ -5302,5 +5302,37 @@
   "new": "            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), '', hint))\n",
   "test_file": "test_window_pages.py",
   "test": "test_a_card_says_its_time_and_space_left_are_estimated"
+ },
+ {
+  "id": "all-sites-card-shares-its-row",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.grid.addWidget(self.library_card, 0, 0, 1, columns)\n",
+  "new": "        self.grid.addWidget(self.library_card, 0, 0)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one"
+ },
+ {
+  "id": "site-cards-start-on-the-all-sites-row",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self.grid.addWidget(card, 1 + index // columns, index % columns)\n",
+  "new": "            self.grid.addWidget(card, index // columns, index % columns)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one"
+ },
+ {
+  "id": "library-unavailable-never-said",
+  "source": "comic_archive/window_pages.py",
+  "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
+  "new": "        say(self.library_summary, '')\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+ },
+ {
+  "id": "library-unavailable-said-after-recovery",
+  "source": "comic_archive/window_pages.py",
+  "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
+  "new": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else self.library_summary.text())\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
  }
 ]

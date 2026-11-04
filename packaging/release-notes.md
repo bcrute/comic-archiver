@@ -2,10 +2,10 @@
 
 - **Every site downloads at once.** Signed in to more than one of Tapas, Tappytoon and Webtoon? Each one now
   downloads alongside the others. **Start all** and **Pause all** start and pause them together.
-- **A dashboard you can read at a glance.** One card counts everything saved from every site. Then each site has a
-  card of its own, with what it is doing in a few short lines and one button for what can be done now: **Sign in**,
-  **Start**, **Continue** or **Pause**. Time and space left are marked as estimates, with a **?** beside each that
-  says what it is worked out from. A wide window shows two cards to a row.
+- **A dashboard you can read at a glance.** One card across the top counts everything saved from every site, beside
+  where it is kept. Then each site has a card of its own, with what it is doing in a few short lines and one button
+  for what can be done now: **Sign in**, **Start**, **Continue** or **Pause**. Time and space left are marked as
+  estimates, with a **?** beside each that says what it is worked out from. A wide window shows two cards to a row.
 - **A download goes on by itself after a wait.** Comic Archiver now keeps one record of your download instead of
   three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
   tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,

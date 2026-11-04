@@ -377,8 +377,8 @@ class SiteCard:
 
 
 class Dashboard:
-    """Every site at a glance, as cards: the saved library over all of them first, then one card for each site,
-    two to a row when the window is wide enough and one when it is not."""
+    """Every site at a glance, as cards: the saved library over all of them first, across the page, then one card
+    for each site, two to a row when the window is wide enough and one when it is not."""
 
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
@@ -418,22 +418,27 @@ class Dashboard:
         box.addWidget(self.library_title)
         self.save = kit.label('', rich=True)
         box.addWidget(self.save)
+        # The counts, and beside them where the episodes are kept.
+        counts = w.QHBoxLayout()
+        counts.setSpacing(20)
         self.metrics = w.QGridLayout()
         self.metrics.setSpacing(12)
-        box.addLayout(self.metrics)
+        counts.addLayout(self.metrics, 1)
         self.metric_cells = []
-        self.library_summary = kit.label('Counting your saved files…')
-        box.addWidget(self.library_summary)
         self.places = w.QVBoxLayout()
         self.places.setSpacing(10)
-        box.addLayout(self.places)
+        counts.addLayout(self.places, 1)
         self.place_buttons = []
+        box.addLayout(counts)
+        # Said only when the counts could not be read.
+        self.library_summary = kit.label('')
+        self.library_summary.setVisible(False)
+        box.addWidget(self.library_summary)
         self.files = kit.button('View saved files  →', lambda: pages.go_to('library', location='all'), 'secondary')
         box.addWidget(kit.row(self.files))
         self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
                                      '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True)
         box.addWidget(self.cloud_entry)
-        box.addWidget(kit.label('Comics in CBZ. Novels in EPUB.', 'muted'))
         box.addStretch(1)
         return card
 
@@ -441,15 +446,16 @@ class Dashboard:
         self._lay_out(2 if width - self.margins >= CARD_COLUMNS_FROM else 1)
 
     def _lay_out(self, columns, force=False):
-        """Put the cards back in the grid, in order, so many to a row."""
+        """Put the cards back in the grid, in order, so many to a row; the All sites card has a row to itself."""
         if columns == self.columns and not force:
             return
         self.columns = columns
-        cards = [self.library_card, *(card.widget for card in self.cards.values())]
-        for card in cards:
+        cards = [card.widget for card in self.cards.values()]
+        for card in (self.library_card, *cards):
             self.grid.removeWidget(card)
+        self.grid.addWidget(self.library_card, 0, 0, 1, columns)
         for index, card in enumerate(cards):
-            self.grid.addWidget(card, index // columns, index % columns)
+            self.grid.addWidget(card, 1 + index // columns, index % columns)
         for index in range(2):
             self.grid.setColumnStretch(index, 1 if index < columns else 0)
 
@@ -514,13 +520,12 @@ class Dashboard:
         self.cloud_entry.setVisible(storage_model.storage_choice(s)['entry_visible'])
         self.files.setEnabled(not s.busy)
         summary = storage_model.combined([state.summary for state, _ in views.values()])
+        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')
         if summary is False:
-            self.library_summary.setText(storage_model.LIBRARY_UNAVAILABLE)
             return
         overview = storage_model.library_overview(summary, s.cloud_offered)
         self._metrics(overview['metrics'])
         self._places(overview['locations'])
-        self.library_summary.setText(overview['summary'])
 
 
 class Settings:

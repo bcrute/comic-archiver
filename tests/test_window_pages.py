@@ -340,7 +340,9 @@ class DashboardTests(PagesCase):
         self.assertEqual([cell[0] for cell in d.metric_cells],
                          ['Saved episodes', 'Saved files', 'Episodes on this device', 'Cloud episode copies'])
         self.assertEqual([number.text() for _, number in d.metric_cells], ['70', '140', '60', '10'])
-        self.assertEqual(d.library_summary.text(), '70 saved episodes. View all files, or choose a storage location below.')
+        # The counts and the places speak for themselves: no sentence repeats them, nor says what the files are.
+        self.assertFalse(d.library_summary.isVisible())
+        self.assertNotIn('CBZ', ' '.join(label.text() for label in d.library_card.findChildren(QtWidgets.QLabel)))
         self.assertEqual([b.text() for b in d.place_buttons], ['This device\n60 episodes · 120 files', 'Backblaze B2\n10 episodes · 20 files'])
 
     def test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in(self):
@@ -415,14 +417,15 @@ class DashboardTests(PagesCase):
         settle()
 
         def places():
-            return [d.grid.getItemPosition(d.grid.indexOf(widget))[:2]
+            return [d.grid.getItemPosition(d.grid.indexOf(widget))
                     for widget in (d.library_card, *(card.widget for card in d.cards.values()))]
+        # The All sites card goes all the way across, over the sites' cards.
         self.assertEqual(d.columns, 2)
-        self.assertEqual(places(), [(0, 0), (0, 1), (1, 0), (1, 1)])
+        self.assertEqual(places(), [(0, 0, 1, 2), (1, 0, 1, 1), (1, 1, 1, 1), (2, 0, 1, 1)])
         self.window.resize(800, 900)
         settle()
         self.assertEqual(d.columns, 1)
-        self.assertEqual(places(), [(0, 0), (1, 0), (2, 0), (3, 0)])
+        self.assertEqual(places(), [(0, 0, 1, 1), (1, 0, 1, 1), (2, 0, 1, 1), (3, 0, 1, 1)])
         self.window.resize(1400, 900)
         settle()
         self.assertEqual(d.columns, 2)
@@ -644,6 +647,11 @@ class DashboardTests(PagesCase):
         self.clock[0] += 31
         self.pages.poll()
         self.assertEqual(self.dashboard.library_summary.text(), storage_model.LIBRARY_UNAVAILABLE)
+        self.assertTrue(self.dashboard.library_summary.isVisible())
+        self.actions.summary_fails = False
+        self.clock[0] += 31
+        self.pages.poll()
+        self.assertFalse(self.dashboard.library_summary.isVisible())
 
     def test_links_open_only_backblazes_own_pages_in_the_browser(self):
         self.open()
