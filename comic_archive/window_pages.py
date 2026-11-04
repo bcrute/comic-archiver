@@ -347,9 +347,7 @@ class SiteCard:
             hint.setAccessibleDescription(tip)
             hint.setVisible(bool(tip))
             # A value with a ? keeps it beside its text; one without takes the whole width, to wrap no sooner.
-            box = value.parentWidget().layout()
-            box.setStretchFactor(value, 0 if tip else 1)
-            box.setStretch(2, 1 if tip else 0)
+            value.parentWidget().layout().setStretchFactor(value, 0 if tip else 1)
 
     def show(self, s, v):
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""

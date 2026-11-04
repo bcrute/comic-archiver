@@ -5314,8 +5314,8 @@
  {
   "id": "card-hint-across-the-card-from-its-text",
   "source": "comic_archive/window_pages.py",
-  "old": "            box.setStretch(2, 1 if tip else 0)\n",
-  "new": "            box.setStretch(2, 0)\n",
+  "old": "            value.parentWidget().layout().setStretchFactor(value, 0 if tip else 1)\n",
+  "new": "            value.parentWidget().layout().setStretchFactor(value, 1)\n",
   "test_file": "test_window_pages.py",
   "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
  }
