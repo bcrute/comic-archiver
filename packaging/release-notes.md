@@ -10,6 +10,10 @@
   three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
   tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,
   or a site that refuses, waits 5, 15 and then 60 minutes before the download stops and asks you.
+- **Episodes the app can't save yet no longer stop a download.** Before, a download that met episodes in a form the
+  app can't save yet ended by saying they could not be saved and asking you to press Go, which never helped. It
+  now finishes, and its card says how many there are. **Settings → Downloads** lists them by reason.
+- **Faster downloads.** In my testing, 0.3.0 downloaded about 10% faster than 0.2.
 - **When a download stops, the window says why.** Each stop comes with what to do about it, such as signing in
   again. Press **Continue** once you have.
 - **Pause stops the download, and Continue carries on from there.** Closing the window or switching off the computer

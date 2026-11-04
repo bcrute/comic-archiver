@@ -5654,5 +5654,53 @@
   "new": "        return '', str(runtime.root)\n",
   "test_file": "test_app_runtime.py",
   "test": "test_a_sites_records_for_support_come_from_its_own_library_with_its_folder_to_leave_out"
+ },
+ {
+  "id": "audit-cannot-save-uncounted",
+  "source": "comic_archive/audit.py",
+  "old": "                cannot_save += stored_status == 'unsupported'\n",
+  "new": "",
+  "test_file": "test_audit.py",
+  "test": "test_archived_content_survives_later_access_loss_and_holds_have_explicit_reasons"
+ },
+ {
+  "id": "worker-cannot-save-dropped",
+  "source": "comic_archive/worker.py",
+  "old": "'unsupported_recorded_accessible_episode_count', ",
+  "new": "",
+  "test_file": "test_worker.py",
+  "test": "test_account_audit_runs_against_the_fixed_library_path_and_keeps_its_report_private"
+ },
+ {
+  "id": "dc-cannot-save-holds",
+  "source": "comic_archive/download_control.py",
+  "old": "result[key] == (cannot if key == MISSING else 0) for key",
+  "new": "result[key] == 0 for key",
+  "test_file": "test_download_control.py",
+  "test": "test_episodes_the_app_cannot_save_yet_never_hold_a_download_but_one_a_retry_could_save_does"
+ },
+ {
+  "id": "dc-cannot-save-excuses-all",
+  "source": "comic_archive/download_control.py",
+  "old": "result[key] == (cannot if key == MISSING else 0) for key",
+  "new": "result[key] <= cannot for key",
+  "test_file": "test_download_control.py",
+  "test": "test_episodes_the_app_cannot_save_yet_never_hold_a_download_but_one_a_retry_could_save_does"
+ },
+ {
+  "id": "card-cannot-save-counted-missing",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    missing = max(0, number(audit.get('missing_recorded_accessible_episode_count')) - cannot_save)\n",
+  "new": "    missing = number(audit.get('missing_recorded_accessible_episode_count'))\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions"
+ },
+ {
+  "id": "card-cannot-save-unsaid",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            'can’t save yet' if cannot_save else",
+  "new": "            'can’t save yet' if False else",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions"
  }
 ]

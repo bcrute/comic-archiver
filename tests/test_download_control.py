@@ -373,6 +373,34 @@ class ControllerTests(Controller):
         self.assertNotIn('audit', self.status())
         self.assertEqual(self.published()[1]['operation'], 'audit_account')
 
+    def test_episodes_the_app_cannot_save_yet_never_hold_a_download_but_one_a_retry_could_save_does(self):
+        # A Tapas user's download stopped at the check over and over for 50 such episodes: Go could never change them.
+        self.go()
+        self.read_lists()
+        self.published()
+        self.ok({'verified_inventory_episode_count': 1, 'missing_recorded_accessible_episode_count': 51,
+                 'unsupported_recorded_accessible_episode_count': 50, 'inventory_index_problem_count': 0,
+                 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        # They excuse nothing else: a saved file the library does not know of still holds it.
+        self.go()
+        self.published()
+        self.ok({'verified_inventory_episode_count': 2, 'missing_recorded_accessible_episode_count': 50,
+                 'unsupported_recorded_accessible_episode_count': 50, 'inventory_index_problem_count': 0,
+                 'unindexed_archive_count': 1, 'archive_integrity_passed': True})
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        self.go()
+        self.published()
+        self.ok({'verified_inventory_episode_count': 2, 'missing_recorded_accessible_episode_count': 50,
+                 'unsupported_recorded_accessible_episode_count': 50, 'inventory_index_problem_count': 0,
+                 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.tick()
+        shown = self.status()
+        self.assertEqual((shown['status'], shown['phase']), ('finished', 'finished'))
+        self.assertEqual(shown['audit']['unsupported_recorded_accessible_episode_count'], 50)
+
     def test_an_audit_receipt_that_cannot_be_read_is_tried_once_more_then_holds(self):
         self.go()
         self.read_lists()

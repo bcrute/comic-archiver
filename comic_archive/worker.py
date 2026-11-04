@@ -88,7 +88,7 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True):
         report.chmod(0o600)
         return {k: value[k] for k in ('audited_at', 'archive_integrity_passed',
                 'verified_inventory_episode_count', 'portable_archive_count',
-                'missing_recorded_accessible_episode_count', 'coverage_blockers',
+                'missing_recorded_accessible_episode_count', 'unsupported_recorded_accessible_episode_count', 'coverage_blockers',
                 'series_scan_gap_count', 'account_inventory_complete')} | {
                 'inventory_index_problem_count': len(value['inventory_index_problems']),
                 'unindexed_archive_count': len(value['unindexed_archives'])}

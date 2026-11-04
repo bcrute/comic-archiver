@@ -310,7 +310,8 @@ class WorkerTests(unittest.TestCase):
     def test_account_audit_runs_against_the_fixed_library_path_and_keeps_its_report_private(self):
         self.work_in_temporary_directory()
         fields=('audited_at','archive_integrity_passed','verified_inventory_episode_count','portable_archive_count',
-                'missing_recorded_accessible_episode_count','coverage_blockers','series_scan_gap_count','account_inventory_complete')
+                'missing_recorded_accessible_episode_count','unsupported_recorded_accessible_episode_count','coverage_blockers',
+                'series_scan_gap_count','account_inventory_complete')
         def audit(library,report):
             report.parent.mkdir(parents=True);report.write_text('{}')
             return dict.fromkeys(fields,1)|{'inventory_index_problems':['a','b'],'unindexed_archives':['c'],'private':'PRIVATE'}

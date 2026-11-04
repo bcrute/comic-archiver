@@ -54,8 +54,11 @@ HISTORY_ROWS = 10000
 DOWNLOAD = {'limit': 100, 'max_pages': 2000, 'max_seconds': 1800}
 LIST_READ = {'scan_only': True, 'scan_limit': 1, 'limit': 1, 'max_seconds': 7200}
 SERIES_CHECK = {'refresh_lists': False, 'scan_only': True, 'scan_limit': 10, 'limit': 1, 'max_seconds': 900}
-AUDIT_ZEROES = ('missing_recorded_accessible_episode_count', 'inventory_index_problem_count', 'unindexed_archive_count')
-AUDIT_KEYS = ('verified_inventory_episode_count', *AUDIT_ZEROES)
+MISSING = 'missing_recorded_accessible_episode_count'
+# Missing episodes in a form the app cannot save yet: a check finds them again every time, so they never hold a download.
+CANNOT_SAVE = 'unsupported_recorded_accessible_episode_count'
+AUDIT_ZEROES = (MISSING, 'inventory_index_problem_count', 'unindexed_archive_count')
+AUDIT_KEYS = ('verified_inventory_episode_count', *AUDIT_ZEROES, CANNOT_SAVE)
 TASK = re.compile(r'job-[a-f0-9]{24}')
 # The three records 0.2 kept, moved into this one at the first open after the update (each under its lock).
 OLD_FILES = ('account-export.json', 'completion.json', 'backlog.json')
@@ -397,8 +400,9 @@ def _settle(db, value, task, response, session):
         value['audit'] = {key: result[key] for key in AUDIT_KEYS if type(result.get(key)) is int and result[key] >= 0}
         LOG.info('download: the check counted ' + ', '.join(f'{key} {n}' for key, n in sorted(value['audit'].items())))
         value['failed_retries'] = 0
+        cannot = value['audit'].get(CANNOT_SAVE, 0)
         if result.get('archive_integrity_passed') is True and all(
-                type(result.get(key)) is int and result[key] == 0 for key in AUDIT_ZEROES):
+                type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in AUDIT_ZEROES):
             value.update(stage='finished', status='finished', code=None, wait_until=None)
         else:
             _hold(value, 'archive_incomplete')

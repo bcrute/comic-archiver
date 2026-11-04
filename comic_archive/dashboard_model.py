@@ -419,7 +419,10 @@ def view(s, now):
     v['settings_status'] = s.message.text if s.message else ''
     v['settings_status_error'] = bool(s.message and s.message.error)
     finished = account_status == 'finished' or (account_status == 'held' and account.get('code') == 'archive_incomplete')
-    missing = number((account.get('audit') or {}).get('missing_recorded_accessible_episode_count'))
+    audit = account.get('audit') if isinstance(account.get('audit'), dict) else {}
+    # Episodes in a form the app can't save yet are missing too, but checking again never saves them: they are told apart.
+    cannot_save = number(audit.get('unsupported_recorded_accessible_episode_count'))
+    missing = max(0, number(audit.get('missing_recorded_accessible_episode_count')) - cannot_save)
     lists = account.get('lists') if isinstance(account.get('lists'), dict) else {}
     list_names = {'unlocked': 'Bought', 'subscribed': 'Subscribed', 'updated': 'Updated', 'recent': 'Recent',
                   'free_episodes': 'Free episodes'}
@@ -494,7 +497,8 @@ def view(s, now):
     if network_held and not running:
         row('Connection', f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
     if account_status == 'finished':
-        row('Finished', 'Every episode your account can read is saved' if number(counts.get('archived'))
+        row('Finished', f'Every episode your account can read is saved, except {display(cannot_save)} in a form the app '
+            'can’t save yet' if cannot_save else 'Every episode your account can read is saved' if number(counts.get('archived'))
             else f'No episodes your {site} account can save were found')
     # Saved, Time left, Space and Speed are on every card, so cards side by side read alike; NONE where nothing is known.
     row('Saved', NONE if s.status is None else

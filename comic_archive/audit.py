@@ -136,6 +136,7 @@ def audit_library(output, report=None):
         verified = 0
         cloud_uploaded = 0
         unresolved_supported = 0
+        cannot_save = 0  # Of those, the ones in a form the app cannot save yet: checking again never changes them.
         integrity_problems = []
         per_series = {}
         identities = {}
@@ -203,6 +204,7 @@ def audit_library(output, report=None):
                 integrity_problems.append({'source_episode_id': row['id'], 'reason': 'archive_missing'})
             if access in SUPPORTED and not (episode['archive_verified'] or episode['cloud_upload_verified']):
                 unresolved_supported += 1
+                cannot_save += stored_status == 'unsupported'
                 if episode['reason'] is None:
                     episode['reason'] = {'queued': 'awaiting_archive', 'failed': 'retry_required',
                                          'downloading': 'interrupted_or_active', 'unsupported': 'content_unsupported'}.get(stored_status, 'record_requires_review')
@@ -246,6 +248,7 @@ def audit_library(output, report=None):
                  'current_scan_cycle_complete': scanned,
                  'recorded_accessible_episode_count': sum(row['access_state'] in SUPPORTED for row in rows),
                  'missing_recorded_accessible_episode_count': unresolved_supported,
+                 'unsupported_recorded_accessible_episode_count': cannot_save,
                  'verified_inventory_episode_count': verified, 'portable_archive_count': len(portable),
                  'cloud_uploaded_inventory_episode_count':cloud_uploaded, 'cloud_availability_checked':False,
                  'archive_integrity_passed': valid_files,

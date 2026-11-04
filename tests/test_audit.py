@@ -41,6 +41,7 @@ class AuditTests(unittest.TestCase):
         result = audit_library(self.root)
         self.assertEqual(result['verified_inventory_episode_count'], 1)
         self.assertEqual(result['missing_recorded_accessible_episode_count'], 1)
+        self.assertEqual(result['unsupported_recorded_accessible_episode_count'], 0)
         self.assertTrue(result['archive_integrity_passed'])
         self.assertFalse(result['observed_snapshot_archived'])
         self.assertFalse(result['account_inventory_complete'])
@@ -150,6 +151,8 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(rows['84']['reason'], 'novel')
         self.assertEqual(rows['85']['reason'], 'ordering_unverified')
         self.assertEqual(result['missing_recorded_accessible_episode_count'], 2)
+        # Of the two, the one in a form the app cannot save yet is counted apart: 82 only waits to be saved.
+        self.assertEqual(result['unsupported_recorded_accessible_episode_count'], 1)
 
     def test_no_private_directories_or_private_error_text_enters_the_report(self):
         self.archive(limit=1)
