@@ -4834,8 +4834,8 @@
  {
   "id": "dc-tick-failure-holds",
   "source": "comic_archive/download_control.py",
-  "old": "    except Exception:\n        _mark_failed(root)",
-  "new": "    except Exception:\n        pass",
+  "old": "        LOG.error(f'download: the controller failed: {describe(error)}')\n        _mark_failed(root)",
+  "new": "        LOG.error(f'download: the controller failed: {describe(error)}')",
   "test_file": "test_download_control.py",
   "test": "test_a_tick_that_fails_unexpectedly_holds_the_download_and_never_raises"
  },
@@ -5394,7 +5394,7 @@
  {
   "id": "support-details-not-copied",
   "source": "comic_archive/window_pages.py",
-  "old": "        self.q.QtGui.QGuiApplication.clipboard().setText(details)\n",
+  "old": "        self.q.QtGui.QGuiApplication.clipboard().setText(self.support_details())\n",
   "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_about_copies_details_for_support_without_the_library_folder"

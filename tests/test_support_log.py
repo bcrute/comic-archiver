@@ -180,7 +180,7 @@ class SupportLogTests(unittest.TestCase):
             with self.assertLogs('comic_archive.test', 'CRITICAL') as logs:
                 hook(ValueError, caught, caught.__traceback__)
                 thread_hook(Mock(exc_type=ValueError, exc_traceback=caught.__traceback__))
-            hook(KeyboardInterrupt, KeyboardInterrupt(), None)
+                hook(KeyboardInterrupt, KeyboardInterrupt(), None)  # Stopped on purpose: nothing to log.
         self.assertEqual(len(logs.records), 2)
         self.assertRegex(logs.records[0].getMessage(),
                          r'^ValueError that nothing caught\n  at test_support_log\.py:[0-9]+ in test_an_error')
