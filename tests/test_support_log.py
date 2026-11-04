@@ -33,7 +33,7 @@ class SupportLogTests(unittest.TestCase):
         self.assertEqual(out.getvalue().splitlines(), ['2026-11-04 10:45:14 Starting task one',
                                                        '2026-11-04 10:45:14 half a line',
                                                        '2026-11-04 10:45:14 two', '2026-11-04 10:45:14 three'])
-        self.assertIs(stamped.getvalue, out.getvalue)  # Anything else is the stream's own.
+        self.assertEqual(stamped.getvalue(), out.getvalue())  # Anything else is the stream's own.
 
     def test_the_downloaders_process_stamps_its_output_logs_its_download_and_writes_any_character(self):
         log = self.home / 'background.log'
