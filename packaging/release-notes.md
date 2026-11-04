@@ -17,6 +17,8 @@
 - **Your download carries on after the update.** The first start moves it to the new record, and **Continue** picks up
   where it stopped. Going back to an older version after that starts the list and series checks again; nothing
   you have saved is lost.
+- **Asking for help is easier.** **Settings → About → Copy details for support** copies a short summary of each
+  site's download to paste into a message. It has no series titles, folder names or sign-in details.
 
 ## Download
 
