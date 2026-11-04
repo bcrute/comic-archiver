@@ -15,6 +15,7 @@ from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, Li
 from .inventory import Inventory, UNSUPPORTED_REASONS
 from .models import ArchiveError
 from .cancellation import RunCancellation, RunCancelled
+from .support_log import describe
 from .adapters.pagination import EpisodeCountMismatch
 
 
@@ -382,12 +383,15 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             inventory.record_access(key, 'unavailable_or_unverified')
                             inventory.mark(key, "unavailable", "access_denied")
                             summary["unavailable_episode_ids"].append(key)
+                            print(f"Episode {key} of series {current['series_id']}: not saved, access_denied.", flush=True)
                         except UnsupportedContent as error:
                             code = getattr(error,'code',None)
                             if not isinstance(code,str) or code not in UNSUPPORTED_REASONS:
                                 code = 'content_unsupported'
                             inventory.mark(key, "unsupported", code)
                             summary["unsupported_episode_ids"].append(key)
+                            print(f"Episode {key} of series {current['series_id']}: not saved, {code} ({describe(error)}).",
+                                  flush=True)
                             if code=='reader_manifest_incomplete':
                                 current=None
                                 raise MetadataError('Reader manifest is unavailable; this run paused for authorized browser inspection.') from None
@@ -489,6 +493,8 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 code = ("interrupted" if isinstance(error, KeyboardInterrupt)
                         else "source_refused" if summary.get('pause_reason') == 'source_refused' else "job_failed")
                 inventory.mark(current["id"], "queued" if code == "interrupted" else "failed", code)
+                print(f"Episode {current['id']} of series {current['series_id']}: {code}.", flush=True)
+            print(f'This step stopped: {describe(error)}.', flush=True)
             checkpoint("interrupted" if isinstance(error, KeyboardInterrupt) else "paused")
             from .run_receipts import retain_failure_receipt
             retain_failure_receipt(error, summary)

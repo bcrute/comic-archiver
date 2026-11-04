@@ -305,6 +305,11 @@ class JobTests(unittest.TestCase):
             self.assertEqual([r[0] for r in inventory.db.execute('SELECT error_code FROM episodes ORDER BY id')],
                              ['novel','content_unsupported'])
         self.assertNotIn('PRIVATE',(self.root/'.archive-state/last-run.json').read_text())
+        # The log says each one by number and code, and where the reader gave up on it.
+        printed='\n'.join(' '.join(map(str,call.args)) for call in output.call_args_list)
+        self.assertRegex(printed,r'Episode 81 of series 42: not saved, novel \(UnsupportedContent at test_jobs\.py:[0-9]+')
+        self.assertIn('Episode 82 of series 42: not saved, content_unsupported (',printed)
+        self.assertNotIn('PRIVATE',printed)
 
     @patch('builtins.print')
     def test_slow_account_list_retains_discovery_and_leaves_time_to_archive(self, output):
@@ -470,6 +475,11 @@ class JobTests(unittest.TestCase):
             return capture(url)
         self.adapter.capture_automatic=broken
         with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report,limit=1)
+        # The log says which episode, and where it failed, never the words of the failure.
+        printed='\n'.join(' '.join(map(str,call.args)) for call in output.call_args_list)
+        self.assertIn('Episode 82 of series 42: job_failed.',printed)
+        self.assertRegex(printed,r'This step stopped: MetadataError at test_jobs\.py:[0-9]+')
+        self.assertNotIn('broken',printed)
         # The next run goes past it instead of failing on it again first.
         self.assertEqual(archive_discovered(self.adapter,self.root,self.report,limit=1)['archived_episode_ids'],['81'])
         for _ in range(2):

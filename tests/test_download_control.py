@@ -1065,5 +1065,82 @@ class MoveTests(Controller):
         self.assertTrue((self.queue / 'account-export.json').exists())
 
 
+
+class LogTests(Controller):
+    """What the download writes in the log: each step and each change, enough to follow it in a log sent for support,
+    by codes and counts only."""
+
+    def logged(self, action, level='INFO'):
+        with self.assertLogs(dc.LOG, level) as logs:
+            action()
+        return [record.getMessage() for record in logs.records]
+
+    def test_go_each_step_each_wait_pause_and_a_start_of_the_app_are_logged_by_code(self):
+        self.pending_episode()
+        self.assertEqual(self.logged(self.go), ['download: begun (Go)'])
+        task = self.logged(self.tick)
+        self.assertEqual(task, [f'download: step {self.requests()[0]} (download) sent'])
+        # A lost connection: how the step ended, then the wait, until when, and the tries it has had.
+        task = self.ok(counted(status='paused', pause_reason='network_unavailable'))
+        lines = self.logged(self.tick)
+        self.assertEqual(lines[0], f'download: step {task} (download) ended ok paused network_unavailable: '
+                                   'pages 0, bytes 0, episodes 0')
+        self.assertRegex(lines[1], r'^download: running at lists -> waiting/connection at lists, '
+                                   r'until 2026-11-02T00:0[0-9]:[0-9]{2}\+00:00, tries: network_waits 1$')
+        self.later(3600)
+        self.logged(self.tick)
+        # A failed step: its code, never the worker's words.
+        task = self.error('job_failed')
+        lines = self.logged(self.tick)
+        self.assertEqual(lines[0], f'download: step {task} (download) ended error job_failed')
+        # The connection's try still counts: only progress forgives it.
+        self.assertRegex(lines[1], r'-> waiting/idle at lists, until .*, tries: network_waits 1, failed_retries 1$')
+        self.assertNotIn('PRIVATE', '\n'.join(lines))
+        # The person's own steps are named even when nothing else would be logged.
+        self.assertEqual(self.logged(lambda: dc.request_stop(self.session, self.library)),
+                         ['download: waiting/idle at lists -> stopped at lists, tries: network_waits 1, failed_retries 1 '
+                          '(Pause)'])
+        self.assertEqual(self.logged(self.go), ['download: stopped at lists -> running at lists (Go)'])
+        self.assertEqual(self.logged(self.go), ['download: Go while already running'])
+        self.assertEqual(self.logged(lambda: dc.reopen(self.session, self.library))[0],
+                         'download: running at lists -> stopped at lists (the app started)')
+
+    def test_a_check_logs_what_it_counted_and_the_hold_it_leads_to(self):
+        self.go()
+        self.read_lists()
+        task, _ = self.published()
+        self.ok({'verified_inventory_episode_count': 1, 'missing_recorded_accessible_episode_count': 2,
+                 'inventory_index_problem_count': 0, 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.assertEqual(self.logged(self.tick), [
+            f'download: step {task} (audit) ended ok',
+            'download: the check counted inventory_index_problem_count 0, missing_recorded_accessible_episode_count 2, '
+            'unindexed_archive_count 0, verified_inventory_episode_count 1',
+            'download: running at verify -> held/archive_incomplete at verify'])
+
+    def test_a_controller_failure_is_logged_by_class_and_place_never_its_text(self):
+        self.downloading()
+        with patch.object(dc, '_step', side_effect=RuntimeError('PRIVATE')):
+            line, = self.logged(self.tick, 'ERROR')
+        self.assertRegex(line, r'^download: the controller failed: RuntimeError at [a-z_]+\.py:[0-9]+')
+        self.assertNotIn('PRIVATE', line)
+
+    def test_the_history_for_support_is_the_download_now_and_its_last_steps_oldest_first(self):
+        self.assertIsNone(dc.history(self.session, self.library))
+        first, _ = self.downloading()
+        self.ok(counted(archived_episode_ids=['81'], downloaded_pages=3))
+        self.tick()
+        second = self.requests()[0]
+        state, steps = dc.history(self.session, self.library)
+        self.assertEqual((state['status'], state['stage']), ('running', 'lists'))
+        self.assertEqual([step['task_id'] for step in steps], [first, second])
+        self.assertEqual((steps[0]['outcome'], steps[0]['episodes'], steps[0]['pages'], steps[0]['progressed']),
+                         ('ok', 1, 3, 1))
+        self.assertIsNone(steps[1]['finished_at'])
+        self.assertEqual([step['task_id'] for step in dc.history(self.session, self.library, 1)[1]], [second])
+        (self.queue / dc.STATE_FILE).write_bytes(b'not a database')
+        with self.assertRaises(dc.Damaged):
+            dc.history(self.session, self.library)
+
+
 if __name__ == '__main__':
     unittest.main()

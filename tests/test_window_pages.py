@@ -82,6 +82,11 @@ class FakeActions:
                 'library_folder': FOLDER,
                 'cloud_offered': self.cloud_offered, 'workspace_id': '0123456789abcdef0123456789abcdef'}
 
+    def support_records(self):
+        self.record('support_records')
+        return (f'=== {SITES[self.site]}: episodes not saved\nseries 11 episode 22: failed job_failed\n'
+                f'This step stopped in {FOLDER}/x.cbz', FOLDER.rsplit('/', 2)[0])
+
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):
         self.record('poll', task=task, network=network, cloud=cloud, library=library, refresh=refresh)
         value = copy.deepcopy(self.reading)
@@ -734,6 +739,44 @@ class NavigationTests(PagesCase):
         self.assertNotIn(FOLDER, copied)
         self.assertTrue(s.support_note.isVisible())
         self.assertEqual(s.support_note.text(), window_pages.SUPPORT_COPIED)
+
+    def test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder(self):
+        from pathlib import Path
+        import tempfile
+        from unittest import mock
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        downloads, state = Path(temporary.name) / 'Downloads', Path(temporary.name) / 'state'
+        state.mkdir()
+        (state / 'desktop.log').write_text(f'2026-11-04 10:00:00,000 INFO the library is open\nopened {FOLDER}\n')
+        self.assertTrue(self.pages.downloads())
+        self.open()
+        self.settings.tabs['about'].click()
+        s = self.settings
+        with mock.patch.object(self.pages, 'downloads', return_value=str(downloads)), \
+                mock.patch('comic_archive.app_runtime.state_dir', return_value=state):
+            s.save_log.click()
+        saved, = downloads.iterdir()
+        self.assertRegex(saved.name, r'^Comic Archiver log [0-9-]{10} [0-9.]{8}\.txt$')
+        text = saved.read_text(encoding='utf-8')
+        # The details, every open site's records, then the app's log, in one file.
+        self.assertIn('\n== Tapas\nSign-in: signed in', text)
+        self.assertIn('=== Tapas: episodes not saved\nseries 11 episode 22: failed job_failed', text)
+        self.assertIn('INFO the library is open', text)
+        self.assertLess(text.index('== Tapas'), text.index('=== Tapas'))
+        self.assertLess(text.index('=== Tapas'), text.index('=== The app’s log'))
+        self.assertNotIn(FOLDER, text)
+        self.assertIn('This step stopped in <library>/tapas/Library/x.cbz', text)
+        self.assertEqual(s.support_note.text(), window_pages.LOG_SAVED.format(name=saved.name))
+        self.assertTrue(s.support_note.isVisible() and s.save_log.isEnabled())
+        # A site that cannot be read is said in the file; a file that cannot be saved is said on the page.
+        self.actions.refused['support_records'] = 'No.'
+        with mock.patch.object(self.pages, 'downloads', return_value=str(downloads)), \
+                mock.patch('comic_archive.app_runtime.state_dir', return_value=state), \
+                mock.patch('comic_archive.support_log.save', side_effect=app_actions.Refused('x', 'No.')) as save:
+            s.save_log.click()
+        self.assertIn('=== A site could not be read: request_unavailable', save.call_args.args[1])
+        self.assertEqual(s.support_note.text(), window_pages.LOG_FAILED)
+        self.assertTrue(s.save_log.isEnabled())
 
     def test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer(self):
         self.actions.cloud_offered = False

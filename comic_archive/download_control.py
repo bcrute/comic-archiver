@@ -8,6 +8,7 @@ the person must fix; anything that may clear by itself is a wait, and progress f
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -21,7 +22,10 @@ from .inventory import ASSET_RETRY_COOLDOWN_SECONDS, Inventory
 from .locking import LibraryLock, wait_for_library
 from .models import ArchiveError
 from .queue_client import submit_job, task_status
+from .support_log import DOWNLOAD_LOG, describe
 
+LOG = logging.getLogger(DOWNLOAD_LOG)
+LOG.addHandler(logging.NullHandler())
 STATE_FILE = 'download.sqlite3'
 SCHEMA_VERSION = 1
 STATUSES = ('running', 'waiting', 'held', 'stopped', 'finished')
@@ -194,7 +198,20 @@ def _state(db):
     return value
 
 
-def _save(db, value):
+def _said(status, code, stage):
+    return f"{status}{'/' + code if code else ''} at {stage}"
+
+
+def _save(db, value, why=None):
+    """Write the download's state; a change of status, code or stage, or the person's own step (why), is logged."""
+    old = db.execute('SELECT status, code, stage FROM state WHERE id=1').fetchone()
+    if why or old is None or tuple(old) != (value['status'], value['code'], value['stage']):
+        line = f"download: {_said(*old) if old else 'new'} -> {_said(value['status'], value['code'], value['stage'])}"
+        if value['wait_until'] and value['status'] == 'waiting':
+            line += f", until {value['wait_until']}"
+        tries = [f'{key} {value[key]}' for key in ('idle_waits', 'network_waits', 'source_probes', 'failed_retries')
+                 if value[key]]
+        LOG.info(line + (f", tries: {', '.join(tries)}" if tries else '') + (f' ({why})' if why else ''))
     value = dict(value, updated_at=_stamp())
     value['audit'] = None if value['audit'] is None else json.dumps(value['audit'], sort_keys=True)
     db.execute('UPDATE state SET status=:status, code=:code, stage=:stage, round_started_at=:round_started_at, '
@@ -347,6 +364,14 @@ def _settle(db, value, task, response, session):
     db.execute('UPDATE tasks SET finished_at=?, outcome=?, pages=?, bytes=?, episodes=?, series_checked=?, progressed=? '
                'WHERE task_id=?', (_stamp(), outcome, counts.get('pages'), counts.get('bytes'), counts.get('episodes'),
                                    counts.get('series_checked'), int(done), task['task_id']))
+    said = [outcome if isinstance(outcome, str) else 'invalid']
+    if isinstance(response, dict) and isinstance(response.get('error_code'), str):
+        said.append(response['error_code'])
+    if isinstance(result, dict):
+        said += [result[key] for key in ('status', 'pause_reason') if isinstance(result.get(key), str)]
+    did = [f'{key} {n}' for key, n in counts.items() if n is not None] + (['progressed'] if done else [])
+    LOG.info(f"download: step {task['task_id']} ({task['kind']}) ended {' '.join(said)}"
+             + (f": {', '.join(did)}" if did else ''))
     if done:
         _forgiven(value)
     if not isinstance(response, dict) or response.get('status') not in ('ok', 'error'):
@@ -370,6 +395,7 @@ def _settle(db, value, task, response, session):
             _failed(value, 'task_result_invalid')
             return
         value['audit'] = {key: result[key] for key in AUDIT_KEYS if type(result.get(key)) is int and result[key] >= 0}
+        LOG.info('download: the check counted ' + ', '.join(f'{key} {n}' for key, n in sorted(value['audit'].items())))
         value['failed_retries'] = 0
         if result.get('archive_integrity_passed') is True and all(
                 type(result.get(key)) is int and result[key] == 0 for key in AUDIT_ZEROES):
@@ -499,15 +525,18 @@ def _step(db, root, session, library):
                 return False
             submit_job(session, task['operation'], task['options'], _task_id=task['task_id'])
             db.execute('UPDATE tasks SET published_at=? WHERE task_id=?', (_stamp(), task['task_id']))
+            LOG.info(f"download: step {task['task_id']} ({task['kind']}) sent")
             return False
         if not request.exists() and not receipt.exists():
             if value['failed_retries'] >= FAILED_RETRIES or value['status'] != 'running':
                 db.execute("UPDATE tasks SET finished_at=?, outcome='vanished' WHERE task_id=?",
                            (_stamp(), task['task_id']))
+                LOG.info(f"download: step {task['task_id']} ({task['kind']}) vanished")
                 _failed(value, 'task_unavailable')
             elif _publishable(root, library):
                 value['failed_retries'] += 1
                 submit_job(session, task['operation'], task['options'], _task_id=task['task_id'])
+                LOG.info(f"download: step {task['task_id']} ({task['kind']}) vanished and was sent again")
             _save(db, value)
             return False
         try:
@@ -561,7 +590,8 @@ def worker_tick(session, library=Path('Library')):
         return
     except Damaged:
         return  # The page shows the damage as a hold; Go sets the record aside.
-    except Exception:
+    except Exception as error:
+        LOG.error(f'download: the controller failed: {describe(error)}')
         _mark_failed(root)
 
 
@@ -702,7 +732,7 @@ def _move_old(session, library, root):
                 db.execute('BEGIN')
                 db.execute("INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at) "
                            "VALUES (1, 'stopped', 'lists', ?, ?, ?)", (now, now, now))
-                _save(db, value)
+                _save(db, value, 'carried over from the earlier version')
                 db.executemany('INSERT INTO lists (category, read_at, complete, observed_series_count) VALUES (?,?,?,?)',
                                rows)
                 for task in tasks[:1]:
@@ -779,9 +809,11 @@ def start(session, library=Path('Library')):
             db.execute('INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at) '
                        "VALUES (1, 'running', 'lists', ?, ?, ?)", (now, now, now))
             db.executemany('INSERT INTO lists (category) VALUES (?)', [(c,) for c in lists(session)])
+            LOG.info('download: begun (Go)')
             return
         db.executemany('INSERT OR IGNORE INTO lists (category) VALUES (?)', [(c,) for c in lists(session)])
         if value['status'] in ('running', 'waiting'):
+            LOG.info(f"download: Go while already {value['status']}")
             return
         if value['status'] == 'finished':
             value.update(stage='lists', round_started_at=now, audit=None)
@@ -794,7 +826,7 @@ def start(session, library=Path('Library')):
             # The site's own wait still runs; Go cannot cut it short, only start when it ends.
             value.update(status='waiting', code='source', wait_until=value['go_after'])
         value['go_after'] = None
-        _save(db, value)
+        _save(db, value, 'Go')
     _transaction(session, library, go, create=True)
 
 
@@ -807,7 +839,7 @@ def request_stop(session, library=Path('Library')):
         if task is not None and task['published_at'] is None:
             db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
         value.update(status='stopped', code=None, wait_until=None)
-        _save(db, value)
+        _save(db, value, 'Pause')
     try:
         _transaction(session, library, stop, require_queue=False)
     except (Damaged, sqlite3.DatabaseError):
@@ -826,7 +858,7 @@ def reopen(session, library=Path('Library'), *, idle=True):
         going = value['status'] in ('running', 'waiting')
         if going:
             value.update(status='stopped', code=None, wait_until=None)
-            _save(db, value)
+            _save(db, value, 'the app started')
         task = _outstanding(db)
         if idle and task is not None:
             if task['published_at'] is None:
@@ -917,6 +949,26 @@ def status(session, library=Path('Library')):
         result['audit'] = value['audit']
     result['outstanding'] = task['task_id'] if task else None
     return result
+
+
+def history(session, library=Path('Library'), limit=300):
+    """(state, steps) for a log saved for support: the download as it stands and its last steps, oldest first.
+
+    None when there is no download yet. Raises Damaged when its record cannot be read."""
+    root = _root(session, library, require_queue=False)
+    db = _connect(root)
+    if db is None:
+        return None
+    try:
+        value = _state(db)
+        steps = [dict(row) for row in db.execute(
+            'SELECT * FROM (SELECT task_id, kind, reserved_at, published_at, finished_at, outcome, pages, bytes, episodes, '
+            'series_checked, progressed FROM tasks ORDER BY reserved_at DESC LIMIT ?) ORDER BY reserved_at', (limit,))]
+    except sqlite3.DatabaseError:
+        raise Damaged() from None
+    finally:
+        db.close()
+    return None if value is None else (value, steps)
 
 
 def source_recovery(session, library=Path('Library')):

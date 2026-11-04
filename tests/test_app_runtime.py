@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment
-from comic_archive import app_runtime, archive_paths, sites
+from comic_archive import app_runtime, archive_paths, sites, support_log
 from comic_archive.app_actions import Actions
 from comic_archive.account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from comic_archive.errors import LibraryBusy, LibraryMoved
@@ -32,6 +32,8 @@ class AppRuntimeTests(unittest.TestCase):
                            'start': Mock(return_value={'running': True}), 'stop': Mock(return_value={'running': False})}
         for wrapper in [patch.dict(os.environ, home_environment(self.home, self.state)),
                         patch('comic_archive.app_runtime.RETRY_SECONDS', .01),
+                        # Python's own hooks and crash file stay as the tests found them.
+                        patch('comic_archive.support_log.catch_unexpected'), patch('comic_archive.support_log.catch_crashes'),
                         *(patch('comic_archive.app_runtime.background.' + name, value) for name, value in self.background.items())]:
             wrapper.start(); self.addCleanup(wrapper.stop)
         self.addCleanup(self.reset_logging)
@@ -45,9 +47,10 @@ class AppRuntimeTests(unittest.TestCase):
         return library
 
     def reset_logging(self):
-        for handler in list(app_runtime.LOG.handlers):
-            app_runtime.LOG.removeHandler(handler); handler.close()
-        app_runtime.LOG.addHandler(logging.NullHandler())
+        for log in (app_runtime.LOG, logging.getLogger(support_log.DOWNLOAD_LOG)):
+            for handler in list(log.handlers):
+                log.removeHandler(handler); handler.close()
+            log.addHandler(logging.NullHandler())
 
     def sign_in(self):
         session = self.root / '.comic-session'; session.mkdir(parents=True, exist_ok=True)
@@ -220,6 +223,18 @@ class AppRuntimeTests(unittest.TestCase):
         with self.assertLogs('comic_archive.desktop', 'WARNING'):
             again, problem = app_runtime.move(back, link / 'Comic Archiver'); self.addCleanup(again.stop, 0)
         self.assertIn('shortcut (symlink)', problem); self.assertEqual(again.root, self.root)
+
+    def test_a_sites_records_for_support_come_from_its_own_library_with_its_folder_to_leave_out(self):
+        self.runtime.start()
+        worker = self.root / '.comic-session/worker'; worker.mkdir(parents=True, exist_ok=True)
+        (worker / 'background.log').write_text('Task job-1 completed.\n')
+        text, folder = Actions(lambda: self.runtime).support_records()
+        self.assertTrue(text.startswith('=== Tapas: episodes not saved\n'))
+        self.assertTrue(text.endswith('=== Tapas: the downloader’s log\nTask job-1 completed.'), text)
+        self.assertEqual(folder, str(self.root))
+        with patch.object(self.runtime.registry, 'resolve', side_effect=ArchiveError('PRIVATE')):
+            self.assertEqual(Actions(lambda: self.runtime).support_records(),
+                             ('=== Tapas: its library cannot be read now', str(self.root)))
 
     def test_each_site_has_its_own_folder_sign_in_and_downloader_and_every_site_runs_at_once(self):
         example, saved = replace(sites.DEFAULT, key='example', name='Example', available=True), self.state / 'comic-archiver/site'
@@ -732,6 +747,12 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual((handler.maxBytes, handler.backupCount), (256 * 1024, 2))
         app_runtime.LOG.info('written once')
         self.assertEqual(path.read_text().count('written once'), 1)
+        # The download's steps taken in the window go to the same log, and errors nothing caught and crashes too.
+        self.assertEqual(logging.getLogger(support_log.DOWNLOAD_LOG).handlers, [handler])
+        logging.getLogger(support_log.DOWNLOAD_LOG).info('download: stopped at lists -> running at lists (Go)')
+        self.assertEqual(path.read_text().count('(Go)'), 1)
+        support_log.catch_unexpected.assert_called_with('comic_archive.desktop')
+        support_log.catch_crashes.assert_called_with(path.with_name('crash.log'))
         self.reset_logging(); path.unlink()
         path.symlink_to(self.home / 'elsewhere')
         self.assertIsNone(app_runtime.configure_logging())

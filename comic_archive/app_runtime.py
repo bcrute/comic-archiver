@@ -10,9 +10,8 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
-import traceback
 
-from . import archive_paths, background, osdep, shared, sites
+from . import archive_paths, background, osdep, shared, sites, support_log
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
@@ -20,6 +19,7 @@ from .models import ArchiveError
 from .session import load_session, store_session
 from .state_paths import private_folder
 from .storage import safe_root
+from .support_log import describe
 from .worker import WORKER_VERSION
 
 LOG = logging.getLogger('comic_archive.desktop')
@@ -209,20 +209,18 @@ class Theme:
                 LOG.warning('the theme choice could not be saved; it lasts until the app closes')
 
 
-def describe(error):
-    """Class and code location only: exception text can hold cookies, paths or URLs."""
-    frames = traceback.extract_tb(error.__traceback__)[-4:]
-    where = ' < '.join(f'{Path(frame.filename).name}:{frame.lineno}' for frame in reversed(frames))
-    return type(error).__name__ + (' at ' + where if where else '')
-
-
 def configure_logging():
-    """Write the app log to a private rotating file; return its path, or None."""
-    for handler in list(LOG.handlers):
-        LOG.removeHandler(handler)
-        handler.close()
-    LOG.setLevel(logging.INFO)
-    LOG.propagate = False
+    """Write the app log to a private rotating file; return its path, or None.
+
+    The download's own steps taken in the window (Go, Pause, a start of the app) go to the same log, and so does
+    any error nothing caught; a crash of the app itself is written beside it."""
+    logs = (LOG, logging.getLogger(support_log.DOWNLOAD_LOG))
+    for log in logs:
+        for handler in list(log.handlers):
+            log.removeHandler(handler)
+            handler.close()
+        log.setLevel(logging.INFO)
+        log.propagate = False
     try:
         path = state_dir() / 'desktop.log'
         if path.is_symlink():
@@ -232,10 +230,14 @@ def configure_logging():
         handler = RotatingFileHandler(path, maxBytes=256 * 1024, backupCount=2, encoding='utf-8')
     except (OSError, ArchiveError):
         # The app still runs; it only cannot explain itself afterwards.
-        LOG.addHandler(logging.NullHandler())
+        for log in logs:
+            log.addHandler(logging.NullHandler())
         return None
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-    LOG.addHandler(handler)
+    for log in logs:
+        log.addHandler(handler)
+    support_log.catch_unexpected(LOG.name)
+    support_log.catch_crashes(path.with_name(support_log.CRASH_NAME))
     return path
 
 
@@ -404,7 +406,7 @@ class Runtime:
         self._kept = archive_paths.keep(root)
         remember_library(root)
         self._serve(registry, session, state)
-        LOG.info('the library is open')
+        LOG.info('the library is open: %s', support_log.place(root))
 
     def vanished(self):
         """True once the open library folder was renamed, moved or deleted; nothing in it is made again."""

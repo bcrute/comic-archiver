@@ -311,3 +311,63 @@ def end_process(pid):
         os.killpg(pid, signal.SIGTERM)
     else:
         os.kill(pid, signal.SIGTERM)
+
+
+# File systems reached over a network, as Linux names them in its list of mounts.
+NETWORK_FILE_SYSTEMS = frozenset({'nfs', 'nfs4', 'cifs', 'smb3', 'smbfs', '9p', 'afs', 'ceph', 'glusterfs', 'davfs',
+                                  'fuse.sshfs', 'fuse.rclone', 'fuse.gvfsd-fuse'})
+WINDOWS_DRIVES = {2: 'removable', 3: 'local', 4: 'network', 5: 'disc', 6: 'memory'}
+
+
+def drive(path, mounts=Path('/proc/self/mounts'), blocks=Path('/sys/class/block')):
+    """(kind, file system) of the drive a folder is on; kind is local, removable, network, disc, memory or unknown."""
+    try:
+        return _windows_drive(path) if WINDOWS else _mounted_drive(path, mounts, blocks)
+    except (AttributeError, OSError, ValueError):
+        return 'unknown', 'unknown'
+
+
+def _windows_drive(path):
+    import ctypes
+    anchor = Path(os.path.abspath(path)).anchor
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kind = WINDOWS_DRIVES.get(kernel.GetDriveTypeW(anchor), 'unknown')
+    name = ctypes.create_unicode_buffer(64)
+    known = kernel.GetVolumeInformationW(anchor, None, 0, None, None, None, name, len(name))
+    return kind, name.value if known and name.value else 'unknown'
+
+
+def _unescaped(field):
+    # The list of mounts writes a space, tab, newline or backslash in a name as its octal code.
+    import re
+    return re.sub(r'\\([0-7]{3})', lambda match: chr(int(match[1], 8)), field)
+
+
+def _mounted_drive(path, mounts, blocks):
+    path = Path(os.path.realpath(path))
+    found = None
+    for line in mounts.read_text(encoding='utf-8', errors='replace').splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        device, point, system = (_unescaped(field) for field in fields[:3])
+        point = Path(point)
+        # The deepest mount holding the folder is the one it is on; a later one at the same place covers it.
+        if (point == path or point in path.parents) and (found is None or len(point.parts) >= len(found[1].parts)):
+            found = (device, point, system)
+    if found is None:
+        return 'unknown', 'unknown'
+    device, _, system = found
+    if system in NETWORK_FILE_SYSTEMS:
+        return 'network', system
+    if not device.startswith('/dev/'):
+        return 'local', system
+    # A partition has no removable flag of its own: its disk, one folder up, does. A USB disk often says it is
+    # fixed, so its place on the USB bus says it instead.
+    block = (blocks / Path(os.path.realpath(device)).name).resolve()
+    for folder in (block, block.parent):
+        flag = folder / 'removable'
+        if flag.is_file():
+            removable = flag.read_text().strip() == '1' or '/usb' in block.as_posix()
+            return ('removable' if removable else 'local'), system
+    return 'local', system

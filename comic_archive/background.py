@@ -157,6 +157,8 @@ def start(session, browser="firefox", interval=1.0, *, restart=False):
         log = folder / "background.log"
         if log.is_symlink():
             raise ArchiveError("Worker log must not be symlinked.")
+        from .support_log import trim
+        trim(log)  # Nothing writes to it now: no downloader is running.
         descriptor = osdep.open_log(log)
         command = [sys.executable, "-m", "comic_archive", "--session-dir", str(folder.parent),
                    "--browser", browser, "--headless", "--request-interval", str(interval),

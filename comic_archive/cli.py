@@ -23,7 +23,10 @@ def parser():
 
 def run(args):
     if args.command == "browser-worker":
+        from .license_texts import version
+        from .support_log import downloader_output
         from .worker import run_worker
+        downloader_output(version())
         run_worker(args.session_dir, args.browser, args.headless, args.request_interval)
         return 0
     from .session import doctor

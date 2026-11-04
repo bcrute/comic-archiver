@@ -14,6 +14,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import platform
 import signal
 import sys
 import tempfile
@@ -22,7 +23,7 @@ import time
 import traceback
 from types import SimpleNamespace
 
-from . import app_runtime, osdep, sites
+from . import app_runtime, osdep, sites, support_details
 from .app_runtime import LOG
 from .models import ArchiveError
 from .qt_engine import CookieRecords, common_agent, secure_qt_environment
@@ -1317,7 +1318,8 @@ class Shell:
 
 def run(q, project_root):
     log_path = app_runtime.configure_logging()
-    LOG.info('starting version %s', version())
+    LOG.info('starting version %s on %s, Python %s, Qt %s', version(), support_details.system(),
+             platform.python_version(), q.QtCore.qVersion())
     app = application(q)
     lock = runtime = shell = None
     handlers = {}

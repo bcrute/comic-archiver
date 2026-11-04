@@ -76,6 +76,16 @@ class Actions:
         return {'sites': sites.choices(runtime.site), 'library_folder': str(runtime.folder), 'library_root': str(runtime.root),
                 'cloud_offered': cloud_runtime.offered(), 'workspace_id': registry.workspace_id}
 
+    def support_records(self):
+        """(this site's part of a log saved for support, its library folder to be left out of that file)."""
+        runtime, registry = self._registry()
+        from .support_log import site_records
+        try:
+            workspace = registry.resolve(LOCAL_OWNER, registry.workspace_id)
+        except ArchiveError:
+            return f'=== {runtime.site.name}: its library cannot be read now', str(runtime.root)
+        return site_records(runtime.site.name, workspace.session, workspace.library), str(runtime.root)
+
     def poll(self, task=None, network=True, cloud=True, library=False, refresh=False):
         """One refresh of the dashboard: every read it needs, together, or Refused if any failed."""
         reading = {'status': self._call('status'), 'account': self._call('account_status'),

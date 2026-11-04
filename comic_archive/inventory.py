@@ -648,6 +648,12 @@ class Inventory:
             codes[key] = codes.get(key, 0) + count
         return codes
 
+    def unsaved(self, limit):
+        """Episodes not saved that the account can read, for support: numbers, codes and tries, never titles."""
+        return [dict(row) for row in self.db.execute("""SELECT series_id,id,status,error_code,attempts,access_state,observed_at
+            FROM episodes WHERE status IN ('queued','failed','downloading','unsupported')
+            ORDER BY status,error_code,series_id,episode_order,id LIMIT ?""", (limit,))]
+
     def status(self):
         counts, unsupported = self.episode_counts()
         last = self.db.execute("SELECT id,started_at,finished_at,status,summary FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()

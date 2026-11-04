@@ -20,6 +20,7 @@ from .adapters.tapas import TapasAdapter
 from .archive import atomic_json, directory
 from .models import ArchiveError, identifier
 from .errors import AuthenticationError
+from .support_log import describe
 
 
 def private_json(path, value):
@@ -326,7 +327,7 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                     except Exception as error:
                         if name not in failing:
                             failing.add(name)
-                            print(f"The {name} controller failed ({type(error).__name__}); queued tasks continue.", flush=True)
+                            print(f"The {name} controller failed ({describe(error)}); queued tasks continue.", flush=True)
                 for file in sorted(requests.glob("*.json")):
                     if file.is_symlink():
                         continue
@@ -378,9 +379,10 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                             value['result'] = partial
                             if partial.get('pause_reason') == 'source_refused':
                                 value['error_code'] = 'source_refused'
-                    except Exception:
+                    except Exception as error:
                         value = {"task_id": task_id, "status": "error",
                                  "error": "Worker task failed; raw exceptions suppressed to protect credentials."}
+                        print(f"Task {task_id} failed unexpectedly: {describe(error)}", flush=True)
                     if moved():
                         return
                     try:

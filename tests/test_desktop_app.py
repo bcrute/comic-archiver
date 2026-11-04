@@ -113,7 +113,7 @@ def fake_qt():
         vars(value).update(members)
         return value
     modules = {
-        'QtCore': module('QtCore', QUrl=Url, QTimer=kind('QTimer', singleShot=Mock()), QByteArray=kind('QByteArray'),
+        'QtCore': module('QtCore', qVersion=Mock(return_value='6.9.1'), QUrl=Url, QTimer=kind('QTimer', singleShot=Mock()), QByteArray=kind('QByteArray'),
             QDateTime=kind('QDateTime', fromSecsSinceEpoch=Mock(side_effect=lambda seconds: seconds)),
             QLockFile=kind('QLockFile', tryLock=Mock(return_value=True), error=Mock(return_value='held'),
                            removeStaleLockFile=Mock(return_value=False), unlock=Mock(),
@@ -470,7 +470,10 @@ class DesktopAppTests(unittest.TestCase):
         chosen, standard = self.home / 'drive/Comic Archiver', self.home / 'Comic Archiver'
         chosen.mkdir(parents=True); self.state.mkdir(parents=True)
         (self.state / 'library').write_text(f'{chosen}\n')
-        self.assertEqual(desktop_app.run(self.q, None), 0)
+        with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
+            self.assertEqual(desktop_app.run(self.q, None), 0)
+        # Each start says what it runs on, for a log sent for support.
+        self.assertRegex(logs.output[0], r'starting version \S+ on \S.*, Python 3\.[0-9]+\.[0-9]+, Qt 6\.9\.1$')
         self.runtime_kind.assert_called_once_with(chosen, site=sites.DEFAULT)
         self.runtime_kind.reset_mock()
         self.assertEqual(desktop_app.run(self.q, '~/Comics'), 0)  # Asked for by name: that wins.

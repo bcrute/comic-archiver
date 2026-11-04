@@ -101,8 +101,11 @@ class BackgroundTests(unittest.TestCase):
                 return process
             try:
                 with patch("comic_archive.session.load_session"), \
-                        patch.object(background.subprocess, "Popen", side_effect=launch):
+                        patch.object(background.subprocess, "Popen", side_effect=launch), \
+                        patch("comic_archive.support_log.trim") as trim:
                     result = background.start(session, "firefox", .5)
+                # A log grown large is started afresh before the new downloader writes to it.
+                trim.assert_called_once_with(session / "worker/background.log")
                 self.assertTrue(result["running"])
                 self.assertTrue(result["headless"])
                 self.assertNotIn('authenticated',result)

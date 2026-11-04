@@ -954,16 +954,16 @@
  {
   "id": "held-file-not-waited-for-on-windows",
   "source": "comic_archive/osdep.py",
-  "old": "            if not WINDOWS or time.monotonic() >= deadline:\n",
-  "new": "            if True:\n",
+  "old": "            # On Linux this is a folder that cannot be written to, and waiting changes nothing.\n            if not WINDOWS or time.monotonic() >= deadline:\n",
+  "new": "            # On Linux this is a folder that cannot be written to, and waiting changes nothing.\n            if True:\n",
   "test_file": "test_osdep.py",
   "test": "test_on_windows_a_file_a_reader_holds_open_is_replaced_once_the_reader_lets_go"
  },
  {
   "id": "refused-replace-waited-on-off-windows",
   "source": "comic_archive/osdep.py",
-  "old": "            if not WINDOWS or time.monotonic() >= deadline:\n",
-  "new": "            if time.monotonic() >= deadline:\n",
+  "old": "            # On Linux this is a folder that cannot be written to, and waiting changes nothing.\n            if not WINDOWS or time.monotonic() >= deadline:\n",
+  "new": "            # On Linux this is a folder that cannot be written to, and waiting changes nothing.\n            if time.monotonic() >= deadline:\n",
   "test_file": "test_osdep.py",
   "test": "test_off_windows_a_refusal_is_a_folder_that_cannot_be_written_and_is_reported_at_once"
  },
@@ -5454,5 +5454,205 @@
   "new": "        result = json.loads(path.read_text())\n",
   "test_file": "test_osdep.py",
   "test": "test_the_downloader_and_a_sign_in_read_their_files_through_the_waiting_read"
+ },
+ {
+  "id": "support-log-keeps-home-folder",
+  "source": "comic_archive/support_log.py",
+  "old": "    names += [(spelling, '~') for spelling in _spellings(Path.home() if home is None else home)]\n",
+  "new": "    names += []\n",
+  "test_file": "test_support_log.py",
+  "test": "test_folders_are_left_out_however_they_are_spelled"
+ },
+ {
+  "id": "support-log-windows-folder-case-matters",
+  "source": "comic_archive/support_log.py",
+  "old": "flags=re.IGNORECASE if WINDOWS else 0)",
+  "new": "flags=0)",
+  "test_file": "test_support_log.py",
+  "test": "test_folders_are_left_out_however_they_are_spelled"
+ },
+ {
+  "id": "downloader-line-stamped-mid-line",
+  "source": "comic_archive/support_log.py",
+  "old": "            self.fresh = line.endswith('\\n')\n",
+  "new": "            self.fresh = True\n",
+  "test_file": "test_support_log.py",
+  "test": "test_each_line_the_downloader_writes_begins_with_the_time"
+ },
+ {
+  "id": "downloader-output-not-stamped",
+  "source": "comic_archive/support_log.py",
+  "old": "        setattr(sys, name, Stamped(stream))\n",
+  "new": "        setattr(sys, name, stream)\n",
+  "test_file": "test_support_log.py",
+  "test": "test_the_downloaders_process_stamps_its_output_logs_its_download_and_writes_any_character"
+ },
+ {
+  "id": "downloader-log-rotated-newest-over-oldest",
+  "source": "comic_archive/support_log.py",
+  "old": "        for number in range(kept, 0, -1):\n",
+  "new": "        for number in range(1, kept + 1):\n",
+  "test_file": "test_support_log.py",
+  "test": "test_the_downloaders_log_is_started_afresh_past_its_size_keeping_the_last_two"
+ },
+ {
+  "id": "browser-noise-kept-in-saved-log",
+  "source": "comic_archive/support_log.py",
+  "old": "    kept = [line for line in lines if not NOISE.search(line)]\n",
+  "new": "    kept = list(lines)\n",
+  "test_file": "test_support_log.py",
+  "test": "test_a_sites_records_list_its_episodes_not_saved_by_number_its_steps_and_its_downloaders_log"
+ },
+ {
+  "id": "unsupported-episodes-left-out-of-saved-log",
+  "source": "comic_archive/inventory.py",
+  "old": "FROM episodes WHERE status IN ('queued','failed','downloading','unsupported')",
+  "new": "FROM episodes WHERE status IN ('queued','failed','downloading')",
+  "test_file": "test_support_log.py",
+  "test": "test_a_sites_records_list_its_episodes_not_saved_by_number_its_steps_and_its_downloaders_log"
+ },
+ {
+  "id": "unexpected-interrupt-logged",
+  "source": "comic_archive/support_log.py",
+  "old": "        if not issubclass(kind, KeyboardInterrupt):\n",
+  "new": "        if True:\n",
+  "test_file": "test_support_log.py",
+  "test": "test_an_error_nothing_caught_is_logged_by_class_and_places_never_its_text"
+ },
+ {
+  "id": "drive-shallowest-mount-wins",
+  "source": "comic_archive/osdep.py",
+  "old": "len(point.parts) >= len(found[1].parts)",
+  "new": "len(point.parts) <= len(found[1].parts)",
+  "test_file": "test_support_log.py",
+  "test": "test_the_drive_a_folder_is_on_is_the_deepest_mount_holding_it"
+ },
+ {
+  "id": "drive-usb-disk-called-local",
+  "source": "comic_archive/osdep.py",
+  "old": " or '/usb' in block.as_posix()",
+  "new": "",
+  "test_file": "test_support_log.py",
+  "test": "test_the_drive_a_folder_is_on_is_the_deepest_mount_holding_it"
+ },
+ {
+  "id": "drive-network-share-called-local",
+  "source": "comic_archive/osdep.py",
+  "old": "    if system in NETWORK_FILE_SYSTEMS:\n        return 'network', system\n",
+  "new": "",
+  "test_file": "test_support_log.py",
+  "test": "test_the_drive_a_folder_is_on_is_the_deepest_mount_holding_it"
+ },
+ {
+  "id": "download-changes-not-logged",
+  "source": "comic_archive/download_control.py",
+  "old": "    if why or old is None or tuple(old) != (value['status'], value['code'], value['stage']):\n",
+  "new": "    if why or old is None:\n",
+  "test_file": "test_download_control.py",
+  "test": "test_go_each_step_each_wait_pause_and_a_start_of_the_app_are_logged_by_code"
+ },
+ {
+  "id": "download-persons-step-not-named",
+  "source": "comic_archive/download_control.py",
+  "old": " + (f' ({why})' if why else ''))",
+  "new": ")",
+  "test_file": "test_download_control.py",
+  "test": "test_go_each_step_each_wait_pause_and_a_start_of_the_app_are_logged_by_code"
+ },
+ {
+  "id": "download-step-error-code-not-logged",
+  "source": "comic_archive/download_control.py",
+  "old": "        said.append(response['error_code'])\n",
+  "new": "        pass\n",
+  "test_file": "test_download_control.py",
+  "test": "test_go_each_step_each_wait_pause_and_a_start_of_the_app_are_logged_by_code"
+ },
+ {
+  "id": "download-check-counts-not-logged",
+  "source": "comic_archive/download_control.py",
+  "old": "        LOG.info('download: the check counted ' + ', '.join(f'{key} {n}' for key, n in sorted(value['audit'].items())))\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_check_logs_what_it_counted_and_the_hold_it_leads_to"
+ },
+ {
+  "id": "download-controller-failure-not-logged",
+  "source": "comic_archive/download_control.py",
+  "old": "        LOG.error(f'download: the controller failed: {describe(error)}')\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_controller_failure_is_logged_by_class_and_place_never_its_text"
+ },
+ {
+  "id": "download-history-newest-first",
+  "source": "comic_archive/download_control.py",
+  "old": "LIMIT ?) ORDER BY reserved_at'",
+  "new": "LIMIT ?) ORDER BY reserved_at DESC'",
+  "test_file": "test_download_control.py",
+  "test": "test_the_history_for_support_is_the_download_now_and_its_last_steps_oldest_first"
+ },
+ {
+  "id": "unsupported-episode-not-logged",
+  "source": "comic_archive/jobs.py",
+  "old": "                            print(f\"Episode {key} of series {current['series_id']}: not saved, {code} ({describe(error)}).\",\n                                  flush=True)\n",
+  "new": "",
+  "test_file": "test_jobs.py",
+  "test": "test_unsupported_reason_is_preserved_without_raw_exception_or_unknown_codes"
+ },
+ {
+  "id": "failed-step-place-not-logged",
+  "source": "comic_archive/jobs.py",
+  "old": "            print(f'This step stopped: {describe(error)}.', flush=True)\n",
+  "new": "",
+  "test_file": "test_jobs.py",
+  "test": "test_an_episode_that_keeps_failing_is_tried_after_the_others_and_then_held"
+ },
+ {
+  "id": "unexpected-task-failure-not-logged",
+  "source": "comic_archive/worker.py",
+  "old": "                        print(f\"Task {task_id} failed unexpectedly: {describe(error)}\", flush=True)\n",
+  "new": "",
+  "test_file": "test_worker.py",
+  "test": "test_unusable_requests_get_an_error_response_without_raw_exception_text"
+ },
+ {
+  "id": "downloader-log-never-trimmed",
+  "source": "comic_archive/background.py",
+  "old": "        trim(log)  # Nothing writes to it now: no downloader is running.\n",
+  "new": "",
+  "test_file": "test_background.py",
+  "test": "test_start_uses_only_fixed_detached_headless_command_and_private_log"
+ },
+ {
+  "id": "window-download-steps-not-logged",
+  "source": "comic_archive/app_runtime.py",
+  "old": "    logs = (LOG, logging.getLogger(support_log.DOWNLOAD_LOG))\n",
+  "new": "    logs = (LOG,)\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_log_file_is_private_replaced_not_duplicated_and_never_follows_a_symlink"
+ },
+ {
+  "id": "saved-log-keeps-library-folder",
+  "source": "comic_archive/window_pages.py",
+  "old": "support_log.app_log(state_dir()), libraries)",
+  "new": "support_log.app_log(state_dir()), [])",
+  "test_file": "test_window_pages.py",
+  "test": "test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder"
+ },
+ {
+  "id": "saved-log-without-app-log",
+  "source": "comic_archive/window_pages.py",
+  "old": "support_log.bundle(details, records, support_log.app_log(state_dir()), libraries)",
+  "new": "support_log.bundle(details, records, '', libraries)",
+  "test_file": "test_window_pages.py",
+  "test": "test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder"
+ },
+ {
+  "id": "site-records-not-asked-for",
+  "source": "comic_archive/app_actions.py",
+  "old": "        return site_records(runtime.site.name, workspace.session, workspace.library), str(runtime.root)\n",
+  "new": "        return '', str(runtime.root)\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_sites_records_for_support_come_from_its_own_library_with_its_folder_to_leave_out"
  }
 ]

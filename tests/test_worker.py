@@ -56,7 +56,7 @@ class WorkerTests(unittest.TestCase):
         return Path(temporary.name)
 
     def serve_one_pass(self,session,adapter,**options):
-        with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=adapter), \
+        with patch('builtins.print') as self.printed,patch('comic_archive.worker.TapasAdapter',return_value=adapter), \
                 patch('comic_archive.cloud.upload_pending',side_effect=adapter.upload), \
                 patch('comic_archive.worker.time.sleep',side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):run_worker(session,'firefox',**options)
@@ -404,6 +404,10 @@ class WorkerTests(unittest.TestCase):
                 adapter=RecordingAdapter();self.serve_one_pass(session,adapter)
                 response=root/'responses/test-task.json';value=json.loads(response.read_text())
                 self.assertEqual(value['status'],'error');self.assertEqual(value['error'],message)
+                printed='\n'.join(' '.join(map(str,call.args)) for call in self.printed.call_args_list)
+                self.assertNotIn('PRIVATE',printed)
+                if code is None:  # Unexpected: the log says what kind of failure and where, for support.
+                    self.assertRegex(printed,r'Task test-task failed unexpectedly: JSONDecodeError at [a-z_]+\.py:[0-9]+')
                 self.assertEqual(value.get('error_code'),code);self.assertNotIn('PRIVATE',response.read_text())
                 self.assertEqual(response.stat().st_mode&0o777,PRIVATE_FILE)
                 self.assertEqual(adapter.calls,[]);self.assertFalse(request.exists())

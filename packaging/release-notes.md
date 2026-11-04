@@ -18,7 +18,10 @@
   where it stopped. Going back to an older version after that starts the list and series checks again; nothing
   you have saved is lost.
 - **Asking for help is easier.** **Settings → About → Copy details for support** copies a short summary of each
-  site's download to paste into a message. It has no series titles, folder names or sign-in details.
+  site's download to paste into a message. It has no series titles, folder names or sign-in details. If you are
+  asked for the app's log, **Save log for support** next to it puts everything the app recorded in one file in
+  your Downloads folder, to attach to an email. Series and episodes are in it by number only, never by title, and
+  it has no folder names or sign-in details.
 
 ## Download
 

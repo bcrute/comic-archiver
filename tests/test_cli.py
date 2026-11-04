@@ -26,11 +26,15 @@ class CLITests(unittest.TestCase):
             serve.assert_called_once()
             command.assert_called_once_with(args)
 
+    @patch('comic_archive.support_log.downloader_output')
     @patch('comic_archive.worker.run_worker')
-    def test_browser_worker_runs_the_fixed_worker(self,worker):
+    def test_browser_worker_runs_the_fixed_worker(self,worker,output):
         args=parser().parse_args(['--browser','firefox','--headless','browser-worker'])
-        run(args)
+        with patch('comic_archive.license_texts.version', return_value='9.9.9'):
+            run(args)
         worker.assert_called_once_with(args.session_dir,'firefox',True,1.0)
+        # Its output is stamped and its download's decisions logged before anything runs.
+        output.assert_called_once_with('9.9.9')
 
     def test_main_turns_failures_into_exit_codes_and_never_echoes_raw_exceptions(self):
         secret = 'https://cdn.example/page.png?token=SECRET'
@@ -78,7 +82,8 @@ class CLITests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 0)
             self.assertIn('comic-archive', out.getvalue())
             link = Path(tmp) / '.comic-session'
-            with patch('comic_archive.worker._run_worker') as work, self.assertRaises(ArchiveError):
+            with patch('comic_archive.worker._run_worker') as work, patch('comic_archive.support_log.downloader_output'), \
+                    self.assertRaises(ArchiveError):
                 run(parser().parse_args(['--session-dir', str(link), 'browser-worker']))
             work.assert_not_called()
             self.assertEqual(list((Path(tmp) / 'elsewhere').iterdir()), [])

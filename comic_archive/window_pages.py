@@ -8,7 +8,7 @@ import functools
 import html
 import time
 
-from . import app_actions, dashboard_model, library_model, license_texts, storage_model, support_details
+from . import app_actions, dashboard_model, library_model, license_texts, storage_model, support_details, support_log
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
 
@@ -79,6 +79,11 @@ ABOUT = ('Copyright 2026 Ben Crute. Comic Archiver is free software under the MI
 SUPPORT = ('Asking for help? This copies a short summary of each site’s download to paste into your message: the '
            'app’s version, counts and the app’s own codes. It has no series titles, folder names or sign-in details.')
 SUPPORT_COPIED = 'Copied. Paste it into your message or email.'
+SUPPORT_LOG = ('Asked for the app’s log? Save log for support puts it in one file in your Downloads folder, to attach to '
+               'an email. It has the app’s own messages and each site’s series and episode numbers, but no titles, '
+               'folder names or sign-in details.')
+LOG_SAVED = 'Saved in your Downloads folder as “{name}”.'
+LOG_FAILED = 'The log could not be saved. Check that your Downloads folder can be written to.'
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 900
 
@@ -653,10 +658,12 @@ class Settings:
         box.addWidget(kit.label(f'Comic Archiver {license_texts.version()}', 'strong'))
         box.addWidget(kit.label(ABOUT, 'muted'))
         box.addWidget(kit.label(SUPPORT, 'muted'))
+        box.addWidget(kit.label(SUPPORT_LOG, 'muted'))
         self.support = kit.button('Copy details for support', pages.copy_support_details, 'secondary')
+        self.save_log = kit.button('Save log for support', pages.save_support_log, 'secondary')
         self.support_note = kit.label('', 'muted', wrap=False)
         self.support_note.setVisible(False)
-        box.addWidget(kit.row(self.support, self.support_note))
+        box.addWidget(kit.row(self.support, self.save_log, self.support_note))
         self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
         self.license_choice.setAccessibleName('License to read')
         box.addWidget(kit.row(self.license_choice))
@@ -1525,15 +1532,49 @@ class Pages:
             if dashboard_model.view(self.of(key), now)['go_enabled']:
                 self.go(key)
 
-    def copy_support_details(self):
-        """Put every working site's details for support on the clipboard, for the person to paste into a message."""
+    def support_details(self):
+        """Every working site's details for support, as the person would paste them into a message."""
         sites = self.state.sites or site_choices(find_site(self.chosen) or DEFAULT)
         shown = self.shown()
-        details = support_details.text(license_texts.version(), [
+        return support_details.text(license_texts.version(), [
             (item['name'], self.states.get(item['key']) if item['key'] in shown else None)
             for item in sites if item.get('available')])
-        self.q.QtGui.QGuiApplication.clipboard().setText(details)
+
+    def copy_support_details(self):
+        """Put the details for support on the clipboard, for the person to paste into a message."""
+        self.q.QtGui.QGuiApplication.clipboard().setText(self.support_details())
         say(self.settings.support_note, SUPPORT_COPIED)
+
+    def downloads(self):
+        """The folder a log saved for support goes in: the person's Downloads folder, or their home folder."""
+        paths = self.q.QtCore.QStandardPaths
+        return (paths.writableLocation(paths.StandardLocation.DownloadLocation)
+                or paths.writableLocation(paths.StandardLocation.HomeLocation))
+
+    def save_support_log(self):
+        """Save one file for support in the Downloads folder: the details, each open site's records and the app log."""
+        folder = self.downloads()
+        details, sites = self.support_details(), [self.actions_for(key) for key in self.open_keys()]
+        button = self.settings.save_log
+        button.setEnabled(False)
+
+        def work():
+            from .app_runtime import state_dir
+            records, libraries = [], []
+            for actions in sites:
+                try:
+                    text, library = actions.support_records()
+                except app_actions.Refused as refusal:
+                    text, library = f'=== A site could not be read: {refusal.code}', None
+                records.append(text)
+                libraries += [library] if library else []
+            text = support_log.bundle(details, records, support_log.app_log(state_dir()), libraries)
+            return support_log.save(folder, text)
+
+        def done(path, error):
+            button.setEnabled(True)
+            say(self.settings.support_note, LOG_FAILED if error else LOG_SAVED.format(name=path.name), error is not None)
+        self.run(work, done)
 
     def pause_all(self):
         now = self.now()

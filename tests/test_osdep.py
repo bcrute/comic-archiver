@@ -42,7 +42,8 @@ class ReplaceTests(unittest.TestCase):
             self.assertEqual(osdep.read_text(self.old, encoding='utf-8'), 'old')
         self.assertEqual(refusals, [])
         with patch.object(osdep, 'WINDOWS', True), patch.object(osdep, 'READ_WAIT_SECONDS', .05):
-            with patch.object(Path, 'read_text', side_effect=PermissionError(13, 'in use')) as tried:
+            # A wait that never ends runs out of refusals, and fails, instead of holding the test up.
+            with patch.object(Path, 'read_text', side_effect=[PermissionError(13, 'in use')] * 100) as tried:
                 with self.assertRaises(PermissionError): osdep.read_text(self.old)
             self.assertGreater(tried.call_count, 1)
             with patch.object(Path, 'read_text', side_effect=FileNotFoundError(2, 'gone')) as tried:
