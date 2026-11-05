@@ -20,7 +20,7 @@ from .inventory import Inventory
 from .locking import LibraryLock
 from .models import ArchiveError
 from .monitoring import library_status
-from .osdep import NOFOLLOW, WINDOWS, detached
+from .osdep import NOFOLLOW, WINDOWS, detached, junction
 from .queue_client import submit_inspection, task_status
 from .workspace import Workspace
 from .errors import DeviceFileOpenUnavailable
@@ -347,7 +347,9 @@ class LocalWorkspaceRegistry:
             raise ArchiveError('Workspace is unavailable for this owner.')
         workspace = Workspace(self.workspace_id, self.project_root)
         for path in (workspace.root, workspace.library, workspace.session):
-            if not path.is_dir() or any(p.is_symlink() for p in (path, *path.parents)):
+            # The library and session folders are the app's own: a junction there was put there by someone else.
+            if (not path.is_dir() or any(p.is_symlink() for p in (path, *path.parents))
+                    or (path != workspace.root and junction(path))):
                 raise ArchiveError('Workspace storage is unavailable; existing files are retained.')
         return workspace
 

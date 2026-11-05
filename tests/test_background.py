@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, junction
 from comic_archive import background, osdep, worker
 from comic_archive.locking import LibraryLock
 from comic_archive.models import ArchiveError
@@ -328,6 +328,17 @@ worker.run_worker(Path(sys.argv[1]),headless=True)
                 with self.subTest(action=action.__name__), self.assertRaises(ArchiveError):
                     action(session)
             self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_a_session_or_worker_folder_that_is_a_junction_is_refused(self):
+        with tempfile.TemporaryDirectory() as work:
+            project = Path(work)
+            for name in ('.comic-session', '.comic-session/worker'):
+                place = project / name.replace('/', '-')
+                folder = junction(self, place / name, project / 'elsewhere' / name)
+                for action in (background.status, background.stop, background.start):
+                    with self.subTest(name=name, action=action.__name__), self.assertRaises(ArchiveError):
+                        action(place / '.comic-session')
+                self.assertEqual(list(folder.iterdir()), [])
 
     def test_unreadable_worker_state_is_refused_and_no_stop_marker_is_written(self):
         with tempfile.TemporaryDirectory() as work:

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment
+from support import PRIVATE_FILE, PRIVATE_FOLDER, STATE_DEFAULT, STATE_HOME, home_environment, junction
 from comic_archive import app_runtime, archive_paths, sites, support_log
 from comic_archive.app_actions import Actions
 from comic_archive.account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
@@ -549,6 +549,21 @@ class AppRuntimeTests(unittest.TestCase):
         link = self.home / 'link'; link.symlink_to(self.home, target_is_directory=True)
         with self.assertRaises(ArchiveError) as caught: app_runtime.Runtime(link / 'Comic Archiver').start()
         self.assertIn('link', str(caught.exception)); self.assertIn('symlink', str(caught.exception))
+
+    def test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is(self):
+        outside = self.home / 'outside'
+        for name in ('.comic-session/worker/requests', 'Webtoon', 'Library/.archive-state/cloud', '.comic-shared'):
+            root = self.home / ('library-' + str(len(name)))
+            folder = junction(self, root / name, outside / name)
+            with self.assertRaises(ArchiveError) as caught:
+                app_runtime.Library(root).start()
+            self.assertEqual(str(caught.exception), app_runtime.REDIRECTED.format(root=root, folder=folder))
+            self.assertEqual(list(folder.iterdir()), [])  # Nothing was made, read or written in it.
+        # The library folder itself, and those around it, are the person's own: a drive mounted in a folder, say.
+        mounted = junction(self, self.home / 'mounted', self.home / 'drive')
+        runtime = app_runtime.Runtime(mounted / 'Comic Archiver'); self.addCleanup(runtime.stop, 0)
+        runtime.start()
+        self.assertEqual(runtime.folder, mounted / 'Comic Archiver/Library')
 
     def test_downloader_that_finished_starting_after_the_window_closed_is_asked_to_stop_at_once(self):
         self.sign_in(); self.runtime.start()

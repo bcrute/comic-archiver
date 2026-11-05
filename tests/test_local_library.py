@@ -6,7 +6,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, junction
 from comic_archive import sites
 from comic_archive.app_actions import Actions, Refused
 from comic_archive.inventory import Inventory
@@ -312,6 +312,16 @@ class LocalLibraryTests(unittest.TestCase):
         library.unlink()
         with self.assertRaises(ArchiveError): self.registry.status(LOCAL_OWNER, self.workspace.id)
         self.assertFalse(library.exists() or library.is_symlink())
+
+    def test_a_library_or_session_folder_that_became_a_junction_is_refused(self):
+        for folder in (self.workspace.library, self.workspace.session):
+            with self.subTest(folder=folder.name):
+                folder.rename(folder.with_name(folder.name + '-moved'))
+                junction(self, folder, self.root / ('elsewhere' + folder.name))
+                with self.assertRaises(ArchiveError): self.registry.resolve(LOCAL_OWNER, self.workspace.id)
+                folder.rmdir()
+                folder.with_name(folder.name + '-moved').rename(folder)
+        self.assertEqual(self.registry.resolve(LOCAL_OWNER, self.workspace.id).library, self.workspace.library)
 
     def test_library_that_is_a_file_is_refused_and_left_alone(self):
         project = self.root / 'project'; project.mkdir()

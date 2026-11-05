@@ -17,7 +17,7 @@ from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from .models import ArchiveError
 from .session import load_session, store_session
-from .state_paths import private_folder
+from .state_paths import leads_elsewhere, private_folder
 from .storage import safe_root
 from .support_log import describe
 from .worker import WORKER_VERSION
@@ -32,6 +32,8 @@ END_WAIT_SECONDS = 5
 THEMES = ('system', 'light', 'dark')
 UNWRITABLE = ('The library folder cannot be opened or created. Check that it is a folder you can write to '
               'and that the disk is not full.')
+REDIRECTED = ('Comic Archiver cannot use "{root}" because this folder in it leads somewhere else (a junction):\n'
+              '{folder}\n\nComic Archiver never makes one there. Delete that junction, or choose another folder.')
 GONE = ('Comic Archiver cannot find its library folder:\n{folder}\n\nIt was renamed, moved or deleted. '
         'Choose the folder where it is now.')
 
@@ -383,16 +385,20 @@ class Runtime:
             root.mkdir(mode=0o700, exist_ok=True)
             place = safe_root(sites.folder(root, site))
             place.mkdir(mode=0o700, exist_ok=True)
-            # Made here, not later by the library, so that Windows hides them from the start.
-            session = private_folder(place, 'session')
-            private_folder(place, 'web')
-            share(place, private_folder(root, 'shared'))
-            return root, place, session, safe_root(session / 'state.json')
+            # Before anything is made, read or written in them.
+            junction = leads_elsewhere(root)
+            if junction is None:
+                # Made here, not later by the library, so that Windows hides them from the start.
+                session = private_folder(place, 'session')
+                private_folder(place, 'web')
+                share(place, private_folder(root, 'shared'))
+                return root, place, session, safe_root(session / 'state.json')
         except ArchiveError:
             raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '
                                'is a shortcut (symlink) to somewhere else. Choose a normal folder.') from None
         except OSError:
             raise ArchiveError(UNWRITABLE) from None
+        raise ArchiveError(REDIRECTED.format(root=self.project_root, folder=junction))
 
     def start(self):
         """Open the site's library in the library folder; the window reads it through this from now on."""

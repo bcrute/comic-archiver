@@ -4,7 +4,7 @@ import os
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, junction
 from comic_archive import background
 from comic_archive.models import ArchiveError
 from comic_archive.errors import LibraryBusy
@@ -480,6 +480,18 @@ class WorkerTests(unittest.TestCase):
                           [call.args[0] for call in output.call_args_list if call.args])
             self.assertEqual([p.name for p in elsewhere.iterdir()],['notes.json'])
             self.assertFalse((session/'worker/responses/test-task.json').exists())
+
+    def test_a_worker_whose_queue_folder_is_a_junction_never_starts_or_touches_it(self):
+        with tempfile.TemporaryDirectory() as work:
+            session=Path(work)/'Comic Archiver/.comic-session';elsewhere=Path(work)/'Documents'
+            requests=junction(self,session/'worker/requests',elsewhere)
+            (requests/'notes.json').write_text('{}')
+            with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()) as adapter:
+                with self.assertRaisesRegex(ArchiveError,'is a link; the worker does not start'):
+                    run_worker(session,'firefox')
+            adapter.assert_not_called()
+            self.assertEqual([p.name for p in requests.iterdir()],['notes.json'])
+            self.assertEqual([p.name for p in (session/'worker').iterdir()],['requests'])
 
     def test_an_idle_worker_whose_library_folder_was_renamed_stops_at_its_next_look(self):
         with tempfile.TemporaryDirectory() as work:

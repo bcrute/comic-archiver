@@ -19,10 +19,11 @@ from .state_paths import SESSION_NAME
 
 def root(session, create=False):
     session = Path(session).absolute()
-    if session.name != SESSION_NAME or any(p.is_symlink() for p in (session, *session.parents)):
+    if (session.name != SESSION_NAME or any(p.is_symlink() for p in (session, *session.parents))
+            or osdep.junction(session)):
         raise ArchiveError("Background mode uses the project's ordinary .comic-session directory.")
     result = session / "worker"
-    if any(p.is_symlink() for p in (result, *result.parents)):
+    if any(p.is_symlink() for p in (result, *result.parents)) or osdep.junction(result):
         raise ArchiveError("Worker paths must not be symlinked.")
     if create:
         directory(result).chmod(0o700)

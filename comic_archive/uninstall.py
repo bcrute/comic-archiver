@@ -16,7 +16,7 @@ import time
 from . import app_runtime, background, cloud, shared, sites
 from .app_runtime import LOG
 from .models import ArchiveError
-from .osdep import WINDOWS, replace_file
+from .osdep import WINDOWS, junction, replace_file
 from .session import forget_session
 from .state_paths import private_path
 from .storage import safe_root
@@ -83,6 +83,13 @@ def forget_connections(folder):
             record.unlink(missing_ok=True)
 
 
+def through_junction(path, root):
+    """Whether a folder between the library folder and path is a junction. The app never makes one there, so
+    nothing is stopped, read or removed through it; the library folder itself is the person's own."""
+    root = Path(root).absolute()
+    return any(junction(folder) for folder in (path, *path.parents) if root in folder.parents)
+
+
 def forget(root):
     """Forget the sign-ins and cloud keys kept in one library folder. False when a downloader would not stop."""
     stopped = True
@@ -92,11 +99,12 @@ def forget(root):
             session = private_path(place, 'session')
         except ArchiveError:
             continue  # A symlinked folder is never followed; the app never saved through one.
-        if session.is_dir():
+        if session.is_dir() and not through_junction(session, root):
             stopped = stop_downloader(session) and stopped
             forget_session(session)
         library = place / 'Library'
-        forget_connections(library / '.archive-state/cloud')
+        if not through_junction(library / '.archive-state/cloud', root):
+            forget_connections(library / '.archive-state/cloud')
         try:
             linked = shared.cloud_folder(library)
         except ArchiveError:
@@ -104,7 +112,8 @@ def forget(root):
         if linked is not None:
             forget_connections(linked)
     try:
-        forget_connections(private_path(root, 'shared') / 'cloud')
+        if not through_junction(private_path(root, 'shared') / 'cloud', root):
+            forget_connections(private_path(root, 'shared') / 'cloud')
     except ArchiveError:
         pass
     return stopped

@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 # Windows keeps no permission bits beyond read-only: a file there is private through the folder it lies in,
 # and Python reports every file as readable and writable by all.
@@ -43,3 +44,22 @@ posix_signals = unittest.skipIf(os.name == 'nt', 'Stopping a helper is POSIX sig
 # A download keeps the file it verified even when the library replaces it meanwhile. Windows gives the same
 # promise the other way round: it refuses the replacement while the file is being read, and the library waits.
 replaces_open_files = unittest.skipIf(os.name == 'nt', 'Windows does not replace a file that is being read.')
+
+
+def junction(case, link, target):
+    """A folder at link that leads to target, as a Windows junction does. Windows makes a real one. Elsewhere,
+    which has none, link is an ordinary folder the app is told is one, for the rest of the test."""
+    link.parent.mkdir(parents=True, exist_ok=True)
+    target.mkdir(parents=True, exist_ok=True)
+    if os.name == 'nt':
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+        return link
+    link.mkdir()
+    if not hasattr(case, '_junctions'):
+        case._junctions = set()
+        wrapper = patch('comic_archive.osdep._junction', lambda info: (info.st_dev, info.st_ino) in case._junctions)
+        wrapper.start(); case.addCleanup(wrapper.stop)
+    info = os.lstat(link)
+    case._junctions.add((info.st_dev, info.st_ino))
+    return link

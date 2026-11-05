@@ -5774,5 +5774,77 @@
   "new": "        flags = os.O_RDONLY | NONBLOCK | getattr(os, 'O_BINARY', 0)\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_speed_file_that_is_a_link_is_never_written_or_read_through"
+ },
+ {
+  "id": "library-with-junction-opened",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            if junction is None:\n",
+  "new": "            if True:\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
+ },
+ {
+  "id": "library-junctions-never-looked-for",
+  "source": "comic_archive/state_paths.py",
+  "old": "    return next((folder for folder in found if osdep.junction(folder)), None)\n",
+  "new": "    return None\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
+ },
+ {
+  "id": "persons-own-junction-refused",
+  "source": "comic_archive/state_paths.py",
+  "old": "    found = [root / '.comic-shared', root / '.comic-shared/cloud']\n",
+  "new": "    found = [root, root.parent, root / '.comic-shared', root / '.comic-shared/cloud']\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
+ },
+ {
+  "id": "uninstall-follows-junction",
+  "source": "comic_archive/uninstall.py",
+  "old": "    return any(junction(folder) for folder in (path, *path.parents) if root in folder.parents)\n",
+  "new": "    return False\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_junction_in_a_library_folder_is_never_followed_but_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "uninstall-refuses-persons-junction",
+  "source": "comic_archive/uninstall.py",
+  "old": " if root in folder.parents)\n",
+  "new": ")\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_junction_in_a_library_folder_is_never_followed_but_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "downloader-session-junction-followed",
+  "source": "comic_archive/background.py",
+  "old": "            or osdep.junction(session)):\n",
+  "new": "            ):\n",
+  "test_file": "test_background.py",
+  "test": "test_a_session_or_worker_folder_that_is_a_junction_is_refused"
+ },
+ {
+  "id": "downloader-worker-junction-followed",
+  "source": "comic_archive/background.py",
+  "old": " or osdep.junction(result):\n",
+  "new": ":\n",
+  "test_file": "test_background.py",
+  "test": "test_a_session_or_worker_folder_that_is_a_junction_is_refused"
+ },
+ {
+  "id": "worker-starts-through-junction",
+  "source": "comic_archive/worker.py",
+  "old": "    if any(linked(Path(session)/name) for name in ('','worker','worker/requests','worker/responses')):\n",
+  "new": "    if False:\n",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_whose_queue_folder_is_a_junction_never_starts_or_touches_it"
+ },
+ {
+  "id": "library-resolve-follows-junction",
+  "source": "comic_archive/local_library.py",
+  "old": "                    or (path != workspace.root and junction(path))):\n",
+  "new": "                    ):\n",
+  "test_file": "test_local_library.py",
+  "test": "test_a_library_or_session_folder_that_became_a_junction_is_refused"
  }
 ]

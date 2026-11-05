@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from support import home_environment
+from support import home_environment, junction
 from comic_archive import app_runtime, sites, uninstall
 from comic_archive.models import ArchiveError
 from comic_archive.session import store_session
@@ -111,6 +111,27 @@ class UninstallTests(unittest.TestCase):
         (self.root / 'Webtoon').unlink()
         self.assertTrue(uninstall.forget_all())
         self.assertTrue((outside / 'place/.comic-session/state.json').is_file())
+
+    def test_a_junction_in_a_library_folder_is_never_followed_but_one_around_it_is_the_persons_own(self):
+        outside = self.home / 'outside'
+        session = junction(self, self.root / 'Webtoon/.comic-session', outside / 'session')
+        (session / 'state.json').write_text('{}')
+        shared = junction(self, self.root / '.comic-shared/cloud', outside / 'shared')
+        library = junction(self, self.root / 'Library', outside / 'library')
+        for folder in (shared, library / '.archive-state/cloud'):
+            connection(folder)
+        own = sign_in(self.root)
+        with patch('comic_archive.uninstall.background.status', return_value={'running': False}) as status:
+            self.assertTrue(uninstall.forget_all())
+        self.assertEqual([call.args[0] for call in status.call_args_list], [own])
+        self.assertFalse((own / 'state.json').exists())
+        for path in (session / 'state.json', shared / 'connection-1.conf', library / '.archive-state/cloud/connection-1.conf'):
+            self.assertTrue(path.is_file(), path)
+        mounted = junction(self, self.home / 'mounted', self.home / 'drive')
+        session = sign_in(mounted / 'Comic Archiver')
+        app_runtime.remember_library(mounted / 'Comic Archiver')
+        self.assertTrue(uninstall.forget_all())
+        self.assertFalse((session / 'state.json').exists())
 
     def test_a_downloader_still_running_is_asked_to_stop_then_ended_and_the_sign_in_goes_regardless(self):
         session = sign_in(self.root)

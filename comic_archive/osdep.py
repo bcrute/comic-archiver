@@ -242,8 +242,21 @@ def linked(path):
         info = os.lstat(path)
     except OSError:
         return False
+    return stat.S_ISLNK(info.st_mode) or _junction(info)
+
+
+def junction(path):
+    """Whether path is a Windows junction: a folder that leads somewhere else, which Path.is_symlink does not see.
+    A drive mounted in a folder is one too. Never true elsewhere."""
+    try:
+        return _junction(os.lstat(path))
+    except OSError:
+        return False
+
+
+def _junction(info):
     # Only Windows has reparse tags, and the stat module names them only there.
-    return stat.S_ISLNK(info.st_mode) or (WINDOWS and info.st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT)
+    return WINDOWS and info.st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT
 
 
 def python_environment(environ):

@@ -207,6 +207,9 @@ def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapt
                fast_session_factory=None):
     from .locking import LibraryLock
     from .archive_paths import kept
+    # Nothing is made, read or removed through a folder that leads somewhere else.
+    if any(linked(Path(session)/name) for name in ('','worker','worker/requests','worker/responses')):
+        raise ArchiveError('A folder the worker reads its tasks from is a link; the worker does not start.')
     # One process consumes each private queue; separate user workers remain independent.
     root=directory(Path(session)/'worker')
     # The site's folder holds the library and this queue; if it moves, the worker stops rather than make it again.
