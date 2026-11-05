@@ -17,6 +17,13 @@ class FastImportTests(unittest.TestCase):
         self.addCleanup(self.work.cleanup)
         self.root = Path(self.work.name) / 'Library'
 
+    def test_fast_keeps_under_the_pace_tapas_allows_for_its_own_pages(self):
+        from comic_archive import fast_import
+        # Hours at about 50 requests a minute were never refused; 70 was, every half hour.
+        self.assertLessEqual(60 / fast_import.FAST_METADATA_INTERVAL, 48)
+        # Images come from Tapas's image servers, which never refused the fast pace.
+        self.assertEqual((fast_import.FAST_INTERVAL, fast_import.FAST_WORKERS), (1 / 128, 64))
+
     def test_four_asset_slots_preserve_order_and_byte_reservations(self):
         owner = threading.get_ident()
         barrier = threading.Barrier(4)

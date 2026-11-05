@@ -283,13 +283,20 @@ class TapasHTTPAdapter:
         match = re.fullmatch(r"https://tapas\.io/episode/([0-9]+)", url or "")
         if not match:
             raise ArchiveError("Use an exact https://tapas.io/episode/<numeric-id> URL.")
-        self.stage = "session"
-        self.check_session()
+        # The sign-in is checked when the step starts (account_identity), not before each episode: every request
+        # to tapas.io counts toward the pace Tapas allows, and a refusal says so itself.
         self.stage = "episode_metadata"
         info = self.json_get(f"/episode/{match[1]}/info")
         if type(info.get("id")) is not int or str(info["id"]) != match[1]:
             raise ArchiveError("Tapas episode metadata identifies a different episode.")
-        access = access_state(info)  # Gate before requesting the reader or images.
+        try:
+            access = access_state(info)  # Gate before requesting the reader or images.
+        except AccessDenied:
+            # A sign-in that ended since is not refused: every bought episode just reads as locked. Said as a
+            # sign-out, it is never recorded as an episode the account cannot read.
+            self.stage = "session"
+            self.check_session()
+            raise
         if order is None and (type(info.get("scene")) is not int or info["scene"] < 1):
             raise unsupported("Episode order is unverified; its reader will not be retrieved.",'order_unverified')
         self.stage = "reader_html"

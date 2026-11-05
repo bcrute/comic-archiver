@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from comic_archive.adapters.tapas_http import TapasHTTPAdapter, access_state
 from comic_archive.models import ArchiveError, Page, Series
-from comic_archive.errors import AccessDenied, MetadataError, UnsupportedContent
+from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 
 
 def envelope(value):
@@ -89,7 +89,7 @@ class TapasHTTPTests(unittest.TestCase):
                 self.adapter.capture('https://tapas.io/episode/81')
             self.assertEqual(error.exception.code,code)
             self.assertNotIn('PRIVATE',str(error.exception))
-            self.assertEqual(self.transport.get.call_count,2)
+            self.assertEqual(self.transport.get.call_count,1)
 
     def test_series_metadata_uses_observed_markup_and_cover_without_reader_requests(self):
         from test_series_metadata import HTML
@@ -130,9 +130,15 @@ class TapasHTTPTests(unittest.TestCase):
         self.adapter = TapasHTTPAdapter(transport=self.transport)
 
     def responses(self, info=None, html=None, user=None):
-        self.transport.get.side_effect = [envelope({"user": user if user is not None else {"id": 123, "uname": "PRIVATE_ACCOUNT"}}),
-            envelope(info if info is not None else self.info), html if html is not None else self.html,
-            envelope({"id": 42, "title": "Series", "url": "series-slug", "comic": True, "book": False})]
+        """Tapas as the adapter reads it, answered by address, so each test says which requests were made."""
+        answers = {"https://tapas.io/who-am-i": envelope({"user": user if user is not None else {"id": 123, "uname": "PRIVATE_ACCOUNT"}}),
+                   "https://tapas.io/episode/81/info": envelope(info if info is not None else self.info),
+                   "https://tapas.io/episode/81": html if html is not None else self.html,
+                   "https://tapas.io/series/42": envelope({"id": 42, "title": "Series", "url": "series-slug", "comic": True, "book": False})}
+        self.transport.get.side_effect = lambda url, **options: answers[url]
+
+    def requested(self):
+        return [call.args[0] for call in self.transport.get.call_args_list]
 
     def test_explicit_temporary_unlock_captures_expiry_after_normal_account_and_reader_checks(self):
         from datetime import datetime, timezone
@@ -142,7 +148,7 @@ class TapasHTTPTests(unittest.TestCase):
             manifest=self.adapter.capture('https://tapas.io/episode/81')
         self.assertEqual(manifest.episodes[0].access,'tapas_unlocked')
         self.assertEqual(manifest.episodes[0].access_expires_at,'2026-10-08T20:00:00+00:00')
-        self.assertEqual(self.transport.get.call_count,4)
+        self.assertEqual(self.transport.get.call_count,3)
 
     def test_grant_expiring_between_metadata_and_reader_does_not_start_reader(self):
         from datetime import datetime, timezone
@@ -151,7 +157,7 @@ class TapasHTTPTests(unittest.TestCase):
         self.responses(info=self.info|{'closing_date':deadline.isoformat()})
         with patch('comic_archive.expiry.now',side_effect=[before,deadline]),self.assertRaises(AccessDenied):
             self.adapter.capture('https://tapas.io/episode/81')
-        self.assertEqual(self.transport.get.call_count,2)
+        self.assertEqual(self.transport.get.call_count,1)
 
     def test_authenticated_info_gate_html_order_and_automatic_metadata(self):
         self.responses()
@@ -163,9 +169,9 @@ class TapasHTTPTests(unittest.TestCase):
         self.assertEqual(episode.title, "Episode 1")
         self.assertEqual(episode.published_at, "2023-07-19T18:00:00Z")
         self.assertEqual([p.order for p in episode.pages], [1, 2])
-        self.assertEqual([call.args[0] for call in self.transport.get.call_args_list], [
-            "https://tapas.io/who-am-i", "https://tapas.io/episode/81/info",
-            "https://tapas.io/episode/81", "https://tapas.io/series/42"])
+        # No sign-in check before each episode: the step checked it when it started.
+        self.assertEqual(self.requested(), [
+            "https://tapas.io/episode/81/info", "https://tapas.io/episode/81", "https://tapas.io/series/42"])
         self.assertNotIn("PRIVATE_ACCOUNT", repr(result))
 
     def test_only_reader_html_403_after_fresh_access_gate_is_retry_eligible(self):
@@ -173,24 +179,27 @@ class TapasHTTPTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 failure=ArchiveError('PRIVATE response')
                 failure.source_http_status=403; failure.source_response_kind=kind
-                self.transport.get.side_effect=[envelope({'user':{'id':123}}),envelope(self.info),failure]
+                self.transport.get.side_effect=[envelope(self.info),failure]
                 with self.assertRaises(ArchiveError) as caught:self.adapter.capture('https://tapas.io/episode/81')
                 self.assertEqual(getattr(caught.exception,'source_retry_episode_id',None),'81' if eligible else None)
         failure=ArchiveError('PRIVATE metadata response');failure.source_http_status=403;failure.source_response_kind='html'
-        self.transport.get.side_effect=[envelope({'user':{'id':123}}),failure]
+        self.transport.get.side_effect=[failure]
         with self.assertRaises(ArchiveError) as caught:self.adapter.capture('https://tapas.io/episode/81')
         self.assertFalse(hasattr(caught.exception,'source_retry_episode_id'))
 
     def test_locked_wuf_preview_and_inconsistent_flags_stop_before_reader_or_assets(self):
-        for updates in ({"free": False, "unlocked": False}, {"free": False, "unlocked": False, "must_pay": True},
-                        {"scheduled": True}, {"closing_date": "expired"},
-                        {"free": "true", "unlocked": 1}):
+        info = "https://tapas.io/episode/81/info"
+        # Locked: the sign-in is checked then, as a sign-in that ended reads every bought episode as locked.
+        for updates, requests in (({"free": False, "unlocked": False}, [info, "https://tapas.io/who-am-i"]),
+                                  ({"free": False, "unlocked": False, "must_pay": True}, [info, "https://tapas.io/who-am-i"]),
+                                  ({"scheduled": True}, [info]), ({"closing_date": "expired"}, [info]),
+                                  ({"free": "true", "unlocked": 1}, [info])):
             with self.subTest(updates=updates):
                 self.transport.reset_mock()
                 self.responses(info=self.info | updates)
                 with self.assertRaises(ArchiveError):
                     self.adapter.capture("https://tapas.io/episode/81")
-                self.assertEqual(self.transport.get.call_count, 2)
+                self.assertEqual(self.requested(), requests)
 
     def test_unlocked_flag_requires_explicit_boolean_and_current_allowed_state(self):
         self.assertEqual(access_state(self.info | {"free": False, "unlocked": True}), "tapas_unlocked")
@@ -204,25 +213,35 @@ class TapasHTTPTests(unittest.TestCase):
         with self.assertRaises(AccessDenied):
             access_state(paid_only | {"unlocked": False})
 
-    def test_no_session_and_wrong_episode_stop_before_reader(self):
+    def test_a_sign_in_ended_since_the_step_began_is_a_sign_out_not_a_locked_episode(self):
+        locked = self.info | {"free": False, "unlocked": False}
         for user in ({}, {"id": 0}, {"id": True}, {"id": "123"}):
             self.transport.reset_mock()
-            self.responses(user=user)
-            with self.assertRaises(ArchiveError):
+            self.responses(info=locked, user=user)
+            with self.assertRaises(AuthenticationError):
                 self.adapter.capture("https://tapas.io/episode/81")
-            self.assertEqual(self.transport.get.call_count, 1)
+            self.assertEqual(self.requested(), ["https://tapas.io/episode/81/info", "https://tapas.io/who-am-i"])
+        # Still signed in: the episode really is locked to this account.
+        self.responses(info=locked)
+        with self.assertRaises(AccessDenied):
+            self.adapter.capture("https://tapas.io/episode/81")
         self.transport.reset_mock()
         self.responses(info=self.info | {"id": 82})
         with self.assertRaises(ArchiveError):
             self.adapter.capture("https://tapas.io/episode/81")
-        self.assertEqual(self.transport.get.call_count, 2)
+        self.assertEqual(self.transport.get.call_count, 1)
 
     def test_expected_account_change_stops_before_episode_metadata_or_reader(self):
         self.adapter.expected_account_id = "999"
         self.responses()
-        with self.assertRaises(ArchiveError):
+        # Checked as each step starts, before any episode.
+        with self.assertRaises(AuthenticationError):
+            self.adapter.account_identity()
+        self.assertEqual(self.requested(), ["https://tapas.io/who-am-i"])
+        # Another account signed in during the step: its locked answers are a sign-out, not locked episodes.
+        self.responses(info=self.info | {"free": False, "unlocked": False})
+        with self.assertRaises(AuthenticationError):
             self.adapter.capture("https://tapas.io/episode/81")
-        self.assertEqual(self.transport.get.call_count, 1)
 
     def test_access_probe_never_requests_the_reader_or_page_assets(self):
         self.responses(info=self.info | {"free": False, "unlocked": True})
@@ -239,7 +258,7 @@ class TapasHTTPTests(unittest.TestCase):
             self.responses(html=html)
             with self.assertRaises(ArchiveError):
                 self.adapter.capture("https://tapas.io/episode/81")
-            self.assertEqual(self.transport.get.call_count, 3)
+            self.assertEqual(self.transport.get.call_count, 2)
 
     def test_wrong_series_id_and_error_payload_are_safe(self):
         self.responses()
@@ -434,7 +453,7 @@ class TapasHTTPTests(unittest.TestCase):
         self.responses(html=self.html.replace(b'var seriesId = 42;', b'var seriesId = 42; var series_id = "43";'))
         with self.assertRaises(MetadataError):
             self.adapter.capture('https://tapas.io/episode/81')
-        self.assertEqual(self.transport.get.call_count, 3)
+        self.assertEqual(self.transport.get.call_count, 2)
 
     def test_publish_time_is_kept_only_when_it_is_a_short_iso_date(self):
         for value, expected in (('2023-07-19T18:00:00Z', '2023-07-19T18:00:00Z'),
@@ -534,7 +553,7 @@ class TapasHTTPTests(unittest.TestCase):
             with self.subTest(scene=scene), self.assertRaises(UnsupportedContent) as error:
                 self.adapter.capture('https://tapas.io/episode/81')
             self.assertEqual(error.exception.code, 'order_unverified')
-            self.assertEqual(self.transport.get.call_count, 2)
+            self.assertEqual(self.transport.get.call_count, 1)
         self.responses(info=self.info | {'scene': None})
         self.assertEqual(self.adapter.capture('https://tapas.io/episode/81', order=7).episodes[0].order, 7)
 
@@ -546,9 +565,9 @@ class TapasHTTPTests(unittest.TestCase):
             self.responses(html=html)
             with self.subTest(message=message), self.assertRaisesRegex(ArchiveError, message):
                 self.adapter.capture('https://tapas.io/episode/81')
-            self.assertEqual(self.transport.get.call_count, 3)
+            self.assertEqual(self.transport.get.call_count, 2)
         self.transport.reset_mock()
-        self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope(self.info), self.html,
+        self.transport.get.side_effect = [envelope(self.info), self.html,
             envelope({'id': 42, 'title': 'Series', 'url': 'bad slug', 'comic': True, 'book': False})]
         with self.assertRaisesRegex(ArchiveError, 'slug'):
             self.adapter.capture('https://tapas.io/episode/81')

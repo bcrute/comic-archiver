@@ -13,6 +13,7 @@ from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import digest, verify, verify_episode, verify_episode_contents
 from comic_archive.audit import audit_library
 from comic_archive.errors import AccessDenied, UnsupportedContent
+from comic_archive.fast_import import FAST_METADATA_INTERVAL
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered, sync, DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Series
@@ -208,26 +209,28 @@ class NovelTests(unittest.TestCase):
 
     def test_http_capture_checks_identity_access_and_novel_series_before_export(self):
         transport = Mock()
-        transport.get.side_effect = [envelope({'user': {'id': 11}}), envelope(INFO), HTML.encode(),
+        transport.get.side_effect = [envelope(INFO), HTML.encode(),
                                     envelope({'id': 42, 'title': 'Novel', 'url': 'novel', 'book': True, 'comic': False})]
         manifest = TapasHTTPAdapter(transport=transport).capture('https://tapas.io/episode/81')
         self.assertEqual(manifest.episodes[0].content_type, 'novel')
         self.assertEqual(manifest.episodes[0].pages, ())
         self.assertEqual(manifest.episodes[0].text_html, fragment())
         self.assertNotIn('First &', repr(manifest))
+        # The sign-in is checked when the step starts, not before each episode.
         self.assertEqual([c.args[0] for c in transport.get.call_args_list], [
-            'https://tapas.io/who-am-i', 'https://tapas.io/episode/81/info',
-            'https://tapas.io/episode/81', 'https://tapas.io/series/42'])
+            'https://tapas.io/episode/81/info', 'https://tapas.io/episode/81', 'https://tapas.io/series/42'])
 
     def test_locked_novel_stops_before_reader_and_wrong_series_content_stops_capture(self):
-        for updates in ({'free': False, 'must_pay': True}, {'free': False}, {'scheduled': True}, {'closing_date': 'temporary'}):
+        # A locked answer checks the sign-in once (it may have ended); the other holds need no check.
+        for updates, requests in (({'free': False, 'must_pay': True}, 2), ({'free': False}, 2),
+                                  ({'scheduled': True}, 1), ({'closing_date': 'temporary'}, 1)):
             transport = Mock()
-            transport.get.side_effect = [envelope({'user': {'id': 11}}), envelope(INFO | updates)]
+            transport.get.side_effect = [envelope(INFO | updates), envelope({'user': {'id': 11}})]
             with self.assertRaises(ArchiveError):
                 TapasHTTPAdapter(transport=transport).capture('https://tapas.io/episode/81')
-            self.assertEqual(transport.get.call_count, 2)
+            self.assertEqual(transport.get.call_count, requests)
         transport = Mock()
-        transport.get.side_effect = [envelope({'user': {'id': 11}}), envelope(INFO), HTML.encode(),
+        transport.get.side_effect = [envelope(INFO), HTML.encode(),
                                     envelope({'id': 42, 'title': 'Comic', 'url': 'comic', 'book': False, 'comic': True})]
         with self.assertRaises(ArchiveError):
             TapasHTTPAdapter(transport=transport).capture('https://tapas.io/episode/81')
@@ -284,7 +287,7 @@ class NovelTests(unittest.TestCase):
     @patch('builtins.print')
     def test_fast_metadata_scan_preserves_access_checks_without_assets_and_restores_pacing(self, output):
         self.seed()
-        self.adapter.metadata_interval = 1.25
+        self.adapter.metadata_interval = 2.5
         intervals = []
         original = self.adapter.inspect_series
         def inspect(*args, **kwargs):
@@ -292,8 +295,8 @@ class NovelTests(unittest.TestCase):
             return original(*args, **kwargs)
         self.adapter.inspect_series = inspect
         result = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, metadata_speed='fast')
-        self.assertEqual(intervals, [.5])
-        self.assertEqual(self.adapter.metadata_interval, 1.25)
+        self.assertEqual(intervals, [FAST_METADATA_INTERVAL])
+        self.assertEqual(self.adapter.metadata_interval, 2.5)
         self.assertEqual(result['archived_episode_ids'], [])
         self.assertEqual(result['downloaded_pages'], 0)
         with self.assertRaises(ArchiveError):

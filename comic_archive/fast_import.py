@@ -13,7 +13,10 @@ from .models import ArchiveError
 from .pipeline import MetadataPipeline
 
 FAST_INTERVAL = 1 / 128
-FAST_METADATA_INTERVAL = 1 / 2
+# Every request to tapas.io itself, apart from the images: 48 a minute. Downloads that kept to about 50 a minute
+# ran for hours unrefused; at 70 Tapas refused one every half hour, and at 100 within minutes. An episode takes three
+# (its details, its reader page and its series), so about 16 a minute at most.
+FAST_METADATA_INTERVAL = 1.25
 FAST_WORKERS = 64
 FAST_DEFAULTS = {'limit': 200, 'max_pages': 1000, 'max_bytes': 8 * 1024**3, 'max_seconds': 900}
 FAST_OPERATIONS = {'archive_discovered'}

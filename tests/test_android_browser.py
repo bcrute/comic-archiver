@@ -261,7 +261,8 @@ class BrowserAdapterTests(unittest.TestCase):
                 adapter.expected_account_id = '123'
                 actual = adapter.capture_automatic('https://tapas.io/episode/81')
                 self.assertEqual(actual, expected)
-        self.assertEqual(requests, list(responses))
+        # As on the desktop: the step checks the sign-in when it starts, not before each episode.
+        self.assertEqual(requests, list(responses)[1:])
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.session.iterdir() if p.is_file()})
         self.assertTrue(self.factory.native.closed)
 
