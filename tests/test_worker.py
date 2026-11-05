@@ -461,6 +461,26 @@ class WorkerTests(unittest.TestCase):
             self.assertFalse((moved/'responses/test-task.json').exists())
             self.assertFalse(background.running(moved))
 
+    def test_a_worker_whose_requests_folder_became_a_link_stops_and_removes_nothing_there(self):
+        with tempfile.TemporaryDirectory() as work:
+            library=Path(work)/'Comic Archiver';session=library/'session';requests=session/'worker/requests'
+            requests.mkdir(parents=True)
+            private_json(requests/'test-task.json',{'operation':'cloud_upload','args':{}})
+            elsewhere=Path(work)/'Documents';elsewhere.mkdir();(elsewhere/'notes.json').write_text('{}')
+            class Swapping(RecordingAdapter):
+                def upload(self,*args,**kwargs):
+                    requests.rename(session/'worker/old-requests');requests.symlink_to(elsewhere)  # While its task runs.
+                    return super().upload(*args,**kwargs)
+            adapter=Swapping()
+            with patch('builtins.print') as output,patch('comic_archive.worker.TapasAdapter',return_value=adapter), \
+                    patch('comic_archive.cloud.upload_pending',side_effect=adapter.upload), \
+                    patch('comic_archive.worker.time.sleep',side_effect=KeyboardInterrupt):
+                self.assertIsNone(run_worker(session,'firefox'))
+            self.assertIn('A folder the worker reads its tasks from became a link; the worker stops.',
+                          [call.args[0] for call in output.call_args_list if call.args])
+            self.assertEqual([p.name for p in elsewhere.iterdir()],['notes.json'])
+            self.assertFalse((session/'worker/responses/test-task.json').exists())
+
     def test_an_idle_worker_whose_library_folder_was_renamed_stops_at_its_next_look(self):
         with tempfile.TemporaryDirectory() as work:
             library=Path(work)/'Comic Archiver';session=library/'session';(session/'worker/requests').mkdir(parents=True)

@@ -19,6 +19,7 @@ from . import sites
 from .adapters.tapas import TapasAdapter
 from .archive import atomic_json, directory
 from .models import ArchiveError, identifier
+from .osdep import linked
 from .errors import AuthenticationError
 from .support_log import describe
 
@@ -310,10 +311,14 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
             def moved():
                 # Nothing more can be saved or answered there, and nothing is made again in its old place. A task
                 # that ended meanwhile is left queued in the folder, to run again when it is opened.
-                if place.is_dir():
-                    return False
-                print('The library folder was renamed, moved or deleted; the worker stops.', flush=True)
-                return True
+                if not place.is_dir():
+                    print('The library folder was renamed, moved or deleted; the worker stops.', flush=True)
+                    return True
+                # A queue folder swapped for a link would have requests read and removed somewhere else.
+                if any(linked(folder) for folder in (session, root, requests, responses)):
+                    print('A folder the worker reads its tasks from became a link; the worker stops.', flush=True)
+                    return True
+                return False
             while True:
                 if moved():
                     return

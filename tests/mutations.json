@@ -5702,5 +5702,61 @@
   "new": "            'can’t save yet' if False else",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions"
+ },
+ {
+  "id": "downloader-imports-from-library-folder",
+  "source": "comic_archive/background.py",
+  "old": "        command = [sys.executable, \"-P\", \"-m\", \"comic_archive\",",
+  "new": "        command = [sys.executable, \"-m\", \"comic_archive\",",
+  "test_file": "test_background.py",
+  "test": "test_start_uses_only_fixed_detached_headless_command_and_private_log"
+ },
+ {
+  "id": "cloud-join-removes-named-file",
+  "source": "comic_archive/cloud.py",
+  "old": "        if moved[name]['config'] != str(config) and config.parent == mine:\n",
+  "new": "        if moved[name]['config'] != str(config):\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_cut_short_removes_only_a_connection_file_from_the_librarys_own_cloud_folder"
+ },
+ {
+  "id": "zip64-end-record-unbounded",
+  "source": "comic_archive/connected/files.py",
+  "old": "    if end >= 20 and os.pread(source.fd, 4, end - 20) == b\"PK\\x06\\x07\":\n",
+  "new": "    if False:\n",
+  "test_file": "test_connected_standalone.py",
+  "test": "test_a_zip64_end_record_is_held_to_the_same_bounds"
+ },
+ {
+  "id": "zip64-end-record-count-unbounded",
+  "source": "comic_archive/connected/files.py",
+  "old": "            and 1 <= total_count <= 1000\n",
+  "new": "",
+  "test_file": "test_connected_standalone.py",
+  "test": "test_a_zip64_end_record_is_held_to_the_same_bounds"
+ },
+ {
+  "id": "support-log-reads-through-linked-folder",
+  "source": "comic_archive/support_log.py",
+  "old": "    if any(linked(folder) for folder in folders):\n        return ''\n",
+  "new": "",
+  "test_file": "test_support_log.py",
+  "test": "test_a_downloaders_log_reached_through_a_link_is_left_out"
+ },
+ {
+  "id": "worker-follows-linked-queue-folder",
+  "source": "comic_archive/worker.py",
+  "old": "                if any(linked(folder) for folder in (session, root, requests, responses)):\n",
+  "new": "                if False:\n",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_whose_requests_folder_became_a_link_stops_and_removes_nothing_there"
+ },
+ {
+  "id": "rclone-looked-for-in-working-folder",
+  "source": "comic_archive/cloud_tools.py",
+  "old": "        if not os.path.isabs(folder):\n",
+  "new": "        if False:\n",
+  "test_file": "test_cloud_tools.py",
+  "test": "test_a_program_of_the_persons_own_is_looked_for_only_in_the_folders_path_names"
  }
 ]

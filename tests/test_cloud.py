@@ -770,14 +770,14 @@ class TransferTests(unittest.TestCase):
         return subprocess.CompletedProcess(args,0)
 
     def test_provider_type_is_checked_and_secret_environment_overrides_are_removed(self):
-        with patch('comic_archive.cloud.shutil.which',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run',side_effect=self.command) as run, patch.dict(os.environ,{'RCLONE_REMOTE_B2_TYPE':'local','RCLONE_LOG_LEVEL':'DEBUG','RCLONE_CONFIG_PASS':'PASSWORD_PRIVATE'}):
+        with patch('comic_archive.cloud_tools.on_path',return_value='/fake/rclone'), patch('comic_archive.cloud.subprocess.run',side_effect=self.command) as run, patch.dict(os.environ,{'RCLONE_REMOTE_B2_TYPE':'local','RCLONE_LOG_LEVEL':'DEBUG','RCLONE_CONFIG_PASS':'PASSWORD_PRIVATE'}):
             self.assertEqual(cloud.Transfer('b2',self.target).bucket,'library-bucket')
             env = run.call_args.kwargs['env']
             self.assertNotIn('RCLONE_LOG_LEVEL',env);self.assertNotIn('RCLONE_REMOTE_B2_TYPE',env)
             self.assertEqual(env['RCLONE_CONFIG_PASS'],'PASSWORD_PRIVATE')
             with self.assertRaises(ArchiveError):cloud.Transfer('proton',self.target)
             with self.assertRaises(ArchiveError):cloud.Transfer('local',self.target)
-        with patch('comic_archive.cloud.shutil.which',return_value=None),self.assertRaises(ArchiveError):cloud.Transfer('b2',self.target)
+        with patch('comic_archive.cloud_tools.on_path',return_value=None),self.assertRaises(ArchiveError):cloud.Transfer('b2',self.target)
 
     def test_failed_timeout_and_oversized_subprocess_output_are_sanitized(self):
         transfer = object.__new__(cloud.Transfer);transfer.binary='/fake/rclone';transfer.config=self.config

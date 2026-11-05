@@ -89,7 +89,7 @@ class BackgroundTests(unittest.TestCase):
             runtime = None
             def launch(command, **kwargs):
                 nonlocal runtime
-                self.assertEqual(command, [sys.executable, "-m", "comic_archive", "--session-dir", str(session),
+                self.assertEqual(command, [sys.executable, "-P", "-m", "comic_archive", "--session-dir", str(session),
                     "--browser", "firefox", "--headless", "--request-interval", "0.5",
                     "browser-worker"])
                 self.assertEqual(kwargs, kwargs | osdep.detached())  # Its own session: it outlives the app.

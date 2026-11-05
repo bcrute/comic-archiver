@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import sys
 import threading
 import time
@@ -18,7 +19,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from .osdep import WINDOWS, drive, open_log
+from .osdep import NOFOLLOW, NONBLOCK, WINDOWS, drive, linked, open_log
 
 DOWNLOAD_LOG = 'comic_archive.download'  # The download's decisions, in whichever process makes them.
 WORKER_LOG_BYTES = 1024 * 1024  # The downloader's log starts afresh past this when it starts,
@@ -163,14 +164,30 @@ def place(path):
     return f'{kind} drive, {system}, {room}'
 
 
-def _tail(paths, limit):
-    """The end of the files, read oldest first, as text: at most limit characters, from the start of a line."""
-    data = b''
-    for path in paths:
-        try:
-            data += Path(path).read_bytes()
-        except OSError:
-            continue
+def _read(path, size):
+    """The last size bytes of a log, or none for one that is reached through a link or is not a plain file."""
+    if linked(path):
+        return b''
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | NOFOLLOW | NONBLOCK | getattr(os, 'O_BINARY', 0)), 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                return b''
+            stream.seek(max(0, info.st_size - size))
+            return stream.read(size)
+    except OSError:
+        return b''
+
+
+def _tail(paths, limit, folders=()):
+    """The end of the files, read oldest first, as text: at most limit characters, from the start of a line.
+
+    Nothing is read through a link, in the files or in the folders named: the saved file is sent to someone,
+    and a link could make it hold the sign-in instead of a log.
+    """
+    if any(linked(folder) for folder in folders):
+        return ''
+    data = b''.join(_read(path, 4 * limit) for path in paths)  # Enough bytes for limit characters.
     return _end(data.decode('utf-8', errors='replace'), limit)
 
 
@@ -253,7 +270,8 @@ def site_records(name, session, library):
     logs = [worker.with_name(f'{worker.name}.{n}') for n in range(WORKER_LOGS_KEPT, 0, -1)] + [worker]
     return '\n'.join([f'=== {name}: episodes not saved', *_part(_unsaved, library),
                       '', f'=== {name}: the download’s last steps, oldest first', *_part(_steps, session, library),
-                      '', f'=== {name}: the downloader’s log', _end(_quiet(_tail(logs, 4 * DOWNLOADER_BYTES)), DOWNLOADER_BYTES)])
+                      '', f'=== {name}: the downloader’s log',
+                      _end(_quiet(_tail(logs, 4 * DOWNLOADER_BYTES, (session, worker.parent))), DOWNLOADER_BYTES)])
 
 
 def app_log(folder):

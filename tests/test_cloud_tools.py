@@ -21,7 +21,7 @@ class CloudToolsTests(unittest.TestCase):
         work = tempfile.TemporaryDirectory(); self.addCleanup(work.cleanup)
         self.root = Path(work.name); self.folder = self.root/'tools'
         self.addCleanup(patch.stopall)
-        patch('comic_archive.cloud_tools.shutil.which', return_value=None).start()
+        patch('comic_archive.cloud_tools.on_path', return_value=None).start()
         patch('comic_archive.cloud_tools.shutil.disk_usage', return_value=type('Space', (), {'free':2*1024**3})()).start()
         self.guard = patch('comic_archive.cloud_tools.NetworkGuard').start()
         self.download = patch('comic_archive.cloud_tools.httpx.stream').start()
@@ -89,7 +89,7 @@ class CloudToolsTests(unittest.TestCase):
         self.assert_nothing_installed()
 
     def test_an_rclone_found_on_the_path_is_used_only_where_no_pinned_helper_exists(self):
-        with patch('comic_archive.cloud_tools.shutil.which', return_value='/usr/bin/rclone'):
+        with patch('comic_archive.cloud_tools.on_path', return_value='/usr/bin/rclone'):
             binary = cloud_tools.ensure(self.root, threading.Event())
             self.assertEqual(binary, str(self.folder/'rclone')); self.download.assert_called_once()
             with patch('comic_archive.cloud_tools.location', side_effect=ArchiveError('Unsupported')):
@@ -99,10 +99,24 @@ class CloudToolsTests(unittest.TestCase):
 
     def test_transfers_run_the_pinned_helper_before_any_rclone_on_the_path(self):
         from comic_archive import cloud
-        with patch('comic_archive.cloud.shutil.which', return_value='/usr/bin/rclone'):
+        with patch('comic_archive.cloud_tools.on_path', return_value='/usr/bin/rclone'):
             self.assertEqual(cloud._binary(), '/usr/bin/rclone')
             cloud_tools.ensure(self.root, threading.Event())
             self.assertEqual(cloud._binary(), str(self.folder/'rclone'))
+
+
+class OnPathTests(unittest.TestCase):
+    def test_a_program_of_the_persons_own_is_looked_for_only_in_the_folders_path_names(self):
+        work = tempfile.TemporaryDirectory(); self.addCleanup(work.cleanup)
+        library, own = Path(work.name)/'library', Path(work.name)/'bin'
+        name = 'rclone.exe' if os.name == 'nt' else 'rclone'
+        for folder in (library, own):
+            folder.mkdir(); (folder/name).write_bytes(b''); (folder/name).chmod(0o700)
+        self.addCleanup(os.chdir, os.getcwd()); os.chdir(library)  # Where the downloader runs.
+        with patch.dict(os.environ, {'PATH': os.pathsep.join(['', '.', 'library'])}):
+            self.assertIsNone(cloud_tools.on_path('rclone'))
+        with patch.dict(os.environ, {'PATH': os.pathsep.join(['.', str(own)])}):
+            self.assertEqual(os.path.normcase(cloud_tools.on_path('rclone')), os.path.normcase(own/name))
 
 
 class CloudToolsLocationTests(unittest.TestCase):

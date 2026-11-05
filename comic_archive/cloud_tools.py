@@ -56,6 +56,23 @@ def offered():
     return True
 
 
+def on_path(name):
+    """A program of the person's own, from the folders PATH names and no others.
+
+    shutil.which on Windows looks first in the folder the process runs in. The downloader runs in the
+    library folder, and a program put there would run in place of the person's own.
+    """
+    endings = [e for e in os.environ.get('PATHEXT', '.COM;.EXE;.BAT;.CMD').split(os.pathsep) if e] if os.name == 'nt' else ['']
+    for folder in os.environ.get('PATH', '').split(os.pathsep):
+        if not os.path.isabs(folder):
+            continue  # A relative folder is one in the folder the process runs in.
+        for ending in endings:
+            candidate = os.path.join(folder, name + ending)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
 def installed():
     try:
         folder, build = location()
@@ -72,7 +89,7 @@ def ensure(root, cancel):
     try:
         folder, build = location()
     except ArchiveError:
-        if binary := shutil.which('rclone'):
+        if binary := on_path('rclone'):
             return binary
         raise
     safe_root(folder); directory(folder).chmod(0o700)

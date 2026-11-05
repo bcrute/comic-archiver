@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -130,6 +131,31 @@ class StandaloneTests(unittest.TestCase):
         with patch("comic_archive.connected.files.EXPANDED_MAX", 1):
             with self.assertRaises(SourceError):
                 self.index.register_standalone(target.name, "Series")
+
+    @staticmethod
+    def zip64_end(target, count=None, central=None):
+        """Put a ZIP64 end record and its locator before the end record, as some writers always do."""
+        raw = target.read_bytes()
+        end = raw.rfind(b"PK\x05\x06")
+        _, _, _, local, total, size, offset, _ = struct.unpack("<4s4H2IH", raw[end : end + 22])
+        record = struct.pack(
+            "<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0,
+            count or local, count or total, central or size, offset,
+        )
+        locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, end, 1)
+        target.write_bytes(raw[:end] + record + locator + raw[end:])
+
+    def test_a_zip64_end_record_is_held_to_the_same_bounds(self):
+        target = self.archive()
+        self.zip64_end(target)
+        self.assertEqual(self.index.register_standalone(target.name, "Series")["title"], "My issue")
+        # zipfile would size its central-directory reads from these instead of the bounded 32-bit fields.
+        for count, central in ((5000, None), (None, 2 * 1024**2)):
+            self.zip64_end(self.archive(), count, central)
+            with patch("comic_archive.connected.files.zipfile.ZipFile") as opening:
+                with self.assertRaises(SourceError):
+                    self.index.register_standalone(target.name, "Series")
+                opening.assert_not_called()
 
     def test_replacement_invalidates_live_pin_and_changes_version_not_identity(self):
         target = self.archive()

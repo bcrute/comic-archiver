@@ -7,6 +7,7 @@ import errno
 import os
 from pathlib import Path, PurePath
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -233,6 +234,16 @@ def open_log(path):
     except OSError:
         kernel.CloseHandle(wintypes.HANDLE(handle))
         raise
+
+
+def linked(path):
+    """Whether path is a link, or on Windows a junction: either leads somewhere else, and a folder can hold them."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    # Only Windows has reparse tags, and the stat module names them only there.
+    return stat.S_ISLNK(info.st_mode) or (WINDOWS and info.st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT)
 
 
 def python_environment(environ):

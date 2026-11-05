@@ -156,20 +156,21 @@ def join(root, store):
     if shared and ({n: t['target_id'] for n, t in shared.items()} != {n: t['target_id'] for n, t in own['targets'].items()}):
         return 'separate'
     folder = directory(store); folder.chmod(0o700)
-    moved, left = {}, []
+    moved, left, mine = {}, [], root / '.archive-state/cloud'
     for name, target in own['targets'].items():
         config = Path(target['config'])
         if name in shared:
             # An earlier link moved these and stopped before it finished; what it wrote is used.
             moved[name] = shared[name]
-        elif config.parent == root / '.archive-state/cloud':
+        elif config.parent == mine:
             destination = folder / ('connection-' + uuid.uuid4().hex + '.conf')
             shutil.copyfile(_config(config), destination)
             destination.chmod(0o600)
             moved[name] = target | {'config': str(destination)}
         else:
             moved[name] = target  # A connection file the person named on the command line stays where it is.
-        if moved[name]['config'] != str(config):
+        # Only the app's own copy is removed: a library folder from elsewhere can name any file here.
+        if moved[name]['config'] != str(config) and config.parent == mine:
             left.append(config)
     _write(store / 'targets.json', {'schema_version': 1, 'targets': moved})
     _write(path, own | {'targets': {}})
@@ -192,9 +193,9 @@ def _environment():
 
 
 def _binary():
-    from .cloud_tools import installed
+    from .cloud_tools import installed, on_path
     # The pinned, checksum-verified helper first; an rclone of the person's own only without it.
-    executable = installed() or shutil.which('rclone')
+    executable = installed() or on_path('rclone')
     if not executable:
         raise ArchiveError('Cloud support is not installed. Click Sign in in the local app to set it up.')
     return executable

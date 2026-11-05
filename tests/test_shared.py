@@ -241,6 +241,17 @@ class SharedSettingsTests(unittest.TestCase):
         self.assertEqual((cloud.settings(self.other)['targets']['b2']['config'], named.exists()),
                          (str(named), True))
 
+    def test_a_link_cut_short_removes_only_a_connection_file_from_the_librarys_own_cloud_folder(self):
+        # A library folder from elsewhere can name any file as its connection; only the app's own copy is removed.
+        self.publish(self.other)
+        named = self.top / 'my-rclone.conf'; named.write_text('[b2]\ntype = b2\narchive_bucket = synthetic-bucket\n'); named.chmod(0o600)
+        self.ready(self.other, named)
+        target = cloud.settings(self.other)['targets']['b2']
+        moved = self.config(self.store / 'cloud', 'connection-moved.conf')
+        cloud._write(self.store / 'cloud/targets.json', {'schema_version': 1, 'targets': {'b2': target | {'config': str(moved)}}})
+        shared.link(self.other, self.store)
+        self.assertEqual((cloud.settings(self.other)['targets']['b2']['config'], named.exists()), (str(moved), True))
+
     def test_a_site_can_keep_its_own_backblaze_setup_and_go_back_to_the_shared_one_with_nothing_lost(self):
         for library in (self.tapas, self.other):
             shared.link(library, self.store)

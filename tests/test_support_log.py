@@ -110,6 +110,22 @@ class SupportLogTests(unittest.TestCase):
         self.assertNotIn('Private', text)
         self.assertNotIn('episode 82', text)
 
+    def test_a_downloaders_log_reached_through_a_link_is_left_out(self):
+        # A library folder from elsewhere could link its log to the sign-in saved beside it.
+        workspace = self.site()
+        worker = workspace.session / 'worker'; worker.mkdir(parents=True)
+        secret = workspace.session / 'state.json'; secret.write_text('{"cookies": "SECRET"}')
+        (worker / 'background.log.1').write_text('older\n')
+        (worker / 'background.log').symlink_to(secret)
+        text = support_log.site_records('Tapas', workspace.session, workspace.library)
+        self.assertTrue(text.endswith('=== Tapas: the downloader’s log\nolder\n'), text)
+        elsewhere = self.home / 'elsewhere'; elsewhere.mkdir()
+        (elsewhere / 'background.log').write_text('ELSEWHERE\n')
+        worker.rename(workspace.session / 'old-worker'); worker.symlink_to(elsewhere)
+        text = support_log.site_records('Tapas', workspace.session, workspace.library)
+        self.assertTrue(text.endswith('=== Tapas: the downloader’s log\n'), text)
+        self.assertNotIn('ELSEWHERE', text)
+
     def test_a_record_that_cannot_be_read_is_said_and_the_rest_still_comes(self):
         workspace = self.site()
         with patch('comic_archive.download_control.history', side_effect=RuntimeError('PRIVATE')):

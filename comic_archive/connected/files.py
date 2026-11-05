@@ -286,6 +286,33 @@ def _central_bound(source):
         and central_offset + central_size <= size - len(tail) + offset
         and offset + 22 + comment == len(tail)
     )
+    # zipfile takes the counts, size and offset from a ZIP64 end record instead
+    # when its locator sits right before the EOCD, so that record is bounded too.
+    end = size - len(tail) + offset
+    if end >= 20 and os.pread(source.fd, 4, end - 20) == b"PK\x06\x07":
+        _, locator_disk, record, disks = struct.unpack("<4sIQI", os.pread(source.fd, 20, end - 20))
+        _require(locator_disk == 0 and disks <= 1 and record == end - 76)
+        (
+            signature,
+            _,
+            _,
+            _,
+            disk,
+            start_disk,
+            local_count,
+            total_count,
+            central_size,
+            central_offset,
+        ) = struct.unpack("<4sQ2H2I4Q", os.pread(source.fd, 56, record))
+        _require(
+            signature == b"PK\x06\x06"
+            and disk == 0
+            and start_disk == 0
+            and 1 <= total_count <= 1000
+            and local_count == total_count
+            and central_size <= METADATA_MAX
+            and central_offset + central_size <= record
+        )
 
 
 def _completed(source, metadata):

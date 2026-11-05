@@ -160,7 +160,8 @@ def start(session, browser="firefox", interval=1.0, *, restart=False):
         from .support_log import trim
         trim(log)  # Nothing writes to it now: no downloader is running.
         descriptor = osdep.open_log(log)
-        command = [sys.executable, "-m", "comic_archive", "--session-dir", str(folder.parent),
+        # -P: it starts in the library folder, and must import the app's own code, not a comic_archive found there.
+        command = [sys.executable, "-P", "-m", "comic_archive", "--session-dir", str(folder.parent),
                    "--browser", browser, "--headless", "--request-interval", str(interval),
                    "browser-worker"]
         try:
