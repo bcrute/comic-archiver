@@ -11,7 +11,7 @@ import unittest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-from comic_archive import app_actions, library_model, storage_model, window_pages, window_style  # noqa: E402
+from comic_archive import app_actions, dashboard_model, library_model, storage_model, window_pages, window_style  # noqa: E402
 
 Q = SimpleNamespace(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
 NOW = 1_000_000.0
@@ -55,7 +55,7 @@ class FakeActions:
 
     def __init__(self, site='tapas'):
         self.site = site
-        self.calls, self.refused, self.answers = [], {}, []
+        self.calls, self.refused, self.answers, self.kept = [], {}, [], []
         self.cloud_offered, self.summary_fails, self.task_result, self.total = True, False, None, 2
         self.reading = {
             'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}, 'episodes_by_status': {'archived': 60}},
@@ -121,7 +121,7 @@ class FakeActions:
     def sign_out(self):
         self.record('sign_out')
         self.reading['status']['session_configured'] = False
-        return {'status': 'signed_out'}
+        return {'status': 'signed_out', 'kept': self.kept}
 
     def speed(self, value):
         self.record('speed', value)
@@ -834,6 +834,23 @@ class DownloadSettingsTests(PagesCase):
         self.assertFalse(s.signout_row.isVisible())
         self.pages.go_to('dashboard')
         self.assertEqual((self.card.action.text(), self.card.action.isEnabled()), ('Sign in', True))
+        self.assertEqual(self.card.message.text(), '')
+
+    def test_signing_out_names_the_library_folders_it_could_not_reach(self):
+        self.actions.kept = ['/media/drive/Comic Archiver']
+        self.open('settings/downloads')
+        self.shell.answer = True
+        self.settings.signout.click()
+        said = ('Signed out of Tapas, except in this library folder, which Comic Archiver can\'t reach:\n'
+                '/media/drive/Comic Archiver\nConnect the drive it\'s on, choose the folder with Change folder…, and sign '
+                'out there.')
+        self.assertEqual(self.pages.state.message, dashboard_model.Message(said, True))
+        settle()  # A refresh keeps it; the next thing the person does clears it.
+        self.pages.go_to('dashboard')
+        self.assertEqual(self.card.message.text(), said)
+        self.assertEqual(window_pages.SIGNED_OUT_AWAY[2].format(site='Tapas', folders='/a\n/b'),
+                         'Signed out of Tapas, except in these library folders, which Comic Archiver can\'t reach:\n/a\n/b\n'
+                         'Connect the drives they\'re on, choose each folder with Change folder…, and sign out there.')
 
     def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
         self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}

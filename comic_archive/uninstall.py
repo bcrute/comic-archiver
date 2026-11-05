@@ -98,6 +98,39 @@ def through_junction(path, root):
     return any(junction(folder) for folder in (path, *path.parents) if root in folder.parents)
 
 
+def same_folder(one, other):
+    try:
+        return os.path.samefile(one, other)
+    except (OSError, ValueError):
+        return Path(one).absolute() == Path(other).absolute()
+
+
+def sign_out_elsewhere(site, here):
+    """Forget one site's sign-in in every other library folder the app noted, as signing out in each would; here is
+    the site's own folder, already signed out. The library folders that may still hold it: those it cannot reach,
+    and any whose downloader would not stop."""
+    kept = []
+    for root in libraries():
+        if not app_runtime.present(root):
+            continue
+        try:
+            place = safe_root(sites.folder(root, site))
+            session = private_path(place, 'session')
+        except ArchiveError:
+            continue  # Never followed, as when uninstalling.
+        if same_folder(place, here) or not session.is_dir() or through_junction(session, root):
+            continue
+        try:
+            if stop_downloader(session):
+                forget_session(session)
+            else:
+                kept.append(root)
+        except (ArchiveError, OSError) as error:
+            LOG.warning('signing out could not clear a library folder: %s', app_runtime.describe(error))
+            kept.append(root)
+    return [*kept, *(root for root in unreachable() if root not in kept)]
+
+
 def forget(root):
     """Forget the sign-ins and cloud keys kept in one library folder. False when a downloader would not stop."""
     stopped = True

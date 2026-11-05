@@ -17,6 +17,12 @@ TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2
 SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
             '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
             '\n\nYour saved episodes stay where they are. To download again, sign in again.')
+# After signing out: the library folders the app opened before that it could not sign out in.
+SIGNED_OUT_AWAY = {1: ('Signed out of {site}, except in this library folder, which Comic Archiver can\'t reach:\n{folders}\n'
+                       'Connect the drive it\'s on, choose the folder with Change folder…, and sign out there.'),
+                   2: ('Signed out of {site}, except in these library folders, which Comic Archiver can\'t reach:\n'
+                       '{folders}\nConnect the drives they\'re on, choose each folder with Change folder…, and sign out '
+                       'there.')}
 FOOTER = ('Saving runs only while this window is open. Only episodes your account can already read, free or bought, '
           'are saved. Nothing is bought for you.')
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
@@ -1504,6 +1510,10 @@ class Pages:
             # Said at once; the next refresh reads the same from the library.
             s.status = dict(s.status or {}, session_configured=False)
             s.received_site_auth({'status': 'idle'}, self.now())
+            kept = (value or {}).get('kept') or []
+            if kept:
+                s.message = dashboard_model.Message(SIGNED_OUT_AWAY[min(len(kept), 2)].format(
+                    site=s.site(), folders='\n'.join(kept)), True)
             self.poll_soon()
         self.account_act(self.actions.sign_out, signed_out)
 

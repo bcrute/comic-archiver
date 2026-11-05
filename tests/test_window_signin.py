@@ -94,6 +94,9 @@ class WindowSignInTests(unittest.TestCase):
                             ('time', SimpleNamespace(monotonic=self.clock))]:
             wrapper = patch('comic_archive.window_signin.' + name, value); wrapper.start(); self.addCleanup(wrapper.stop)
         self.launch, self.closing = threading.Lock(), threading.Event()
+        # The other library folders the app opened: none here, unless a test says so.
+        wrapper = patch('comic_archive.uninstall.sign_out_elsewhere', return_value=[])
+        self.elsewhere = wrapper.start(); self.addCleanup(wrapper.stop)
         self.signin = WindowSignIn(self.workspace, self.launch, self.closing)
         self.cookies = [cookie(), cookie('oauth', 'OTHER_PRIVATE', '.google.com')]
 
@@ -151,16 +154,26 @@ class WindowSignInTests(unittest.TestCase):
         order = []
         self.stop.side_effect = lambda *args, **kwargs: order.append((self.state.exists(), self.launch.locked())) or {'running': False}
         with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
-            self.assertEqual(self.signin.sign_out(), {'status': 'signed_out'})
+            self.assertEqual(self.signin.sign_out(), {'status': 'signed_out', 'kept': []})
         # Stopped first, holding the launch lock, so no downloader starts with the sign-in that is going.
         self.assertEqual(order, [(True, True)])
+        # Then every other library folder the app opened is signed out of this site too.
+        self.elsewhere.assert_called_once_with(sites.DEFAULT, self.workspace.root)
         self.stop.assert_called_once_with(self.session, wait_seconds=35); self.start.assert_not_called()
         self.assertEqual(sorted(path.name for path in self.session.iterdir()), ['site'])
         self.assertEqual(self.signin.status(), {'status': 'idle'})
         self.assertFalse(self.launch.locked())
         self.assertNotIn('PRIVATE', ''.join(logs.output)); self.assertIn('signed out', logs.output[-1])
         # Nothing left to forget is no failure, and signing in again works as before.
-        self.assertEqual(self.signin.sign_out(), {'status': 'signed_out'})
+        self.elsewhere.return_value = [Path('/media/PRIVATE_DRIVE/Comic Archiver')]
+        with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
+            self.assertEqual(self.signin.sign_out(), {'status': 'signed_out', 'kept': [str(Path('/media/PRIVATE_DRIVE/Comic Archiver'))]})
+        self.assertNotIn('PRIVATE', ''.join(logs.output)); self.assertIn('1 other library folder', logs.output[-1])
+        # Signing out here stands when the others could not be looked at.
+        self.elsewhere.side_effect = OSError('PRIVATE_PATH')
+        with self.assertLogs('comic_archive.desktop', 'INFO') as logs:
+            self.assertEqual(self.signin.sign_out(), {'status': 'signed_out', 'kept': []})
+        self.assertNotIn('PRIVATE', ''.join(logs.output))
         self.assertEqual(self.signin.start(), RUNNING); self.assertTrue(self.signin.take())
 
     def test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop(self):
@@ -439,7 +452,8 @@ class SavedSignInCheckTests(unittest.TestCase):
                 self.assertEqual(signin.check(AGENT, client=client), expected)
                 self.assertEqual(signin.status(), expected)
         meanwhile(lambda signin: signin.start(), RUNNING)
-        with patch('comic_archive.window_signin.background.stop', Mock(return_value={'running': False})):
+        with patch('comic_archive.window_signin.background.stop', Mock(return_value={'running': False})), \
+                patch('comic_archive.uninstall.sign_out_elsewhere', return_value=[]):
             meanwhile(lambda signin: signin.sign_out(), {'status': 'idle'})
         self.assertFalse((self.workspace.session / 'state.json').exists())
 

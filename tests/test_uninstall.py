@@ -172,6 +172,31 @@ class UninstallTests(unittest.TestCase):
         self.assertTrue(uninstall.forget_all())  # What can be reached is cleared all the same.
         self.assertTrue((drive.with_name('Unplugged') / '.comic-session/state.json').is_file())
 
+    def test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach(self):
+        webtoon = sites.named('webtoon')
+        other, gone, stuck = self.home / 'old/Comic Archiver', self.home / 'Drive/Comic Archiver', self.home / 'busy'
+        here, kept = sign_in(self.root / 'Webtoon', webtoon), sign_in(other, sites.DEFAULT)
+        cleared = [sign_in(other / 'Webtoon', webtoon), sign_in(self.home / 'chosen/Webtoon', webtoon)]
+        waiting = sign_in(stuck / 'Webtoon', webtoon)
+        outside = sign_in(self.home / 'outside', webtoon)
+        junction(self, self.home / 'linked/Webtoon/.comic-session', self.home / 'outside/.comic-session')
+        app_runtime.remember_root(self.home / 'chosen')
+        for root in (self.root, other, gone, stuck, self.home / 'linked', self.home / 'never'):
+            app_runtime.remember_library(root)
+        (self.home / 'never').mkdir()  # Opened, with nothing for this site.
+        episodes = [episode(other / 'Webtoon'), episode(self.home / 'chosen/Webtoon')]
+        with patch('comic_archive.uninstall.stop_downloader', side_effect=lambda session: session != waiting) as stop:
+            self.assertEqual(uninstall.sign_out_elsewhere(webtoon, self.root / 'Webtoon'), [stuck, gone])
+        self.assertEqual(sorted(call.args[0] for call in stop.call_args_list), sorted([*cleared, waiting]))
+        for session in cleared:
+            self.assertFalse((session / 'state.json').exists())
+        # The folder signed out already, the other sites, a downloader that would not stop and a junction stay.
+        for session in (here, kept, waiting, outside):
+            self.assertTrue((session / 'state.json').is_file())
+        self.assertTrue(all(path.read_bytes() == b'saved' for path in episodes))
+        self.assertEqual(uninstall.sign_out_elsewhere(sites.DEFAULT, self.root), [gone])  # Out of reach only.
+        self.assertFalse((kept / 'state.json').exists())
+
     def test_a_library_folder_that_cannot_be_read_is_reported_and_the_others_are_still_cleared(self):
         session = sign_in(self.root)
         with patch('comic_archive.uninstall.libraries', return_value=[self.home / 'broken', self.root]), \

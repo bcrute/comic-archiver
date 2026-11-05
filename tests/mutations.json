@@ -5918,5 +5918,69 @@
   "new": "    if away:\n",
   "test_file": "test_desktop_app.py",
   "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "sign-out-elsewhere-clears-here",
+  "source": "comic_archive/uninstall.py",
+  "old": "        if same_folder(place, here) or not session.is_dir()",
+  "new": "        if not session.is_dir()",
+  "test_file": "test_uninstall.py",
+  "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
+ },
+ {
+  "id": "sign-out-elsewhere-follows-junction",
+  "source": "comic_archive/uninstall.py",
+  "old": "not session.is_dir() or through_junction(session, root):\n            continue\n        try:\n            if stop",
+  "new": "not session.is_dir():\n            continue\n        try:\n            if stop",
+  "test_file": "test_uninstall.py",
+  "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
+ },
+ {
+  "id": "sign-out-elsewhere-ignores-running-downloader",
+  "source": "comic_archive/uninstall.py",
+  "old": "            if stop_downloader(session):\n                forget_session(session)",
+  "new": "            if True:\n                forget_session(session)",
+  "test_file": "test_uninstall.py",
+  "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
+ },
+ {
+  "id": "sign-out-elsewhere-hides-stuck",
+  "source": "comic_archive/uninstall.py",
+  "old": "            else:\n                kept.append(root)\n        except",
+  "new": "            else:\n                pass\n        except",
+  "test_file": "test_uninstall.py",
+  "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
+ },
+ {
+  "id": "sign-out-elsewhere-hides-unreachable",
+  "source": "comic_archive/uninstall.py",
+  "old": "    return [*kept, *(root for root in unreachable() if root not in kept)]",
+  "new": "    return kept",
+  "test_file": "test_uninstall.py",
+  "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
+ },
+ {
+  "id": "sign-out-only-here",
+  "source": "comic_archive/window_signin.py",
+  "old": "            kept = [str(root) for root in sign_out_elsewhere(self.site, self.workspace.root)]",
+  "new": "            kept = []",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
+ },
+ {
+  "id": "sign-out-elsewhere-failure-fails-sign-out",
+  "source": "comic_archive/window_signin.py",
+  "old": "        except (ArchiveError, OSError) as error:\n            LOG.warning('the other library folders",
+  "new": "        except ArchiveError as error:\n            LOG.warning('the other library folders",
+  "test_file": "test_window_signin.py",
+  "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
+ },
+ {
+  "id": "sign-out-unreached-not-said",
+  "source": "comic_archive/window_pages.py",
+  "old": "            if kept:\n                s.message",
+  "new": "            if False:\n                s.message",
+  "test_file": "test_window_pages.py",
+  "test": "test_signing_out_names_the_library_folders_it_could_not_reach"
  }
 ]

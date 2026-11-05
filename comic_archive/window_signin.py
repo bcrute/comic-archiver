@@ -154,7 +154,9 @@ class WindowSignIn:
             return dict(self._state)
 
     def sign_out(self):
-        """Blocking: stop the downloader, then forget the saved sign-in. Refused while a sign-in is open or saving."""
+        """Blocking: stop the downloader, then forget the saved sign-in, here and in every other library folder the
+        app opened. Refused while a sign-in is open or saving. 'kept' names the library folders it could not reach."""
+        from .uninstall import sign_out_elsewhere
         with self._lock:
             if self._waiting() or self._finishing:
                 raise LibraryBusy('Finish signing in before signing out.')
@@ -165,8 +167,13 @@ class WindowSignIn:
             forget_session(self.workspace.session)
         with self._lock:
             self._state = {'status': 'idle'}
-        LOG.info('signed out')
-        return {'status': 'signed_out'}
+        try:
+            kept = [str(root) for root in sign_out_elsewhere(self.site, self.workspace.root)]
+        except (ArchiveError, OSError) as error:
+            LOG.warning('the other library folders were not signed out: %s', describe(error))
+            kept = []
+        LOG.info('signed out; %d other library folder(s) not reached', len(kept))
+        return {'status': 'signed_out', 'kept': kept}
 
     def take(self):
         """True once for each new request: the window should now show the sign-in page."""
