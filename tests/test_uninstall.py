@@ -157,6 +157,21 @@ class UninstallTests(unittest.TestCase):
                 self.assertFalse(uninstall.forget_all())
         self.assertFalse((session / 'state.json').exists())
 
+    def test_a_noted_library_folder_that_cannot_be_reached_is_listed_and_an_unused_standard_one_is_not(self):
+        drive, gone = self.home / 'Drive/Comic Archiver', self.home / 'Share/Comics'
+        sign_in(drive); sign_in(gone)
+        app_runtime.remember_root(gone)
+        self.assertEqual(uninstall.unreachable(), [])  # The standard folder was never opened, so none was kept there.
+        for root in (drive, gone, self.root):
+            app_runtime.remember_library(root)
+        self.assertEqual(uninstall.unreachable(), [self.root])  # Opened once, and gone since.
+        self.root.mkdir()
+        self.assertEqual(uninstall.unreachable(), [])
+        drive.rename(drive.with_name('Unplugged')); gone.rename(gone.with_name('Away'))
+        self.assertEqual(uninstall.unreachable(), [gone, drive])
+        self.assertTrue(uninstall.forget_all())  # What can be reached is cleared all the same.
+        self.assertTrue((drive.with_name('Unplugged') / '.comic-session/state.json').is_file())
+
     def test_a_library_folder_that_cannot_be_read_is_reported_and_the_others_are_still_cleared(self):
         session = sign_in(self.root)
         with patch('comic_archive.uninstall.libraries', return_value=[self.home / 'broken', self.root]), \

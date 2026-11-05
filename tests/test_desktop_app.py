@@ -1959,7 +1959,9 @@ class DesktopAppTests(unittest.TestCase):
         with patch('comic_archive.desktop_app.uninstall', return_value=3) as uninstall:
             self.assertEqual(desktop_app.main(['--uninstall', '--quiet']), 3)
             self.assertEqual(desktop_app.main(['--uninstall']), 3)
-        self.assertEqual([call.args[1] for call in uninstall.call_args_list], [True, False]); run.assert_called_once()
+            self.assertEqual(desktop_app.main(['--uninstall', '--quiet', '--report', 'told.txt', '--anyway']), 3)
+        self.assertEqual([call.args[1:] for call in uninstall.call_args_list],
+                         [(True, None, False), (False, None, False), (True, 'told.txt', True)]); run.assert_called_once()
 
     # Older copies.
 
@@ -1992,11 +1994,12 @@ class DesktopAppTests(unittest.TestCase):
 
     # Uninstalling.
 
-    def removal(self, forgotten=True, removed=True, folder=None):
+    def removal(self, forgotten=True, removed=True, folder=None, away=()):
         """The uninstall step's own work, recorded in the order it happens alongside the lock's."""
         order = Mock()
         self.lock.unlock = order.unlock
-        for name, value in (('forget_all', forgotten), ('remove_app_folders', removed), ('app_folder', folder)):
+        for name, value in (('forget_all', forgotten), ('unreachable', list(away)), ('remove_app_folders', removed),
+                            ('app_folder', folder)):
             wrapper = patch('comic_archive.uninstall.' + name, getattr(order, name))
             getattr(order, name).return_value = value
             wrapper.start(); self.addCleanup(wrapper.stop)
@@ -2013,7 +2016,7 @@ class DesktopAppTests(unittest.TestCase):
         self.box.question.return_value = 1
         self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALLED)
         self.assertEqual([name for name, *_ in order.mock_calls],
-                         ['forget_all', 'unlock', 'remove_app_folders', 'app_folder', 'remove_menu_entry'])
+                         ['forget_all', 'unreachable', 'unlock', 'remove_app_folders', 'app_folder', 'remove_menu_entry'])
         order.remove_menu_entry.assert_called_once_with(self.home / 'App')
         lock, = self.lock.made
         self.assertEqual(lock.args, (str(self.state / 'desktop.lock'),)); lock.setStaleLockTime.assert_called_once_with(0)
@@ -2042,7 +2045,42 @@ class DesktopAppTests(unittest.TestCase):
         self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_FAILED)
         self.box.information.assert_not_called()
         self.assertEqual(order.remove_app_folders.call_count, 3)
-        self.assertEqual((desktop_app.UNINSTALLED, desktop_app.UNINSTALL_INCOMPLETE, desktop_app.UNINSTALL_BLOCKED), (0, 1, 3))
+        self.assertEqual((desktop_app.UNINSTALLED, desktop_app.UNINSTALL_INCOMPLETE, desktop_app.UNINSTALL_BLOCKED,
+                          desktop_app.UNINSTALL_UNREACHED), (0, 1, 3, 4))
+
+    def test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides(self):
+        away = [self.home / 'Drive/Comic Archiver']
+        order = self.removal(folder=self.home / 'App', away=away)
+        report = self.home / 'report.txt'
+        self.assertEqual(desktop_app.uninstall(self.q, True, str(report)), desktop_app.UNINSTALL_UNREACHED)
+        told = report.read_text(encoding='utf-8')
+        self.assertEqual(told, '\ufeff' + desktop_app.UNINSTALL_AWAY[1].format(folders=away[0]))  # Marked as UTF-8 for the uninstaller.
+        self.assertIn(f"can't reach this library folder, so it can't sign out there:\n{away[0]}\n\nConnect the drive", told)
+        # Everything else was forgotten; what lists the library folders stays, so uninstalling again finds that one.
+        order.forget_all.assert_called_once_with(); order.remove_app_folders.assert_not_called()
+        for shown in (self.box.question, self.box.information, self.box.warning):
+            shown.assert_not_called()
+        self.assertEqual(desktop_app.uninstall(self.q, True), desktop_app.UNINSTALL_UNREACHED)  # No report asked for.
+        order.remove_app_folders.assert_not_called()
+        # Once the Windows uninstaller's person said yes, the app finishes, as from the menu.
+        self.assertEqual(desktop_app.uninstall(self.q, True, anyway=True), desktop_app.UNINSTALLED)
+        order.remove_app_folders.assert_called_once_with(); order.remove_app_folders.reset_mock()
+        order.remove_menu_entry.reset_mock()
+        # From the menu the person is asked: no keeps it all as it is, yes finishes and says where a sign-in stayed.
+        self.box.question.return_value = self.box.StandardButton.Yes
+        self.box.warning.return_value = self.box.StandardButton.No
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALL_INCOMPLETE)
+        self.box.warning.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_AWAY[1].format(folders=away[0])
+                                                 + '\n\nUninstall anyway?', 3, self.box.StandardButton.No)
+        order.remove_app_folders.assert_not_called(); order.remove_menu_entry.assert_not_called()
+        self.box.warning.return_value = self.box.StandardButton.Yes
+        self.assertEqual(desktop_app.uninstall(self.q, False), desktop_app.UNINSTALLED)
+        order.remove_app_folders.assert_called_once_with(); order.remove_menu_entry.assert_called_once_with(self.home / 'App')
+        self.box.information.assert_called_once_with(None, 'Comic Archiver', desktop_app.UNINSTALL_DONE_AWAY.format(
+            folders=away[0], library=self.home / 'Comic Archiver') + desktop_app.UNINSTALL_FOLDER.format(folder=self.home / 'App'))
+        two = [*away, self.home / 'Share/Comics']
+        self.assertEqual(desktop_app.away_text(two), desktop_app.UNINSTALL_AWAY[2].format(folders=f'{two[0]}\n{two[1]}'))
+        self.assertIn("can't reach these library folders", desktop_app.away_text(two))
 
     def test_nothing_is_forgotten_while_the_window_is_open_or_the_settings_folder_cannot_be_used(self):
         order = self.removal()

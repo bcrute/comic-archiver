@@ -133,17 +133,28 @@ class PackagingTests(WorkspaceCase):
     def test_uninstalling_has_the_app_forget_every_sign_in_before_any_file_goes_and_never_while_it_is_open(self):
         installer = (PACKAGING / 'comic-archiver.iss').read_text('utf-8').replace('\r\n', '\n')
         self.assertIn('\n#define UninstallParameters StartParameters + " --uninstall --quiet"\n', installer)
-        options = desktop_app.arguments(['--uninstall', '--quiet'])
+        options = desktop_app.arguments(['--uninstall', '--quiet', '--report', 'C:\\Temp\\report.txt'])
         self.assertTrue(options.uninstall and options.quiet)
+        self.assertEqual(options.report, 'C:\\Temp\\report.txt')
         code = installer.split('\n[Code]\n', 1)[1]
         self.assertIn('function InitializeUninstall(): Boolean;', code)
-        self.assertIn("Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters}', ExpandConstant('{app}'), SW_HIDE,", code)
+        self.assertIn("Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters} --report \"' + Report + '\"',", code)
         self.assertIn('ewWaitUntilTerminated, Code)', code)
         self.assertIn(f'Result := Code = {desktop_app.UNINSTALLED};', code)
         self.assertIn(f'if Code = {desktop_app.UNINSTALL_BLOCKED} then', code)
         self.assertIn(f"SuppressibleMsgBox('{desktop_app.UNINSTALL_OPEN}', mbError, MB_OK, IDOK)", code)
         # Silently, as when a newer version's installer removes this one, a failure stops the uninstall.
         self.assertIn('MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;', code)
+        # A library folder it could not reach is named from the report, and the person decides.
+        self.assertIn(f'else if Code = {desktop_app.UNINSTALL_UNREACHED} then\n'
+                      '  begin\n'
+                      "    Result := SuppressibleMsgBox(AwayText(Report) + #13#10#13#10 + 'Uninstall anyway?',\n"
+                      '      mbError, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;\n', code)
+        # Only a yes has the app finish: its own folders go, as from the menu.
+        self.assertIn("    if Result then\n      Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters} --anyway',", code)
+        self.assertTrue(desktop_app.arguments(['--uninstall', '--quiet', '--anyway']).anyway)
+        self.assertEqual(desktop_app.UNINSTALL_ANYWAY, '\n\nUninstall anyway?')
+        self.assertIn('if LoadStringsFromFile(Report, Lines) then', code)
 
     def test_installing_over_an_open_app_has_it_close_first_or_asks_the_person_to(self):
         installer = (PACKAGING / 'comic-archiver.iss').read_text('utf-8').replace('\r\n', '\n')

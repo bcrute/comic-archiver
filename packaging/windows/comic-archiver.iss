@@ -123,19 +123,51 @@ begin
     end;
 end;
 
-// The app's own uninstall step (desktop_app.uninstall), before any file goes: 0 done, 3 the app is open.
+// What the app wrote to say which library folders it could not reach, or the same without naming them.
+function AwayText(Report: String): String;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+begin
+  Result := '';
+  if LoadStringsFromFile(Report, Lines) then
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      if I > 0 then
+        Result := Result + #13#10;
+      Result := Result + Lines[I];
+    end;
+  if Result = '' then
+    Result := 'Comic Archiver can''t reach a library folder it used, so it can''t sign out there. ' +
+      'Connect the drive it''s on, then uninstall again.';
+end;
+
+// The app's own uninstall step (desktop_app.uninstall), before any file goes: 0 done, 3 the app is open, 4 done
+// except in library folders it could not reach, which it names in the report file.
 function InitializeUninstall(): Boolean;
 var
   Code: Integer;
+  Report: String;
 begin
-  if not Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters}', ExpandConstant('{app}'), SW_HIDE,
-              ewWaitUntilTerminated, Code) then
+  Report := GenerateUniqueName(GetTempDir(), '.txt');
+  if not Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters} --report "' + Report + '"',
+              ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) then
     Code := -1;
   Result := Code = 0;
   if Code = 3 then
     SuppressibleMsgBox('Comic Archiver is open. Close it, then uninstall again.', mbError, MB_OK, IDOK)
+  else if Code = 4 then
+  begin
+    Result := SuppressibleMsgBox(AwayText(Report) + #13#10#13#10 + 'Uninstall anyway?',
+      mbError, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+    // The app's own folders went only once the person chose.
+    if Result then
+      Exec(ExpandConstant('{#AppProgram}'), '{#UninstallParameters} --anyway', ExpandConstant('{app}'), SW_HIDE,
+           ewWaitUntilTerminated, Code);
+  end
   else if not Result then
     Result := SuppressibleMsgBox('Comic Archiver could not remove everything it keeps for signing in. ' +
       'Restart your computer, then uninstall again.' + #13#10#13#10 + 'Uninstall anyway?',
       mbError, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+  DeleteFile(Report);
 end;

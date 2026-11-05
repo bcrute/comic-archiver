@@ -36,6 +36,14 @@ def libraries():
     return list(dict.fromkeys(root for root in found if root is not None))
 
 
+def unreachable():
+    """The library folders the app noted that it cannot reach now: on a drive that is not connected, say. A sign-in
+    kept in one stays there until uninstalling runs again with it connected. The standard folder counts only if
+    the app opened it: a person who chose another folder may never have had one."""
+    noted = [app_runtime.saved_root(), *app_runtime.opened_libraries()]
+    return [root for root in dict.fromkeys(noted) if root is not None and not app_runtime.present(root)]
+
+
 def idle(session, seconds=0):
     """Wait up to the given time until no downloader holds the library. The runtime lock decides, not a status file."""
     deadline = time.monotonic() + seconds

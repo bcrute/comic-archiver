@@ -163,11 +163,20 @@ UNINSTALL_FAILED = ('Comic Archiver could not remove everything it keeps for sig
 UNINSTALL_DONE = ('Comic Archiver is signed out of every site and removed from your applications menu.\n\n'
                   'Your saved episodes are still in\n{library}')
 UNINSTALL_FOLDER = '\n\nTo finish, delete this folder:\n{folder}'
+# A library folder the app opened that it cannot reach now, on a drive that is not connected, say.
+UNINSTALL_AWAY = {1: ('Comic Archiver can\'t reach this library folder, so it can\'t sign out there:\n{folders}\n\n'
+                      'Connect the drive it\'s on, then uninstall again.'),
+                  2: ('Comic Archiver can\'t reach these library folders, so it can\'t sign out there:\n{folders}\n\n'
+                      'Connect the drives they\'re on, then uninstall again.')}
+UNINSTALL_ANYWAY = '\n\nUninstall anyway?'
+UNINSTALL_DONE_AWAY = ('Comic Archiver is removed from your applications menu. It is signed out of every site, except in:\n'
+                       '{folders}\n\nYour saved episodes are still in\n{library}')
 OLD_COPY = ('An older copy of Comic Archiver is still on this computer, in\n{folder}\n\nRemove it? Your sign-in and '
             'saved episodes stay.')
 OLD_COPY_LEFT = 'Some of the older copy could not be removed. You can delete this folder yourself:\n{folder}'
-# The uninstaller's exit status: done, not done, and not done because the window is open.
-UNINSTALLED, UNINSTALL_INCOMPLETE, UNINSTALL_BLOCKED = 0, 1, 3
+# The uninstaller's exit status: done, not done, not done because the window is open, and done except in library
+# folders it could not reach (the Windows uninstaller then asks, naming them from the report file).
+UNINSTALLED, UNINSTALL_INCOMPLETE, UNINSTALL_BLOCKED, UNINSTALL_UNREACHED = 0, 1, 3, 4
 # The raw import error is for the terminal and the log only; people get TOOLKIT_BROKEN.
 MISSING_QT = ('Comic Archiver needs the PySide6 window toolkit, which is missing or cannot load.\n'
               'When installed with pip: pip install "comic-archive[desktop]"')
@@ -190,6 +199,11 @@ def arguments(argv=None):
     parser.add_argument('--uninstall', action='store_true',
                         help='forget every sign-in and cloud key and remove the app\'s settings; saved episodes stay')
     parser.add_argument('--quiet', action='store_true', help='with --uninstall: ask nothing and show nothing')
+    parser.add_argument('--report', metavar='FILE',
+                        help='with --uninstall --quiet: write here what to tell the person when a library folder '
+                             'could not be reached')
+    parser.add_argument('--anyway', action='store_true',
+                        help='with --uninstall --quiet: finish even when a library folder could not be reached')
     parser.add_argument('--close-for-update', action='store_true',
                         help='close the open window without asking, as the system ending it does, and wait until it '
                              'has; the Windows setup runs this before it replaces the app')
@@ -335,11 +349,18 @@ def find_library(q, parent, folder, text):
         box.information(parent, APP_NAME, NOT_A_LIBRARY)
 
 
-def uninstall(q, quiet):
+def away_text(folders):
+    """What to tell the person about the library folders uninstalling could not reach."""
+    return UNINSTALL_AWAY[min(len(folders), 2)].format(folders='\n'.join(str(folder) for folder in folders))
+
+
+def uninstall(q, quiet, report=None, anyway=False):
     """Forget every sign-in and cloud key the app saved, and remove its own folders; saved episodes stay.
 
     Asked first unless quiet: the Windows uninstaller has asked already, and reads the exit status. Never while
-    the window is open, which could save a sign-in again.
+    the window is open, which could save a sign-in again. A library folder that cannot be reached keeps its
+    sign-in: the person is told which, and may connect it and uninstall again or uninstall anyway (anyway: the
+    Windows uninstaller asked).
     """
     from . import uninstall as removal
     box = q.QtWidgets.QMessageBox
@@ -365,19 +386,35 @@ def uninstall(q, quiet):
     try:
         library = app_runtime.saved_root() or app_runtime.default_root()
         complete = removal.forget_all()
+        away = removal.unreachable()
     finally:
         lock.unlock()
     if not complete:
         # The settings folder lists every library folder opened, and the menu entry runs this again: both stay,
         # so uninstalling again finds the sign-ins that stayed. Neither holds a sign-in.
         return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
+    if away and quiet and not anyway:
+        # Everything else is done; the settings folder stays, as above, while the Windows uninstaller asks.
+        if report:
+            try:
+                Path(report).write_text(away_text(away), encoding='utf-8-sig')  # Read by the uninstaller.
+            except OSError:
+                pass  # It then says the same without naming the folders.
+        return UNINSTALL_UNREACHED
+    if away and not quiet:
+        buttons = box.StandardButton
+        if box.warning(None, APP_NAME, away_text(away) + UNINSTALL_ANYWAY, buttons.Yes | buttons.No,
+                       buttons.No) != buttons.Yes:
+            return UNINSTALL_INCOMPLETE
     complete = removal.remove_app_folders()
     folder = removal.app_folder()
     if folder is not None:
         removal.remove_menu_entry(folder)
     if not complete:
         return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)
-    text = UNINSTALL_DONE.format(library=library) + ('' if folder is None else UNINSTALL_FOLDER.format(folder=folder))
+    done = (UNINSTALL_DONE_AWAY.format(folders='\n'.join(map(str, away)), library=library) if away
+            else UNINSTALL_DONE.format(library=library))
+    text = done + ('' if folder is None else UNINSTALL_FOLDER.format(folder=folder))
     return tell(UNINSTALLED, text)
 
 
@@ -1455,7 +1492,7 @@ def main(argv=None):
     except ImportError as error:
         return toolkit_missing(error, args.self_test)
     if args.uninstall:
-        return uninstall(q, args.quiet)
+        return uninstall(q, args.quiet, args.report, args.anyway)
     if args.close_for_update:
         return close_for_update(q)
     return self_test(q) if args.self_test else run(q, args.project_root)

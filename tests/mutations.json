@@ -5846,5 +5846,77 @@
   "new": "                    ):\n",
   "test_file": "test_local_library.py",
   "test": "test_a_library_or_session_folder_that_became_a_junction_is_refused"
+ },
+ {
+  "id": "uninstall-unreachable-counts-present",
+  "source": "comic_archive/uninstall.py",
+  "old": "if root is not None and not app_runtime.present(root)]",
+  "new": "if root is not None]",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_noted_library_folder_that_cannot_be_reached_is_listed_and_an_unused_standard_one_is_not"
+ },
+ {
+  "id": "uninstall-unreachable-counts-unopened-standard",
+  "source": "comic_archive/uninstall.py",
+  "old": "    noted = [app_runtime.saved_root(), *app_runtime.opened_libraries()]",
+  "new": "    noted = [app_runtime.default_root(), app_runtime.saved_root(), *app_runtime.opened_libraries()]",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_noted_library_folder_that_cannot_be_reached_is_listed_and_an_unused_standard_one_is_not"
+ },
+ {
+  "id": "uninstall-quiet-ignores-unreached",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if away and quiet and not anyway:\n",
+  "new": "    if False:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-anyway-ignored",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if away and quiet and not anyway:\n",
+  "new": "    if away and quiet:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-unreached-defaults-yes",
+  "source": "comic_archive/desktop_app.py",
+  "old": "away_text(away) + UNINSTALL_ANYWAY, buttons.Yes | buttons.No,\n                       buttons.No) != buttons.Yes:",
+  "new": "away_text(away) + UNINSTALL_ANYWAY, buttons.Yes | buttons.No,\n                       buttons.Yes) != buttons.Yes:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-unreached-never-asked",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if away and not quiet:\n        buttons = box.StandardButton",
+  "new": "    if False:\n        buttons = box.StandardButton",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-report-without-bom",
+  "source": "comic_archive/desktop_app.py",
+  "old": "write_text(away_text(away), encoding='utf-8-sig')",
+  "new": "write_text(away_text(away), encoding='utf-8')",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-done-hides-unreached",
+  "source": "comic_archive/desktop_app.py",
+  "old": "library=library) if away\n",
+  "new": "library=library) if False\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
+ },
+ {
+  "id": "uninstall-anyway-asks-again",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    if away and not quiet:\n",
+  "new": "    if away:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_that_cannot_be_reached_is_named_and_the_person_decides"
  }
 ]
