@@ -228,7 +228,7 @@ def received(state, reading, now, task=None):
     """Put a whole refresh on the window's state. Returns True when the B2 key fields are to be emptied: the key
     has just connected. task is the cloud task the refresh asked about; one started since is left alone."""
     previous_account, previous_auth = (state.account or {}).get('status'), (state.cloud_auth or {}).get('status')
-    state.status = reading['status']
+    state.received_status(reading['status'], now)
     state.received_account(reading['account'], now)
     state.received_site_auth(reading['site_auth'], now)
     for name in ('cloud', 'cloud_auth', 'network'):

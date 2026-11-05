@@ -322,11 +322,50 @@ class ButtonTests(unittest.TestCase):
 
 
 class StatusTests(unittest.TestCase):
+    def test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes(self):
+        s = state(account=account())
+        def read(at, saved, step='run-1', phase='archive'):
+            s.received_status({'session_configured': True, 'worker': {'reported_state': 'busy'}, 'last_run': {'id': step},
+                               'progress': {'phase': phase, 'downloaded_bytes': saved}}, at)
+            return fields(model.view(s, at))['Download speed']
+        # Apart from Speed, the setting that paces the requests. One reading says nothing yet; two a refresh apart do.
+        self.assertEqual(fields(model.view(s, NOW))['Speed'], ('Fast', False))
+        self.assertEqual(read(NOW, 10_000_000), ('—', False))
+        self.assertEqual(read(NOW + 5, 22_000_000), ('2.4 MB/s', False))
+        # Over about ten seconds: the reading before that is no longer counted.
+        self.assertEqual(read(NOW + 10, 23_000_000), ('1.3 MB/s', False))
+        self.assertEqual(read(NOW + 15, 24_500_000), ('250 KB/s', False))
+        self.assertEqual([at for at, _, _ in s.saved_at], [NOW + 5, NOW + 10, NOW + 15])
+        # A refresh that came late still counts; one long gone does not.
+        self.assertEqual(read(NOW + 26, 25_050_000), ('50 KB/s', False))
+        self.assertEqual(read(NOW + 45, 25_500_000), ('—', False))
+        # A new step counts from nothing, so it starts again.
+        self.assertEqual(read(NOW + 50, 100, step='run-2'), ('—', False))
+        self.assertEqual(read(NOW + 55, 5_100, step='run-2'), ('1 KB/s', False))
+        # Two refreshes a moment apart, or a count that went down, say nothing.
+        s.saved_at = [(NOW, 'run-2', 0)]
+        self.assertEqual(read(NOW + 3, 9_000_000, step='run-2'), ('—', False))
+        s.saved_at = [(NOW, 'run-2', 9_000_000)]
+        self.assertEqual(read(NOW + 5, 0, step='run-2'), ('—', False))
+        # Checking lists or series saves next to nothing, which says nothing about speed.
+        self.assertEqual(read(NOW + 60, 0, step='run-3', phase='scan'), ('—', False))
+        self.assertEqual(read(NOW + 65, 9_000_000, step='run-3', phase='scan'), ('—', False))
+        self.assertEqual(read(NOW + 70, 18_000_000, step='run-3'), ('1.8 MB/s', False))
+        # A download that is not running has no speed, whatever was read last.
+        s.account = account(status='stopped')
+        self.assertEqual(fields(model.view(s, NOW + 70))['Download speed'], ('—', False))
+        # A refresh without the step's count forgets the earlier ones.
+        s.received_status({'session_configured': True}, NOW + 75)
+        self.assertEqual(s.saved_at, [])
+        self.assertEqual(fields(model.view(state(account=account()), NOW))['Download speed'], ('—', False))
+        self.assertEqual((model.rate(999_499), model.rate(999_500), model.rate(0)), ('999 KB/s', '1.0 MB/s', '0 KB/s'))
+
     def test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions(self):
         self.assertEqual(view(loaded=False)['rows'], [{'name': 'Library', 'value': 'Opening…', 'warning': False}])
         self.assertEqual([(row['name'], row['value'], row['warning']) for row in view()['rows']],
                          [('Account', 'Session saved', False), ('Downloader', 'Ready', False), ('Saved', '3 episodes', False),
-                          ('Time left', '—', False), ('Space', '—', False), ('Speed', 'Fast', False)])
+                          ('Time left', '—', False), ('Space', '—', False), ('Speed', 'Fast', False),
+                          ('Download speed', '—', False)])
         cases = [({'account': {'status': 'held', 'code': 'cancelled'}}, {}),
                  ({'account': {'status': 'held', 'code': 'cancelled'}, 'network': {'wifi_only': True, 'reason': 'metered_connection'}},
                   {'Connection': ('This connection is metered; saving waits for Wi-Fi or a wired connection', True)}),
@@ -431,8 +470,8 @@ class StatusTests(unittest.TestCase):
     def test_the_saved_count_time_left_and_space_follow_what_was_read(self):
         # Every card has the same fields, signed in or not, so cards side by side read alike.
         unread = fields(view(status=None))
-        self.assertEqual(list(unread), ['Account', 'Downloader', 'Saved', 'Time left', 'Space', 'Speed'])
-        self.assertEqual([unread[name] for name in ('Saved', 'Time left', 'Space', 'Speed')], [('—', False)] * 4)
+        self.assertEqual(list(unread), ['Account', 'Downloader', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed'])
+        self.assertEqual([unread[name] for name in ('Saved', 'Time left', 'Space', 'Speed', 'Download speed')], [('—', False)] * 5)
         self.assertEqual([row['name'] for row in model.unopened_rows()], list(unread))
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
         self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))

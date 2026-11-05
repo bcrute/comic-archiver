@@ -191,6 +191,10 @@ class ReceivedTests(unittest.TestCase):
         self.assertTrue(state.loaded); self.assertFalse(state.offline); self.assertIsNone(state.message)
         received(state, self.reading(), 600)
         self.assertEqual(state.network_at, 500)
+        # What the download step had saved at each refresh, from which its card works out the speed.
+        for at, count in ((700, 1_000_000), (705, 3_000_000)):
+            received(state, self.reading(status={'last_run': {'id': 'run-1'}, 'progress': {'downloaded_bytes': count}}), at)
+        self.assertEqual(state.speed(), 400_000)
 
     def test_the_saved_files_counts_come_with_their_places_and_a_failed_count_keeps_the_places(self):
         state = State(library_refresh=True)

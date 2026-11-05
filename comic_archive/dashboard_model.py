@@ -18,6 +18,8 @@ STARTING_SECONDS = 120
 DELAYED_SECONDS = 15
 # A failure stays on the dashboard this long, so it can be read.
 MESSAGE_SECONDS = 30
+# The speed shown is what was saved over about this long: the last two refreshes. A second more lets a late one count.
+SPEED_SECONDS = 2 * POLL_SECONDS + 1
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
 SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
@@ -102,6 +104,11 @@ def room(value):
     if gb >= 1:
         return f'{gb:.1f} GB'
     return f'{max(1, round(value / 1e6))} MB'
+
+
+def rate(value):
+    """A download speed as a person would say it."""
+    return f'{value / 1e6:.1f} MB/s' if value >= 999_500 else f'{round(value / 1e3)} KB/s'
 
 
 def wait_text(seconds):
@@ -260,6 +267,7 @@ class State:
     bucket_draft: str = None  # The bucket name typed for B2, until a connection saves it.
     steps_open: bool = False  # Whether a connected B2's setup steps are shown again.
     workspace_id: str = None  # The open library's name, from which a bucket name is suggested.
+    saved_at: list = field(default_factory=list)  # (time, step, bytes it had saved) at each refresh, for the speed.
 
     def site(self):
         """The open site's name; Tapas until the list of sites is known."""
@@ -275,6 +283,22 @@ class State:
 
     def download_started(self):
         self.signin_used = True
+
+    def received_status(self, value, now):
+        self.status = value
+        last = (value or {}).get('last_run') if isinstance((value or {}).get('last_run'), dict) else {}
+        saved = ((value or {}).get('progress') or {}).get('downloaded_bytes')
+        if type(saved) is not int:
+            self.saved_at = []
+            return
+        # Each step counts from nothing, so only readings of the current step are compared.
+        self.saved_at = [(at, step, count) for at, step, count in self.saved_at
+                         if step == last.get('id') and now - at <= SPEED_SECONDS] + [(now, last.get('id'), saved)]
+
+    def speed(self):
+        """Bytes a second saved over the last few refreshes, or None until two are at least a refresh apart."""
+        (first, _, start), (last, _, end) = self.saved_at[0], self.saved_at[-1]
+        return (end - start) / (last - first) if last - first >= POLL_SECONDS - 1 and end >= start else None
 
     def received_site_auth(self, value, now):
         if (value or {}).get('status') == 'connected' and (self.site_auth or {}).get('status') != 'connected':
@@ -327,7 +351,8 @@ def unopened_rows():
     """A card for a site not signed in to yet: the same fields as every other card, with nothing known in them."""
     return [{'name': name, 'value': value, 'warning': False}
             for name, value in (('Account', 'Not signed in'), ('Downloader', 'Starts after sign-in'), ('Saved', NONE),
-                                ('Time left', NONE), ('Space', NONE), ('Speed', NONE))]
+                                ('Time left', NONE), ('Space', NONE), ('Speed', NONE),
+                                ('Download speed', NONE))]
 
 
 def view(s, now):
@@ -500,7 +525,7 @@ def view(s, now):
         row('Finished', f'Every episode your account can read is saved, except {display(cannot_save)} in a form the app '
             'can’t save yet' if cannot_save else 'Every episode your account can read is saved' if number(counts.get('archived'))
             else f'No episodes your {site} account can save were found')
-    # Saved, Time left, Space and Speed are on every card, so cards side by side read alike; NONE where nothing is known.
+    # Saved, Time left, Space, Speed and Download speed are on every card, so cards side by side read alike; NONE where nothing is known.
     row('Saved', NONE if s.status is None else
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
     estimate = status.get('estimate') if account.get('configured') and not finished else None
@@ -513,6 +538,10 @@ def view(s, now):
     refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
     row('Speed', NONE if not signed_in else
         SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
+    # What arrives, apart from Speed, which paces the requests. Measured only while images are saved: checking lists
+    # or series saves next to nothing, which says nothing.
+    measured = s.speed() if running and progress.get('phase') == 'archive' and s.saved_at else None
+    row('Download speed', NONE if measured is None else rate(measured))
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')
     v['rows'] = rows
