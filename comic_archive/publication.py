@@ -555,12 +555,12 @@ class PublicationStore(Store):
             # Originals are counted again from this attempt's pages, never added to an earlier attempt's.
             key = (manifest.series.source, episode.series_id, episode.id)
             self._originals.pop(key, None); self._recompressed.discard(key)
-        from .cloud import settings
+        from .cloud import settings, taking
         from .models import Manifest
         from .cloud_stream import StreamingEpisode
         from .cloud import direct_target
         cloud = settings(self.root)
-        if not manifest.episodes or not cloud or not any(t['enabled'] for t in cloud['targets'].values()):
+        if not manifest.episodes or not cloud or not any(taking(t) for t in cloud['targets'].values()):
             return super().archive(manifest, adapter, refresh, progress, download_workers)
         folder = self.series_folder(manifest.series)
         direct = direct_target(self.root) is not None

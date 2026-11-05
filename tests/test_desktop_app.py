@@ -181,6 +181,8 @@ class DesktopAppTests(unittest.TestCase):
         self.threads = SimpleNamespace(Thread=type('Thread', (InlineThread,), {}), Timer=Mock())
         for wrapper in [patch.dict(os.environ, home_environment(self.home, self.home / 'state')),
                         patch.dict(sys.modules, fake_qt()),
+                        # main turns on the cloud connection check; it stays off for the tests that follow.
+                        patch('comic_archive.cloud_runtime._checked', False),
                         patch('comic_archive.desktop_app.threading', self.threads),
                         patch('comic_archive.desktop_app.app_runtime.Library', self.runtime_kind),
                         patch('comic_archive.desktop_app.app_runtime.state_dir', self.state_dir),

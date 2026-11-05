@@ -137,6 +137,12 @@ class FakeActions:
             target['enabled'] = target['provider'] == chosen
         return copy.deepcopy(self.reading['cloud'])
 
+    def cloud_confirm(self, provider, use):
+        self.record('cloud_confirm', provider, use)
+        for target in self.reading['cloud']['targets']:
+            target.update(confirmed=True, enabled=target['enabled'] and use)
+        return copy.deepcopy(self.reading['cloud'])
+
     def cloud_storage(self, mode):
         self.record('cloud_storage', mode)
         self.reading['cloud']['storage'] = mode
@@ -851,6 +857,34 @@ class DownloadSettingsTests(PagesCase):
         self.assertEqual(window_pages.SIGNED_OUT_AWAY[2].format(site='Tapas', folders='/a\n/b'),
                          'Signed out of Tapas, except in these library folders, which Comic Archiver can\'t reach:\n/a\n/b\n'
                          'Connect the drives they\'re on, choose each folder with Change folder…, and sign out there.')
+
+    def test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it(self):
+        target = self.actions.reading['cloud']['targets'][0]
+        target.update(enabled=True, confirmed=False)
+        self.shell.answer = False
+        self.open('dashboard')
+        settle()
+        question = ('ask', window_pages.CLOUD_CONFIRM.format(bucket='the Backblaze B2 bucket "comic-library-0123"'))
+        self.assertIn('This library folder saves new episodes to the Backblaze B2 bucket "comic-library-0123". That '
+                      'connection came with the folder', question[1])
+        self.assertEqual(self.shell.calls, [question])
+        self.assertEqual([call[1] for call in self.actions.named('cloud_confirm')], [('b2', False)])
+        self.assertFalse(self.pages.state.cloud['targets'][0]['enabled'])  # Saved here from now on.
+        # Asked once in a window, even if the answer was not kept.
+        target.update(enabled=True, confirmed=False)
+        self.pages.poll(); settle()
+        self.assertEqual(self.shell.calls, [question])
+        # Another folder opened is asked about; with no bucket name to show when its connection file has none.
+        target['bucket'], self.shell.answer = None, True
+        self.open('dashboard'); settle()
+        self.assertEqual(self.shell.calls[-1], ('ask', window_pages.CLOUD_CONFIRM.format(bucket='a Backblaze B2 bucket')))
+        self.assertEqual([call[1] for call in self.actions.named('cloud_confirm')], [('b2', False), ('b2', True)])
+        self.assertTrue(self.pages.state.cloud['targets'][0]['enabled'])
+        # One set up or agreed to here, or turned off, is never asked about.
+        for answer in ({'confirmed': True}, {'confirmed': False, 'enabled': False}):
+            target.update({'enabled': True, **answer})
+            self.open('dashboard'); settle()
+            self.assertEqual(len(self.shell.calls), 2)
 
     def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
         self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}

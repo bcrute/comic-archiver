@@ -138,8 +138,19 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertEqual(pick(str(empty)), empty / 'Comic Archiver')
 
     def test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins(self):
-        self.runtime.start()
+        order = Mock(side_effect=lambda: order.noted.append(list(app_runtime.opened_libraries())))
+        order.noted = []
+        with patch('comic_archive.app_runtime.cloud_runtime.note_connections', order):
+            self.runtime.start()
         self.assertEqual(app_runtime.opened_libraries(), [self.root])
+        # The cloud connections in use are noted first: none this folder brings counts as one in use before.
+        self.assertEqual(order.noted, [[]])
+        with patch('comic_archive.app_runtime.cloud_runtime.note_connections', side_effect=ArchiveError('PRIVATE')), \
+                self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
+            other = app_runtime.Runtime(self.home / 'Other'); self.addCleanup(other.stop, 0)
+            other.start()
+        self.assertNotIn('PRIVATE', ''.join(logs.output))
+        self.assertEqual(app_runtime.opened_libraries(), [self.root, self.home / 'Other'])
 
     def test_the_chosen_library_folder_is_kept_for_the_next_start_and_the_standard_one_needs_no_record(self):
         saved, drive = self.state / 'comic-archiver/library', self.home / 'drive/Comic Archiver'

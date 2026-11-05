@@ -393,6 +393,8 @@ def configure_target(root, provider, *, remote=None, config=None):
                     _write(receipt, record)
         value['targets'][provider] = target
         _save(root, value, provider)
+    from .cloud_runtime import trust
+    trust(target)
     return status(root)
 
 
@@ -409,7 +411,34 @@ def enable(root, provider, enabled):
             raise ArchiveError('Run the small cloud test and cleanup before enabling automatic uploads.')
         target['enabled'] = enabled
         _save(root, value, provider)
+    if enabled:
+        from .cloud_runtime import trust
+        trust(target)  # Turned on by the person here.
     return status(root)
+
+
+def confirm(root, provider, use):
+    """The person's answer for a connection this library folder brought: use it, or keep new episodes here."""
+    if provider not in PROVIDERS or type(use) is not bool:
+        raise ArchiveError('Choose a provider and an explicit answer.')
+    from .cloud_runtime import trust
+    root = safe_root(root)
+    with LibraryLock(root):
+        value = settings(root)
+        if not value or provider not in value['targets']:
+            raise ArchiveError('Connect this cloud provider first.')
+        target = value['targets'][provider]
+        if not use and target['enabled']:
+            target['enabled'] = False
+            _save(root, value, provider)
+        trust(target)  # Asked once: either way, it is the person's choice from now on.
+    return status(root)
+
+
+def taking(target):
+    """Whether new episodes go to a connection: turned on, and set up on this computer or agreed to here."""
+    from .cloud_runtime import trusted
+    return target['enabled'] and trusted(target)
 
 
 def _bucket(target):
@@ -443,8 +472,11 @@ def status(root):
                     code = record.get('error_code')
                     code = code if isinstance(code, str) and code in MESSAGES else 'cloud_unknown'
                     failures[code] = failures.get(code, 0) + 1
+        from .cloud_runtime import trusted
         targets.append({'provider':provider, 'connected':bool(target), 'enabled':bool(target and target['enabled']),
                         'tested':bool(target and target['tested']),
+                        # False for one this library folder brought that the person has not agreed to use here.
+                        'confirmed':bool(target) and trusted(target),
                         'bucket':_bucket(target) if target else None,
                         'failure_reasons':failures, **counts})
     cleanup = []
@@ -503,7 +535,7 @@ def _bundle(root, archive, data=None):
 
 def queue_episode(root, archive, *, provider=None):
     value = settings(root)
-    if not value or not any(t['enabled'] for t in value['targets'].values()):
+    if not value or not any(taking(t) for t in value['targets'].values()):
         return
     root = safe_root(root)
     archive = safe_root(archive)
@@ -518,7 +550,7 @@ def queue_episode(root, archive, *, provider=None):
         sidecar_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
     bundle = {'episode_id':public['export_id'], 'archive':relative.as_posix(),
               'version':hashlib.sha256((sha + sidecar_sha).encode()).hexdigest(),
-              'required_targets':[p for p,t in value['targets'].items() if t['enabled'] and provider in (None,p)]}
+              'required_targets':[p for p,t in value['targets'].items() if taking(t) and provider in (None,p)]}
     for provider, target in value['targets'].items():
         if provider not in bundle['required_targets']:continue
         receipt = root / '.archive-state/cloud/outbox' / provider / (bundle['episode_id'] + '.json')
@@ -556,7 +588,7 @@ def upload_pending(root, *, limit=None, provider=None):
                     raise
                 # Leftovers wait for the next upload; they never hold up a retry.
         for name, target in value['targets'].items():
-            if not target['enabled'] or provider not in (None, name):continue
+            if not taking(target) or provider not in (None, name):continue
             transfer = None
             folder = root / '.archive-state/cloud/outbox' / name
             safe_root(folder)
@@ -659,7 +691,7 @@ def _orphaned(root, archive):
 def direct_target(root):
     """B2's target when it alone takes new episodes, so they can go to it without being saved here."""
     value = settings(root)
-    enabled = [name for name, target in value['targets'].items() if target['enabled']] if value else []
+    enabled = [name for name, target in value['targets'].items() if taking(target)] if value else []
     return value['targets']['b2'] if enabled == ['b2'] else None
 
 
@@ -903,6 +935,8 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
             cleanup_test(root, run_id, transfer=transfer)
         value['targets'][provider]['tested'] = True
         _save(root, value, provider)
+        from .cloud_runtime import trust
+        trust(value['targets'][provider])  # Tested by the person here.
         result = {'provider':provider, 'verified_episodes':record['verified_episodes'],
                 'test_files_deleted':True, 'local_archives_retained':True, 'test_id':run_id}
         if stream:

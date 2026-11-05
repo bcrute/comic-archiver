@@ -89,6 +89,12 @@ class LocalWorkspaceRegistry:
         from .cloud import enable
         return enable(workspace.library,provider,enabled)
 
+    def confirm_cloud(self, owner, workspace_id, provider, use):
+        workspace = self.resolve(owner,workspace_id)
+        from .cloud import confirm
+        confirm(workspace.library, provider, use)
+        return self.cloud_status(owner, workspace_id)
+
     def choose_cloud_storage(self, owner, workspace_id, mode):
         workspace = self.resolve(owner,workspace_id)
         from .shared import choose_cloud

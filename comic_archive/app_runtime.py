@@ -11,7 +11,7 @@ import sqlite3
 import threading
 import time
 
-from . import archive_paths, background, osdep, shared, sites, support_log
+from . import archive_paths, background, cloud_runtime, osdep, shared, sites, support_log
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
@@ -410,6 +410,10 @@ class Runtime:
             raise ArchiveError(UNWRITABLE) from None
         self.root = root
         self._kept = archive_paths.keep(root)
+        try:
+            cloud_runtime.note_connections()
+        except ArchiveError as error:
+            LOG.warning('the cloud connections in use were not noted: %s', describe(error))
         remember_library(root)
         self._serve(registry, session, state)
         LOG.info('the library is open: %s', support_log.place(root))

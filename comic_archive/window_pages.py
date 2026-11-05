@@ -23,6 +23,10 @@ SIGNED_OUT_AWAY = {1: ('Signed out of {site}, except in this library folder, whi
                    2: ('Signed out of {site}, except in these library folders, which Comic Archiver can\'t reach:\n'
                        '{folders}\nConnect the drives they\'re on, choose each folder with Change folder…, and sign out '
                        'there.')}
+# Asked once for a cloud connection that came with the library folder, before any new episode goes to it.
+CLOUD_CONFIRM = ('This library folder saves new episodes to {bucket}. That connection came with the folder: it '
+                 'wasn\'t set up in Comic Archiver on this computer.\n\nKeep saving new episodes there?\n\n'
+                 'If you choose No, they\'re saved on this computer instead.')
 FOOTER = ('Saving runs only while this window is open. Only episodes your account can already read, free or bought, '
           'are saved. Nothing is bought for you.')
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
@@ -1273,6 +1277,7 @@ class Pages:
         self.cloud_offered = True
         self.route = 'dashboard'
         self.polling = {}  # Each site's state with a refresh on its way.
+        self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
         kit = Kit(q, self.link)
         w = q.QtWidgets
@@ -1386,6 +1391,7 @@ class Pages:
         route = self.route
         self.states = {}
         self.polling = {}
+        self.cloud_asked = set()
         self.library.value = None
         self.settings.forget_keys()
         self.start(then)
@@ -1431,6 +1437,8 @@ class Pages:
             elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
                 self.settings.forget_keys()
             self.render()
+            if error is None:
+                self.confirm_cloud(key)
             if then is not None:
                 then(error is None)
         self.run(lambda: self.actions_for(key).poll(task, network=network, cloud=s.cloud_offered, library=library,
@@ -1658,6 +1666,23 @@ class Pages:
         s.busy = True
         self.render()
         self.run(lambda: self.actions.choose_storage(chosen, targets), finished)
+
+    def confirm_cloud(self, key):
+        """Ask once whether new episodes may go to a connection the library folder brought; until the person
+        says yes, they are saved here."""
+        s = self.of(key)
+        targets = (s.cloud or {}).get('targets') or []
+        target = next((t for t in targets if t.get('enabled') and t.get('confirmed') is False), None)
+        if target is None or key != self.chosen or key in self.cloud_asked or s.busy:
+            return
+        self.cloud_asked.add(key)  # Never twice in one window, even while the answer is being kept.
+        bucket = target.get('bucket')
+        use = self.shell.ask(CLOUD_CONFIRM.format(
+            bucket=f'the Backblaze B2 bucket "{bucket}"' if bucket else 'a Backblaze B2 bucket'))
+
+        def kept(value):
+            s.cloud = value
+        self.act(lambda: self.actions_for(key).cloud_confirm(target['provider'], use), kept, cloud=True, key=key)
 
     def share_b2(self, shared):
         def kept(value):

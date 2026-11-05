@@ -11,6 +11,10 @@ from comic_archive.models import ArchiveError
 
 
 class CLITests(unittest.TestCase):
+    def setUp(self):
+        # main turns on the desktop's cloud connection check; it stays off for the tests that follow.
+        wrapper = patch('comic_archive.cloud_runtime._checked', False); wrapper.start(); self.addCleanup(wrapper.stop)
+
     def test_the_built_in_engine_gets_the_main_thread_and_every_other_browser_runs_the_command_directly(self):
         from comic_archive import cli
         for browser in ('auto', 'chromium', 'firefox'):

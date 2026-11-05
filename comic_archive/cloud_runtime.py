@@ -4,6 +4,8 @@ Only the embedded application bootstrap enables the native B2 implementation. Th
 does not enable uploads or change a library's retention/connection policy.
 """
 _android = False
+# Set by the desktop app and its downloader: only connections this computer knows of take episodes (cloud_trust).
+_checked = False
 
 
 def install_android():
@@ -34,6 +36,35 @@ def ensure(root, cancel):
         return
     from .cloud_tools import ensure as desktop_ensure
     return desktop_ensure(root, cancel)
+
+
+def check_connections():
+    global _checked
+    _checked = True
+
+
+def trusted(target):
+    """Whether new episodes may go to a connection. Android's library is the phone's own, and so is every
+    connection in it."""
+    if _android or not _checked:
+        return True
+    from .cloud_trust import trusted as known
+    return known(target)
+
+
+def trust(target):
+    """Note a connection set up here, or that the person said to use."""
+    if _checked and not _android:
+        from .cloud_trust import add
+        add(target)
+
+
+def note_connections():
+    """Before a library folder is first noted as opened: the connections in use before this version are noted,
+    and none it brings."""
+    if _checked and not _android:
+        from .cloud_trust import known
+        known()
 
 
 def offered():

@@ -128,6 +128,13 @@ class Actions:
     def cloud_enable(self, provider, enabled):
         return self._call('configure_cloud', provider, enabled)
 
+    def cloud_confirm(self, provider, use):
+        """The person's answer for a cloud connection the library folder brought: use it here, or not."""
+        from .cloud import PROVIDERS
+        if provider not in PROVIDERS or type(use) is not bool:
+            raise Refused('request_unavailable', error_text('request_unavailable'))
+        return self._call('confirm_cloud', provider, use)
+
     def choose_storage(self, chosen, targets):
         """One place at a time: whatever was chosen before is turned off first, then the new one on."""
         for target in targets:

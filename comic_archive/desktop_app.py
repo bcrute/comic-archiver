@@ -1487,6 +1487,8 @@ def main(argv=None):
         print(f'{APP_NAME} {version()}')
         return 0
     secure_qt_environment(os.environ)
+    from .cloud_runtime import check_connections
+    check_connections()
     try:
         q = qt()
     except ImportError as error:

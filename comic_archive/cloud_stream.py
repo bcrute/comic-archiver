@@ -201,12 +201,12 @@ class StreamingEpisode:
     """
     @classmethod
     def create(cls, store, series, episode, archive):
-        from .cloud import settings, transfer_for, _write, STREAM_PROVIDERS
+        from .cloud import settings, taking, transfer_for, _write, STREAM_PROVIDERS
         value = settings(store.root)
         targets = value['targets'] if value else {}
-        provider = next((p for p in STREAM_PROVIDERS if targets.get(p, {}).get('enabled')), None)
+        provider = next((p for p in STREAM_PROVIDERS if p in targets and taking(targets[p])), None)
         target = targets.get(provider)
-        if not target or not target['enabled'] or episode.content_type != 'comic' or archive.exists():
+        if not target or episode.content_type != 'comic' or archive.exists():
             return None
         if store.episode_is_offloaded(series, episode, archive): return None
         transfer = transfer_for(store.root, provider, target)

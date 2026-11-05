@@ -44,6 +44,9 @@ def run_beside_engine(args):
 
 def main():
     args = parser().parse_args()
+    # The downloader the desktop app starts runs here.
+    from .cloud_runtime import check_connections
+    check_connections()
     try:
         code = run_beside_engine(args)
     except ArchiveError as e:

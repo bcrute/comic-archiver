@@ -33,6 +33,7 @@ class ActionsTests(unittest.TestCase):
         for name, method, args in (('go', 'start_account', ()), ('pause', 'pause_account', ()), ('signin', 'start_site_signin', ()),
                                    ('sign_out', 'sign_out_site', ()), ('speed', 'choose_speed', ('slow',)),
                                    ('cloud_enable', 'configure_cloud', ('b2', True)),
+                                   ('cloud_confirm', 'confirm_cloud', ('b2', False)),
                                    ('cloud_cancel', 'cancel_cloud_signin', ()), ('cloud_upload', 'upload_cloud', ()),
                                    ('wifi_only', 'configure_network', (False,)), ('cloud_storage', 'choose_cloud_storage', ('separate',)),
                                    ('cloud_test', 'test_cloud', ('b2',)), ('task', 'task', (TASK,))):

@@ -5982,5 +5982,213 @@
   "new": "            if False:\n                s.message",
   "test_file": "test_window_pages.py",
   "test": "test_signing_out_names_the_library_folders_it_could_not_reach"
+ },
+ {
+  "id": "cloud-trust-taking-ignores-trust",
+  "source": "comic_archive/cloud.py",
+  "old": "    return target['enabled'] and trusted(target)",
+  "new": "    return target['enabled']",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-status-always-confirmed",
+  "source": "comic_archive/cloud.py",
+  "old": "'confirmed':bool(target) and trusted(target),",
+  "new": "'confirmed':bool(target),",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-no-keeps-uploading",
+  "source": "comic_archive/cloud.py",
+  "old": "        if not use and target['enabled']:",
+  "new": "        if False and target['enabled']:",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-answer-not-kept",
+  "source": "comic_archive/cloud.py",
+  "old": "        trust(target)  # Asked once",
+  "new": "        pass  # Asked once",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-setup-not-noted",
+  "source": "comic_archive/cloud.py",
+  "old": "    from .cloud_runtime import trust\n    trust(target)\n    return status(root)",
+  "new": "    return status(root)",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it"
+ },
+ {
+  "id": "cloud-trust-enable-not-noted",
+  "source": "comic_archive/cloud.py",
+  "old": "        trust(target)  # Turned on by the person here.",
+  "new": "        pass",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-test-not-noted",
+  "source": "comic_archive/cloud.py",
+  "old": "        trust(value['targets'][provider])  # Tested by the person here.",
+  "new": "        pass",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it"
+ },
+ {
+  "id": "cloud-trust-queue-ignores-trust",
+  "source": "comic_archive/cloud.py",
+  "old": "    if not value or not any(taking(t) for t in value['targets'].values()):\n        return\n    root = safe_root(root)",
+  "new": "    if not value or not any(t['enabled'] for t in value['targets'].values()):\n        return\n    root = safe_root(root)",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-queue-targets-ignore-trust",
+  "source": "comic_archive/cloud.py",
+  "old": "if taking(t) and provider in (None,p)]}",
+  "new": "if t['enabled'] and provider in (None,p)]}",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-upload-ignores-trust",
+  "source": "comic_archive/cloud.py",
+  "old": "            if not taking(target) or provider not in (None, name):continue",
+  "new": "            if not target['enabled'] or provider not in (None, name):continue",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-direct-ignores-trust",
+  "source": "comic_archive/cloud.py",
+  "old": "if taking(target)] if value else []",
+  "new": "if target['enabled']] if value else []",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
+ },
+ {
+  "id": "cloud-trust-checked-everywhere",
+  "source": "comic_archive/cloud_runtime.py",
+  "old": "    if _android or not _checked:\n        return True",
+  "new": "    if _android:\n        return True",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_android_and_the_command_line_tools_use_every_connection_as_before"
+ },
+ {
+  "id": "cloud-trust-android-checked",
+  "source": "comic_archive/cloud_runtime.py",
+  "old": "    if _android or not _checked:\n        return True",
+  "new": "    if not _checked:\n        return True",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_android_and_the_command_line_tools_use_every_connection_as_before"
+ },
+ {
+  "id": "cloud-trust-android-noted",
+  "source": "comic_archive/cloud_runtime.py",
+  "old": "    if _checked and not _android:\n        from .cloud_trust import add",
+  "new": "    if _checked:\n        from .cloud_trust import add",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_android_and_the_command_line_tools_use_every_connection_as_before"
+ },
+ {
+  "id": "cloud-trust-first-start-not-noted",
+  "source": "comic_archive/cloud_runtime.py",
+  "old": "        from .cloud_trust import known\n        known()",
+  "new": "        pass",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_connections_in_use_before_this_version_are_kept_and_none_a_folder_brings_later"
+ },
+ {
+  "id": "cloud-trust-nothing-in-use-before",
+  "source": "comic_archive/cloud_trust.py",
+  "old": "    roots = [app_runtime.saved_root(), *app_runtime.opened_libraries()]",
+  "new": "    roots = []",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_connections_in_use_before_this_version_are_kept_and_none_a_folder_brings_later"
+ },
+ {
+  "id": "cloud-trust-first-record-empty",
+  "source": "comic_archive/cloud_trust.py",
+  "old": "        found = _opened()",
+  "new": "        found = set()",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_connections_in_use_before_this_version_are_kept_and_none_a_folder_brings_later"
+ },
+ {
+  "id": "cloud-trust-unreadable-record-starts-over",
+  "source": "comic_archive/cloud_trust.py",
+  "old": "        return set()  # Nothing known",
+  "new": "        return None  # Nothing known",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_connections_in_use_before_this_version_are_kept_and_none_a_folder_brings_later"
+ },
+ {
+  "id": "cloud-trust-name-not-in-digest",
+  "source": "comic_archive/cloud_trust.py",
+  "old": "hashlib.sha256(name + b'\\0' + data)",
+  "new": "hashlib.sha256(data)",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it"
+ },
+ {
+  "id": "cloud-trust-cli-unchecked",
+  "source": "comic_archive/cli.py",
+  "old": "    check_connections()\n",
+  "new": "    pass\n",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_the_desktop_app_and_its_downloader_turn_the_check_on"
+ },
+ {
+  "id": "cloud-trust-desktop-unchecked",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    check_connections()\n",
+  "new": "    pass\n",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_the_desktop_app_and_its_downloader_turn_the_check_on"
+ },
+ {
+  "id": "cloud-trust-noted-after-opening",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            cloud_runtime.note_connections()\n",
+  "new": "            pass\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins"
+ },
+ {
+  "id": "cloud-trust-asked-every-refresh",
+  "source": "comic_archive/window_pages.py",
+  "old": "or key in self.cloud_asked or s.busy:",
+  "new": "or s.busy:",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
+ },
+ {
+  "id": "cloud-trust-new-folder-not-asked",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.cloud_asked = set()\n        self.library.value = None",
+  "new": "        self.library.value = None",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
+ },
+ {
+  "id": "cloud-trust-confirmed-asked",
+  "source": "comic_archive/window_pages.py",
+  "old": "if t.get('enabled') and t.get('confirmed') is False), None)",
+  "new": "if t.get('enabled')), None)",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
+ },
+ {
+  "id": "cloud-trust-answer-ignored",
+  "source": "comic_archive/window_pages.py",
+  "old": ".cloud_confirm(target['provider'], use)",
+  "new": ".cloud_confirm(target['provider'], True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
  }
 ]
