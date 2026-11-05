@@ -71,6 +71,15 @@ class SiteReader:
     def retrieve(self, page, max_bytes=None):
         return self.transport.get(page.location, max_bytes=max_bytes, image=True)
 
+    def asset_request(self, page, max_bytes=None):
+        """An image fetched on a download thread, so a job with more than one worker saves several at once. The
+        downloader is safe to share: it keeps the pace, time limit and stop check, and sends only the cookies it
+        already holds."""
+        from ..downloads import AssetDownload
+        if page.local:
+            return None
+        return AssetDownload(lambda: self.retrieve(page, max_bytes))
+
     def retrieve_cover(self, series, max_bytes=None):
         if not series.cover_url:
             return None

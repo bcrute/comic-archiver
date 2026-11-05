@@ -1,6 +1,7 @@
 """Webtoon's reader, against made-up pages built like Webtoon's own (no real page text or pictures)."""
 import json
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
@@ -345,7 +346,17 @@ class WebtoonTests(unittest.TestCase):
 
     @patch('builtins.print')
     def test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace(self, output, sleep):
-        adapter, client = reader(series_pages(), SignedIn)
+        # Each episode's two pictures are asked for at the same time, or neither is answered.
+        both = threading.Barrier(2, timeout=10)
+
+        class Together(Site):
+            def stream(self, method, url, headers):
+                if url.startswith(IMAGES):
+                    both.wait()
+                return super().stream(method, url, headers)
+
+        client = Together(series_pages())
+        adapter = SignedIn(transport=Transport(client=client, site=sites.named('webtoon')))
         adapter.download_profile, adapter.transport.image_interval = 'fast', 1 / 32
         paced, pace = [], adapter.transport._pace
         def recorded(image=False):

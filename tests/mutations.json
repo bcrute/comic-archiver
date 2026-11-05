@@ -6200,78 +6200,6 @@
   "test": "test_a_refresh_is_put_on_the_state_and_what_it_did_not_read_is_kept"
  },
  {
-  "id": "download-speed-only-the-current-step",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "if step == last.get('id') and now - at <= SPEED_SECONDS]",
-  "new": "if now - at <= SPEED_SECONDS]",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-over-the-last-minute",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "if step == last.get('id') and now - at <= SPEED_SECONDS]",
-  "new": "if step == last.get('id')]",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-a-late-refresh-counts",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "SPEED_SECONDS = 60 + 1\n",
-  "new": "SPEED_SECONDS = 60\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-readings-a-refresh-apart",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "if last - first >= POLL_SECONDS - 1 and end >= start",
-  "new": "if last - first > 0 and end >= start",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-a-falling-count-says-nothing",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "if last - first >= POLL_SECONDS - 1 and end >= start",
-  "new": "if last - first >= POLL_SECONDS - 1",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-without-a-count-forgets",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "            self.saved_at = []\n            return\n",
-  "new": "            return\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-only-while-images-are-saved",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "        if type(saved) is not int or progress.get('phase') != 'archive':\n",
-  "new": "        if type(saved) is not int:\n",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-only-while-running",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "measured = s.speed() if running and s.saved_at",
-  "new": "measured = s.speed() if s.saved_at",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
-  "id": "download-speed-megabytes-from-999-5-kb",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "if value >= 999_500 else",
-  "new": "if value >= 1e6 else",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_site_saving_images_shows_how_fast_over_the_last_minute"
- },
- {
   "id": "tapas-locked-episode-checks-the-sign-in",
   "source": "comic_archive/adapters/tapas_http.py",
   "old": "            self.stage = \"session\"\n            self.check_session()\n            raise",
@@ -6372,6 +6300,94 @@
   "source": "comic_archive/jobs.py",
   "old": "    if profile == 'fast' and not free_only and callable(getattr(adapter, 'prefetch_episode', None)):\n",
   "new": "    if profile == 'fast' and not free_only:\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
+ },
+ {
+  "id": "download-speed-a-new-step-counts-from-nothing",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if step == last.get('id') and saved >= before else saved",
+  "new": "if saved >= before else saved",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-a-count-that-fell-counts-from-nothing",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if step == last.get('id') and saved >= before else saved",
+  "new": "if True else saved",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-over-the-last-minute",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "for at, count in self.saved_at if now - at <= SPEED_SECONDS]",
+  "new": "for at, count in self.saved_at]",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-a-late-refresh-counts",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "SPEED_SECONDS = 60 + 1\n",
+  "new": "SPEED_SECONDS = 60\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-readings-a-refresh-apart",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if last - first >= POLL_SECONDS - 1 else None",
+  "new": "if last - first > 0 else None",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-a-refresh-without-a-count-is-time",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        if type(saved) is int:\n",
+  "new": "        if type(saved) is not int:\n            self.saved_at = []\n        if type(saved) is int:\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-series-lookups-count",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        if type(saved) is int:\n",
+  "new": "        if type(saved) is int and ((value or {}).get('progress') or {}).get('phase') == 'archive':\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-the-step-is-remembered",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            self.counted = (last.get('id'), saved)\n",
+  "new": "            pass\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-only-while-running",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "measured = s.speed() if running and s.saved_at",
+  "new": "measured = s.speed() if s.saved_at",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "download-speed-megabytes-from-999-5-kb",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if value >= 999_500 else",
+  "new": "if value >= 1e6 else",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"
+ },
+ {
+  "id": "site-images-several-at-once",
+  "source": "comic_archive/adapters/site_reader.py",
+  "old": "        return AssetDownload(lambda: self.retrieve(page, max_bytes))\n",
+  "new": "        return None\n",
   "test_file": "test_webtoon.py",
   "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
  }
