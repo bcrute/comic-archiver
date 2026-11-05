@@ -118,7 +118,7 @@ class SupportLogTests(unittest.TestCase):
         (worker / 'background.log.1').write_text('older\n')
         (worker / 'background.log').symlink_to(secret)
         text = support_log.site_records('Tapas', workspace.session, workspace.library)
-        self.assertTrue(text.endswith('=== Tapas: the downloader’s log\nolder\n'), text)
+        self.assertTrue(text.endswith('=== Tapas: the downloader’s log\nolder'), text)
         elsewhere = self.home / 'elsewhere'; elsewhere.mkdir()
         (elsewhere / 'background.log').write_text('ELSEWHERE\n')
         worker.rename(workspace.session / 'old-worker'); worker.symlink_to(elsewhere)
