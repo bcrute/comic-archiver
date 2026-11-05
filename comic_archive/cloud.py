@@ -473,10 +473,12 @@ def status(root):
                     code = code if isinstance(code, str) and code in MESSAGES else 'cloud_unknown'
                     failures[code] = failures.get(code, 0) + 1
         from .cloud_runtime import trusted
+        from .cloud_trust import fingerprint
         targets.append({'provider':provider, 'connected':bool(target), 'enabled':bool(target and target['enabled']),
                         'tested':bool(target and target['tested']),
-                        # False for one this library folder brought that the person has not agreed to use here.
-                        'confirmed':bool(target) and trusted(target),
+                        # False for one this library folder brought that the person has not agreed to use here. One
+                        # whose connection file cannot be read takes nothing either way, so there is nothing to ask.
+                        'confirmed':bool(target) and (trusted(target) or fingerprint(target) is None),
                         'bucket':_bucket(target) if target else None,
                         'failure_reasons':failures, **counts})
     cleanup = []

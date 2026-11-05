@@ -110,6 +110,11 @@ class CloudTrustTests(unittest.TestCase):
         for unreadable in (target | {'config': str(self.home / 'missing.conf')}, {}):
             self.assertIsNone(cloud_trust.fingerprint(unreadable))
             self.assertFalse(cloud_trust.trusted(unreadable))
+        # A connection file gone, as when a library folder moved: nothing goes to it, and nobody is asked about it.
+        config.rename(self.home / 'away.conf')
+        self.assertEqual((self.b2(root)['enabled'], self.b2(root)['confirmed']), (True, True))
+        self.assertIsNone(cloud.direct_target(root))
+        (self.home / 'away.conf').rename(config)
         # A tested connection is the person's own as well.
         cloud.smoke_test(root, 'b2', episodes=1)
         self.assertTrue(self.b2(root)['confirmed'])

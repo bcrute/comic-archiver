@@ -5994,7 +5994,7 @@
  {
   "id": "cloud-trust-status-always-confirmed",
   "source": "comic_archive/cloud.py",
-  "old": "'confirmed':bool(target) and trusted(target),",
+  "old": "'confirmed':bool(target) and (trusted(target) or fingerprint(target) is None),",
   "new": "'confirmed':bool(target),",
   "test_file": "test_cloud_trust.py",
   "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
@@ -6190,5 +6190,13 @@
   "new": ".cloud_confirm(target['provider'], True)",
   "test_file": "test_window_pages.py",
   "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
+ },
+ {
+  "id": "cloud-trust-unreadable-asked",
+  "source": "comic_archive/cloud.py",
+  "old": "(trusted(target) or fingerprint(target) is None),",
+  "new": "trusted(target),",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it"
  }
 ]
