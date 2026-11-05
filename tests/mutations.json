@@ -1962,7 +1962,7 @@
  {
   "id": "cloud-join-moves-named-file",
   "source": "comic_archive/cloud.py",
-  "old": "        elif config.parent == root / '.archive-state/cloud':",
+  "old": "        elif config.parent == mine:",
   "new": "        elif True:",
   "test_file": "test_shared.py",
   "test": "test_a_connection_file_named_on_the_command_line_stays_where_it_is"
@@ -2658,7 +2658,7 @@
  {
   "id": "speed-choice-not-kept",
   "source": "comic_archive/account_ui.py",
-  "old": "        replace_file(path.with_name(SPEED_FILE + '.new'), path)\n",
+  "old": "        replace_file(temporary, path)\n",
   "new": "",
   "test_file": "test_account_ui.py",
   "test": "test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it"
