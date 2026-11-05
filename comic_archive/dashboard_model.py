@@ -18,8 +18,8 @@ STARTING_SECONDS = 120
 DELAYED_SECONDS = 15
 # A failure stays on the dashboard this long, so it can be read.
 MESSAGE_SECONDS = 30
-# The speed shown is what was saved over about this long: the last two refreshes. A second more lets a late one count.
-SPEED_SECONDS = 2 * POLL_SECONDS + 1
+# The speed shown is the average over the last minute of saving images. A second more lets a late refresh count.
+SPEED_SECONDS = 60 + 1
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
 SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
@@ -287,8 +287,10 @@ class State:
     def received_status(self, value, now):
         self.status = value
         last = (value or {}).get('last_run') if isinstance((value or {}).get('last_run'), dict) else {}
-        saved = ((value or {}).get('progress') or {}).get('downloaded_bytes')
-        if type(saved) is not int:
+        progress = (value or {}).get('progress') or {}
+        saved = progress.get('downloaded_bytes')
+        # Measured only while images are saved: checking lists or series saves next to nothing, which says nothing.
+        if type(saved) is not int or progress.get('phase') != 'archive':
             self.saved_at = []
             return
         # Each step counts from nothing, so only readings of the current step are compared.
@@ -296,7 +298,7 @@ class State:
                          if step == last.get('id') and now - at <= SPEED_SECONDS] + [(now, last.get('id'), saved)]
 
     def speed(self):
-        """Bytes a second saved over the last few refreshes, or None until two are at least a refresh apart."""
+        """Bytes a second saved over the last minute, or None until two readings are at least a refresh apart."""
         (first, _, start), (last, _, end) = self.saved_at[0], self.saved_at[-1]
         return (end - start) / (last - first) if last - first >= POLL_SECONDS - 1 and end >= start else None
 
@@ -538,9 +540,8 @@ def view(s, now):
     refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
     row('Speed', NONE if not signed_in else
         SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
-    # What arrives, apart from Speed, which paces the requests. Measured only while images are saved: checking lists
-    # or series saves next to nothing, which says nothing.
-    measured = s.speed() if running and progress.get('phase') == 'archive' and s.saved_at else None
+    # What arrives, apart from Speed, which paces the requests.
+    measured = s.speed() if running and s.saved_at else None
     row('Download speed', NONE if measured is None else rate(measured))
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')

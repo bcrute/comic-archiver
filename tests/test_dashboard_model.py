@@ -322,7 +322,7 @@ class ButtonTests(unittest.TestCase):
 
 
 class StatusTests(unittest.TestCase):
-    def test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes(self):
+    def test_a_site_saving_images_shows_how_fast_over_the_last_minute(self):
         s = state(account=account())
         def read(at, saved, step='run-1', phase='archive'):
             s.received_status({'session_configured': True, 'worker': {'reported_state': 'busy'}, 'last_run': {'id': step},
@@ -332,30 +332,31 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(model.view(s, NOW))['Speed'], ('Fast', False))
         self.assertEqual(read(NOW, 10_000_000), ('—', False))
         self.assertEqual(read(NOW + 5, 22_000_000), ('2.4 MB/s', False))
-        # Over about ten seconds: the reading before that is no longer counted.
-        self.assertEqual(read(NOW + 10, 23_000_000), ('1.3 MB/s', False))
-        self.assertEqual(read(NOW + 15, 24_500_000), ('250 KB/s', False))
-        self.assertEqual([at for at, _, _ in s.saved_at], [NOW + 5, NOW + 10, NOW + 15])
+        # Every reading of the last minute counts; one older than that no longer does.
+        self.assertEqual(read(NOW + 60, 70_000_000), ('1.0 MB/s', False))
+        self.assertEqual([at for at, _, _ in s.saved_at], [NOW, NOW + 5, NOW + 60])
+        self.assertEqual(read(NOW + 65, 71_000_000), ('817 KB/s', False))
         # A refresh that came late still counts; one long gone does not.
-        self.assertEqual(read(NOW + 26, 25_050_000), ('50 KB/s', False))
-        self.assertEqual(read(NOW + 45, 25_500_000), ('—', False))
+        self.assertEqual(read(NOW + 66, 71_100_000), ('805 KB/s', False))
+        self.assertEqual(read(NOW + 200, 80_000_000), ('—', False))
         # A new step counts from nothing, so it starts again.
-        self.assertEqual(read(NOW + 50, 100, step='run-2'), ('—', False))
-        self.assertEqual(read(NOW + 55, 5_100, step='run-2'), ('1 KB/s', False))
+        self.assertEqual(read(NOW + 205, 100, step='run-2'), ('—', False))
+        self.assertEqual(read(NOW + 210, 5_100, step='run-2'), ('1 KB/s', False))
         # Two refreshes a moment apart, or a count that went down, say nothing.
         s.saved_at = [(NOW, 'run-2', 0)]
         self.assertEqual(read(NOW + 3, 9_000_000, step='run-2'), ('—', False))
         s.saved_at = [(NOW, 'run-2', 9_000_000)]
         self.assertEqual(read(NOW + 5, 0, step='run-2'), ('—', False))
-        # Checking lists or series saves next to nothing, which says nothing about speed.
-        self.assertEqual(read(NOW + 60, 0, step='run-3', phase='scan'), ('—', False))
-        self.assertEqual(read(NOW + 65, 9_000_000, step='run-3', phase='scan'), ('—', False))
-        self.assertEqual(read(NOW + 70, 18_000_000, step='run-3'), ('1.8 MB/s', False))
+        # Checking lists or series saves next to nothing, which says nothing about speed: the minute starts with images.
+        self.assertEqual(read(NOW + 300, 0, step='run-3', phase='scan'), ('—', False))
+        self.assertEqual(read(NOW + 305, 9_000_000, step='run-3', phase='scan'), ('—', False))
+        self.assertEqual(read(NOW + 310, 18_000_000, step='run-3'), ('—', False))
+        self.assertEqual(read(NOW + 315, 19_000_000, step='run-3'), ('200 KB/s', False))
         # A download that is not running has no speed, whatever was read last.
         s.account = account(status='stopped')
-        self.assertEqual(fields(model.view(s, NOW + 70))['Download speed'], ('—', False))
+        self.assertEqual(fields(model.view(s, NOW + 315))['Download speed'], ('—', False))
         # A refresh without the step's count forgets the earlier ones.
-        s.received_status({'session_configured': True}, NOW + 75)
+        s.received_status({'session_configured': True}, NOW + 320)
         self.assertEqual(s.saved_at, [])
         self.assertEqual(fields(model.view(state(account=account()), NOW))['Download speed'], ('—', False))
         self.assertEqual((model.rate(999_499), model.rate(999_500), model.rate(0)), ('999 KB/s', '1.0 MB/s', '0 KB/s'))
