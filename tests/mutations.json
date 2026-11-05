@@ -2418,8 +2418,8 @@
  {
   "id": "desktop inherits unsafe web engine overrides",
   "source": "comic_archive/desktop_app.py",
-  "old": "    secure_qt_environment(os.environ)\n    try:\n        q = qt()",
-  "new": "    try:\n        q = qt()",
+  "old": "    secure_qt_environment(os.environ)\n    from .cloud_runtime import check_connections",
+  "new": "    from .cloud_runtime import check_connections",
   "test_file": "test_desktop_app.py",
   "test": "test_startup_drops_inherited_web_engine_overrides_before_qt_runs"
  },
@@ -2858,16 +2858,16 @@
  {
   "id": "the dashboard's private folder is made without being hidden",
   "source": "comic_archive/app_runtime.py",
-  "old": "            private_folder(place, 'web')\n",
-  "new": "",
+  "old": "                private_folder(place, 'web')\n",
+  "new": "                pass\n",
   "test_file": "test_app_runtime.py",
   "test": "test_the_apps_private_folders_beside_and_inside_the_library_are_hidden"
  },
  {
   "id": "runtime-site-not-linked",
   "source": "comic_archive/app_runtime.py",
-  "old": "            share(place, private_folder(root, 'shared'))\n",
-  "new": "",
+  "old": "                share(place, private_folder(root, 'shared'))\n",
+  "new": "                pass\n",
   "test_file": "test_app_runtime.py",
   "test": "test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened"
  },
@@ -3378,8 +3378,8 @@
  {
   "id": "signout-keeps-connected",
   "source": "comic_archive/window_signin.py",
-  "old": "            self._state = {'status': 'idle'}\n        LOG.info('signed out')",
-  "new": "            pass\n        LOG.info('signed out')",
+  "old": "            self._state = {'status': 'idle'}\n        try:",
+  "new": "            pass\n        try:",
   "test_file": "test_window_signin.py",
   "test": "test_sign_out_stops_the_downloader_then_forgets_the_saved_sign_in_and_nothing_else"
  },
@@ -3690,8 +3690,8 @@
  {
   "id": "uninstall-sign-in-kept",
   "source": "comic_archive/uninstall.py",
-  "old": "            forget_session(session)\n",
-  "new": "            pass\n",
+  "old": "            stopped = stop_downloader(session) and stopped\n            forget_session(session)\n",
+  "new": "            stopped = stop_downloader(session) and stopped\n            pass\n",
   "test_file": "test_uninstall.py",
   "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
  },
@@ -3706,8 +3706,8 @@
  {
   "id": "uninstall-own-cloud-keys-kept",
   "source": "comic_archive/uninstall.py",
-  "old": "        forget_connections(library / '.archive-state/cloud')\n",
-  "new": "",
+  "old": "            forget_connections(library / '.archive-state/cloud')\n",
+  "new": "            pass\n",
   "test_file": "test_uninstall.py",
   "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
  },
@@ -3890,8 +3890,8 @@
  {
   "id": "uninstall-folders-go-when-a-sign-in-stayed",
   "source": "comic_archive/desktop_app.py",
-  "old": "        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)\n    complete = removal.remove_app_folders()\n",
-  "new": "        pass\n    complete = removal.remove_app_folders() and complete\n",
+  "old": "        return tell(UNINSTALL_INCOMPLETE, UNINSTALL_FAILED)\n    if away and quiet and not anyway:\n",
+  "new": "        pass\n    if away and quiet and not anyway:\n",
   "test_file": "test_desktop_app.py",
   "test": "test_the_windows_uninstaller_is_asked_and_told_nothing_and_reads_the_exit_status"
  },
@@ -6044,14 +6044,6 @@
   "source": "comic_archive/cloud.py",
   "old": "    if not value or not any(taking(t) for t in value['targets'].values()):\n        return\n    root = safe_root(root)",
   "new": "    if not value or not any(t['enabled'] for t in value['targets'].values()):\n        return\n    root = safe_root(root)",
-  "test_file": "test_cloud_trust.py",
-  "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
- },
- {
-  "id": "cloud-trust-queue-targets-ignore-trust",
-  "source": "comic_archive/cloud.py",
-  "old": "if taking(t) and provider in (None,p)]}",
-  "new": "if t['enabled'] and provider in (None,p)]}",
   "test_file": "test_cloud_trust.py",
   "test": "test_a_connection_a_library_folder_brought_takes_no_episode_until_the_person_says_so"
  },

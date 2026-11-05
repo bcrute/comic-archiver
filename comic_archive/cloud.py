@@ -552,7 +552,7 @@ def queue_episode(root, archive, *, provider=None):
         sidecar_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
     bundle = {'episode_id':public['export_id'], 'archive':relative.as_posix(),
               'version':hashlib.sha256((sha + sidecar_sha).encode()).hexdigest(),
-              'required_targets':[p for p,t in value['targets'].items() if taking(t) and provider in (None,p)]}
+              'required_targets':[p for p,t in value['targets'].items() if t['enabled'] and provider in (None,p)]}
     for provider, target in value['targets'].items():
         if provider not in bundle['required_targets']:continue
         receipt = root / '.archive-state/cloud/outbox' / provider / (bundle['episode_id'] + '.json')
