@@ -18,7 +18,7 @@ STARTING_SECONDS = 120
 DELAYED_SECONDS = 15
 # A failure stays on the dashboard this long, so it can be read.
 MESSAGE_SECONDS = 30
-# The speed shown is the average over the last minute of saving images. A second more lets a late refresh count.
+# The speed shown is the average over the last minute. A second more lets a late refresh count.
 SPEED_SECONDS = 60 + 1
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
@@ -267,7 +267,8 @@ class State:
     bucket_draft: str = None  # The bucket name typed for B2, until a connection saves it.
     steps_open: bool = False  # Whether a connected B2's setup steps are shown again.
     workspace_id: str = None  # The open library's name, from which a bucket name is suggested.
-    saved_at: list = field(default_factory=list)  # (time, step, bytes it had saved) at each refresh, for the speed.
+    saved_at: list = field(default_factory=list)  # (time, bytes saved since the app began counting) at each refresh.
+    counted: tuple = (None, 0)  # The step last read, and what it had saved then.
 
     def site(self):
         """The open site's name; Tapas until the list of sites is known."""
@@ -287,20 +288,21 @@ class State:
     def received_status(self, value, now):
         self.status = value
         last = (value or {}).get('last_run') if isinstance((value or {}).get('last_run'), dict) else {}
-        progress = (value or {}).get('progress') or {}
-        saved = progress.get('downloaded_bytes')
-        # Measured only while images are saved: checking lists or series saves next to nothing, which says nothing.
-        if type(saved) is not int or progress.get('phase') != 'archive':
-            self.saved_at = []
-            return
-        # Each step counts from nothing, so only readings of the current step are compared.
-        self.saved_at = [(at, step, count) for at, step, count in self.saved_at
-                         if step == last.get('id') and now - at <= SPEED_SECONDS] + [(now, last.get('id'), saved)]
+        saved = ((value or {}).get('progress') or {}).get('downloaded_bytes')
+        # One count across steps, and across checking lists or series: the time between saving images is part of
+        # how fast a download goes. A refresh without a count is time in which nothing more was seen saved.
+        step, before = self.counted
+        total = self.saved_at[-1][1] if self.saved_at else 0
+        if type(saved) is int:
+            # Each step counts from nothing: what a new one has saved, it saved since the last refresh.
+            total += saved - before if step == last.get('id') and saved >= before else saved
+            self.counted = (last.get('id'), saved)
+        self.saved_at = [(at, count) for at, count in self.saved_at if now - at <= SPEED_SECONDS] + [(now, total)]
 
     def speed(self):
         """Bytes a second saved over the last minute, or None until two readings are at least a refresh apart."""
-        (first, _, start), (last, _, end) = self.saved_at[0], self.saved_at[-1]
-        return (end - start) / (last - first) if last - first >= POLL_SECONDS - 1 and end >= start else None
+        (first, start), (last, end) = self.saved_at[0], self.saved_at[-1]
+        return (end - start) / (last - first) if last - first >= POLL_SECONDS - 1 else None
 
     def received_site_auth(self, value, now):
         if (value or {}).get('status') == 'connected' and (self.site_auth or {}).get('status') != 'connected':
