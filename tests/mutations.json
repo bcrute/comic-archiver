@@ -5758,5 +5758,21 @@
   "new": "        if False:\n",
   "test_file": "test_cloud_tools.py",
   "test": "test_a_program_of_the_persons_own_is_looked_for_only_in_the_folders_path_names"
+ },
+ {
+  "id": "speed-written-through-link",
+  "source": "comic_archive/account_ui.py",
+  "old": "        with os.fdopen(open_exclusive(temporary), 'w', encoding='utf-8') as stream:\n",
+  "new": "        with open(temporary, 'w', encoding='utf-8') as stream:\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_file_that_is_a_link_is_never_written_or_read_through"
+ },
+ {
+  "id": "speed-read-through-link",
+  "source": "comic_archive/account_ui.py",
+  "old": "        flags = os.O_RDONLY | NOFOLLOW | NONBLOCK | getattr(os, 'O_BINARY', 0)\n",
+  "new": "        flags = os.O_RDONLY | NONBLOCK | getattr(os, 'O_BINARY', 0)\n",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_speed_file_that_is_a_link_is_never_written_or_read_through"
  }
 ]

@@ -134,6 +134,16 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
         self.assertEqual(self.next_pace()[0],'fast')
 
+    def test_a_speed_file_that_is_a_link_is_never_written_or_read_through(self):
+        # A library folder from elsewhere could hold links here to a file of the person's own.
+        mine=self.root/'notes.txt';mine.write_text('slow\n')
+        for name in (account_ui.SPEED_FILE+'.new',account_ui.SPEED_FILE):
+            (self.workspace.session/name).symlink_to(mine)
+        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
+        self.assertEqual(self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')['speed'],'medium')
+        self.assertEqual(mine.read_text(),'slow\n')
+        self.assertFalse((self.workspace.session/account_ui.SPEED_FILE).is_symlink())
+
     def test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands(self):
         self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
         with patch('os.replace',side_effect=OSError):

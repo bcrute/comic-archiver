@@ -2,8 +2,10 @@
 
 The download itself is download_control's; this never contacts a site itself or decides what is next.
 """
+import os
 from pathlib import Path
 import sqlite3
+import stat
 import time
 
 from . import download_control
@@ -11,7 +13,7 @@ from .archive import atomic_json
 from .locking import LibraryLock
 from .monitoring import _read, _progress
 from .models import ArchiveError
-from .osdep import replace_file
+from .osdep import NOFOLLOW, NONBLOCK, open_exclusive, replace_file
 from .queue_client import task_status
 
 # The downloader's own pace, for reading the lists; what a download adds to it is the chosen speed below.
@@ -37,7 +39,12 @@ PHASES = ('existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished'
 def speed(workspace):
     """The speed chosen for this library; the fast one until the person picks another."""
     try:
-        text = (workspace.session / SPEED_FILE).read_text(encoding='utf-8').strip()
+        # Never through a link: a library folder from elsewhere could hold one here.
+        flags = os.O_RDONLY | NOFOLLOW | NONBLOCK | getattr(os, 'O_BINARY', 0)
+        with os.fdopen(os.open(workspace.session / SPEED_FILE, flags), 'rb') as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return DEFAULT_SPEED
+            text = stream.read(64).decode('utf-8').strip()
     except (OSError, ValueError):
         return DEFAULT_SPEED
     return text if text in SPEEDS else DEFAULT_SPEED
@@ -48,9 +55,12 @@ def choose_speed(workspace, value):
     if value not in SPEEDS:
         raise ArchiveError('Comic Archiver does not know that speed.')
     path = workspace.session / SPEED_FILE
+    temporary = path.with_name(SPEED_FILE + '.new')
     try:
-        path.with_name(SPEED_FILE + '.new').write_text(value + '\n', encoding='utf-8')
-        replace_file(path.with_name(SPEED_FILE + '.new'), path)
+        # Made afresh, never through a link: a library folder from elsewhere could hold one at either name.
+        with os.fdopen(open_exclusive(temporary), 'w', encoding='utf-8') as stream:
+            stream.write(value + '\n')
+        replace_file(temporary, path)
     except OSError:
         raise ArchiveError('Comic Archiver could not save that speed. Check that the library folder can be written to.') from None
 
