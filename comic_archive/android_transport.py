@@ -111,7 +111,7 @@ class AndroidTransport(Transport):
                          cookie_source=source.header_for, cookie_sink=source.apply)
         self.store = source
 
-    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False):
+    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False):
         """Route canonical Tapas identities through its Android mobile origin.
 
         Validate before routing. The cookie store is asked for the destination URL;
@@ -122,7 +122,7 @@ class AndroidTransport(Transport):
         parsed = urlsplit(url)
         if self.site == ANDROID_TAPAS and parsed.netloc == 'tapas.io':
             url = parsed._replace(netloc=self.site.host).geturl()
-        return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies)
+        return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies, image=image)
 
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
         # Tapas serves navigation redirects for mobile API paths unless the

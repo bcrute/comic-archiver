@@ -154,12 +154,20 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True):
                 return archive_discovered(fast, Path('Library'), _discovery_report(), **fast_options(options))
         previous=getattr(adapter,'interval',1.0)
         adapter.interval=interval
+        # Fast on another site: more images at once, on a pace of their own; its own pages keep the job's pace.
+        fast_images = speed == 'fast' and other_site
+        if fast_images:
+            from .adapters.site_reader import FAST_IMAGE_INTERVAL, FAST_IMAGE_WORKERS
+            options['download_workers'] = FAST_IMAGE_WORKERS
+            adapter.download_profile, adapter.transport.image_interval = 'fast', FAST_IMAGE_INTERVAL
         try:
             if operation == "sync":
                 return sync(adapter, Path("Library"), _discovery_report(), args.get("categories"), **options)
             return archive_discovered(adapter, Path("Library"), _discovery_report(), **options)
         finally:
             adapter.interval=previous
+            if fast_images:
+                adapter.download_profile, adapter.transport.image_interval = 'normal', None
     raise ArchiveError("Worker accepts only fixed archive, account audit and cloud tasks.")
 
 

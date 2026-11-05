@@ -1277,7 +1277,7 @@
   "old": "        if speed == 'fast' and not other_site:",
   "new": "        if speed == 'fast':",
   "test_file": "test_webtoon.py",
-  "test": "test_the_downloader_reads_webtoon_with_its_reader_at_its_normal_pace"
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
  },
  {
   "id": "webtoon-no-reader",
@@ -1285,7 +1285,7 @@
   "old": "    if site.key == 'webtoon':",
   "new": "    if False:",
   "test_file": "test_webtoon.py",
-  "test": "test_the_downloader_reads_webtoon_with_its_reader_at_its_normal_pace"
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
  },
  {
   "id": "tappytoon-unlocked-ignored",
@@ -6190,5 +6190,189 @@
   "new": "trusted(target),",
   "test_file": "test_cloud_trust.py",
   "test": "test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it"
+ },
+ {
+  "id": "download-speed-read-at-each-refresh",
+  "source": "comic_archive/app_actions.py",
+  "old": "    state.received_status(reading['status'], now)\n",
+  "new": "    state.status = reading['status']\n",
+  "test_file": "test_app_actions.py",
+  "test": "test_a_refresh_is_put_on_the_state_and_what_it_did_not_read_is_kept"
+ },
+ {
+  "id": "download-speed-only-the-current-step",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if step == last.get('id') and now - at <= SPEED_SECONDS]",
+  "new": "if now - at <= SPEED_SECONDS]",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-over-the-last-two-refreshes",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if step == last.get('id') and now - at <= SPEED_SECONDS]",
+  "new": "if step == last.get('id')]",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-a-late-refresh-counts",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "SPEED_SECONDS = 2 * POLL_SECONDS + 1",
+  "new": "SPEED_SECONDS = 2 * POLL_SECONDS",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-readings-a-refresh-apart",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if last - first >= POLL_SECONDS - 1 and end >= start",
+  "new": "if last - first > 0 and end >= start",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-a-falling-count-says-nothing",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if last - first >= POLL_SECONDS - 1 and end >= start",
+  "new": "if last - first >= POLL_SECONDS - 1",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-without-a-count-forgets",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            self.saved_at = []\n            return\n",
+  "new": "            return\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-only-while-images-are-saved",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "measured = s.speed() if running and progress.get('phase') == 'archive' and s.saved_at",
+  "new": "measured = s.speed() if running and s.saved_at",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-only-while-running",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "measured = s.speed() if running and progress.get('phase') == 'archive' and s.saved_at",
+  "new": "measured = s.speed() if progress.get('phase') == 'archive' and s.saved_at",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "download-speed-megabytes-from-999-5-kb",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if value >= 999_500 else",
+  "new": "if value >= 1e6 else",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_site_saving_images_shows_how_fast_over_its_last_two_refreshes"
+ },
+ {
+  "id": "tapas-locked-episode-checks-the-sign-in",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "            self.stage = \"session\"\n            self.check_session()\n            raise",
+  "new": "            raise",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_sign_in_ended_since_the_step_began_is_a_sign_out_not_a_locked_episode"
+ },
+ {
+  "id": "tapas-fast-page-requests-under-the-limit",
+  "source": "comic_archive/fast_import.py",
+  "old": "FAST_METADATA_INTERVAL = 1.25\n",
+  "new": "FAST_METADATA_INTERVAL = 1 / 2\n",
+  "test_file": "test_fast_import.py",
+  "test": "test_fast_keeps_under_the_pace_tapas_allows_for_its_own_pages"
+ },
+ {
+  "id": "site-images-pace-ignored",
+  "source": "comic_archive/transport.py",
+  "old": "        image = image and self.image_interval is not None\n",
+  "new": "        image = False\n",
+  "test_file": "test_transport.py",
+  "test": "test_images_keep_a_pace_of_their_own_when_given_one_and_a_rate_limit_still_stops_them"
+ },
+ {
+  "id": "site-images-pace-only-when-set",
+  "source": "comic_archive/transport.py",
+  "old": "        image = image and self.image_interval is not None\n",
+  "new": "        image = bool(image)\n",
+  "test_file": "test_transport.py",
+  "test": "test_images_keep_a_pace_of_their_own_when_given_one_and_a_rate_limit_still_stops_them"
+ },
+ {
+  "id": "site-images-pace-own-last",
+  "source": "comic_archive/transport.py",
+  "old": "                self._image_last = time.monotonic()\n",
+  "new": "                self.last = time.monotonic()\n",
+  "test_file": "test_transport.py",
+  "test": "test_images_keep_a_pace_of_their_own_when_given_one_and_a_rate_limit_still_stops_them"
+ },
+ {
+  "id": "site-images-pace-every-attempt",
+  "source": "comic_archive/transport.py",
+  "old": "            self._pace(image)\n",
+  "new": "            self._pace()\n",
+  "test_file": "test_transport.py",
+  "test": "test_images_keep_a_pace_of_their_own_when_given_one_and_a_rate_limit_still_stops_them"
+ },
+ {
+  "id": "site-images-pace-on-the-phone",
+  "source": "comic_archive/android_transport.py",
+  "old": "take_cookies=take_cookies, image=image)",
+  "new": "take_cookies=take_cookies)",
+  "test_file": "test_android_transport.py",
+  "test": "test_images_keep_the_image_pace_on_the_phone_as_on_the_desktop"
+ },
+ {
+  "id": "site-images-reader-marks-pictures",
+  "source": "comic_archive/adapters/site_reader.py",
+  "old": "max_bytes=max_bytes, image=True)",
+  "new": "max_bytes=max_bytes)",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
+ },
+ {
+  "id": "site-images-fast-workers",
+  "source": "comic_archive/adapters/site_reader.py",
+  "old": "FAST_IMAGE_WORKERS = 8\n",
+  "new": "FAST_IMAGE_WORKERS = 4\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
+ },
+ {
+  "id": "site-images-fast-interval",
+  "source": "comic_archive/adapters/site_reader.py",
+  "old": "FAST_IMAGE_INTERVAL = 1 / 32\n",
+  "new": "FAST_IMAGE_INTERVAL = 1 / 4\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
+ },
+ {
+  "id": "site-images-fast-only",
+  "source": "comic_archive/worker.py",
+  "old": "        fast_images = speed == 'fast' and other_site\n",
+  "new": "        fast_images = other_site\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
+ },
+ {
+  "id": "site-images-fast-restored",
+  "source": "comic_archive/worker.py",
+  "old": "                adapter.download_profile, adapter.transport.image_interval = 'normal', None\n",
+  "new": "                pass\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
+ },
+ {
+  "id": "site-images-no-tapas-lookahead",
+  "source": "comic_archive/jobs.py",
+  "old": "    if profile == 'fast' and not free_only and callable(getattr(adapter, 'prefetch_episode', None)):\n",
+  "new": "    if profile == 'fast' and not free_only:\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
  }
 ]

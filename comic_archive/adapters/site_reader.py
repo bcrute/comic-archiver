@@ -4,10 +4,16 @@ from ..models import ArchiveError
 from ..transport import asset_url
 
 COVER_LIMIT = 10 * 1024 * 1024
+# Fast: up to 8 images at once, at most 32 a second, from the sites' image servers. The site's own pages, which are
+# what a site counts, keep the job's pace.
+FAST_IMAGE_WORKERS = 8
+FAST_IMAGE_INTERVAL = 1 / 32
 
 
 class SiteReader:
     site = None
+    # 'fast' while a Fast job runs (worker.py): more images at once, on a pace of their own.
+    download_profile = 'normal'
     supports_series_metadata = True
     expected_account_id = None
     _manifest = None
@@ -63,7 +69,7 @@ class SiteReader:
                            'so its free episodes cannot be downloaded on their own.')
 
     def retrieve(self, page, max_bytes=None):
-        return self.transport.get(page.location, max_bytes=max_bytes) if max_bytes is not None else self.transport.get(page.location)
+        return self.transport.get(page.location, max_bytes=max_bytes, image=True)
 
     def retrieve_cover(self, series, max_bytes=None):
         if not series.cover_url:

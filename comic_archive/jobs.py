@@ -171,7 +171,8 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             or not re.fullmatch(r'[1-9][0-9]{0,19}', retry_episode_id)
             or limit != 1 or _refresh is not None or _scan_only):
         raise ArchiveError('Reader recovery probes select one observed pending episode.')
-    if profile == 'fast' and not free_only:
+    # Looking ahead is the Tapas fast reader's; another site's reader on Fast only saves more images at once.
+    if profile == 'fast' and not free_only and callable(getattr(adapter, 'prefetch_episode', None)):
         _pipeline = True
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ArchiveError("Episode limit must be a positive integer.")

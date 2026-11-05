@@ -9,6 +9,7 @@ from unittest.mock import patch
 from test_archive import png
 from comic_archive import sites, worker
 from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, account, split_episode, split_series
+from comic_archive.account_ui import SPEEDS
 from comic_archive.archive import verify
 from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from comic_archive.inventory import Inventory
@@ -316,14 +317,50 @@ class WebtoonTests(unittest.TestCase):
                 adapter.capture_automatic(address)
         self.assertEqual(client.calls, [])
 
-    def test_the_downloader_reads_webtoon_with_its_reader_at_its_normal_pace(self, sleep):
+    def test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once(self, sleep):
         self.assertIs(worker.reader(sites.named('webtoon')), WebtoonAdapter)
         adapter, _ = reader({})
+        seen = []
+
+        def job(reader, *args, **options):
+            seen.append((options.get('download_workers'), reader.download_profile, reader.interval,
+                         reader.transport.image_interval))
+            raise ArchiveError('stop')
+
         with patch('comic_archive.fast_import.FastImportAdapter') as fast, patch('comic_archive.cloud.upload_pending'), \
-                patch('comic_archive.jobs.archive_discovered', return_value={'state': 'finished'}) as plain:
-            worker._execute(adapter, {'operation': 'archive_discovered', 'args': {'speed': 'fast', 'limit': 1}})
+                patch('comic_archive.jobs.archive_discovered', side_effect=job) as plain:
+            for speed in ('fast', 'medium'):
+                options = SPEEDS[speed] | {'limit': 1}
+                with self.assertRaises(ArchiveError):
+                    worker._execute(adapter, {'operation': 'archive_discovered',
+                                              'args': {key: value for key, value in options.items() if key != 'batch_bytes'
+                                                       and (key != 'speed' or value == 'fast')}})
+                # Each job leaves the reader as it found it, even one that failed.
+                self.assertEqual((adapter.download_profile, adapter.transport.image_interval, adapter.interval),
+                                 ('normal', None, 1.0))
         fast.assert_not_called()
         self.assertIs(plain.call_args.args[0], adapter)
+        # Fast: 8 images at once at up to 32 a second, while Webtoon's own pages keep the job's pace.
+        self.assertEqual(seen, [(8, 'fast', .25, 1 / 32), (4, 'normal', .25, None)])
+
+    @patch('builtins.print')
+    def test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace(self, output, sleep):
+        adapter, client = reader(series_pages(), SignedIn)
+        adapter.download_profile, adapter.transport.image_interval = 'fast', 1 / 32
+        paced, pace = [], adapter.transport._pace
+        def recorded(image=False):
+            paced.append(image)
+            return pace(image)
+        adapter.transport._pace = recorded
+        with Inventory(self.root) as inventory:
+            inventory.observe('7', 'Sample Series', [], 'fixture')
+        with adapter:
+            result = sync(adapter, self.root, refresh_lists=False, download_workers=8)
+        self.assertEqual(sorted(result['archived_episode_ids']), ['7000001', '7000002', '7000004'])
+        self.assertEqual(verify(self.root, decode_images=True), [])
+        # Each picture keeps the image pace; every other request keeps the pages' pace.
+        self.assertEqual(paced, [url.startswith(IMAGES) for url, _ in client.calls])
+        self.assertEqual(paced.count(True), 6)
 
 
 if __name__ == '__main__':

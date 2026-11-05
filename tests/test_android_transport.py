@@ -201,6 +201,14 @@ class AndroidTransportTests(unittest.TestCase):
         self.assertEqual(transport.sent, {'https://m.tapas.io/who-am-i': 'session=GOLDEN',
                                           'https://us-a.tapas.io/pc/golden/0001.png': None})
 
+    def test_images_keep_the_image_pace_on_the_phone_as_on_the_desktop(self):
+        transport = Capturing(Store())
+        paced = []
+        transport._pace = paced.append
+        transport.get('https://tapas.io/who-am-i')
+        transport.get('https://us-a.tapas.io/pc/golden/0001.png', image=True)
+        self.assertEqual(paced, [False, True])
+
     def test_the_tapas_adapter_accepts_the_injected_transport_without_a_session_file(self):
         from comic_archive.adapters.tapas_http import TapasHTTPAdapter
         body = json.dumps({'data': {'user': {'id': 7}}}).encode()

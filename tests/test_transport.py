@@ -140,6 +140,36 @@ class TransportLimitTests(unittest.TestCase):
         self.assertEqual(error.exception.retry_after_seconds, 30)
         self.assertEqual(client.calls, [])
 
+    def test_images_keep_a_pace_of_their_own_when_given_one_and_a_rate_limit_still_stops_them(self):
+        clock = Clock()
+
+        class Timed(Client):
+            def stream(self, method, url, headers):
+                self.calls.append((url, clock.now))
+                return next(self.responses)
+
+        page, image = 'https://tapas.io/a', 'https://cdn.tapas.io/a'
+        with patch('comic_archive.transport.time', clock):
+            # Without one, images keep the pages' pace.
+            client = Timed([Response()] * 3)
+            transport = Transport(client=client, interval=.25)
+            for url, kind in ((page, False), (image, True), (image, True)):
+                transport.get(url, image=kind)
+            self.assertEqual([at - 1000 for _, at in client.calls], [0, .25, .5])
+            # With one: images at theirs, pages at the job's, each counted from its own last request.
+            clock.now = 1000.0
+            client = Timed([Response()] * 5 + [Response(429), Response()])
+            transport = Transport(client=client, interval=.25)
+            transport.image_interval = 1 / 32
+            for url, kind in ((page, False), (image, True), (image, True), (image, True), (page, False)):
+                transport.get(url, image=kind)
+            self.assertEqual([at - 1000 for _, at in client.calls], [0, 0, 1 / 32, 2 / 32, .25])
+            with self.assertRaisesRegex(ArchiveError, 'rate limit'):
+                transport.get(page)
+            with self.assertRaisesRegex(ArchiveError, 'rate limit'):
+                transport.get(image, image=True)
+        self.assertEqual(len(client.calls), 6)
+
     @patch('comic_archive.transport.time.sleep')
     def test_a_rate_limit_stops_the_job_that_met_it_and_the_next_job_may_ask_again(self, sleep):
         client = Client([Response(429, headers={'Retry-After': '30'}), Response()])

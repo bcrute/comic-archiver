@@ -123,6 +123,10 @@ class Transport:
         self.interval = interval
         self.last = 0.0
         self._spacing_lock = threading.Lock()
+        # Images on a pace of their own (Fast, on sites other than Tapas); None keeps them to the pages' pace.
+        self.image_interval = None
+        self._image_last = 0.0
+        self._image_lock = threading.Lock()
         self._responses = threading.local()
         self.last_response = None
         self._rate_limited = threading.Event()
@@ -141,21 +145,27 @@ class Transport:
         if hasattr(self, '_responses'):
             self._responses.value = value
 
-    def _pace(self):
+    def _pace(self, image=False):
         # Hold this only until a request starts, never during network transfer.
-        # Retries and all image threads share the same aggregate rate ceiling.
-        with self._spacing_lock:
+        # Retries and all image threads share the same aggregate rate ceiling; with an image pace set, images
+        # share theirs and the site's own pages keep the other. A rate limit stops both.
+        image = image and self.image_interval is not None
+        with self._image_lock if image else self._spacing_lock:
             self._check_budget()
             if self._rate_limited.is_set():
                 self._raise_rate_limit()
-            self._wait(max(0, self.last + self.interval - time.monotonic()))
+            last, interval = (self._image_last, self.image_interval) if image else (self.last, self.interval)
+            self._wait(max(0, last + interval - time.monotonic()))
             if self._rate_limited.is_set():
                 self._raise_rate_limit()
-            self.last = time.monotonic()
+            if image:
+                self._image_last = time.monotonic()
+            else:
+                self.last = time.monotonic()
 
-    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False):
+    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False):
         """A page's bytes. 'authorization' is the site's own key for its API; 'take_cookies' keeps the cookies
-        the answer sets, as a browser would, for the requests that follow."""
+        the answer sets, as a browser would, for the requests that follow; 'image' keeps to the image pace."""
         if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
             raise RunLimit("The download byte budget is exhausted.")
         asset_url(url, self.site)
@@ -170,7 +180,7 @@ class Transport:
                 raise ArchiveError(f"The {self.site.name} key may be sent only to {self.site.name} itself.")
             headers["Authorization"] = authorization
         for attempt in range(3):
-            self._pace()
+            self._pace(image)
             # A response can rotate/delete a cookie before its body fails. Rebuild the
             # header after admission on every attempt, using exactly one cookie authority.
             headers.pop("Cookie", None)
