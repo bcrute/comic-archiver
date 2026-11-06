@@ -36,8 +36,8 @@ def submit_job(session, operation, options=None,*,_task_id=None):
     if operation == "sync":
         allowed.add('metadata_speed')
         validate_speed(options.get('metadata_speed', 'normal'))
-        if options.get('metadata_speed') == 'fast' and options.get('scan_only') is not True:
-            raise ArchiveError('Fast metadata refresh requires scan-only mode.')
+        if options.get('metadata_speed', 'normal') != 'normal' and options.get('scan_only') is not True:
+            raise ArchiveError('Named metadata pacing requires scan-only mode.')
         allowed.add('scan_only')
         allowed.add("categories")
         allowed.add('refresh_lists')

@@ -6282,16 +6282,16 @@
  {
   "id": "site-images-fast-only",
   "source": "comic_archive/worker.py",
-  "old": "        fast_images = speed == 'fast' and other_site\n",
-  "new": "        fast_images = other_site\n",
+  "old": "        if speed != 'normal':\n",
+  "new": "        if True:\n",
   "test_file": "test_webtoon.py",
   "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
  },
  {
   "id": "site-images-fast-restored",
   "source": "comic_archive/worker.py",
-  "old": "                adapter.download_profile, adapter.transport.image_interval = 'normal', None\n",
-  "new": "                pass\n",
+  "old": "            transport.image_interval = old_image_interval\n",
+  "new": "            pass\n",
   "test_file": "test_webtoon.py",
   "test": "test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once"
  },

@@ -125,12 +125,14 @@ class QueueClientTests(unittest.TestCase):
     def test_sync_fast_metadata_needs_scan_only_and_history_pages_are_bounded(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work);requests=root/'worker/requests';requests.mkdir(parents=True)
-            for options in ({'metadata_speed':'fast'},{'metadata_speed':'fast','scan_only':False},{'metadata_speed':'warp'},
+            for options in ({'metadata_speed':'fast'},{'metadata_speed':'fast','scan_only':False},
+                    {'metadata_speed':'medium'},{'metadata_speed':'slow','scan_only':False},{'metadata_speed':'warp'},
                     {'include_history':True,'history_pages':0},{'include_history':True,'history_pages':501},
                     {'include_history':True,'history_pages':True},{'include_history':True,'history_pages':'5'}):
                 with self.subTest(options=options),self.assertRaises(ArchiveError):submit_job(root,'sync',options)
             self.assertEqual(list(requests.iterdir()),[])
-            for options in ({'metadata_speed':'fast','scan_only':True},{'include_history':True,'history_pages':500}):
+            for options in ({'metadata_speed':'fast','scan_only':True},{'metadata_speed':'medium','scan_only':True},
+                    {'metadata_speed':'slow','scan_only':True},{'include_history':True,'history_pages':500}):
                 task=submit_job(root,'sync',options)['task_id']
                 self.assertEqual(json.loads((requests/f'{task}.json').read_text())['args'],options)
 

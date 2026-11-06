@@ -363,7 +363,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(result["speed"], "medium")
         self.assertEqual(result["speeds"], [
             {"key": key, "label": dashboard_model.SPEED_NAMES[key],
-             "available": policy["speed"] == "normal"}
+             "available": key != "fast"}
             for key, policy in account_ui.SPEEDS.items()])
         workspace = Workspace(id="default", root=self.root)
         self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)

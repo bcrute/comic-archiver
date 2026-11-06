@@ -366,10 +366,14 @@ class WebtoonTests(unittest.TestCase):
                 # Each job leaves the reader as it found it, even one that failed.
                 self.assertEqual((adapter.download_profile, adapter.transport.image_interval, adapter.interval),
                                  ('normal', None, 1.0))
+            with self.assertRaises(ArchiveError):
+                worker._execute(adapter, {'operation': 'archive_discovered',
+                                          'args': {'speed': 'normal', 'download_workers': 1}})
         fast.assert_not_called()
         self.assertIs(plain.call_args.args[0], adapter)
         # Fast: 8 images at once at up to 32 a second, while Webtoon's own pages keep the job's pace.
-        self.assertEqual(seen, [(8, 'fast', .25, 1 / 32), (4, 'fast', .5, 1 / 16), (2, 'fast', 1.0, 1 / 8)])
+        self.assertEqual(seen, [(8, 'fast', .25, 1 / 32), (4, 'fast', .5, 1 / 16), (2, 'fast', 1.0, 1 / 8),
+                                (1, 'normal', 1.0, None)])
 
     @patch('builtins.print')
     def test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace(self, output, sleep):
