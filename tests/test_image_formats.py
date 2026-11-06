@@ -134,7 +134,7 @@ class ImageFormatTests(unittest.TestCase):
         self.accepted(augmented + b'tail', '.png')
         self.refused(augmented[:-12])
         broken = bytearray(data)
-        broken[40] ^= 1
+        broken[data.index(b'IDAT') + 4] ^= 1
         self.refused(bytes(broken))
         self.refused(data[:8] + png_chunk(b'IEND', b''))
         self.refused(data[:-12] + png_chunk(b'IEND', b'not-empty'))
