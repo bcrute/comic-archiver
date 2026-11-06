@@ -505,7 +505,7 @@ class StatusTests(unittest.TestCase):
                                            'saved_bytes': 2_000_000_000, 'left_bytes': 409_000_000_000,
                                            'free_bytes': 473_000_000_000}}))
         self.assertEqual(rough['Time left'][0], '15 hours')
-        self.assertEqual(rough['Space'], ('409 GB to go | 473 GB free', False))
+        self.assertEqual(rough['Space'], ('~409 GB estimated | 473 GB free', False))
         short = fields(view(status={'estimate': {'waiting_episodes': 1, 'left_bytes': 1_000_000_000, 'free_bytes': 10}}))
         self.assertEqual(short['Space'], ('1.0 GB to go | 1 MB free, not enough', True))
         early = fields(view(status={'estimate': {'waiting_episodes': 4}}))
@@ -517,6 +517,30 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'estimate': estimate}, account={'status': 'stopped'}))['Space'], ('—', False))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
+
+    def test_unchecked_series_do_not_claim_that_downloads_are_waiting(self):
+        from comic_archive.estimate import remaining
+        estimate = remaining({'archived': 13519}, 916, 10, {'episodes': 30, 'seconds': 300})
+        self.assertEqual(estimate['left_bytes'], 4_800_000_000)
+        estimate['free_bytes'] = 1_400_000_000_000
+        shown = view(status={'estimate': estimate})
+        rows = fields(shown)
+        self.assertEqual(rows['Time left'], ('Unknown until checked', False))
+        self.assertEqual(rows['Space'], ('No downloads queued | 1.4 TB free', False))
+        self.assertNotIn('4.8', str(rows))
+        for row in shown['rows']:
+            if row['name'] in ('Space', 'Time left'):
+                self.assertIn('10 series have no completed check', row['tip'])
+                self.assertIn('nothing new to download', row['tip'])
+        self.assertIn('download time is unknown', model.time_left(estimate))
+        self.assertIn('Download size is unknown', model.space_needed(estimate))
+        # Speculative work must not produce a disk-full warning, even on a small drive.
+        estimate['free_bytes'] = 100_000_000
+        self.assertEqual(model.space_row(estimate), ('No downloads queued | 100 MB free', False))
+        # Once a real episode is queued, the ordinary estimate is offered again.
+        estimate['waiting_episodes'] = 1
+        self.assertIn('estimated', model.space_row(estimate)[0])
+        self.assertNotEqual(model.time_row(estimate), 'Unknown until checked')
 
     def test_an_estimated_time_or_space_says_it_is_a_rough_guess(self):
         def tips(**kwargs):

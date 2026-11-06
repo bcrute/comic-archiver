@@ -5058,7 +5058,7 @@
  {
   "id": "space-row-hides-free-room",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    return text + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short\n",
+  "old": "    if type(free) is int:\n        text += f' | {room(free)} free'\n        if short:\n            text += ', may not fit' if unchecked else ', not enough'\n    return text, short\n",
   "new": "    return text, short\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
@@ -5122,16 +5122,16 @@
  {
   "id": "time-left-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
-  "new": "    row('Time left', time, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
+  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
+  "new": "    row('Time left', time, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
   "id": "space-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, ESTIMATE_TIP if space else '')\n",
-  "new": "    row('Space', space, short, ESTIMATE_TIP if space else '')\n",
+  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')\n",
+  "new": "    row('Space', space, short, estimate_tip(estimate) if space else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
@@ -5162,15 +5162,15 @@
  {
   "id": "time-left-tip-while-still-estimating",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
-  "new": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time else '')\n",
+  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
+  "new": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "time-left-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')\n",
+  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
   "new": "    row('Time left', time or NONE)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
@@ -5178,7 +5178,7 @@
  {
   "id": "space-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, ESTIMATE_TIP if space else '')\n",
+  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')\n",
   "new": "    row('Space', space or NONE, short)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
@@ -6502,5 +6502,13 @@
   "new": "    if False:\n        waiting = False",
   "test_file": "test_dashboard_model.py",
   "test": "test_local_verification_shows_counts_without_blaming_the_provider"
+ },
+ {
+  "id": "dashboard-speculative-size-shown-as-queued",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "return bool(estimate and not number(estimate.get('waiting_episodes')) and number(estimate.get('unchecked_series')))",
+  "new": "return False",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_unchecked_series_do_not_claim_that_downloads_are_waiting"
  }
 ]
