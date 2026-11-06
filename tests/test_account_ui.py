@@ -109,7 +109,7 @@ class AccountUITests(unittest.TestCase):
         self.assertIs(request['args']['free_only'],False)
 
     def test_a_chosen_speed_is_kept_and_go_continues_the_saved_download_at_it(self):
-        for chosen,pace in (('slow',('normal',1,1.0,1024**3)),('medium',('normal',4,0.25,1024**3)),
+        for chosen,pace in (('slow',('slow',2,1.0,1024**3)),('medium',('medium',4,0.5,1024**3)),
                             ('fast',('fast',3,0.25,8*1024**3))):
             self.assertEqual(self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,chosen)['speed'],chosen)
             # Kept with the library, so the next start of the app finds it.
@@ -323,13 +323,13 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
         # The step still out was asked for at the earlier pace; the steps after it follow the chosen speed.
         self.assertEqual(self.outstanding(),task)
-        self.assertEqual(self.next_pace(),('normal',4,0.25,1024**3))
+        self.assertEqual(self.next_pace(),('medium',4,0.5,1024**3))
         self.tick()
         again=self.outstanding()
         self.assertNotIn(again,(None,task))
         request=json.loads((self.queue/'requests'/(again+'.json')).read_text())
-        self.assertEqual((request['args']['download_workers'],request['args']['request_interval']),(4,0.25))
-        self.assertNotIn('speed',request['args'])
+        self.assertEqual((request['args']['download_workers'],request['args']['request_interval']),(4,0.5))
+        self.assertEqual(request['args']['speed'],'medium')
 
     def running_batch(self):
         """A download batch the downloader has started: published request, busy worker, recorded run."""

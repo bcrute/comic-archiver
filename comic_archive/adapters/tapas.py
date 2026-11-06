@@ -361,6 +361,7 @@ class TapasAdapter:
             self.transport.close()
         self.transport = BrowserReadTransport(self.page, self.context, interval=getattr(self, "interval", 1.0),
                     metadata_interval=getattr(self, 'metadata_interval', 1.0),
+                    download_profile=getattr(self, 'download_profile', 'normal'),
                     deadline=getattr(self, "deadline", None), metrics=getattr(self,'asset_metrics',None),
                     network_guard=getattr(self, 'network_guard', None))
         self.transport.last = last_metadata_request

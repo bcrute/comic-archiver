@@ -366,6 +366,9 @@ class TapasHTTPAdapter:
         self.stage = "page_asset"
         manifest=getattr(self,'_manifest',None)
         if manifest is not None: check_expiration(manifest.episodes[0].access_expires_at)
+        from ..transport import Transport
+        if isinstance(self.transport, Transport):
+            return self.transport.get(page.location, max_bytes=max_bytes, image=True)
         return self.transport.get(page.location, max_bytes=max_bytes) if max_bytes is not None else self.transport.get(page.location)
 
     def asset_request(self, page, max_bytes=None):
@@ -383,7 +386,7 @@ class TapasHTTPAdapter:
         expires_at=manifest.episodes[0].access_expires_at if manifest is not None else None
         def fetch():
             check_expiration(expires_at)
-            return transport.get(page.location,max_bytes=max_bytes)
+            return transport.get(page.location,max_bytes=max_bytes,image=True)
         return AssetDownload(fetch)
 
     def refresh(self, episode):

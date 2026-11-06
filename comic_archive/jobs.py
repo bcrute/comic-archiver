@@ -516,10 +516,10 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
     from .discovery import CATEGORIES
     if type(scan_only) is not bool:
         raise ArchiveError('Scan-only mode must be an explicit boolean.')
-    from .fast_import import validate_speed, FAST_METADATA_INTERVAL
+    from .fast_import import validate_speed, FAST_METADATA_INTERVAL, relative_policy
     validate_speed(metadata_speed)
-    if metadata_speed == 'fast' and not scan_only:
-        raise ArchiveError('Fast metadata refresh requires scan-only mode.')
+    if metadata_speed != 'normal' and not scan_only:
+        raise ArchiveError('Named metadata pacing requires scan-only mode.')
     if type(refresh_lists) is not bool or (not refresh_lists and (categories is not None or include_history)):
         raise ArchiveError('Watched-only sync cannot also request reading-list categories or account history.')
     if type(include_history) is not bool or type(history_resume) is not bool or (history_resume and not include_history):
@@ -690,10 +690,20 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             result['state'] = 'partial'
         return result
     previous = getattr(adapter, 'metadata_interval', 1.0)
-    adapter.metadata_interval = FAST_METADATA_INTERVAL if metadata_speed == 'fast' else 1.0
+    adapter.metadata_interval = (FAST_METADATA_INTERVAL if metadata_speed == 'fast' else
+                                 relative_policy(metadata_speed)['metadata_interval'] if metadata_speed != 'normal' else 1.0)
+    from .transport import Transport
+    transport = getattr(adapter, 'transport', None)
+    previous_interval = getattr(transport, 'interval', None)
+    if metadata_speed in ('medium', 'slow') and isinstance(transport, Transport):
+        from . import sites
+        other = isinstance(getattr(adapter, 'site', None), sites.Site) and adapter.site != sites.DEFAULT
+        transport.interval = relative_policy(metadata_speed, other_site=other)['metadata_interval']
     try:
         return archive_discovered(adapter, output, report, _refresh=refresh, _scan_only=scan_only, **options)
     finally:
         adapter.metadata_interval = previous
+        if metadata_speed in ('medium', 'slow') and isinstance(transport, Transport):
+            transport.interval = previous_interval
 
 

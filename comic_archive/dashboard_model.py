@@ -406,8 +406,8 @@ def view(s, now):
                         if locked else '')
     # The open site's own speed: the site list in the header chooses which one Settings shows.
     speeds = {'fast': f'The quickest. If {site} keeps pausing the download, choose a slower speed.',
-              'medium': 'About four images a second.',
-              'slow': 'About one image a second. A large library can take months at this speed.'}
+              'medium': 'About half the Fast speed.',
+              'slow': 'About one quarter of the Fast speed.'}
     speed = account.get('speed') if account.get('speed') in speeds else 'fast'
     signed_in = bool(status.get('session_configured'))
     v['speed_visible'] = signed_in

@@ -18,13 +18,12 @@ from .queue_client import task_status
 
 # The downloader's own pace, for reading the lists; what a download adds to it is the chosen speed below.
 DESKTOP_REQUEST_INTERVAL = 1.0
-# The speeds a person can choose between. 'fast' is the pace Tapas has let a download keep: the fast importer,
-# which sets its own image pace and ignores the two numbers given here. The others are the ordinary downloader
-# at its quickest, four images at a time, and at one image a second.
+# Named speeds select fixed worker policies. Medium and Slow admit approximately
+# half and one quarter of Fast's aggregate image requests and concurrent reads.
 SPEEDS = {
     'fast': {'speed': 'fast', 'download_workers': 3, 'request_interval': 0.25, 'batch_bytes': 8 * 1024**3},
-    'medium': {'speed': 'normal', 'download_workers': 4, 'request_interval': 0.25, 'batch_bytes': 1024**3},
-    'slow': {'speed': 'normal', 'download_workers': 1, 'request_interval': 1.0, 'batch_bytes': 1024**3},
+    'medium': {'speed': 'medium', 'download_workers': 4, 'request_interval': 0.5, 'batch_bytes': 1024**3},
+    'slow': {'speed': 'slow', 'download_workers': 2, 'request_interval': 1.0, 'batch_bytes': 1024**3},
 }
 DEFAULT_SPEED = 'fast'
 SPEED_FILE = 'download-speed'

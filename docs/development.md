@@ -143,3 +143,11 @@ current debug phone build is not a publishable release artifact.
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
 | `scripts/` | The checks above and the helpers they use. |
 | `tests/` | Unit tests, and `mutations.json` for the mutation check. |
+
+Medium and Slow use fixed image admission rates and concurrency limits at 50%
+and 25% of Fast, respectively, for each provider. Metadata request spacing is
+also increased for those choices. Network latency, archive work and provider
+responses affect observed throughput, so the labels describe approximate rates.
+Fast keeps its existing policy. Ordinary Android readers can use Medium/Slow
+without requiring the native Fast engine. Explicit CLI `normal` pacing and queue
+argument validation retain their existing limits.

@@ -258,8 +258,8 @@ def _pace(session):
                           'free_only': False}
     if pace['download_workers'] != 1:
         options['download_workers'] = pace['download_workers']
-    if pace['speed'] == 'fast':
-        options['speed'] = 'fast'
+    if pace['speed'] != 'normal':
+        options['speed'] = pace['speed']
     return options, pace['speed']
 
 
