@@ -841,8 +841,8 @@ class ControllerTests(Controller):
                 shown = self.status()
                 self.assertEqual(shown['status'], 'running' if status == 'waiting' else status)
 
-    def test_the_fast_speed_reads_series_quickly_and_the_others_at_the_ordinary_pace(self):
-        for speed, pace in (('fast', 'fast'), ('medium', 'normal'), ('slow', 'normal')):
+    def test_each_named_speed_carries_its_own_download_and_metadata_policy(self):
+        for speed, pace in (('fast', 'fast'), ('medium', 'medium'), ('slow', 'slow')):
             account_ui.choose_speed(self.workspace, speed)
             options, metadata = dc._pace(self.session)
             self.assertEqual(metadata, pace)

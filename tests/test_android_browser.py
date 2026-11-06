@@ -302,6 +302,23 @@ class BrowserAdapterTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             AndroidTapasBrowserAdapter(self.session, self.factory).capture('https://tapas.io/episode/81')
 
+    def test_ordinary_native_browser_accepts_the_fixed_medium_and_slow_asset_rates(self):
+        from comic_archive.fast_import import relative_policy
+        for speed in ('medium', 'slow'):
+            with self.subTest(speed=speed):
+                adapter = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
+                policy = relative_policy(speed)
+                adapter.download_profile = 'fast'
+                adapter.interval = policy['image_interval']
+                adapter.metadata_interval = policy['metadata_interval']
+                try:
+                    adapter.automatic_adapter()
+                    self.assertFalse(adapter.fast)
+                    self.assertEqual(adapter.transport.assets.interval, policy['image_interval'])
+                    self.assertEqual(adapter.transport.metadata_interval, policy['metadata_interval'])
+                finally:
+                    adapter.close()
+
     def test_held_native_adapter_is_lazy_and_fast_uses_the_existing_single_owner_pipeline(self):
         held = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
         self.assertFalse(self.factory.opens)

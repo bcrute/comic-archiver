@@ -285,7 +285,7 @@ class ButtonTests(unittest.TestCase):
         self.assertTrue(alone['speed_visible'] and alone['speed_enabled'] and not alone['signin_note_visible'])
         self.assertIn('If Tapas keeps pausing', alone['speed_help'])
         both = view(sites=[TAPAS, TAPPYTOON], account={'status': 'stopped', 'speed': 'medium'})
-        self.assertEqual((both['speed_label'], both['speed'], both['speed_help']), ('Speed on Tapas', 'medium', 'About four images a second.'))
+        self.assertEqual((both['speed_label'], both['speed'], both['speed_help']), ('Speed on Tapas', 'medium', 'About half the Fast speed.'))
         self.assertEqual(view(account=account(speed='bogus'))['speed_help'], 'Pause to change the speed.')
         self.assertFalse(view(account=account())['speed_enabled'])
         signed_out = view(status={'worker': {'reported_state': 'ready'}})

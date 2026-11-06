@@ -152,23 +152,54 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True):
             with FastImportAdapter(session, getattr(adapter, 'preferred_browser', 'auto'),
                                    headless=getattr(adapter, 'headless', False)) as fast:
                 return archive_discovered(fast, Path('Library'), _discovery_report(), **fast_options(options))
-        previous=getattr(adapter,'interval',1.0)
-        adapter.interval=interval
-        # Fast on another site: more images at once, on a pace of their own; its own pages keep the job's pace.
-        fast_images = speed == 'fast' and other_site
-        if fast_images:
-            from .adapters.site_reader import FAST_IMAGE_INTERVAL, FAST_IMAGE_WORKERS
-            options['download_workers'] = FAST_IMAGE_WORKERS
-            adapter.download_profile, adapter.transport.image_interval = 'fast', FAST_IMAGE_INTERVAL
-        try:
+        with paced_adapter(adapter, speed, interval, other_site, options):
             if operation == "sync":
                 return sync(adapter, Path("Library"), _discovery_report(), args.get("categories"), **options)
             return archive_discovered(adapter, Path("Library"), _discovery_report(), **options)
-        finally:
-            adapter.interval=previous
-            if fast_images:
-                adapter.download_profile, adapter.transport.image_interval = 'normal', None
+
     raise ArchiveError("Worker accepts only fixed archive, account audit and cloud tasks.")
+
+
+@contextmanager
+def paced_adapter(adapter, speed, interval, other_site, options):
+    """Fixed named policies, including the ordinary Android HTTP/browser reader.
+
+    Queue arguments have already passed normal caps. Only these internal
+    policies may expand them. Every override is restored even after a refusal.
+    """
+    from .fast_import import relative_policy
+    from .transport import Transport
+    absent = object()
+    previous = {key: getattr(adapter, key, absent) for key in ('interval', 'download_profile', 'metadata_interval')}
+    transport = getattr(adapter, 'transport', None)
+    old_image_interval = getattr(transport, 'image_interval', absent)
+    try:
+        adapter.interval = interval
+        if speed != 'normal':
+            policy = relative_policy(speed, other_site=other_site)
+            options['download_workers'] = policy['download_workers']
+            adapter.download_profile = 'fast'
+            if other_site:
+                transport.image_interval = policy['image_interval']
+                if speed != 'fast':  # Fast retains the existing metadata pace.
+                    adapter.interval = policy['metadata_interval']
+            else:
+                adapter.metadata_interval = policy['metadata_interval']
+                adapter.interval = policy['image_interval']
+                if isinstance(transport, Transport):
+                    # The ordinary native reader shares one canonical client.
+                    adapter.interval = policy['metadata_interval']
+                    transport.image_interval = policy['image_interval']
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is absent:
+                if hasattr(adapter, key):
+                    delattr(adapter, key)
+            else:
+                setattr(adapter, key, value)
+        if transport is not None and old_image_interval is not absent:
+            transport.image_interval = old_image_interval
 
 
 def _discovery_report():

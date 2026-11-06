@@ -162,3 +162,11 @@ these dashboard reads do not poll the content or cloud providers. Provider
 request scheduling is unchanged. Progress becomes stale only after three missed
 minutes. Slow library operations record their site, operation and duration in
 the application log without recording request arguments or private results.
+
+Medium and Slow use fixed image admission rates and concurrency limits at 50%
+and 25% of Fast, respectively, for each provider. Metadata request spacing is
+also increased for those choices. Network latency, archive work and provider
+responses affect observed throughput, so the labels describe approximate rates.
+Fast keeps its existing policy. Ordinary Android readers can use Medium/Slow
+without requiring the native Fast engine. Explicit CLI `normal` pacing and queue
+argument validation retain their existing limits.

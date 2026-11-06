@@ -465,7 +465,7 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
         interval = FAST_INTERVAL if self.fast else self.interval
         metadata = FAST_METADATA_INTERVAL if self.fast else getattr(self, 'metadata_interval', 1.0)
         if self.transport is None:
-            self.transport = AndroidBrowserTransport(self.context, fast=self.fast, interval=interval,
+            self.transport = AndroidBrowserTransport(self.context, fast=self.fast or getattr(self, 'download_profile', 'normal') == 'fast', interval=interval,
                 metadata_interval=metadata, network_guard=self.network_guard)
         self.transport.deadline = getattr(self, 'deadline', None)
         self.transport.cancel_check = getattr(self, 'cancel_check', None)

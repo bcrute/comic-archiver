@@ -23,9 +23,28 @@ FAST_OPERATIONS = {'archive_discovered'}
 
 
 def validate_speed(value):
-    if type(value) is not str or value not in ('normal', 'fast'):
-        raise ArchiveError('Import speed must be normal or fast.')
+    if type(value) is not str or value not in ('normal', 'fast', 'medium', 'slow'):
+        raise ArchiveError('Import speed must be normal, fast, medium or slow.')
     return value
+
+
+# Ratios apply to aggregate request admission and concurrent image capacity.
+# Actual transfer throughput also depends on episode sizes and the network.
+SPEED_RATIOS = {'fast': 1.0, 'medium': 0.5, 'slow': 0.25}
+
+
+def relative_policy(speed, *, other_site=False):
+    validate_speed(speed)
+    if speed == 'normal':
+        raise ArchiveError('Relative pacing requires a named download speed.')
+    ratio = SPEED_RATIOS[speed]
+    if other_site:
+        from .adapters.site_reader import FAST_IMAGE_INTERVAL, FAST_IMAGE_WORKERS
+        images, workers, metadata = FAST_IMAGE_INTERVAL, FAST_IMAGE_WORKERS, 0.25
+    else:
+        images, workers, metadata = FAST_INTERVAL, FAST_WORKERS, FAST_METADATA_INTERVAL
+    return {'image_interval': images / ratio, 'download_workers': max(1, round(workers * ratio)),
+            'metadata_interval': metadata / ratio}
 
 
 def fast_options(options):
