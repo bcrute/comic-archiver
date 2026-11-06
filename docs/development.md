@@ -137,7 +137,7 @@ current debug phone build is not a publishable release artifact.
 
 | Path | What it holds |
 |---|---|
-| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `window_pages.py` draws the window's pages from the plain models beside it (`dashboard_model.py`, `storage_model.py`, `library_model.py`), and `app_actions.py` is what they ask of the library. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
+| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `window_pages.py` draws the window's pages from the plain models beside it (`dashboard_model.py`, `storage_model.py`), and `app_actions.py` is what they ask of the library. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
 | `comic_archive/adapters/` | What is specific to one site. |
 | `packaging/`, `scripts/build_linux_app.py` | The Linux package. |
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
@@ -180,3 +180,9 @@ waiting, paused or finished. Status and Progress carry changing details; unknown
 values use an em dash. Values and messages stay on one line, with long plain
 text elided visually and preserved in tooltips and accessible text. Empty
 messages and optional hints retain their layout space.
+
+The desktop has Dashboard and Settings pages. **Open library folder** opens the
+chosen library root in the system file manager. Storage counts are informational;
+there is no in-app file browser or viewer. Settings retain folder selection,
+cloud configuration and the provider link. The shared archive/export APIs remain
+available to the independently approved file source and platform integrations.

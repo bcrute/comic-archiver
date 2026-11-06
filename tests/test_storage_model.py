@@ -242,7 +242,7 @@ class OverviewTests(unittest.TestCase):
         overview = model.library_overview({'episode_count': 70, 'file_count': 140, 'locations': self.LOCATIONS}, False)
         self.assertEqual(overview['metrics'], [('60', 'Saved episodes'), ('120', 'Saved files')])
         self.assertEqual(overview['locations'], [{'id': 'device', 'label': 'This device', 'counts': '60 episodes · 120 files'}])
-        self.assertEqual(overview['summary'], '60 saved episodes on this computer. View saved files for the complete list.')
+        self.assertEqual(overview['summary'], '60 saved episodes on this computer.')
 
     def test_with_cloud_storage_every_place_and_the_cloud_copies_are_counted(self):
         overview = model.library_overview({'episode_count': 70, 'file_count': 140, 'locations': self.LOCATIONS}, True)

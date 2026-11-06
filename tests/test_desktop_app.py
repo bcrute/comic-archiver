@@ -235,9 +235,9 @@ class DesktopAppTests(unittest.TestCase):
             self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Library', old=root / 'Library', root=root))
             self.assertIn('Nothing is moved', first[2]); self.assertIn('already holds', second[2])
             # A new folder starts empty: Go saves everything again there, unless the whole library folder is moved first.
-            self.assertIn('The download then saves everything again in the new folder, and your library page shows only what is there.', first[2])
+            self.assertIn('The download then saves everything again in the new folder, and the dashboard counts only what is there.', first[2])
             self.assertIn(f'move the whole folder\n{root}\nto the new place', first[2])
-            self.assertIn('library page then shows only what is saved in this folder', second[2])
+            self.assertIn('dashboard then counts only what is saved in this folder', second[2])
             move.assert_not_called()
             self.assertEqual(shell.phase, 'open')
             # Yes: the window waits on a plain notice, with its clocks stopped, and cannot be closed half-way.

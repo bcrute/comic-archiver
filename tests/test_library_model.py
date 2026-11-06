@@ -1,4 +1,4 @@
-"""What the library page lists and says for a page of the saved-file catalog, decided without a window."""
+"""Shared display data for a page of the saved-file catalog, decided without a window."""
 from datetime import datetime
 import unittest
 

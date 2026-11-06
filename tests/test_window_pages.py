@@ -11,16 +11,12 @@ import unittest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-from comic_archive import app_actions, dashboard_model, library_model, storage_model, window_pages, window_style  # noqa: E402
+from comic_archive import app_actions, dashboard_model, storage_model, window_pages, window_style  # noqa: E402
 
 Q = SimpleNamespace(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
 NOW = 1_000_000.0
 TASK = 'job-' + 'a' * 24
 FOLDER = '/home/someone/Comic Archiver/tapas/Library'
-FILES = [{'id': 'a' * 64, 'series': 'Long Series Name', 'title': 'Episode 1', 'filename': 'Episode 001.cbz', 'kind': 'cbz',
-          'size': 12_345_678, 'saved_at': '2026-10-01T10:00:00+00:00', 'location': 'device'},
-         {'id': 'b' * 64, 'series': 'Long Series Name', 'title': 'Episode 2', 'filename': 'Episode 002.cbz', 'kind': 'cbz',
-          'size': 2_345_678, 'saved_at': '2026-10-02T10:00:00+00:00', 'location': 'b2', 'date_source': 'file_modified'}]
 LOCATIONS = [{'id': 'device', 'label': 'This device', 'files': 120, 'episodes': 60, 'bytes': 3_000_000_000, 'connected': True},
              {'id': 'b2', 'label': 'Backblaze B2', 'files': 20, 'episodes': 10, 'bytes': 500_000_000, 'connected': True}]
 SITES = {'tapas': 'Tapas', 'tappytoon': 'Tappytoon', 'webtoon': 'Webtoon', 'later': 'Elsewhere'}
@@ -55,8 +51,8 @@ class FakeActions:
 
     def __init__(self, site='tapas'):
         self.site = site
-        self.calls, self.refused, self.answers, self.kept = [], {}, [], []
-        self.cloud_offered, self.summary_fails, self.task_result, self.total = True, False, None, 2
+        self.calls, self.refused, self.kept = [], {}, []
+        self.cloud_offered, self.summary_fails, self.task_result = True, False, None
         self.reading = {
             'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}, 'episodes_by_status': {'archived': 60}},
             'account': {'status': 'stopped', 'configured': True, 'speed': 'fast'},
@@ -176,20 +172,7 @@ class FakeActions:
             if self.summary_fails:
                 raise app_actions.Refused('request_unavailable', 'Counts unavailable')
             return {'episode_count': 70, 'file_count': 140, 'locations': LOCATIONS}
-        if self.answers:
-            return self.answers.pop(0)
-        return {'files': copy.deepcopy(FILES), 'total': self.total, 'offset': options['offset'], 'limit': options['limit'],
-                'file_count': 140, 'episode_count': 70, 'locations': LOCATIONS}
-
-    def saved_snapshot(self, refresh=False):
-        self.record('saved_snapshot', refresh=refresh)
-        rows = [dict(row, order=-1) for row in copy.deepcopy(FILES)]
-        return {'rows': rows, 'locations': copy.deepcopy(LOCATIONS), 'episode_count': 70, 'file_count': 140,
-                'updated_at': '2026-10-02T10:00:00+00:00'}
-
-    def open_file(self, export_id):
-        self.record('open_file', export_id)
-        return {}
+        raise AssertionError('The dashboard requests summary counts only')
 
 
 class Shell:
@@ -296,9 +279,6 @@ class PagesCase(unittest.TestCase):
     def settings(self):
         return self.pages.settings
 
-    @property
-    def library(self):
-        return self.pages.library
 
 
 class HelperTests(unittest.TestCase):
@@ -314,7 +294,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(window_pages.route_of('settings', True), 'settings/downloads')
         self.assertEqual(window_pages.route_of('settings/b2', True), 'settings/b2')
         self.assertEqual(window_pages.route_of('settings/b2', False), 'settings/downloads')
-        self.assertEqual(window_pages.route_of('library', False), 'library')
+        self.assertEqual(window_pages.route_of('library', False), 'dashboard')
         self.assertEqual(window_pages.route_of('https://example.com', True), 'dashboard')
 
     def test_lists_become_lines_and_keys_lose_stray_spaces(self):
@@ -417,7 +397,7 @@ class DashboardTests(PagesCase):
         # The counts and the places speak for themselves: no sentence repeats them, nor says what the files are.
         self.assertFalse(d.library_summary.isVisible())
         self.assertNotIn('CBZ', ' '.join(label.text() for label in d.library_card.findChildren(QtWidgets.QLabel)))
-        self.assertEqual([b.text() for b in d.place_buttons], ['This device | 60 episodes · 120 files', 'Backblaze B2 | 10 episodes · 20 files'])
+        self.assertEqual([b.text() for b in d.place_labels], ['This device | 60 episodes · 120 files', 'Backblaze B2 | 10 episodes · 20 files'])
 
     def test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in(self):
         self.open()
@@ -523,7 +503,7 @@ class DashboardTests(PagesCase):
         self.shell.open = ['tapas', 'webtoon']
         self.open()
         self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['140', '280', '120', '20'])
-        self.assertEqual([b.text() for b in self.dashboard.place_buttons],
+        self.assertEqual([b.text() for b in self.dashboard.place_labels],
                          ['This device | 120 episodes · 240 files', 'Backblaze B2 | 20 episodes · 40 files'])
         self.sites['webtoon'].summary_fails = True
         self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
@@ -537,7 +517,7 @@ class DashboardTests(PagesCase):
             return sorted(id(w) for w in widget.findChildren(kind)
                           if name in (w.objectName(), w.property('kind')) and not w.isHidden())
         self.assertEqual(shown(card.widget, QtWidgets.QLabel, 'fieldName'), sorted(id(name) for name, _ in card.cells))
-        self.assertEqual(shown(d.library_card, QtWidgets.QPushButton, 'place'), sorted(map(id, d.place_buttons)))
+        self.assertEqual(shown(d.library_card, QtWidgets.QLabel, 'place'), sorted(map(id, d.place_labels)))
         self.assertEqual(shown(d.library_card, QtWidgets.QFrame, 'metric'), sorted(id(n.parentWidget()) for _, n in d.metric_cells))
 
     def test_go_pause_and_sign_in_ask_the_library_and_show_its_answer(self):
@@ -814,22 +794,20 @@ class DashboardTests(PagesCase):
         self.pages.render()
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Not signed in')
 
-    def test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count(self):
+    def test_the_library_card_opens_the_folder_and_says_when_it_cannot_count(self):
         self.open()
         cells = [number for _, number in self.dashboard.metric_cells]
-        places = list(self.dashboard.place_buttons)
+        places = list(self.dashboard.place_labels)
         self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
         self.assertFalse(self.actions.named('poll')[-1][2]['library'])
         self.assertEqual(self.actions.named('saved_files')[-1][2], {'summary': True, 'refresh': False})
         self.assertEqual([number for _, number in self.dashboard.metric_cells], cells)
-        self.assertEqual(self.dashboard.place_buttons, places)
-        places[1].click()
-        self.assertEqual(self.pages.route, 'library')
-        self.assertEqual(self.actions.named('saved_files')[-1][2]['location'], 'b2')
-        self.pages.go_to('dashboard')
+        self.assertEqual(self.dashboard.place_labels, places)
+        self.assertEqual(self.dashboard.files.text(), 'Open library folder')
         self.dashboard.files.click()
-        self.assertEqual(self.actions.named('saved_files')[-1][2]['location'], 'all')
+        self.assertEqual(self.shell.calls, [('open_folder',)])
+        self.assertEqual(self.pages.route, 'dashboard')
         self.actions.summary_fails = True
         self.pages.go_to('dashboard')
         self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
@@ -867,10 +845,15 @@ class DashboardTests(PagesCase):
 class NavigationTests(PagesCase):
     def test_the_header_and_the_tabs_lead_to_each_page(self):
         self.open()
+        window_pages.paint(Q, self.window, False)
+        settle()
+        if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+            from pathlib import Path
+            self.assertTrue(self.window.grab().save(str(Path(destination) / 'dashboard-no-library.png')))
         nav = self.pages.header.nav
-        nav['library'].click()
-        self.assertEqual(self.pages.stack.currentWidget(), self.library.widget)
-        self.assertTrue(nav['library'].isChecked())
+        self.assertEqual(list(nav), ['dashboard', 'settings'])
+        self.assertEqual(self.pages.stack.count(), 2)
+        self.assertFalse(hasattr(self.pages, 'library'))
         nav['settings'].click()
         self.assertEqual(self.pages.route, 'settings/downloads')
         self.assertEqual(self.pages.stack.currentWidget(), self.settings.widget)
@@ -1352,152 +1335,6 @@ class ConnectedB2Tests(PagesCase):
         self.pages.poll()
         self.assertEqual(s.cleanups, [])
 
-
-class LibraryTests(PagesCase):
-    def options(self):
-        return self.actions.named('saved_files')[-1][2]
-
-    def test_the_library_lists_a_page_of_saved_files_with_its_places_and_range(self):
-        self.open('library')
-        self.assertEqual(self.options(), {'location': 'all', 'query': '', 'kind': 'episodes', 'sort': 'saved_desc', 'offset': 0,
-                                          'limit': 50, 'refresh': False})
-        lib, table = self.library, self.library.table
-        self.assertEqual(lib.title.text(), 'Your saved Tapas library')
-        self.assertEqual((lib.notice.text(), lib.range.text()), ('Saved files loaded.', 'Showing 1–2 of 2 files.'))
-        self.assertEqual(lib.summary.text(), '70 saved episodes across 140 files and cloud copies.')
-        self.assertEqual([b.text().split(' | ')[0] for b in lib.place_buttons], ['All storage', 'This device', 'Backblaze B2'])
-        self.assertTrue(lib.place_buttons[0].isChecked())
-        self.assertEqual(table.rowCount(), 2)
-        self.assertEqual([table.item(0, c).text() for c in range(7)][:5], ['Long Series Name', 'Episode 1', 'Episode 001.cbz', 'Comic', '11.8 MB'])
-        self.assertTrue(table.item(1, 5).text().endswith('\nFile time'))
-        self.assertEqual(table.item(1, 5).toolTip(), '2026-10-02T10:00:00+00:00')
-        self.assertFalse(table.isColumnHidden(6))
-        self.assertIsNotNone(table.cellWidget(0, 7))
-        self.assertEqual(table.item(1, 7).text(), 'Cloud copy')
-        self.assertEqual((lib.page.value(), lib.page_count.text()), (1, 'of 1'))
-        self.assertFalse(lib.previous.isEnabled() or lib.next.isEnabled())
-
-    def test_paging_searching_filtering_and_sorting_ask_for_the_right_files(self):
-        self.actions.total = 250
-        self.open('library')
-        lib = self.library
-        self.assertTrue(lib.next.isEnabled() and not lib.previous.isEnabled())
-        lib.next.click()
-        self.assertEqual(self.options()['offset'], 50)
-        self.assertTrue(lib.previous.isEnabled())
-        lib.previous.click()
-        self.assertEqual(self.options()['offset'], 0)
-        lib.page.setValue(4)
-        lib.jump.click()
-        self.assertEqual(self.options()['offset'], 150)
-        self.assertEqual(lib.page.value(), 4)
-        lib.search.setText('  Episode  ')
-        lib.search.returnPressed.emit()
-        self.assertEqual((self.options()['query'], self.options()['offset']), ('Episode', 0))
-        pick(lib.kind, 'all')
-        pick(lib.sort, 'series')
-        self.assertEqual((self.options()['kind'], self.options()['sort']), ('all', 'series'))
-        lib.clear.click()
-        self.assertEqual((self.options()['query'], self.options()['kind'], self.options()['sort']), ('', 'episodes', 'series'))
-        pick(lib.size, 100)
-        self.assertEqual((self.options()['limit'], self.options()['offset']), (100, 0))
-        lib.refresh.click()
-        self.assertTrue(self.options()['refresh'])
-        lib.place_buttons[2].click()
-        self.assertEqual((self.options()['location'], self.options()['offset']), ('b2', 0))
-        lib.find.click()
-        self.assertEqual(self.options()['location'], 'b2')
-
-    def test_while_files_load_the_controls_wait_and_a_late_answer_is_dropped(self):
-        self.open('library')
-        lib = self.library
-        self.shell.held = []
-        lib.load()
-        self.assertEqual(lib.notice.text(), library_model.LOADING)
-        self.assertFalse(lib.refresh.isEnabled() or lib.search.isEnabled() or lib.place_buttons[0].isEnabled())
-        lib.load()
-        self.actions.answers = [{'files': FILES[:1], 'total': 1, 'offset': 0, 'limit': 50, 'file_count': 1, 'locations': []},
-                                {'files': [], 'total': 0, 'offset': 0, 'limit': 50, 'file_count': 140, 'locations': []}]
-        self.shell.release(order=[1, 0])
-        self.assertEqual((lib.notice.text(), lib.table.rowCount()), ('Saved files loaded.', 1))
-        self.assertTrue(lib.refresh.isEnabled())
-
-    def test_a_library_that_could_not_be_read_says_so(self):
-        self.actions.refused['saved_files'] = library_model.UNAVAILABLE
-        self.open('library')
-        lib = self.library
-        self.assertEqual((lib.notice.text(), lib.notice.property('error')), (library_model.UNAVAILABLE, 'true'))
-        self.assertEqual((lib.table.rowCount(), lib.range.text()), (0, ''))
-        self.assertTrue(lib.refresh.isEnabled())
-
-    def test_opening_a_file_says_it_was_sent_or_why_it_could_not_be(self):
-        self.open('library')
-        holder = self.library.table.cellWidget(0, 7)
-        button, feedback = holder.findChild(QtWidgets.QPushButton), holder.findChild(QtWidgets.QLabel)
-        self.assertEqual(button.accessibleName(), 'Open Episode 001.cbz')
-        self.assertEqual([b.text() for b in holder.findChildren(QtWidgets.QPushButton)], ['Open'])
-        self.assertFalse(any(b.text() in {'Read here', 'Read a file…'}
-                             for b in self.pages.widget.findChildren(QtWidgets.QPushButton)))
-        self.shell.held = []
-        button.click()
-        self.assertEqual((button.text(), button.isEnabled(), feedback.text()), ('Opening…', False, library_model.OPENING))
-        self.shell.release()
-        self.assertEqual(self.actions.named('open_file')[0][1], ('a' * 64,))
-        self.assertEqual((button.text(), button.isEnabled(), feedback.text()), ('Open', True, library_model.OPENED))
-        self.assertEqual(feedback.property('error'), 'false')
-        self.actions.refused['open_file'] = library_model.NO_OPENER
-        button.click()
-        self.assertEqual((feedback.text(), feedback.property('error')), (library_model.NO_OPENER, 'true'))
-
-    def test_without_cloud_storage_the_library_shows_this_computer_only(self):
-        self.actions.cloud_offered = False
-        self.open('library')
-        lib = self.library
-        self.assertEqual(self.options()['location'], 'device')
-        self.assertEqual([b.text().split(' | ')[0] for b in lib.place_buttons], ['This device'])
-        self.assertTrue(lib.table.isColumnHidden(6))
-        self.assertEqual(lib.summary.text(), '60 saved episodes across 120 files on this computer.')
-        lib.open_folder.click()
-        self.assertEqual(self.shell.calls, [('open_folder',)])
-
-    def test_one_site_open_lists_its_files_without_a_site_choice(self):
-        self.open('library')
-        self.assertFalse(self.library.site_box.isVisible())
-        self.assertEqual(self.actions.named('saved_snapshot'), [])
-
-    def test_with_several_sites_open_the_list_shows_every_sites_files_or_one_sites(self):
-        self.shell.open = ['tapas', 'webtoon']
-        webtoon = self.sites['webtoon']
-        self.open('library')
-        lib = self.library
-        self.assertTrue(lib.site_box.isVisible())
-        self.assertEqual([lib.site.itemText(i) for i in range(lib.site.count())], ['All sites', 'Tapas', 'Webtoon'])
-        self.assertEqual(lib.title.text(), 'Your saved library, all sites')
-        self.assertEqual((len(self.actions.named('saved_snapshot')), len(webtoon.named('saved_snapshot'))), (1, 1))
-        self.assertEqual([call for call in self.actions.named('saved_files') if not call[2].get('summary')], [])
-        self.assertEqual(lib.table.rowCount(), 4)
-        # Each file names its site under its series, and opens through that site's own library.
-        self.assertEqual([lib.table.item(row, 0).text() for row in range(4)],
-                         ['Long Series Name\nTapas', 'Long Series Name\nWebtoon', 'Long Series Name\nTapas', 'Long Series Name\nWebtoon'])
-        lib.table.cellWidget(3, 7).findChild(QtWidgets.QPushButton).click()
-        self.assertEqual((len(webtoon.named('open_file')), len(self.actions.named('open_file'))), (1, 0))
-        lib.refresh.click()
-        self.assertEqual(webtoon.named('saved_snapshot')[-1][2], {'refresh': True})
-        pick(lib.site, 'webtoon')
-        self.assertEqual(lib.title.text(), 'Your saved Webtoon library')
-        self.assertEqual(webtoon.named('saved_files')[-1][2]['offset'], 0)
-        self.assertEqual(lib.table.item(0, 0).text(), 'Long Series Name')
-
-    def test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage(self):
-        self.open('library')
-        self.library.place_buttons[2].click()
-        self.pages.go_to('dashboard')
-        self.pages.go_to('library')
-        self.assertEqual(self.options()['location'], 'b2')
-        self.pages.reopened()
-        self.assertEqual(self.pages.route, 'library')
-        self.assertEqual(self.options()['location'], 'all')
-        self.assertTrue(self.pages.state.loaded)
 
 
 if __name__ == '__main__':
