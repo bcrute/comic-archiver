@@ -6507,7 +6507,7 @@
   "id": "card-hinted-text-rounded-down",
   "source": "comic_archive/window_pages.py",
   "old": "math.ceil(advance) + 1",
-  "new": "int(advance)",
+  "new": "self.fontMetrics().horizontalAdvance(self.text())",
   "test_file": "test_window_pages.py",
   "test": "test_hinted_values_expand_when_their_text_changes"
  }
