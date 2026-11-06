@@ -154,9 +154,13 @@ preserved. Covers use `page=cover`. Routine images without tails do not add a
 line. These records contain no image payload, titles, paths or asset URLs;
 generic exception text remains excluded from support logs.
 
-The desktop dashboard reads local progress once a minute and recounts saved
-files on opening, hourly, and after a completed download or explicit storage
-change. Saved-file scans run separately from progress reads, with at most one
+While a download is running, the desktop dashboard reads local progress once a
+minute and recounts saved files hourly. It also reads on opening and after a
+completed download or explicit storage change. Stopped, paused, finished and
+unstarted sites receive no automatic dashboard reads or recounts. Sign-in and
+explicit cloud tasks continue to receive status updates while they run. A pause
+finishes its in-flight step before status reads stop. Saved-file scans run
+separately from progress reads, with at most one
 scan per site in flight. They read local archives, metadata and upload receipts;
 these dashboard reads do not poll the content or cloud providers. Provider
 request scheduling is unchanged. Progress becomes stale only after three missed
@@ -170,3 +174,9 @@ responses affect observed throughput, so the labels describe approximate rates.
 Fast keeps its existing policy. Ordinary Android readers can use Medium/Slow
 without requiring the native Fast engine. Explicit CLI `normal` pacing and queue
 argument validation retain their existing limits.
+
+Dashboard cards keep the same fields and row order while loading, downloading,
+waiting, paused or finished. Status and Progress carry changing details; unknown
+values use an em dash. Values and messages stay on one line, with long plain
+text elided visually and preserved in tooltips and accessible text. Empty
+messages and optional hints retain their layout space.

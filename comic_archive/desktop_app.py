@@ -793,7 +793,8 @@ class Shell:
             return  # A self-test asks no site anything.
         agent = self.engine_agent()
         for runtime in [self.runtime.runtime(key) for key in keys] if keys else list(self.runtime.runtimes.values()):
-            self.background(lambda signin=runtime.signin: signin.check(agent), self.refresh)
+            self.background(lambda signin=runtime.signin: signin.check(agent),
+                            lambda key=runtime.site.key: self.refresh_site(key))
 
     def engine_agent(self):
         """The name the app's browser gives sites: the sign-in page and the downloader send the same."""
@@ -808,7 +809,11 @@ class Shell:
 
     def refresh(self):
         if self.phase == 'open':
-            self.pages.poll()
+            self.pages.poll(automatic=True)
+
+    def refresh_site(self, key):
+        if self.phase == 'open':
+            self.pages.poll_site(key)
 
     def tick(self):
         if self.phase == 'open':

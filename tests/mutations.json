@@ -6502,5 +6502,37 @@
   "new": "elif kind == b'IDAT':",
   "test_file": "test_image_formats.py",
   "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
+ },
+ {
+  "id": "dashboard-idle-sites-polled",
+  "source": "comic_archive/window_pages.py",
+  "old": "if automatic and s.loaded and not dashboard_model.updating(s):",
+  "new": "if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_timer_leaves_idle_sites_untouched_and_follows_only_started_work"
+ },
+ {
+  "id": "dashboard-empty-fields-removed",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "v['rows'] = list(rows.values())",
+  "new": "v['rows'] = [item for item in rows.values() if item['value'] != NONE]",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_every_state_has_the_same_ordered_single_line_fields"
+ },
+ {
+  "id": "dashboard-value-wraps",
+  "source": "comic_archive/window_pages.py",
+  "old": "        label.setWordWrap(False)\n",
+  "new": "        label.setWordWrap(True)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_status_changes_keep_the_same_widgets_positions_and_single_line_height"
+ },
+ {
+  "id": "dashboard-message-space-not-reserved",
+  "source": "comic_archive/window_pages.py",
+  "old": "    policy.setRetainSizeWhenHidden(True)\n",
+  "new": "    policy.setRetainSizeWhenHidden(False)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_status_changes_keep_the_same_widgets_positions_and_single_line_height"
  }
 ]

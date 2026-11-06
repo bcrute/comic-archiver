@@ -325,7 +325,8 @@ class State:
     def refresh_failed(self):
         # A failed refresh says it will retry, rather than showing the raw error; the next good refresh clears it.
         self.offline = True
-        self.message = Message('Could not refresh progress. We’ll retry automatically; your saved work is retained.',
+        retry = 'We’ll retry automatically' if updating(self) else 'Start or resume this site to refresh it'
+        self.message = Message(f'Could not refresh progress. {retry}; your saved work is retained.',
                                error=True, polling=True)
 
     def failed(self, text, now):
@@ -355,12 +356,27 @@ def save_place(s):
     return 'Backblaze B2' if chosen and chosen.get('provider') == 'b2' else 'Cloud storage' if chosen else s.library_root or s.library_folder or ''
 
 
+CARD_FIELDS = ('Account', 'Downloader', 'Status', 'Step', 'Progress', 'Saved', 'Time left', 'Space',
+               'Running for', 'Speed', 'Download speed', 'Note')
+
+
+def card_rows(values=None):
+    values = values or {}
+    return [dict(name=name, value=values.get(name, NONE), warning=False, tip='') for name in CARD_FIELDS]
+
+
 def unopened_rows():
-    """A card for a site not signed in to yet: the same fields as every other card, with nothing known in them."""
-    return [{'name': name, 'value': value, 'warning': False}
-            for name, value in (('Account', 'Not signed in'), ('Downloader', 'Starts after sign-in'), ('Saved', NONE),
-                                ('Time left', NONE), ('Space', NONE), ('Speed', NONE),
-                                ('Download speed', NONE))]
+    """The same permanent fields, including before a site has been opened."""
+    return card_rows({'Account': 'Not signed in', 'Downloader': 'Starts after sign-in',
+                      'Status': 'Sign in to get started'})
+
+
+def updating(s):
+    """Only activity the person started needs automatic local status reads."""
+    return ((s.account or {}).get('status') == 'running' or s.task is not None
+            or ((s.status or {}).get('worker') or {}).get('reported_state') == 'busy'
+            or (s.site_auth or {}).get('status') == 'running'
+            or (s.cloud_auth or {}).get('status') == 'running')
 
 
 def view(s, now):
@@ -470,7 +486,7 @@ def view(s, now):
     age = account['progress_age_seconds'] + since if type(account.get('progress_age_seconds')) is int else None
     elapsed = account['elapsed_seconds'] + since if type(account.get('elapsed_seconds')) is int else None
     since_refresh = max(0, math.floor(now - s.refreshed_at)) if s.refreshed_at else None
-    disconnected = s.offline or (since_refresh is not None and since_refresh >= DELAYED_SECONDS)
+    disconnected = s.offline or (since_refresh is not None and since_refresh >= DELAYED_SECONDS and updating(s))
     # Between two steps, and while the download itself waits to try again, nothing is overdue.
     between = account['between_steps_seconds'] + since if type(account.get('between_steps_seconds')) is int else None
     retry = account.get('retry') if running and isinstance(account.get('retry'), dict) and type(account['retry'].get('seconds')) is int else None
@@ -480,13 +496,31 @@ def view(s, now):
     v['live_waiting'] = waiting or disconnected
     v.update(heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh))
     # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
-    rows = []
+    rows = {item['name']: item for item in card_rows({'Status': v['title']})}
+    filled = set()
 
     def row(name, value, warning=False, tip=''):
-        if value:
-            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': tip})
+        if not value:
+            return
+        if name == 'Continue in':
+            value = 'Continue in ' + value
+        if name in ('Updates', 'Waiting', 'Stopped', 'Finished', 'Continue in', 'Connection'):
+            name = 'Status'
+        elif name in ('Lists', 'Series left'):
+            value = value.replace(' to check', ' series to check') if name == 'Series left' else value
+            name = 'Progress'
+        elif name == 'Step' and ' | ' in value:
+            value, _, details = value.partition(' | ')
+            row('Progress', details)
+        value = ' '.join(value.split())
+        item = rows[name]
+        if name in filled and name in ('Status', 'Progress'):
+            value = item['value'] + ' | ' + value
+            warning = warning or item['warning']
+        item.update(value=value, warning=bool(warning), tip=tip)
+        filled.add(name)
     if not s.loaded:
-        v['rows'] = [{'name': 'Library', 'value': 'Opening…', 'warning': False}]
+        v['rows'] = card_rows({'Account': 'Checking…', 'Downloader': 'Checking…', 'Status': 'Opening…'})
         v['save_place'] = save_place(s)
         return v
     row('Account', v['session_word'], v['session_tone'] == 'warning')
@@ -551,7 +585,7 @@ def view(s, now):
     row('Download speed', NONE if measured is None else rate(measured))
     if finished and site == 'Tapas':
         row('Note', 'Tapas’s account lists may not include every older purchase')
-    v['rows'] = rows
+    v['rows'] = list(rows.values())
     v['save_place'] = save_place(s)
     return v
 
@@ -562,7 +596,8 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
     account = s.account or {}
     if s.loaded and s.status is not None and s.account is not None:
         if disconnected:
-            title, label, tone = 'Status updates unavailable', 'Reconnecting', 'warning'
+            title, label, tone = ('Status updates unavailable', 'Reconnecting', 'warning') if updating(s) else (
+                'Status unavailable', 'Status unavailable', 'warning')
         elif signing_in:
             title, label, tone = 'Finish signing in', 'Signing in', 'working'
         elif needs_login:
@@ -601,5 +636,6 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
             'session': f'{site} · {session}', 'session_tone': 'warning' if needs_login and s.status is not None else 'neutral',
             'worker': f'Downloader · {downloader}',
             'worker_tone': 'warning' if disconnected or (s.status is not None and not not_yet and worker not in WORKING) else 'neutral',
-            'updated': ('Updates delayed · trying to reconnect' if disconnected else 'Checking current status…'
+            'updated': ('Status unavailable · start to refresh' if disconnected and not updating(s) else
+                        'Updates delayed · trying to reconnect' if disconnected else 'Checking current status…'
                         if since_refresh is None else 'Updated just now' if since_refresh < 2 else f'Updated {since_refresh}s ago')}

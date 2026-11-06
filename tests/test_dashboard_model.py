@@ -220,7 +220,7 @@ class ButtonTests(unittest.TestCase):
         self.assertEqual(action(view(account=account(), status={'worker': {'reported_state': 'busy'}}))[0], 'pause')
         relogin = view(account={'status': 'held', 'code': 'login_required'})
         self.assertEqual(action(relogin), ('signin', 'Sign in', True))
-        self.assertEqual(fields(relogin)['Stopped'], ('Tapas signed you out', True))
+        self.assertEqual(fields(relogin)['Status'], ('Tapas signed you out', True))
 
     def test_a_saved_sign_in_the_site_no_longer_knows_asks_for_a_sign_in_before_go(self):
         expired = view(site_auth={'status': 'expired'})
@@ -243,7 +243,7 @@ class ButtonTests(unittest.TestCase):
                 self.assertFalse(failed['go_enabled'])
                 self.assertEqual(action(failed), ('signin', 'Sign in', True))
                 self.assertEqual(failed['session'], 'Tapas · Sign-in needed')
-                self.assertEqual(fields(failed)['Stopped'], ('Tapas signed you out', True))
+                self.assertEqual(fields(failed)['Status'], ('Tapas signed you out', True))
                 # Signing in again clears the old failure; repeating its result does not.
                 s.received_site_auth({'status': 'running'}, NOW + 3)
                 s.received_site_auth({'status': 'connected'}, NOW + 4)
@@ -325,7 +325,7 @@ class StatusTests(unittest.TestCase):
     def test_a_minute_between_reads_is_current_and_late_reads_still_measure_speed(self):
         self.assertEqual((model.POLL_SECONDS, model.LIBRARY_SECONDS), (60, 3600))
         self.assertGreater(model.DELAYED_SECONDS, 2 * model.POLL_SECONDS)
-        self.assertNotIn('Updates', fields(view(refreshed_at=NOW - 119)))
+        self.assertNotIn('Delayed', fields(view(refreshed_at=NOW - 119))['Status'][0])
         s = state(account=account())
         s.received_status({'last_run': {'id': 'run'}, 'progress': {'downloaded_bytes': 0}}, NOW)
         s.received_status({'last_run': {'id': 'run'}, 'progress': {'downloaded_bytes': 6_200_000}}, NOW + 62)
@@ -370,38 +370,51 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(model.view(state(account=account()), NOW))['Download speed'], ('—', False))
         self.assertEqual((model.rate(999_499), model.rate(999_500), model.rate(0)), ('999 KB/s', '1.0 MB/s', '0 KB/s'))
 
+    def test_every_state_has_the_same_ordered_single_line_fields(self):
+        cases = [dict(loaded=False), dict(status=None), dict(site_auth={'status': 'running'}),
+                 dict(account=account(phase='lists')), dict(account=account(phase='series')),
+                 dict(account=account(phase='archive')), dict(account=account(phase='verify')),
+                 dict(account=account(), offline=True), dict(account={'status': 'finished'}),
+                 dict(account={'status': 'held', 'code': 'archive_incomplete'}),
+                 dict(message=Message('First line\nsecond line'))]
+        for options in cases:
+            with self.subTest(options=options):
+                rows = view(**options)['rows']
+                self.assertEqual(tuple(item['name'] for item in rows), model.CARD_FIELDS)
+                self.assertTrue(all('\n' not in item['value'] for item in rows))
+        self.assertEqual(tuple(item['name'] for item in model.unopened_rows()), model.CARD_FIELDS)
+
     def test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions(self):
-        self.assertEqual(view(loaded=False)['rows'], [{'name': 'Library', 'value': 'Opening…', 'warning': False}])
-        self.assertEqual([(row['name'], row['value'], row['warning']) for row in view()['rows']],
-                         [('Account', 'Session saved', False), ('Downloader', 'Ready', False), ('Saved', '3 episodes', False),
-                          ('Time left', '—', False), ('Space', '—', False), ('Speed', 'Fast', False),
-                          ('Download speed', '—', False)])
+        self.assertEqual(view(loaded=False)['rows'], model.card_rows({'Account': 'Checking…', 'Downloader': 'Checking…', 'Status': 'Opening…'}))
+        expected = model.card_rows({'Account': 'Session saved', 'Downloader': 'Ready',
+                                    'Status': 'Your download is paused', 'Saved': '3 episodes', 'Speed': 'Fast'})
+        self.assertEqual(view()['rows'], expected)
         cases = [({'account': {'status': 'held', 'code': 'cancelled'}}, {}),
                  ({'account': {'status': 'held', 'code': 'cancelled'}, 'network': {'wifi_only': True, 'reason': 'metered_connection'}},
-                  {'Connection': ('This connection is metered; saving waits for Wi-Fi or a wired connection', True)}),
+                  {'Status': ('This connection is metered; saving waits for Wi-Fi or a wired connection', True)}),
                  ({'network': {'wifi_only': True}},
-                  {'Connection': ('This computer cannot tell whether its connection is metered (a VPN can cause this); '
+                  {'Status': ('This computer cannot tell whether its connection is metered (a VPN can cause this); '
                                   'saving waits for Wi-Fi or a wired connection', True)}),
                  ({'account': {'status': 'held', 'code': 'source_refused'}},
-                  {'Stopped': ('Tapas asked the app to slow down', True), 'Speed': ('Fast (a slower speed may help)', True)}),
+                  {'Status': ('Tapas asked the app to slow down', True), 'Speed': ('Fast (a slower speed may help)', True)}),
                  ({'account': {'status': 'stopped', 'go_after_seconds': 600}, 'account_at': NOW},
-                  {'Continue in': ('about 10 minutes', False)}),
+                  {'Status': ('Continue in about 10 minutes', False)}),
                  ({'account': {'status': 'finished'}},
-                  {'Finished': ('Every episode your account can read is saved', False),
+                  {'Status': ('Every episode your account can read is saved', False),
                    'Note': ('Tapas’s account lists may not include every older purchase', False)}),
                  ({'account': {'status': 'finished'}, 'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}}},
-                  {'Finished': ('No episodes your Tapas account can save were found', False), 'Saved': ('0 episodes', False)}),
+                  {'Status': ('No episodes your Tapas account can save were found', False), 'Saved': ('0 episodes', False)}),
                  ({'account': {'status': 'held', 'code': 'archive_incomplete',
                                'audit': {'missing_recorded_accessible_episode_count': 2}}},
-                  {'Finished': ('2 episodes could not be saved', True)}),
+                  {'Status': ('2 episodes could not be saved', True)}),
                  # Those in a form the app can't save yet are told apart: checking again never saves them.
                  ({'account': {'status': 'held', 'code': 'archive_incomplete',
                                'audit': {'missing_recorded_accessible_episode_count': 52,
                                          'unsupported_recorded_accessible_episode_count': 50}}},
-                  {'Finished': ('2 episodes could not be saved', True)}),
+                  {'Status': ('2 episodes could not be saved', True)}),
                  ({'account': {'status': 'finished', 'audit': {'missing_recorded_accessible_episode_count': 1234,
                                                                'unsupported_recorded_accessible_episode_count': 1234}}},
-                  {'Finished': ('Every episode your account can read is saved, except 1,234 in a form the app can’t save yet',
+                  {'Status': ('Every episode your account can read is saved, except 1,234 in a form the app can’t save yet',
                                 False)}),
                  ({'status': {'session_configured': True, 'worker': {'reported_state': 'busy'}}},
                   {'Step': ('Finishing the current step', False)}),
@@ -413,7 +426,7 @@ class StatusTests(unittest.TestCase):
                  ({'account': account(), 'status': {'session_configured': True, 'worker': {'reported_state': 'busy'},
                                                     'progress': {'status': 'running', 'phase': 'archive', 'completed': 2,
                                                                  'downloaded_pages': 5}}},
-                  {'Step': ('Downloading episodes | 2 saved in this step | 5 images', False)})]
+                  {'Step': ('Downloading episodes', False), 'Progress': ('2 saved in this step | 5 images', False)})]
         for changes, expected in cases:
             with self.subTest(changes):
                 said = fields(view(**changes))
@@ -422,7 +435,7 @@ class StatusTests(unittest.TestCase):
                 for value, _ in said.values():
                     self.assertNotIn('Go', value)
                     self.assertNotIn('Hit ', value)
-        self.assertNotIn('Stopped', fields(view(account={'status': 'held', 'code': 'cancelled'})))
+        self.assertEqual(fields(view(account={'status': 'held', 'code': 'cancelled'}))['Status'][0], 'Your download is paused')
 
     def test_finding_series_names_the_list_and_how_far_through_it_is(self):
         lists = {'current': 'subscribed', 'checked': 1, 'total': 4}
@@ -432,14 +445,14 @@ class StatusTests(unittest.TestCase):
                         status={'session_configured': True, 'worker': {'reported_state': 'busy'}, 'progress': reading,
                                 'episodes_by_status': {'archived': 3}}))
         self.assertEqual(v['Step'], ('Finding your series', False))
-        self.assertEqual(v['Lists'], ('1 of 4 read | 3 pages of Subscribed | 40 series', False))
+        self.assertEqual(v['Progress'], ('1 of 4 read | 3 pages of Subscribed | 40 series', False))
         self.assertEqual(v['Saved'], ('3 episodes', False))
         scan = fields(view(account=account(phase='lists', lists=lists), status={'progress': {'status': 'running', 'phase': 'scan'}}))
-        self.assertEqual(scan['Lists'][0], '1 of 4 read | now Subscribed')
-        self.assertEqual(fields(view(account=account(phase='lists', lists={'checked': 0})))['Lists'][0], '0 of 4 read')
+        self.assertEqual(scan['Progress'][0], '1 of 4 read | now Subscribed')
+        self.assertEqual(fields(view(account=account(phase='lists', lists={'checked': 0})))['Progress'][0], '0 of 4 read')
         series = fields(view(account=account(phase='series'), status={'scan_remaining_series_count': 12}))
         self.assertEqual(series['Step'][0], 'Checking series and downloading')
-        self.assertEqual(series['Series left'][0], '12 to check')
+        self.assertEqual(series['Progress'][0], '12 series to check')
         self.assertNotIn('Lists', series)
 
     def test_download_settings_tables_why_checked_episodes_were_not_downloaded(self):
@@ -480,11 +493,11 @@ class StatusTests(unittest.TestCase):
     def test_the_saved_count_time_left_and_space_follow_what_was_read(self):
         # Every card has the same fields, signed in or not, so cards side by side read alike.
         unread = fields(view(status=None))
-        self.assertEqual(list(unread), ['Account', 'Downloader', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed'])
+        self.assertEqual(list(unread), list(model.CARD_FIELDS))
         self.assertEqual([unread[name] for name in ('Saved', 'Time left', 'Space', 'Speed', 'Download speed')], [('—', False)] * 5)
         self.assertEqual([row['name'] for row in model.unopened_rows()], list(unread))
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
-        self.assertNotIn('Note', fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')])))
+        self.assertEqual(fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')]))['Note'][0], '—')
         planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))
         self.assertEqual(planned['Time left'], ('10 minutes', False))
         self.assertEqual(planned['Space'], ('1.0 GB to go', False))
@@ -535,34 +548,34 @@ class LiveTests(unittest.TestCase):
     def test_running_for_counts_on_from_what_the_app_last_said(self):
         v = model.view(state(account=account(elapsed_seconds=100, progress_age_seconds=5), account_at=NOW - 10, refreshed_at=NOW - 3), NOW)
         self.assertEqual(fields(v)['Running for'], ('1m 50s | last saved 0m 15s ago', False))
-        self.assertNotIn('Running for', fields(view(account=account())))
-        self.assertNotIn('Running for', fields(view(account={'status': 'stopped', 'elapsed_seconds': 100})))
+        self.assertEqual(fields(view(account=account()))['Running for'][0], '—')
+        self.assertEqual(fields(view(account={'status': 'stopped', 'elapsed_seconds': 100}))['Running for'][0], '—')
 
     def test_the_card_says_whether_updates_arrive_and_what_the_download_waits_for(self):
-        self.assertEqual(fields(view(account=account(), offline=True))['Updates'], ('Delayed: reaching the downloader again', True))
-        self.assertIn('Updates', fields(view(account=account(), refreshed_at=NOW - model.DELAYED_SECONDS)))
-        self.assertNotIn('Step', fields(view(account=account(), offline=True)))
+        self.assertEqual(fields(view(account=account(), offline=True))['Status'], ('Delayed: reaching the downloader again', True))
+        self.assertIn('Delayed', fields(view(account=account(), refreshed_at=NOW - model.DELAYED_SECONDS))['Status'][0])
+        self.assertEqual(fields(view(account=account(), offline=True))['Step'][0], '—')
         for reason, said in (('source', 'Tapas asked the app to wait; carries on in about a minute'),
                              ('images', 'Some images did not arrive; carries on in about a minute'),
                              ('idle', 'The last step saved nothing new; carries on in about a minute'),
                              ('network', 'The connection to Tapas was interrupted; carries on in about a minute')):
             with self.subTest(reason):
-                self.assertEqual(fields(view(account=account(retry={'reason': reason, 'seconds': 60})))['Waiting'], (said, True))
+                self.assertEqual(fields(view(account=account(retry={'reason': reason, 'seconds': 60})))['Status'], (said, True))
         self.assertEqual(fields(view(account=account(retry={'reason': 'network', 'seconds': 60}),
-                                     network={'wifi_only': True, 'allowed': False}))['Waiting'],
+                                     network={'wifi_only': True, 'allowed': False}))['Status'],
                          ('For Wi-Fi or a wired connection', True))
         for timing in ({'progress_age_seconds': 60}, {'between_steps_seconds': 60}, {'elapsed_seconds': 60}):
             with self.subTest(timing):
                 v = view(account=account(**timing))
-                self.assertEqual(fields(v)['Waiting'], ('No progress for over a minute; Tapas may be slow', True))
+                self.assertEqual(fields(v)['Status'], ('No progress for over a minute; Tapas may be slow', True))
                 self.assertTrue(v['live_waiting'])
                 self.assertEqual((v['title'], v['state'], v['tone']), ('Waiting for a progress update', 'Waiting', 'warning'))
         self.assertFalse(view(account=account(progress_age_seconds=10, elapsed_seconds=600))['live_waiting'])
-        self.assertNotIn('Waiting', fields(view(account=account(progress_age_seconds=10, elapsed_seconds=600))))
+        self.assertNotIn('No progress', fields(view(account=account(progress_age_seconds=10, elapsed_seconds=600)))['Status'][0])
 
     def test_the_heading_names_the_state_of_the_download_in_a_word(self):
         cases = [({'loaded': False}, ('Loading your status…', 'Loading', 'neutral')),
-                 ({'offline': True}, ('Status updates unavailable', 'Reconnecting', 'warning')),
+                 ({'offline': True}, ('Status unavailable', 'Status unavailable', 'warning')),
                  ({'site_auth': {'status': 'running'}}, ('Finish signing in', 'Signing in', 'working')),
                  ({'status': {'worker': {'reported_state': 'ready'}}}, ('Sign in to get started', 'Sign-in needed', 'warning')),
                  ({'account': account(phase='lists')}, ('Finding your series', 'Finding series', 'working')),
@@ -601,7 +614,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(view(refreshed_at=0)['updated'], 'Checking current status…')
         self.assertEqual(view(refreshed_at=NOW - 1)['updated'], 'Updated just now')
         self.assertEqual(view(refreshed_at=NOW - 9)['updated'], 'Updated 9s ago')
-        self.assertEqual(view(offline=True)['updated'], 'Updates delayed · trying to reconnect')
+        self.assertEqual(view(offline=True)['updated'], 'Status unavailable · start to refresh')
 
 
 if __name__ == '__main__':
