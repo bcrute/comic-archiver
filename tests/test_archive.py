@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -23,6 +24,13 @@ def png(color):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(bytes([0, color, 0, 0]))) + chunk(b"IEND", b""))
+
+
+def jpeg(color=1, *, progressive=False):
+    from PIL import Image
+    output = io.BytesIO()
+    Image.new('RGB', (8, 8), (color, 0, 0)).save(output, 'JPEG', progressive=progressive)
+    return output.getvalue()
 
 
 class MemoryAdapter:
@@ -263,6 +271,36 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(image_extension(b"\xff\xd8\xffdata\xff\xd9"), ".jpg")
         for data in [b"<html>login</html>", b"encrypted", b"\xff\xd8\xffincomplete"]:
             with self.assertRaises(ArchiveError):
+                image_extension(data)
+
+    def test_zero_padded_jpegs_keep_their_original_bytes_and_pixels_in_the_archive(self):
+        from PIL import Image
+        for progressive in (False, True):
+            original = jpeg(progressive=progressive)
+            for padding in (0, 1, 262144 - len(original), 524288 - len(original)):
+                with self.subTest(progressive=progressive, padding=padding):
+                    data = original + b'\0' * padding
+                    self.assertEqual(image_extension(data), '.jpg')
+                    adapter = MemoryAdapter()
+                    adapter.retrieve = lambda page: data
+                    self.store.archive(self.manifest, adapter, refresh=True, progress=lambda _: None)
+                    cbz = next(self.store.root.glob('**/*.cbz'))
+                    with zipfile.ZipFile(cbz) as archive:
+                        pages = [archive.read(name) for name in sorted(archive.namelist()) if name.endswith('.jpg')]
+                    self.assertEqual(pages, [data, data])
+                    self.assertEqual(verify(self.store.root, decode_images=True), [])
+                    with Image.open(io.BytesIO(pages[0])) as padded, Image.open(io.BytesIO(original)) as unpadded:
+                        self.assertEqual(padded.tobytes(), unpadded.tobytes())
+
+    def test_jpeg_padding_does_not_excuse_missing_markers_or_nonzero_trailing_content(self):
+        original = jpeg()
+        for data in (original[:-2], original[:-1] + b'\0' * 65536,
+                     original[:-2] + b'\0' * 65536, original[3:] + b'\0',
+                     original + b'\0unexpected\0', original + b'\0\xff', original + b' \0',
+                     original + original + b'\0unexpected', b'\0' * 262144,
+                     b'<html>login</html>\0\0', png(1)[:-12] + b'\0' * 16,
+                     b'GIF89a\0\0', b'RIFF\0\0\0\0WEBP\0'):
+            with self.subTest(tail=data[-20:]), self.assertRaises(ArchiveError):
                 image_extension(data)
 
     def test_the_librarys_private_cache_folder_is_hidden_from_the_file_manager(self):

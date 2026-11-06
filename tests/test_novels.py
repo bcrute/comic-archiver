@@ -19,6 +19,7 @@ from comic_archive.jobs import archive_discovered, sync, DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Series
 from comic_archive.novels import EPUB_FILES, NovelHTML, epub_entries, epub_files
 from scripts.offline_restore import restore
+from test_archive import jpeg
 
 
 INFO = {'id': 81, 'title': 'Chapter & one', 'scene': 1, 'book': True, 'free': True,
@@ -109,6 +110,25 @@ class NovelTests(unittest.TestCase):
         self.assertIn('<strong>bold</strong><br />尾声<sup>1</sup>', text)
         for unrelated in ('Other chapter', 'Reader header', 'Comments', 'account', 'invalid.example'):
             self.assertNotIn(unrelated, text)
+
+    def test_zero_padded_jpeg_illustrations_remain_byte_exact_in_epub_and_standalone_restore(self):
+        data = jpeg() + b'\0' * 65536
+        chapter = Episode('81', self.adapter.series.id, 'Chapter', 1, (), 'tapas_free',
+                          'https://tapas.io/episode/81', content_type='novel',
+                          text_html='<p>Text<img src="images/0001.jpg" /></p>', illustrations=(data,))
+        store = Store(self.root)
+        try:
+            store.archive(Manifest(self.adapter.series, (chapter,)), self.adapter, progress=lambda _: None)
+        finally:
+            store.close()
+        self.assertEqual(verify(self.root, decode_images=True), [])
+        destination = Path(self.work.name) / 'Restore'
+        report = restore(self.root, destination, decode=True)
+        self.assertEqual(report['image_count'], 1)
+        self.assertEqual(report['original_image_bytes'], len(data))
+        for root in (self.root, destination):
+            with zipfile.ZipFile(next(root.glob('**/*.epub'))) as archive:
+                self.assertEqual(archive.read('EPUB/images/0001.jpg'), data)
 
     def test_missing_wrong_duplicate_truncated_hidden_and_media_chapters_hold(self):
         for html in (HTML.replace('epub-81', 'epub-99'),

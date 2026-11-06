@@ -200,7 +200,7 @@ def restore(source, destination, decode=False):
                         if item['file'] in images:
                             extension = Path(item['file']).suffix
                             valid = ((extension == '.png' and data.startswith(b'\x89PNG\r\n\x1a\n') and b'IEND' in data[-16:])
-                                     or (extension == '.jpg' and data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9'))
+                                     or (extension == '.jpg' and data.startswith(b'\xff\xd8\xff') and data.rstrip(b'\0').endswith(b'\xff\xd9'))
                                      or (extension == '.gif' and data.startswith((b'GIF87a', b'GIF89a')) and data.endswith(b';'))
                                      or (extension == '.webp' and data[:4] == b'RIFF' and data[8:12] == b'WEBP'
                                          and int.from_bytes(data[4:8], 'little') + 8 == len(data)))

@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from test_archive import png
+from test_archive import jpeg, png
 from comic_archive import sites, worker
 from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, account, split_episode, split_series
 from comic_archive.account_ui import SPEEDS
@@ -162,6 +162,34 @@ class WebtoonTests(unittest.TestCase):
         self.assertEqual(len(images), 6)
         # The pictures need Webtoon's address as referer; nothing else about the reader is sent.
         self.assertEqual({tuple(sorted(headers.items())) for headers in images}, {(('Referer', 'https://www.webtoons.com/'),)})
+
+    @patch('builtins.print')
+    def test_old_exhausted_padded_jpegs_save_in_parallel_without_changing_original_bytes(self, output, sleep):
+        pages = series_pages()
+        originals = {}
+        for number in (1, 2, 4):
+            for part in (1, 2):
+                data = jpeg(10 * number + part, progressive=part == 2)
+                originals[number, part] = data + b'\0' * (262144 - len(data))
+                pages[f'{IMAGES}/{number}-{part}.png'] = originals[number, part]
+        adapter, client = reader(pages, SignedIn)
+        adapter.download_profile, adapter.transport.image_interval = 'fast', 1 / 32
+        with Inventory(self.root) as inventory:
+            inventory.observe('7', 'Sample Series', adapter.inspect_series('7')['episodes'], 'subscribed')
+            for key in ('7000001', '7000002', '7000004'):
+                for _ in range(3):
+                    inventory.mark(key, 'failed', 'job_failed', attempted=True)
+            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.commit()
+        with adapter:
+            result = sync(adapter, self.root, refresh_lists=False, download_workers=8)
+        self.assertEqual(sorted(result['archived_episode_ids']), ['7000001', '7000002', '7000004'])
+        self.assertEqual(verify(self.root, decode_images=True), [])
+        for path, number in zip(sorted(self.root.glob('**/*.cbz')), (1, 2, 4), strict=True):
+            with zipfile.ZipFile(path) as archive:
+                pictures = [archive.read(name) for name in sorted(archive.namelist()) if name.endswith('.jpg')]
+            self.assertEqual(pictures, [originals[number, 1], originals[number, 2]])
+        self.assertEqual(sum(url.startswith(IMAGES) for url, _ in client.calls), 6)
 
     def test_series_details_come_from_the_series_own_page(self, sleep):
         adapter, _ = reader(series_pages())

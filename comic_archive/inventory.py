@@ -114,6 +114,14 @@ class Inventory:
                     self.db.execute('INSERT OR IGNORE INTO asset_deferrals VALUES (?,?)', (key, after.isoformat()))
                 self.db.execute("UPDATE episodes SET status='queued', error_code='interrupted' WHERE status='downloading'")
                 self.db.execute("UPDATE runs SET status='interrupted', finished_at=? WHERE finished_at IS NULL", (timestamp(),))
+                # Older image validation rejected Webtoon's zero-padded JPEGs.
+                # Its untyped failures cannot identify those images individually:
+                # give exhausted Webtoon failures one new bounded cycle, once.
+                if not self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone():
+                    self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
+                                    "WHERE status='failed' AND error_code='job_failed' "
+                                    "AND access_state='webtoon_free' AND attempts>=?", (MAX_FAILED_ATTEMPTS,))
+                    self.db.execute("INSERT INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')")
                 self.db.commit()
             except BaseException:
                 self.close()
@@ -567,7 +575,12 @@ class Inventory:
             if urgent: return (0 if priority=='expiring_first' else 1,expiry)
             return (2,'')
         for row in rows: row['access_expires_at']=expirations.get(row['id'])
-        rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS]
+        # A read-only controller may see the old inventory before its first new
+        # writer. Admit the same one-time recheck here so Continue schedules a
+        # download; opening the writer above consumes it and resets the budget.
+        jpeg_recheck = self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone() is None
+        rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS
+              or (jpeg_recheck and row['access_state']=='webtoon_free')]
         # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
         return sorted(rows,key=lambda row:(failing(row),row['attempts'] if failing(row) else 0,rank(row)))
 

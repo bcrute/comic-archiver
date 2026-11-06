@@ -373,6 +373,33 @@ class ControllerTests(Controller):
         self.assertNotIn('audit', self.status())
         self.assertEqual(self.published()[1]['operation'], 'audit_account')
 
+    def test_continue_after_old_webtoon_image_failures_downloads_before_auditing_again(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        self.ok({'verified_inventory_episode_count': 0, 'missing_recorded_accessible_episode_count': 1,
+                 'inventory_index_problem_count': 0, 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.tick()
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'S', [{'id': '81', 'title': 'E', 'order': 1, 'access_state': 'webtoon_free'}], 'subscribed')
+            for _ in range(3):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.commit()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        self.go()
+        self.assertNotIn('audit', self.status())
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            inventory.mark('81', 'archived')
+        self.ok(counted(archived_episode_ids=['81'], downloaded_pages=1, downloaded_bytes=10))
+        self.assertEqual(self.published()[1]['operation'], 'audit_account')
+        self.ok({'verified_inventory_episode_count': 1, 'missing_recorded_accessible_episode_count': 0,
+                 'inventory_index_problem_count': 0, 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.tick()
+        self.assertEqual(self.state()['status'], 'finished')
+
     def test_episodes_the_app_cannot_save_yet_never_hold_a_download_but_one_a_retry_could_save_does(self):
         # A Tapas user's download stopped at the check over and over for 50 such episodes: Go could never change them.
         self.go()

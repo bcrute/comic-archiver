@@ -6390,5 +6390,85 @@
   "new": "        return None\n",
   "test_file": "test_webtoon.py",
   "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
+ },
+ {
+  "id": "jpeg-zero-padding-refused",
+  "source": "comic_archive/archive.py",
+  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
+  "new": "data.startswith(b\"\\xff\\xd8\\xff\") and data.endswith(b\"\\xff\\xd9\")",
+  "test_file": "test_archive.py",
+  "test": "test_zero_padded_jpegs_keep_their_original_bytes_and_pixels_in_the_archive"
+ },
+ {
+  "id": "jpeg-truncated-accepted",
+  "source": "comic_archive/archive.py",
+  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
+  "new": "data.startswith(b\"\\xff\\xd8\\xff\")",
+  "test_file": "test_archive.py",
+  "test": "test_jpeg_padding_does_not_excuse_missing_markers_or_nonzero_trailing_content"
+ },
+ {
+  "id": "jpeg-arbitrary-trailing-content-accepted",
+  "source": "comic_archive/archive.py",
+  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
+  "new": "data.startswith(b\"\\xff\\xd8\\xff\") and b\"\\xff\\xd9\" in data",
+  "test_file": "test_archive.py",
+  "test": "test_jpeg_padding_does_not_excuse_missing_markers_or_nonzero_trailing_content"
+ },
+ {
+  "id": "jpeg-padding-stripped-from-original",
+  "source": "comic_archive/archive.py",
+  "old": "        data = adapter.retrieve(page)\n        self.remember_page",
+  "new": "        data = adapter.retrieve(page).rstrip(b\"\\0\")\n        self.remember_page",
+  "test_file": "test_archive.py",
+  "test": "test_zero_padded_jpegs_keep_their_original_bytes_and_pixels_in_the_archive"
+ },
+ {
+  "id": "epub-restore-refuses-jpeg-padding",
+  "source": "scripts/offline_restore.py",
+  "old": "data.rstrip(b'\\0').endswith(b'\\xff\\xd9')",
+  "new": "data.endswith(b'\\xff\\xd9')",
+  "test_file": "test_novels.py",
+  "test": "test_zero_padded_jpeg_illustrations_remain_byte_exact_in_epub_and_standalone_restore"
+ },
+ {
+  "id": "jpeg-upgrade-never-requeues",
+  "source": "comic_archive/inventory.py",
+  "old": "if not self.db.execute(\"SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'\").fetchone():",
+  "new": "if False:",
+  "test_file": "test_inventory.py",
+  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+ },
+ {
+  "id": "jpeg-upgrade-requeues-on-every-open",
+  "source": "comic_archive/inventory.py",
+  "old": "                if not self.db.execute(\"SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'\").fetchone():\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state='webtoon_free' AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')\")\n",
+  "new": "                if True:\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state='webtoon_free' AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT OR REPLACE INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')\")\n",
+  "test_file": "test_inventory.py",
+  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+ },
+ {
+  "id": "jpeg-upgrade-resets-other-sites",
+  "source": "comic_archive/inventory.py",
+  "old": "AND access_state='webtoon_free' AND attempts>=?",
+  "new": "AND attempts>=?",
+  "test_file": "test_inventory.py",
+  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+ },
+ {
+  "id": "jpeg-upgrade-forgets-retry-budget",
+  "source": "comic_archive/inventory.py",
+  "old": "status='queued',error_code=NULL,attempts=0 ",
+  "new": "status='queued',error_code=NULL ",
+  "test_file": "test_inventory.py",
+  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+ },
+ {
+  "id": "jpeg-continue-only-audits-old-failures",
+  "source": "comic_archive/inventory.py",
+  "old": "              or (jpeg_recheck and row['access_state']=='webtoon_free')",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_continue_after_old_webtoon_image_failures_downloads_before_auditing_again"
  }
 ]

@@ -68,7 +68,9 @@ def safe_name(title):
 
 def image_extension(data):
     # Magic-byte detection preserves opaque-named Android JPEG files unchanged.
-    if data.startswith(b"\xff\xd8\xff") and data.endswith(b"\xff\xd9"):
+    # Some original JPEGs have zero padding after EOI. Recognize that padding
+    # without removing it from the cached/exported bytes or accepting other tails.
+    if data.startswith(b"\xff\xd8\xff") and data.rstrip(b"\0").endswith(b"\xff\xd9"):
         return ".jpg"
     if data.startswith(b"\x89PNG\r\n\x1a\n") and b"IEND" in data[-16:]:
         return ".png"
