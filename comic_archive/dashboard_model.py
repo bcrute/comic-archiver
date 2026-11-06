@@ -116,10 +116,27 @@ def wait_text(seconds):
     return f'about {round(seconds / 60)} minutes' if seconds >= 90 else 'about a minute' if seconds > 45 else 'a few seconds'
 
 
+def unconfirmed_downloads(estimate):
+    """Unchecked series are possible future work, not episodes known to be waiting."""
+    return bool(estimate and not number(estimate.get('waiting_episodes')) and number(estimate.get('unchecked_series')))
+
+
+def estimate_tip(estimate):
+    if unconfirmed_downloads(estimate):
+        unchecked = number(estimate.get('unchecked_series'))
+        return (f"No episodes are currently queued. {display(unchecked)} "
+                + ('series has' if unchecked == 1 else 'series have')
+                + ' no completed check; they may have nothing new to download.')
+    return ESTIMATE_TIP
+
+
 def time_left(estimate, *, background=False):
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked):
         return ''
+    if unconfirmed_downloads(estimate):
+        return (f"{display(unchecked)} series {'has' if unchecked == 1 else 'have'} not been checked yet. "
+                'No episodes are currently queued; download time is unknown until new episodes are found.')
     if type(estimate.get('seconds')) is not int:
         return 'Working out how long this will take. An estimate appears after about five minutes of downloading.'
     left = (f"{display(waiting)} {'episode is' if waiting == 1 else 'episodes are'} waiting"
@@ -134,6 +151,10 @@ def space_needed(estimate):
     unchecked = number((estimate or {}).get('unchecked_series'))
     if not estimate or not (number(estimate.get('waiting_episodes')) or unchecked):
         return ''
+    if unconfirmed_downloads(estimate):
+        free = estimate.get('free_bytes')
+        return ('No episodes are currently queued. Download size is unknown until new episodes are found.'
+                + (f' This disk has {room(free)} free.' if type(free) is int else ''))
     if type(estimate.get('left_bytes')) is not int:
         return ''
     saved, left, free = number(estimate.get('saved_bytes')), estimate['left_bytes'], estimate.get('free_bytes')
@@ -195,6 +216,8 @@ def time_row(estimate):
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     if not estimate or not (waiting or unchecked):
         return ''
+    if unconfirmed_downloads(estimate):
+        return 'Unknown until checked'
     if type(estimate.get('seconds')) is not int:
         return ESTIMATING
     return span(estimate['seconds'])
@@ -203,12 +226,21 @@ def time_row(estimate):
 def space_row(estimate):
     """The card's Space: what is still to come and the disk's free room; and whether that room is too little."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
-    if not estimate or not (waiting or unchecked) or type(estimate.get('left_bytes')) is not int:
+    if not estimate or not (waiting or unchecked):
+        return '', False
+    free = estimate.get('free_bytes')
+    if unconfirmed_downloads(estimate):
+        return 'No downloads queued' + (f' | {room(free)} free' if type(free) is int else ''), False
+    if type(estimate.get('left_bytes')) is not int:
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
     short = type(free) is int and free < left
-    text = f'{room(left)} to go'
-    return text + ('' if type(free) is not int else f' | {room(free)} free' + (', not enough' if short else '')), short
+    text = f'~{room(left)} estimated' if unchecked else f'{room(left)} to go'
+    if type(free) is int:
+        text += f' | {room(free)} free'
+        if short:
+            text += ', may not fit' if unchecked else ', not enough'
+    return text, short
 
 
 def step_progress(p):
@@ -586,9 +618,9 @@ def view(s, now):
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
     estimate = status.get('estimate') if account.get('configured') and not finished else None
     time = time_row(estimate)
-    row('Time left', time or NONE, tip=ESTIMATE_TIP if time and time != ESTIMATING else '')
+    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
     space, short = space_row(estimate)
-    row('Space', space or NONE, short, ESTIMATE_TIP if space else '')
+    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')
     if running and elapsed is not None:
         row('Running for', duration(elapsed) + ('' if age is None else
             f" | last {'check update' if verifying else 'saved'} {duration(age)} ago"))

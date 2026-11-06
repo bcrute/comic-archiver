@@ -342,6 +342,20 @@ class DashboardTests(PagesCase):
             from pathlib import Path
             self.assertTrue(self.card.widget.grab().save(str(Path(destination) / 'hint-value-width.png')))
 
+    def test_no_queued_downloads_are_distinct_from_a_speculative_size(self):
+        window_pages.paint(Q, self.window, True)
+        self.actions.reading['account'].update(status='running', phase='series', elapsed_seconds=600)
+        self.actions.reading['status']['estimate'] = {'waiting_episodes':0,'unchecked_series':10,
+            'left_bytes':4_800_000_000,'free_bytes':1_400_000_000_000,'seconds':3600}
+        self.open()
+        settle()
+        self.assertEqual(self.fields()['Space'], 'No downloads queued | 1.4 TB free')
+        self.assertEqual(self.fields()['Time left'], 'Unknown until checked')
+        self.assertEqual(tuple(name.text() for name, _ in self.card.cells), dashboard_model.CARD_FIELDS)
+        if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+            from pathlib import Path
+            self.assertTrue(self.card.widget.grab().save(str(Path(destination) / 'no-downloads-queued.png')))
+
     def test_local_verification_progress_fits_the_existing_rows(self):
         window_pages.paint(Q, self.window, False)
         self.actions.reading['account'].update(status='running', phase='verify', elapsed_seconds=600,

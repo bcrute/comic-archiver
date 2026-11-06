@@ -194,3 +194,9 @@ provider requests. Progress checkpoints and diagnostic counts are published at
 most once per minute, plus phase boundaries; they reuse the verification pass
 and do not trigger recounts. Logs include the stage, checked/total archives,
 bytes, integrity failures and elapsed seconds without filenames or account data.
+
+The desktop distinguishes possible downloads in unchecked series from episodes
+actually queued. If only speculative work remains, Time left is unknown and
+Space says no downloads are queued, while retaining the free-space figure. The
+hint explains that those series may contain nothing new. Mixed estimates are
+labeled as estimates; the underlying conservative planning figures are retained.
