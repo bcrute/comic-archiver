@@ -169,7 +169,7 @@ class Kit:
                 self.setAccessibleDescription(value)
 
             def sizeHint(self):
-                return q.QtCore.QSize(0, self.fontMetrics().height())
+                return q.QtCore.QSize(self.minimumWidth(), self.fontMetrics().height())
 
             def minimumSizeHint(self):
                 return self.sizeHint()
@@ -450,6 +450,7 @@ class Dashboard:
         title, _ = heading(kit, 'Dashboard')
         top.addWidget(title, 1)
         self.updated = kit.single_line('Checking current status…', 'muted')
+        self.updated.setSizePolicy(w.QSizePolicy.Policy.Fixed, w.QSizePolicy.Policy.Fixed)
         self.updated.setFixedWidth(self.updated.fontMetrics().horizontalAdvance(
             'Updates delayed · trying to reconnect') + 12)
         self.go_all = kit.button('Start all', pages.go_all, 'secondary')

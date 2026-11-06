@@ -365,6 +365,7 @@ class DashboardTests(PagesCase):
                 positions = [(name.y(), value.parentWidget().y(), value.height()) for name, value in card.cells]
                 geometry = (card.widget.height(), positions, card.action.mapTo(card.widget, QtCore.QPoint(0, 0)).y(),
                             self.dashboard.updated.geometry().getRect(), self.dashboard.go_all.geometry().getRect())
+                self.assertLess(self.dashboard.updated.geometry().right(), self.dashboard.go_all.geometry().left())
                 if baseline is None:
                     baseline = geometry
                 self.assertEqual(geometry, baseline, (width, mode))
