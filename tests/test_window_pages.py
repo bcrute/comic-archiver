@@ -452,6 +452,7 @@ class DashboardTests(PagesCase):
         self.assertEqual((len(webtoon.named('poll')), len(self.actions.named('poll'))), (2, 2))
 
     def test_a_card_says_its_time_and_space_left_are_rough_guesses(self):
+        window_pages.paint(Q, self.window, False)
         self.actions.reading['status']['estimate'] = {'waiting_episodes': 900, 'seconds': 54_000,
                                                       'left_bytes': 409_000_000_000, 'free_bytes': 473_000_000_000}
         self.open()
@@ -460,12 +461,16 @@ class DashboardTests(PagesCase):
         hints = dict(zip((name.text() for name, _ in self.card.cells), self.card.hints, strict=True))
         self.assertEqual([name for name, hint in hints.items() if hint.isVisible()], ['Time left', 'Space'])
         self.assertEqual(hints['Time left'].toolTip(), 'A rough guess, based on the download so far.')
-        # The ? occupies a reserved column, so estimates cannot move other values.
+        # The ? follows its data without changing the fixed row height.
         settle()
         for name, value in self.card.cells:
             if name.text() in ('Time left', 'Space'):
+                self.assertLessEqual(value.width(), value.fontMetrics().horizontalAdvance(value.text()) + 4)
                 self.assertTrue(hints[name.text()].sizePolicy().retainSizeWhenHidden())
                 self.assertLessEqual(hints[name.text()].x() - value.geometry().right(), 12)
+        if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+            from pathlib import Path
+            self.assertTrue(self.card.widget.grab().save(str(Path(destination) / 'hints-next-to-values.png')))
         # A tap shows what hovering would, for a touch screen with no pointer to hover.
         hints['Space'].click()
         self.assertTrue(QtWidgets.QToolTip.isVisible())
