@@ -312,13 +312,16 @@ class WorkerTests(unittest.TestCase):
         fields=('audited_at','archive_integrity_passed','verified_inventory_episode_count','portable_archive_count',
                 'missing_recorded_accessible_episode_count','unsupported_recorded_accessible_episode_count','coverage_blockers',
                 'series_scan_gap_count','account_inventory_complete')
-        def audit(library,report):
+        def audit(library,report,*,progress):
+            progress({'phase':'verify','archives_checked':1})
             report.parent.mkdir(parents=True);report.write_text('{}')
             return dict.fromkeys(fields,1)|{'inventory_index_problems':['a','b'],'unindexed_archives':['c'],'private':'PRIVATE'}
         adapter=Mock()
         with patch('comic_archive.audit.audit_library',side_effect=audit) as audited:
-            result=execute(adapter,{'operation':'audit_account','args':{}})
-        audited.assert_called_once_with(Path('Library'),Path('Library/.archive-state/account-audit.json'))
+            updates=[]
+            result=execute(adapter,{'operation':'audit_account','args':{}},audit_progress=updates.append)
+        audited.assert_called_once_with(Path('Library'),Path('Library/.archive-state/account-audit.json'),progress=updates.append)
+        self.assertEqual(updates,[{'phase':'verify','archives_checked':1}])
         self.assertEqual(result,dict.fromkeys(fields,1)|{'inventory_index_problem_count':2,'unindexed_archive_count':1})
         self.assertEqual(Path('Library/.archive-state/account-audit.json').stat().st_mode&0o777,PRIVATE_FILE)
         self.assertEqual(adapter.mock_calls,[])

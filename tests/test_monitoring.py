@@ -8,6 +8,28 @@ from comic_archive.monitoring import library_status
 
 
 class MonitoringTests(unittest.TestCase):
+    def test_audit_progress_is_safe_and_scoped_to_the_active_worker_task(self):
+        from comic_archive.monitoring import _progress
+        good = {'phase':'verify','status':'running','archives_checked':2,'archives_total':9,
+                'archive_bytes_checked':12345,'archive_failures':0,'audit_elapsed_seconds':60,'audit_stage':'archives'}
+        self.assertEqual(_progress(good | {'path':'PRIVATE'}), good)
+        self.assertEqual(_progress({'phase':'verify','archives_checked':True,'archives_total':-1,
+                                    'audit_stage':['PRIVATE']}), {'phase':'verify'})
+        with tempfile.TemporaryDirectory() as work:
+            root=Path(work)/'Library'
+            with Inventory(root):
+                pass
+            session=Path(work)/'session'
+            worker=session/'worker';worker.mkdir(parents=True)
+            status=worker/'status.json';progress=worker/'progress.json'
+            status.write_text(json.dumps({'state':'busy','task_id':'audit-1'}))
+            progress.write_text(json.dumps(good | {'task_id':'old','path':'PRIVATE'}))
+            self.assertNotEqual(library_status(root,session).get('progress'),good)
+            progress.write_text(json.dumps(good | {'task_id':'audit-1','path':'PRIVATE'}))
+            self.assertEqual(library_status(root,session)['progress'],good)
+            status.write_text(json.dumps({'state':'ready','task_id':'audit-1'}))
+            self.assertNotEqual(library_status(root,session).get('progress'),good)
+
     def test_cooling_summary_exposes_only_bounded_wait_and_retains_private_fields(self):
         from comic_archive.monitoring import _progress
         for invalid in (True,0,-1,301,'PRIVATE'):

@@ -164,6 +164,13 @@ def status(workspace, since=None):
             result['elapsed_seconds'] = int(now - started)
             try:
                 path = workspace.library / '.archive-state/progress.json'
+                if state.get('phase') == 'verify':
+                    worker = _read(workspace.session / 'worker/status.json')
+                    audit_path = workspace.session / 'worker/progress.json'
+                    audit = _read(audit_path)
+                    if (worker.get('state') == 'busy' and worker.get('task_id')
+                            and worker['task_id'] == audit.get('task_id') and audit.get('phase') == 'verify'):
+                        path = audit_path
                 progress = _progress(_read(path))
                 if 'status' in progress:
                     changed = path.stat().st_mtime

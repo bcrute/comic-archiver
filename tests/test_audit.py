@@ -36,6 +36,27 @@ class AuditTests(unittest.TestCase):
             # bulk dispatch priority is covered by QueuePriorityTests.
             archive_discovered(self.adapter, self.root, limit=limit, free_only=limit is not None)
 
+    def test_verification_reports_bounded_local_progress_and_safe_diagnostics(self):
+        from comic_archive.audit import AuditProgress
+        self.archive()
+        updates = []
+        with self.assertLogs('comic_archive.download', level='INFO') as logs:
+            result = audit_library(self.root, progress=updates.append)
+        self.assertEqual([p['audit_stage'] for p in updates], ['discovering', 'archives', 'reconciling', 'complete'])
+        self.assertEqual(updates[-1]['archives_checked'], result['portable_archive_count'])
+        self.assertEqual(updates[-1]['archives_total'], result['portable_archive_count'])
+        self.assertGreater(updates[-1]['archive_bytes_checked'], 0)
+        self.assertEqual(updates[-1]['status'], 'finished')
+        self.assertNotIn('ACCOUNT_PRIVATE', str(updates) + str(logs.output))
+        self.assertNotIn(str(self.root), str(logs.output))
+        with patch('comic_archive.audit.time.monotonic', side_effect=[0, 0, 59, 60, 61, 120]):
+            updates = []
+            reporter = AuditProgress(updates.append)
+            for _ in range(4):
+                reporter.checked += 1
+                reporter.publish('archives')
+        self.assertEqual([p['archives_checked'] for p in updates], [0, 2, 4])
+
     def test_partial_inventory_report_distinguishes_integrity_and_missing_accessible_episodes(self):
         self.archive(limit=1)
         result = audit_library(self.root)

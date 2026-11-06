@@ -217,6 +217,21 @@ class AccountUITests(unittest.TestCase):
             shown=account_ui.status(self.workspace)
         self.assertEqual((shown['status'],shown['code']),('held','controller_failed'))
 
+    def test_verification_activity_uses_only_the_current_local_worker_checkpoint(self):
+        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
+        started=self.started()
+        worker=self.workspace.session/'worker';worker.mkdir(exist_ok=True)
+        private_json(worker/'status.json',{'state':'busy','task_id':'audit-1'})
+        path=worker/'progress.json'
+        private_json(path,{'status':'running','phase':'verify','task_id':'audit-1'})
+        os.utime(path,(started+80,started+80))
+        with patch.object(download_control,'status',return_value={'configured':True,'status':'running',
+                          'phase':'verify','started_at':started}), patch('comic_archive.account_ui.time.time',return_value=started+90):
+            result=account_ui.status(self.workspace)
+            self.assertEqual(result['progress_age_seconds'],10)
+            private_json(worker/'status.json',{'state':'busy','task_id':'other'})
+            self.assertNotEqual(account_ui.status(self.workspace).get('progress_age_seconds'),10)
+
     def test_list_progress_and_activity_come_from_existing_checkpoints_without_dispatch(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         started=self.started()

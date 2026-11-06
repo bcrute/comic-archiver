@@ -6478,5 +6478,29 @@
   "new": "self.files = kit.button('Open library folder', lambda: pages.go_to('settings/storage'), 'secondary')",
   "test_file": "test_window_pages.py",
   "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
+ },
+ {
+  "id": "audit-progress-writes-every-file",
+  "source": "comic_archive/audit.py",
+  "old": "if not force and now - self.last < 60:",
+  "new": "if not force and now - self.last < 0:",
+  "test_file": "test_audit.py",
+  "test": "test_verification_reports_bounded_local_progress_and_safe_diagnostics"
+ },
+ {
+  "id": "audit-stale-task-published",
+  "source": "comic_archive/monitoring.py",
+  "old": "if worker['reported_state']=='busy' and progress.get('task_id')==task:",
+  "new": "if worker['reported_state']=='busy':",
+  "test_file": "test_monitoring.py",
+  "test": "test_audit_progress_is_safe_and_scoped_to_the_active_worker_task"
+ },
+ {
+  "id": "audit-warning-blames-provider",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    if verifying:\n        waiting = False",
+  "new": "    if False:\n        waiting = False",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_local_verification_shows_counts_without_blaming_the_provider"
  }
 ]
