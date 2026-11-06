@@ -158,6 +158,38 @@ class Kit:
             label.linkActivated.connect(self.link)
         return label
 
+    def single_line(self, text='', name=None):
+        """Keep full text accessible, painting only the part that fits on one line."""
+        q, w = self.q, self.w
+        class SingleLine(w.QLabel):
+            def setText(self, value):
+                value = ' '.join(value.splitlines())
+                super().setText(value)
+                self.setToolTip(value)
+                self.setAccessibleDescription(value)
+
+            def sizeHint(self):
+                return q.QtCore.QSize(0, self.fontMetrics().height())
+
+            def minimumSizeHint(self):
+                return self.sizeHint()
+
+            def paintEvent(self, event):
+                painter = q.QtGui.QPainter(self)
+                area = self.contentsRect()
+                value = self.fontMetrics().elidedText(self.text(), q.QtCore.Qt.TextElideMode.ElideRight, area.width())
+                self.style().drawItemText(painter, area, self.alignment() | q.QtCore.Qt.TextFlag.TextSingleLine,
+                                          self.palette(), self.isEnabled(), value, self.foregroundRole())
+        label = SingleLine()
+        label.setTextFormat(q.QtCore.Qt.TextFormat.PlainText)
+        label.setWordWrap(False)
+        label.setSizePolicy(w.QSizePolicy.Policy.Ignored, w.QSizePolicy.Policy.Fixed)
+        label.setMinimumWidth(0)
+        if name:
+            label.setObjectName(name)
+        label.setText(text)
+        return label
+
     def button(self, text, clicked=None, kind=None):
         button = self.w.QPushButton(text)
         if kind:
@@ -224,6 +256,13 @@ def tone(widget, name, value):
         widget.setProperty(name, value)
         widget.style().unpolish(widget)
         widget.style().polish(widget)
+
+
+def reserved(widget):
+    """A temporarily empty message or control keeps its place in the layout."""
+    policy = widget.sizePolicy()
+    policy.setRetainSizeWhenHidden(True)
+    widget.setSizePolicy(policy)
 
 
 def say(label, text, error=False):
@@ -322,6 +361,7 @@ class SiteCard:
         w, self.kit, self.key, self.name = kit.w, kit, key, name
         self.widget, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
         self.widget.setAccessibleName(name)
+        self.widget.setProperty('site', True)
         top = w.QHBoxLayout()
         top.addWidget(kit.label(name, 'sectionTitle'), 1)
         self.pill = kit.label('Loading', 'pill', wrap=False)
@@ -333,12 +373,15 @@ class SiteCard:
         self.fields.setColumnStretch(1, 1)
         box.addLayout(self.fields)
         self.cells, self.hints = [], []
-        self.message = kit.label('')
+        self._fields(dashboard_model.unopened_rows())
+        self.message = kit.single_line('')
+        reserved(self.message)
         box.addWidget(self.message)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
         self.doing = 'signin'
         acts = {'signin': pages.signin, 'go': pages.go, 'pause': pages.pause}
         self.action = kit.button('Sign in', lambda: acts[self.doing](key), 'go')
+        self.action.setMinimumWidth(self.action.fontMetrics().horizontalAdvance('Signing in…') + 48)
         self.allow = kit.button('Allow this connection', lambda: pages.allow_network(key), 'secondary')
         box.addWidget(kit.row(self.action, self.allow, spacing=8))
         box.addStretch(1)
@@ -349,9 +392,10 @@ class SiteCard:
                 discard(self.fields, name, value.parentWidget())
             self.cells, self.hints = [], []
             for index, row in enumerate(rows):
-                name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.label('', 'fieldValue')
+                name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.single_line('', 'fieldValue')
                 hint = self.kit.hint()
-                holder = self.kit.row(value, hint, spacing=6)
+                reserved(hint)
+                holder = self.kit.row(value, hint, spacing=6, stretch=False)
                 self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
                 self.fields.addWidget(holder, index, 1)
                 placed(name, holder)
@@ -364,8 +408,8 @@ class SiteCard:
             hint.setToolTip(tip)
             hint.setAccessibleDescription(tip)
             hint.setVisible(bool(tip))
-            # A value with a ? keeps it beside its text; one without takes the whole width, to wrap no sooner.
-            value.parentWidget().layout().setStretchFactor(value, 0 if tip else 1)
+            # The hint keeps its space, so adding an explanation never moves a value.
+            value.parentWidget().layout().setStretchFactor(value, 1)
 
     def show(self, s, v):
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
@@ -405,9 +449,12 @@ class Dashboard:
         top = w.QHBoxLayout()
         title, _ = heading(kit, 'Dashboard')
         top.addWidget(title, 1)
-        self.updated = kit.label('Checking current status…', 'muted', wrap=False)
+        self.updated = kit.single_line('Checking current status…', 'muted')
+        self.updated.setFixedWidth(self.updated.fontMetrics().horizontalAdvance(
+            'Updates delayed · trying to reconnect') + 12)
         self.go_all = kit.button('Start all', pages.go_all, 'secondary')
         self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
+        reserved(self.pause_all)
         for part in (self.updated, self.go_all, self.pause_all):
             top.addWidget(part, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         column.addLayout(top)
@@ -432,7 +479,9 @@ class Dashboard:
         card, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
         self.library_title = kit.label('All sites', 'sectionTitle')
         box.addWidget(self.library_title)
-        self.save = kit.label('', rich=True)
+        self.save = kit.label('', rich=True, wrap=False)
+        self.save.setSizePolicy(w.QSizePolicy.Policy.Ignored, w.QSizePolicy.Policy.Fixed)
+        reserved(self.save)
         box.addWidget(self.save)
         # The counts, and beside them where the episodes are kept.
         counts = w.QHBoxLayout()
@@ -447,13 +496,16 @@ class Dashboard:
         self.place_buttons = []
         box.addLayout(counts)
         # Said only when the counts could not be read.
-        self.library_summary = kit.label('')
+        self.library_summary = kit.single_line('')
+        reserved(self.library_summary)
         self.library_summary.setVisible(False)
         box.addWidget(self.library_summary)
         self.files = kit.button('View saved files  →', lambda: pages.go_to('library', location='all'), 'secondary')
         box.addWidget(kit.row(self.files))
         self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
-                                     '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True)
+                                     '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True, wrap=False)
+        self.cloud_entry.setSizePolicy(w.QSizePolicy.Policy.Ignored, w.QSizePolicy.Policy.Fixed)
+        reserved(self.cloud_entry)
         box.addWidget(self.cloud_entry)
         box.addStretch(1)
         return card
@@ -508,13 +560,13 @@ class Dashboard:
     def _places(self, places):
         if [b.property('place') for b in self.place_buttons] == [p['id'] for p in places]:
             for button, place in zip(self.place_buttons, places, strict=True):
-                button.setText(f"{place['label']}\n{place['counts']}")
+                button.setText(f"{place['label']} | {place['counts']}")
             return
         for button in self.place_buttons:
             discard(self.places, button)
         self.place_buttons = []
         for place in places:
-            button = self.kit.button(f"{place['label']}\n{place['counts']}",
+            button = self.kit.button(f"{place['label']} | {place['counts']}",
                                      lambda key=place['id']: self.pages.go_to('library', location=key), 'place')
             button.setProperty('place', place['id'])
             self.places.addWidget(button)
@@ -1206,7 +1258,7 @@ class Library:
             button.deleteLater()
         self.place_buttons = []
         for place in places:
-            button = self.kit.button(f"{place['label']}\n{place['counts']}", lambda key=place['id']: self.choose_place(key), 'place')
+            button = self.kit.button(f"{place['label']} | {place['counts']}", lambda key=place['id']: self.choose_place(key), 'place')
             button.setCheckable(True)
             button.setChecked(place['current'])
             self.places.addWidget(button)
@@ -1414,10 +1466,13 @@ class Pages:
         card = self.dashboard.cards.get(self.chosen)
         return self.state.loaded and card is not None and [name.text() for name, _ in card.cells][:1] == ['Account']
 
-    def poll(self, then=None):
-        """Refresh every open site; then(ok) follows the chosen site's refresh."""
+    def poll(self, then=None, *, automatic=False):
+        """Read active sites on the timer; explicit reads may refresh an idle site."""
         chosen = self.chosen
         for key in self.open_keys():
+            s = self.of(key)
+            if automatic and s.loaded and not dashboard_model.updating(s):
+                continue
             self.poll_site(key, then if key == chosen else None)
 
     def poll_site(self, key, then=None):
@@ -1479,8 +1534,11 @@ class Pages:
         sites = (s.sites or next((state.sites for state, _ in views.values() if state.sites), None)
                  or site_choices(find_site(chosen) or DEFAULT))
         # Updates are as late as the latest site's; a site that could not be reached says so first.
-        oldest = min(views.values(), key=lambda pair: (not pair[0].offline, pair[0].refreshed_at), default=(s, v))
-        everything = {'updated': oldest[1]['updated'], 'go_all': any(view['go_enabled'] for _, view in views.values()),
+        active = [pair for pair in views.values() if dashboard_model.updating(pair[0])]
+        oldest = min(active or views.values(), key=lambda pair: (not pair[0].offline, pair[0].refreshed_at), default=(s, v))
+        everything = {'updated': oldest[1]['updated'] if active or any(state.offline for state, _ in views.values())
+                      or not all(state.loaded for state, _ in views.values())
+                      else 'Automatic updates paused', 'go_all': any(view['go_enabled'] for _, view in views.values()),
                       'pause_all': any(view['pause_visible'] for _, view in views.values())}
         self.header.show(self.route, self.shell.dark())
         self.dashboard.show(s, sites, views, everything)
@@ -1566,7 +1624,8 @@ class Pages:
 
         def paused(value):
             s.received_account(value, self.now())
-            self.poll_soon()
+            s.refreshed(self.now())
+            self.poll_soon(key)
         self.account_act(self.actions_for(key or self.chosen).pause, paused, key=key)
 
     def go_all(self):
@@ -1627,8 +1686,9 @@ class Pages:
             if v['pause_visible'] and v['pause_enabled']:
                 self.pause(key)
 
-    def poll_soon(self):
-        self.q.QtCore.QTimer.singleShot(0, self.widget, self.poll)  # Dropped with the pages if they go first.
+    def poll_soon(self, key=None):
+        key = key or self.chosen
+        self.q.QtCore.QTimer.singleShot(0, self.widget, lambda: self.poll_site(key))  # Dropped with the pages if they go first.
 
     def speed(self, value):
         self.account_act(lambda: self.actions.speed(value), lambda account: self.state.received_account(account, self.now()))

@@ -39,6 +39,7 @@ QPushButton#themeToggle { min-width: 36px; max-width: 36px; min-height: 36px; ma
 QPushButton#themeToggle:hover { color: %(accent)s; background: %(notice)s; }
 
 QFrame#card { background: %(surface)s; border: 1px solid %(border)s; border-radius: 14px; }
+QFrame#card[site="true"] { border-top: 3px solid %(border)s; }
 QFrame#card[tone="status"] { border-top: 3px solid %(accent-border)s; }
 QFrame#card[tone="warning"] { border-top: 3px solid %(warning)s; }
 QFrame#inner { background: %(surface)s; border: 1px solid %(border)s; border-radius: 8px; }

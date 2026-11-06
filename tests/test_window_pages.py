@@ -302,6 +302,14 @@ class PagesCase(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_single_line_labels_preserve_full_text_and_spaces_in_paths(self):
+        label = window_pages.Kit(Q, lambda target: None).single_line('Folder with  two spaces\nNext line')
+        self.addCleanup(label.deleteLater)
+        expected = 'Folder with  two spaces Next line'
+        self.assertEqual(label.text(), expected)
+        self.assertEqual(label.toolTip(), expected)
+        self.assertEqual(label.accessibleDescription(), expected)
+
     def test_routes_lead_to_a_page_that_exists_and_a_tab_that_is_offered(self):
         self.assertEqual(window_pages.route_of('settings', True), 'settings/downloads')
         self.assertEqual(window_pages.route_of('settings/b2', True), 'settings/b2')
@@ -331,6 +339,50 @@ class HelperTests(unittest.TestCase):
 
 
 class DashboardTests(PagesCase):
+    def test_status_changes_keep_the_same_widgets_positions_and_single_line_height(self):
+        from pathlib import Path
+        window_pages.paint(Q, self.window, False)
+        self.open()
+        s, card = self.pages.state, self.card
+        original = [(id(name), id(value)) for name, value in card.cells]
+        for width in (800, 1400):
+            self.window.resize(width, 1000)
+            settle()
+            baseline = None
+            for mode in ('loading', 'downloading', 'waiting', 'finished'):
+                s.loaded = mode != 'loading'
+                s.account = {'status': 'finished' if mode == 'finished' else 'running', 'phase': 'archive',
+                             'elapsed_seconds': 3600}
+                if mode == 'waiting':
+                    s.account['retry'] = {'reason': 'network', 'seconds': 900}
+                    s.message = dashboard_model.Message('A long status message ' * 20 + '\nwith a second line', True)
+                else:
+                    s.message = None
+                self.pages.render()
+                settle()
+                self.assertEqual([(id(name), id(value)) for name, value in card.cells], original)
+                self.assertEqual(tuple(name.text() for name, _ in card.cells), dashboard_model.CARD_FIELDS)
+                positions = [(name.y(), value.parentWidget().y(), value.height()) for name, value in card.cells]
+                geometry = (card.widget.height(), positions, card.action.mapTo(card.widget, QtCore.QPoint(0, 0)).y(),
+                            self.dashboard.updated.geometry().getRect(), self.dashboard.go_all.geometry().getRect())
+                if baseline is None:
+                    baseline = geometry
+                self.assertEqual(geometry, baseline, (width, mode))
+                for _, value in card.cells:
+                    self.assertGreater(value.width(), value.parentWidget().width() * .8)
+                    self.assertFalse(value.wordWrap())
+                    self.assertNotIn('\n', value.text())
+                    self.assertEqual(value.toolTip(), value.text())
+                self.assertFalse(card.message.wordWrap())
+                self.assertNotIn('\n', card.message.text())
+                if mode == 'waiting':
+                    self.assertIn('with a second line', card.message.toolTip())
+                    self.assertGreater(card.message.fontMetrics().horizontalAdvance(card.message.text()), card.message.width())
+                destination = os.environ.get('COMIC_LAYOUT_ARTIFACTS')
+                if destination:
+                    folder = Path(destination); folder.mkdir(parents=True, exist_ok=True)
+                    self.assertTrue(card.widget.grab().save(str(folder / f'card-{width}-{mode}.png')))
+
     def test_the_dashboard_shows_the_library_once_it_is_read_and_says_it_is_drawn(self):
         self.assertFalse(self.pages.drawn())
         answers = []
@@ -343,14 +395,16 @@ class DashboardTests(PagesCase):
         self.assertEqual(c.pill.text(), 'Paused')
         self.assertEqual(c.pill.property('tone'), 'warning')
         # What is so, a field and its value each; the buttons say what can be done.
-        self.assertEqual(self.fields(), {'Account': 'Session saved', 'Downloader': 'Ready', 'Saved': '60 episodes', 'Time left': '—',
-                                         'Space': '—', 'Speed': 'Fast', 'Download speed': '—'})
+        expected = {row['name']: row['value'] for row in dashboard_model.card_rows(
+            {'Account': 'Session saved', 'Downloader': 'Ready', 'Status': 'Your download is paused',
+             'Saved': '60 episodes', 'Speed': 'Fast'})}
+        self.assertEqual(self.fields(), expected)
         self.assertFalse(c.message.isVisible() or c.allow.isVisible())
         # One button, for what can be done now.
         self.assertEqual([b.text() for b in c.widget.findChildren(QtWidgets.QPushButton) if not b.isHidden()], ['Continue'])
         self.assertTrue(c.action.isEnabled())
         self.assertIn(FOLDER, d.save.text())
-        self.assertEqual(d.updated.text(), 'Updated just now')
+        self.assertEqual(d.updated.text(), 'Automatic updates paused')
         self.assertEqual(d.library_title.text(), 'All sites')
         self.assertEqual([cell[0] for cell in d.metric_cells],
                          ['Saved episodes', 'Saved files', 'Episodes on this device', 'Cloud episode copies'])
@@ -362,7 +416,7 @@ class DashboardTests(PagesCase):
         # The counts and the places speak for themselves: no sentence repeats them, nor says what the files are.
         self.assertFalse(d.library_summary.isVisible())
         self.assertNotIn('CBZ', ' '.join(label.text() for label in d.library_card.findChildren(QtWidgets.QLabel)))
-        self.assertEqual([b.text() for b in d.place_buttons], ['This device\n60 episodes · 120 files', 'Backblaze B2\n10 episodes · 20 files'])
+        self.assertEqual([b.text() for b in d.place_buttons], ['This device | 60 episodes · 120 files', 'Backblaze B2 | 10 episodes · 20 files'])
 
     def test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in(self):
         self.open()
@@ -370,9 +424,7 @@ class DashboardTests(PagesCase):
         self.assertEqual(list(d.cards), ['tapas', 'tappytoon', 'webtoon'])
         later = d.cards['tappytoon']
         self.assertEqual(later.pill.text(), 'Not signed in')
-        self.assertEqual(self.fields('tappytoon'), {'Account': 'Not signed in', 'Downloader': 'Starts after sign-in', 'Saved': '—',
-                                                    'Time left': '—', 'Space': '—', 'Speed': '—',
-                                                    'Download speed': '—'})
+        self.assertEqual(self.fields('tappytoon'), {r['name']: r['value'] for r in dashboard_model.unopened_rows()})
         self.assertEqual((later.action.text(), later.action.isVisible(), later.action.isEnabled(), later.allow.isHidden()),
                          ('Sign in', True, True, True))
         # One sign-in at a time, in the window: the site is chosen (and opened) first, then its sign-in starts.
@@ -389,7 +441,7 @@ class DashboardTests(PagesCase):
         self.open()
         self.assertEqual([call[0] for call in webtoon.calls], ['context', 'saved_files', 'poll'])
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Finished')
-        self.assertEqual(self.fields('webtoon')['Finished'], 'Every episode your account can read is saved')
+        self.assertEqual(self.fields('webtoon')['Status'], 'Every episode your account can read is saved')
         self.dashboard.cards['webtoon'].action.click()
         self.assertEqual((len(webtoon.named('go')), len(self.actions.named('go'))), (1, 0))
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Downloading')
@@ -407,11 +459,11 @@ class DashboardTests(PagesCase):
         hints = dict(zip((name.text() for name, _ in self.card.cells), self.card.hints, strict=True))
         self.assertEqual([name for name, hint in hints.items() if hint.isVisible()], ['Time left', 'Space'])
         self.assertEqual(hints['Time left'].toolTip(), 'A rough guess, based on the download so far.')
-        # The ? comes straight after the end of the line, not across the card.
+        # The ? occupies a reserved column, so estimates cannot move other values.
         settle()
         for name, value in self.card.cells:
             if name.text() in ('Time left', 'Space'):
-                self.assertLessEqual(value.width(), value.fontMetrics().horizontalAdvance(value.text()) + 4)
+                self.assertTrue(hints[name.text()].sizePolicy().retainSizeWhenHidden())
                 self.assertLessEqual(hints[name.text()].x() - value.geometry().right(), 12)
         # A tap shows what hovering would, for a touch screen with no pointer to hover.
         hints['Space'].click()
@@ -466,7 +518,7 @@ class DashboardTests(PagesCase):
         self.open()
         self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['140', '280', '120', '20'])
         self.assertEqual([b.text() for b in self.dashboard.place_buttons],
-                         ['This device\n120 episodes · 240 files', 'Backblaze B2\n20 episodes · 40 files'])
+                         ['This device | 120 episodes · 240 files', 'Backblaze B2 | 20 episodes · 40 files'])
         self.sites['webtoon'].summary_fails = True
         self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
@@ -518,7 +570,7 @@ class DashboardTests(PagesCase):
         self.pages.poll()
         self.assertEqual((c.action.text(), c.action.isEnabled()), ('Sign in', True))
         self.assertEqual(self.fields()['Account'], 'Sign-in needed')
-        self.assertEqual(self.fields()['Stopped'], 'Tapas signed you out')
+        self.assertEqual(self.fields()['Status'], 'Tapas signed you out')
 
     def test_go_that_fails_before_it_returns_still_requires_a_new_signin(self):
         self.actions.reading['site_auth'] = {'status': 'verified'}
@@ -588,13 +640,58 @@ class DashboardTests(PagesCase):
         self.pages.poll(answers.append)
         self.assertEqual(answers, [False])
         self.assertTrue(self.card.message.text().startswith('Could not refresh progress.'))
-        self.assertEqual(self.dashboard.updated.text(), 'Updates delayed · trying to reconnect')
-        self.assertEqual(self.card.pill.text(), 'Reconnecting')
+        self.assertEqual(self.dashboard.updated.text(), 'Status unavailable · start to refresh')
+        self.assertEqual(self.card.pill.text(), 'Status unavailable')
         del self.actions.refused['poll']
         self.clock[0] += 5
         self.pages.poll()
         self.assertFalse(self.card.message.isVisible())
         self.assertEqual(self.card.pill.text(), 'Paused')
+
+    def test_the_timer_leaves_idle_sites_untouched_and_follows_only_started_work(self):
+        self.shell.open = ['tapas', 'webtoon', 'tappytoon']
+        self.open()
+        for key in self.shell.open:
+            self.sites[key].calls.clear()
+        for _ in range(3):
+            self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
+            self.pages.poll(automatic=True)
+            self.pages.render()
+        self.assertTrue(all(not self.sites[key].calls for key in self.shell.open))
+        self.assertEqual(self.dashboard.updated.text(), 'Automatic updates paused')
+        self.assertNotIn('Reconnecting', [card.pill.text() for card in self.dashboard.cards.values()])
+        self.pages.go('tapas')
+        self.sites['tapas'].calls.clear()
+        self.pages.poll(automatic=True)
+        self.assertEqual(len(self.sites['tapas'].named('poll')), 1)
+        self.assertFalse(self.sites['webtoon'].calls or self.sites['tappytoon'].calls)
+        self.sites['tapas'].reading['account']['status'] = 'finished'
+        self.sites['tapas'].reading['status']['worker']['reported_state'] = 'ready'
+        self.pages.poll(automatic=True)
+        self.assertTrue(self.pages.states['tapas'].summary)
+        for key in self.shell.open:
+            self.sites[key].calls.clear()
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
+        self.pages.poll(automatic=True)
+        self.assertTrue(all(not self.sites[key].calls for key in self.shell.open))
+        # An explicit refresh remains available without starting a download.
+        self.pages.poll_site('webtoon')
+        self.assertEqual(len(self.sites['webtoon'].named('poll')), 1)
+
+    def test_a_pause_finishes_its_inflight_step_then_stops_local_status_reads(self):
+        self.open()
+        self.actions.reading['account']['status'] = 'stopped'
+        self.actions.reading['status']['worker']['reported_state'] = 'busy'
+        self.pages.poll_site('tapas')
+        self.actions.calls.clear()
+        self.pages.poll(automatic=True)
+        self.assertEqual(len(self.actions.named('poll')), 1)
+        self.actions.reading['status']['worker']['reported_state'] = 'ready'
+        self.pages.poll(automatic=True)
+        self.assertEqual(len(self.actions.named('poll')), 2)
+        self.pages.poll(automatic=True)
+        self.assertEqual(len(self.actions.named('poll')), 2)
+        self.assertTrue(self.card.action.isEnabled())
 
     def test_progress_reads_between_hourly_recounts_do_not_scan_saved_files(self):
         self.open()
@@ -672,7 +769,7 @@ class DashboardTests(PagesCase):
         self.open()
         c = self.card
         self.assertTrue(c.allow.isVisible() and c.allow.isEnabled())
-        self.assertTrue(self.fields()['Connection'].startswith('This connection is metered'))
+        self.assertTrue(self.fields()['Status'].startswith('This connection is metered'))
         c.allow.click()
         self.assertEqual(self.actions.named('wifi_only')[0][1], (False,))
         self.assertFalse(c.allow.isVisible())
@@ -917,7 +1014,7 @@ class DownloadSettingsTests(PagesCase):
         self.assertEqual(self.pages.state.message, dashboard_model.Message(said, True))
         settle()  # A refresh keeps it; the next thing the person does clears it.
         self.pages.go_to('dashboard')
-        self.assertEqual(self.card.message.text(), said)
+        self.assertEqual(self.card.message.text(), ' '.join(said.split()))
         self.assertEqual(window_pages.SIGNED_OUT_AWAY[2].format(site='Tapas', folders='/a\n/b'),
                          'Signed out of Tapas, except in these library folders, which Comic Archiver can\'t reach:\n/a\n/b\n'
                          'Connect the drives they\'re on, choose each folder with Change folder…, and sign out there.')
@@ -1262,7 +1359,7 @@ class LibraryTests(PagesCase):
         self.assertEqual(lib.title.text(), 'Your saved Tapas library')
         self.assertEqual((lib.notice.text(), lib.range.text()), ('Saved files loaded.', 'Showing 1–2 of 2 files.'))
         self.assertEqual(lib.summary.text(), '70 saved episodes across 140 files and cloud copies.')
-        self.assertEqual([b.text().split('\n')[0] for b in lib.place_buttons], ['All storage', 'This device', 'Backblaze B2'])
+        self.assertEqual([b.text().split(' | ')[0] for b in lib.place_buttons], ['All storage', 'This device', 'Backblaze B2'])
         self.assertTrue(lib.place_buttons[0].isChecked())
         self.assertEqual(table.rowCount(), 2)
         self.assertEqual([table.item(0, c).text() for c in range(7)][:5], ['Long Series Name', 'Episode 1', 'Episode 001.cbz', 'Comic', '11.8 MB'])
@@ -1351,7 +1448,7 @@ class LibraryTests(PagesCase):
         self.open('library')
         lib = self.library
         self.assertEqual(self.options()['location'], 'device')
-        self.assertEqual([b.text().split('\n')[0] for b in lib.place_buttons], ['This device'])
+        self.assertEqual([b.text().split(' | ')[0] for b in lib.place_buttons], ['This device'])
         self.assertTrue(lib.table.isColumnHidden(6))
         self.assertEqual(lib.summary.text(), '60 saved episodes across 120 files on this computer.')
         lib.open_folder.click()

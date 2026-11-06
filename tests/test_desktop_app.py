@@ -305,7 +305,7 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(self.q.QtWebEngineCore.QWebEngineProfile.made, [])
         shell.pages.poll.assert_not_called()
         emit(self.core.QTimer.made[-1].timeout)
-        shell.pages.poll.assert_called_once_with()
+        shell.pages.poll_site.assert_called_once_with('tapas')
         # A self-test asks no site anything.
         self.signin.check.reset_mock()
         tested = self.opened(probe=Mock()); tested.load()
@@ -933,7 +933,7 @@ class DesktopAppTests(unittest.TestCase):
         for clock in (shell.poll_clock, shell.tick_clock, shell.signin_clock):
             clock.start.assert_called_once_with()
         emit(shell.poll_clock.timeout)
-        pages.poll.assert_called_once_with()
+        pages.poll.assert_called_once_with(automatic=True)
         emit(shell.tick_clock.timeout)
         self.assertEqual(pages.render.call_count, 2)
         shell.load()  # Only once.
@@ -1424,7 +1424,7 @@ class DesktopAppTests(unittest.TestCase):
         pages = shell.pages
         # The pages go on reading and redrawing the library behind the panel.
         emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)
-        pages.poll.assert_called_once_with()
+        pages.poll.assert_called_once_with(automatic=True)
         # What the dashboard puts on screen meanwhile is only remembered.
         shell.show(shell.notice)
         shell.stack.setCurrentWidget.assert_not_called()
