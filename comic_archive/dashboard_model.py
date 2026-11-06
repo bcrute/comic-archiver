@@ -217,6 +217,14 @@ def step_progress(p):
         return ''
     if p.get('phase') == 'scan' and type(p.get('series_check_target_count')) is int:
         return f"Checked {display(p.get('series_checks_completed'))} of {display(p['series_check_target_count'])} series in this step."
+    if p.get('phase') == 'verify':
+        stage = p.get('audit_stage')
+        if stage == 'discovering':
+            return 'Finding saved archives on this device'
+        checked = f"Checked {display(p.get('archives_checked'))} of {display(p.get('archives_total'))} archives"
+        size = room(p['archive_bytes_checked']) if number(p.get('archive_bytes_checked')) else '0 B'
+        return checked + f" | {size} checked" + (
+            ' | reconciling saved records' if stage == 'reconciling' else '')
     if p.get('phase') != 'archive':
         return ''
     chapters = number(p.get('downloaded_chapters'))
@@ -493,6 +501,9 @@ def view(s, now):
     retry_in = wait_text(max(0, retry['seconds'] - since) if retry else 0)
     waiting = not retry and (age >= 60 if age is not None else between >= 60 if between is not None
                              else elapsed is not None and elapsed >= 60)
+    verifying = running and account.get('phase') == 'verify'
+    if verifying:
+        waiting = False  # A local integrity check may spend minutes reading a large archive.
     v['live_waiting'] = waiting or disconnected
     v.update(heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh))
     # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
@@ -530,6 +541,10 @@ def view(s, now):
                   'series': 'Checking series and downloading', 'archive': 'Downloading episodes',
                   'verify': 'Checking saved files'}
         step = '' if list_phase else step_progress(progress).rstrip('.')
+        if verifying:
+            row('Note', 'Checking local files; large libraries can take several minutes. No provider requests.')
+            if type(progress.get('audit_elapsed_seconds')) is int:
+                row('Progress', f"{duration(progress['audit_elapsed_seconds'])} checking files")
         row('Step', ' | '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
@@ -576,7 +591,8 @@ def view(s, now):
     space, short = space_row(estimate)
     row('Space', space or NONE, short, ESTIMATE_TIP if space else '')
     if running and elapsed is not None:
-        row('Running for', duration(elapsed) + ('' if age is None else f' | last saved {duration(age)} ago'))
+        row('Running for', duration(elapsed) + ('' if age is None else
+            f" | last {'check update' if verifying else 'saved'} {duration(age)} ago"))
     refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
     row('Speed', NONE if not signed_in else
         SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)

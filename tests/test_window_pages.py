@@ -319,6 +319,23 @@ class HelperTests(unittest.TestCase):
 
 
 class DashboardTests(PagesCase):
+    def test_local_verification_progress_fits_the_existing_rows(self):
+        window_pages.paint(Q, self.window, False)
+        self.actions.reading['account'].update(status='running', phase='verify', elapsed_seconds=600,
+                                              progress_age_seconds=10)
+        self.actions.reading['status']['progress'] = {
+            'phase':'verify','status':'running','audit_stage':'archives','archives_checked':1200,
+            'archives_total':6000,'archive_bytes_checked':45_000_000_000,'audit_elapsed_seconds':600}
+        self.open()
+        settle()
+        self.assertIn('1,200 of 6,000 archives', self.fields()['Progress'])
+        self.assertIn('No provider requests', self.fields()['Note'])
+        self.assertEqual(tuple(name.text() for name, _ in self.card.cells), dashboard_model.CARD_FIELDS)
+        if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+            from pathlib import Path
+            folder = Path(destination); folder.mkdir(parents=True, exist_ok=True)
+            self.assertTrue(self.card.widget.grab().save(str(folder / 'local-verification.png')))
+
     def test_status_changes_keep_the_same_widgets_positions_and_single_line_height(self):
         from pathlib import Path
         window_pages.paint(Q, self.window, False)

@@ -186,3 +186,11 @@ chosen library root in the system file manager. Storage counts are informational
 there is no in-app file browser or viewer. Settings retain folder selection,
 cloud configuration and the provider link. The shared archive/export APIs remain
 available to the independently approved file source and platform integrations.
+
+During the final local integrity check, the existing dashboard rows show the
+archive count checked, archive bytes checked and time spent checking. The note
+explains that large libraries can take minutes and that this phase makes no
+provider requests. Progress checkpoints and diagnostic counts are published at
+most once per minute, plus phase boundaries; they reuse the verification pass
+and do not trigger recounts. Logs include the stage, checked/total archives,
+bytes, integrity failures and elapsed seconds without filenames or account data.

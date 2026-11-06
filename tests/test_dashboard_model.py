@@ -545,6 +545,20 @@ class StatusTests(unittest.TestCase):
 
 
 class LiveTests(unittest.TestCase):
+    def test_local_verification_shows_counts_without_blaming_the_provider(self):
+        progress={'phase':'verify','status':'running','audit_stage':'archives','archives_checked':120,
+                  'archives_total':6000,'archive_bytes_checked':3_000_000_000,'audit_elapsed_seconds':120}
+        shown=view(account=account(phase='verify',elapsed_seconds=600,progress_age_seconds=120),
+                   status={'session_configured':True,'worker':{'reported_state':'busy'},'progress':progress})
+        rows=fields(shown)
+        self.assertIn('120 of 6,000 archives',rows['Progress'][0])
+        self.assertIn('3.0 GB checked',rows['Progress'][0])
+        self.assertIn('No provider requests',rows['Note'][0])
+        self.assertIn('last check update',rows['Running for'][0])
+        self.assertFalse(shown['live_waiting'])
+        self.assertNotIn('slow',rows['Status'][0])
+        self.assertEqual(tuple(row['name'] for row in shown['rows']),model.CARD_FIELDS)
+
     def test_running_for_counts_on_from_what_the_app_last_said(self):
         v = model.view(state(account=account(elapsed_seconds=100, progress_age_seconds=5), account_at=NOW - 10, refreshed_at=NOW - 3), NOW)
         self.assertEqual(fields(v)['Running for'], ('1m 50s | last saved 0m 15s ago', False))

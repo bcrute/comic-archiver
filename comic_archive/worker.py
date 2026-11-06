@@ -12,7 +12,7 @@ import os
 import secrets
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
-WORKER_VERSION = 77
+WORKER_VERSION = 78
 ADMISSION_WAIT_SECONDS = 10
 from pathlib import Path
 from . import sites
@@ -44,9 +44,9 @@ def discard_request(path):
         print(f"Could not remove worker request {path.name}; it is retried after the next restart.", flush=True)
 
 
-def execute(adapter, request, *, fast_session=None):
+def execute(adapter, request, *, fast_session=None, audit_progress=None):
     try:
-        return _execute(adapter, request, fast_session=fast_session)
+        return _execute(adapter, request, fast_session=fast_session, audit_progress=audit_progress)
     except ArchiveError:
         raise
     except Exception as error:
@@ -59,7 +59,7 @@ def execute(adapter, request, *, fast_session=None):
         raise failure from None
 
 
-def _execute(adapter, request, *, fast_session=None, upload_first=True):
+def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_progress=None):
     adapter.deadline = None
     operation = request.get("operation")
     args = request.get("args", {})
@@ -85,7 +85,7 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True):
             raise ArchiveError('Account audits accept no paths or source options.')
         from .audit import audit_library
         report = Path('Library/.archive-state/account-audit.json')
-        value = audit_library(Path('Library'), report)
+        value = audit_library(Path('Library'), report, progress=audit_progress)
         report.chmod(0o600)
         return {k: value[k] for k in ('audited_at', 'archive_integrity_passed',
                 'verified_inventory_episode_count', 'portable_archive_count',
@@ -412,7 +412,9 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                                 adapter.begin_task()
                             publish({"state": "busy", "task_id": task_id})
                         result = (cancelled_result(Path('Library'),request.get('operation'))
-                                  if stopped else execute(adapter, request, fast_session=fast_session))
+                                  if stopped else execute(adapter, request, fast_session=fast_session,
+                                      audit_progress=lambda fields, task_id=task_id: private_json(root / 'progress.json',
+                                                                                fields | {'task_id': task_id})))
                         value = {"task_id": task_id, "status": "ok", "result": result}
                     except ArchiveError as error:
                         value = {"task_id": task_id, "status": "error", "error": str(error),

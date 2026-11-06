@@ -22,16 +22,19 @@ def _progress(value):
     result = {}
     for key in ('completed','downloaded_pages','downloaded_chapters','downloaded_bytes','history_page_count','observed_history_series_count',
                 'reading_list_page_count','observed_library_series_count','series_checks_completed',
-                'successful_series_checks','held_series_checks','series_check_target_count'):
+                'successful_series_checks','held_series_checks','series_check_target_count',
+                'archives_checked','archives_total','archive_bytes_checked','archive_failures','audit_elapsed_seconds'):
         if type(value.get(key)) is int and value[key] >= 0:
             result[key] = value[key]
     for key in ('series_id','episode_id'):
         if isinstance(value.get(key),str) and re.fullmatch(r'[1-9][0-9]{0,19}',value[key]):
             result[key] = value[key]
-    if isinstance(value.get('phase'),str) and value['phase'] in {'authentication','history','history_series','account_list','scan','metadata'}:
+    if isinstance(value.get('phase'),str) and value['phase'] in {'authentication','history','history_series','account_list','scan','metadata','verify'}:
         result['phase'] = value['phase']
     elif 'episode_id' in result:
         result['phase'] = 'archive'
+    if value.get('audit_stage') in ('discovering', 'archives', 'reconciling', 'complete'):
+        result['audit_stage'] = value['audit_stage']
     if isinstance(value.get('category'),str) and value['category'] in sites.LISTS:
         result['category'] = value['category']
     if isinstance(value.get('source_slug'),str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}',value['source_slug']):
@@ -98,6 +101,8 @@ def library_status(output,session=None):
                 progress = _read(Path(session)/'worker/progress.json')
                 if worker['reported_state']=='busy' and progress.get('task_id')==task:
                     worker['progress'] = _progress(progress)
+                    if worker['progress'].get('phase') == 'verify':
+                        result['progress'] = worker['progress']
             result['worker'] = worker
     result['source_recovery'] = None
     if session is not None:

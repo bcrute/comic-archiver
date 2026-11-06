@@ -4,6 +4,8 @@ This is a dated local audit, not fresh remote authorization or proof of complete
 account discovery. It deliberately does not export private settings/run data.
 """
 import json
+import logging
+import time
 from pathlib import Path
 
 from .archive import atomic_json, verify_episode, verify_series, episode_archives, LIBRARY_REPORT_MAX_BYTES, sidecar_path
@@ -14,6 +16,7 @@ from .inventory import Inventory, timestamp
 from .locking import LibraryLock
 from .models import ArchiveError
 from .osdep import anchored
+from .support_log import DOWNLOAD_LOG
 
 
 SUPPORTED = sites.ACCESS
@@ -79,12 +82,37 @@ def _site(rows, portable):
     return found.pop() if len(found) == 1 else 'mixed' if found else sites.DEFAULT.key
 
 
-def audit_library(output, report=None):
+class AuditProgress:
+    """Bounded local status and diagnostics; never enumerates or verifies files itself."""
+    def __init__(self, callback):
+        self.callback = callback
+        self.started = self.last = time.monotonic()
+        self.checked = self.total = self.bytes = self.failures = 0
+        self.publish('discovering', force=True)
+
+    def publish(self, stage, *, force=False, finished=False):
+        now = time.monotonic()
+        if not force and now - self.last < 60:
+            return
+        self.last = now
+        value = {'phase': 'verify', 'status': 'finished' if finished else 'running', 'audit_stage': stage,
+                 'archives_checked': self.checked, 'archives_total': self.total,
+                 'archive_bytes_checked': self.bytes, 'archive_failures': self.failures,
+                 'audit_elapsed_seconds': max(0, int(now - self.started))}
+        logging.getLogger(DOWNLOAD_LOG).info(
+            'verification: stage=%s status=%s checked=%d total=%d bytes=%d failures=%d elapsed_seconds=%d local_only=true',
+            stage, value['status'], self.checked, self.total, self.bytes, self.failures, value['audit_elapsed_seconds'])
+        if self.callback is not None:
+            self.callback(value)
+
+
+def audit_library(output, report=None, *, progress=None):
     target = _report_target(report)
     root = Path(output).absolute()
     if not root.is_dir() or any(p.is_symlink() for p in (root, *root.parents)):
         raise ArchiveError('Audit requires an existing library without symlinked parents.')
     with LibraryLock(root), Inventory(root, read_only=True) as inventory:
+        updates = AuditProgress(progress)
         checked_at = timestamp()
         status = inventory.status()
         rows = [dict(row) for row in inventory.db.execute('SELECT * FROM episodes ORDER BY series_id,episode_order,id')]
@@ -97,12 +125,17 @@ def audit_library(output, report=None):
         folder_problems = []
         # The portable layout is one public series folder per library. Do not
         # traverse private directories or links while searching for exports.
+        folders = []
         for folder in sorted(root.iterdir()):
             if folder.name.startswith('.') or folder.is_symlink() or not folder.is_dir():
                 continue
             paths = [p for p in episode_archives(folder) if not p.name.startswith('.')]
             if not paths:
                 continue
+            folders.append((folder, paths))
+        updates.total = sum(len(paths) for _, paths in folders)
+        updates.publish('archives', force=True)
+        for folder, paths in folders:
             series_meta = None
             try:
                 from .publication import import_metadata
@@ -130,7 +163,15 @@ def audit_library(output, report=None):
                     except (OSError, ValueError, TypeError, ArchiveError):
                         reason = 'archive_integrity_failed'
                 portable[relative] = {'reason': reason, 'metadata': meta}
+                updates.checked += 1
+                updates.failures += reason is not None
+                try:
+                    updates.bytes += path.stat().st_size
+                except OSError:
+                    pass
+                updates.publish('archives')
 
+        updates.publish('reconciling', force=True)
         episodes = []
         referenced = set()
         verified = 0
@@ -268,4 +309,5 @@ def audit_library(output, report=None):
             _report_target(target)
             directory(target.parent)
             atomic_json(target, value)
+        updates.publish('complete', force=True, finished=True)
         return value
