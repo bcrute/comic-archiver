@@ -5,6 +5,7 @@ puts it on screen and passes clicks on. Every call to the library runs on a thre
 window's own, and its answer comes back here.
 """
 import html
+import math
 import time
 
 from . import app_actions, dashboard_model, license_texts, storage_model, support_details, support_log
@@ -166,9 +167,13 @@ class Kit:
                 super().setText(value)
                 self.setToolTip(value)
                 self.setAccessibleDescription(value)
+                self.updateGeometry()
 
             def sizeHint(self):
-                return q.QtCore.QSize(max(self.minimumWidth(), self.fontMetrics().horizontalAdvance(self.text())),
+                # Integer font metrics can round down while elidedText still
+                # needs the fractional advance. Leave one paint pixel as well.
+                advance = q.QtGui.QFontMetricsF(self.font(), self).horizontalAdvance(self.text())
+                return q.QtCore.QSize(max(self.minimumWidth(), math.ceil(advance) + 1),
                                       self.fontMetrics().height())
 
             def minimumSizeHint(self):
