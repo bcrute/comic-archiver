@@ -2514,8 +2514,8 @@
  {
   "id": "save-folder-opened-one-level-up",
   "source": "comic_archive/desktop_app.py",
-  "old": "QUrl.fromLocalFile(str(self.runtime.folder))",
-  "new": "QUrl.fromLocalFile(str(self.runtime.folder.parent))",
+  "old": "QUrl.fromLocalFile(str(self.runtime.root))",
+  "new": "QUrl.fromLocalFile(str(self.runtime.root.parent))",
   "test_file": "test_desktop_app.py",
   "test": "test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs"
  },
@@ -2778,8 +2778,8 @@
  {
   "id": "sites-share-one-folder",
   "source": "comic_archive/sites.py",
-  "old": "return root if site.key == DEFAULT.key else root / site.name",
-  "new": "return root",
+  "old": "    return root / site.name",
+  "new": "    return root",
   "test_file": "test_app_runtime.py",
   "test": "test_each_site_has_its_own_folder_sign_in_and_downloader_and_every_site_runs_at_once"
  },
@@ -6510,5 +6510,37 @@
   "new": "return False",
   "test_file": "test_dashboard_model.py",
   "test": "test_unchecked_series_do_not_claim_that_downloads_are_waiting"
+ },
+ {
+  "id": "site-layout-copies-instead-of-moves",
+  "source": "comic_archive/site_layout.py",
+  "old": "os.rename(source, destination)",
+  "new": "__import__('shutil').copytree(source, destination)",
+  "test_file": "test_site_layout.py",
+  "test": "test_each_site_uses_a_sibling_folder_and_legacy_files_are_renamed_in_place"
+ },
+ {
+  "id": "site-layout-worker-admission-open-during-move",
+  "source": "comic_archive/site_layout.py",
+  "old": "if state == 'moving':",
+  "new": "if False:",
+  "test_file": "test_site_layout.py",
+  "test": "test_interrupted_move_resumes_and_blocks_new_writers_and_workers"
+ },
+ {
+  "id": "site-layout-active-worker-moved",
+  "source": "comic_archive/site_layout.py",
+  "old": "if status(root / '.comic-session').get('running') is not False:",
+  "new": "if False:",
+  "test_file": "test_site_layout.py",
+  "test": "test_an_active_worker_prevents_any_move"
+ },
+ {
+  "id": "site-layout-open-folder-only-one-provider",
+  "source": "comic_archive/desktop_app.py",
+  "old": "QUrl.fromLocalFile(str(self.runtime.root))",
+  "new": "QUrl.fromLocalFile(str(self.runtime.folder))",
+  "test_file": "test_desktop_app.py",
+  "test": "test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs"
  }
 ]

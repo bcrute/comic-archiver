@@ -65,6 +65,8 @@ def file_signature(path):
 class Inventory:
     def __init__(self, root, read_only=False):
         self.root = Path(root).absolute()
+        from .site_layout import require_location
+        require_location(self.root)
         self.lock = None
         self.db = None
         state = self.root / ".archive-state"

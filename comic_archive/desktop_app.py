@@ -827,8 +827,8 @@ class Shell:
         self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl(url))
 
     def open_folder(self):
-        """The save folder, in the computer's own file manager; no path comes from the pages."""
-        self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(self.runtime.folder)))
+        """The selected shared library root, in the computer's own file manager."""
+        self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(self.runtime.root)))
 
     def ask(self, text):
         """A question about something the person chose to do: No unless they choose Yes."""
@@ -1240,7 +1240,7 @@ class Shell:
             return
         wording = LOCATION_EXISTING if app_runtime.is_library(root) else LOCATION_CONFIRM
         site = self.runtime.site
-        text = wording.format(new=sites.folder(root, site) / 'Library', old=sites.folder(current, site) / 'Library', root=current)
+        text = wording.format(new=root / site.name / 'Library', old=self.runtime.folder, root=current)
         if box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
             return
         # The dialogs above let time pass.

@@ -51,6 +51,8 @@ class LocalWorkspaceRegistry:
         self.project_root = Path(project_root).absolute()
         if not self.project_root.is_dir() or any(p.is_symlink() for p in (self.project_root, *self.project_root.parents)):
             raise ArchiveError('Use an existing project directory without symlinked parents.')
+        from .site_layout import require_location
+        require_location(self.project_root / 'Library')
         from .state_paths import private_path
         self._key = _private_key(private_path(self.project_root, 'web'))
         from .saved_library import Catalog

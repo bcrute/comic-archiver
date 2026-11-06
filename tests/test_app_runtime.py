@@ -53,7 +53,7 @@ class AppRuntimeTests(unittest.TestCase):
             log.addHandler(logging.NullHandler())
 
     def sign_in(self):
-        session = self.root / '.comic-session'; session.mkdir(parents=True, exist_ok=True)
+        session = self.root / 'Tapas/.comic-session'; session.mkdir(parents=True, exist_ok=True)
         (session / 'state.json').write_text('{}')
         return session
 
@@ -72,7 +72,7 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertNotIn(Path.cwd(), (root, root.parent))
             runtime = app_runtime.Runtime(root); self.addCleanup(runtime.stop, 0)
             runtime.start()
-        self.assertTrue((real / 'Comic Archiver/Library').is_dir())
+        self.assertTrue((real / 'Comic Archiver/Tapas/Library').is_dir())
 
     def test_the_apps_private_folders_beside_and_inside_the_library_are_hidden_from_the_file_manager(self):
         example = replace(sites.DEFAULT, key='example', name='Example', available=True)
@@ -81,7 +81,7 @@ class AppRuntimeTests(unittest.TestCase):
             library.start()
             self.assertIsNone(library.change_site(example))
         hidden = {call.args[0] for call in hide.call_args_list}
-        for place in (self.root, self.root / 'Example'):
+        for place in (self.root / 'Tapas', self.root / 'Example'):
             for name in ('.comic-session', '.comic-web', 'Library/.archive-state'):
                 self.assertIn(place / name, hidden)
                 self.assertEqual(stat.S_IMODE((place / name).stat().st_mode), PRIVATE_FOLDER)
@@ -92,7 +92,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.root.rename(self.home / 'Renamed')
         self.assertTrue(self.runtime.vanished())
         with self.assertRaises(LibraryMoved):
-            archive_paths.directory(self.root / 'Library/Series')
+            archive_paths.directory(self.root / 'Tapas/Library/Series')
         # Nor while its downloader is stopped.
         self.runtime.stop(0)
         self.assertFalse(self.root.exists())
@@ -109,12 +109,12 @@ class AppRuntimeTests(unittest.TestCase):
         # Opened where it is now, it is the same library.
         moved = app_runtime.Runtime(self.home / 'Renamed'); self.addCleanup(moved.stop, 0)
         moved.start()
-        self.assertEqual(self.library(moved), self.home / 'Renamed/Library')
+        self.assertEqual(self.library(moved), self.home / 'Renamed/Tapas/Library')
         # A folder never opened before is made, as on a first start.
         self.assertFalse(app_runtime.vanished(self.home / 'New'))
         fresh = app_runtime.Runtime(self.home / 'New'); self.addCleanup(fresh.stop, 0)
         fresh.start()
-        self.assertTrue((self.home / 'New/Library').is_dir())
+        self.assertTrue((self.home / 'New/Tapas/Library').is_dir())
 
     def test_a_picked_folder_becomes_a_library_folder_without_mixing_into_other_files(self):
         pick = app_runtime.library_root
@@ -176,46 +176,46 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertIsNone(self.runtime.folder)
         self.runtime.start()
         self.assertEqual((self.runtime.folder, self.runtime.root, self.library(self.runtime)),
-                         (self.root / 'Library', self.root, self.root / 'Library'))
+                         (self.root / 'Tapas/Library', self.root, self.root / 'Tapas/Library'))
 
     def test_changing_the_library_folder_restarts_there_keeps_the_sign_in_and_never_moves_saved_episodes(self):
         def signed_in(root, value):
             cookie = dict(name='session', value=value, domain='.tapas.io', path='/', expires=-1, httpOnly=True, secure=True, sameSite='Lax')
-            (root / '.comic-session/state.json').write_text(json.dumps({'cookies': [cookie], 'origins': []}))
+            (sites.folder(root, sites.DEFAULT) / '.comic-session/state.json').write_text(json.dumps({'cookies': [cookie], 'origins': []}))
 
         def cookie(root):
-            return load_session(root / '.comic-session')['cookies'][0]['value']
+            return load_session(sites.folder(root, sites.DEFAULT) / '.comic-session')['cookies'][0]['value']
         library = self.sites()
         library.start()
         signed_in(self.root, 'PRIVATE_FIRST')
-        (self.root / 'Library/kept.cbz').write_text('saved')
+        (self.root / 'Tapas/Library/kept.cbz').write_text('saved')
         drive = self.home / 'drive'; drive.mkdir(); (drive / 'holiday.jpg').write_text('x')
         target = app_runtime.library_root(drive)
         fresh, problem = app_runtime.move(library, target); self.addCleanup(fresh.stop, 0)
-        self.assertEqual((problem, fresh.root, fresh.theme, fresh.folder), (None, target, library.theme, target / 'Library'))
+        self.assertEqual((problem, fresh.root, fresh.theme, fresh.folder), (None, target, library.theme, target / 'Tapas/Library'))
         # The old library and downloader are closed before the new ones open.
         self.assertEqual(library.stop(), 'stopped_before')
-        self.assertEqual(self.background['stop'].call_args.args[0], self.root / '.comic-session')
-        self.assertEqual(self.library(fresh), target / 'Library')
+        self.assertEqual(self.background['stop'].call_args.args[0], self.root / 'Tapas/.comic-session')
+        self.assertEqual(self.library(fresh), target / 'Tapas/Library')
         # A folder with nothing in it starts signed in as before, privately, and its downloader starts.
-        self.assertEqual((cookie(target), stat.S_IMODE((target / '.comic-session/state.json').stat().st_mode)), ('PRIVATE_FIRST', PRIVATE_FILE))
-        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [target / '.comic-session'])
-        self.assertEqual(((self.root / 'Library/kept.cbz').read_text(), (target / 'Library/kept.cbz').exists()), ('saved', False))
+        self.assertEqual((cookie(target), stat.S_IMODE((target / 'Tapas/.comic-session/state.json').stat().st_mode)), ('PRIVATE_FIRST', PRIVATE_FILE))
+        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [target / 'Tapas/.comic-session'])
+        self.assertEqual(((self.root / 'Tapas/Library/kept.cbz').read_text(), (target / 'Tapas/Library/kept.cbz').exists()), ('saved', False))
         self.assertEqual((app_runtime.saved_root(), cookie(self.root)), (target, 'PRIVATE_FIRST'))
         # An existing library keeps its own sign-in; the standard folder needs no record.
         signed_in(target, 'PRIVATE_SECOND')
         again, problem = app_runtime.move(fresh, self.root); self.addCleanup(again.stop, 0)
         self.assertEqual((problem, again.root, cookie(self.root), app_runtime.saved_root()), (None, self.root, 'PRIVATE_FIRST', None))
         # An existing library without a sign-in is not handed somebody's: it may belong to another account.
-        other = self.home / 'other'; (other / 'Library').mkdir(parents=True)
+        other = self.home / 'other'; (other / 'Tapas/Library').mkdir(parents=True)
         third, problem = app_runtime.move(again, other); self.addCleanup(third.stop, 0)
-        self.assertEqual((problem, (other / '.comic-session/state.json').exists(), self.background['start'].call_count), (None, False, 2))
+        self.assertEqual((problem, (other / 'Tapas/.comic-session/state.json').exists(), self.background['start'].call_count), (None, False, 2))
         # A sign-in that cannot be read is left behind rather than stopping the change.
-        (other / '.comic-session/state.json').write_text('PRIVATE nonsense')
+        (other / 'Tapas/.comic-session/state.json').write_text('PRIVATE nonsense')
         empty = self.home / 'empty'
         with self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
             fourth, problem = app_runtime.move(third, empty); self.addCleanup(fourth.stop, 0)
-        self.assertEqual((problem, fourth.root, (empty / '.comic-session/state.json').exists()), (None, empty, False))
+        self.assertEqual((problem, fourth.root, (empty / 'Tapas/.comic-session/state.json').exists()), (None, empty, False))
         self.assertNotIn('PRIVATE', ''.join(logs.output))
 
     def test_a_folder_that_cannot_be_used_leaves_the_app_on_the_old_one_with_the_reason(self):
@@ -228,8 +228,8 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual((problem, back.root, back.theme), (app_runtime.UNWRITABLE, self.root, library.theme))
         self.assertNotIn(str(self.home), ''.join(logs.output))
         self.assertIsNot(back, library)
-        self.assertEqual((self.library(back), app_runtime.saved_root()), (self.root / 'Library', None))
-        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
+        self.assertEqual((self.library(back), app_runtime.saved_root()), (self.root / 'Tapas/Library', None))
+        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / 'Tapas/.comic-session'])
         link = self.home / 'link'; link.symlink_to(self.home / 'elsewhere', target_is_directory=True)
         with self.assertLogs('comic_archive.desktop', 'WARNING'):
             again, problem = app_runtime.move(back, link / 'Comic Archiver'); self.addCleanup(again.stop, 0)
@@ -237,7 +237,7 @@ class AppRuntimeTests(unittest.TestCase):
 
     def test_a_sites_records_for_support_come_from_its_own_library_with_its_folder_to_leave_out(self):
         self.runtime.start()
-        worker = self.root / '.comic-session/worker'; worker.mkdir(parents=True, exist_ok=True)
+        worker = self.root / 'Tapas/.comic-session/worker'; worker.mkdir(parents=True, exist_ok=True)
         (worker / 'background.log').write_text('Task job-1 completed.\n')
         text, folder = Actions(lambda: self.runtime).support_records()
         self.assertTrue(text.startswith('=== Tapas: episodes not saved\n'))
@@ -258,7 +258,7 @@ class AppRuntimeTests(unittest.TestCase):
         with patch('comic_archive.sites.SITES', (sites.DEFAULT, example, third,
                                                  replace(sites.DEFAULT, key='later', name='Later', available=False))):
             library.start(); self.sign_in()
-            (self.root / 'Library/kept.cbz').write_text('saved')
+            (self.root / 'Tapas/Library/kept.cbz').write_text('saved')
             # A site never used makes no folder of its own.
             self.assertEqual((list(library.runtimes), (self.root / 'Example').exists()), (['tapas'], False))
             self.assertEqual(library.start_worker(), 'running')
@@ -276,12 +276,12 @@ class AppRuntimeTests(unittest.TestCase):
             # Tapas's downloader goes on; one site's sign-in is never handed to another, so the new one waits for its own.
             self.background['stop'].assert_not_called()
             self.assertFalse((place / '.comic-session/state.json').exists())
-            self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'])
+            self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / 'Tapas/.comic-session'])
             self.assertEqual((app_runtime.saved_site(), saved.read_text()), (example, 'example\n'))
             # Back to Tapas: as it was, nothing opened or stopped again; no record is needed.
             self.assertIsNone(library.change_site(sites.DEFAULT))
-            self.assertEqual((library.session, (self.root / 'Library/kept.cbz').read_text(), library.runtime('example').site),
-                             (self.root / '.comic-session', 'saved', example))
+            self.assertEqual((library.session, (self.root / 'Tapas/Library/kept.cbz').read_text(), library.runtime('example').site),
+                             (self.root / 'Tapas/.comic-session', 'saved', example))
             self.assertEqual((self.background['start'].call_count, self.background['stop'].call_count), (1, 0))
             self.assertEqual((saved.exists(), app_runtime.saved_site()), (False, sites.DEFAULT))
             # The next start opens every site this folder has, the chosen one first; closing stops them all.
@@ -311,7 +311,7 @@ class AppRuntimeTests(unittest.TestCase):
                 problem = moved.change_site(third)
             self.assertEqual((problem, moved.site, saved.exists(), self.background['stop'].call_count),
                              (app_runtime.UNWRITABLE, sites.DEFAULT, False, stops))
-            self.assertEqual((sorted(moved.runtimes), self.library(moved)), (['example', 'tapas'], drive / 'Library'))
+            self.assertEqual((sorted(moved.runtimes), self.library(moved)), (['example', 'tapas'], drive / 'Tapas/Library'))
 
     def test_every_sites_library_is_linked_to_the_shared_settings_of_the_library_folder_as_it_is_opened(self):
         from comic_archive import shared
@@ -322,7 +322,7 @@ class AppRuntimeTests(unittest.TestCase):
             library.start()
             self.assertIsNone(library.change_site(example))
             self.assertEqual(library.site, example)
-        self.assertEqual([shared.folder(place / 'Library') for place in (self.root, self.root / 'Example')], [store, store])
+        self.assertEqual([shared.folder(place / 'Library') for place in (self.root / 'Tapas', self.root / 'Example')], [store, store])
         self.assertIn(store, {call.args[0] for call in hide.call_args_list})
         self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
 
@@ -332,7 +332,7 @@ class AppRuntimeTests(unittest.TestCase):
                 runtime = app_runtime.Runtime(self.root); self.addCleanup(runtime.stop, 0)
                 with patch('comic_archive.shared.link', side_effect=error), self.assertLogs('comic_archive.desktop', 'WARNING') as logged:
                     runtime.start()
-                self.assertEqual(self.library(runtime), self.root / 'Library')
+                self.assertEqual(self.library(runtime), self.root / 'Tapas/Library')
                 self.assertNotIn('PRIVATE', '\n'.join(logged.output))
                 runtime.stop(0)
 
@@ -362,12 +362,12 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), PRIVATE_FOLDER)
         registry = self.runtime.registry
         self.assertEqual((self.library(self.runtime), registry.ids(LOCAL_OWNER), registry.ids('someone-else')),
-                         (self.root / 'Library', [registry.workspace_id], []))
+                         (self.root / 'Tapas/Library', [registry.workspace_id], []))
         self.assertEqual((self.runtime.root, self.runtime.site), (self.root, sites.DEFAULT))
         signin = registry.site_signin
         self.assertIsInstance(signin, WindowSignIn)  # No separate browser window: the app's own window signs in.
         self.assertIs(signin, self.runtime.signin)
-        self.assertEqual((signin.browser, signin.workspace.session), (DESKTOP_BROWSER, self.root / '.comic-session'))
+        self.assertEqual((signin.browser, signin.workspace.session), (DESKTOP_BROWSER, self.root / 'Tapas/.comic-session'))
         self.assertEqual(signin.status(), {'status': 'idle'})
         self.assertEqual(self.runtime.start_worker(), 'signed_out')
         self.background['start'].assert_not_called()
@@ -429,7 +429,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.background['start'].side_effect = lambda *args, **kwargs: locked.append(self.runtime._launch.locked()) or {'running': True}
         with patch('comic_archive.window_signin.NetworkGuard') as guard:
             self.assertEqual(signin.finish('11', cookies), {'status': 'connected'})
-            guard.assert_called_once_with(self.root / 'Library')
+            guard.assert_called_once_with(self.root / 'Tapas/Library')
             self.assertEqual(locked, [True])  # The start-up launch and stop() wait on the same lock.
             self.background['stop'].assert_called_once_with(session, wait_seconds=35)
             self.background['start'].assert_called_once_with(session, DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL)
@@ -505,7 +505,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.background['status'].return_value = {'running': False}
         retry.join(10)
         self.assertFalse(retry.is_alive())
-        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / '.comic-session'] * 2)
+        self.assertEqual([call.args[0] for call in self.background['start'].call_args_list], [self.root / 'Tapas/.comic-session'] * 2)
 
     def test_downloader_start_failures_keep_the_library_open_and_log_no_private_text(self):
         log = app_runtime.configure_logging()
@@ -518,7 +518,7 @@ class AppRuntimeTests(unittest.TestCase):
             self.background['start'].return_value = result
             self.assertEqual(self.runtime.start_worker(), 'failed')
         self.assertIsNone(self.runtime._retry)
-        self.assertEqual(self.library(self.runtime), self.root / 'Library')
+        self.assertEqual(self.library(self.runtime), self.root / 'Tapas/Library')
         text = log.read_text()
         self.assertIn('ArchiveError', text); self.assertIn('OSError', text)
         self.assertNotIn('PRIVATE', text)
@@ -574,7 +574,7 @@ class AppRuntimeTests(unittest.TestCase):
         mounted = junction(self, self.home / 'mounted', self.home / 'drive')
         runtime = app_runtime.Runtime(mounted / 'Comic Archiver'); self.addCleanup(runtime.stop, 0)
         runtime.start()
-        self.assertEqual(runtime.folder, mounted / 'Comic Archiver/Library')
+        self.assertEqual(runtime.folder, mounted / 'Comic Archiver/Tapas/Library')
 
     def test_downloader_that_finished_starting_after_the_window_closed_is_asked_to_stop_at_once(self):
         self.sign_in(); self.runtime.start()
@@ -583,7 +583,7 @@ class AppRuntimeTests(unittest.TestCase):
             return {'running': True}
         self.background['start'].side_effect = late
         self.assertEqual(self.runtime.start_worker(), 'closing')
-        self.background['stop'].assert_called_once_with(self.root / '.comic-session', wait_seconds=0)
+        self.background['stop'].assert_called_once_with(self.root / 'Tapas/.comic-session', wait_seconds=0)
         self.background['stop'].side_effect = OSError('PRIVATE')
         self.runtime._closing.clear()
         self.assertEqual(self.runtime.start_worker(), 'closing')
@@ -593,7 +593,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.sign_in(); self.runtime.start()
         self.assertEqual(self.runtime.start_worker(), 'running')
         registry = self.runtime.registry
-        seen, session = [], self.root / '.comic-session'
+        seen, session = [], self.root / 'Tapas/.comic-session'
         def drain(session, *, wait_seconds):
             seen.append(('ask', session, wait_seconds))
             return {'running': True}
@@ -609,7 +609,7 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertEqual(self.runtime.stop(), 'stopped')
             pause.assert_not_called(); end.assert_not_called()
         # Asked to leave before its batch is interrupted, so it goes without reading that batch's receipt.
-        self.assertEqual(seen, ['cloud sign-in closed', 'site sign-in closed', ('ask', session, 0), self.root / 'Library',
+        self.assertEqual(seen, ['cloud sign-in closed', 'site sign-in closed', ('ask', session, 0), self.root / 'Tapas/Library',
                                 ('look', session), ('look', session)])
         self.assertEqual(self.runtime.stop(), 'stopped_before')
         self.assertEqual(self.background['stop'].call_count, 1)
@@ -619,7 +619,7 @@ class AppRuntimeTests(unittest.TestCase):
         with patch('comic_archive.account_ui.interrupt') as interrupt, patch('comic_archive.app_runtime.end_downloader') as end:
             self.assertEqual(self.runtime.stop(), 'stopped')
             interrupt.assert_not_called(); end.assert_not_called()
-        self.background['stop'].assert_called_once_with(self.root / '.comic-session', wait_seconds=0)
+        self.background['stop'].assert_called_once_with(self.root / 'Tapas/.comic-session', wait_seconds=0)
         for ended, outcome in ((True, 'stopped'), (False, 'finishing')):
             other = app_runtime.Runtime(self.home / outcome); self.addCleanup(other.stop, 0)
             other.start()
@@ -632,8 +632,8 @@ class AppRuntimeTests(unittest.TestCase):
             with patch('comic_archive.account_ui.interrupt', side_effect=OSError('PRIVATE')) as interrupt, \
                     patch('comic_archive.app_runtime.end_downloader', side_effect=end) as ending:
                 self.assertEqual(other.stop(.2), outcome)
-            interrupt.assert_called_once(); ending.assert_called_once_with(self.home / outcome / '.comic-session')
-            self.background['stop'].assert_called_once_with(self.home / outcome / '.comic-session', wait_seconds=0)
+            interrupt.assert_called_once(); ending.assert_called_once_with(self.home / outcome / 'Tapas/.comic-session')
+            self.background['stop'].assert_called_once_with(self.home / outcome / 'Tapas/.comic-session', wait_seconds=0)
             self.background['status'].side_effect = None
 
     def test_a_downloader_too_busy_to_be_asked_is_asked_again_and_one_that_cannot_be_asked_is_still_ended(self):
@@ -651,7 +651,7 @@ class AppRuntimeTests(unittest.TestCase):
             with self.assertLogs(app_runtime.LOG, 'WARNING') as logs, \
                     patch('comic_archive.app_runtime.end_downloader', return_value=ended) as end:
                 self.assertEqual(other.stop(.2), outcome)
-            end.assert_called_once_with(self.home / outcome / '.comic-session')
+            end.assert_called_once_with(self.home / outcome / 'Tapas/.comic-session')
             self.assertIn('did not accept the stop request: LibraryBusy', logs.output[0]); self.assertNotIn('PRIVATE', ''.join(logs.output))
             self.background['status'].return_value = {'running': False, 'state': 'stopped'}
 
@@ -703,7 +703,7 @@ class AppRuntimeTests(unittest.TestCase):
     def test_a_start_sets_the_saved_download_to_wait_for_go_and_a_failure_doing_so_does_not_keep_the_app_from_starting(self):
         with patch('comic_archive.account_ui.reopen', return_value=True) as reopen, self.assertLogs(app_runtime.LOG, 'INFO') as logs:
             self.runtime.start()
-        self.assertEqual((reopen.call_args.args[0].library, reopen.call_args.kwargs), (self.root / 'Library', {'idle': True}))
+        self.assertEqual((reopen.call_args.args[0].library, reopen.call_args.kwargs), (self.root / 'Tapas/Library', {'idle': True}))
         self.assertIn('waits for Go', ''.join(logs.output))
         # A downloader that outlived the app, or one whose state cannot be told, may be on a task: none is ended for it.
         for number, running in enumerate((True, None)):
@@ -717,7 +717,7 @@ class AppRuntimeTests(unittest.TestCase):
                 self.assertLogs(app_runtime.LOG, 'WARNING') as logs:
             failing.start()
         reopen.assert_called_once()
-        self.assertEqual(self.library(failing), self.home / 'failing/Library')
+        self.assertEqual(self.library(failing), self.home / 'failing/Tapas/Library')
         self.assertNotIn('PRIVATE', ''.join(logs.output))
 
     def test_a_downloader_that_cannot_be_ended_is_reported_as_failed_and_the_launch_lock_is_released(self):

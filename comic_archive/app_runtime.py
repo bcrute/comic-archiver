@@ -11,7 +11,7 @@ import sqlite3
 import threading
 import time
 
-from . import archive_paths, background, cloud_runtime, osdep, shared, sites, support_log
+from . import archive_paths, background, cloud_runtime, osdep, shared, site_layout, sites, support_log
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
@@ -68,6 +68,10 @@ def library_root(chosen):
         folder = Path(chosen).expanduser().resolve()
     except (OSError, RuntimeError):
         return Path(chosen)
+    candidate = folder.parent if folder.name == 'Library' else folder
+    if candidate.name in {site.name for site in sites.SITES} and (
+            site_layout.known(candidate.parent) or site_layout.legacy(candidate.parent)):
+        return candidate.parent
     if folder.name == 'Library' and is_library(folder.parent):
         return folder.parent
     if folder.name == FOLDER_NAME or is_library(folder):
@@ -78,7 +82,8 @@ def library_root(chosen):
 def is_library(folder):
     """True for a folder Comic Archiver has saved into before, from any site; a folder merely called Library does not count."""
     try:
-        return any((sites.folder(folder, site) / 'Library' / '.archive-state').is_dir() for site in sites.SITES)
+        return site_layout.known(folder) or site_layout.legacy(folder) or any(
+            (Path(folder) / site.name / 'Library' / '.archive-state').is_dir() for site in sites.SITES)
     except (OSError, ValueError):
         return False
 
@@ -383,6 +388,10 @@ class Runtime:
         try:
             root = safe_root(self.project_root)
             root.mkdir(mode=0o700, exist_ok=True)
+            junction = leads_elsewhere(root)
+            if junction is not None:
+                raise site_layout.LayoutError(REDIRECTED.format(root=root, folder=junction))
+            site_layout.prepare(root)
             place = safe_root(sites.folder(root, site))
             place.mkdir(mode=0o700, exist_ok=True)
             # Before anything is made, read or written in them.
@@ -393,6 +402,8 @@ class Runtime:
                 private_folder(place, 'web')
                 share(place, private_folder(root, 'shared'))
                 return root, place, session, safe_root(session / 'state.json')
+        except (LibraryBusy, site_layout.LayoutError):
+            raise
         except ArchiveError:
             raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '
                                'is a shortcut (symlink) to somewhere else. Choose a normal folder.') from None
