@@ -1,6 +1,7 @@
 """Content-addressed resume cache and open CBZ/EPUB/JSON publication."""
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -66,12 +67,34 @@ def safe_name(title):
     return title
 
 
-def image_extension(data):
-    from .image_formats import image_stream_extension
+def image_context(source, series, episode=None, page=None):
+    """Only bounded site identifiers reach logs; never titles, paths or asset URLs."""
+    from .support_log import NUMBER
+    def safe(value):
+        return value if isinstance(value, str) and NUMBER.fullmatch(value) else 'unknown'
+    return (f'source={safe(source)} series={safe(series)} episode={safe(episode)} '
+            f'page={page if type(page) is int and 0 <= page <= 1000000 else "cover" if page == "cover" else "unknown"}')
+
+
+def image_extension(data, *, context=None):
+    from .image_formats import ImageStructureError, inspect_image_structure
+    from .support_log import DOWNLOAD_LOG
+    log = logging.getLogger(DOWNLOAD_LOG)
     try:
-        return image_stream_extension(data)
-    except ValueError:
-        raise ArchiveError('Page is not a supported JPEG/PNG/GIF/WebP with a complete image structure.') from None
+        extension, end = inspect_image_structure(data)
+    except ImageStructureError as error:
+        # This exception contains fixed reason codes and integers only. Generic
+        # exception text remains excluded from the support log everywhere else.
+        log.warning('Image rejected %s %s', context or 'context=unavailable', error)
+        raise ArchiveError(f'Page has no complete supported image structure: {error}.') from None
+    if context is not None and end < len(data):
+        zeros = data.count(b'\0', end)
+        trailing = len(data) - end
+        kind = 'zero' if zeros == trailing else 'nonzero' if not zeros else 'mixed'
+        log.info('Image accepted %s format=%s bytes=%d image_end=%d trailing_bytes=%d '
+                 'trailing_kind=%s trailing_zero_bytes=%d trailing_other_bytes=%d sha256=%s original_bytes=preserved',
+                 context, extension[1:], len(data), end, trailing, kind, zeros, trailing - zeros, digest(data))
+    return extension
 
 
 def atomic_json(path, value):
@@ -304,7 +327,7 @@ class Store:
         return None
 
     def remember_page(self, source, episode, page, data):
-        h = self.cache_image(data)
+        h = self.cache_image(data, context=image_context(source, episode.series_id, episode.id, page.order))
         key = self.key(source, episode, page)
         self.db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?)", (key, h))
         self.db.execute('INSERT OR IGNORE INTO cache_owners VALUES (?,?,?,?)', (h,source,episode.series_id,episode.id))
@@ -435,8 +458,8 @@ class Store:
     def episode_is_offloaded(self, series, episode, path):
         return False
 
-    def cache_image(self,data):
-        image_extension(data)
+    def cache_image(self, data, *, context=None):
+        image_extension(data, context=context)
         h = digest(data)
         blob = self.cache / h
         if blob.is_symlink():
@@ -461,12 +484,12 @@ class Store:
             if blob.is_file() and not blob.is_symlink():
                 data=blob.read_bytes()
                 if digest(data)==row[0]:
-                    image_extension(data)
+                    image_extension(data, context=image_context(series.source, series.id, page="cover"))
                     return data
         data=adapter.retrieve_cover(series)
         if not isinstance(data,bytes) or len(data)>10*1024*1024:
             raise ArchiveError('Cover is absent or exceeds the 10 MiB limit.')
-        h=self.cache_image(data)
+        h=self.cache_image(data, context=image_context(series.source, series.id, page="cover"))
         self.db.execute('INSERT OR REPLACE INTO pages VALUES (?,?)',(key,h))
         self.db.commit()
         return data

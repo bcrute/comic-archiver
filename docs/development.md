@@ -143,3 +143,13 @@ current debug phone build is not a publishable release artifact.
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
 | `scripts/` | The checks above and the helpers they use. |
 | `tests/` | Unit tests, and `mutations.json` for the mutation check. |
+
+Image diagnostics use the downloader log collected by **Save log for support**.
+A rejected page records its site, series/episode identifiers and page number,
+detected format, received byte count, parser offset and fixed rejection reason
+(for example `missing_eoi`, `truncated_chunk` or `crc_mismatch`). Accepted images
+with trailing bytes record the logical image end, trailing byte count and zero/
+nonzero breakdown, plus the original SHA-256 and confirmation that bytes were
+preserved. Covers use `page=cover`. Routine images without tails do not add a
+line. These records contain no image payload, titles, paths or asset URLs;
+generic exception text remains excluded from support logs.

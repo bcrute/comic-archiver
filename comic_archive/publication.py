@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import zstandard
 
-from .archive import Store, atomic_json, digest, image_extension, safe_name, archive_from_sidecar
+from .archive import Store, atomic_json, digest, image_extension, image_context, safe_name, archive_from_sidecar
 from .archive_paths import directory
 from .models import ArchiveError
 from .osdep import replace_file, shortened, units
@@ -261,8 +261,8 @@ class DirectEpisode:
         self.size = 0
         self.data = None
 
-    def keep(self, data):
-        image_extension(data)
+    def keep(self, data, *, context=None):
+        image_extension(data, context=context)
         h = digest(data)
         if h not in self.pages:
             self.pages[h] = data
@@ -493,10 +493,10 @@ class PublicationStore(Store):
                            'original_content_hashes': [item for _, item in sorted(self._originals.get((series.source, episode.series_id, episode.id), {}).items())],
                            'cache_series_id': series.id}
 
-    def cache_image(self, data):
+    def cache_image(self, data, *, context=None):
         if self._direct is None or self._direct.data is not None:
-            return super().cache_image(data)
-        h = self._direct.keep(data)
+            return super().cache_image(data, context=context)
+        h = self._direct.keep(data, context=context)
         if self._direct.size > DIRECT_MEMORY:
             self._save_direct_pages()
         return h
@@ -505,7 +505,7 @@ class PublicationStore(Store):
         if self._direct is None or self._direct.data is not None:
             return super().remember_page(source, episode, page, data)
         direct = self._direct
-        h = direct.keep(data)
+        h = direct.keep(data, context=image_context(source, episode.series_id, episode.id, page.order))
         direct.rows.append((self.key(source, episode, page), h, source, episode.series_id, episode.id))
         if direct.size > DIRECT_MEMORY:
             self._save_direct_pages()

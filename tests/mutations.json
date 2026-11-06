@@ -3098,8 +3098,8 @@
  {
   "id": "header-theme-backwards",
   "source": "comic_archive/window_pages.py",
-  "old": "self.theme.setText('☀' if dark else '☾')",
-  "new": "self.theme.setText('☾' if dark else '☀')",
+  "old": "self.theme.setText('\u2600' if dark else '\u263e')",
+  "new": "self.theme.setText('\u263e' if dark else '\u2600')",
   "test_file": "test_window_pages.py",
   "test": "test_the_theme_switch_shows_where_it_leads"
  },
@@ -5698,8 +5698,8 @@
  {
   "id": "card-cannot-save-unsaid",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            'can’t save yet' if cannot_save else",
-  "new": "            'can’t save yet' if False else",
+  "old": "            'can\u2019t save yet' if cannot_save else",
+  "new": "            'can\u2019t save yet' if False else",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions"
  },
@@ -6394,24 +6394,24 @@
  {
   "id": "image-jpeg-physical-eof",
   "source": "comic_archive/image_formats.py",
-  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
-  "new": "data.startswith(b'\\xff\\xd8\\xff') and data.endswith(b'\\xff\\xd9')",
+  "old": "return '.jpg', _jpeg(data)",
+  "new": "return ('.jpg', len(data)) if data.endswith(b'\\xff\\xd9') else (_invalid(data, 'jpeg', len(data), 'missing_eoi'))",
   "test_file": "test_image_formats.py",
   "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
  },
  {
   "id": "image-jpeg-header-alone",
   "source": "comic_archive/image_formats.py",
-  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
-  "new": "data.startswith(b'\\xff\\xd8\\xff')",
+  "old": "return '.jpg', _jpeg(data)",
+  "new": "return '.jpg', len(data)",
   "test_file": "test_image_formats.py",
   "test": "test_every_truncation_of_real_streams_is_refused"
  },
  {
   "id": "image-jpeg-fake-end-in-metadata",
   "source": "comic_archive/image_formats.py",
-  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
-  "new": "data.startswith(b'\\xff\\xd8\\xff') and b'\\xff\\xd9' in data",
+  "old": "return '.jpg', _jpeg(data)",
+  "new": "return ('.jpg', len(data)) if b'\\xff\\xd9' in data else (_invalid(data, 'jpeg', len(data), 'missing_eoi'))",
   "test_file": "test_image_formats.py",
   "test": "test_jpeg_skips_end_markers_in_metadata_and_handles_fill_stuffing_and_multiple_scans"
  },
@@ -6426,8 +6426,8 @@
  {
   "id": "image-standalone-physical-eof",
   "source": "scripts/offline_restore.py",
-  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
-  "new": "data.startswith(b'\\xff\\xd8\\xff') and data.endswith(b'\\xff\\xd9')",
+  "old": "return '.jpg', _jpeg(data)",
+  "new": "return ('.jpg', len(data)) if data.endswith(b'\\xff\\xd9') else (_invalid(data, 'jpeg', len(data), 'missing_eoi'))",
   "test_file": "test_image_formats.py",
   "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
  },
@@ -6490,8 +6490,8 @@
  {
   "id": "image-webp-container-without-image",
   "source": "comic_archive/image_formats.py",
-  "old": "and _webp_chunks(data, 12, end)",
-  "new": "",
+  "old": "return '.webp', _webp_chunks(data, 12, end)",
+  "new": "return '.webp', end",
   "test_file": "test_image_formats.py",
   "test": "test_webp_checks_declared_chunks_and_animation_frames_not_the_enclosing_file_size"
  },

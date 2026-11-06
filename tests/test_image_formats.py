@@ -43,6 +43,68 @@ class ImageFormatTests(unittest.TestCase):
             frames[0].save(output, format, save_all=True, append_images=frames[1:], duration=100, loop=0)
             cls.images.append((output.getvalue(), extension))
 
+    def test_diagnostics_explain_rejection_and_preserved_tails_without_source_secrets(self):
+        from comic_archive.archive import image_context
+        from comic_archive.image_formats import ImageStructureError, inspect_image_structure
+        from comic_archive.support_log import DOWNLOAD_LOG
+        context = image_context('webtoon', '42', '81', 3)
+        original = encoded('JPEG')
+        for tail, kind in ((b'\0' * 61892, 'zero'), (b'PRIVATE?token=secret', 'nonzero'), (b'\0secret', 'mixed')):
+            with self.assertLogs(DOWNLOAD_LOG, level='INFO') as logs:
+                self.assertEqual(image_extension(original + tail, context=context), '.jpg')
+            line = ' '.join(logs.output)
+            for expected in ('Image accepted', 'source=webtoon series=42 episode=81 page=3',
+                             f'bytes={len(original + tail)}', f'image_end={len(original)}',
+                             f'trailing_bytes={len(tail)}', f'trailing_kind={kind}',
+                             f'sha256={digest(original + tail)}', 'original_bytes=preserved'):
+                self.assertIn(expected, line)
+            self.assertNotIn('secret', line)
+            self.assertNotIn('PRIVATE', line)
+        cases = [(original[:-2], 'jpeg', 'missing_eoi'),
+                 (b'\xff\xd8\xff\xe1\xff\xffPRIVATE', 'jpeg', 'invalid_segment_length'),
+                 (b'<html>PRIVATE?token=secret</html>', 'unknown', 'unsupported_signature'),
+                 (b'RIFF\xff\xff\xff\xffWEBP', 'webp', 'invalid_riff_length')]
+        png = bytearray(encoded('PNG')); png[png.index(b'IDAT') + 4] ^= 1
+        cases.append((bytes(png), 'png', 'crc_mismatch'))
+        for data, kind, reason in cases:
+            with self.subTest(reason=reason), self.assertLogs(DOWNLOAD_LOG) as logs:
+                with self.assertRaises(ArchiveError) as raised:
+                    image_extension(data, context=context)
+            line = ' '.join(logs.output)
+            for expected in (context, f'format={kind}', f'bytes={len(data)}', 'offset=', f'reason={reason}'):
+                self.assertIn(expected, line)
+                self.assertIn(expected, str(raised.exception) if expected != context else line)
+            self.assertNotIn('PRIVATE', line)
+            self.assertNotIn('secret', line)
+            with self.assertRaises(ImageStructureError) as raised:
+                inspect_image_structure(data)
+            self.assertLessEqual(raised.exception.offset, len(data))
+        unsafe = image_context('webtoon\ninjected', 'https://private/path', 'token=secret', -1)
+        self.assertEqual(unsafe, 'source=unknown series=unknown episode=unknown page=unknown')
+
+    def test_page_download_logs_episode_and_page_context_before_generic_job_handling(self):
+        from comic_archive.support_log import DOWNLOAD_LOG
+        for direct in (False, True):
+            with self.subTest(direct=direct), tempfile.TemporaryDirectory() as folder:
+                store = PublicationStore(Path(folder))
+                try:
+                    if direct:
+                        from comic_archive.publication import DirectEpisode
+                        store._direct = DirectEpisode(Path(folder) / 'episode.cbz')
+                    episode = Episode('81', '42', 'Private title', 1,
+                                      tuple(Page(i, f'https://cdn.tapas.io/page{i}', False) for i in range(1, 4)),
+                                      'tapas_free')
+                    page = Page(3, 'https://cdn.tapas.io/PRIVATE?token=secret', False)
+                    with self.assertLogs(DOWNLOAD_LOG) as logs, self.assertRaises(ArchiveError):
+                        store.remember_page('tapas', episode, page, b'PRIVATE malformed payload')
+                    line = ' '.join(logs.output)
+                    self.assertIn('source=tapas series=42 episode=81 page=3', line)
+                    self.assertIn('reason=unsupported_signature', line)
+                    self.assertNotIn('PRIVATE', line)
+                    self.assertNotIn('secret', line)
+                finally:
+                    store.close()
+
     def test_cover_format_must_match_its_name_even_when_size_and_hash_match(self):
         data = encoded('JPEG') + b'nonzero tail'
         metadata = {'source': 'tapas', 'source_series_id': '42', 'title': 'Series',
@@ -60,7 +122,11 @@ class ImageFormatTests(unittest.TestCase):
         for detector, error in ((image_extension, ArchiveError), (image_stream_extension, ValueError),
                                 (standalone_extension, ValueError)):
             with self.assertRaises(error):
-                detector(data)
+                if detector is image_extension:
+                    with self.assertLogs('comic_archive.download'):
+                        detector(data)
+                else:
+                    detector(data)
 
     def test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them(self):
         for data, extension in self.images:
