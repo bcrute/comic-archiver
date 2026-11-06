@@ -163,7 +163,7 @@ class Kit:
         q, w = self.q, self.w
         class SingleLine(w.QLabel):
             def setText(self, value):
-                value = ' '.join(value.split())
+                value = ' '.join(value.splitlines())
                 super().setText(value)
                 self.setToolTip(value)
                 self.setAccessibleDescription(value)
@@ -449,9 +449,12 @@ class Dashboard:
         top = w.QHBoxLayout()
         title, _ = heading(kit, 'Dashboard')
         top.addWidget(title, 1)
-        self.updated = kit.label('Checking current status…', 'muted', wrap=False)
+        self.updated = kit.single_line('Checking current status…', 'muted')
+        self.updated.setFixedWidth(self.updated.fontMetrics().horizontalAdvance(
+            'Updates delayed · trying to reconnect') + 12)
         self.go_all = kit.button('Start all', pages.go_all, 'secondary')
         self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
+        reserved(self.pause_all)
         for part in (self.updated, self.go_all, self.pause_all):
             top.addWidget(part, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         column.addLayout(top)

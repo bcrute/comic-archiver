@@ -5218,8 +5218,8 @@
  {
   "id": "card-row-drops-its-tip",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': tip})\n",
-  "new": "            rows.append({'name': name, 'value': value, 'warning': bool(warning), 'tip': ''})\n",
+  "old": "        item.update(value=value, warning=bool(warning), tip=tip)\n",
+  "new": "        item.update(value=value, warning=bool(warning), tip='')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
@@ -5312,12 +5312,12 @@
   "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
  },
  {
-  "id": "card-hint-across-the-card-from-its-text",
+  "id": "card-value-wastes-its-column",
   "source": "comic_archive/window_pages.py",
-  "old": "            value.parentWidget().layout().setStretchFactor(value, 0 if tip else 1)\n",
-  "new": "            value.parentWidget().layout().setStretchFactor(value, 1)\n",
+  "old": "holder = self.kit.row(value, hint, spacing=6, stretch=False)",
+  "new": "holder = self.kit.row(value, hint, spacing=6)",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_status_changes_keep_the_same_widgets_positions_and_single_line_height"
  },
  {
   "id": "all-sites-counts-not-centered",

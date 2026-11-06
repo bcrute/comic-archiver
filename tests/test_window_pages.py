@@ -302,6 +302,14 @@ class PagesCase(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_single_line_labels_preserve_full_text_and_spaces_in_paths(self):
+        label = window_pages.Kit(Q, lambda target: None).single_line('Folder with  two spaces\nNext line')
+        self.addCleanup(label.deleteLater)
+        expected = 'Folder with  two spaces Next line'
+        self.assertEqual(label.text(), expected)
+        self.assertEqual(label.toolTip(), expected)
+        self.assertEqual(label.accessibleDescription(), expected)
+
     def test_routes_lead_to_a_page_that_exists_and_a_tab_that_is_offered(self):
         self.assertEqual(window_pages.route_of('settings', True), 'settings/downloads')
         self.assertEqual(window_pages.route_of('settings/b2', True), 'settings/b2')
@@ -355,7 +363,8 @@ class DashboardTests(PagesCase):
                 self.assertEqual([(id(name), id(value)) for name, value in card.cells], original)
                 self.assertEqual(tuple(name.text() for name, _ in card.cells), dashboard_model.CARD_FIELDS)
                 positions = [(name.y(), value.parentWidget().y(), value.height()) for name, value in card.cells]
-                geometry = (card.widget.height(), positions, card.action.mapTo(card.widget, QtCore.QPoint(0, 0)).y())
+                geometry = (card.widget.height(), positions, card.action.mapTo(card.widget, QtCore.QPoint(0, 0)).y(),
+                            self.dashboard.updated.geometry().getRect(), self.dashboard.go_all.geometry().getRect())
                 if baseline is None:
                     baseline = geometry
                 self.assertEqual(geometry, baseline, (width, mode))
