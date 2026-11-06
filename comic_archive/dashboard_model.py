@@ -221,9 +221,10 @@ def step_progress(p):
         stage = p.get('audit_stage')
         if stage == 'discovering':
             return 'Finding saved archives on this device'
-        checked = f"Checked {display(p.get('archives_checked'))} of {display(p.get('archives_total'))} archives"
+        checked = f"{display(p.get('archives_checked'))} / {display(p.get('archives_total'))} archives"
         size = room(p['archive_bytes_checked']) if number(p.get('archive_bytes_checked')) else '0 B'
-        return checked + f" | {size} checked" + (
+        return checked + f" | {size}" + (
+            f" | {duration(p['audit_elapsed_seconds'])}" if type(p.get('audit_elapsed_seconds')) is int else '') + (
             ' | reconciling saved records' if stage == 'reconciling' else '')
     if p.get('phase') != 'archive':
         return ''
@@ -542,9 +543,7 @@ def view(s, now):
                   'verify': 'Checking saved files'}
         step = '' if list_phase else step_progress(progress).rstrip('.')
         if verifying:
-            row('Note', 'Checking local files; large libraries can take several minutes. No provider requests.')
-            if type(progress.get('audit_elapsed_seconds')) is int:
-                row('Progress', f"{duration(progress['audit_elapsed_seconds'])} checking files")
+            row('Note', 'Local file check; no provider requests. Large libraries take time.')
         row('Step', ' | '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'

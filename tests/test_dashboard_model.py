@@ -551,9 +551,9 @@ class LiveTests(unittest.TestCase):
         shown=view(account=account(phase='verify',elapsed_seconds=600,progress_age_seconds=120),
                    status={'session_configured':True,'worker':{'reported_state':'busy'},'progress':progress})
         rows=fields(shown)
-        self.assertIn('120 of 6,000 archives',rows['Progress'][0])
-        self.assertIn('3.0 GB checked',rows['Progress'][0])
-        self.assertIn('No provider requests',rows['Note'][0])
+        self.assertIn('120 / 6,000 archives',rows['Progress'][0])
+        self.assertIn('3.0 GB',rows['Progress'][0])
+        self.assertIn('no provider requests',rows['Note'][0])
         self.assertIn('last check update',rows['Running for'][0])
         self.assertFalse(shown['live_waiting'])
         self.assertNotIn('slow',rows['Status'][0])

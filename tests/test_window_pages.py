@@ -328,8 +328,8 @@ class DashboardTests(PagesCase):
             'archives_total':6000,'archive_bytes_checked':45_000_000_000,'audit_elapsed_seconds':600}
         self.open()
         settle()
-        self.assertIn('1,200 of 6,000 archives', self.fields()['Progress'])
-        self.assertIn('No provider requests', self.fields()['Note'])
+        self.assertIn('1,200 / 6,000 archives', self.fields()['Progress'])
+        self.assertIn('no provider requests', self.fields()['Note'])
         self.assertEqual(tuple(name.text() for name, _ in self.card.cells), dashboard_model.CARD_FIELDS)
         if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
             from pathlib import Path
