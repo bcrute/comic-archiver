@@ -208,3 +208,9 @@ when opened while idle. A journal blocks new writers and worker launches during
 an interrupted move and allows the next start to resume. Shared settings and
 other providers stay at the root; conflicting destinations are never merged.
 There is no copy fallback.
+
+Migration durability checks terminate a separate process at journal publication,
+each directory rename and journal removal, then verify recovery with every
+original file's bytes, identity and timestamp intact. Injected directory-flush
+failures also retain recoverable state. These development checks do not replace
+real Windows filesystem validation or the full release gates.

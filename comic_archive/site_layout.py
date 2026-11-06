@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from .models import ArchiveError
+from .osdep import sync_directory
 
 MARKER = 'site-layout.json'
 PENDING = 'site-layout-migration.json'
@@ -91,17 +92,20 @@ def prepare(root):
             if not legacy(root) and not pending.exists():
                 if not marker.exists():
                     atomic_json(marker, SCHEMA); marker.chmod(0o600)
+                    sync_directory(shared)
+                    sync_directory(root)
                 return
             target = root / 'Tapas'
             if pending.exists():
                 record = _read(pending)
                 if (not isinstance(record, dict) or set(record) != {'schema_version', 'target', 'entries'}
                         or record['schema_version'] != 1 or not isinstance(record['entries'], dict)
-                        or not record['entries'] or not set(record['entries']) <= set(ENTRIES)
+                        or not {'Library', '.comic-session'} <= set(record['entries']) <= set(ENTRIES)
                         or any(not isinstance(v, list) or len(v) != 2 or any(type(n) is not int for n in v)
                                for v in [record['target'], *record['entries'].values()])
                         or _identity(target) != record['target']):
                     raise LayoutError('The pending library folder move cannot be verified. Saved files are retained.')
+                sync_directory(shared)  # Reestablish durability after an earlier flush failed.
             else:
                 if status(root / '.comic-session').get('running') is not False:
                     raise LibraryBusy('Pause or close the downloader before arranging the provider folders.')
@@ -114,7 +118,9 @@ def prepare(root):
                               'entries': {name: _identity(root / name) for name in ENTRIES if (root / name).exists()}}
                     if any(identity[0] != record['target'][0] for identity in record['entries'].values()):
                         raise LayoutError('The provider folders must be on the same filesystem to be moved.')
+                    sync_directory(root)
                     atomic_json(pending, record); pending.chmod(0o600)
+                    sync_directory(shared)  # The journal must be durable before the first rename.
             for name, identity in record['entries'].items():
                 source, destination = root / name, target / name
                 if source.exists():
@@ -123,8 +129,12 @@ def prepare(root):
                     os.rename(source, destination)
                 if _identity(destination) != identity:
                     raise LayoutError('A moved provider folder cannot be verified. Saved files are retained.')
+                sync_directory(target)
+                sync_directory(root)
             atomic_json(marker, SCHEMA); marker.chmod(0o600)
+            sync_directory(shared)  # Commit the completed layout before retiring the journal.
             pending.unlink()
+            sync_directory(shared)
             LOG.info('library layout: Tapas directories relocated; provider folders are siblings')
         except (OSError, ValueError, RecursionError) as error:
             LOG.warning('library layout: relocation remains pending (%s)', type(error).__name__)

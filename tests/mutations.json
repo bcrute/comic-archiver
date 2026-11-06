@@ -6542,5 +6542,21 @@
   "new": "QUrl.fromLocalFile(str(self.runtime.folder))",
   "test_file": "test_desktop_app.py",
   "test": "test_backblaze_pages_and_the_save_folder_open_in_the_computers_own_programs"
+ },
+ {
+  "id": "site-layout-journal-not-flushed",
+  "source": "comic_archive/site_layout.py",
+  "old": "                    sync_directory(shared)  # The journal must be durable before the first rename.",
+  "new": "                    pass",
+  "test_file": "test_site_layout.py",
+  "test": "test_journal_and_renames_are_durable_before_the_journal_is_removed"
+ },
+ {
+  "id": "site-layout-renamed-directories-not-flushed",
+  "source": "comic_archive/site_layout.py",
+  "old": "                sync_directory(target)\n                sync_directory(root)",
+  "new": "                pass",
+  "test_file": "test_site_layout.py",
+  "test": "test_journal_and_renames_are_durable_before_the_journal_is_removed"
  }
 ]
