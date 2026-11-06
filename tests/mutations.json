@@ -6392,28 +6392,28 @@
   "test": "test_a_series_saved_on_fast_is_the_same_as_one_saved_at_the_normal_pace"
  },
  {
-  "id": "jpeg-zero-padding-refused",
-  "source": "comic_archive/archive.py",
-  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
-  "new": "data.startswith(b\"\\xff\\xd8\\xff\") and data.endswith(b\"\\xff\\xd9\")",
-  "test_file": "test_archive.py",
-  "test": "test_zero_padded_jpegs_keep_their_original_bytes_and_pixels_in_the_archive"
+  "id": "image-jpeg-physical-eof",
+  "source": "comic_archive/image_formats.py",
+  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
+  "new": "data.startswith(b'\\xff\\xd8\\xff') and data.endswith(b'\\xff\\xd9')",
+  "test_file": "test_image_formats.py",
+  "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
  },
  {
-  "id": "jpeg-truncated-accepted",
-  "source": "comic_archive/archive.py",
-  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
-  "new": "data.startswith(b\"\\xff\\xd8\\xff\")",
-  "test_file": "test_archive.py",
-  "test": "test_jpeg_padding_does_not_excuse_missing_markers_or_nonzero_trailing_content"
+  "id": "image-jpeg-header-alone",
+  "source": "comic_archive/image_formats.py",
+  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
+  "new": "data.startswith(b'\\xff\\xd8\\xff')",
+  "test_file": "test_image_formats.py",
+  "test": "test_every_truncation_of_real_streams_is_refused"
  },
  {
-  "id": "jpeg-arbitrary-trailing-content-accepted",
-  "source": "comic_archive/archive.py",
-  "old": "data.startswith(b\"\\xff\\xd8\\xff\") and data.rstrip(b\"\\0\").endswith(b\"\\xff\\xd9\")",
-  "new": "data.startswith(b\"\\xff\\xd8\\xff\") and b\"\\xff\\xd9\" in data",
-  "test_file": "test_archive.py",
-  "test": "test_jpeg_padding_does_not_excuse_missing_markers_or_nonzero_trailing_content"
+  "id": "image-jpeg-fake-end-in-metadata",
+  "source": "comic_archive/image_formats.py",
+  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
+  "new": "data.startswith(b'\\xff\\xd8\\xff') and b'\\xff\\xd9' in data",
+  "test_file": "test_image_formats.py",
+  "test": "test_jpeg_skips_end_markers_in_metadata_and_handles_fill_stuffing_and_multiple_scans"
  },
  {
   "id": "jpeg-padding-stripped-from-original",
@@ -6424,51 +6424,83 @@
   "test": "test_zero_padded_jpegs_keep_their_original_bytes_and_pixels_in_the_archive"
  },
  {
-  "id": "epub-restore-refuses-jpeg-padding",
+  "id": "image-standalone-physical-eof",
   "source": "scripts/offline_restore.py",
-  "old": "data.rstrip(b'\\0').endswith(b'\\xff\\xd9')",
-  "new": "data.endswith(b'\\xff\\xd9')",
-  "test_file": "test_novels.py",
-  "test": "test_zero_padded_jpeg_illustrations_remain_byte_exact_in_epub_and_standalone_restore"
+  "old": "data.startswith(b'\\xff\\xd8\\xff') and _jpeg(data)",
+  "new": "data.startswith(b'\\xff\\xd8\\xff') and data.endswith(b'\\xff\\xd9')",
+  "test_file": "test_image_formats.py",
+  "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
  },
  {
-  "id": "jpeg-upgrade-never-requeues",
+  "id": "image-upgrade-never-requeues",
   "source": "comic_archive/inventory.py",
-  "old": "if not self.db.execute(\"SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'\").fetchone():",
+  "old": "if not self.db.execute(\"SELECT 1 FROM settings WHERE key='image_structure_recheck'\").fetchone():",
   "new": "if False:",
   "test_file": "test_inventory.py",
-  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+  "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
  {
-  "id": "jpeg-upgrade-requeues-on-every-open",
+  "id": "image-upgrade-requeues-on-every-open",
   "source": "comic_archive/inventory.py",
-  "old": "                if not self.db.execute(\"SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'\").fetchone():\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state='webtoon_free' AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')\")\n",
-  "new": "                if True:\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state='webtoon_free' AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT OR REPLACE INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')\")\n",
+  "old": "                if not self.db.execute(\"SELECT 1 FROM settings WHERE key='image_structure_recheck'\").fetchone():\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state IN \" + sites.sql_list(sites.ACCESS) + \" AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT INTO settings VALUES ('image_structure_recheck','1')\")\n",
+  "new": "                if True:\n                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"\n                                    \"WHERE status='failed' AND error_code='job_failed' \"\n                                    \"AND access_state IN \" + sites.sql_list(sites.ACCESS) + \" AND attempts>=?\", (MAX_FAILED_ATTEMPTS,))\n                    self.db.execute(\"INSERT OR REPLACE INTO settings VALUES ('image_structure_recheck','1')\")\n",
   "test_file": "test_inventory.py",
-  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+  "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
  {
-  "id": "jpeg-upgrade-resets-other-sites",
+  "id": "image-upgrade-resets-unverified-access",
   "source": "comic_archive/inventory.py",
-  "old": "AND access_state='webtoon_free' AND attempts>=?",
-  "new": "AND attempts>=?",
+  "old": "\"AND access_state IN \" + sites.sql_list(sites.ACCESS) + \" AND attempts>=?\"",
+  "new": "\"AND attempts>=?\"",
   "test_file": "test_inventory.py",
-  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+  "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
  {
-  "id": "jpeg-upgrade-forgets-retry-budget",
+  "id": "image-upgrade-forgets-retry-budget",
   "source": "comic_archive/inventory.py",
   "old": "status='queued',error_code=NULL,attempts=0 ",
   "new": "status='queued',error_code=NULL ",
   "test_file": "test_inventory.py",
-  "test": "test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once"
+  "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
  {
-  "id": "jpeg-continue-only-audits-old-failures",
+  "id": "image-continue-only-audits-old-failures",
   "source": "comic_archive/inventory.py",
-  "old": "              or (jpeg_recheck and row['access_state']=='webtoon_free')",
+  "old": "              or (image_recheck and row['access_state'] in sites.ACCESS)",
   "new": "",
   "test_file": "test_download_control.py",
   "test": "test_continue_after_old_webtoon_image_failures_downloads_before_auditing_again"
+ },
+ {
+  "id": "image-png-ignores-crc",
+  "source": "comic_archive/image_formats.py",
+  "old": "if zlib.crc32(memoryview(data)[offset + 4:end]) != int.from_bytes(data[end:end + 4], 'big'):",
+  "new": "if False:",
+  "test_file": "test_image_formats.py",
+  "test": "test_png_validates_chunk_boundaries_and_crcs_instead_of_searching_for_iend"
+ },
+ {
+  "id": "image-gif-fake-trailer-in-payload",
+  "source": "comic_archive/image_formats.py",
+  "old": "offset = _gif_blocks(data, offset)",
+  "new": "offset = data.find(b\";\", offset); offset = offset if offset >= 0 else None",
+  "test_file": "test_image_formats.py",
+  "test": "test_gif_counts_sub_blocks_and_colour_tables_instead_of_searching_for_a_semicolon"
+ },
+ {
+  "id": "image-webp-container-without-image",
+  "source": "comic_archive/image_formats.py",
+  "old": "and _webp_chunks(data, 12, end)",
+  "new": "",
+  "test_file": "test_image_formats.py",
+  "test": "test_webp_checks_declared_chunks_and_animation_frames_not_the_enclosing_file_size"
+ },
+ {
+  "id": "image-png-no-end-chunk",
+  "source": "comic_archive/image_formats.py",
+  "old": "elif kind == b'IEND':",
+  "new": "elif kind == b'IDAT':",
+  "test_file": "test_image_formats.py",
+  "test": "test_all_supported_streams_accept_uninterpreted_trailing_bytes_without_rewriting_them"
  }
 ]

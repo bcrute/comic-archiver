@@ -179,7 +179,7 @@ class WebtoonTests(unittest.TestCase):
             for key in ('7000001', '7000002', '7000004'):
                 for _ in range(3):
                     inventory.mark(key, 'failed', 'job_failed', attempted=True)
-            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.execute("DELETE FROM settings WHERE key='image_structure_recheck'")
             inventory.db.commit()
         with adapter:
             result = sync(adapter, self.root, refresh_lists=False, download_workers=8)

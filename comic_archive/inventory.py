@@ -114,14 +114,14 @@ class Inventory:
                     self.db.execute('INSERT OR IGNORE INTO asset_deferrals VALUES (?,?)', (key, after.isoformat()))
                 self.db.execute("UPDATE episodes SET status='queued', error_code='interrupted' WHERE status='downloading'")
                 self.db.execute("UPDATE runs SET status='interrupted', finished_at=? WHERE finished_at IS NULL", (timestamp(),))
-                # Older image validation rejected Webtoon's zero-padded JPEGs.
-                # Its untyped failures cannot identify those images individually:
-                # give exhausted Webtoon failures one new bounded cycle, once.
-                if not self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone():
+                # Older footer heuristics rejected complete image streams. Old
+                # untyped failures cannot identify the affected images: give
+                # exhausted accessible failures one new bounded cycle, once.
+                if not self.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone():
                     self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
                                     "WHERE status='failed' AND error_code='job_failed' "
-                                    "AND access_state='webtoon_free' AND attempts>=?", (MAX_FAILED_ATTEMPTS,))
-                    self.db.execute("INSERT INTO settings VALUES ('webtoon_padded_jpeg_recheck','1')")
+                                    "AND access_state IN " + sites.sql_list(sites.ACCESS) + " AND attempts>=?", (MAX_FAILED_ATTEMPTS,))
+                    self.db.execute("INSERT INTO settings VALUES ('image_structure_recheck','1')")
                 self.db.commit()
             except BaseException:
                 self.close()
@@ -578,9 +578,9 @@ class Inventory:
         # A read-only controller may see the old inventory before its first new
         # writer. Admit the same one-time recheck here so Continue schedules a
         # download; opening the writer above consumes it and resets the budget.
-        jpeg_recheck = self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone() is None
+        image_recheck = self.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone() is None
         rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS
-              or (jpeg_recheck and row['access_state']=='webtoon_free')]
+              or (image_recheck and row['access_state'] in sites.ACCESS)]
         # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
         return sorted(rows,key=lambda row:(failing(row),row['attempts'] if failing(row) else 0,rank(row)))
 

@@ -203,31 +203,37 @@ class InventoryTests(unittest.TestCase):
             inventory.observe('42', 'S', [episode('81', 1, 'tapas_unlocked')] + listed[1:], 'subscribed')
             self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83'])
 
-    def test_padded_jpeg_upgrade_requeues_only_exhausted_webtoon_failures_once(self):
+    def test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once(self):
         with Inventory(self.root) as inventory:
             inventory.observe('42', 'S', [episode(str(key), key - 80, access) for key, access in (
                 (81, 'webtoon_free'), (82, 'tapas_free'), (83, 'webtoon_free'),
-                (84, 'webtoon_free'), (85, 'webtoon_free'), (86, 'webtoon_free'))], 'subscribed')
+                (84, 'webtoon_free'), (85, 'webtoon_free'), (86, 'webtoon_free'),
+                (87, 'unavailable_or_unverified'), (88, 'tappytoon_free'), (89, 'tapas_unlocked'))], 'subscribed')
             for key, status, code, attempts in (
                     ('81', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS),
                     ('82', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS),
                     ('83', 'unavailable', 'access_denied', MAX_FAILED_ATTEMPTS),
                     ('84', 'archived', None, MAX_FAILED_ATTEMPTS),
                     ('85', 'queued', 'asset_read_unavailable', MAX_FAILED_ATTEMPTS),
-                    ('86', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS - 1)):
+                    ('86', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS - 1),
+                    ('87', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS),
+                    ('88', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS),
+                    ('89', 'failed', 'job_failed', MAX_FAILED_ATTEMPTS)):
                 inventory.db.execute('UPDATE episodes SET status=?,error_code=?,attempts=? WHERE id=?',
                                      (status, code, attempts, key))
-            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.execute("DELETE FROM settings WHERE key='image_structure_recheck'")
             inventory.db.commit()
             before = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
         with Inventory(self.root, read_only=True) as inventory:
             self.assertIn('81', [row['id'] for row in inventory.pending()])
-            self.assertNotIn('82', [row['id'] for row in inventory.pending()])
-            self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone())
+            self.assertIn('82', [row['id'] for row in inventory.pending()])
+            self.assertNotIn('87', [row['id'] for row in inventory.pending()])
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone())
             self.assertEqual(dict(inventory.db.execute("SELECT * FROM episodes WHERE id='81'").fetchone()), before['81'])
         with Inventory(self.root) as inventory:
             after = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
-            self.assertEqual(after.pop('81'), before.pop('81') | {'status': 'queued', 'error_code': None, 'attempts': 0})
+            for key in ('81', '82', '88', '89'):
+                self.assertEqual(after.pop(key), before.pop(key) | {'status': 'queued', 'error_code': None, 'attempts': 0})
             self.assertEqual(after, before)
             self.assertIn('81', [row['id'] for row in inventory.pending()])
             for _ in range(MAX_FAILED_ATTEMPTS):
@@ -237,21 +243,21 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()),
                              ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
 
-    def test_padded_jpeg_upgrade_rolls_back_the_requeue_if_its_marker_cannot_be_saved(self):
+    def test_image_structure_upgrade_rolls_back_the_requeue_if_its_marker_cannot_be_saved(self):
         with Inventory(self.root) as inventory:
             inventory.observe('42', 'S', [episode('81', access='webtoon_free')], 'subscribed')
             for _ in range(MAX_FAILED_ATTEMPTS):
                 inventory.mark('81', 'failed', 'job_failed', attempted=True)
-            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.execute("DELETE FROM settings WHERE key='image_structure_recheck'")
             inventory.db.execute("CREATE TRIGGER fail_upgrade BEFORE INSERT ON settings "
-                                 "WHEN NEW.key='webtoon_padded_jpeg_recheck' BEGIN SELECT RAISE(ABORT,'interrupted'); END")
+                                 "WHEN NEW.key='image_structure_recheck' BEGIN SELECT RAISE(ABORT,'interrupted'); END")
             inventory.db.commit()
         with self.assertRaises(sqlite3.IntegrityError):
             Inventory(self.root)
         with Inventory(self.root, read_only=True) as inventory:
             self.assertEqual(tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()),
                              ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
-            self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='webtoon_padded_jpeg_recheck'").fetchone())
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone())
         with sqlite3.connect(self.root / '.archive-state/inventory.sqlite3') as db:
             db.execute('DROP TRIGGER fail_upgrade')
         with Inventory(self.root) as inventory:

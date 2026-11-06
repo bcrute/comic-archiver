@@ -384,7 +384,7 @@ class ControllerTests(Controller):
             inventory.observe('42', 'S', [{'id': '81', 'title': 'E', 'order': 1, 'access_state': 'webtoon_free'}], 'subscribed')
             for _ in range(3):
                 inventory.mark('81', 'failed', 'job_failed', attempted=True)
-            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_padded_jpeg_recheck'")
+            inventory.db.execute("DELETE FROM settings WHERE key='image_structure_recheck'")
             inventory.db.commit()
         self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
         self.go()

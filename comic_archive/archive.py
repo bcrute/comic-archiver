@@ -67,18 +67,11 @@ def safe_name(title):
 
 
 def image_extension(data):
-    # Magic-byte detection preserves opaque-named Android JPEG files unchanged.
-    # Some original JPEGs have zero padding after EOI. Recognize that padding
-    # without removing it from the cached/exported bytes or accepting other tails.
-    if data.startswith(b"\xff\xd8\xff") and data.rstrip(b"\0").endswith(b"\xff\xd9"):
-        return ".jpg"
-    if data.startswith(b"\x89PNG\r\n\x1a\n") and b"IEND" in data[-16:]:
-        return ".png"
-    if data.startswith((b"GIF87a", b"GIF89a")) and data.endswith(b";"):
-        return ".gif"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP" and int.from_bytes(data[4:8], "little") + 8 == len(data):
-        return ".webp"
-    raise ArchiveError("Page is not a recognized complete JPEG/PNG/GIF/WebP; encrypted content is unsupported.")
+    from .image_formats import image_stream_extension
+    try:
+        return image_stream_extension(data)
+    except ValueError:
+        raise ArchiveError('Page is not a supported JPEG/PNG/GIF/WebP with a complete image structure.') from None
 
 
 def atomic_json(path, value):
@@ -717,7 +710,8 @@ def verify_series_contents(metadata, cover=None, *, image_decoder=None):
         if (type(metadata.get('cover_size')) is not int or len(cover)!=metadata['cover_size']
                 or digest(cover)!=metadata.get('cover_sha256')):
             return ['Cover size or hash does not match metadata']
-        image_extension(cover)
+        if image_extension(cover) != Path(filename).suffix:
+            return ['Cover image format differs from metadata']
         if image_decoder is not None:
             try:
                 image_decoder(cover)

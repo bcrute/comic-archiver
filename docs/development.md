@@ -24,6 +24,32 @@ installer are tested on Windows 11.
 
 ## Run it from this folder
 
+### What image verification checks
+
+The importer identifies JPEG, PNG, GIF, and WebP from their bytes and checks the
+format's structure before caching or publishing a page. It follows JPEG markers
+and counted segments, PNG chunks and CRCs, GIF blocks, and WebP's RIFF chunk
+boundaries. It stops at the image stream's logical end rather than requiring
+that end to coincide with the end of the downloaded file. Source bytes,
+including any trailing data, are preserved and included in the saved size and
+SHA-256 hash. No image is repaired, stripped, or re-encoded in Original mode.
+
+These checks catch incomplete structures and non-image responses. They do not
+decode compressed pixels or prove that every codec value is valid. Archive
+verification separately checks membership, order, sizes, and hashes; the
+optional `--decode-images` check uses Pillow to verify and load every frame.
+Pillow is already included in desktop packages. The structural checks use only
+the standard library so the shared Android importer needs no new native codec.
+
+This distinction follows [JPEG's marker syntax](https://www.w3.org/Graphics/JPEG/itu-t81.pdf),
+the [PNG chunk format](https://www.w3.org/TR/png/), the
+[GIF block grammar](https://www.w3.org/Graphics/GIF/spec-gif89a.txt), and
+[WebP's container rules](https://developers.google.com/speed/webp/docs/riff_container).
+WebP explicitly permits readers to ignore data beyond the declared container.
+See also [Pillow's distinction between verification and pixel loading](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.verify).
+
+### Install from this folder
+
 ```sh
 uv tool install --editable . --with 'PySide6>=6.11.2,<6.12' --with 'playwright==1.63.0' --with 'Pillow>=10'
 comic-archiver

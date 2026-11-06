@@ -112,7 +112,7 @@ class NovelTests(unittest.TestCase):
             self.assertNotIn(unrelated, text)
 
     def test_zero_padded_jpeg_illustrations_remain_byte_exact_in_epub_and_standalone_restore(self):
-        data = jpeg() + b'\0' * 65536
+        data = jpeg() + b'\0' * 65536 + b'preserved source trailer\xff'
         chapter = Episode('81', self.adapter.series.id, 'Chapter', 1, (), 'tapas_free',
                           'https://tapas.io/episode/81', content_type='novel',
                           text_html='<p>Text<img src="images/0001.jpg" /></p>', illustrations=(data,))
