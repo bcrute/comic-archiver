@@ -5,7 +5,6 @@ puts it on screen and passes clicks on. Every call to the library runs on a thre
 window's own, and its answer comes back here.
 """
 import html
-import math
 import time
 
 from . import app_actions, dashboard_model, license_texts, storage_model, support_details, support_log
@@ -170,11 +169,10 @@ class Kit:
                 self.updateGeometry()
 
             def sizeHint(self):
-                # Integer font metrics can round down while elidedText still
-                # needs the fractional advance. Leave one paint pixel as well.
-                advance = q.QtGui.QFontMetricsF(self.font(), self).horizontalAdvance(self.text())
-                return q.QtCore.QSize(max(self.minimumWidth(), math.ceil(advance) + 1),
-                                      self.fontMetrics().height())
+                # Let QLabel account for its font, styling and text margins.
+                # Keep only the minimum width and single-line height under our control.
+                natural = super().sizeHint()
+                return q.QtCore.QSize(max(self.minimumWidth(), natural.width()), self.fontMetrics().height())
 
             def minimumSizeHint(self):
                 return q.QtCore.QSize(self.minimumWidth(), self.fontMetrics().height())
