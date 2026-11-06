@@ -166,10 +166,13 @@ class Kit:
                 super().setText(value)
                 self.setToolTip(value)
                 self.setAccessibleDescription(value)
+                self.updateGeometry()
 
             def sizeHint(self):
-                return q.QtCore.QSize(max(self.minimumWidth(), self.fontMetrics().horizontalAdvance(self.text())),
-                                      self.fontMetrics().height())
+                # Let QLabel account for its font, styling and text margins.
+                # Keep only the minimum width and single-line height under our control.
+                natural = super().sizeHint()
+                return q.QtCore.QSize(max(self.minimumWidth(), natural.width()), self.fontMetrics().height())
 
             def minimumSizeHint(self):
                 return q.QtCore.QSize(self.minimumWidth(), self.fontMetrics().height())

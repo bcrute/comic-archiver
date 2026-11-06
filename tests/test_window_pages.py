@@ -319,6 +319,29 @@ class HelperTests(unittest.TestCase):
 
 
 class DashboardTests(PagesCase):
+    def test_hinted_values_expand_when_their_text_changes(self):
+        window_pages.paint(Q, self.window, True)
+        self.open()
+        self.window.resize(1800, 1000)
+        texts = ('—', 'an hour', '4.8 GB to go | 1.4 TB free', '15 hours', '409 GB to go | 473 GB free')
+        for family in ('DejaVu Sans', 'Noto Sans'):
+            font = self.window.font(); font.setFamily(family); self.window.setFont(font)
+            for text in (*texts, *(f'{n} hours' for n in range(1, 21))):
+                rows = dashboard_model.card_rows({'Time left': text})
+                next(row for row in rows if row['name'] == 'Time left')['tip'] = dashboard_model.ESTIMATE_TIP
+                self.card._fields(rows)
+                settle()
+                value = dict((name.text(), value) for name, value in self.card.cells)['Time left']
+                hint = self.card.hints[dashboard_model.CARD_FIELDS.index('Time left')]
+                needed = value.fontMetrics().horizontalAdvance(text)
+                self.assertGreaterEqual(value.contentsRect().width(), needed, (text, needed, value.width()))
+                self.assertEqual(value.fontMetrics().elidedText(text, QtCore.Qt.TextElideMode.ElideRight,
+                                                               value.contentsRect().width()), text)
+                self.assertLessEqual(hint.x() - value.geometry().right(), 12)
+        if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+            from pathlib import Path
+            self.assertTrue(self.card.widget.grab().save(str(Path(destination) / 'hint-value-width.png')))
+
     def test_local_verification_progress_fits_the_existing_rows(self):
         window_pages.paint(Q, self.window, False)
         self.actions.reading['account'].update(status='running', phase='verify', elapsed_seconds=600,
