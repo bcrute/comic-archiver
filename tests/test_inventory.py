@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 import sqlite3
 import tempfile
@@ -258,8 +259,9 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()),
                              ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
             self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone())
-        with sqlite3.connect(self.root / '.archive-state/inventory.sqlite3') as db:
-            db.execute('DROP TRIGGER fail_upgrade')
+        with closing(sqlite3.connect(self.root / '.archive-state/inventory.sqlite3')) as db:
+            with db:
+                db.execute('DROP TRIGGER fail_upgrade')
         with Inventory(self.root) as inventory:
             self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
 
