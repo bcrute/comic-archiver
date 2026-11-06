@@ -1441,6 +1441,8 @@ class Pages:
             self.render()
             if error is None:
                 self.confirm_cloud(key)
+                if s.library_refresh:
+                    self.count_site(key, s, actions, True)
             if then is not None:
                 then(error is None)
         actions = self.actions_for(key)
@@ -1556,7 +1558,6 @@ class Pages:
             s.received_account(value, self.now())
             # A fast failure can arrive before Go returns, with no running refresh in between.
             s.download_started()
-            s.library_refresh = True
             s.offline = False
         self.account_act(self.actions_for(key or self.chosen).go, started, key=key)
 

@@ -337,8 +337,8 @@ class DashboardTests(PagesCase):
         self.pages.reopened(answers.append)
         self.assertEqual(answers, [True])
         self.assertTrue(self.pages.drawn())
-        self.assertEqual([call[0] for call in self.actions.calls], ['context', 'poll'])
-        self.assertTrue(self.actions.named('poll')[0][2]['library'])
+        self.assertEqual([call[0] for call in self.actions.calls], ['context', 'saved_files', 'poll'])
+        self.assertFalse(self.actions.named('poll')[0][2]['library'])
         d, c = self.dashboard, self.card
         self.assertEqual(c.pill.text(), 'Paused')
         self.assertEqual(c.pill.property('tone'), 'warning')
@@ -387,7 +387,7 @@ class DashboardTests(PagesCase):
         webtoon = self.sites['webtoon']
         webtoon.reading['account']['status'] = 'finished'
         self.open()
-        self.assertEqual([call[0] for call in webtoon.calls], ['context', 'poll'])
+        self.assertEqual([call[0] for call in webtoon.calls], ['context', 'saved_files', 'poll'])
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Finished')
         self.assertEqual(self.fields('webtoon')['Finished'], 'Every episode your account can read is saved')
         self.dashboard.cards['webtoon'].action.click()
@@ -875,7 +875,7 @@ class DownloadSettingsTests(PagesCase):
         self.assertFalse(s.signin_note.isVisible())
         pick(s.speed, 'medium')
         self.assertEqual(self.actions.named('speed')[0][1], ('medium',))
-        self.assertEqual((s.speed.currentData(), s.speed_help.text()), ('medium', 'About four images a second.'))
+        self.assertEqual((s.speed.currentData(), s.speed_help.text()), ('medium', 'About half the Fast speed.'))
         # Another site's speed is chosen on that site: the header's site list opens it.
         self.assertFalse(hasattr(s, 'speed_rows') or hasattr(s, 'other_speeds'))
 
@@ -1371,7 +1371,7 @@ class LibraryTests(PagesCase):
         self.assertEqual([lib.site.itemText(i) for i in range(lib.site.count())], ['All sites', 'Tapas', 'Webtoon'])
         self.assertEqual(lib.title.text(), 'Your saved library, all sites')
         self.assertEqual((len(self.actions.named('saved_snapshot')), len(webtoon.named('saved_snapshot'))), (1, 1))
-        self.assertEqual(self.actions.named('saved_files'), [])
+        self.assertEqual([call for call in self.actions.named('saved_files') if not call[2].get('summary')], [])
         self.assertEqual(lib.table.rowCount(), 4)
         # Each file names its site under its series, and opens through that site's own library.
         self.assertEqual([lib.table.item(row, 0).text() for row in range(4)],

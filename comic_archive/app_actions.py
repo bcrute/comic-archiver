@@ -256,7 +256,7 @@ def received(state, reading, now, task=None):
             state.failed(text, now)
         state.task = state.task_kind = None
         state.library_refresh = True
-    if previous_account != 'finished' and state.account.get('status') == 'finished':
+    if previous_account is not None and previous_account != 'finished' and state.account.get('status') == 'finished':
         state.library_refresh = True
     connected = previous_auth != 'connected' and (state.cloud_auth or {}).get('status') == 'connected'
     if connected:

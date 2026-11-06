@@ -696,7 +696,6 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
     transport = getattr(adapter, 'transport', None)
     previous_interval = getattr(transport, 'interval', None)
     if metadata_speed in ('medium', 'slow') and isinstance(transport, Transport):
-        from . import sites
         other = isinstance(getattr(adapter, 'site', None), sites.Site) and adapter.site != sites.DEFAULT
         transport.interval = relative_policy(metadata_speed, other_site=other)['metadata_interval']
     try:
