@@ -6558,5 +6558,13 @@
   "new": "                pass",
   "test_file": "test_site_layout.py",
   "test": "test_journal_and_renames_are_durable_before_the_journal_is_removed"
+ },
+ {
+  "id": "site-layout-startup-does-not-migrate",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            site_layout.prepare(root)\n",
+  "new": "",
+  "test_file": "test_app_runtime.py",
+  "test": "test_normal_app_startup_automatically_moves_legacy_data_without_an_external_step"
  }
 ]

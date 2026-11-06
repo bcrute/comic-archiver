@@ -62,6 +62,68 @@ class AppRuntimeTests(unittest.TestCase):
         registry = runtime.registry
         return registry.resolve(LOCAL_OWNER, registry.workspace_id).library
 
+    def legacy_libraries(self):
+        """Existing provider data before normalization, built without starting the app."""
+        from comic_archive.local_library import LocalWorkspaceRegistry
+        result = {}
+        for site in (sites.DEFAULT, sites.named('webtoon'), sites.named('tappytoon')):
+            place = self.root if site == sites.DEFAULT else self.root / site.name
+            place.mkdir(parents=True, exist_ok=True)
+            registry = LocalWorkspaceRegistry(place)
+            self.addCleanup(registry.cloud_signin.close)
+            session = place / '.comic-session/state.json'
+            session.write_text(json.dumps({'cookies': [], 'origins': []}))
+            archive = place / 'Library/Series/episode.cbz'; archive.parent.mkdir()
+            archive.write_bytes(b'original archive')
+            result[site.key] = {'workspace_id':registry.workspace_id, 'inode':archive.stat().st_ino,
+                                'state':session.read_bytes(), 'library_inode':(place / 'Library').stat().st_ino}
+        return result
+
+    def test_normal_app_startup_automatically_moves_legacy_data_without_an_external_step(self):
+        before = self.legacy_libraries()
+        library = self.sites()
+        library.start()  # The only entry point used; never call the migration helper here.
+        self.assertEqual(set(library.runtimes), set(before))
+        for key, previous in before.items():
+            runtime = library.runtime(key)
+            expected = self.root / sites.named(key).name / 'Library'
+            self.assertEqual(runtime.folder, expected)
+            self.assertEqual(runtime.registry.workspace_id, previous['workspace_id'])
+            self.assertEqual(expected.stat().st_ino, previous['library_inode'])
+            self.assertEqual((expected / 'Series/episode.cbz').stat().st_ino, previous['inode'])
+            self.assertEqual((expected / 'Series/episode.cbz').read_bytes(), b'original archive')
+            self.assertEqual(runtime.state.read_bytes(), previous['state'])
+        self.assertFalse((self.root / 'Library').exists())
+        self.assertFalse((self.root / '.comic-session').exists())
+        self.background['start'].assert_not_called()
+        library.stop(0)
+        again = self.sites(); again.start()
+        self.assertEqual(again.runtime('tapas').registry.workspace_id, before['tapas']['workspace_id'])
+        self.assertEqual(again.runtime('tapas').folder.stat().st_ino, before['tapas']['library_inode'])
+
+    def test_normal_app_startup_resumes_an_interrupted_move_on_the_next_launch(self):
+        from comic_archive import site_layout
+        before = self.legacy_libraries()
+        rename = os.rename
+        def interrupted(source, destination):
+            if Path(source) == self.root / '.comic-session':
+                raise OSError('interrupted')
+            return rename(source, destination)
+        first = self.sites()
+        with patch('comic_archive.site_layout.os.rename', side_effect=interrupted), self.assertRaises(ArchiveError):
+            first.start()
+        self.assertFalse(first.runtimes)
+        self.assertTrue((self.root / '.comic-shared' / site_layout.PENDING).is_file())
+        again = self.sites(); again.start()  # Restart alone must finish; no external prepare call.
+        self.assertEqual(set(again.runtimes), set(before))
+        for key, previous in before.items():
+            runtime = again.runtime(key)
+            self.assertEqual(runtime.registry.workspace_id, previous['workspace_id'])
+            self.assertEqual((runtime.folder / 'Series/episode.cbz').stat().st_ino, previous['inode'])
+            self.assertEqual(runtime.state.read_bytes(), previous['state'])
+        self.assertFalse((self.root / '.comic-shared' / site_layout.PENDING).exists())
+        self.background['start'].assert_not_called()
+
     def test_default_library_is_one_fixed_folder_in_the_real_home_never_the_working_directory(self):
         self.assertEqual(app_runtime.default_root(), self.home / 'Comic Archiver')
         real = self.home / 'real'; real.mkdir()
