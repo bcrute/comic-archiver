@@ -169,10 +169,11 @@ class Kit:
                 self.setAccessibleDescription(value)
 
             def sizeHint(self):
-                return q.QtCore.QSize(self.minimumWidth(), self.fontMetrics().height())
+                return q.QtCore.QSize(max(self.minimumWidth(), self.fontMetrics().horizontalAdvance(self.text())),
+                                      self.fontMetrics().height())
 
             def minimumSizeHint(self):
-                return self.sizeHint()
+                return q.QtCore.QSize(self.minimumWidth(), self.fontMetrics().height())
 
             def paintEvent(self, event):
                 painter = q.QtGui.QPainter(self)
@@ -395,7 +396,7 @@ class SiteCard:
                 name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.single_line('', 'fieldValue')
                 hint = self.kit.hint()
                 reserved(hint)
-                holder = self.kit.row(value, hint, spacing=6, stretch=False)
+                holder = self.kit.row(value, hint, spacing=6)
                 self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
                 self.fields.addWidget(holder, index, 1)
                 placed(name, holder)
@@ -408,8 +409,13 @@ class SiteCard:
             hint.setToolTip(tip)
             hint.setAccessibleDescription(tip)
             hint.setVisible(bool(tip))
-            # The hint keeps its space, so adding an explanation never moves a value.
-            value.parentWidget().layout().setStretchFactor(value, 1)
+            # A hint follows the value; spare width goes after it. The row keeps
+            # its height, and long values can still shrink and elide on one line.
+            policy = self.kit.w.QSizePolicy.Policy
+            value.setSizePolicy(policy.Preferred if tip else policy.Ignored, policy.Fixed)
+            layout = value.parentWidget().layout()
+            layout.setStretchFactor(value, 0 if tip else 1)
+            layout.setStretch(2, 1 if tip else 0)
 
     def show(self, s, v):
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
