@@ -42,7 +42,7 @@ def _jpeg(data):
             continue
         if entropy and (0xD0 <= code <= 0xD7 or code == 1):
             continue  # Restart and TEM markers have no length field.
-        entropy = False
+        in_scan, entropy = entropy, False
         if code == 0xD9:
             if not (frame and scan and pixels and height):
                 _invalid(data, 'jpeg', offset, 'incomplete_image')
@@ -67,9 +67,10 @@ def _jpeg(data):
                 _invalid(data, 'jpeg', offset, 'invalid_scan')
             scan, entropy = True, True
         elif code == 0xDC:  # DNL supplies a frame height initially recorded as zero.
-            if size != 4 or not scan or not int.from_bytes(data[offset + 2:end], 'big'):
+            if size != 4 or not in_scan or not int.from_bytes(data[offset + 2:end], 'big'):
                 _invalid(data, 'jpeg', offset, 'invalid_dnl')
             height = True
+            entropy = in_scan
         offset = end
     _invalid(data, 'jpeg', offset, 'missing_eoi')
 

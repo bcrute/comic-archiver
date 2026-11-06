@@ -193,6 +193,17 @@ class ImageFormatTests(unittest.TestCase):
         self.refused(data[:-2] + b'\xff\0\xd9')
         self.refused(b'\xff\xd8\xff\xd9')  # Tables/header alone do not make an image.
 
+    def test_jpeg_dnl_supplies_a_deferred_height_and_resumes_the_scan(self):
+        data = bytearray(encoded('JPEG'))
+        frame = data.index(b'\xff\xc0')
+        data[frame + 5:frame + 7] = b'\0\0'
+        self.refused(bytes(data))
+        # DNL is a counted marker inside the scan, followed by more entropy
+        # bytes. This exercises structure only; some decoders omit DNL support.
+        deferred = bytes(data[:-2]) + b'\xff\xdc\0\x04\0\x08' + b'\xff\0\x7f' + bytes(data[-2:])
+        self.accepted(deferred + b'nonzero tail', '.jpg', decode=False)
+        self.refused(deferred[:-2])
+
     def test_png_validates_chunk_boundaries_and_crcs_instead_of_searching_for_iend(self):
         data = encoded('PNG')
         comment = png_chunk(b'tEXt', b'Comment\0IEND is ordinary text here')
