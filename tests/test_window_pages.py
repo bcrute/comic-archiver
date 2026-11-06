@@ -172,6 +172,10 @@ class FakeActions:
 
     def saved_files(self, **options):
         self.record('saved_files', **options)
+        if options.get('summary'):
+            if self.summary_fails:
+                raise app_actions.Refused('request_unavailable', 'Counts unavailable')
+            return {'episode_count': 70, 'file_count': 140, 'locations': LOCATIONS}
         if self.answers:
             return self.answers.pop(0)
         return {'files': copy.deepcopy(FILES), 'total': self.total, 'offset': options['offset'], 'limit': options['limit'],
@@ -464,7 +468,7 @@ class DashboardTests(PagesCase):
         self.assertEqual([b.text() for b in self.dashboard.place_buttons],
                          ['This device\n120 episodes · 240 files', 'Backblaze B2\n20 episodes · 40 files'])
         self.sites['webtoon'].summary_fails = True
-        self.clock[0] += 31
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
         # A site that could not be counted is left out; the others still show.
         self.assertEqual([number.text() for _, number in self.dashboard.metric_cells], ['70', '140', '60', '10'])
@@ -572,7 +576,7 @@ class DashboardTests(PagesCase):
         self.actions.refused['context'] = 'The service is temporarily unavailable. Try again shortly.'
         answers = []
         self.pages.reopened(answers.append)
-        self.assertEqual((answers, [call[0] for call in self.actions.calls]), ([True], ['context', 'poll']))
+        self.assertEqual((answers, [call[0] for call in self.actions.calls]), ([True], ['context', 'saved_files', 'poll']))
         self.assertEqual(self.card.pill.text(), 'Paused')
         self.pages.go_to('settings/downloads')
         self.assertFalse(self.settings.site_row.isVisible())
@@ -591,6 +595,64 @@ class DashboardTests(PagesCase):
         self.pages.poll()
         self.assertFalse(self.card.message.isVisible())
         self.assertEqual(self.card.pill.text(), 'Paused')
+
+    def test_progress_reads_between_hourly_recounts_do_not_scan_saved_files(self):
+        self.open()
+        initial = len(self.actions.named('saved_files'))
+        for _ in range(10):
+            self.clock[0] += dashboard_model.POLL_SECONDS
+            self.pages.poll()
+        self.assertEqual(len(self.actions.named('saved_files')), initial)
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS
+        self.pages.poll()
+        self.assertEqual(len(self.actions.named('saved_files')), initial + 1)
+
+    def test_a_slow_recount_does_not_delay_downloader_progress_or_start_duplicate_counts(self):
+        self.open()
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
+        self.shell.held = []
+        self.pages.poll()
+        self.assertEqual(len(self.shell.held), 2)
+        recount, progress = self.shell.held
+        self.shell.held = []
+        self.shell.finish(*progress)
+        for _ in range(5):
+            self.clock[0] += dashboard_model.POLL_SECONDS
+            self.actions.reading['account']['status'] = 'running'
+            self.pages.poll()
+            self.assertEqual(len(self.shell.held), 1)
+            self.shell.finish(*self.shell.held.pop())
+            self.assertEqual(self.pages.state.refreshed_at, self.clock[0])
+            self.assertFalse(self.pages.state.offline)
+            self.assertNotIn('reconnect', self.dashboard.updated.text())
+        # A newer count request arrives while the first count is still running.
+        self.pages.state.library_refresh = True
+        self.actions.summary_fails = True
+        self.shell.finish(*recount)
+        self.assertIs(self.pages.state.summary, False)
+        self.assertTrue(self.pages.state.library_refresh)
+        self.assertFalse(self.pages.state.offline)
+        self.assertEqual(self.pages.state.refreshed_at, self.clock[0])
+        self.pages.poll()
+        self.assertEqual(len(self.shell.held), 2)
+        self.shell.release()
+
+    def test_a_count_for_an_old_folder_cannot_replace_the_new_folders_counts(self):
+        self.open()
+        old = self.pages.state
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
+        self.shell.held = []
+        self.pages.poll()
+        recount, progress = self.shell.held
+        self.shell.held = None
+        self.pages.reopened()
+        fresh = self.pages.state
+        self.assertIsNot(fresh, old)
+        fresh.summary = {'episode_count': 999}
+        self.shell.finish(*recount)
+        self.shell.finish(*progress)
+        self.assertEqual(fresh.summary, {'episode_count': 999})
+        self.assertFalse(self.pages.polling or self.pages.counting)
 
     def test_a_refresh_for_a_library_that_was_replaced_meanwhile_is_dropped(self):
         self.open()
@@ -653,9 +715,10 @@ class DashboardTests(PagesCase):
         self.open()
         cells = [number for _, number in self.dashboard.metric_cells]
         places = list(self.dashboard.place_buttons)
-        self.clock[0] += 31
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
-        self.assertTrue(self.actions.named('poll')[-1][2]['library'])
+        self.assertFalse(self.actions.named('poll')[-1][2]['library'])
+        self.assertEqual(self.actions.named('saved_files')[-1][2], {'summary': True, 'refresh': False})
         self.assertEqual([number for _, number in self.dashboard.metric_cells], cells)
         self.assertEqual(self.dashboard.place_buttons, places)
         places[1].click()
@@ -666,12 +729,12 @@ class DashboardTests(PagesCase):
         self.assertEqual(self.actions.named('saved_files')[-1][2]['location'], 'all')
         self.actions.summary_fails = True
         self.pages.go_to('dashboard')
-        self.clock[0] += 31
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
         self.assertEqual(self.dashboard.library_summary.text(), storage_model.LIBRARY_UNAVAILABLE)
         self.assertTrue(self.dashboard.library_summary.isVisible())
         self.actions.summary_fails = False
-        self.clock[0] += 31
+        self.clock[0] += dashboard_model.LIBRARY_SECONDS + 1
         self.pages.poll()
         self.assertFalse(self.dashboard.library_summary.isVisible())
 

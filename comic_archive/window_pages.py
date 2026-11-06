@@ -1276,6 +1276,7 @@ class Pages:
         self.states = {}
         self.cloud_offered = True
         self.route = 'dashboard'
+        self.counting = {}  # Saved-file counts must never hold up downloader progress.
         self.polling = {}  # Each site's state with a refresh on its way.
         self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
@@ -1390,6 +1391,7 @@ class Pages:
         """A library folder is open, at the start or after another folder was chosen: read every site, afresh."""
         route = self.route
         self.states = {}
+        self.counting = {}
         self.polling = {}
         self.cloud_asked = set()
         self.library.value = None
@@ -1441,8 +1443,30 @@ class Pages:
                 self.confirm_cloud(key)
             if then is not None:
                 then(error is None)
-        self.run(lambda: self.actions_for(key).poll(task, network=network, cloud=s.cloud_offered, library=library,
-                                                    refresh=recount), done)
+        actions = self.actions_for(key)
+        if library:
+            self.count_site(key, s, actions, recount)
+        self.run(lambda: actions.poll(task, network=network, cloud=s.cloud_offered, library=False,
+                                      refresh=False), done)
+
+    def count_site(self, key, s, actions, recount):
+        if key in self.counting or self.states.get(key) is not s:
+            return
+        self.counting[key] = s
+        # A later request to recount (for example a completed upload) must survive
+        # this callback. Clear only the request this read is about to serve.
+        s.library_refresh = False
+
+        def done(value, error):
+            if self.counting.get(key) is s:
+                del self.counting[key]
+            if self.states.get(key) is not s:
+                return
+            s.summary, s.library_at = False if error is not None else value, self.now()
+            if s.summary:
+                s.locations = s.summary.get('locations') or []
+            self.render()
+        self.run(lambda: actions.saved_files(summary=True, refresh=recount), done)
 
     def render(self):
         now, chosen = self.now(), self.chosen
@@ -1532,6 +1556,7 @@ class Pages:
             s.received_account(value, self.now())
             # A fast failure can arrive before Go returns, with no running refresh in between.
             s.download_started()
+            s.library_refresh = True
             s.offline = False
         self.account_act(self.actions_for(key or self.chosen).go, started, key=key)
 

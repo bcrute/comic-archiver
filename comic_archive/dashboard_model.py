@@ -7,18 +7,19 @@ from dataclasses import dataclass, field
 import math
 
 # Each refresh of the dashboard reads the library this often; the clocks are redrawn every second in between.
-POLL_SECONDS = 5
+POLL_SECONDS = 60
 # The connection is checked now and then, not on every refresh.
 NETWORK_SECONDS = 15
 # Saved-file counts are read again at most this often, unless something changed them.
-LIBRARY_SECONDS = 30
+LIBRARY_SECONDS = 3600
 # A downloader that has not said it is there this long after a sign-in is offline, not starting.
 STARTING_SECONDS = 120
 # Updates count as delayed once none has arrived for this long.
-DELAYED_SECONDS = 15
+DELAYED_SECONDS = 3 * POLL_SECONDS
 # A failure stays on the dashboard this long, so it can be read.
 MESSAGE_SECONDS = 30
 # The speed shown is the average over the last minute. A second more lets a late refresh count.
+SPEED_MIN_SECONDS = 4  # Immediate user actions can request a refresh between scheduled reads.
 SPEED_SECONDS = 60 + 1
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
@@ -297,12 +298,15 @@ class State:
             # Each step counts from nothing: what a new one has saved, it saved since the last refresh.
             total += saved - before if step == last.get('id') and saved >= before else saved
             self.counted = (last.get('id'), saved)
-        self.saved_at = [(at, count) for at, count in self.saved_at if now - at <= SPEED_SECONDS] + [(now, total)]
+        recent = [(at, count) for at, count in self.saved_at if now - at <= SPEED_SECONDS]
+        # A scheduled read can arrive late on a busy or sleeping drive. Retain
+        # one previous sample so a minute's work still has a measured rate.
+        self.saved_at = (recent or self.saved_at[-1:]) + [(now, total)]
 
     def speed(self):
-        """Bytes a second saved over the last minute, or None until two readings are at least a refresh apart."""
+        """Bytes a second saved over the last minute, or None until two readings are sufficiently separated."""
         (first, start), (last, end) = self.saved_at[0], self.saved_at[-1]
-        return (end - start) / (last - first) if last - first >= POLL_SECONDS - 1 else None
+        return (end - start) / (last - first) if last - first >= SPEED_MIN_SECONDS else None
 
     def received_site_auth(self, value, now):
         if (value or {}).get('status') == 'connected' and (self.site_auth or {}).get('status') != 'connected':

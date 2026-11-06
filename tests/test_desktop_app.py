@@ -923,7 +923,7 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(shell.notice.args, (desktop_app.STARTING,))
         shell.poll_clock.setInterval.assert_called_once_with(desktop_app.POLL_MS)
         shell.tick_clock.setInterval.assert_called_once_with(desktop_app.CLOCK_MS)
-        self.assertEqual((desktop_app.POLL_MS, desktop_app.CLOCK_MS), (5000, 1000))
+        self.assertEqual((desktop_app.POLL_MS, desktop_app.CLOCK_MS), (60000, 1000))
         emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)  # Still starting: nothing to read or draw.
         pages.poll.assert_not_called(); pages.render.assert_called_once_with()
         shell.stack.setCurrentWidget.assert_not_called()

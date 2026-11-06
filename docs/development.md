@@ -153,3 +153,12 @@ nonzero breakdown, plus the original SHA-256 and confirmation that bytes were
 preserved. Covers use `page=cover`. Routine images without tails do not add a
 line. These records contain no image payload, titles, paths or asset URLs;
 generic exception text remains excluded from support logs.
+
+The desktop dashboard reads local progress once a minute and recounts saved
+files on opening, hourly, and after a completed download or explicit storage
+change. Saved-file scans run separately from progress reads, with at most one
+scan per site in flight. They read local archives, metadata and upload receipts;
+these dashboard reads do not poll the content or cloud providers. Provider
+request scheduling is unchanged. Progress becomes stale only after three missed
+minutes. Slow library operations record their site, operation and duration in
+the application log without recording request arguments or private results.

@@ -22,6 +22,19 @@ class SavedLibraryTests(unittest.TestCase):
         (self.folder/'series.json').write_text(json.dumps(self.series))
         self.catalog = Catalog(b'synthetic-catalog-key')
 
+    def test_a_local_library_without_receipt_folders_skips_per_episode_cloud_reads(self):
+        from comic_archive import cloud
+        state = self.workspace.library / '.archive-state/cloud'
+        state.mkdir(parents=True)
+        (state / 'targets.json').write_text(json.dumps({'schema_version': 1,
+                                                       'library_id': str(uuid.uuid4()), 'targets': {}}))
+        for number in range(1, 4):
+            self.episode(number)
+        with patch.object(cloud, 'receipts_for', wraps=cloud.receipts_for) as receipts:
+            result = self.catalog.collect(self.workspace, True)
+        self.assertEqual(result['episode_count'], 3)
+        receipts.assert_not_called()
+
     def episode(self, number, extension='cbz'):
         archive = self.folder/f'episode-{number:03}.{extension}'
         archive.write_bytes(b'SAVED_ARCHIVE_FIXTURE')

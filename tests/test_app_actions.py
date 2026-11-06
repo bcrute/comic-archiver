@@ -29,6 +29,16 @@ class ActionsTests(unittest.TestCase):
             work(*args, **options)
         return refused.exception.code, str(refused.exception)
 
+    def test_slow_reads_log_operation_site_and_duration_without_arguments_or_results(self):
+        self.registry.saved_files.return_value = {'PRIVATE': 'secret result'}
+        with patch('comic_archive.app_actions.time.monotonic', side_effect=[10, 12.75]), \
+                self.assertLogs('comic_archive.desktop', 'INFO') as logged:
+            self.actions._call('saved_files', 'PRIVATE token', locked=False, query='PRIVATE query')
+        line = ' '.join(logged.output)
+        self.assertIn('site=Tapas operation=saved_files seconds=2.750', line)
+        self.assertNotIn('PRIVATE', line)
+        self.assertNotIn('secret', line)
+
     def test_each_call_goes_to_the_open_library_as_its_local_owner(self):
         for name, method, args in (('go', 'start_account', ()), ('pause', 'pause_account', ()), ('signin', 'start_site_signin', ()),
                                    ('sign_out', 'sign_out_site', ()), ('speed', 'choose_speed', ('slow',)),
