@@ -96,12 +96,12 @@ def named(key):
 
 
 def folder(root, site):
-    """Where one site's library, sign-in and downloader live inside the library folder.
-
-    Tapas keeps the library folder itself, as before sites could be chosen, so nothing already saved moves.
-    Every other site has a folder of its own, named after it, inside.
-    """
-    return root if site.key == DEFAULT.key else root / site.name
+    """Normalized desktop roots use sibling folders; unmoved legacy workspaces remain addressable."""
+    if site.key == DEFAULT.key:
+        from .site_layout import known
+        if not known(root):
+            return root
+    return root / site.name
 
 
 def of_session(directory):

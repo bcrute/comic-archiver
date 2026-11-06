@@ -40,6 +40,8 @@ def leads_elsewhere(root):
     """
     root = Path(root)
     found = [root / '.comic-shared', root / '.comic-shared/cloud']
+    # Retain checks on the original Tapas directories until their move completes.
+    found += [root / name for name in INSIDE] + [root / sites.DEFAULT.name]
     for site in sites.SITES:
         place = sites.folder(root, site)
         found += ([] if place == root else [place]) + [place / name for name in INSIDE]

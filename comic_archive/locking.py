@@ -43,6 +43,8 @@ class LibraryLock:
         self.depth = 0
 
     def __enter__(self):
+        from .site_layout import require_location
+        require_location(self.root)
         with _guard:
             owner = threading.get_ident()
             if self.key in _held:

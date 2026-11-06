@@ -209,7 +209,7 @@ class DesktopAppTests(unittest.TestCase):
         self.runtime.folder = root / 'Library'
         other = Mock(site=sites.DEFAULT); other.vanished.return_value = False; other.runtimes = {'tapas': other.runtime('tapas')}
         shell.open_folder()
-        self.assertEqual([call.args[0].toString() for call in external.call_args_list], ['file://' + str(root / 'Library')])
+        self.assertEqual([call.args[0].toString() for call in external.call_args_list], ['file://' + str(root)])
         dialog.assert_not_called()
         with patch('comic_archive.desktop_app.app_runtime.move', return_value=(other, None)) as move:
             # Never while saving or signing in: the folder would change under the downloader.
@@ -229,10 +229,10 @@ class DesktopAppTests(unittest.TestCase):
                 self.assertEqual(self.box.question.call_count, asked)
             dialog.assert_called_with(shell.window, desktop_app.LOCATION_TITLE, str(self.home))
             first, second, third = (call.args for call in self.box.question.call_args_list)
-            self.assertEqual(third[2], desktop_app.LOCATION_CONFIRM.format(new=self.home / 'Photos/Comic Archiver/Library', old=root / 'Library', root=root))
+            self.assertEqual(third[2], desktop_app.LOCATION_CONFIRM.format(new=self.home / 'Photos/Comic Archiver/Tapas/Library', old=root / 'Library', root=root))
             self.assertEqual(first, (shell.window, 'Comic Archiver', desktop_app.LOCATION_CONFIRM.format(
-                new=self.home / 'Other/Library', old=root / 'Library', root=root), 3, 1))
-            self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Library', old=root / 'Library', root=root))
+                new=self.home / 'Other/Tapas/Library', old=root / 'Library', root=root), 3, 1))
+            self.assertEqual(second[2], desktop_app.LOCATION_EXISTING.format(new=self.home / 'Old/Tapas/Library', old=root / 'Library', root=root))
             self.assertIn('Nothing is moved', first[2]); self.assertIn('already holds', second[2])
             # A new folder starts empty: Go saves everything again there, unless the whole library folder is moved first.
             self.assertIn('The download then saves everything again in the new folder, and the dashboard counts only what is there.', first[2])
@@ -977,14 +977,15 @@ class DesktopAppTests(unittest.TestCase):
         shell = self.opened()
         external = self.q.QtGui.QDesktopServices.openUrl
         shell.open_url('https://www.backblaze.com/sign-up/cloud-storage')
-        self.runtime.folder = self.home / 'Comic Archiver/Library'
+        self.runtime.root = self.home / 'Comic Archiver'
+        self.runtime.folder = self.runtime.root / 'Tapas/Library'
         shell.open_folder()
         self.assertEqual([call.args[0].toString() for call in external.call_args_list],
-                         ['https://www.backblaze.com/sign-up/cloud-storage', 'file://' + str(self.home / 'Comic Archiver/Library')])
+                         ['https://www.backblaze.com/sign-up/cloud-storage', 'file://' + str(self.home / 'Comic Archiver')])
         # The folder is the open library's own, never one a page names.
-        shell.runtime = Mock(folder=self.home / 'Other/Library')
+        shell.runtime = Mock(root=self.home / 'Other', folder=self.home / 'Other/Webtoon/Library')
         shell.open_folder()
-        self.assertEqual(external.call_args.args[0].toString(), 'file://' + str(self.home / 'Other/Library'))
+        self.assertEqual(external.call_args.args[0].toString(), 'file://' + str(self.home / 'Other'))
 
     def test_another_launch_brings_this_window_forward_and_nothing_else_does(self):
         shell = desktop_app.Shell(self.q, desktop_app.application(self.q), self.runtime)
@@ -1948,7 +1949,7 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual([site['key'] for site in context['sites'] if site['current']], ['tapas'])
         self.assertEqual(reading['site_auth'], {'status': 'idle'})
         root, = self.runtime_kind.call_args.args
-        self.assertEqual(context['library_folder'], str(root / 'Library'))
+        self.assertEqual(context['library_folder'], str(root / 'Tapas/Library'))
         self.assertFalse(root.parent.exists())
         self.assertEqual(list(self.home.iterdir()), [])
 

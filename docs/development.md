@@ -200,3 +200,11 @@ actually queued. If only speculative work remains, Time left is unknown and
 Space says no downloads are queued, while retaining the free-space figure. The
 hint explains that those series may contain nothing new. Mixed estimates are
 labeled as estimates; the underlying conservative planning figures are retained.
+
+The selected library location is a shared root. Tapas, Webtoon and Tappytoon
+each use a sibling provider directory containing their Library and private
+state. The original Tapas layout is moved by same-filesystem directory renames
+when opened while idle. A journal blocks new writers and worker launches during
+an interrupted move and allows the next start to resume. Shared settings and
+other providers stay at the root; conflicting destinations are never merged.
+There is no copy fallback.

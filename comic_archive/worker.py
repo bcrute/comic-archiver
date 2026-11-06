@@ -12,7 +12,7 @@ import os
 import secrets
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
-WORKER_VERSION = 78
+WORKER_VERSION = 79
 ADMISSION_WAIT_SECONDS = 10
 from pathlib import Path
 from . import sites
