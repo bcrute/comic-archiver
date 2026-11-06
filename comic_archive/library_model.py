@@ -1,4 +1,4 @@
-"""What the window's library page lists and says, from one page of the saved-file catalog (saved_library).
+"""Shared display data for platform integrations, from one page of the saved-file catalog (saved_library).
 
 Plain data in and out, no Qt: the table's rows, its storage places and its sentences are decided and tested here.
 """

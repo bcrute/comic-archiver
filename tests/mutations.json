@@ -2370,7 +2370,7 @@
  {
   "id": "a new save folder does not say the download saves everything again",
   "source": "comic_archive/desktop_app.py",
-  "old": "                    'The download then saves everything again in the new folder, and your library page shows only what is there. '\n",
+  "old": "                    'The download then saves everything again in the new folder, and the dashboard counts only what is there. '\n",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
@@ -3016,70 +3016,6 @@
   "test": "test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer"
  },
  {
-  "id": "library-late-answer-shown",
-  "source": "comic_archive/window_pages.py",
-  "old": "        if request != self.request:\n            return\n",
-  "new": "",
-  "test_file": "test_window_pages.py",
-  "test": "test_while_files_load_the_controls_wait_and_a_late_answer_is_dropped"
- },
- {
-  "id": "library-next-past-end",
-  "source": "comic_archive/window_pages.py",
-  "old": "self.offset + self.size.currentData() < self.total",
-  "new": "self.offset < self.total",
-  "test_file": "test_window_pages.py",
-  "test": "test_the_library_lists_a_page_of_saved_files_with_its_places_and_range"
- },
- {
-  "id": "library-jump-off-by-one",
-  "source": "comic_archive/window_pages.py",
-  "old": "library_model.offset_for(self.page.value(), self.size.currentData())",
-  "new": "self.page.value() * self.size.currentData()",
-  "test_file": "test_window_pages.py",
-  "test": "test_paging_searching_filtering_and_sorting_ask_for_the_right_files"
- },
- {
-  "id": "library-clear-keeps-kind",
-  "source": "comic_archive/window_pages.py",
-  "old": "        self.search.clear()\n        choose(self.kind, 'episodes')\n",
-  "new": "        self.search.clear()\n",
-  "test_file": "test_window_pages.py",
-  "test": "test_paging_searching_filtering_and_sorting_ask_for_the_right_files"
- },
- {
-  "id": "library-desktop-shows-cloud",
-  "source": "comic_archive/window_pages.py",
-  "old": "if desktop_only:\n            self.location = 'device'",
-  "new": "if False:\n            self.location = 'device'",
-  "test_file": "test_window_pages.py",
-  "test": "test_without_cloud_storage_the_library_shows_this_computer_only"
- },
- {
-  "id": "library-return-resets-place",
-  "source": "comic_archive/window_pages.py",
-  "old": "None if self.library.value is not None else 'all'",
-  "new": "'all'",
-  "test_file": "test_window_pages.py",
-  "test": "test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage"
- },
- {
-  "id": "library-reopen-keeps-place",
-  "source": "comic_archive/window_pages.py",
-  "old": "if route == 'library':\n            self.go_to('library', location='all')",
-  "new": "if False:\n            self.go_to('library', location='all')",
-  "test_file": "test_window_pages.py",
-  "test": "test_returning_to_the_library_keeps_its_place_and_reopening_starts_at_all_storage"
- },
- {
-  "id": "library-open-refusal-hidden",
-  "source": "comic_archive/window_pages.py",
-  "old": "say(feedback, error or library_model.OPENED, error is not None)",
-  "new": "say(feedback, library_model.OPENED, error is not None)",
-  "test_file": "test_window_pages.py",
-  "test": "test_opening_a_file_says_it_was_sent_or_why_it_could_not_be"
- },
- {
   "id": "dashboard-files-while-busy",
   "source": "comic_archive/window_pages.py",
   "old": "self.files.setEnabled(not s.busy)",
@@ -3093,7 +3029,7 @@
   "old": "if summary is False:",
   "new": "if False:",
   "test_file": "test_window_pages.py",
-  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+  "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
  {
   "id": "header-theme-backwards",
@@ -5301,7 +5237,7 @@
   "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
   "new": "        say(self.library_summary, '')\n",
   "test_file": "test_window_pages.py",
-  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+  "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
  {
   "id": "library-unavailable-said-after-recovery",
@@ -5309,7 +5245,7 @@
   "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
   "new": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else self.library_summary.text())\n",
   "test_file": "test_window_pages.py",
-  "test": "test_the_library_card_leads_to_the_saved_files_and_says_when_it_cannot_count"
+  "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
  {
   "id": "card-hint-detached-from-data",
@@ -6162,8 +6098,8 @@
  {
   "id": "cloud-trust-new-folder-not-asked",
   "source": "comic_archive/window_pages.py",
-  "old": "        self.cloud_asked = set()\n        self.library.value = None",
-  "new": "        self.library.value = None",
+  "old": "        self.cloud_asked = set()\n        self.settings.forget_keys()",
+  "new": "        self.settings.forget_keys()",
   "test_file": "test_window_pages.py",
   "test": "test_a_connection_the_library_folder_brought_is_asked_about_once_before_episodes_go_to_it"
  },
@@ -6534,5 +6470,13 @@
   "new": "    policy.setRetainSizeWhenHidden(False)\n",
   "test_file": "test_window_pages.py",
   "test": "test_status_changes_keep_the_same_widgets_positions_and_single_line_height"
+ },
+ {
+  "id": "dashboard-folder-button-opens-settings",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.files = kit.button('Open library folder', pages.open_folder, 'secondary')",
+  "new": "self.files = kit.button('Open library folder', lambda: pages.go_to('settings/storage'), 'secondary')",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  }
 ]

@@ -271,9 +271,9 @@ def library_overview(summary, cloud_offered, *, device_name='this computer'):
                          + (' · Not connected' if g.get('id') != 'device' and not g.get('connected') else '')}
               for g in locations if cloud_offered or g.get('id') == 'device']
     return {'metrics': [(shown(count), name) for name, count in metrics], 'locations': places,
-            'summary': (f"{display(device.get('episodes'))} saved episodes on {device_name}. View saved files for the complete list."
+            'summary': (f"{display(device.get('episodes'))} saved episodes on {device_name}."
                         if not cloud_offered else
                         f"{display(summary.get('episode_count'))} saved episodes. View all files, or choose a storage location below.")}
 
 
-LIBRARY_UNAVAILABLE = 'Saved file counts are unavailable. Open View saved files to retry.'
+LIBRARY_UNAVAILABLE = 'Saved file counts are unavailable.'

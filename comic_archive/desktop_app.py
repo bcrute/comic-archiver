@@ -1,4 +1,4 @@
-"""The desktop app's own window: the dashboard, Settings and the saved library, drawn by Qt (window_pages).
+"""The desktop app's own window: the dashboard and Settings, drawn by Qt (window_pages).
 
 Signing in to Tapas happens in the same window, on Tapas's own page, in a
 browser profile that shares nothing and keeps nothing.
@@ -123,12 +123,12 @@ LOCATION_TITLE = 'Choose where Comic Archiver saves'
 LOCATION_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then change the folder.'
 LOCATION_CONFIRM = ('Save to this folder from now on?\n\n{new}\n\n'
                     'Nothing is moved: episodes already saved stay where they are, in\n{old}\n\n'
-                    'The download then saves everything again in the new folder, and your library page shows only what is there. '
+                    'The download then saves everything again in the new folder, and the dashboard counts only what is there. '
                     'To keep what is saved instead, choose No, close Comic Archiver, move the whole folder\n{root}\n'
                     'to the new place, then open Comic Archiver and choose the folder you moved.')
 LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it from now on?\n\n{new}\n\n'
                      'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}\n\n'
-                     'Your library page then shows only what is saved in this folder.')
+                     'The dashboard then counts only what is saved in this folder.')
 LOCATION_FAILED = 'The folder was not changed.\n\n{reason}'
 SITE_OPENING = 'Opening {site}…'
 SITE_FAILED = '{site} could not be opened, so Settings stays on {open}.\n\n{reason}'

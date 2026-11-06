@@ -1,18 +1,17 @@
-"""The window's own pages: the dashboard, Settings and the saved library, drawn with Qt's widgets.
+"""The window's own pages: the dashboard and Settings, drawn with Qt's widgets.
 
-What each page says and allows is decided in dashboard_model, storage_model and library_model; this module only
+What each page says and allows is decided in dashboard_model, storage_model; this module only
 puts it on screen and passes clicks on. Every call to the library runs on a thread (the shell's run), never on the
 window's own, and its answer comes back here.
 """
-import functools
 import html
 import time
 
-from . import app_actions, dashboard_model, library_model, license_texts, storage_model, support_details, support_log
+from . import app_actions, dashboard_model, license_texts, storage_model, support_details, support_log
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
 
-ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
+ROUTES = ('dashboard', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
 TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
 SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
             '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
@@ -322,7 +321,7 @@ class Header:
         self.nav = {}
         group = w.QButtonGroup(self.widget)
         group.setExclusive(True)
-        for key, text in (('dashboard', 'Dashboard'), ('library', 'Library'), ('settings', 'Settings')):
+        for key, text in (('dashboard', 'Dashboard'), ('settings', 'Settings')):
             button = kit.button(text, lambda key=key: pages.go_to(key))
             button.setObjectName('nav')
             button.setCheckable(True)
@@ -500,14 +499,14 @@ class Dashboard:
         self.places = w.QVBoxLayout()
         self.places.setSpacing(10)
         counts.addLayout(self.places, 1)
-        self.place_buttons = []
+        self.place_labels = []
         box.addLayout(counts)
         # Said only when the counts could not be read.
         self.library_summary = kit.single_line('')
         reserved(self.library_summary)
         self.library_summary.setVisible(False)
         box.addWidget(self.library_summary)
-        self.files = kit.button('View saved files  →', lambda: pages.go_to('library', location='all'), 'secondary')
+        self.files = kit.button('Open library folder', pages.open_folder, 'secondary')
         box.addWidget(kit.row(self.files))
         self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
                                      '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True, wrap=False)
@@ -565,20 +564,19 @@ class Dashboard:
             self.metric_cells.append((name, number))
 
     def _places(self, places):
-        if [b.property('place') for b in self.place_buttons] == [p['id'] for p in places]:
-            for button, place in zip(self.place_buttons, places, strict=True):
-                button.setText(f"{place['label']} | {place['counts']}")
+        if [b.property('place') for b in self.place_labels] == [p['id'] for p in places]:
+            for label, place in zip(self.place_labels, places, strict=True):
+                label.setText(f"{place['label']} | {place['counts']}")
             return
-        for button in self.place_buttons:
-            discard(self.places, button)
-        self.place_buttons = []
+        for label in self.place_labels:
+            discard(self.places, label)
+        self.place_labels = []
         for place in places:
-            button = self.kit.button(f"{place['label']} | {place['counts']}",
-                                     lambda key=place['id']: self.pages.go_to('library', location=key), 'place')
-            button.setProperty('place', place['id'])
-            self.places.addWidget(button)
-            placed(button)
-            self.place_buttons.append(button)
+            label = self.kit.label(f"{place['label']} | {place['counts']}", 'place', wrap=False)
+            label.setProperty('place', place['id'])
+            self.places.addWidget(label)
+            placed(label)
+            self.place_labels.append(label)
 
     def show(self, s, sites, views, everything):
         """s is the chosen site's state; views each site's state and view by key, for the sites open; everything the
@@ -794,10 +792,9 @@ class Settings:
         inner.addWidget(self.folder)
         self.device_stored = kit.label('Counting…')
         inner.addWidget(self.device_stored)
-        self.open_folder = kit.button('Open folder', pages.open_folder, 'secondary')
+        self.open_folder = kit.button('Open library folder', pages.open_folder, 'secondary')
         self.change_folder = kit.button('Change folder…', pages.change_folder, 'secondary')
-        inner.addWidget(kit.row(kit.button('View stored episodes', lambda: pages.go_to('library', location='device'), 'secondary'),
-                                self.open_folder, self.change_folder, spacing=8))
+        inner.addWidget(kit.row(self.open_folder, self.change_folder, spacing=8))
         self.folder_lock = kit.label('', 'muted')
         inner.addWidget(self.folder_lock)
         cards.addWidget(device)
@@ -811,10 +808,9 @@ class Settings:
         self.b2_stored = kit.label('')
         inner.addWidget(self.b2_text)
         inner.addWidget(self.b2_stored)
-        self.b2_files = kit.button('View stored episodes', lambda: pages.go_to('library', location='b2'), 'secondary')
         self.b2_open = kit.button('Open in Backblaze', lambda: pages.link('browse'), 'secondary')
         self.b2_setup = kit.button('Set up', lambda: pages.go_to('settings/b2'))
-        inner.addWidget(kit.row(self.b2_files, self.b2_open, self.b2_setup, spacing=8))
+        inner.addWidget(kit.row(self.b2_open, self.b2_setup, spacing=8))
         cards.addWidget(self.b2_card)
         box.addLayout(cards)
         return card
@@ -1032,7 +1028,6 @@ class Settings:
         tone(self.b2_pill, 'tone', place['b2_tone'])
         self.b2_text.setText(place['b2_text'])
         say(self.b2_stored, place['b2_stored'])
-        self.b2_files.setVisible(place['b2_links_visible'])
         self.b2_open.setVisible(place['b2_links_visible'])
         self.b2_setup.setText(place['b2_setup'])
         # Backblaze B2.
@@ -1073,256 +1068,8 @@ class Settings:
         self.retry.setEnabled(b2['retry_enabled'])
 
 
-class Library:
-    """Every saved file, a page at a time: found by name, filtered, sorted, and opened in the computer's own app."""
-
-    def __init__(self, kit, pages):
-        w, self.kit, self.pages = kit.w, kit, pages
-        self.location, self.offset, self.total, self.limit = 'all', 0, 0, library_model.PAGE_SIZES[0]
-        self.request, self.busy, self.value, self.desktop_only = 0, False, None, False
-        self.sites = []  # The open sites, (key, name); the list shows one, or every one's at once.
-        content = w.QWidget()
-        column = w.QVBoxLayout(content)
-        column.setContentsMargins(32, 24, 32, 24)
-        column.setSpacing(14)
-        self.notice = kit.label(library_model.LOADING, 'notice')
-        column.addWidget(self.notice)
-        top = w.QHBoxLayout()
-        self.title = kit.label(library_model.title(None), 'pageTitle')
-        top.addWidget(self.title, 1)
-        self.open_folder = kit.button('Open folder', pages.open_folder, 'secondary')
-        self.refresh = kit.button('Refresh files', lambda: self.load(refresh=True), 'secondary')
-        top.addWidget(self.open_folder)
-        top.addWidget(self.refresh)
-        column.addLayout(top)
-        self.summary = kit.label('')
-        column.addWidget(self.summary)
-        self.places = w.QHBoxLayout()
-        self.places.setSpacing(12)
-        column.addLayout(self.places)
-        self.place_buttons = []
-        self.search = w.QLineEdit()
-        self.search.setMaxLength(library_model.MAX_QUERY)
-        self.search.setPlaceholderText('Series, title or filename')
-        self.search.setAccessibleName('Find saved files')
-        self.search.setMinimumWidth(300)
-        self.search.returnPressed.connect(self.first_page)
-        self.kind = kit.combo(library_model.KINDS, lambda _: self.first_page())
-        self.sort = kit.combo(library_model.SORTS, lambda _: self.first_page())
-        choose(self.kind, 'episodes')
-        self.site = kit.combo([('all', 'All sites')], lambda _: self.first_page())
-        self.find = kit.button('Search', self.first_page)
-        self.clear = kit.button('Clear', self.clear_search, 'secondary')
-        filters = w.QHBoxLayout()
-        filters.setSpacing(12)
-        self.site_box = w.QWidget()
-        for text, widget in (('Find saved files', self.search), ('Site', self.site), ('File types', self.kind),
-                             ('Sort by', self.sort)):
-            holder = self.site_box if widget is self.site else w.QWidget()
-            box = w.QVBoxLayout(holder)
-            box.setContentsMargins(0, 0, 0, 0)
-            box.setSpacing(4)
-            box.addWidget(kit.label(text, 'strong', wrap=False))
-            box.addWidget(widget)
-            filters.addWidget(holder)
-        filters.addWidget(self.find, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
-        filters.addWidget(self.clear, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
-        filters.addStretch(1)
-        column.addLayout(filters)
-        self.range = kit.label('')
-        column.addWidget(self.range)
-        self.table = w.QTableWidget(0, len(library_model.COLUMNS))
-        self.table.setHorizontalHeaderLabels(list(library_model.COLUMNS))
-        self.table.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionMode(w.QAbstractItemView.SelectionMode.NoSelection)
-        self.table.setWordWrap(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
-        self.table.setMinimumHeight(420)
-        header = self.table.horizontalHeader()
-        header.setStretchLastSection(False)
-        # The names share what room there is; the short columns take what they need, and the File column its button's.
-        modes = w.QHeaderView.ResizeMode
-        for index in range(len(library_model.COLUMNS)):
-            header.setSectionResizeMode(index, modes.Stretch if index < 3 else modes.Fixed if index == 7 else modes.ResizeToContents)
-        self.table.setColumnWidth(7, 120)
-        self.table.setAccessibleName('Saved file details')
-        column.addWidget(self.table, 1)
-        self.previous = kit.button('Previous', self.previous_page, 'secondary')
-        self.next = kit.button('Next', self.next_page, 'secondary')
-        self.page = w.QSpinBox()
-        self.page.setMinimum(1)
-        self.page.setButtonSymbols(w.QAbstractSpinBox.ButtonSymbols.NoButtons)  # Typed, then Go.
-        self.page.setMinimumWidth(64)
-        self.page.setAccessibleName('Page')
-        self.page_count = kit.label('', wrap=False)
-        self.jump = kit.button('Go', self.jump_page, 'secondary')
-        self.size = kit.combo([(n, str(n)) for n in library_model.PAGE_SIZES], lambda _: self.first_page())
-        column.addWidget(kit.row(self.previous, kit.label('Page', 'strong', wrap=False), self.page, self.page_count, self.jump,
-                                 self.next, kit.label('Files per page', 'strong', wrap=False), self.size, spacing=10))
-        column.addWidget(kit.label(library_model.NOTE, 'muted'))
-        self.widget = kit.scroll(content)
-        self.buttons()
-
-    def buttons(self):
-        for widget in (self.refresh, self.find, self.clear, self.search, self.site, self.kind, self.sort, self.size, self.page,
-                       self.jump):
-            widget.setEnabled(not self.busy)
-        self.previous.setEnabled(not self.busy and self.offset > 0)
-        self.next.setEnabled(not self.busy and self.offset + self.size.currentData() < self.total)
-        for button in self.place_buttons:
-            button.setEnabled(not self.busy)
-
-    def open_at(self, location, sites, folder, desktop_only):
-        """Opened from the dashboard or Settings: at a storage place, or where it was. sites are the open sites'
-        keys and names; with more than one, the list can show each site's files or every site's at once."""
-        if sites != self.sites:
-            self.sites = list(sites)
-            blocked = self.site.blockSignals(True)
-            kept = self.site.currentData()
-            self.site.clear()
-            for key, name in [('all', 'All sites'), *self.sites] if len(self.sites) > 1 else self.sites:
-                self.site.addItem(name, key)
-            self.site.setCurrentIndex(max(0, self.site.findData(kept)))
-            self.site.blockSignals(blocked)
-        self.site_box.setVisible(len(self.sites) > 1)
-        self.open_folder.setVisible(bool(folder))
-        self.desktop_only = desktop_only
-        if desktop_only:
-            self.location = 'device'
-        elif location is not None:
-            self.location = location
-        if location is not None:
-            self.offset = 0
-        self.load()
-
-    def first_page(self):
-        self.offset = 0
-        self.load()
-
-    def clear_search(self):
-        self.search.clear()
-        choose(self.kind, 'episodes')
-        self.first_page()
-
-    def previous_page(self):
-        self.offset = max(0, self.offset - self.size.currentData())
-        self.load()
-
-    def next_page(self):
-        self.offset += self.size.currentData()
-        self.load()
-
-    def jump_page(self):
-        self.offset = library_model.offset_for(self.page.value(), self.size.currentData())
-        self.load()
-
-    def choose_place(self, key):
-        self.location, self.offset = key, 0
-        self.load()
-
-    def load(self, refresh=False):
-        self.request += 1
-        request, self.busy = self.request, True
-        say(self.notice, library_model.LOADING)
-        self.buttons()
-        options = {'location': self.location, 'query': self.search.text().strip()[:library_model.MAX_QUERY],
-                   'kind': self.kind.currentData(), 'sort': self.sort.currentData(), 'offset': self.offset,
-                   'limit': self.size.currentData(), 'refresh': refresh}
-        names = dict(self.sites)
-        key = self.site.currentData()
-        self.title.setText(library_model.title(names.get(key)))
-        work = (functools.partial(self.pages.actions_for(key).saved_files, **options) if key in names else
-                functools.partial(app_actions.every_site_files, {name: self.pages.actions_for(site) for site, name in self.sites},
-                                  **options))
-        self.pages.run(work, lambda value, error: self.loaded(request, value, error))
-
-    def loaded(self, request, value, error):
-        if request != self.request:
-            return
-        self.busy = False
-        if error is not None:
-            self.total = 0
-            self.table.setRowCount(0)
-            self.range.setText('')
-            say(self.notice, error, True)
-        else:
-            self.value = value
-            self.offset, self.total = value.get('offset') or 0, value.get('total') or 0
-            self.show_places(value)
-            self.show_rows(value)
-            page, count = library_model.pages(value)
-            self.page.setMaximum(count)
-            self.page.setValue(page)
-            self.page_count.setText(f'of {count:,}')
-            self.range.setText(library_model.range_text(value))
-            say(self.notice, library_model.notice(value))
-        self.buttons()
-
-    def show_places(self, value):
-        places = library_model.places(value, self.desktop_only, self.location)
-        for button in self.place_buttons:
-            button.deleteLater()
-        self.place_buttons = []
-        for place in places:
-            button = self.kit.button(f"{place['label']} | {place['counts']}", lambda key=place['id']: self.choose_place(key), 'place')
-            button.setCheckable(True)
-            button.setChecked(place['current'])
-            self.places.addWidget(button)
-            self.place_buttons.append(button)
-        self.summary.setText(library_model.summary(value, self.desktop_only))
-        self.table.setColumnHidden(6, not library_model.has_cloud(value, self.desktop_only))
-
-    def show_rows(self, value):
-        w = self.kit.w
-        rows = library_model.rows(value, self.desktop_only)
-        self.table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
-            saved = row['saved'] + ('\nFile time' if row['file_time'] else '')
-            for column, text in enumerate((row['series'], row['title'], row['filename'], row['type'], row['size'], saved,
-                                           row['storage'])):
-                item = w.QTableWidgetItem(text)
-                if column == 5 and row['exact']:
-                    item.setToolTip(row['exact'])
-                self.table.setItem(index, column, item)
-            if row['open']:
-                self.table.setCellWidget(index, 7, self.opener(row))
-            else:
-                self.table.removeCellWidget(index, 7)
-                self.table.setItem(index, 7, w.QTableWidgetItem(row['action']))
-        self.table.resizeRowsToContents()
-
-    def opener(self, row):
-        holder = self.kit.w.QWidget()
-        box = self.kit.w.QVBoxLayout(holder)
-        box.setContentsMargins(4, 4, 4, 4)
-        box.setSpacing(4)
-        button = self.kit.button('Open', None, 'secondary')
-        button.setAccessibleName('Open ' + row['filename'])
-        feedback = self.kit.label('', 'muted')
-        feedback.setVisible(False)
-        # Over every site, a file opens through its own site's library.
-        key = next((key for key, name in self.sites if name == row.get('site')), self.site.currentData())
-        button.clicked.connect(lambda checked=False: self.open_file(key, row['open'], button, feedback))
-        box.addWidget(button)
-        box.addWidget(feedback)
-        return holder
-
-    def open_file(self, key, export_id, button, feedback):
-        button.setEnabled(False)
-        button.setText('Opening…')
-        say(feedback, library_model.OPENING)
-
-        def done(value, error):
-            button.setEnabled(True)
-            button.setText('Open')
-            say(feedback, error or library_model.OPENED, error is not None)
-            self.table.resizeRowsToContents()
-        self.pages.run(lambda: self.pages.actions_for(key).open_file(export_id), done)
-
-
 class Pages:
-    """The window's pages and every open site's state, each refreshed every few seconds while the window is open.
+    """The window's pages and every open site's state, refreshed while its download is active.
 
     shell gives the pages what lies outside them: run(work, done) puts work on a thread and done(value, error)
     back on the window's; the sites open and the one chosen, whose settings and sign-in the window shows
@@ -1350,8 +1097,7 @@ class Pages:
         self.stack = w.QStackedWidget()
         self.dashboard = Dashboard(kit, self)
         self.settings = Settings(kit, self)
-        self.library = Library(kit, self)
-        for page in (self.dashboard, self.settings, self.library):
+        for page in (self.dashboard, self.settings):
             self.stack.addWidget(page.widget)
         column.addWidget(self.stack, 1)
 
@@ -1393,22 +1139,16 @@ class Pages:
 
     # Moving between pages.
 
-    def go_to(self, name, location=None):
+    def go_to(self, name):
         route = route_of(name, self.cloud_offered)
         if self.route == 'settings/b2' and route != 'settings/b2':
             self.settings.forget_keys()
         opened = route.partition('/')[0] != self.route.partition('/')[0]
         self.route = route
-        page = {'dashboard': self.dashboard, 'library': self.library}.get(route, self.settings)
+        page = self.dashboard if route == 'dashboard' else self.settings
         self.stack.setCurrentWidget(page.widget)
         if opened:
             page.widget.verticalScrollBar().setValue(0)
-        if route == 'library':
-            names = {item['key']: item['name'] for item in self.state.sites}
-            self.library.open_at(location if location is not None else
-                                 None if self.library.value is not None else 'all',
-                                 [(key, names.get(key, key)) for key in self.open_keys()],
-                                 self.state.library_folder, not self.cloud_offered)
         self.render()
 
     def link(self, target):
@@ -1448,18 +1188,13 @@ class Pages:
 
     def reopened(self, then=None):
         """A library folder is open, at the start or after another folder was chosen: read every site, afresh."""
-        route = self.route
         self.states = {}
         self.counting = {}
         self.polling = {}
         self.cloud_asked = set()
-        self.library.value = None
         self.settings.forget_keys()
         self.start(then)
-        if route == 'library':
-            self.go_to('library', location='all')
-        else:
-            self.render()
+        self.render()
 
     def site_chosen(self):
         """Another site was chosen in Settings, or opened: Settings shows it, and a site opened just now is read."""

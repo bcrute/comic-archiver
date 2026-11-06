@@ -83,10 +83,8 @@ QPushButton[kind="go"] { min-width: 96px; }
 QPushButton[kind="link"] { min-height: 0; padding: 0; border: none; background: transparent; color: %(accent)s;
                            font-weight: 400; text-decoration: underline; text-align: left; }
 QPushButton[kind="link"]:hover { color: %(button-hover)s; background: transparent; }
-QPushButton[kind="place"] { padding: 12px; text-align: left; font-weight: 400; color: %(text)s; background: %(surface-tint)s;
-                            border: 1px solid %(input-border)s; border-radius: 8px; }
-QPushButton[kind="place"]:hover { color: %(text)s; background: %(notice)s; }
-QPushButton[kind="place"]:checked { border: 2px solid %(accent)s; background: %(notice)s; }
+QLabel#place { padding: 12px; font-weight: 400; color: %(text)s; background: %(surface-tint)s;
+               border: 1px solid %(input-border)s; border-radius: 8px; }
 QPushButton[kind="tab"] { min-height: 32px; padding: 8px 12px; text-align: left; border: none; border-radius: 6px;
                           color: %(text)s; background: transparent; font-weight: 500; }
 QPushButton[kind="tab"]:hover { background: %(surface-soft)s; color: %(text)s; }
