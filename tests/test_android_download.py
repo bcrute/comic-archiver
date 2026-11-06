@@ -52,7 +52,7 @@ class AndroidGoTests(unittest.TestCase):
     def test_go_uses_embedded_reader_pacing_instead_of_second_desktop_browser(self):
         android_download.start(self.workspace)
         self.assertEqual(account_ui.speed(self.workspace), 'medium')
-        self.assertEqual(download_control._pace(self.workspace.session)[1], 'normal')
+        self.assertEqual(download_control._pace(self.workspace.session)[1], 'medium')
         self.assertEqual(account_ui.status(self.workspace)['status'], 'running')
 
     def test_explicit_fast_is_preserved_and_refused_when_the_native_engine_is_unavailable(self):

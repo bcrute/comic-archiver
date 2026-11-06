@@ -3290,7 +3290,7 @@
  {
   "id": "finished-download-not-recounted",
   "source": "comic_archive/app_actions.py",
-  "old": "if previous_account != 'finished' and state.account.get('status') == 'finished':",
+  "old": "if previous_account is not None and previous_account != 'finished' and state.account.get('status') == 'finished':",
   "new": "if False:",
   "test_file": "test_app_actions.py",
   "test": "test_a_download_that_has_just_finished_has_its_files_counted_again"
