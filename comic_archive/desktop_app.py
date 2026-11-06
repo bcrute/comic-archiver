@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from . import app_runtime, osdep, sites, support_details
 from .app_runtime import LOG
 from .models import ArchiveError
+from .dashboard_model import POLL_SECONDS
 from .qt_engine import CookieRecords, common_agent, secure_qt_environment
 from .tapas_auth import identity
 from .adapters.tappytoon import account as tappytoon_account
@@ -44,7 +45,7 @@ SELF_TEST_SECONDS = 60
 SELF_TEST_COOKIE = 'comic_archive_self_test'
 SIGNIN_POLL_MS = 250
 # How often the pages read the library, and redraw their clocks in between.
-POLL_MS = 5000
+POLL_MS = POLL_SECONDS * 1000
 CLOCK_MS = 1000
 # How often the window checks whether a download is running, to keep the computer awake for it.
 AWAKE_CHECK_MS = 5000

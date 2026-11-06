@@ -6338,7 +6338,7 @@
  {
   "id": "download-speed-readings-a-refresh-apart",
   "source": "comic_archive/dashboard_model.py",
-  "old": "if last - first >= POLL_SECONDS - 1 else None",
+  "old": "if last - first >= SPEED_MIN_SECONDS else None",
   "new": "if last - first > 0 else None",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_download_shows_how_fast_it_saved_over_the_last_minute"

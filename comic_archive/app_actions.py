@@ -7,6 +7,7 @@ back as Refused, worded for the person. Nothing here names a path, a key or an a
 import logging
 import re
 import threading
+import time
 from urllib.parse import urlencode
 
 from . import cloud_runtime, sites
@@ -53,6 +54,7 @@ class Actions:
     def _call(self, name, *args, locked=True, failed=None, **options):
         runtime, registry = self._registry()
         site = runtime.site.name
+        started = time.monotonic()
         try:
             if not locked:
                 return getattr(registry, name)(LOCAL_OWNER, registry.workspace_id, *args, **options)
@@ -68,6 +70,10 @@ class Actions:
             # Exceptions can carry account data and local paths: the log names the kind and the place only.
             LOG.error('the library did not answer %s: %s', name, described(error))
             raise Refused('service_unavailable', failed or error_text('service_unavailable', site)) from None
+        finally:
+            elapsed = time.monotonic() - started
+            if elapsed >= 1:
+                LOG.info('Slow library read site=%s operation=%s seconds=%.3f', site, name, elapsed)
 
     def context(self):
         """What the window shows around the library: the sites, the site's own folder and the folder chosen for

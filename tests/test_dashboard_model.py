@@ -322,6 +322,16 @@ class ButtonTests(unittest.TestCase):
 
 
 class StatusTests(unittest.TestCase):
+    def test_a_minute_between_reads_is_current_and_late_reads_still_measure_speed(self):
+        self.assertEqual((model.POLL_SECONDS, model.LIBRARY_SECONDS), (60, 3600))
+        self.assertGreater(model.DELAYED_SECONDS, 2 * model.POLL_SECONDS)
+        self.assertNotIn('Updates', fields(view(refreshed_at=NOW - 119)))
+        s = state(account=account())
+        s.received_status({'last_run': {'id': 'run'}, 'progress': {'downloaded_bytes': 0}}, NOW)
+        s.received_status({'last_run': {'id': 'run'}, 'progress': {'downloaded_bytes': 6_200_000}}, NOW + 62)
+        self.assertEqual(s.speed(), 100_000)
+        self.assertEqual(len(s.saved_at), 2)
+
     def test_a_download_shows_how_fast_it_saved_over_the_last_minute(self):
         s = state(account=account())
         def read(at, saved, step='run-1', phase='archive'):

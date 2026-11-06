@@ -143,3 +143,12 @@ current debug phone build is not a publishable release artifact.
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |
 | `scripts/` | The checks above and the helpers they use. |
 | `tests/` | Unit tests, and `mutations.json` for the mutation check. |
+
+The desktop dashboard reads local progress once a minute and recounts saved
+files on opening, hourly, and after a completed download or explicit storage
+change. Saved-file scans run separately from progress reads, with at most one
+scan per site in flight. They read local archives, metadata and upload receipts;
+these dashboard reads do not poll the content or cloud providers. Provider
+request scheduling is unchanged. Progress becomes stale only after three missed
+minutes. Slow library operations record their site, operation and duration in
+the application log without recording request arguments or private results.

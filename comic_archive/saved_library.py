@@ -124,6 +124,13 @@ class Catalog:
                             'connected':True, 'files':0, 'episodes':0, 'bytes':0}
         settings = cloud.settings(root) if local else None
         targets = settings['targets'] if settings else {}
+        # An unconfigured provider has no copies to inspect. Keep providers with
+        # history, including disconnected targets: those copies still belong in
+        # the catalog. Avoid thousands of repeated settings/sidecar reads when
+        # the library has never uploaded anything.
+        receipt_providers = [provider for provider in cloud.PROVIDERS
+                             if any((root / '.archive-state/cloud' / kind / provider).is_dir()
+                                    for kind in ('outbox', 'history'))] if settings else []
         if local:
             # Cloud storage is listed only once it is set up; copies from an earlier connection are added below.
             for provider, label in cloud.LABELS.items():
@@ -188,7 +195,7 @@ class Catalog:
                     downloadable=archive.is_file(), order=order)
                 if not settings:
                     continue
-                for provider in cloud.PROVIDERS:
+                for provider in receipt_providers:
                     identifier = value.get('export_id')
                     if not valid_export_id(identifier):
                         continue
