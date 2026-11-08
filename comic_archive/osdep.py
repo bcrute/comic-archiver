@@ -289,6 +289,22 @@ def python_environment(environ):
     environ.update(PYTHONUTF8='1', PYTHONNOUSERSITE='1', PYTHONSAFEPATH='1')
 
 
+def python_child():
+    """Launch a real interpreter PID while retaining a Windows virtual environment.
+
+    Windows venv python.exe redirects to a second process. Use CPython's own
+    multiprocessing convention so the PID returned by Popen is the worker's,
+    and its imports still come from this environment. Packaged/Unix Pythons
+    already launch directly.
+    """
+    base = getattr(sys, '_base_executable', None)
+    if WINDOWS and sys.prefix != sys.base_prefix and base and base != sys.executable:
+        child = os.environ.copy()
+        child['__PYVENV_LAUNCHER__'] = sys.executable
+        return base, {'env': child}
+    return sys.executable, {}
+
+
 def detached():
     """How to start a process that outlives the one starting it and gets none of its keyboard signals."""
     if WINDOWS:

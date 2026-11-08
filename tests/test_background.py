@@ -89,10 +89,13 @@ class BackgroundTests(unittest.TestCase):
             runtime = None
             def launch(command, **kwargs):
                 nonlocal runtime
-                self.assertEqual(command, [sys.executable, "-P", "-m", "comic_archive", "--session-dir", str(session),
+                self.assertEqual(command, [osdep.python_child()[0], "-P", "-m", "comic_archive", "--session-dir", str(session),
                     "--browser", "firefox", "--headless", "--request-interval", "0.5",
                     "browser-worker"])
-                self.assertEqual(kwargs, kwargs | osdep.detached())  # Its own session: it outlives the app.
+                for name, value in osdep.detached().items():  # Its own session: it outlives the app.
+                    self.assertEqual(kwargs[name], value)
+                if 'env' in osdep.python_child()[1]:
+                    self.assertEqual(kwargs['env']['__PYVENV_LAUNCHER__'], sys.executable)
                 self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
                 self.assertEqual(kwargs["cwd"], Path(work))
                 runtime = LibraryLock(session / "worker/.runtime")
@@ -260,9 +263,10 @@ worker.run_worker(Path(sys.argv[1]),headless=True)
             popen=subprocess.Popen
             processes=[]
             def launch(*args,**kwargs):
-                child=popen([sys.executable,'-c',code,str(session),
+                interpreter = args[0][0] if args else sys.executable
+                child=popen([interpreter,'-c',code,str(session),
                     str(Path(__file__).resolve().parents[1])],cwd=work,
-                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=kwargs.get('env'))
                 processes.append(child)
                 return child
             old=launch()
@@ -282,7 +286,7 @@ worker.run_worker(Path(sys.argv[1]),headless=True)
                 self.assertEqual(len(processes),2)
                 self.assertTrue(result['running'])
                 self.assertTrue(result['headless'])
-                self.assertFalse(result['already_running'])
+                self.assertEqual(result.get('already_running'), False, {'status': result, 'launch_pid': processes[1].pid})
                 self.assertEqual(start.call_args.args[0][-1],'browser-worker')
                 self.assertEqual(checkpoint.read_text(),'UNCHANGED CHECKPOINT')
                 observed=json.loads((session/'worker/status.json').read_text())

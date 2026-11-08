@@ -638,6 +638,23 @@ class AppRuntimeTests(unittest.TestCase):
         runtime.start()
         self.assertEqual(runtime.folder, mounted / 'Comic Archiver/Tapas/Library')
 
+    def test_a_provider_replaced_by_a_junction_after_preflight_is_refused_before_private_state_is_created(self):
+        root = self.home / 'changed-during-opening'
+        outside = self.home / 'outside-after-preflight'
+        prepare = app_runtime.site_layout.prepare
+        redirected = None
+        def changed(folder):
+            nonlocal redirected
+            prepare(folder)
+            redirected = junction(self, root / 'Tapas', outside)
+        runtime = app_runtime.Runtime(root); self.addCleanup(runtime.stop, 0)
+        with patch.object(app_runtime.site_layout, 'prepare', side_effect=changed):
+            with self.assertRaises(ArchiveError) as caught:
+                runtime.start()
+        self.assertEqual(str(caught.exception), app_runtime.REDIRECTED.format(root=root, folder=redirected))
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertIsNone(runtime.registry)
+
     def test_downloader_that_finished_starting_after_the_window_closed_is_asked_to_stop_at_once(self):
         self.sign_in(); self.runtime.start()
         def late(*args, **kwargs):

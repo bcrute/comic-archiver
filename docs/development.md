@@ -228,6 +228,12 @@ mandatory. Ordinary application downloads use the upstream address.
 
 Mutation cases for missing dashboard fields remove the resulting unknown-valued
 rows, rather than bypassing fallback expressions that the permanent row defaults
-already supply. The junction case disables junction discovery shared by all
-preflight guards; bypassing only the later duplicate guard is not a product
-fault. The required gate still catches every listed mutation.
+already supply. Junction cases cover both shared discovery and a provider folder changed
+after the initial preflight, so the later guard has its own observable case. The required gate still catches every listed mutation.
+
+A Windows virtual-environment worker starts the base interpreter with CPython's
+virtual-environment launcher variable, as multiprocessing does. This preserves
+its environment while making the reported process PID match the worker PID;
+readiness still requires that exact worker identity. Packaged Windows and Unix
+launches keep their existing interpreter. Native long-path fixtures remove
+their own extended paths explicitly, including during assertion failures.

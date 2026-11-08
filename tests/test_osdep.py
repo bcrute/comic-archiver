@@ -25,6 +25,27 @@ class ExtendedPathTests(unittest.TestCase):
 
 
 
+class PythonChildTests(unittest.TestCase):
+    def test_windows_venv_keeps_its_imports_without_a_redirector_process_or_ambient_changes(self):
+        with patch.object(osdep, 'WINDOWS', True), patch.object(osdep.sys, 'prefix', 'environment'), \
+                patch.object(osdep.sys, 'base_prefix', 'base'), patch.object(osdep.sys, 'executable', 'environment-python'), \
+                patch.object(osdep.sys, '_base_executable', 'base-python', create=True), patch.dict(os.environ, {'__PYVENV_LAUNCHER__': 'unchanged'}):
+            interpreter, options = osdep.python_child()
+            self.assertEqual(interpreter, 'base-python')
+            self.assertEqual(options['env']['__PYVENV_LAUNCHER__'], 'environment-python')
+            self.assertEqual(os.environ['__PYVENV_LAUNCHER__'], 'unchanged')
+            self.assertIsNot(options['env'], os.environ)
+        for windows, prefix, base, executable in ((False, 'environment', 'base', 'base-python'),
+                                                  (True, 'base', 'base', 'base-python'),
+                                                  (True, 'environment', 'base', 'environment-python'),
+                                                  (True, 'environment', 'base', None)):
+            with self.subTest(windows=windows, prefix=prefix, executable=executable), \
+                    patch.object(osdep, 'WINDOWS', windows), patch.object(osdep.sys, 'prefix', prefix), \
+                    patch.object(osdep.sys, 'base_prefix', base), patch.object(osdep.sys, 'executable', 'environment-python'), \
+                    patch.object(osdep.sys, '_base_executable', executable, create=True):
+                self.assertEqual(osdep.python_child(), ('environment-python', {}))
+
+
 class ReplaceTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(); self.addCleanup(folder.cleanup)

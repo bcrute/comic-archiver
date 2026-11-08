@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import time
 
 from . import osdep
@@ -162,7 +161,8 @@ def start(session, browser="firefox", interval=1.0, *, restart=False):
         trim(log)  # Nothing writes to it now: no downloader is running.
         descriptor = osdep.open_log(log)
         # -P: it starts in the library folder, and must import the app's own code, not a comic_archive found there.
-        command = [sys.executable, "-P", "-m", "comic_archive", "--session-dir", str(folder.parent),
+        python, launch_options = osdep.python_child()
+        command = [python, "-P", "-m", "comic_archive", "--session-dir", str(folder.parent),
                    "--browser", browser, "--headless", "--request-interval", str(interval),
                    "browser-worker"]
         try:
@@ -170,7 +170,7 @@ def start(session, browser="firefox", interval=1.0, *, restart=False):
                 osdep.private_file(output.fileno())
                 process = subprocess.Popen(command, cwd=folder.parent.parent,
                     stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                    **osdep.detached())
+                    **(osdep.detached() | launch_options))
         except OSError:
             raise ArchiveError("Cannot start the background worker; check project permissions.") from None
         deadline = time.monotonic() + 30

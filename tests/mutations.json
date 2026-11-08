@@ -5642,8 +5642,8 @@
  {
   "id": "downloader-imports-from-library-folder",
   "source": "comic_archive/background.py",
-  "old": "        command = [sys.executable, \"-P\", \"-m\", \"comic_archive\",",
-  "new": "        command = [sys.executable, \"-m\", \"comic_archive\",",
+  "old": "        command = [python, \"-P\", \"-m\", \"comic_archive\",",
+  "new": "        command = [python, \"-m\", \"comic_archive\",",
   "test_file": "test_background.py",
   "test": "test_start_uses_only_fixed_detached_headless_command_and_private_log"
  },
@@ -5713,11 +5713,11 @@
  },
  {
   "id": "library-with-junction-opened",
-  "source": "comic_archive/state_paths.py",
-  "old": "    return next((folder for folder in found if osdep.junction(folder)), None)\n",
-  "new": "    return None\n",
+  "source": "comic_archive/app_runtime.py",
+  "old": "            if junction is None:\n",
+  "new": "            if True:\n",
   "test_file": "test_app_runtime.py",
-  "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
+  "test": "test_a_provider_replaced_by_a_junction_after_preflight_is_refused_before_private_state_is_created"
  },
  {
   "id": "library-junctions-never-looked-for",
@@ -6622,5 +6622,21 @@
   "new": "    try:\n        state = json.loads",
   "test_file": "test_windows_privacy.py",
   "test": "test_refusal_prevents_session_reads_and_writes"
+ },
+ {
+  "id": "windows-worker-venv-redirector-retained",
+  "source": "comic_archive/osdep.py",
+  "old": "        return base, {'env': child}\n",
+  "new": "        return sys.executable, {'env': child}\n",
+  "test_file": "test_osdep.py",
+  "test": "test_windows_venv_keeps_its_imports_without_a_redirector_process_or_ambient_changes"
+ },
+ {
+  "id": "private-junction-discovery-disabled",
+  "source": "comic_archive/state_paths.py",
+  "old": "    return next((folder for folder in found if osdep.junction(folder)), None)\n",
+  "new": "    return None\n",
+  "test_file": "test_app_runtime.py",
+  "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
  }
 ]

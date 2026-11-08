@@ -850,13 +850,18 @@ class MetadataPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             folder = Path(work) / ('private-state-' + 'x' * 70) / '.archive-state/cloud/history/b2' / ('a' * 36)
             path = folder / ('b' * 36 + '-' + 'c' * 64 + '.json')
-            self.assertGreater(len(str(path)), 260)
-            cloud._write(path, {'verified': True})
-            self.assertEqual(cloud._json(path), {'verified': True})
-            cloud._write(path, {'verified': True, 'eviction_requested': True})
-            self.assertEqual(cloud._json(path), {'verified': True, 'eviction_requested': True})
-            self.assertEqual(osdep.extended_path(path).name, path.name)
-            self.assertFalse(osdep.extended_path(path.with_suffix('.json.tmp')).exists())
+            actual = osdep.extended_path(path)
+            try:
+                self.assertGreater(len(str(path)), 260)
+                cloud._write(path, {'verified': True})
+                self.assertEqual(cloud._json(path), {'verified': True})
+                cloud._write(path, {'verified': True, 'eviction_requested': True})
+                self.assertEqual(cloud._json(path), {'verified': True, 'eviction_requested': True})
+                self.assertEqual(osdep.extended_path(path).name, path.name)
+                self.assertFalse(osdep.extended_path(path.with_suffix('.json.tmp')).exists())
+            finally:
+                actual.unlink(missing_ok=True)
+                osdep.extended_path(path.with_suffix('.json.tmp')).unlink(missing_ok=True)
 
     def test_metadata_write_never_recreates_a_library_that_was_moved_while_open(self):
         from comic_archive.archive_paths import kept
