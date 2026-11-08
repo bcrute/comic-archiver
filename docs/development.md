@@ -225,3 +225,9 @@ For isolated CI, the helper-install smoke accepts
 `COMIC_ARCHIVER_CI_HELPER_DOWNLOAD_BASE` for the existing acquiring cache.
 The upstream version, size bounds, archive checks and pinned SHA-256 remain
 mandatory. Ordinary application downloads use the upstream address.
+
+Mutation cases for missing dashboard fields remove the resulting unknown-valued
+rows, rather than bypassing fallback expressions that the permanent row defaults
+already supply. The junction case disables junction discovery shared by all
+preflight guards; bypassing only the later duplicate guard is not a product
+fault. The required gate still catches every listed mutation.

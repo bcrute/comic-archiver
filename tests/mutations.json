@@ -5122,24 +5122,24 @@
  {
   "id": "time-left-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
-  "new": "    row('Time left', time, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
+  "old": "    v['rows'] = list(rows.values())\n",
+  "new": "    v['rows'] = [item for item in rows.values() if item['name'] != 'Time left' or item['value'] != NONE]\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
   "id": "space-dropped-when-unknown",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')\n",
-  "new": "    row('Space', space, short, estimate_tip(estimate) if space else '')\n",
+  "old": "    v['rows'] = list(rows.values())\n",
+  "new": "    v['rows'] = [item for item in rows.values() if item['name'] != 'Space' or item['value'] != NONE]\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
  {
   "id": "speed-dropped-when-signed-out",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Speed', NONE if not signed_in else\n",
-  "new": "    row('Speed', '' if not signed_in else\n",
+  "old": "    v['rows'] = list(rows.values())\n",
+  "new": "    v['rows'] = [item for item in rows.values() if item['name'] != 'Speed' or item['value'] != NONE]\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
@@ -5713,9 +5713,9 @@
  },
  {
   "id": "library-with-junction-opened",
-  "source": "comic_archive/app_runtime.py",
-  "old": "            if junction is None:\n",
-  "new": "            if True:\n",
+  "source": "comic_archive/state_paths.py",
+  "old": "    return next((folder for folder in found if osdep.junction(folder)), None)\n",
+  "new": "    return None\n",
   "test_file": "test_app_runtime.py",
   "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
  },
