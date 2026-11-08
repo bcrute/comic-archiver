@@ -13,19 +13,28 @@
 - **Episodes the app can't save yet no longer stop a download.** Before, a download that met episodes in a form the
   app can't save yet ended by saying they could not be saved and asking you to press Go, which never helped. It
   now finishes, and its card says how many there are. **Settings → Downloads** lists them by reason.
-- **Faster downloads.** In my testing, 0.3.0 downloaded about 10% faster than 0.2.
+- **More control over download speed.** Medium aims for about half the rate of Fast, and Slow for about a quarter.
 - **When a download stops, the window says why.** Each stop comes with what to do about it, such as signing in
   again. Press **Continue** once you have.
 - **Pause stops the download, and Continue carries on from there.** Closing the window or switching off the computer
   pauses it the same way.
 - **Your download carries on after the update.** The first start moves it to the new record, and **Continue** picks up
-  where it stopped. Going back to an older version after that starts the list and series checks again; nothing
-  you have saved is lost.
+  where it stopped. Keep using this version after the update: older versions do not understand the new
+  library folder layout.
 - **Asking for help is easier.** **Settings → About → Copy details for support** copies a short summary of each
   site's download to paste into a message. It has no series titles, folder names or sign-in details. If you are
   asked for the app's log, **Save log for support** next to it puts everything the app recorded in one file in
   your Downloads folder, to attach to an email. Series and episodes are in it by number only, never by title, and
   it has no folder names or sign-in details.
+
+- **Existing libraries are organized automatically.** On startup, the app moves older Tapas folders into
+  `Tapas` beside `Tappytoon` and `Webtoon` in your chosen library folder. Saved archives are moved, not copied.
+  **Open library folder** opens that folder in your usual file manager.
+- **Clearer progress with less background work.** Local file checks show their progress. Estimates say when
+  downloads have not been queued yet, and paused sites stop refreshing. Dashboard fields stay in place.
+- **More reliable image recovery.** Valid images with extra trailing data are preserved, and episodes blocked
+  by the older image check are retried automatically. Support logs include the details needed to diagnose
+  image failures.
 
 ## Download
 
@@ -69,7 +78,7 @@ later starts are quick.
 2. Press **Start** on that card. Signed in to more than one site? **Start all** starts every one.
 
 **Where your files go.** Into the folder `Comic Archiver` in your user folder (on Windows
-`C:\Users\<your name>\Comic Archiver`): Tapas in `Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
+`C:\Users\<your name>\Comic Archiver`): Tapas in `Tapas\Library`, Tappytoon in `Tappytoon\Library`, Webtoon in `Webtoon\Library`, one folder per series.
 Comics are saved as CBZ files and novels as EPUB files, which open in comic and e-book reader apps.
 
 **Updating.** Run the new setup file over the old version; don't uninstall first. If Comic Archiver is open, setup

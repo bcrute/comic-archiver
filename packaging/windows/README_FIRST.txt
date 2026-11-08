@@ -10,16 +10,18 @@ Control blocked it and there is no "Run anyway", Comic Archiver can't be
 used on this PC yet.
 
 The first time:
-1. Choose your site in the Site list.
+1. Find your site's card on the dashboard.
 2. Choose Sign in, and sign in on the site's own page in the window with
    your email and password. If you normally use Google or Facebook there,
    set a password on the site first.
-3. Press Go.
+3. Press Start on that card. Start all starts every signed-in site.
 
 Your saved episodes are in the folder "Comic Archiver" in your user folder
-(C:\Users\<your name>\Comic Archiver): Tapas in "Library", Tappytoon in
+(C:\Users\<your name>\Comic Archiver): Tapas in "Tapas\Library", Tappytoon in
 "Tappytoon\Library", Webtoon in "Webtoon\Library". Comics are CBZ files and
 novels are EPUB files; they open in comic and e-book reader apps.
+On startup, this version moves older Tapas folders into "Tapas" automatically;
+saved archives are moved, not copied. Older versions do not understand this layout.
 To update, use the same download as before: run the new setup file over
 this version, or unpack the new zip and start it (it offers to delete this
 older copy). Don't uninstall first. You stay signed in, and your settings
