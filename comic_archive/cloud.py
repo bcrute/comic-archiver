@@ -45,6 +45,7 @@ def test_prefixes(library_id, test_id):
 
 
 def _json(path, maximum=1024*1024):
+    path = osdep.extended_path(Path(path).absolute())
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ArchiveError('Cloud state must not be symlinked.')
     try:
@@ -60,8 +61,11 @@ def _json(path, maximum=1024*1024):
 
 def _write(path, value):
     directory(path.parent).chmod(0o700)
-    atomic_json(path, value)
-    path.chmod(0o600)
+    from .windows_privacy import folder
+    folder(path.parent)
+    actual = osdep.extended_path(path)
+    atomic_json(actual, value)
+    actual.chmod(0o600)
     _directory_sync(path.parent)
 
 
@@ -156,6 +160,8 @@ def join(root, store):
     if shared and ({n: t['target_id'] for n, t in shared.items()} != {n: t['target_id'] for n, t in own['targets'].items()}):
         return 'separate'
     folder = directory(store); folder.chmod(0o700)
+    from .windows_privacy import folder as protect_folder
+    protect_folder(folder)
     moved, left, mine = {}, [], root / '.archive-state/cloud'
     for name, target in own['targets'].items():
         config = Path(target['config'])
@@ -215,7 +221,9 @@ def _size(path):
 
 def _config(path):
     path = safe_root(path)
-    # On Windows the file is private by being in the person's own profile folder; there are no such modes.
+    from .windows_privacy import file as protect_file
+    if path.is_file():
+        protect_file(path)
     if not path.is_file() or (not osdep.WINDOWS and path.stat().st_mode & 0o077):
         raise ArchiveError('Cloud authentication needs a private rclone config file (permissions 600).')
     return path
@@ -738,6 +746,7 @@ def cleanup_direct(root, transfer=None):
         receipt = root / '.archive-state/cloud/outbox/b2' / (record['episode_id'] + '.json')
         history = (root / '.archive-state/cloud/history/b2' / record['episode_id']
                    / (target['target_id'] + '-' + version + '.json'))
+        history = osdep.extended_path(history)
         # The outbox or the history saying it was uploaded each keep it: either may be all that was written.
         kept = [_json(file) for file in (receipt, history) if file.is_file()]
         finished = any(saved.get('state') == 'verified' and saved.get('target_id') == target['target_id']

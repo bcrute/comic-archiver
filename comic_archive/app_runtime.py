@@ -15,6 +15,7 @@ from . import archive_paths, background, cloud_runtime, osdep, shared, site_layo
 from .account_ui import DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL
 from .errors import LibraryBusy, LibraryMoved
 from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
+from .windows_privacy import PrivateStorageError
 from .models import ArchiveError
 from .session import load_session, store_session
 from .state_paths import leads_elsewhere, private_folder
@@ -402,7 +403,7 @@ class Runtime:
                 private_folder(place, 'web')
                 share(place, private_folder(root, 'shared'))
                 return root, place, session, safe_root(session / 'state.json')
-        except (LibraryBusy, site_layout.LayoutError):
+        except (LibraryBusy, site_layout.LayoutError, PrivateStorageError):
             raise
         except ArchiveError:
             raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '

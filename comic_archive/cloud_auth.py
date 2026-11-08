@@ -100,6 +100,8 @@ class SignIn:
             ensure(root, self._cancel)
             self._update(stage='authenticating')
             folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)
+            from .windows_privacy import folder as protect_folder
+            protect_folder(folder)
             with tempfile.TemporaryDirectory(prefix='signin-', dir=folder) as work:
                 config = Path(work) / 'rclone.conf'
                 config.touch(mode=0o600)

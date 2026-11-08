@@ -1,7 +1,7 @@
 """Where the app keeps its private state beside a library."""
 from pathlib import Path
 
-from . import osdep, sites
+from . import osdep, sites, windows_privacy
 from .models import ArchiveError
 from .storage import safe_root
 
@@ -23,6 +23,7 @@ def private_folder(root, kind):
     """The private folder, made if it is not there yet, and hidden from the file manager as on Linux."""
     path = private_path(root, kind)
     path.mkdir(mode=0o700, exist_ok=True)
+    windows_privacy.folder(path)
     osdep.hide(path)
     return path
 

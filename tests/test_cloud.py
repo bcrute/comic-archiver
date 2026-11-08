@@ -572,7 +572,7 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text())['targets']['google'],google)
         self.assertEqual(set(cloud.settings(self.root)['targets']),{'b2'})
 
-    @unittest.skipIf(os.name == 'nt', 'Windows keeps no permission bits; the file is private through the profile folder.')
+    @unittest.skipIf(os.name == 'nt', 'POSIX permission bits; native Windows ACL repair is tested separately.')
     def test_config_readable_by_others_is_refused(self):
         self.publish();self.ready()
         self.config.chmod(0o644)
@@ -842,3 +842,29 @@ class TransferTests(unittest.TestCase):
         with self.assertRaises(NetworkPolicyHold):transfer.run('lsf','b2:test')
         self.assertFalse(marker.exists())
 
+
+
+class MetadataPathTests(unittest.TestCase):
+    def test_long_private_receipt_is_written_replaced_and_read_without_shortening_identity(self):
+        from comic_archive import osdep
+        with tempfile.TemporaryDirectory() as work:
+            folder = Path(work) / ('private-state-' + 'x' * 70) / '.archive-state/cloud/history/b2' / ('a' * 36)
+            path = folder / ('b' * 36 + '-' + 'c' * 64 + '.json')
+            self.assertGreater(len(str(path)), 260)
+            cloud._write(path, {'verified': True})
+            self.assertEqual(cloud._json(path), {'verified': True})
+            cloud._write(path, {'verified': True, 'eviction_requested': True})
+            self.assertEqual(cloud._json(path), {'verified': True, 'eviction_requested': True})
+            self.assertEqual(osdep.extended_path(path).name, path.name)
+            self.assertFalse(osdep.extended_path(path.with_suffix('.json.tmp')).exists())
+
+    def test_metadata_write_never_recreates_a_library_that_was_moved_while_open(self):
+        from comic_archive.archive_paths import kept
+        from comic_archive.errors import LibraryMoved
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work) / 'Library'; root.mkdir()
+            with kept(root):
+                root.rename(Path(work) / 'Moved')
+                with self.assertRaises(LibraryMoved):
+                    cloud._write(root / '.archive-state/cloud/history/receipt.json', {'verified': True})
+            self.assertFalse(root.exists())

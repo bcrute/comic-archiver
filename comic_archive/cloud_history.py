@@ -8,6 +8,7 @@ import hashlib
 import re
 
 from .archive import sidecar_path
+from .osdep import extended_path
 from .models import ArchiveError
 from .publication import valid_export_id, validate_public_metadata
 from .storage import safe_root
@@ -22,8 +23,9 @@ def retain(root, provider, record):
         raise ArchiveError('Cloud history needs a verified upload identity.')
     folder = safe_root(root) / '.archive-state/cloud/history' / provider / record['episode_id']
     path = folder / (record['target_id'] + '-' + record['version'] + '.json')
-    if path.exists():
-        previous = _json(path)
+    actual = extended_path(path)
+    if actual.exists():
+        previous = _json(actual)
         # An eviction mark is monotonic; a later upload cannot undo an earlier offload.
         if not record.get('eviction_requested') or previous.get('eviction_requested') is True:
             return
@@ -72,7 +74,7 @@ def receipts(root, archive, provider, library_id, *, outbox_only=False):
     paths = [root / '.archive-state/cloud/outbox' / provider / (public['export_id'] + '.json')]
     if not outbox_only:
         folder = safe_root(root / '.archive-state/cloud/history' / provider / public['export_id'])
-        paths.extend(sorted(folder.glob('*.json')))
+        paths.extend(sorted(extended_path(folder).glob('*.json')))
     found = {}
     for path in paths:
         if not path.is_file():

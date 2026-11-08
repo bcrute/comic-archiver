@@ -3,7 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
-from . import archive_paths, sites
+from . import archive_paths, sites, windows_privacy
 from .models import ArchiveError
 from .osdep import open_exclusive, replace_file, sync_directory
 
@@ -82,6 +82,7 @@ def cookie_expiry_seconds(value):
 
 def load_session(directory):
     """Also repair the in-memory representation of older imported state files."""
+    windows_privacy.folder(directory)
     try:
         state = json.loads((directory / "state.json").read_text())
         for cookie in state["cookies"]:
@@ -101,6 +102,7 @@ def store_session(state, directory: Path, site=sites.DEFAULT):
         raise ArchiveError("Refusing a symlink in the session directory.")
     archive_paths.directory(directory)  # Never in the place of a library folder that moved.
     directory.chmod(0o700)
+    windows_privacy.folder(directory)
     # Keep only the site's own cookies/local storage; exclude OAuth provider sessions.
     state["cookies"] = [c for c in state["cookies"] if site.keeps_cookie(c["domain"])]
     state["origins"] = [o for o in state["origins"] if o["origin"] == site.home]

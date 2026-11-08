@@ -8,6 +8,23 @@ from support import PRIVATE_FILE
 from comic_archive import osdep
 
 
+class ExtendedPathTests(unittest.TestCase):
+    def test_only_internal_windows_metadata_gets_an_absolute_idempotent_namespace(self):
+        with patch.object(osdep, 'WINDOWS', False):
+            self.assertEqual(osdep.extended_path(Path('metadata')), Path('metadata'))
+        with patch.object(osdep, 'WINDOWS', True):
+            for original, expected in (
+                    ('C:\\Library\\state.json', '\\\\?\\C:\\Library\\state.json'),
+                    ('\\\\server\\share\\state.json', '\\\\?\\UNC\\server\\share\\state.json')):
+                with self.subTest(original=original):
+                    converted = osdep.extended_path(PureWindowsPath(original))
+                    self.assertEqual(str(converted), expected)
+                    self.assertEqual(osdep.extended_path(PureWindowsPath(expected)), converted)
+            for relative in ('state.json', 'C:state.json', '\\state.json'):
+                with self.assertRaises(ValueError): osdep.extended_path(relative)
+
+
+
 class ReplaceTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(); self.addCleanup(folder.cleanup)

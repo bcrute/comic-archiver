@@ -5,6 +5,7 @@ private temporary home, and no secret is supplied.
 """
 import json
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,7 +18,8 @@ from comic_archive import cloud_tools
 def main():
     with tempfile.TemporaryDirectory(prefix='cloud-helper-probe-') as work:
         root = Path(work)
-        with patch.object(Path, 'home', return_value=root), patch('comic_archive.cloud_tools.shutil.which', return_value=None), patch('comic_archive.cloud_tools.NetworkGuard'):
+        download = os.environ.get('COMIC_ARCHIVER_CI_HELPER_DOWNLOAD_BASE') or cloud_tools.DOWNLOAD_BASE
+        with patch.object(cloud_tools, 'DOWNLOAD_BASE', download), patch.object(Path, 'home', return_value=root), patch('comic_archive.cloud_tools.shutil.which', return_value=None), patch('comic_archive.cloud_tools.NetworkGuard'):
             binary = cloud_tools.ensure(root/'Library', threading.Event())
         version = subprocess.check_output([binary, 'version'], text=True, timeout=10)
         if version.splitlines()[0] != 'rclone v'+cloud_tools.VERSION:

@@ -50,6 +50,18 @@ class CloudToolsTests(unittest.TestCase):
         self.assertEqual(cloud_tools.ensure(self.root, threading.Event()), str(binary))
         self.download.assert_not_called()
 
+    def test_acquiring_cache_changes_only_download_route_not_the_pinned_integrity_check(self):
+        base = 'https://cache.example/public-helper/'
+        with patch.object(cloud_tools, 'DOWNLOAD_BASE', base):
+            binary = Path(cloud_tools.ensure(self.root, threading.Event()))
+        self.assertEqual(self.download.call_args.args[1], base + f'v{cloud_tools.VERSION}/rclone-v{cloud_tools.VERSION}-linux-amd64.zip')
+        self.assertEqual(binary.read_bytes(), b'VERIFIED_HELPER')
+        binary.unlink()
+        with patch.object(cloud_tools, 'DOWNLOAD_BASE', base), patch.dict(cloud_tools.DIGESTS, {('linux', 'amd64'): '0' * 64}):
+            with self.assertRaisesRegex(ArchiveError, 'could not be verified'):
+                cloud_tools.ensure(self.root, threading.Event())
+        self.assertFalse(binary.exists())
+
     def test_windows_gets_the_windows_helper_from_its_own_release(self):
         self.build(('windows', 'amd64'))
         binary = Path(cloud_tools.ensure(self.root, threading.Event()))

@@ -18,6 +18,8 @@ from .network import NetworkGuard
 from .storage import safe_root
 
 VERSION = '1.75.2'
+# The CI smoke may route this public download through an acquiring cache; hashes stay fixed.
+DOWNLOAD_BASE = 'https://github.com/rclone/rclone/releases/download'
 # https://github.com/rclone/rclone/releases/download/v1.75.2/SHA256SUMS, the same at downloads.rclone.org
 DIGESTS = {
     ('linux', 'amd64'):'349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702',  # gitleaks:allow public upstream SHA-256
@@ -97,7 +99,7 @@ def ensure(root, cancel):
     if shutil.disk_usage(folder).free < 1024**3:
         raise ArchiveError('Free some device space before connecting cloud storage.')
     name = f'rclone-v{VERSION}-{build[0]}-{build[1]}'
-    url = f'https://github.com/rclone/rclone/releases/download/v{VERSION}/{name}.zip'
+    url = f'{DOWNLOAD_BASE.rstrip("/")}/v{VERSION}/{name}.zip'
     with tempfile.TemporaryDirectory(prefix='install-', dir=folder) as work:
         package = Path(work)/'helper.zip'; digest = hashlib.sha256(); size = 0
         with httpx.stream('GET', url, follow_redirects=True, timeout=30) as response, package.open('wb') as stream:

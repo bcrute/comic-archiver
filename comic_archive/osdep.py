@@ -5,7 +5,7 @@ module knows about libraries, sites or accounts.
 """
 import errno
 import os
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PureWindowsPath
 import signal
 import stat
 import subprocess
@@ -59,7 +59,7 @@ else:
 
 
 def private_file(descriptor):
-    """Restrict a private file on Unix; Windows keeps it private through its containing profile's ACL.
+    """Restrict a private file on Unix; Windows secret writers first protect the containing state tree's ACL.
 
     Windows Python before 3.13 has no fchmod. Permission bits on newer Windows
     Python only change read-only status, not who may read the file.
@@ -183,6 +183,25 @@ def keep_awake(running):
         kernel.SetThreadExecutionState(continuous | (system_required if running else 0))
     except (AttributeError, OSError):
         pass
+
+
+def extended_path(path):
+    """An internal Windows metadata path can exceed Win32's legacy length limit.
+
+    Call after normal directory/relocation guards. This is the same filesystem
+    location, including on UNC shares; it never changes a saved archive's name.
+    """
+    if not WINDOWS:
+        return Path(path)
+    value = PureWindowsPath(path)
+    if not value.is_absolute():
+        raise ValueError('Extended metadata paths must be absolute.')
+    text = str(value)
+    prefix = '\\\\?\\'
+    if text.startswith(prefix):
+        return Path(text)
+    return Path(prefix + 'UNC\\' + text[2:] if text.startswith('\\\\') else prefix + text)
+
 
 
 def disk_bytes(path):

@@ -214,3 +214,14 @@ each directory rename and journal removal, then verify recovery with every
 original file's bytes, identity and timestamp intact. Injected directory-flush
 failures also retain recoverable state. These development checks do not replace
 real Windows filesystem validation or the full release gates.
+
+On Windows, existing private state trees receive protected access rules for the
+current account, SYSTEM and administrators before use. This includes copied
+sign-ins, browser profiles and cloud keys. Repair never walks archive folders;
+new state inherits those rules. A location without persistent Windows access
+controls cannot hold sign-in state. Worker refreshes load this protection too.
+
+For isolated CI, the helper-install smoke accepts
+`COMIC_ARCHIVER_CI_HELPER_DOWNLOAD_BASE` for the existing acquiring cache.
+The upstream version, size bounds, archive checks and pinned SHA-256 remain
+mandatory. Ordinary application downloads use the upstream address.

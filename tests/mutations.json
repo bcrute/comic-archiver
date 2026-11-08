@@ -6566,5 +6566,61 @@
   "new": "",
   "test_file": "test_app_runtime.py",
   "test": "test_normal_app_startup_automatically_moves_legacy_data_without_an_external_step"
+ },
+ {
+  "id": "windows-private-state-hook-omitted",
+  "source": "comic_archive/state_paths.py",
+  "old": "    windows_privacy.folder(path)\n",
+  "new": "    pass\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_each_private_folder_is_protected_before_it_is_returned"
+ },
+ {
+  "id": "windows-private-config-check-omitted",
+  "source": "comic_archive/cloud.py",
+  "old": "        protect_file(path)\n",
+  "new": "        pass\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_cloud_config_is_protected_before_it_is_returned_to_the_helper"
+ },
+ {
+  "id": "windows-private-volume-without-acls-accepted",
+  "source": "comic_archive/windows_privacy.py",
+  "old": "        if not flags.value & 0x8:",
+  "new": "        if False:",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_no_acl_volume_reparse_point_hard_link_wrong_type_and_null_dacl_are_refused"
+ },
+ {
+  "id": "windows-private-acl-not-protected",
+  "source": "comic_archive/windows_privacy.py",
+  "old": "api['set'](handle, 1, 0x80000004, None, None, dacl, None)",
+  "new": "api['set'](handle, 1, 0x4, None, None, dacl, None)",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_native_acl_replaces_inheritance_and_closes_the_exact_opened_entry"
+ },
+ {
+  "id": "windows-private-failed-tree-cached",
+  "source": "comic_archive/windows_privacy.py",
+  "old": "        _secure(path, True)\n",
+  "new": "        _protected.add(key)\n        _secure(path, True)\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_partial_repair_is_not_cached_and_vanished_temporary_files_are_safe"
+ },
+ {
+  "id": "windows-private-session-write-omitted",
+  "source": "comic_archive/session.py",
+  "old": "    directory.chmod(0o700)\n    windows_privacy.folder(directory)\n",
+  "new": "    directory.chmod(0o700)\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_refusal_prevents_session_reads_and_writes"
+ },
+ {
+  "id": "windows-private-session-read-omitted",
+  "source": "comic_archive/session.py",
+  "old": "    windows_privacy.folder(directory)\n    try:\n        state = json.loads",
+  "new": "    try:\n        state = json.loads",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_refusal_prevents_session_reads_and_writes"
  }
 ]
