@@ -36,6 +36,11 @@
   by the older image check are retried automatically. Support logs include the details needed to diagnose
   image failures.
 
+- **Private sign-ins in copied Windows libraries.** Existing app state receives the same restricted access
+  as new state when opened. Saved archive permissions stay as they are. The library drive must support
+  Windows file access permissions, such as NTFS. A Windows path-length failure while recording cloud
+  backups is also fixed.
+
 ## Download
 
 | Your computer | File |
