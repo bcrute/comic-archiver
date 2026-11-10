@@ -572,6 +572,50 @@ class ControllerTests(Controller):
         self.assertEqual((shown['status'], shown['phase']), ('finished', 'finished'))
         self.assertEqual(shown['audit']['unsupported_recorded_accessible_episode_count'], 50)
 
+    def test_a_check_stopped_before_it_ran_is_a_pause_and_not_a_failed_step(self):
+        bare = {'status': 'cancelled', 'cancelled_before_start': True}
+        self.go()
+        self.read_lists()
+        _, request = self.published()
+        self.assertEqual(request['operation'], 'audit_account')
+        dc.request_stop(self.session, self.library)
+        self.ok(bare)
+        self.tick()
+        value = self.state()
+        self.assertEqual((value['status'], value['code'], value['failed_retries'], value['audit']), ('stopped', None, 0, None))
+        self.assertEqual(self.requests(), [])
+        # Stopped while Go was still wanted (a start of the app), it stops the download the same way.
+        self.go()
+        _, request = self.published()
+        if request['operation'] == 'audit_account':
+            self.ok(bare)
+            self.tick()
+            value = self.state()
+            self.assertEqual((value['status'], value['code'], value['failed_retries']), ('stopped', None, 0))
+
+    def test_a_download_receipt_that_only_says_cancelled_cannot_be_counted(self):
+        self.downloading()
+        dc.request_stop(self.session, self.library)
+        self.ok({'status': 'cancelled', 'cancelled_before_start': True})
+        self.tick()
+        self.assertEqual(self.state()['failed_retries'], 1)
+
+    def test_changing_choices_while_a_check_waits_its_turn_goes_back_to_saving(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        saved = []
+        response = {'status': 'ok', 'result': {'status': 'cancelled', 'cancelled_before_start': True}}
+
+        def stopped(task):
+            self.answer(response, task)
+            return response
+
+        dc.change_speed(self.session, self.library, lambda: saved.append(True), stopped, lambda: True, selection=True)
+        value = self.state()
+        self.assertEqual((saved, value['status'], value['stage'], value['audit'], value['failed_retries']),
+                         ([True], 'running', 'archive', None, 0))
+
     def test_an_audit_receipt_that_cannot_be_read_is_tried_once_more_then_holds(self):
         self.go()
         self.read_lists()

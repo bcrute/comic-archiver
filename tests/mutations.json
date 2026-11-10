@@ -7334,5 +7334,37 @@
   "new": "NameError, AssertionError",
   "test_file": "test_tapas.py",
   "test": "test_browser_failure_classification_suppresses_private_details"
+ },
+ {
+  "id": "stopped-check-counts-as-a-failed-step",
+  "source": "comic_archive/download_control.py",
+  "old": "        if _cancelled(response, task):\n            # A check stopped",
+  "new": "        if False:\n            # A check stopped",
+  "test_file": "test_download_control.py",
+  "test": "test_a_check_stopped_before_it_ran_is_a_pause_and_not_a_failed_step"
+ },
+ {
+  "id": "stopped-check-receipt-must-count-like-a-download",
+  "source": "comic_archive/download_control.py",
+  "old": "and (task['kind'] == 'audit' or _valid(result, task)))",
+  "new": "and (False or _valid(result, task)))",
+  "test_file": "test_download_control.py",
+  "test": "test_changing_choices_while_a_check_waits_its_turn_goes_back_to_saving"
+ },
+ {
+  "id": "choices-changed-under-a-stopped-check-stay-at-the-check",
+  "source": "comic_archive/download_control.py",
+  "old": "audit_cancelled = task is not None and task['kind'] == 'audit' and _cancelled(response, current)",
+  "new": "audit_cancelled = False",
+  "test_file": "test_download_control.py",
+  "test": "test_changing_choices_while_a_check_waits_its_turn_goes_back_to_saving"
+ },
+ {
+  "id": "bare-cancelled-download-receipt-is-counted",
+  "source": "comic_archive/download_control.py",
+  "old": "    if not _valid(result, task) or result.get('status') not in ('finished', 'limited', 'cancelled', 'paused'):",
+  "new": "    if result.get('status') != 'cancelled' and not _valid(result, task) or result.get('status') not in ('finished', 'limited', 'cancelled', 'paused'):",
+  "test_file": "test_download_control.py",
+  "test": "test_a_download_receipt_that_only_says_cancelled_cannot_be_counted"
  }
 ]

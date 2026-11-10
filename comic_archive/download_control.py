@@ -297,6 +297,20 @@ def _valid(result, task):
             and result['downloaded_bytes'] <= options.get('max_bytes', result['downloaded_bytes']))
 
 
+def _cancelled(response, task):
+    """Whether this is the receipt of a step that was stopped. A check's says only that; a download's must count."""
+    result = response.get('result') if isinstance(response, dict) else None
+    return (isinstance(result, dict) and response.get('status') == 'ok' and result.get('status') == 'cancelled'
+            and (task['kind'] == 'audit' or _valid(result, task)))
+
+
+def _stopped(value, task):
+    # A step stopped by a Pause (or a start of the app) that Go has since overruled leaves the download going.
+    overruled = _instant(task['published_at']) < _instant(value['stretch_started_at'])
+    if value['status'] in ('running', 'waiting') and not overruled:
+        value.update(status='stopped', code=None, wait_until=None)
+
+
 def progressed(result):
     """Whether a receipt shows its task got something done: episodes saved or settled, or series checked.
 
@@ -401,6 +415,10 @@ def _settle(db, value, task, response, session):
             _failed(value, 'task_failed')
         return
     if task['kind'] == 'audit':
+        if _cancelled(response, task):
+            # A check stopped before it ran counted nothing and failed at nothing.
+            _stopped(value, task)
+            return
         if not isinstance(result, dict) or 'status' in result:
             _failed(value, 'task_result_invalid')
             return
@@ -424,10 +442,7 @@ def _settle(db, value, task, response, session):
         return
     value['failed_retries'] = 0
     if result['status'] == 'cancelled':
-        # A step stopped by a Pause (or a start of the app) that Go has since overruled leaves the download going.
-        overruled = _instant(task['published_at']) < _instant(value['stretch_started_at'])
-        if value['status'] in ('running', 'waiting') and not overruled:
-            value.update(status='stopped', code=None, wait_until=None)
+        _stopped(value, task)
         return
     if result['status'] == 'paused':
         reason = result.get('pause_reason')
@@ -920,8 +935,7 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
             if task is not None:
                 _settle(db, value, current, response, session)
                 result = response.get('result')
-                if (response.get('status') == 'ok' and isinstance(result, dict)
-                        and result.get('status') == 'cancelled' and _valid(result, current)):
+                if _cancelled(response, current):
                     if not progressed(result):
                         value['failed_retries'] = previous['failed_retries']
                     if resume:
@@ -940,10 +954,7 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
                              go_after=max(deadlines, key=_instant) if deadlines else None)
             if selection:
                 value['audit'] = None  # Completion must reflect the newly selected scope.
-                audit_cancelled = (task is not None and task['kind'] == 'audit'
-                                   and response.get('status') == 'ok' and isinstance(response.get('result'), dict)
-                                   and response['result'].get('status') == 'cancelled'
-                                   and _valid(response['result'], current))
+                audit_cancelled = task is not None and task['kind'] == 'audit' and _cancelled(response, current)
                 if (value['status'] == 'finished' or value['code'] == 'archive_incomplete' or audit_cancelled):
                     value.update(status='running' if resume and can_resume() else 'stopped', stage='archive',
                                  code=None, wait_until=None)
