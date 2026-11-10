@@ -33,7 +33,7 @@ class QueueClientTests(unittest.TestCase):
     def test_go_can_queue_each_sites_own_lists(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work);(root/'worker/requests').mkdir(parents=True)
-            for categories in (['unlocked'],['subscribed','recent']):
+            for categories in (['unlocked'],['subscribed','recent'],['wait_until_free']):
                 task=submit_job(root,'sync',{'categories':categories})['task_id']
                 self.assertEqual(json.loads((root/'worker/requests'/f'{task}.json').read_text())['args']['categories'],categories)
 

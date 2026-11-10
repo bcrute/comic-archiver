@@ -29,6 +29,24 @@ class ActionsTests(unittest.TestCase):
             work(*args, **options)
         return refused.exception.code, str(refused.exception)
 
+    def test_episode_inventory_is_a_read_only_paged_registry_call(self):
+        expected = self.registry.episode_inventory.return_value = {'initialized': True, 'items': []}
+        self.assertEqual(self.actions.episode_inventory('42', offset=200), expected)
+        self.registry.episode_inventory.assert_called_once_with(LOCAL_OWNER, LIBRARY, series_id='42', offset=200)
+        for series, offset in (('../file', 0), ('42', True), ('42', -1)):
+            with self.assertRaises(Refused):
+                self.actions.episode_inventory(series, offset)
+        self.registry.episode_inventory.assert_called_once()
+
+    def test_unopened_provider_index_uses_the_selected_root_without_opening_a_runtime(self):
+        with patch('comic_archive.episode_index.page', return_value={'initialized': False, 'items': []}) as read:
+            self.assertFalse(self.actions.episode_inventory(provider='tappytoon')['initialized'])
+        from pathlib import Path
+        read.assert_called_once_with(Path('/chosen folder/Tappytoon/Library'), series_id=None, offset=0)
+        self.registry.resolve.assert_called_once_with(LOCAL_OWNER, LIBRARY)
+        with self.assertRaises(Refused):
+            self.actions.episode_inventory(provider='../other-library')
+
     def test_slow_reads_log_operation_site_and_duration_without_arguments_or_results(self):
         self.registry.saved_files.return_value = {'PRIVATE': 'secret result'}
         with patch('comic_archive.app_actions.time.monotonic', side_effect=[10, 12.75]), \
@@ -180,6 +198,24 @@ class ActionsTests(unittest.TestCase):
 
 
 class ReceivedTests(unittest.TestCase):
+
+    def test_all_provider_cards_measure_batches_completed_between_minute_refreshes(self):
+        for provider in ('tapas', 'webtoon', 'tappytoon'):
+            with self.subTest(provider=provider):
+                state = State(sites=[{'key': provider, 'name': provider, 'current': True}],
+                              network_at=1000, library_at=1000)
+                # Both polls see a zero-byte series check. Two intervening download batches transferred 12 MB.
+                for at, count in ((1000, 3_000_000), (1060, 15_000_000)):
+                    received(state, self.reading(status={'last_run': {'id': f'check-{at}'},
+                                                        'progress': {'downloaded_bytes': 0}},
+                                                account={'status': 'running', 'transfer': {
+                                                    'scope': 900.0, 'downloaded_bytes': count}}), at)
+                self.assertEqual(state.speed(), 200_000)
+                self.assertEqual(app_actions.due(state, 1060), (True, False, False))
+                # The common rendering path uses the measured rate for every provider.
+                from comic_archive.dashboard_model import view
+                rendered = view(state, 1060)
+                self.assertIn('200 KB/s', str(rendered))
 
     def reading(self, **values):
         return {'status': {'workspace_id': LIBRARY}, 'account': {'status': 'stopped'}, 'site_auth': {'status': 'idle'}} | values

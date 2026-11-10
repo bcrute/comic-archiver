@@ -31,13 +31,20 @@ Source: https://www.python.org/downloads/
 - zstandard (BSD-3-Clause), which bundles the Zstandard library (BSD-3-Clause).
 - typing_extensions (PSF-2.0).
 
-## Desktop app (Linux and Windows)
+### Webtoon signing protocol
+
+The mobile gateway signing implementation follows the MIT-licensed
+[webtoon-api client](https://github.com/s0ko1ex/webtoon-api), copyright 2023
+Alexandr Sokolov. Its copyright and full permission notice are retained in
+`comic_archive/webtoon_gateway.py`. No additional runtime package is required.
+
+## Desktop app (Linux, Windows and macOS)
 
 ### Python on the desktop
 
 Windows uses the Python Software Foundation's signed embeddable Windows
 distribution (https://www.python.org/downloads/windows/); its own `LICENSE.txt`
-adds the conditions of that Windows build. Linux uses python-build-standalone
+adds the conditions of that Windows build. Linux and macOS use python-build-standalone
 (https://github.com/astral-sh/python-build-standalone), which also builds in
 ncurses (X11 license), libedit (BSD-3-Clause), libuuid (BSD-3-Clause), zlib-ng
 (Zlib) and Zstandard (BSD-3-Clause).
@@ -48,7 +55,9 @@ ncurses (X11 license), libedit (BSD-3-Clause), libuuid (BSD-3-Clause), zlib-ng
   bundles libjpeg-turbo, libpng, libtiff, libwebp, FreeType, zlib and other
   libraries under their own permissive licenses.
 - tzdata (Apache-2.0), on Windows.
-- pip (MIT) and the packages it carries, on Linux, so that Qt can be replaced
+- psutil (BSD-3-Clause), on macOS, for native process and volume information.
+  Source: https://github.com/giampaolo/psutil
+- pip (MIT) and the packages it carries, on Linux and macOS, so that Qt can be replaced
   (see below).
 
 ### Qt and PySide6 (LGPL-3.0)
@@ -63,7 +72,9 @@ The Qt Company Ltd. and other contributors.
 Qt is linked dynamically: its libraries are separate files inside
 `python/lib/python*/site-packages/PySide6/` (Linux) or
 `python\Lib\site-packages\PySide6\` (Windows). The app holds only the Qt
-libraries it loads. You may replace them with a modified or different build of
+libraries it loads on Linux and Windows. The macOS bundle keeps Qt under
+`Contents/Resources/python/lib/python*/site-packages/PySide6/`, retaining
+the framework and browser-helper bundle layouts. You may replace them with a modified or different build of
 the same version of those libraries. On Linux, for example, install another
 PySide6 build into this folder's Python with `python/bin/python3 -m pip install`.
 The Windows app has no pip: copy the files of another PySide6 build of the same

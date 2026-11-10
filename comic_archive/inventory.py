@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import math
 import re
 import secrets
@@ -21,7 +22,7 @@ ASSET_RETRY_COOLDOWN_SECONDS = 300
 # Raise when an update changes how a series check sorts its episodes: a round of
 # checks begun under older rules starts over, so series it already checked are
 # checked again and their earlier refusals are corrected (0.2.3's access_denied).
-SCAN_RULES = '1'
+SCAN_RULES = '2'
 # An episode a job failed on this many times is held as failed, so the queue goes on past it.
 MAX_FAILED_ATTEMPTS = 3
 UNSUPPORTED_REASONS=frozenset({'scheduled','novel','temporary_access','order_unverified',
@@ -107,9 +108,16 @@ class Inventory:
                         status TEXT NOT NULL, summary TEXT);
                     CREATE TABLE IF NOT EXISTS asset_deferrals (
                         episode_id TEXT PRIMARY KEY, retry_after TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS reader_denials (
+                        episode_id TEXT PRIMARY KEY, access_hint TEXT NOT NULL, cycle TEXT NOT NULL);
                     CREATE TABLE IF NOT EXISTS episode_expirations (
                         episode_id TEXT PRIMARY KEY, expires_at TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS download_paid_series (series_id TEXT PRIMARY KEY);
                 """)
+                if not self.db.execute("SELECT 1 FROM settings WHERE key='download_paid_series_seeded'").fetchone():
+                    from .download_selection import remember_paid_series
+                    remember_paid_series(self.db)
+                    self.db.execute("INSERT INTO settings VALUES ('download_paid_series_seeded','1')")
                 # Upgrade existing typed deferrals without restarting their wait.
                 for key, seen in self.db.execute("SELECT id,observed_at FROM episodes WHERE error_code='asset_read_unavailable'").fetchall():
                     after = observation_time(seen) + timedelta(seconds=ASSET_RETRY_COOLDOWN_SECONDS)
@@ -124,6 +132,20 @@ class Inventory:
                                     "WHERE status='failed' AND error_code='job_failed' "
                                     "AND access_state IN " + sites.sql_list(sites.ACCESS) + " AND attempts>=?", (MAX_FAILED_ATTEMPTS,))
                     self.db.execute("INSERT INTO settings VALUES ('image_structure_recheck','1')")
+                # The previous reader equated a product entry with paid access,
+                # rejecting valid product flags independently of actual rights.
+                # Old generic failures cannot identify that condition: offer
+                # accessible Webtoon failures one bounded retry cycle, once.
+                if not self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_product_flag_recheck'").fetchone():
+                    repaired = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
+                        "WHERE status='failed' AND error_code='job_failed' "
+                        "AND access_state IN ('webtoon_free','webtoon_unlocked') "
+                        "AND attempts>=?", (MAX_FAILED_ATTEMPTS,)).rowcount
+                    self.db.execute("INSERT INTO settings VALUES ('webtoon_product_flag_recheck','1')")
+                    if repaired:
+                        logging.getLogger('comic_archive.download').info(
+                            'inventory recovery: reason=webtoon_product_flag retry_candidates=%s budget=%s once=true',
+                            repaired, MAX_FAILED_ATTEMPTS)
                 self.db.commit()
             except BaseException:
                 self.close()
@@ -195,6 +217,8 @@ class Inventory:
             (series_id, title, json.dumps(origins), seen, last_seen))
         seen_ids = set()
         with self.db:
+            from .download_selection import remember_paid_series
+            remember_paid_series(self.db, series_id)
             for item in episodes:
                 key = item.get("id")
                 access = item.get("access_state")
@@ -209,11 +233,21 @@ class Inventory:
                     raise MetadataError("Episode identity changed series during inventory refresh.")
                 if old_episode is not None and observation_time(old_episode['observed_at']) > seen_time:
                     continue  # A dated seed must not overwrite a fresher access check.
+                # Negative bulk hints cannot erase an already queued positive
+                # candidate. Its reader can still establish a genuine refusal.
+                if (provenance != 'episode_check' and (access not in sites.ACCESS or access in sites.READABLE)
+                        and old_episode is not None and old_episode['status'] in {'queued','failed','downloading','archived'}
+                        and old_episode['access_state'] in sites.ACCESS):
+                    access = old_episode['access_state']
+                    # An inconclusive bulk hint must not erase a known type or
+                    # turn a rental into a permanent purchase by dropping expiry.
+                    item = dict(item)
+                    item.pop('access_expires_at', None)
                 status = "queued" if access in sites.ACCESS else "unavailable"
                 error = None
                 reason=item.get('authorization_reason')
                 if access=='unavailable_or_unverified' and isinstance(reason,str):
-                    if reason in {'novel','scheduled','temporary_access'}:
+                    if reason == 'novel':
                         status,error='unsupported',reason
                     elif reason=='access_denied':
                         error='access_denied'
@@ -230,6 +264,10 @@ class Inventory:
                 elif (old_episode is not None and status == 'queued'
                         and old_episode['access_state'] == access and failing(dict(old_episode))):
                     status, error = 'failed', 'job_failed'  # Nor reset its failed tries.
+                denial = self.db.execute('SELECT access_hint,cycle FROM reader_denials WHERE episode_id=?', (key,)).fetchone()
+                if (status in {'queued','failed'} and denial is not None
+                        and denial['cycle'] == self.reader_cycle() and denial['access_hint'] == access):
+                    status, error = 'unavailable', 'access_denied'
                 self.db.execute("""INSERT INTO episodes
                     (id,series_id,title,episode_order,access_state,observed_at,status,error_code)
                     VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
@@ -238,8 +276,8 @@ class Inventory:
                     status=excluded.status, error_code=excluded.error_code""",
                     (key, series_id, item["title"], order, access, seen, status, error))
                 if 'access_expires_at' in item:
-                    from .expiry import expiration
-                    expires=expiration(item['access_expires_at'])
+                    from .expiry import observed_expiration
+                    expires=observed_expiration(item['access_expires_at'])
                     if expires is not None and access in sites.ACCESS:
                         self.db.execute('INSERT INTO episode_expirations VALUES (?,?) ON CONFLICT(episode_id) DO UPDATE SET expires_at=excluded.expires_at',(key,expires))
                     else:
@@ -248,11 +286,28 @@ class Inventory:
                     self.db.execute("INSERT INTO observations VALUES (?,?,?)", (key, seen, access))
                 if status in {'archived','unavailable','unsupported'} or (old_episode is not None and old_episode['access_state'] != access):
                     self.db.execute('DELETE FROM asset_deferrals WHERE episode_id=?', (key,))
+            remember_paid_series(self.db, series_id)
 
-    def record_access(self, key, access, *, expires_at=None):
+    def reader_cycle(self):
+        row = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
+        return row[0] if row else 'initial'
+
+    def record_reader_denial(self, key):
+        """An actual reader refusal suppresses unchanged candidates this scan round."""
+        row = self.db.execute('SELECT access_state FROM episodes WHERE id=?', (key,)).fetchone()
+        if row is None:
+            raise MetadataError('Reader refusal does not match an inventoried episode.')
+        with self.db:
+            self.db.execute('INSERT INTO reader_denials VALUES (?,?,?) ON CONFLICT(episode_id) DO UPDATE SET '
+                            'access_hint=excluded.access_hint,cycle=excluded.cycle', (key,row[0],self.reader_cycle()))
+        logging.getLogger('comic_archive.download').info('reader access: denied retry=next_scan_round_or_changed_hint')
+
+    def record_access(self, key, access, *, expires_at=None, reader_confirmed=False):
         row = self.db.execute('SELECT * FROM episodes WHERE id=?',(key,)).fetchone()
         if row is None:
             raise MetadataError('Access check does not match an inventoried episode.')
+        if reader_confirmed and access in sites.ACCESS:
+            self.db.execute('DELETE FROM reader_denials WHERE episode_id=?', (key,))
         series = self.db.execute('SELECT title FROM series WHERE id=?',(row['series_id'],)).fetchone()
         self.observe(row['series_id'],series['title'],[{'id':key,'title':row['title'],
                      'order':row['episode_order'],'access_state':access,'access_expires_at':expires_at}], 'episode_check')
@@ -261,6 +316,37 @@ class Inventory:
         row=self.db.execute("SELECT value FROM settings WHERE key='queue_priority'").fetchone()
         from .expiry import queue_priority
         return queue_priority(row[0] if row else 'expiring_first')
+
+    def enable_tappytoon_entitlement_discovery(self):
+        """Retire never-attempted availability-only seeds, preserving reader work."""
+        marker = 'tappytoon_entitlement_discovery_enabled'
+        if self.db.execute('SELECT 1 FROM settings WHERE key=?', (marker,)).fetchone():
+            return
+        with self.db:
+            corrected = self.db.execute(
+                "UPDATE episodes SET status='unavailable',access_state='unavailable_or_unverified',error_code=NULL "
+                "WHERE access_state='tappytoon_readable' AND status='queued' AND attempts=0 "
+                "AND archive_path IS NULL AND file_signature IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.episode_id=episodes.id "
+                "AND o.access_state IN ('tappytoon_free','tappytoon_unlocked','tappytoon_limited'))").rowcount
+            self.db.execute('INSERT INTO settings VALUES (?,?)', (marker, '1'))
+        if corrected:
+            logging.getLogger('comic_archive.download').info(
+                'inventory correction: provider=tappytoon reason=availability_not_entitlement '
+                'unattempted_candidates=%s files_changed=false once=true', corrected)
+
+    def enable_series_header_fallback(self):
+        """Reconsider old header-only gaps once; successful scan/reader still required."""
+        if self.db.execute("SELECT 1 FROM settings WHERE key='series_header_fallback_enabled'").fetchone():
+            return
+        with self.db:
+            self.db.execute("DELETE FROM series_scans WHERE series_id IN "
+                            "(SELECT series_id FROM series_scan_gaps WHERE code IN ('metadata_http_404','metadata_http_410'))")
+            recovered = self.db.execute("DELETE FROM series_scan_gaps WHERE code IN ('metadata_http_404','metadata_http_410')").rowcount
+            self.db.execute("INSERT INTO settings VALUES ('series_header_fallback_enabled','1')")
+        if recovered:
+            logging.getLogger('comic_archive.download').info(
+                'inventory recovery: reason=series_header_unavailable series=%s once=true', recovered)
 
     def enable_novels(self):
         """Recheck old content holds without asserting that a chapter is readable."""
@@ -431,6 +517,9 @@ class Inventory:
     def scan_candidates(self,limit=None):
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ArchiveError('Series scan limit must be a positive integer.')
+        retry = self._completion_retry_candidates()
+        if retry is not None:
+            return retry if limit is None else retry[:limit]
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
         rules = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_rules'").fetchone()
         if cycle is None or rules is None or rules[0] != SCAN_RULES:
@@ -445,16 +534,55 @@ class Inventory:
             observation_time(started)
         since = self.db.execute("SELECT value FROM settings WHERE key='scan_rules_since'").fetchone()
         held={gap['source_series_id'] for gap in self.scan_gaps() if gap['observed_at']>=started}
-        # Series still holding refusals from older rules go first: they are where
-        # a fix shows, while a large library's round takes many runs to finish.
+        # Discover episodes in never-checked series before revisiting old
+        # catalogue refusals. Keep recovery priority among previously scanned
+        # series and retain the current round's completed/held checkpoints.
         rows = [dict(row) for row in self.db.execute('''SELECT s.id,s.title FROM series s
             LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?
-            ORDER BY CASE WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e
-                WHERE e.series_id=s.id AND e.status='unavailable') THEN 0 ELSE 1 END,
+            ORDER BY CASE WHEN scans.observed_at IS NULL THEN 0
+                WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e
+                WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,
                 COALESCE(scans.observed_at,''),s.id''',(started,since[0] if since else ''))
             if row['id'] not in held]
         return rows if limit is None else rows[:limit]
+
+    def _completion_retry_candidates(self):
+        row = self.db.execute("SELECT value FROM settings WHERE key='completion_retry'").fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row[0])
+            started = observation_time(value['started_at'])
+            wanted = value['series_ids']
+            if not isinstance(wanted, list) or any(not observed_id(key) for key in wanted):
+                raise ValueError
+            wanted = set(wanted)
+        except (ValueError, TypeError, KeyError, RecursionError, MetadataError):
+            raise MetadataError('The scoped completion retry could not be read; the previous scan is retained.') from None
+        result = []
+        for gap in self.scan_gaps():
+            if gap['source_series_id'] in wanted and observation_time(gap['observed_at']) < started:
+                series = self.db.execute('SELECT id,title FROM series WHERE id=?', (gap['source_series_id'],)).fetchone()
+                if series is not None:
+                    result.append(dict(series))
+        return result
+
+    def prepare_completion_retry(self):
+        """An explicit Continue retries recorded gaps, not the entire account."""
+        keys = [gap['source_series_id'] for gap in self.scan_gaps() if gap['code'] != 'unsupported_novel_series']
+        with self.db:
+            if keys:
+                self.db.execute("INSERT INTO settings VALUES ('completion_retry',?) "
+                                'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                                (json.dumps({'started_at': timestamp(), 'series_ids': keys}),))
+            retried = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
+                "WHERE status='unsupported' AND error_code IN ('reader_manifest_incomplete','novel_manifest_incomplete') "
+                'AND access_state IN ' + sites.sql_list(sites.ACCESS)).rowcount
+        logging.getLogger('comic_archive.download').info(
+            'completion retry requested: series_lists=%s incomplete_manifests=%s scope=recorded_gaps saved_files_retained=true',
+            len(keys), retried)
+        return len(keys), retried
 
     def scan_gaps(self):
         # Read-only dashboards can open a pre-upgrade inventory while its old
@@ -511,6 +639,9 @@ class Inventory:
             'observed_at=excluded.observed_at,code=excluded.code,observed_count=excluded.observed_count,reported_count=excluded.reported_count',
             (key,timestamp(),'pagination_count_mismatch',observed_count,reported_count))
         self.db.commit()
+        logging.getLogger('comic_archive.download').warning(
+            'series list incomplete: series=%s observed_episodes=%s reported_episodes=%s reason=pagination_count_mismatch',
+            key, observed_count, reported_count)
 
     def record_series_scan(self,key):
         if not observed_id(key):
@@ -522,6 +653,13 @@ class Inventory:
         self.db.commit()
 
     def finish_scan_cycle(self):
+        retry = self._completion_retry_candidates()
+        if retry is not None:
+            if retry:
+                return False
+            self.db.execute("DELETE FROM settings WHERE key='completion_retry'")
+            self.db.commit()
+            return True
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
         if cycle is None:
             return False
@@ -537,6 +675,7 @@ class Inventory:
         return True
 
     def pending(self, free_only=False):
+        from .download_selection import clause
         if free_only:
             # Access observations are appended only on discovery/change.
             # Refreshing an unchanged free episode cannot renew its priority.
@@ -548,7 +687,7 @@ class Inventory:
                     FROM observations WHERE access_state IN '''+sites.sql_list(sites.FREE)+''' AND observation_epoch(observed_at)<=?
                     GROUP BY episode_id
                 ) recent ON recent.episode_id=e.id
-                WHERE e.status IN ('queued','failed') AND e.access_state IN '''+sites.sql_list(sites.FREE)+'''
+                WHERE e.status IN ('queued','failed') AND e.access_state IN '''+sites.sql_list(sites.FREE)+''' AND '''+clause(self.db)+'''
                 ORDER BY CASE WHEN e.error_code='asset_read_unavailable' THEN 1 ELSE 0 END,
                          recent_free_candidate DESC,
                          CASE WHEN recent.last_free >= ? - 86400 THEN recent.last_free END DESC,
@@ -556,6 +695,7 @@ class Inventory:
             ''',(now,now,now))]
         else:
             query = "SELECT * FROM episodes WHERE status IN ('queued','failed')"
+            query += ' AND ' + clause(self.db, 'episodes')
         # Bulk preservation saves existing unlocks first. The independent
         # free-only daily policy above still prioritizes recent free changes.
             query += " ORDER BY CASE WHEN error_code='asset_read_unavailable' THEN 1 ELSE 0 END, CASE WHEN access_state IN "+sites.sql_list(sites.UNLOCKED)+" THEN 0 ELSE 1 END, series_id, episode_order, id"
@@ -565,8 +705,8 @@ class Inventory:
             expirations=dict(self.db.execute('SELECT episode_id,expires_at FROM episode_expirations'))
             if free_only:
                 from .expiry import daily_candidate
-                rows += [dict(row) for row in self.db.execute("SELECT * FROM episodes WHERE status IN ('queued','failed') AND access_state IN "+sites.sql_list(sites.UNLOCKED))
-                         if row['id'] in expirations and daily_candidate(row['access_state'],expirations[row['id']])]
+                rows += [dict(row) for row in self.db.execute("SELECT * FROM episodes WHERE status IN ('queued','failed') AND access_state IN "+sites.sql_list(sites.UNLOCKED | sites.LIMITED)+' AND '+clause(self.db, 'episodes'))
+                         if daily_candidate(row['access_state'],expirations.get(row['id']))]
         from .expiry import now as expiry_now
         current=expiry_now();priority=self.queue_priority()
         def rank(row):
@@ -581,13 +721,27 @@ class Inventory:
         # writer. Admit the same one-time recheck here so Continue schedules a
         # download; opening the writer above consumes it and resets the budget.
         image_recheck = self.db.execute("SELECT 1 FROM settings WHERE key='image_structure_recheck'").fetchone() is None
+        product_recheck = self.db.execute("SELECT 1 FROM settings WHERE key='webtoon_product_flag_recheck'").fetchone() is None
         rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS
-              or (image_recheck and row['access_state'] in sites.ACCESS)]
+              or (image_recheck and row['access_state'] in sites.ACCESS)
+              or (product_recheck and row['access_state'] in ('webtoon_free', 'webtoon_unlocked'))]
         # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
         return sorted(rows,key=lambda row:(failing(row),row['attempts'] if failing(row) else 0,rank(row)))
 
     def watched_series(self):
         return [dict(row) for row in self.db.execute("SELECT id,title FROM series ORDER BY id")]
+
+    def selected_episode_ids(self):
+        from .download_selection import clause
+        selection = clause(self.db)
+        return None if selection == '1' else {row[0] for row in self.db.execute(
+            'SELECT e.id FROM episodes e WHERE ' + selection)}
+
+    def has_selected_pending(self):
+        """A cheap queue-admission check using only the fixed selection predicate."""
+        from .download_selection import clause
+        return self.db.execute("SELECT 1 FROM episodes e WHERE status IN ('queued','failed') AND "
+                               + clause(self.db) + ' LIMIT 1').fetchone() is not None
 
     def archive_selection(self, rows, limit=None):
         """Admit one cooled CDN retry before healthy work; keep cooling rows queued."""
@@ -646,11 +800,7 @@ class Inventory:
 
     def episode_counts(self):
         """(episodes by status, unsupported episodes by reason)."""
-        counts = {row[0]: row[1] for row in self.db.execute("SELECT status,COUNT(*) FROM episodes GROUP BY status")}
-        unsupported = {}
-        for code,count in self.db.execute("SELECT error_code,COUNT(*) FROM episodes WHERE status='unsupported' GROUP BY error_code"):
-            reason=code if isinstance(code,str) and code in UNSUPPORTED_REASONS else 'content_unsupported'
-            unsupported[reason]=unsupported.get(reason,0)+count
+        counts, unsupported, _ = self._episode_summary()
         return counts, unsupported
 
     def unsaved_codes(self):
@@ -669,8 +819,42 @@ class Inventory:
             FROM episodes WHERE status IN ('queued','failed','downloading','unsupported')
             ORDER BY status,error_code,series_id,episode_order,id LIMIT ?""", (limit,))]
 
+    def episode_type_counts(self):
+        """Recorded episode types, using the index without opening saved files."""
+        return self._episode_summary()[2]
+
+    def _episode_summary(self):
+        # One grouped index query supplies status, issues and types together.
+        # This replaces the previous separate status and unsupported scans.
+        counts, unsupported = {}, {}
+        types = {kind: {'saved': 0, 'waiting': 0} for kind in ('free', 'bought', 'limited', 'unclassified')}
+        has_expiry = self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='episode_expirations'").fetchone()
+        join = 'LEFT JOIN episode_expirations x ON x.episode_id=e.id' if has_expiry else ''
+        expiry = 'x.expires_at IS NOT NULL' if has_expiry else 'NULL'
+        from .download_selection import clause
+        selected = clause(self.db)
+        for mark, status, code, limited, count, included in self.db.execute(
+                f"SELECT e.access_state,e.status,e.error_code,{expiry},COUNT(*),{selected} FROM episodes e {join} "
+                f"GROUP BY e.access_state,e.status,e.error_code,{expiry},{selected}"):
+            counts[status] = counts.get(status, 0) + count
+            if status == 'unsupported' and included:
+                reason = code if isinstance(code, str) and code in UNSUPPORTED_REASONS else 'content_unsupported'
+                unsupported[reason] = unsupported.get(reason, 0) + count
+            if status not in {'archived','queued','downloading','failed'}:
+                continue
+            if status != 'archived' and not included:
+                continue
+            from .download_selection import access_kind
+            kind = access_kind(mark, True if limited else None)
+            types[kind]['saved' if status == 'archived' else 'waiting'] += count
+        return counts, unsupported, types
+
     def status(self):
-        counts, unsupported = self.episode_counts()
+        counts, unsupported, types = self._episode_summary()
+        from .download_selection import clause, read
+        selection = clause(self.db)
+        selected_counts = dict(counts) if selection == '1' else dict(self.db.execute(
+            'SELECT e.status,COUNT(*) FROM episodes e WHERE e.status=\'archived\' OR ' + selection + ' GROUP BY e.status'))
         last = self.db.execute("SELECT id,started_at,finished_at,status,summary FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
         scan = self.db.execute("SELECT value FROM settings WHERE key='last_completed_scan'").fetchone()
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
@@ -682,6 +866,9 @@ class Inventory:
         held={gap['source_series_id'] for gap in gaps if cycle and gap['observed_at']>=since}
         remaining = sum(row['id'] not in held for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?''',(since,))) if cycle else 0
+        retry = self._completion_retry_candidates()
+        if retry is not None:
+            remaining = len(retry)
         now=observation_time(timestamp())
         # Missing checkpoints cannot establish when an earlier observation was
         # complete. "never_checked" describes recorded successful checks only.
@@ -713,7 +900,11 @@ class Inventory:
                 'series_without_episode_observations_count': self.db.execute('''SELECT COUNT(*) FROM series s
                     WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.series_id=s.id)''').fetchone()[0],
                 "series_count": self.db.execute("SELECT COUNT(*) FROM series").fetchone()[0],
-                "episode_count": sum(counts.values()), "episodes_by_status": counts, 'unsupported_by_reason':unsupported,
+                "episode_count": sum(counts.values()), "episodes_by_status": counts,
+                'episode_types': types, 'unsupported_by_reason':unsupported,
+                'download_types': read(self.db), 'selected_episodes_by_status': selected_counts,
+                'excluded_pending_episode_count': sum(counts.get(key, 0) - selected_counts.get(key, 0)
+                                                      for key in ('queued', 'downloading', 'failed', 'unsupported')),
                 'unsaved_by_code': self.unsaved_codes(),
                 'recent_pace': pace(self.recent_runs()), 'saved_bytes': self.saved_bytes(),
                 "last_run": dict(last) | {"summary": json.loads(last["summary"]) if last["summary"] else None} if last else None}

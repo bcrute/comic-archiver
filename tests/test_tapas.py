@@ -9,20 +9,37 @@ from comic_archive.errors import AccessDenied, AuthenticationError, MetadataErro
 
 
 class TapasTests(unittest.TestCase):
+    @patch('comic_archive.adapters.tapas.Transport')
+    def test_reader_document_uses_scoped_json_accept_and_preserves_missing_status(self, assets):
+        page = Mock();page.url = 'https://tapas.io/'
+        page.evaluate.return_value = {'status': 200, 'text': '{"data":{}}'}
+        transport = BrowserReadTransport(page, Mock(), metadata_interval=0.25)
+        self.assertEqual(transport.get('https://tapas.io/episode/81', reader_json=True), b'{"data":{}}')
+        self.assertEqual(page.evaluate.call_args.args[1]['accept'], 'application/json')
+        page.goto.assert_not_called()
+        for url in ('https://us-a.tapas.io/pc/1.jpg', 'https://tapas.io/series/42',
+                    'https://tapas.io/episode/81?other=1'):
+            with self.assertRaises(ArchiveError):transport.get(url, reader_json=True)
+        for status in (404, 410):
+            page.evaluate.return_value = {'status': status, 'text': 'PRIVATE_RESPONSE'}
+            with self.assertRaises(ArchiveError) as caught:transport.get('https://tapas.io/episode/81', reader_json=True)
+            self.assertEqual(caught.exception.source_http_status, status)
+            self.assertNotIn('PRIVATE', str(caught.exception))
+
     @patch('comic_archive.adapters.tapas.time.sleep')
     @patch('comic_archive.adapters.tapas.Transport')
     def test_only_exact_series_metadata_not_found_is_typed_without_private_response(self,assets,sleep):
         page=Mock();page.url='https://tapas.io/'
         transport=BrowserReadTransport(page,Mock())
-        for status in (404,410):
+        for status,route in ((404,'/series/42'),(410,'/series/42'),(404,'/series/42/episodes'),(410,'/series/42/episodes')):
             page.evaluate.return_value={'status':status,'text':'PRIVATE_SESSION_RESPONSE'}
-            with self.assertRaises(MetadataError) as caught:transport.get('https://tapas.io/series/42')
+            with self.assertRaises(MetadataError) as caught:transport.get('https://tapas.io'+route)
             self.assertEqual(caught.exception.source_series_id,'42')
-            self.assertEqual(caught.exception.source_route,'/series/42')
+            self.assertEqual(caught.exception.source_route,route)
             self.assertEqual(caught.exception.source_http_status,status)
             self.assertNotIn('PRIVATE',str(caught.exception))
         page.evaluate.return_value={'status':404,'text':'PRIVATE'}
-        with self.assertRaises(ArchiveError) as caught:transport.get('https://tapas.io/series/42/episodes')
+        with self.assertRaises(ArchiveError) as caught:transport.get('https://tapas.io/series/42/episodes/81')
         self.assertNotIsInstance(caught.exception,MetadataError)
         page.evaluate.return_value={'status':403,'text':'PRIVATE'}
         with self.assertRaises(ArchiveError) as caught:transport.get('https://tapas.io/series/42')

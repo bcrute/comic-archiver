@@ -32,6 +32,7 @@ SPEED_FILE = 'download-speed'
 DESKTOP_BROWSER = 'qt'
 # A batch that has only just started cannot be told to stop until it has recorded its run; Pause waits this long for that.
 PAUSE_WAIT_SECONDS = 5
+SPEED_CHANGE_WAIT_SECONDS = 30
 PHASES = ('existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished')
 
 
@@ -39,9 +40,14 @@ def speed(workspace):
     """The speed chosen for this library; the fast one until the person picks another."""
     try:
         # Never through a link: a library folder from elsewhere could hold one here.
+        path = workspace.session / SPEED_FILE
+        original = path.lstat()
+        if not stat.S_ISREG(original.st_mode):
+            return DEFAULT_SPEED
         flags = os.O_RDONLY | NOFOLLOW | NONBLOCK | getattr(os, 'O_BINARY', 0)
-        with os.fdopen(os.open(workspace.session / SPEED_FILE, flags), 'rb') as stream:
-            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+        with os.fdopen(os.open(path, flags), 'rb') as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (original.st_dev, original.st_ino):
                 return DEFAULT_SPEED
             text = stream.read(64).decode('utf-8').strip()
     except (OSError, ValueError):
@@ -49,10 +55,15 @@ def speed(workspace):
     return text if text in SPEEDS else DEFAULT_SPEED
 
 
-def choose_speed(workspace, value):
-    """Keep the choice with the library's private files. Go applies it."""
+def _check_speed(value):
+    """Refuse unsupported choices before touching a saved download."""
     if value not in SPEEDS:
         raise ArchiveError('Comic Archiver does not know that speed.')
+
+
+def choose_speed(workspace, value):
+    """Keep the choice with the library's private files; newly reserved steps apply it."""
+    _check_speed(value)
     path = workspace.session / SPEED_FILE
     temporary = path.with_name(SPEED_FILE + '.new')
     try:
@@ -62,6 +73,78 @@ def choose_speed(workspace, value):
         replace_file(temporary, path)
     except OSError:
         raise ArchiveError('Comic Archiver could not save that speed. Check that the library folder can be written to.') from None
+
+
+
+def change_speed(workspace, value, *, closing):
+    """Change this site's pace, gracefully replacing only a task that captured its old pace."""
+    _check_speed(value)
+    if value == speed(workspace) and not closing.is_set():
+        return
+    _change_setting(workspace, lambda: choose_speed(workspace, value), closing=closing)
+
+
+def download_types(workspace):
+    from .download_selection import TYPES, read
+    from .inventory import Inventory
+    if not (workspace.library / '.archive-state/inventory.sqlite3').is_file():
+        return dict.fromkeys(TYPES, True)
+    with Inventory(workspace.library, read_only=True) as inventory:
+        return read(inventory.db)
+
+
+def change_download_types(workspace, value, *, closing):
+    from .download_selection import save, validate
+    from .inventory import Inventory
+    value = validate(value)
+
+    def save_choices():
+        with Inventory(workspace.library) as inventory:
+            save(inventory.db, value)
+
+    _change_setting(workspace, save_choices, closing=closing, selection=True)
+
+
+def _change_setting(workspace, save_choice, *, closing, selection=False):
+    from .errors import LibraryBusy, SpeedChangeError, DownloadSelectionChangeError
+    error_type = DownloadSelectionChangeError if selection else SpeedChangeError
+    if closing.is_set():
+        raise error_type('closing')
+
+    def wait(task):
+        from .task_cancellation import admission_lock, request_running_stop
+        deadline = time.monotonic() + SPEED_CHANGE_WAIT_SECONDS
+        while not closing.is_set():
+            try:
+                # Stop queued work under the same lock the worker takes before starting it.
+                request_running_stop(workspace.session, task, include_queued=True)
+                _interrupted(workspace.session, workspace.library, task)
+                with admission_lock(workspace.session):
+                    response = task_status(workspace.session, task)
+                    worker = _read(workspace.session / 'worker/status.json')
+                    if response['status'] in ('ok', 'error') and worker.get('state') == 'ready':
+                        with LibraryLock(workspace.library):
+                            return response
+            except LibraryBusy:
+                pass  # Admission or writer cleanup is still in progress.
+            if time.monotonic() >= deadline:
+                raise error_type('stopping')
+            time.sleep(0.25)
+        raise error_type('closing')
+
+    def save():
+        try:
+            save_choice()
+        except (ArchiveError, OSError):
+            raise error_type('save') from None
+
+    try:
+        download_control.change_speed(workspace.session, workspace.library,
+                                      save, wait, lambda: not closing.is_set(), **({'selection': True} if selection else {}))
+    except (LibraryBusy, SpeedChangeError, DownloadSelectionChangeError):
+        raise
+    except (ArchiveError, OSError, sqlite3.Error):
+        raise error_type('unavailable') from None
 
 
 def start(workspace):
@@ -134,11 +217,44 @@ def _interrupted(session, library, task):
         return False
 
 
+def _transfer(workspace, state, progress, path, now):
+    """Count completed batches even when several finish between dashboard refreshes.
+
+    Only this outstanding task's checkpoint may supplement its completed receipts.
+    Nothing here reads archives, recounts the library or contacts a provider.
+    """
+    counter = state.get('_transfer') or {}
+    total, scope = counter.get('completed_bytes'), counter.get('scope')
+    if type(total) is not int or total < 0 or type(scope) is not float or not 0 < scope <= now:
+        return None
+    task = counter.get('task') or {}
+    saved = progress.get('downloaded_bytes')
+    if task.get('id'):
+        worker = _read(workspace.session / 'worker/status.json')
+        try:
+            if worker.get('task_id') == task['id']:
+                if not task['published_at'] <= path.stat().st_mtime <= now:
+                    saved = None
+            else:
+                # The worker may publish its receipt before the controller settles it. Count that exact
+                # task's receipt during the handoff instead of momentarily dropping its transferred bytes.
+                receipt = task_status(workspace.session, task['id'])
+                result = receipt.get('result')
+                saved = result.get('downloaded_bytes') if isinstance(result, dict) else None
+            if type(saved) is int and saved >= 0:
+                total += saved
+        except (ArchiveError, OSError, KeyError, TypeError):
+            pass
+    return {'scope': scope, 'downloaded_bytes': total}
+
+
 def status(workspace, since=None):
-    result = {'supported': True, 'configured': False, 'coverage_verified': False, 'speed': speed(workspace)}
+    result = {'supported': True, 'configured': False, 'coverage_verified': False, 'speed': speed(workspace),
+              'download_types': None}
     try:
+        result['download_types'] = download_types(workspace)
         state = download_control.status(workspace.session, workspace.library)
-    except ArchiveError:
+    except (ArchiveError, OSError, sqlite3.Error):
         state = {'configured': True, 'status': 'held', 'phase': 'lists', 'code': 'controller_failed'}
     if not state.get('configured'):
         return result
@@ -154,8 +270,23 @@ def status(workspace, since=None):
     if isinstance(state.get('audit'), dict):
         result['audit'] = {key: state['audit'][key] for key in download_control.AUDIT_KEYS
                            if type(state['audit'].get(key)) is int and state['audit'][key] >= 0}
+    purchase = state.get('purchase_history')
+    if isinstance(purchase, dict) and purchase.get('status') in ('pending', 'partial', 'checked'):
+        from .purchase_history import CODES
+        public = {'status': purchase['status']}
+        code = purchase.get('code')
+        if code is None or isinstance(code, str) and code in CODES | {'history_checkpoint_unreadable'}:
+            public['code'] = code
+        public.update({key: purchase[key] for key in ('pages', 'discovered', 'unresolved')
+                       if type(purchase.get(key)) is int and purchase[key] >= 0})
+        result['purchase_history'] = public
     # The clock counts the present stretch of work, from the last Go (or the window's own start).
     now = time.time()
+    path = workspace.library / '.archive-state/progress.json'
+    progress = _progress(_read(path))
+    transfer = _transfer(workspace, state, progress, path, now)
+    if transfer is not None:
+        result['transfer'] = transfer
     started = state.get('started_at')
     if type(started) is float:
         if since is not None:
@@ -163,7 +294,6 @@ def status(workspace, since=None):
         if started <= now:
             result['elapsed_seconds'] = int(now - started)
             try:
-                path = workspace.library / '.archive-state/progress.json'
                 if state.get('phase') == 'verify':
                     worker = _read(workspace.session / 'worker/status.json')
                     audit_path = workspace.session / 'worker/progress.json'
@@ -171,7 +301,7 @@ def status(workspace, since=None):
                     if (worker.get('state') == 'busy' and worker.get('task_id')
                             and worker['task_id'] == audit.get('task_id') and audit.get('phase') == 'verify'):
                         path = audit_path
-                progress = _progress(_read(path))
+                        progress = _progress(audit)
                 if 'status' in progress:
                     changed = path.stat().st_mtime
                     if started <= changed <= now:

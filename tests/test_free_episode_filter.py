@@ -154,7 +154,58 @@ class FreeEpisodeFilterTests(unittest.TestCase):
         checkpoint=Mock();result=self.adapter.inspect_library(category='free_episodes',on_page=checkpoint)
         self.assertEqual(result['scope'],'free_episodes')
         self.adapter._inspect_library_details.assert_called_once_with('subscribed',research=False)
-        self.adapter._inspect_free_episode_filter.assert_called_once_with(self.before,max_pages=50,on_page=checkpoint,known_scope_only=True)
+        self.adapter._inspect_free_episode_filter.assert_called_once_with(self.before,max_pages=200,on_page=checkpoint,known_scope_only=True)
+
+    def test_wuf_only_series_across_fifty_two_pages_keep_scope_checkpoints_and_restore(self):
+        from urllib.parse import parse_qs, urlsplit
+        self.category_filter('WAIT_UNTIL_FREE')
+        self.control.inner_text.return_value = 'Wait Until Free'
+        def number():
+            return int(parse_qs(urlsplit(self.adapter.page.url).query).get('pageNumber', ['1'])[0])
+        self.rows.evaluate_all.side_effect = [
+            [{'url': f'https://tapas.io/series/title-{i}', 'title': 'Title', 'ids': [str(100+i)]}]
+            for i in range(1, 53)]
+        self.pager.get_attribute.side_effect = lambda name: (
+            f'https://tapas.io/reading-list?category=WAIT_UNTIL_FREE&type=ALL&pageNumber={number()+1}'
+            if name == 'href' else 'paging__button--next' + (' disabled' if number() == 52 else '')
+            if name == 'class' else None)
+        self.pager.click.side_effect = lambda **_: setattr(self.adapter.page, 'url', self.pager.get_attribute('href'))
+        checkpoint = Mock()
+        result = self.adapter._inspect_free_episode_filter(
+            self.before, max_pages=200, category='wait_until_free', known_scope_only=True, on_page=checkpoint)
+        self.assertTrue(result['complete'])
+        self.assertEqual(len(result['series']), 52)
+        self.assertEqual(result['scope'], 'wait_until_free')
+        self.assertEqual(result['public_type_code'], 'WAIT_UNTIL_FREE')
+        self.assertEqual(checkpoint.call_count, 52)
+        self.assertTrue(all(call.args[0]['scope'] == 'wait_until_free' for call in checkpoint.call_args_list))
+        self.assertTrue(result['restore_succeeded'])
+        self.assertEqual(self.adapter.page.url, self.start)
+        self.assertFalse(result['account_inventory_complete'])
+
+    def test_wuf_discovery_starts_from_observed_account_controls(self):
+        self.adapter._inspect_library_details = Mock(return_value=self.before)
+        self.adapter._inspect_free_episode_filter = Mock(return_value={'scope': 'wait_until_free'})
+        callback = Mock()
+        self.adapter.inspect_library(category='wait_until_free', on_page=callback)
+        self.adapter._inspect_library_details.assert_called_once_with('subscribed', research=False)
+        self.adapter._inspect_free_episode_filter.assert_called_once_with(
+            self.before, max_pages=200, on_page=callback, known_scope_only=True, category='wait_until_free')
+
+    def test_wuf_does_not_accept_a_free_episodes_route_or_changed_selected_label(self):
+        self.category_filter('FREE_EPISODES')
+        self.control.inner_text.return_value = 'Wait Until Free'
+        value = self.adapter._inspect_free_episode_filter(
+            self.before, category='wait_until_free', known_scope_only=True)
+        self.assertFalse(value['membership_verified'])
+        self.control.click.assert_not_called()
+        self.category_filter('WAIT_UNTIL_FREE')
+        self.control.inner_text.side_effect = ['Wait Until Free', 'Free Episodes']
+        value = self.adapter._inspect_free_episode_filter(
+            self.before, category='wait_until_free', known_scope_only=True)
+        self.assertFalse(value['membership_verified'])
+        self.pager.click.assert_not_called()
+        self.assertTrue(value['restore_succeeded'])
 
     def test_unproven_source_shape_keeps_two_page_limit_and_invalid_limits_never_click(self):
         self.longer_category_filter('PRIVATE_CODE')
@@ -163,7 +214,7 @@ class FreeEpisodeFilterTests(unittest.TestCase):
         self.assertEqual(len(result['pages']),2);self.assertNotIn('PRIVATE',json.dumps(result))
         self.control.click.reset_mock()
         from comic_archive.models import ArchiveError
-        for value in (0,51,True,2.5):
+        for value in (0,201,True,2.5):
             with self.assertRaises(ArchiveError):self.adapter._inspect_free_episode_filter(self.before,max_pages=value)
         self.control.click.assert_not_called()
 

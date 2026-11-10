@@ -95,11 +95,12 @@ class SiteStandInTests(unittest.TestCase):
         self.assertIn(self.fixture.NOVEL_TEXT, chapter.text_html)
         self.assertEqual(chapter.pages, ())
 
-    def test_locked_episode_stops_before_reader_or_asset_retrieval(self):
-        with self.assertRaises(AccessDenied):
+    def test_missing_reader_is_episode_local_and_never_requests_assets(self):
+        with self.assertRaises(AccessDenied) as refused:
             self.adapter()._http.capture('https://tapas.io/episode/9003')
+        self.assertEqual(refused.exception.source_http_status, 404)
         facts = json.loads(self.fixture.observation())
-        self.assertFalse(facts['locked_reader_requested'])
+        self.assertTrue(facts['locked_reader_requested'])
         self.assertEqual(facts['asset_requests'], 0)
 
     def test_unknown_request_is_answered_locally_and_counted_as_a_failure(self):

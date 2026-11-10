@@ -91,7 +91,7 @@ class NetworkTests(unittest.TestCase):
             for error in (FileNotFoundError(), subprocess.TimeoutExpired('nmcli',2), ValueError()):
                 with patch('comic_archive.network._command', side_effect=error):
                     self.assertEqual(probe()['connection'], 'unknown')
-        with patch('comic_archive.network.sys.platform', 'darwin'):
+        with patch('comic_archive.network.sys.platform', 'unsupported'):
             self.assertEqual(probe()['connection'], 'unknown')
 
     def test_windows_is_asked_through_its_own_check_and_a_failure_there_holds_instead_of_stopping_the_download(self):

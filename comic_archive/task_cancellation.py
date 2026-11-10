@@ -51,12 +51,13 @@ def queued_stop_requested(session,task_id):
     return True
 
 
-def request_running_stop(session,task_id):
-    """Leave a stop with a started task; its import reads it once its run is recorded."""
+def request_running_stop(session,task_id, *, include_queued=False):
+    """Leave a durable task stop. Speed changes may also stop work before worker admission."""
     task_id=_task(task_id);root=Path(session)/'worker'
     with admission_lock(session):
         from .queue_client import task_status
-        if task_status(session,task_id)['status']!='running':
+        states = {'running', 'queued'} if include_queued else {'running'}
+        if task_status(session,task_id)['status'] not in states:
             return {'task_id':task_id,'status':'not_running'}
         path=root/'cancellations'/f'{task_id}.json'
         directory(path.parent).chmod(0o700)

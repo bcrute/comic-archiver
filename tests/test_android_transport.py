@@ -104,6 +104,19 @@ class WebViewCookieSourceTests(unittest.TestCase):
 
 
 class AndroidTransportTests(unittest.TestCase):
+    def test_reader_json_mode_routes_to_mobile_origin_and_keeps_cookie_authority(self):
+        seen = []
+        url = 'https://m.tapas.io/episode/81'
+        store = Store({url: 'session=FIXTURE_LIVE'})
+        def response(request):
+            seen.append((str(request.url), request.headers.get('accept'), request.headers.get('cookie')))
+            return httpx.Response(200, content=b'{}')
+        with httpx.Client(transport=httpx.MockTransport(response)) as client:
+            transport = AndroidTransport(store, client=client, interval=0.25)
+            self.assertEqual(transport.get('https://tapas.io/episode/81', reader_json=True), b'{}')
+        self.assertEqual(seen, [(url, 'application/json', 'session=FIXTURE_LIVE')])
+        self.assertEqual(store.asked, [url])
+
     def test_httpx_cannot_retain_or_resend_cookies_after_the_native_store_deletes_them(self):
         url = 'https://m.tapas.io/who-am-i'
         store = Store({url: 'session=FIXTURE_LIVE'})

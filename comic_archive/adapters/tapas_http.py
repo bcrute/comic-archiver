@@ -1,15 +1,17 @@
 """Read-only authenticated Tapas GET flow observed in the normal web reader."""
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
+from ..sites import DEFAULT
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from ..session import load_session
 from ..transport import Transport, asset_url
 from .reader import ReaderHTML, ordered_sources, safe_primitives, json_shape
 from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
-from ..expiry import expiration, check_expiration
+from ..expiry import observed_expiration
 from .pagination import EpisodeCountMismatch
 
 
@@ -20,19 +22,19 @@ def unsupported(message, code):
 
 
 def access_state(info):
-    """Only free or unlocked grants access; WUF/preview availability never does. must_pay is how Tapas sells
-    an episode, not whether this account has it: a bought paid-only episode keeps must_pay=true."""
-    if any(type(info.get(key)) is not bool for key in ("scheduled", "book", "free", "unlocked")) or "closing_date" not in info:
-        raise MetadataError("Episode authorization fields are missing or unexpected; inspection is required.")
-    if info["scheduled"] is True:
-        raise unsupported('Scheduled episodes are not supported by this importer.','scheduled')
-    if info["closing_date"] is not None:
-        check_expiration(expiration(info['closing_date']))
-    if info.get("free") is True:
-        return "tapas_free"
-    if info.get("unlocked") is True:
-        return "tapas_unlocked"
-    raise AccessDenied("Episode is neither free nor already unlocked; it will not be retrieved.")
+    """Bulk discovery hints only; the normal reader decides actual access."""
+    if info.get('free') is True:
+        return 'tapas_free'
+    if info.get('unlocked') is True:
+        return 'tapas_limited' if info.get('closing_date') is not None else 'tapas_unlocked'
+    return 'unavailable_or_unverified'
+
+
+def checked_series_seed(key, title):
+    from ..discovery import observed_id
+    if not observed_id(key) or not isinstance(title, str) or not title.strip() or len(title) > 500:
+        raise MetadataError('Series fallback needs an observed numeric identity and bounded title.')
+    return title
 
 
 def title_of(info):
@@ -55,6 +57,8 @@ def published_at(value):
 
 
 class TapasHTTPAdapter:
+    site = DEFAULT
+    supports_series_seed = True
     supports_novels = True
     supports_expiring_access = True
     def __init__(self, session: Path | None = None, transport=None, interval=1.0, expected_account_id=None):
@@ -67,6 +71,9 @@ class TapasHTTPAdapter:
         self.episode_info = None
         self.stage = "session"
         self.expected_account_id = expected_account_id
+        self.verified_slugs = {}
+        self.series_seeds = {}
+        self.unavailable_headers = {}
 
     def __enter__(self):
         return self
@@ -113,22 +120,87 @@ class TapasHTTPAdapter:
         if match is None:
             raise ArchiveError("Use an exact https://tapas.io/episode/<numeric-id> URL.")
         self.check_session()
-        info = self.json_get(f"/episode/{match[1]}/info")
+        try:
+            info = self.json_get(f"/episode/{match[1]}/info")
+        except ArchiveError as error:
+            if type(getattr(error, 'source_http_status', None)) is not int or error.source_http_status not in {404, 410}:
+                raise
+            info, _ = self._reader_document(url, match[1], error.source_http_status)
         if type(info.get("id")) is not int or str(info["id"]) != match[1]:
             raise MetadataError("Episode metadata identifies a different episode.")
         access=access_state(info)
         return {"source_episode_id": match[1], "access_state": access,
-                'access_expires_at':expiration(info['closing_date'])}
+                'access_expires_at':observed_expiration(info.get('closing_date'))}
+
+    def _reader_missing(self, key, error, metadata_status=None):
+        status = getattr(error, 'source_http_status', None)
+        if (type(status) is not int or status not in {404, 410}
+                or getattr(error, 'source_response_kind', None) == 'challenge'):
+            raise error
+        logging.getLogger('comic_archive.download').info(
+            'reader access: provider=tapas episode=%s result=unavailable stage=reader '
+            'http_status=%s metadata_http_status=%s reason=reader_missing retry=next_scan_round_or_changed_hint',
+            key, status, metadata_status)
+        unavailable = AccessDenied('Tapas does not currently provide this episode reader; other episodes can continue.')
+        unavailable.source_http_status = status
+        raise unavailable from None
+
+    def _reader_document(self, url, key, metadata_status):
+        """The observed website JSON reader supplies both metadata and HTML."""
+        self.stage = 'reader_document'
+        logging.getLogger('comic_archive.download').info(
+            'tapas metadata: episode=%s stage=episode_info http_status=%s fallback=website_reader_document',
+            key, metadata_status)
+        try:
+            raw = self.transport.get(url, max_bytes=8 * 1024 * 1024, reader_json=True)
+        except ArchiveError as error:
+            self._reader_missing(key, error, metadata_status)
+        if len(raw) > 8 * 1024 * 1024:
+            raise MetadataError('Tapas reader document exceeds the supported size.')
+        try:
+            response = json.loads(raw)
+            data = response['data']
+            if (not isinstance(response, dict) or type(response.get('code', 200)) is not int
+                    or response.get('code', 200) != 200 or response.get('error_details') is not None
+                    or response.get('errorDetails') is not None or not isinstance(data, dict)
+                    or not isinstance(data.get('episode'), dict) or not isinstance(data.get('html'), str)
+                    or type(data['episode'].get('id')) is not int or str(data['episode']['id']) != key):
+                raise ValueError
+            html = data['html'].encode('utf-8')
+        except (ValueError, KeyError, TypeError, UnicodeError):
+            raise MetadataError('Tapas reader document does not identify the exact requested episode.') from None
+        return data['episode'], html
+
+    def seed_series(self, key, title):
+        """Account-bound inventory metadata supplies a fallback, never episode access."""
+        self.series_seeds[key] = checked_series_seed(key, title)
+        self.unavailable_headers.pop(key, None)
+
+    def _series_header(self, key):
+        if key in self.unavailable_headers and key in self.series_seeds:
+            return {'id': int(key), 'title': self.series_seeds[key], '_header_unavailable': True}
+        try:
+            return dict(self.resolve_series(key), _header_unavailable=False)
+        except ArchiveError as error:
+            if getattr(error, 'source_http_status', None) not in {404, 410} or key not in self.series_seeds:
+                raise
+            self.unavailable_headers[key] = error.source_http_status
+            logging.getLogger('comic_archive.download').info(
+                'tapas metadata: series=%s stage=series_header http_status=%s fallback=account_observation',
+                key, error.source_http_status)
+            return {'id': int(key), 'title': self.series_seeds[key], '_header_unavailable': True}
 
     def series_identity(self, key):
         self.check_session()
-        series = self.resolve_series(key)
+        series = self._series_header(key)
         return {'source_series_id':str(series['id']),'title':title_of(series)}
 
     def series_metadata(self,key):
         from .series_metadata import series_details
         self.check_session()
-        info=self.resolve_series(key)
+        info=self._series_header(key)
+        if info.get('_header_unavailable') is True:
+            raise MetadataError('The series header is unavailable; optional metadata enrichment is deferred.')
         if (any(type(info.get(flag)) is not bool for flag in ('comic', 'book'))
                 or (info['comic'], info['book']) not in {(True, False), (False, True)}):
             raise UnsupportedContent('Series content classification is unsupported.')
@@ -187,6 +259,9 @@ class TapasHTTPAdapter:
             raise ArchiveError("Tapas returned inconsistent series metadata.")
         if not key.isdigit() and info.get("url") != key:
             raise ArchiveError("Series metadata does not match the requested slug.")
+        slug = info.get("url")
+        if isinstance(slug, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", slug):
+            self.verified_slugs[slug] = str(platform_id)
         return info
 
     def enumerate_episodes(self, platform_id, strict_order=True):
@@ -233,7 +308,7 @@ class TapasHTTPAdapter:
         if type(strict_order) is not bool or type(comic_only) is not bool:
             raise ArchiveError("Episode ordering validation must be an explicit boolean.")
         self.check_session()
-        series = self.resolve_series(key)
+        series = self._series_header(key)
         title = title_of(series)
         if comic_only and series.get('book') is True and series.get('comic') is False:
             return {'authenticated':True,'complete':False,'source_series_id':str(series['id']),
@@ -248,6 +323,17 @@ class TapasHTTPAdapter:
                     'source_series_id':str(series['id']),'title':title,
                     'episode_count':len(summaries),'episodes':summaries}
             raise
+        except ArchiveError as error:
+            status = getattr(error, 'source_http_status', None)
+            if series.get('_header_unavailable') is not True or status not in {404, 410}:
+                raise
+            unavailable = MetadataError('The observed series header and episode list are unavailable.')
+            unavailable.source_http_status = status
+            unavailable.source_series_id = str(series['id'])
+            unavailable.source_route = f"/series/{series['id']}/episodes"
+            logging.getLogger('comic_archive.download').info(
+                'tapas metadata: series=%s stage=episode_list http_status=%s fallback=unavailable', series['id'], status)
+            raise unavailable from None
         summaries=self._episode_summaries(episodes)
         return {"complete": True, "authenticated": True, "source_series_id": str(series["id"]),
                 "title": title, "episode_count": len(summaries),
@@ -261,20 +347,13 @@ class TapasHTTPAdapter:
         summaries = []
         for item in episodes:
             reason=None
-            try:
-                access = access_state(item)
-            except AccessDenied:
-                access = "unavailable_or_unverified"
-                reason='access_denied'
-            except UnsupportedContent as error:
-                access = 'unavailable_or_unverified'
-                reason=error.code
+            access = access_state(item)
             scene = item.get("scene")
             order = scene if type(scene) is int and scene > 0 and scenes.count(scene) == 1 else None
             summaries.append({"id": str(item["id"]), "title": title_of(item),
                               "order": order, "source_scene": scene if type(scene) is int else None, "access_state": access,
                               'authorization_reason':reason,
-                              'access_expires_at':expiration(item['closing_date']) if access in {'tapas_free','tapas_unlocked'} else None,
+                              'access_expires_at':observed_expiration(item.get('closing_date')),
                               "source_url": f"https://tapas.io/episode/{item['id']}"})
         return summaries
 
@@ -286,24 +365,26 @@ class TapasHTTPAdapter:
         # The sign-in is checked when the step starts (account_identity), not before each episode: every request
         # to tapas.io counts toward the pace Tapas allows, and a refusal says so itself.
         self.stage = "episode_metadata"
-        info = self.json_get(f"/episode/{match[1]}/info")
+        reader_html = None
+        try:
+            info = self.json_get(f"/episode/{match[1]}/info")
+        except ArchiveError as error:
+            if type(getattr(error, 'source_http_status', None)) is not int or error.source_http_status not in {404, 410}:
+                raise
+            info, reader_html = self._reader_document(url, match[1], error.source_http_status)
         if type(info.get("id")) is not int or str(info["id"]) != match[1]:
             raise ArchiveError("Tapas episode metadata identifies a different episode.")
-        try:
-            access = access_state(info)  # Gate before requesting the reader or images.
-        except AccessDenied:
-            # A sign-in that ended since is not refused: every bought episode just reads as locked. Said as a
-            # sign-out, it is never recorded as an episode the account cannot read.
-            self.stage = "session"
-            self.check_session()
-            raise
+        access = access_state(info)
+        if type(info.get('book')) is not bool:
+            raise MetadataError('Episode content type is missing or unsupported.')
         if order is None and (type(info.get("scene")) is not int or info["scene"] < 1):
             raise unsupported("Episode order is unverified; its reader will not be retrieved.",'order_unverified')
         self.stage = "reader_html"
-        check_expiration(expiration(info['closing_date']))
         try:
-            html_bytes = self.transport.get(url)
+            html_bytes = self.transport.get(url) if reader_html is None else reader_html
         except ArchiveError as error:
+            if getattr(error, 'source_http_status', None) in {404, 410}:
+                self._reader_missing(match[1], error)
             # Only a reader refused AFTER fresh session/access/order checks is
             # eligible for a bounded cooldown probe. Metadata and CDN errors
             # must never acquire this capability from their HTTP status alone.
@@ -333,29 +414,44 @@ class TapasHTTPAdapter:
             if urls is None:
                 raise unsupported("Normal reader HTML lacks a complete ordered comic manifest; use browser inspection.",'reader_manifest_incomplete')
         platform_id = safe_primitives("\n".join(parser.inline)).get("seriesId")
+        if reader_html is not None:
+            if len(parser.series_ids) != 1:
+                raise MetadataError('Reader document lacks one consistent numeric series identity.')
+            observed_series = next(iter(parser.series_ids))
+            if platform_id is not None and platform_id != observed_series:
+                raise MetadataError('Reader document contains conflicting series identities.')
+            platform_id = observed_series
         if type(platform_id) is not int or platform_id < 1:
             raise ArchiveError("Reader does not expose a verified numeric series ID.")
         self.stage = "series_metadata"
-        series_info = self.json_get(f"/series/{platform_id}")
-        if (type(series_info.get('id')) is not int or series_info['id'] != platform_id
-                or series_info.get('book') is not info['book']
-                or series_info.get('comic') is not (not info['book'])):
-            raise ArchiveError("Tapas series metadata does not identify the requested content type.")
-        slug = series_info.get("url")
-        if not isinstance(slug, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", slug):
-            raise ArchiveError("Tapas returned an unexpected series slug.")
-        if series_id is not None and series_id not in {slug, str(platform_id)}:
-            raise ArchiveError("Supplied series ID does not match the reader's series.")
-        self.series = Series(series_id or slug, series_title or series_info.get("title"),
-                             source_url=f"https://tapas.io/series/{slug}/info",
-                             platform_id=str(platform_id), slug=slug)
+        series_info = self._series_header(str(platform_id))
+        if series_info.get('_header_unavailable') is True:
+            if (series_id is not None and series_id != str(platform_id)
+                    and self.verified_slugs.get(series_id) != str(platform_id)):
+                raise MetadataError('Fallback series identity does not match the requested capture.')
+            self.series = Series(series_id or str(platform_id), title_of(series_info), platform_id=str(platform_id))
+        else:
+            if (type(series_info.get('id')) is not int or series_info['id'] != platform_id
+                    or series_info.get('book') is not info['book']
+                    or series_info.get('comic') is not (not info['book'])):
+                raise ArchiveError("Tapas series metadata does not identify the requested content type.")
+            slug = series_info.get("url")
+            if not isinstance(slug, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", slug):
+                raise ArchiveError("Tapas returned an unexpected series slug.")
+            if series_id is not None and series_id not in {slug, str(platform_id)}:
+                raise ArchiveError("Supplied series ID does not match the reader's series.")
+            self.series = Series(series_id or slug, series_title or series_info.get("title"),
+                                 source_url=f"https://tapas.io/series/{slug}/info",
+                                 platform_id=str(platform_id), slug=slug)
         self.episode_info = {key: info.get(key) for key in ("id", "free", "unlocked", "must_pay", "scheduled", "book", "closing_date")}
         episode = Episode(match[1], self.series.id, title or info.get("title"),
                           order if order is not None else info["scene"],
                           tuple(Page(i, value, False) for i, value in enumerate(urls, 1)),
-                          access, url, published_at(info.get("publish_date")),
+                          access if access in {'tapas_free', 'tapas_unlocked', 'tapas_limited'} else 'tapas_readable', url, published_at(info.get("publish_date")),
                           content_type='novel' if info['book'] else 'comic', text_html=text,
-                          access_expires_at=expiration(info['closing_date']), illustrations=illustrations)
+                          access_expires_at=observed_expiration(info.get('closing_date')), illustrations=illustrations)
+        logging.getLogger('comic_archive.download').info(
+            'reader access: provider=tapas result=complete metadata_access=%s images=%s', access, len(episode.pages))
         self._manifest = Manifest(self.series, (episode,))
         return self._manifest
 
@@ -364,8 +460,6 @@ class TapasHTTPAdapter:
 
     def retrieve(self, page, max_bytes=None):
         self.stage = "page_asset"
-        manifest=getattr(self,'_manifest',None)
-        if manifest is not None: check_expiration(manifest.episodes[0].access_expires_at)
         from ..transport import Transport
         if isinstance(self.transport, Transport):
             return self.transport.get(page.location, max_bytes=max_bytes, image=True)
@@ -382,10 +476,7 @@ class TapasHTTPAdapter:
         if not isinstance(transport, Transport):
             return None
         self.stage = 'page_asset'
-        manifest=getattr(self,'_manifest',None)
-        expires_at=manifest.episodes[0].access_expires_at if manifest is not None else None
         def fetch():
-            check_expiration(expires_at)
             return transport.get(page.location,max_bytes=max_bytes,image=True)
         return AssetDownload(fetch)
 

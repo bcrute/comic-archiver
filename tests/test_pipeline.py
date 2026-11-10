@@ -22,6 +22,7 @@ def reader(url, pages):
 
 class Browser:
     """Records which thread made each call and what job state travelled with it."""
+    supports_series_seed = True
 
     def __init__(self, case):
         self.case = case
@@ -60,6 +61,9 @@ class Browser:
     def account_identity(self):
         self.record('account_identity')
         return '11'
+
+    def seed_series(self, key, title):
+        self.record('seed_series', key, title)
 
     def series_metadata(self, key):
         self.record('series_metadata', key)
@@ -110,6 +114,13 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([t for t in threading.enumerate() if t not in before], [])
         del pipeline  # held until now: a collected pool would let a leaked worker exit by itself
 
+    def test_optional_series_seed_capability_comes_from_the_owned_adapter(self):
+        for declared, expected in ((True, True), (False, False), (1, False), (None, False)):
+            browser = Browser(self)
+            browser.supports_series_seed = declared
+            with MetadataPipeline(lambda: browser, None) as pipeline:
+                self.assertIs(pipeline.supports_series_seed, expected)
+
     def test_every_browser_call_runs_on_the_one_owner_thread_and_carries_the_job_state(self):
         marker = object()
         with self.pipeline() as pipeline:
@@ -117,6 +128,7 @@ class PipelineTests(unittest.TestCase):
             pipeline.asset_metrics, pipeline.expected_account_id = 'metrics', '11'
             page = Page(1, 'https://tapas.io/pc/1.png', False)
             self.assertEqual(pipeline.account_identity(), '11')
+            pipeline.seed_series('42', 'Observed')
             self.assertEqual(pipeline.series_metadata('42'), 'metadata 42')
             self.assertEqual(pipeline.series_identity('42'), 'identity 42')
             self.assertEqual(pipeline.inspect_series('42', strict_order=False), {'source_series_id': '42'})
@@ -125,7 +137,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(pipeline.retrieve(page, max_bytes=9), b'browser asset')
         browser = self.browsers[0]
         names = [call.name for call in browser.calls]
-        self.assertEqual(names, ['enter', 'account_identity', 'series_metadata', 'series_identity', 'inspect_series',
+        self.assertEqual(names, ['enter', 'account_identity', 'seed_series', 'series_metadata', 'series_identity', 'inspect_series',
                                  'episode_access', 'retrieve_cover', 'retrieve', 'exit'])
         self.assertEqual(len({call.thread for call in browser.calls}), 1)
         self.assertNotIn(threading.get_ident(), {call.thread for call in browser.calls})
@@ -133,6 +145,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual((call.deadline, call.cancel_check, call.metrics, call.account),
                              (123.0, marker, 'metrics', '11'))
         by_name = {call.name: call for call in browser.calls}
+        self.assertEqual(by_name['seed_series'].args, ('42', 'Observed'))
         self.assertEqual(by_name['inspect_series'].kwargs, {'strict_order': False})
         self.assertEqual(by_name['retrieve_cover'].kwargs, {'max_bytes': 7})
         self.assertEqual(by_name['retrieve'].kwargs, {'max_bytes': 9})

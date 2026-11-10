@@ -1247,6 +1247,30 @@ class SavedCookieTests(unittest.TestCase):
             self.assertEqual(qt_engine.saved_cookie(self.qt_cookie(same_site=qt_name))['sameSite'], saved)
 
 
+class SurfaceWheelTests(unittest.TestCase):
+    def test_cocoa_wheel_uses_the_native_source_and_other_platforms_keep_their_source(self):
+        for platform, expected in (('darwin', 'system'), ('linux', 'ordinary'), ('win32', 'ordinary')):
+            with self.subTest(platform=platform), patch.object(qt_engine.sys, 'platform', platform):
+                qt = SimpleNamespace(
+                    MouseEventSource=SimpleNamespace(MouseEventSynthesizedBySystem='system',
+                                                    MouseEventNotSynthesized='ordinary'),
+                    MouseButton=SimpleNamespace(NoButton='none'),
+                    KeyboardModifier=SimpleNamespace(NoModifier='none'),
+                    ScrollPhase=SimpleNamespace(NoScrollPhase='unphased'))
+                point = lambda x, y: (x, y)  # noqa: E731
+                factory, send = Mock(return_value=object()), Mock()
+                q = SimpleNamespace(QtCore=SimpleNamespace(Qt=qt, QPoint=point, QPointF=point),
+                                    QtGui=SimpleNamespace(QWheelEvent=factory),
+                                    QtWidgets=SimpleNamespace(QApplication=SimpleNamespace(sendEvent=send)))
+                target = Mock()
+                target.mapToGlobal.return_value = (70, 90)
+                surface = SimpleNamespace(loop=SimpleNamespace(q=q), target=lambda: target)
+                qt_engine.Surface.wheel(surface, 7, 9, 3, 1200)
+                factory.assert_called_once_with((7, 9), (70, 90), (-3, -1200), (-3, -1200),
+                                                'none', 'none', 'unphased', False, expected)
+                send.assert_called_once_with(target, factory.return_value)
+
+
 class QtThing:
     """Any Qt class the real Surface builds: keeps its arguments and answers every call with a mock."""
 

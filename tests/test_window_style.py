@@ -32,12 +32,38 @@ def used_names():
 
 
 class StyleTests(unittest.TestCase):
+    def test_provider_text_and_primary_buttons_have_readable_contrast_in_both_themes(self):
+        def luminance(colour):
+            rgb = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            channels = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in rgb]
+            return sum(c * weight for c, weight in zip(channels, (.2126, .7152, .0722), strict=True))
+        for dark in (False, True):
+            for appearance in window_style.CARD_STATES:
+                c = window_style.card_colours(appearance, dark)
+                for text, background in (('text', 'surface'), ('text', 'shade'), ('button-text', 'accent')):
+                    a, b = luminance(c[text]), luminance(c[background])
+                    self.assertGreaterEqual((max(a, b) + .05) / (min(a, b) + .05), 4.5,
+                                            (appearance, dark, text, background))
+
     def test_light_and_dark_each_give_every_colour(self):
         light, dark = window_style.colours(False), window_style.colours(True)
         self.assertEqual(set(light), set(window_style.COLOURS))
-        self.assertEqual(light['page'], '#f4f6f2')
-        self.assertEqual(dark['page'], '#111918')
+        self.assertEqual(light['page'], '#f8f5ef')
+        self.assertEqual(dark['page'], '#211c1d')
         self.assertTrue(all(re.fullmatch(r'#[0-9a-f]{6}', value) for value in [*light.values(), *dark.values()]))
+
+    def test_destructive_text_and_outline_contrast_with_normal_and_hover_backgrounds(self):
+        def luminance(colour):
+            channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in channels]
+            return sum(v * weight for v, weight in zip(linear, (0.2126, 0.7152, 0.0722), strict=True))
+        for dark in (False, True):
+            colours = window_style.colours(dark)
+            foreground = luminance(colours['destructive'])
+            for background in ('surface', 'destructive-hover'):
+                other = luminance(colours[background])
+                ratio = (max(foreground, other) + 0.05) / (min(foreground, other) + 0.05)
+                self.assertGreaterEqual(ratio, 4.5, (dark, background))
 
     def test_the_sheet_is_filled_in_completely_for_both_looks(self):
         for dark in (False, True):

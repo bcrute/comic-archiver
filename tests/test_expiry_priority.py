@@ -7,7 +7,6 @@ import unittest
 from unittest.mock import patch
 
 from comic_archive.adapters.tapas_http import access_state
-from comic_archive.errors import AccessDenied, UnsupportedContent
 from comic_archive.expiry import expiration
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import DownloadBudget, archive_discovered
@@ -30,14 +29,11 @@ class ExpiryPriorityTests(unittest.TestCase):
 
     def stamp(self,hours): return (self.time+timedelta(hours=hours)).isoformat()
 
-    def test_temporary_access_requires_an_explicit_readable_grant_and_future_known_timestamp(self):
-        self.assertEqual(access_state(self.flags|{'closing_date':self.stamp(1)}),'tapas_unlocked')
-        self.assertEqual(access_state(self.flags|{'free':True,'closing_date':self.stamp(1)}),'tapas_free')
-        for changes in ({'unlocked':False},{'closing_date':self.stamp(0)},{'closing_date':self.stamp(-1)}):
-            with self.assertRaises(AccessDenied): access_state(self.flags|{'closing_date':self.stamp(1)}|changes)
-        for value in ('unknown','2026-10-08T20:00:00',True,False,123,{'expiry':'PRIVATE'}):
-            with self.assertRaises(UnsupportedContent): access_state(self.flags|{'closing_date':value})
-        self.assertEqual(expiration('2026-10-08T14:00:00-05:00'),self.stamp(1))
+    def test_reported_expiry_does_not_override_positive_access_hints(self):
+        for value in (self.stamp(1), self.stamp(-1), 'unknown', True, None):
+            self.assertEqual(access_state(self.flags | {'closing_date': value}), 'tapas_unlocked' if value is None else 'tapas_limited')
+        self.assertEqual(access_state(self.flags | {'unlocked': False}), 'unavailable_or_unverified')
+        self.assertEqual(expiration('2026-10-08T14:00:00-05:00'), self.stamp(1))
 
     def seed(self):
         with Inventory(self.root) as inventory:
@@ -63,7 +59,7 @@ class ExpiryPriorityTests(unittest.TestCase):
         with Inventory(self.root) as inventory:
             self.assertEqual([r['id'] for r in inventory.pending(free_only=True)],['83','82','84'])
         with patch('comic_archive.expiry.now',return_value=self.time+timedelta(hours=3)),Inventory(self.root) as inventory:
-            self.assertNotIn('82',[r['id'] for r in inventory.pending(free_only=True)])
+            self.assertIn('82',[r['id'] for r in inventory.pending(free_only=True)])
 
     def test_expiring_grants_precede_cooled_asset_retry_without_renewing_its_wait(self):
         self.seed()
@@ -84,11 +80,13 @@ class ExpiryPriorityTests(unittest.TestCase):
             inventory.record_access('82','tapas_unlocked',expires_at=None)
             self.assertIsNone(next(r for r in inventory.pending() if r['id']=='82')['access_expires_at'])
 
-    def test_download_guard_prevents_new_requests_at_expiry_and_keeps_expiration_private(self):
-        adapter=AccountAdapter();budget=DownloadBudget(adapter);budget.access_expires_at=self.stamp(0)
-        with self.assertRaises(AccessDenied): budget.retrieve(adapter.capture_automatic('https://tapas.io/episode/81').episodes[0].pages[0])
-        self.assertEqual(adapter.downloads,[])
-        with self.assertRaises(AccessDenied): budget.asset_request(adapter.capture_automatic('https://tapas.io/episode/81').episodes[0].pages[0])
+    def test_reported_expiry_does_not_interrupt_a_provider_supplied_image(self):
+        adapter = AccountAdapter()
+        budget = DownloadBudget(adapter)
+        budget.access_expires_at = self.stamp(-1)
+        page = adapter.capture_automatic('https://tapas.io/episode/81').episodes[0].pages[0]
+        budget.retrieve(page)
+        self.assertTrue(adapter.downloads)
 
     @patch('builtins.print')
     def test_daily_job_saves_temporary_unlocked_grant_when_fresh_checks_confirm_it(self,output):

@@ -14,6 +14,7 @@ parked/android/build/
 .validation/
 /build/
 /dist/
+comic_archive/native/macos-network-probe
 # Android build outputs and fetched pinned sources; never committed binaries.
 android/.gradle/
 android/app/build/

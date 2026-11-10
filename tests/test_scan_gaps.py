@@ -102,7 +102,7 @@ class ScanGapTests(unittest.TestCase):
     @patch('builtins.print')
     def test_metadata_hold_never_swallows_wrong_identity_route_or_authorization_refusal(self,output):
         from comic_archive.errors import MetadataError
-        for status,key,route in ((403,'42','/series/42'),(404,'99','/series/42'),(404,'42','/series/42/episodes')):
+        for status,key,route in ((403,'42','/series/42'),(404,'99','/series/42'),(404,'42','/series/43/episodes')):
             error=MetadataError('PRIVATE_SOURCE');error.source_http_status=status
             error.source_series_id=key;error.source_route=route
             self.adapter.inspect_series=lambda *args,**kwargs:(_ for _ in ()).throw(error)

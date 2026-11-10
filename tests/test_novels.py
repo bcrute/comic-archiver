@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 import base64
+import os
+import xml.etree.ElementTree as ET
 
 from comic_archive.adapters.tapas_http import TapasHTTPAdapter, access_state
 from comic_archive.publication import PublicationStore as Store
@@ -92,6 +94,83 @@ class NovelTests(unittest.TestCase):
         self.addCleanup(self.work.cleanup)
         self.root = Path(self.work.name) / 'Library'
         self.adapter = NovelAdapter()
+
+    def test_observed_font_and_table_chapters_preserve_all_text_in_verified_epubs(self):
+        fixtures = Path(__file__).parent / 'fixtures/provider-replay-v1'
+        cases = json.loads((fixtures / 'chapter-structures.json').read_text())['cases']
+        for name, expected in cases.items():
+            with self.subTest(name=name):
+                parser = NovelHTML('81')
+                parser.feed((fixtures / name).read_text())
+                with self.assertLogs('comic_archive.download', level='INFO') as logged:
+                    text = parser.text()
+                root = ET.fromstring('<div>' + text + '</div>')
+                words = ''.join(root.itertext())
+                for number in range(1, expected['text_tokens'] + 1):
+                    self.assertEqual(words.count(f'Fixture text {number}.'), 1)
+                self.assertNotIn('<font', text)
+                self.assertEqual(len(list(root.iter('table'))), expected['observed_tag_counts'].get('table', 0))
+                self.assertNotIn('face=', text)
+                self.assertNotIn('color=', text)
+                self.assertIn('chapter_complete=true', ' '.join(logged.output))
+                chapter = Episode('81', self.adapter.series.id, 'Chapter', 1, (), 'tapas_free',
+                                  'https://tapas.io/episode/81', content_type='novel', text_html=text)
+                target = self.root / name.removesuffix('.html')
+                store = Store(target)
+                try:
+                    store.archive(Manifest(self.adapter.series, (chapter,)), self.adapter, progress=lambda _: None)
+                finally:
+                    store.close()
+                self.assertEqual(verify(target, decode_images=True), [])
+                path = next(target.rglob('*.epub'))
+                with zipfile.ZipFile(path) as packet:
+                    self.assertIn('Fixture text 1.', packet.read('EPUB/chapter.xhtml').decode())
+                if folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+                    (Path(folder) / name.replace('.html', '.epub')).write_bytes(path.read_bytes())
+
+    def test_table_spans_survive_sanitization_and_invalid_spans_hold(self):
+        from comic_archive.novels import validate_fragment
+        body = '<table><colgroup><col span="2" /></colgroup><thead><tr><th colspan="02">Head</th></tr></thead>'
+        body += '<tbody><tr><td rowspan="0">Cell</td><td>Other</td></tr></tbody></table>'
+        parser = NovelHTML('81')
+        parser.feed('<div id="episode-81"><div id="epub-81" class="ep-epub-content">' + body + '</div></div>')
+        text = parser.text()
+        self.assertIn('colspan="2"', text)
+        self.assertIn('rowspan="0"', text)
+        validate_fragment(text)
+        for value in ('-1', '1001', '1; color:red', '', None):
+            markup = body.replace('colspan="02"', 'colspan' if value is None else f'colspan="{value}"')
+            with self.subTest(value=value):
+                with self.assertRaises(UnsupportedContent) as refused:
+                    parser = NovelHTML('81')
+                    parser.feed('<div id="episode-81"><div id="epub-81" class="ep-epub-content">' + markup + '</div></div>')
+                self.assertEqual(refused.exception.novel_reason, 'table_span_invalid')
+
+    def test_novel_diagnostics_report_fixed_markup_reasons_without_content(self):
+        from comic_archive.novels import novel_diagnostics
+        parser = NovelHTML('81')
+        with self.assertRaises(UnsupportedContent) as refused:
+            parser.feed('<div id="episode-81"><div id="epub-81" class="ep-epub-content"><script>PRIVATE</script>')
+        self.assertEqual(novel_diagnostics(refused.exception), {'reason': 'unsupported_tag', 'tag': 'script'})
+        error = UnsupportedContent('PRIVATE')
+        error.novel_reason, error.novel_tag = {'PRIVATE': True}, 'PRIVATE'
+        self.assertEqual(novel_diagnostics(error), {})
+
+    def test_unsupported_novel_job_logs_the_markup_reason_without_chapter_data(self):
+        self.seed()
+
+        def refused(url):
+            parser = NovelHTML('81')
+            parser.feed('<div id="episode-81"><div id="epub-81" class="ep-epub-content">'
+                        '<script data-private="PRIVATE_SECRET">PRIVATE_CHAPTER</script>')
+
+        self.adapter.capture_automatic = refused
+        with patch('builtins.print') as output:
+            result = archive_discovered(self.adapter, self.root)
+        self.assertEqual(sorted(result['unsupported_episode_ids']), ['81', '82'])
+        lines = '\n'.join(' '.join(str(value) for value in call.args) for call in output.call_args_list)
+        self.assertIn('reason=unsupported_tag tag=script', lines)
+        self.assertNotIn('PRIVATE_', lines)
 
     def seed(self, legacy=False):
         with Inventory(self.root) as inventory:
@@ -219,13 +298,16 @@ class NovelTests(unittest.TestCase):
             Episode('81', 'novel', 'Chapter', 1, (), 'tapas_free', content_type='novel',
                     text_html='<p>Text</p>', illustrations=(b'not an image',))
 
-    def test_novel_authorization_requires_current_free_or_unlock_and_keeps_other_holds(self):
+    def test_novel_bulk_hints_do_not_override_authenticated_reader_access(self):
         self.assertEqual(access_state(INFO), 'tapas_free')
         self.assertEqual(access_state(INFO | {'free': False, 'unlocked': True}), 'tapas_unlocked')
-        for updates in ({'free': False}, {'free': False, 'must_pay': True}, {'scheduled': True},
-                        {'closing_date': 'temporary'}, {'unlocked': 1}, {'book': 'true'}):
-            with self.assertRaises(ArchiveError):
-                access_state(INFO | updates)
+        for updates in ({'free': False}, {'free': False, 'must_pay': True}):
+            self.assertEqual(access_state(INFO | updates), 'unavailable_or_unverified')
+        for updates in ({'scheduled': True}, {'closing_date': 'temporary'}, {'unlocked': 1}):
+            transport = Mock()
+            transport.get.side_effect = [envelope(INFO | updates), HTML.encode(),
+                envelope({'id': 42, 'title': 'Novel', 'url': 'novel', 'book': True, 'comic': False})]
+            self.assertEqual(TapasHTTPAdapter(transport=transport).capture('https://tapas.io/episode/81').episodes[0].text_html, fragment())
 
     def test_http_capture_checks_identity_access_and_novel_series_before_export(self):
         transport = Mock()
@@ -240,15 +322,15 @@ class NovelTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in transport.get.call_args_list], [
             'https://tapas.io/episode/81/info', 'https://tapas.io/episode/81', 'https://tapas.io/series/42'])
 
-    def test_locked_novel_stops_before_reader_and_wrong_series_content_stops_capture(self):
-        # A locked answer checks the sign-in once (it may have ended); the other holds need no check.
-        for updates, requests in (({'free': False, 'must_pay': True}, 2), ({'free': False}, 2),
-                                  ({'scheduled': True}, 1), ({'closing_date': 'temporary'}, 1)):
+    def test_reader_refusal_and_wrong_series_content_stop_novel_capture(self):
+        for updates in ({'free': False, 'must_pay': True}, {'free': False}, {'scheduled': True}):
             transport = Mock()
-            transport.get.side_effect = [envelope(INFO | updates), envelope({'user': {'id': 11}})]
+            refused = ArchiveError('Provider refused the reader.')
+            refused.source_http_status = 403
+            transport.get.side_effect = [envelope(INFO | updates), refused]
             with self.assertRaises(ArchiveError):
                 TapasHTTPAdapter(transport=transport).capture('https://tapas.io/episode/81')
-            self.assertEqual(transport.get.call_count, requests)
+            self.assertEqual(transport.get.call_count, 2)
         transport = Mock()
         transport.get.side_effect = [envelope(INFO), HTML.encode(),
                                     envelope({'id': 42, 'title': 'Comic', 'url': 'comic', 'book': False, 'comic': True})]

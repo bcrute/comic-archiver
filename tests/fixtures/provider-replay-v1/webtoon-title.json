@@ -1,0 +1,156 @@
+{
+  "message": {
+    "type": "response",
+    "service": "com.naver.webtoon",
+    "version": "fixture",
+    "result": {
+      "point": {
+        "pointMessage": "fixture"
+      },
+      "title": {
+        "titleNo": 7,
+        "viewer": "fixture",
+        "language": "fixture",
+        "title": "Fixture title",
+        "restTerminationStatus": "fixture",
+        "representGenre": {
+          "code": "fixture",
+          "displayName": "fixture"
+        },
+        "posterThumbnailUrl": "https://webtoon-phinf.pstatic.net/observed/1.png?delivery=fixture",
+        "synopsis": "fixture",
+        "contentRating": "fixture",
+        "authorList": [
+          {
+            "authorName": "Fixture title"
+          }
+        ],
+        "instagramShareImageUrl": "https://webtoon-phinf.pstatic.net/observed/2.png?delivery=fixture",
+        "blockUnsuitableForChildren": false,
+        "mature": false,
+        "downloadable": false,
+        "previewAvailable": true,
+        "adExposure": {
+          "status": "fixture",
+          "exposure": true
+        }
+      },
+      "tag": {
+        "tagList": [
+          {
+            "text": "fixture",
+            "type": "fixture"
+          },
+          {
+            "text": "fixture",
+            "type": "fixture",
+            "keywordNo": 5780
+          },
+          {
+            "text": "fixture",
+            "type": "fixture",
+            "keywordNo": 5804
+          },
+          {
+            "text": "fixture",
+            "type": "fixture",
+            "keywordNo": 5819
+          }
+        ]
+      },
+      "highlight": {
+        "highlightList": [
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/3.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/4.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/5.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/6.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/7.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/8.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/9.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/10.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/11.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          },
+          {
+            "mediaType": "fixture",
+            "coverImageUrl": "https://webtoon-phinf.pstatic.net/observed/12.png?delivery=fixture",
+            "videoId": "fixture",
+            "scaleType": "fixture"
+          }
+        ]
+      },
+      "episodeMeta": {
+        "pcWebLinkUrl": "https://webtoon-phinf.pstatic.net/observed/13.png?delivery=fixture",
+        "titleHomePcWebUrl": "https://www.webtoons.com/en/fantasy/sample-series/list?title_no=7",
+        "totalEpisodeCount": 71,
+        "firstEpisodeNo": 1,
+        "firstEpisodeViewerPcWebUrl": "https://webtoon-phinf.pstatic.net/observed/14.png?delivery=fixture",
+        "firstEpisodeVideoAvailable": false
+      },
+      "product": {
+        "titleBMType": "fixture",
+        "settlementWuids": [
+          {
+            "wcsSettlementType": "fixture",
+            "wuid": "fixture"
+          },
+          {
+            "wcsSettlementType": "fixture",
+            "wuid": "fixture"
+          },
+          {
+            "wcsSettlementType": "fixture",
+            "wuid": "fixture"
+          },
+          {
+            "wcsSettlementType": "fixture",
+            "wuid": "fixture"
+          }
+        ]
+      }
+    }
+  }
+}

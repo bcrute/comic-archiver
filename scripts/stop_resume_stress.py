@@ -236,6 +236,13 @@ class Bench:
 
     def processes(self):
         found = []
+        if sys.platform == 'darwin':
+            import psutil
+            for process in psutil.process_iter(['cmdline']):
+                words = process.info['cmdline'] or []
+                if 'browser-worker' in words and str(self.session) in words:
+                    found.append(process.pid)
+            return found
         for entry in Path('/proc').iterdir():
             if entry.name.isdigit():
                 try:
@@ -361,6 +368,9 @@ class Bench:
         os.environ[FOLDER] = str(self.control)
         self.runtime = app_runtime.Runtime(self.root)
         self.runtime.start()
+        # Startup may migrate the original flat fixture into the site's own folder.
+        # Observe the same paths the real window and worker now use.
+        self.session, self.library = self.runtime.session, self.runtime.folder
         self.registry = self.runtime.registry
         outcome = self.runtime.start_worker()
         self.need(outcome == 'running', f'the downloader did not start: {outcome}')
@@ -681,8 +691,8 @@ def main():
         for scenario in SCENARIOS:
             print(f'{scenario.__name__}: {scenario.__doc__}')
         return 0
-    if not Path('/proc/self/cmdline').is_file():
-        raise SystemExit('This script needs Linux.')
+    if sys.platform != 'darwin' and not Path('/proc/self/cmdline').is_file():
+        raise SystemExit('This script needs Linux or macOS.')
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from comic_archive import app_runtime
     results = []

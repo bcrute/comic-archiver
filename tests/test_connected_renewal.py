@@ -11,12 +11,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from comic_archive.connected.files import Index, SharedRoot, SourceError
-from comic_archive.connected.pairing import PairingOwner
-from comic_archive.connected.renewal import DAY_MS, LIFETIME_MS
-from comic_archive.connected.signaling import Identity
-from comic_archive.connected.state import STATE, HostState
+
+AVAILABLE = importlib.util.find_spec('jwcrypto') is not None
+if AVAILABLE:
+    from comic_archive.connected.pairing import PairingOwner
+    from comic_archive.connected.renewal import DAY_MS, LIFETIME_MS
+    from comic_archive.connected.signaling import Identity
+    from comic_archive.connected.state import STATE, HostState
 
 
+@unittest.skipUnless(AVAILABLE, 'Opt-in connected extra required; skip is not connected qualification')
 class RenewalStateTests(unittest.TestCase):
     def setUp(self):
         work = tempfile.TemporaryDirectory()

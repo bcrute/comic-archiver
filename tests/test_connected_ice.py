@@ -1,6 +1,7 @@
 """Connection settings DATA and real private-file/empty CLI lifecycle, not consent."""
 
 import json
+import importlib.util
 import os
 import select
 import shutil
@@ -85,6 +86,8 @@ class ConnectedIceTests(unittest.TestCase):
                 read_servers(path)
 
     @unittest.skipUnless(os.name == "posix", "Actual POSIX signal/process required")
+    @unittest.skipUnless(importlib.util.find_spec('jwcrypto') is not None and importlib.util.find_spec('aiortc') is not None,
+                         'Opt-in connected extra required; skip is not connected qualification')
     def test_real_empty_host_reads_private_settings_and_stops_normally(self):
         work = Path(tempfile.mkdtemp(prefix="connected-cli-settings-"))
         process = None

@@ -36,6 +36,49 @@ class AuditTests(unittest.TestCase):
             # bulk dispatch priority is covered by QueuePriorityTests.
             archive_discovered(self.adapter, self.root, limit=limit, free_only=limit is not None)
 
+    def test_completion_uses_verified_records_without_walking_or_reading_archives(self):
+        from comic_archive.audit import check_completion
+        self.archive()
+        with patch('comic_archive.audit.verify_episode', side_effect=AssertionError('No full reread')), \
+                patch('comic_archive.audit.verify_series', side_effect=AssertionError('No cover reread')), \
+                patch('comic_archive.audit.episode_archives', side_effect=AssertionError('No archive enumeration')):
+            result = check_completion(self.root)
+        self.assertTrue(result['completion_check_passed'])
+        self.assertEqual(result['recorded_archived_episode_count'], 2)
+        self.assertEqual(result['missing_recorded_accessible_episode_count'], 0)
+        self.assertFalse(result['archive_contents_rechecked'])
+        self.assertFalse(result['account_inventory_complete'])
+        self.assertNotIn('archive_integrity_passed', result)
+
+    def test_completion_keeps_unresolved_downloads_visible_and_honors_normal_reconciliation(self):
+        from comic_archive.audit import check_completion
+        self.archive()
+        with Inventory(self.root) as inventory:
+            inventory.mark('81', 'failed', 'job_failed')
+        incomplete = check_completion(self.root)
+        self.assertFalse(incomplete['completion_check_passed'])
+        self.assertEqual(incomplete['missing_recorded_accessible_episode_count'], 1)
+        # The ordinary acquisition reconciliation recovers this already saved
+        # file; completion itself never starts a download or opens the archive.
+        with Inventory(self.root) as inventory:
+            inventory.reconcile()
+        self.assertTrue(check_completion(self.root)['completion_check_passed'])
+
+    def test_completion_retains_missing_series_until_a_successful_scan_recovers_them(self):
+        from comic_archive.audit import check_completion
+        self.archive()
+        with Inventory(self.root) as inventory:
+            inventory.observe('44', 'Missing metadata', [], 'wait_until_free')
+            inventory.record_series_unavailable('44', 404)
+        with patch('comic_archive.audit.episode_archives', side_effect=AssertionError('No file scan')):
+            result = check_completion(self.root)
+        self.assertFalse(result['completion_check_passed'])
+        self.assertEqual(result['series_scan_gap_count'], 1)
+        self.assertEqual(result['missing_recorded_accessible_episode_count'], 0)
+        with Inventory(self.root) as inventory:
+            inventory.record_series_scan('44')
+        self.assertTrue(check_completion(self.root)['completion_check_passed'])
+
     def test_verification_reports_bounded_local_progress_and_safe_diagnostics(self):
         from comic_archive.audit import AuditProgress
         self.archive()

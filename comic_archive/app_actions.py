@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 from . import cloud_runtime, sites
 from .dashboard_model import LIBRARY_SECONDS, NETWORK_SECONDS, Message, error_text
-from .errors import DeviceFileOpenUnavailable, LibraryBusy
+from .errors import DeviceFileOpenUnavailable, LibraryBusy, SpeedChangeError, DownloadSelectionChangeError
 from .library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
 from .local_library import LOCAL_OWNER
 from .models import ArchiveError
@@ -62,6 +62,12 @@ class Actions:
                 return getattr(registry, name)(LOCAL_OWNER, registry.workspace_id, *args, **options)
         except LibraryBusy:
             raise Refused('library_busy', error_text('library_busy', site)) from None
+        except SpeedChangeError as error:
+            LOG.warning('Speed change failed site=%s reason=%s', site, error.reason)
+            raise Refused('speed_change_failed', str(error)) from None
+        except DownloadSelectionChangeError as error:
+            LOG.warning('Download choice change failed site=%s reason=%s', site, error.reason)
+            raise Refused('download_selection_change_failed', str(error)) from None
         except DeviceFileOpenUnavailable:
             raise Refused('device_file_open_unavailable', NO_OPENER) from None
         except ArchiveError:
@@ -123,8 +129,20 @@ class Actions:
     def sign_out(self):
         return self._call('sign_out_site')
 
+    def account(self):
+        """Read this site's saved controller state without contacting its provider."""
+        return self._call('account_status')
+
     def speed(self, value):
         return self._call('choose_speed', value)
+
+    def download_types(self, value):
+        from .download_selection import validate
+        try:
+            value = validate(value)
+        except ArchiveError:
+            raise Refused('request_unavailable', 'Select at least one episode type.') from None
+        return self._call('choose_download_types', value)
 
     def wifi_only(self, value):
         if type(value) is not bool:
@@ -186,6 +204,29 @@ class Actions:
             raise Refused('request_unavailable', error_text('request_unavailable'))
         return self._call('task', task_id)
 
+    def episode_inventory(self, series_id=None, offset=0, provider=None):
+        """One local index page, without blocking acquisition controls."""
+        from .discovery import observed_id
+        site = sites.find(provider) if provider is not None else None
+        if (provider is not None and site is None
+                or series_id is not None and not observed_id(series_id)
+                or type(offset) is not int or not 0 <= offset <= 1_000_000):
+            raise Refused('request_unavailable', 'Choose a recorded series and a supported episode-list page.')
+        if site is not None:
+            # The selected all-sites root belongs to this local user. Read an
+            # unopened provider there without initializing its runtime/session.
+            runtime, registry = self._registry()
+            try:
+                from pathlib import Path
+                from .episode_index import page
+                registry.resolve(LOCAL_OWNER, registry.workspace_id)
+                return page(sites.folder(Path(runtime.root), site) / 'Library', series_id=series_id, offset=offset)
+            except Exception as error:
+                LOG.warning('Episode index unavailable site=%s reason=%s', site.key, described(error))
+                raise Refused('request_unavailable', 'The episode list could not be read. Retry when the library is available.') from None
+        return self._call('episode_inventory', locked=False, series_id=series_id, offset=offset,
+                          failed='The episode list could not be read. Retry when the library is available.')
+
     def saved_files(self, **options):
         """A page of the saved-file catalog. Read behind the catalog's own lock: a slow scan does not hold up Pause or Go."""
         return self._call('saved_files', locked=False, failed=UNAVAILABLE, **checked(options))
@@ -234,7 +275,7 @@ def received(state, reading, now, task=None):
     """Put a whole refresh on the window's state. Returns True when the B2 key fields are to be emptied: the key
     has just connected. task is the cloud task the refresh asked about; one started since is left alone."""
     previous_account, previous_auth = (state.account or {}).get('status'), (state.cloud_auth or {}).get('status')
-    state.received_status(reading['status'], now)
+    state.received_status(reading['status'], now, transfer=(reading.get('account') or {}).get('transfer'))
     state.received_account(reading['account'], now)
     state.received_site_auth(reading['site_auth'], now)
     for name in ('cloud', 'cloud_auth', 'network'):

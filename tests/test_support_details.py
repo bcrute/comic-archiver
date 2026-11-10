@@ -70,6 +70,8 @@ class SupportDetailsTests(unittest.TestCase):
             self.assertEqual(support_details.system(), 'Windows 10 (build 22631)')
         with mock.patch('platform.system', return_value='Linux'), mock.patch('platform.release', return_value='6.17.0'):
             self.assertEqual(support_details.system(), 'Linux 6.17.0')
+        with mock.patch('platform.system', return_value='Darwin'), mock.patch('platform.mac_ver', return_value=('15.8.2', (), '')):
+            self.assertEqual(support_details.system(), 'macOS 15.8.2')
 
 
 if __name__ == '__main__':

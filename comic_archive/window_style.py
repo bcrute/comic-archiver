@@ -6,13 +6,14 @@ from importlib.resources import files
 
 # Light, then dark.
 COLOURS = {
-    'text': ('#183331', '#e3ece8'), 'page': ('#f4f6f2', '#111918'), 'surface': ('#ffffff', '#1a2523'),
-    'surface-soft': ('#f0f5f1', '#23332f'), 'surface-tint': ('#f6faf6', '#1b2b26'), 'border': ('#d5dfd5', '#3d5149'),
-    'muted': ('#52695e', '#adbbb3'), 'accent': ('#216154', '#94d8bd'), 'accent-border': ('#75a18d', '#72ac94'),
-    'notice': ('#e7f0e9', '#243e33'), 'warning-bg': ('#fff3e6', '#38291e'), 'warning': ('#b66026', '#e6a45e'),
-    'focus': ('#df9a39', '#efb35e'), 'input-border': ('#9cafaa', '#687e72'), 'button-hover': ('#184c42', '#b4e9d1'),
-    'button-text': ('#ffffff', '#122d22'), 'disabled-text': ('#5d706a', '#a0afa6'), 'disabled-bg': ('#e2e9e4', '#2d3d35'),
+    'text': ('#352c2a', '#f6ecdf'), 'page': ('#f8f5ef', '#211c1d'), 'surface': ('#ffffff', '#2b2526'),
+    'surface-soft': ('#f3eee7', '#383033'), 'surface-tint': ('#faf5ee', '#302728'), 'border': ('#ded2c9', '#59484b'),
+    'muted': ('#6d605a', '#c3b7b1'), 'accent': ('#954936', '#ffac98'), 'accent-border': ('#aa7868', '#b47768'),
+    'notice': ('#f8e9e1', '#473236'), 'warning-bg': ('#fff3e6', '#38291e'), 'warning': ('#b66026', '#e6a45e'),
+    'focus': ('#df9a39', '#efb35e'), 'input-border': ('#a99386', '#8f7976'), 'button-hover': ('#793a2c', '#ffc4b2'),
+    'button-text': ('#ffffff', '#2f1e1a'), 'disabled-text': ('#5d706a', '#b1a3a0'), 'disabled-bg': ('#e2e9e4', '#3d3334'),
     'error': ('#914416', '#ffbc8d'),
+    'destructive': ('#b4232c', '#ff9fa3'), 'destructive-hover': ('#fff0f1', '#3d2428'),
 }
 # The pages fill the window. Text that is read, not glanced at, stays within this width, about 90 characters: longer
 # lines are hard to follow back to their start. Its lines are spaced this much (percent of the font's height).
@@ -21,13 +22,14 @@ LINE_HEIGHT = 135
 
 SHEET = '''
 QWidget { color: %(text)s; font-size: 15px; }
-QMainWindow, QStackedWidget, QScrollArea, QWidget#page { background: %(page)s; }
+QMainWindow, QDialog, QStackedWidget, QScrollArea, QWidget#page { background: %(page)s; }
 QToolTip { color: %(text)s; background: %(surface)s; border: 1px solid %(border)s; }
 
 QWidget#header, QWidget#signinHeader { background: %(surface)s; border-bottom: 1px solid %(border)s; }
 QWidget#header QLabel#brand, QWidget#signinHeader QLabel#signinTitle { font-size: 18px; font-weight: 600; }
+QWidget#header QLabel#brand { font-family: Georgia, "DejaVu Serif", serif; font-size: 24px; }
 QWidget#signinHeader QLabel { color: %(muted)s; font-size: 14px; }
-QPushButton#nav { min-height: 28px; padding: 8px 12px; border: none; border-radius: 6px; background: transparent;
+QPushButton#nav { min-height: 28px; padding: 8px 12px; border: none; border-radius: 18px; background: transparent;
                   color: %(muted)s; font-size: 14px; font-weight: 500; }
 QPushButton#nav:hover { color: %(text)s; background: %(surface-soft)s; }
 QPushButton#nav:checked { color: %(accent)s; background: %(notice)s; font-weight: 600; }
@@ -45,6 +47,9 @@ QFrame#card[tone="warning"] { border-top: 3px solid %(warning)s; }
 QFrame#inner { background: %(surface)s; border: 1px solid %(border)s; border-radius: 8px; }
 QFrame#card QLabel, QFrame#inner QLabel, QFrame#metric QLabel, QFrame#state QLabel, QFrame#costs QLabel { background: transparent; }
 QFrame#metric { background: %(surface-soft)s; border-radius: 8px; }
+QFrame#libraryOverview, QFrame#libraryOverview QFrame#metric { background: transparent; border: none; }
+QFrame#libraryOverview QLabel#metricNumber { font-family: Georgia, "DejaVu Serif", serif; font-size: 24px; }
+QFrame#libraryOverview QLabel#muted { font-size: 14px; }
 QLabel#metricNumber { font-size: 28px; font-weight: 600; }
 QLabel#eyebrow { color: %(muted)s; font-size: 12px; font-weight: 600; letter-spacing: 1px; }
 QLabel#pageTitle { font-size: 28px; font-weight: 600; }
@@ -55,9 +60,24 @@ QLabel#footnote { border-top: 1px solid %(border)s; padding-top: 14px; }
 QLabel#strong { font-weight: 600; }
 QLabel#fieldName { color: %(muted)s; }
 QLabel#fieldValue[tone="warning"] { color: %(warning)s; }
+QLabel#providerTitle { font-family: Georgia, "DejaVu Serif", serif; font-size: 22px; font-weight: 700; }
+QLabel#episodeTotal { font-family: Georgia, "DejaVu Serif", serif; font-size: 48px; font-weight: 700; }
+QLabel#episodeCaption { font-size: 16px; }
+QLabel#estimateLabel { color: %(muted)s; font-size: 13px; }
+QLabel#estimateValue { font-size: 18px; font-weight: 600; }
+QLabel#transferValue { font-size: 13px; }
+QLabel#cardStatus { font-size: 13px; }
+QLabel#cardStatus[tone="warning"] { color: %(warning)s; }
+QLabel#statusSymbol { font-size: 18px; color: %(accent)s; }
+QFrame#cardRule { background: %(border)s; border: none; min-height: 1px; max-height: 1px; }
 QToolButton#hint { min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px; padding: 0; border: 1px solid %(muted)s;
                    border-radius: 9px; color: %(muted)s; background: transparent; font-size: 11px; font-weight: 600; }
 QToolButton#hint:hover, QToolButton#hint:focus { color: %(accent)s; border-color: %(accent)s; }
+QToolButton#editFolder { min-width: 26px; min-height: 26px; padding: 0; border: 1px solid transparent;
+                         border-radius: 4px; color: %(accent)s; background: transparent; font-size: 20px; }
+QToolButton#editFolder:hover { background: %(notice)s; }
+QToolButton#editFolder:focus { border-color: %(focus)s; }
+QToolButton#editFolder:disabled { color: %(disabled-text)s; }
 QLabel[error="true"] { color: %(error)s; }
 QLabel#activity { border-left: 3px solid %(accent-border)s; padding-left: 10px; }
 QLabel#activity[tone="warning"] { border-left-color: %(warning)s; }
@@ -79,7 +99,17 @@ QPushButton { min-height: 36px; padding: 6px 14px; font-weight: 600; color: %(bu
 QPushButton:hover { background: %(button-hover)s; border-color: %(button-hover)s; }
 QPushButton[kind="secondary"] { color: %(accent)s; background: %(surface)s; }
 QPushButton[kind="secondary"]:hover { color: %(button-text)s; background: %(accent)s; }
+QPushButton[kind="destructive"] { color: %(destructive)s; background: %(surface)s; border-color: %(destructive)s; }
+QPushButton[kind="destructive"]:hover { color: %(destructive)s; background: %(destructive-hover)s;
+                                       border-color: %(destructive)s; }
 QPushButton[kind="go"] { min-width: 96px; }
+QPushButton[kind="downloadChoice"] { color: %(text)s; background: transparent; border: none; text-align: left;
+                                    min-height: 22px; padding: 2px 0; font-size: 12px; }
+QPushButton[kind="downloadChoice"]:hover { color: %(accent)s; }
+QPushButton#toolbarAction { min-height: 28px; padding: 4px 10px; font-size: 14px;
+                           background: transparent; color: %(text)s; border-color: %(muted)s; }
+QPushButton#toolbarAction:hover { background: %(notice)s; border-color: %(accent)s; }
+QPushButton#toolbarAction:disabled { color: %(disabled-text)s; border-color: %(border)s; }
 QPushButton[kind="link"] { min-height: 0; padding: 0; border: none; background: transparent; color: %(accent)s;
                            font-weight: 400; text-decoration: underline; text-align: left; }
 QPushButton[kind="link"]:hover { color: %(button-hover)s; background: transparent; }
@@ -92,6 +122,7 @@ QPushButton[kind="tab"]:checked { color: %(accent)s; background: %(notice)s; fon
 QPushButton:disabled, QPushButton[kind="secondary"]:disabled { color: %(disabled-text)s; background: %(disabled-bg)s; border-color: %(border)s; }
 QPushButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QCheckBox:focus, QRadioButton:focus { outline: none; }
 QPushButton:focus { border: 2px solid %(focus)s; }
+QPushButton[kind="destructive"]:focus { border: 2px solid %(destructive)s; }
 
 QLineEdit, QComboBox, QSpinBox { min-height: 34px; padding: 2px 8px; border: 1px solid %(input-border)s; border-radius: 6px;
                                  background: %(surface)s; color: %(text)s; }
@@ -99,6 +130,9 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 2px solid %(focus)s; 
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled { color: %(disabled-text)s; background: %(disabled-bg)s; }
 QComboBox::drop-down { width: 24px; border: none; background: transparent; }
 QComboBox::down-arrow { image: url("%(arrow)s"); width: 16px; height: 16px; }
+QComboBox#dashboardSpeed { min-height: 0; border: 1px solid transparent; background: transparent; padding: 0 24px 0 0; }
+QComboBox#dashboardSpeed:disabled { background: transparent; }
+QComboBox#dashboardSpeed:focus { border-color: %(focus)s; }
 QComboBox QAbstractItemView { background: %(surface)s; color: %(text)s; selection-background-color: %(notice)s;
                               selection-color: %(text)s; border: 1px solid %(border)s; }
 QCheckBox, QRadioButton { spacing: 8px; background: transparent; }
@@ -118,6 +152,9 @@ QProgressBar::chunk { border-radius: 6px; background: %(accent)s; }
 QTableWidget { background: %(surface)s; alternate-background-color: %(surface-soft)s; border: 1px solid %(border)s;
                border-radius: 8px; gridline-color: %(border)s;
                selection-background-color: %(notice)s; selection-color: %(text)s; }
+QTreeWidget { background: %(surface)s; color: %(text)s; border: 1px solid %(border)s;
+              border-radius: 8px; selection-background-color: %(notice)s; selection-color: %(text)s; }
+QTreeWidget::item { padding: 5px 8px; }
 QHeaderView::section { background: %(surface)s; color: %(muted)s; font-size: 13px; font-weight: 600; padding: 8px;
                        border: none; border-bottom: 1px solid %(border)s; }
 QScrollBar:vertical, QScrollBar:horizontal { background: %(page)s; }
@@ -128,8 +165,69 @@ def colours(dark):
     return {name: pair[bool(dark)] for name, pair in COLOURS.items()}
 
 
+CARD_STATES = {
+    'neutral': {
+        'surface': ('#f7f4f0', '#2e2b2e'), 'shade': ('#eee8e2', '#252326'),
+        'accent': ('#625650', '#d0c3bc'), 'text': ('#352c2a', '#f6ecdf'),
+        'button-text': ('#ffffff', '#2a2422')},
+    'active': {
+        'surface': ('#fff4ee', '#573535'), 'shade': ('#ffe6dc', '#2b2227'),
+        'accent': ('#914333', '#ff9d88'), 'text': ('#402c29', '#fff0e1'),
+        'button-text': ('#ffffff', '#32201a')},
+    'complete': {
+        'surface': ('#f0f8eb', '#345439'), 'shade': ('#e1efd6', '#1f2b23'),
+        'accent': ('#315e32', '#a1e39a'), 'text': ('#263e28', '#f1f5e4'),
+        'button-text': ('#ffffff', '#19311d')},
+    'paused': {
+        'surface': ('#f5f1ff', '#514169'), 'shade': ('#e7dff8', '#292536'),
+        'accent': ('#5b438c', '#bcb0ff'), 'text': ('#352c49', '#f4efff'),
+        'button-text': ('#ffffff', '#28203d')},
+    'waiting': {
+        'surface': ('#fff7e5', '#58462c'), 'shade': ('#f5e6c7', '#2c2720'),
+        'accent': ('#805a17', '#efc373'), 'text': ('#49371d', '#fff1d2'),
+        'button-text': ('#ffffff', '#382b19')},
+    'attention': {
+        'surface': ('#fff0f0', '#583235'), 'shade': ('#ffdddd', '#302225'),
+        'accent': ('#9d2432', '#ff9fa3'), 'text': ('#4a2429', '#ffede7'),
+        'button-text': ('#ffffff', '#3a1d22')},
+}
+
+
+def card_colours(appearance, dark):
+    return {name: pair[bool(dark)] for name, pair in CARD_STATES.get(appearance, CARD_STATES['neutral']).items()}
+
+
+def card_stylesheet(dark):
+    sheet = []
+    for appearance in CARD_STATES:
+        c = card_colours(appearance, dark)
+        highlight = '#' + ''.join(f'{round(int(c["accent"][index:index + 2], 16) * .92 + 255 * .08):02x}'
+                                  for index in (1, 3, 5))
+        scope = f'QFrame#card[appearance="{appearance}"]'
+        sheet.extend((
+            f'{scope} QLabel {{ color: {c["text"]}; background: transparent; }}',
+            f'{scope} QLabel#pill {{ color: {c["button-text"]}; background: {c["accent"]}; }}',
+            f'{scope} QLabel#pill[tone="working"], {scope} QLabel#pill[tone="success"] '
+            f'{{ color: {c["button-text"]}; background: {c["accent"]}; }}',
+            f'{scope} QPushButton[kind="go"] {{ color: {c["button-text"]}; '
+            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {highlight},stop:1 {c["accent"]}); '
+            f'border-color: {c["accent"]}; border-radius: 10px; }}',
+            f'{scope} QPushButton[kind="go"]:hover {{ background: {c["text"]}; color: {c["shade"]}; }}',
+            f'{scope} QPushButton[kind="go"]:disabled {{ background: {c["shade"]}; '
+            f'color: {colours(dark)["disabled-text"]}; border-color: {colours(dark)["border"]}; }}',
+            f'{scope} QComboBox#dashboardSpeed {{ color: {c["text"]}; }}',
+            f'{scope} QPushButton[kind="downloadChoice"] {{ color: {c["text"]}; }}',
+            f'{scope} QPushButton[kind="downloadChoice"]:hover {{ color: {c["accent"]}; }}',
+            f'{scope} QLabel#statusSymbol {{ color: {c["accent"]}; }}',
+            f'{scope} QLabel#statusSymbol[tone="warning"] {{ color: {colours(dark)["error"]}; }}',
+            f'{scope} QLabel[tone="warning"], {scope} QLabel[error="true"] '
+            f'{{ color: {colours(dark)["error"]}; }}',
+        ))
+    return '\n'.join(sheet)
+
+
 def stylesheet(dark):
-    return SHEET % (colours(dark) | {name: picture(name, dark) for name in ('check', 'arrow')})
+    return SHEET % (colours(dark) | {name: picture(name, dark) for name in ('check', 'arrow')}) + card_stylesheet(dark)
 
 
 def picture(name, dark):

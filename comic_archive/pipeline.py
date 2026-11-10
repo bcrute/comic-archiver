@@ -6,9 +6,12 @@ from urllib.parse import urlsplit
 from .errors import AccessDenied, RunLimit, UnsupportedContent
 from .cancellation import RunCancelled
 from .models import ArchiveError
+from .sites import DEFAULT
 
 
 class MetadataPipeline:
+    site = DEFAULT
+    supports_series_seed = False
     supports_novels = True
     supports_comic_series_classification = True
     supports_series_metadata = True
@@ -24,6 +27,7 @@ class MetadataPipeline:
         def open_browser():
             self._inner = self.factory(*self.args, **self.kwargs)
             self._inner.__enter__()
+            self.supports_series_seed = getattr(self._inner, 'supports_series_seed', False) is True
         try:
             self._pool.submit(open_browser).result()
         except BaseException:
@@ -130,6 +134,9 @@ class MetadataPipeline:
         if urlsplit(page.location).hostname == 'tapas.io':
             return self._submit('retrieve', page, max_bytes=max_bytes).result()
         return self.transport.assets.get(page.location, max_bytes=max_bytes)
+
+    def seed_series(self, key, title):
+        return self._submit('seed_series', key, title).result()
 
     def series_metadata(self, key):
         return self._submit('series_metadata', key).result()

@@ -1,0 +1,146 @@
+{
+  "id": 67,
+  "category": "comic",
+  "locale": "en",
+  "title": "Fixture title",
+  "description": "",
+  "longDescription": "fixture",
+  "synopsis": "fixture",
+  "contentAdvisory": null,
+  "copyright": "fixture",
+  "notice": "fixture",
+  "fastPassAnnouncement": null,
+  "hiatusAnnouncement": null,
+  "slug": "fixture-series",
+  "coverImageUrl": "https://image-repository-cdn.tappytoon.com/fixtures/1.png",
+  "thumbnailUrl": "https://image-repository-cdn.tappytoon.com/fixtures/2.png",
+  "secondaryThumbnailUrl": "https://image-repository-cdn.tappytoon.com/fixtures/3.png",
+  "posterThumbnailUrl": "https://image-repository-cdn.tappytoon.com/fixtures/4.png",
+  "totalChaptersCount": 120,
+  "freeChaptersCount": 2,
+  "unreadChaptersCount": null,
+  "scoreUserCount": 571,
+  "totalViewCount": 1,
+  "averageScore": 9.8,
+  "createdAt": "2020-01-01T00:00:00Z",
+  "publishedAt": "fixture",
+  "willAccessibleAt": "2020-01-01T00:00:00Z",
+  "discountBeginAt": null,
+  "discountEndAt": null,
+  "latestUserReadAt": "fixture",
+  "userReadingDetails": null,
+  "newestChapterAccessibleAt": "2020-01-01T00:00:00Z",
+  "isHiatus": true,
+  "isAccessible": true,
+  "isPublished": true,
+  "isCompleted": false,
+  "isFlagUp": false,
+  "isFlagNew": false,
+  "isFlagTrending": false,
+  "isOnDiscount": false,
+  "isUserFavorite": true,
+  "hasUserSubscribed": true,
+  "canUserUnlockAll": false,
+  "hasUnlockableChapters": null,
+  "isFastPass": false,
+  "isLoungeFreeSeries": false,
+  "canWaitUntilFree": false,
+  "waitUntilFreeType": "fixture",
+  "ageRating": {
+    "id": 10121,
+    "initial": "fixture",
+    "name": "Fixture title",
+    "description": "fixture",
+    "canUserRead": true
+  },
+  "images": {
+    "cover/poster_wo_big": {
+      "url": "https://image-repository-cdn.tappytoon.com/fixtures/5.png",
+      "dimension": {
+        "width": 882,
+        "height": 1281
+      }
+    },
+    "cover/poster_wo": {
+      "url": "https://image-repository-cdn.tappytoon.com/fixtures/6.png",
+      "dimension": {
+        "width": 294,
+        "height": 427
+      }
+    },
+    "cover/wide_wo": {
+      "url": "https://image-repository-cdn.tappytoon.com/fixtures/7.png",
+      "dimension": {
+        "width": 500,
+        "height": 264
+      }
+    },
+    "cover/square": {
+      "url": "https://image-repository-cdn.tappytoon.com/fixtures/8.png",
+      "dimension": {
+        "width": 828,
+        "height": 828
+      }
+    },
+    "logo/title": {
+      "url": "https://image-repository-cdn.tappytoon.com/fixtures/9.png",
+      "dimension": {
+        "width": 1000,
+        "height": 905
+      }
+    }
+  },
+  "videoClips": null,
+  "genres": [
+    {
+      "id": 10122,
+      "alias": "fixture",
+      "name": "Fixture title",
+      "icon": ""
+    }
+  ],
+  "authors": [
+    {
+      "id": 10123,
+      "name": "Fixture title"
+    },
+    {
+      "id": 10124,
+      "name": "Fixture title"
+    }
+  ],
+  "publicationDayOfWeeks": [],
+  "campaigns": null,
+  "campaignTypeSummaries": [],
+  "tags": null,
+  "wufTimer": null,
+  "keywords": null,
+  "firstChapterSummary": null,
+  "majorLabels": [],
+  "contractStatus": "fixture",
+  "isSuperHighQualitySupported": false,
+  "finalSeasonId": null,
+  "airbridgeTrackingLink": null,
+  "featuredReleaseInfo": null,
+  "popularity": {
+    "topRankings": []
+  },
+  "keyColor": {
+    "name": "Fixture title",
+    "original": "fixture",
+    "dimmed": "fixture",
+    "dimmedStrong": "fixture"
+  },
+  "contentRating": "fixture",
+  "presentationSpec": {
+    "viewerMode": "fixture",
+    "pageDirection": null,
+    "isScreenCaptureBlocked": false
+  },
+  "matureEditionComicId": null,
+  "bookFormat": null,
+  "isTicketDisabled": false,
+  "isCouponDisabled": false,
+  "wufNextChapterId": null,
+  "adDetails": {}
+}

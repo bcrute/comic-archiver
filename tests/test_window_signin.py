@@ -433,6 +433,56 @@ class SavedSignInCheckTests(unittest.TestCase):
         self.assertEqual(self.check(), {'status': 'idle'})
         self.assertEqual(self.asked, [])  # The network policy holds the question itself.
 
+    def test_reopening_with_a_rejected_session_preserves_it_and_the_library(self):
+        state = self.workspace.session / 'state.json'
+        saved = self.workspace.library / 'kept.epub'
+        saved.write_bytes(b'SAVED_EPISODE')
+        before = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                  for path in (state, self.workspace.session / 'site', saved)}
+        # Each object represents reopening the app. A provider can revoke a
+        # session even when its cookie has no local expiry date.
+        with patch('comic_archive.window_signin.background.start') as start, \
+                patch('comic_archive.window_signin.background.stop') as stop:
+            for answer, expected in ((tapas_user(11), 'verified'), (tapas_user(-1), 'expired'),
+                                     (tapas_user(11), 'verified')):
+                with self.subTest(expected=expected):
+                    reopened = WindowSignIn(self.workspace)
+                    self.assertEqual(self.check(answer, signin=reopened), {'status': expected})
+                    self.assertFalse(reopened.take())  # No automatic interactive login.
+                    for path in before:
+                        self.assertTrue(path.is_file(), path.name)
+                    self.assertEqual({path: (path.read_bytes(), path.stat().st_mtime_ns)
+                                      for path in before}, before)
+            start.assert_not_called()
+            stop.assert_not_called()
+        self.assertEqual([url for url, _, _ in self.asked], [WHO_AM_I] * 3)
+
+    def test_cookie_dates_do_not_decide_whether_the_provider_accepts_a_session(self):
+        store_session({'cookies': [cookie('auxiliary', expires=1),
+                                   cookie('session', expires=4_000_000_000)], 'origins': []},
+                      self.workspace.session)
+        state = self.workspace.session / 'state.json'
+        before = state.read_bytes(), state.stat().st_mtime_ns
+        # An expired auxiliary cookie does not invalidate an accepted identity;
+        # a future cookie date does not make a rejected identity authenticated.
+        for answer, expected in ((tapas_user(11), 'verified'), (tapas_user(-1), 'expired')):
+            with self.subTest(expected=expected):
+                self.assertEqual(self.check(answer, signin=WindowSignIn(self.workspace)), {'status': expected})
+                self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+
+    def test_connection_failure_during_reopen_does_not_expire_or_erase_the_session(self):
+        state = self.workspace.session / 'state.json'
+        before = state.read_bytes(), state.stat().st_mtime_ns
+        for failure in (httpx.ConnectError, httpx.ReadTimeout):
+            with self.subTest(failure=failure.__name__), patch('comic_archive.transport.Transport._wait'):
+                self.asked.clear()
+                errors = [failure('PRIVATE_CONNECTION') for _ in range(3)]
+                self.assertEqual(self.check(*errors), {'status': 'idle'})
+                self.assertEqual(len(self.asked), 3)
+                self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+        # A later reopen can verify the very same saved session.
+        self.assertEqual(self.check(tapas_user(11), signin=WindowSignIn(self.workspace)), {'status': 'verified'})
+
     def test_nothing_is_asked_without_a_saved_sign_in_or_while_a_sign_in_is_open(self):
         forget_session(self.workspace.session)
         self.assertEqual(self.check(asks=False), {'status': 'idle'})

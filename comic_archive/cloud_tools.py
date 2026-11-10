@@ -1,6 +1,6 @@
 """Install the pinned cloud helper privately when a user clicks Sign in.
 
-Linux and Windows. The downloaded ZIP must match the upstream release digest.
+Linux, Windows and macOS. The downloaded ZIP must match the upstream release digest.
 """
 import hashlib
 import os
@@ -22,12 +22,14 @@ VERSION = '1.75.2'
 DOWNLOAD_BASE = 'https://github.com/rclone/rclone/releases/download'
 # https://github.com/rclone/rclone/releases/download/v1.75.2/SHA256SUMS, the same at downloads.rclone.org
 DIGESTS = {
+    ('osx', 'amd64'):'574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561',  # gitleaks:allow public upstream SHA-256
+    ('osx', 'arm64'):'610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd',  # gitleaks:allow public upstream SHA-256
     ('linux', 'amd64'):'349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702',  # gitleaks:allow public upstream SHA-256
     ('linux', 'arm64'):'7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10',  # gitleaks:allow public upstream SHA-256
     ('windows', 'amd64'):'8a9db2bad1dc79a65b3348fd857069598e2aab7cf4d118b77b1df23055aff818',  # gitleaks:allow public upstream SHA-256
     ('windows', 'arm64'):'7eb9844c9e5b723b9ef28821891caa17f6d9d1a375c49365cbe04114cec8dcd9',  # gitleaks:allow public upstream SHA-256
 }
-SYSTEMS = {'Linux':'linux', 'Windows':'windows'}
+SYSTEMS = {'Linux':'linux', 'Windows':'windows', 'Darwin':'osx'}
 ARCHES = {'x86_64':'amd64', 'AMD64':'amd64', 'aarch64':'arm64', 'arm64':'arm64', 'ARM64':'arm64'}
 
 

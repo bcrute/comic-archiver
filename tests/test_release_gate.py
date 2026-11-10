@@ -31,12 +31,20 @@ class ReleaseGateTests(unittest.TestCase):
             path = self.folder / f'ComicArchiver-{self.version}-{suffix}'
             path.write_bytes(b'synthetic download ' + suffix.encode())
             self.value['artifacts'][path.name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
+        if tuple(map(int, self.version.split('-')[0].split('.'))) >= (0, 4, 0):
+            path = self.folder / f'ComicArchiver-{self.version}-macos-x86_64.zip'
+            path.write_bytes(b'synthetic qualified Mac download')
+            self.value['artifacts'][path.name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
+            self.value['macos'] = {'architecture': 'x86_64', 'checks': dict.fromkeys(release.MAC_CHECKS, True),
+                                   'signing': 'ad-hoc', 'notarized': False}
         self.save()
 
     def save(self):
         path = self.folder / 'release-evidence.json'
         path.write_text(json.dumps(self.value), encoding='utf-8')
         self.release = {'target_commitish': self.commit, 'tag_name': 'v' + self.version, 'draft': True,
+                        'body': '| Platform | Download |\n| --- | --- |\n'
+                                '| Windows | [Installer](https://example.invalid/installer.exe) |\n',
                         'author': {'login': 'owner'}, 'assets': [{'name': path.name, 'state': 'uploaded',
                         'uploader': {'login': 'owner'}, 'size': path.stat().st_size,
                         'digest': 'sha256:' + release.digest(path)}]}
@@ -57,6 +65,16 @@ class ReleaseGateTests(unittest.TestCase):
     def verify(self, metadata=None):
         return release.verify(self.folder, self.commit, self.release if metadata is None else metadata, 'owner', self.version)
 
+    def test_download_table_is_first_and_install_screenshots_can_stay_collapsed(self):
+        table = self.release['body']
+        details = '\n<details>\n<summary>Mac install</summary>\n\n![Install](https://example.invalid/install.png)\n\n</details>\n'
+        self.verify(self.release | {'body': table + details})
+        self.verify(self.release | {'body': '<!-- staging note -->\n' + table + details})
+        for body in (None, '', 'Highlights\n\n' + table, details + table,
+                     '| Platform | Download |\n| --- | --- |\n| Windows | No link |'):
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, 'start with a platform download table'):
+                self.verify(self.release | {'body': body})
+
     def test_release_workflow_pins_every_action_to_an_exact_commit(self):
         workflow = (Path(__file__).parents[1] / '.github/workflows/release.yml').read_text(encoding='utf-8')
         actions = re.findall(r'^\s*-\s+uses:\s+([^\s#]+)', workflow, re.M)
@@ -66,6 +84,39 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_accepts_owner_attested_exact_commit_and_all_downloads(self):
         self.assertEqual(self.verify(), self.value)
+
+    def test_mac_download_requires_native_checks_architecture_and_truthful_signing(self):
+        name = f'ComicArchiver-{self.version}-macos-x86_64.zip'
+        path = self.folder / name
+        path.write_bytes(b'synthetic qualified Mac download')
+        self.value['artifacts'][name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
+        proof = {'architecture': 'x86_64', 'checks': dict.fromkeys(release.MAC_CHECKS, True),
+                 'signing': 'ad-hoc', 'notarized': False}
+        self.value['macos'] = copy.deepcopy(proof)
+        self.save()
+        self.assertEqual(self.verify(), self.value)
+        for key in release.MAC_CHECKS:
+            with self.subTest(check=key), self.assertRaisesRegex(ValueError, 'native Mac check'):
+                self.value['macos'] = proof | {'checks': proof['checks'] | {key: False}}
+                self.save()
+                self.verify()
+        for bad in (None, {}, proof | {'architecture': 'unknown'}, proof | {'notarized': True},
+                    proof | {'notarized': 0}, proof | {'signing': 'unknown'}, proof | {'checks': {}}):
+            with self.subTest(proof=bad), self.assertRaises(ValueError):
+                self.value['macos'] = bad
+                self.save()
+                self.verify()
+        self.value.pop('macos')
+        self.save()
+        with self.assertRaises(ValueError):
+            self.verify()  # An unqualified Mac ZIP cannot accompany desktop downloads.
+
+    def test_040_release_cannot_omit_the_mac_download_and_evidence(self):
+        self.version = '0.4.0'
+        self.value['version'] = self.version
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'Mac evidence is required'):
+            self.verify()
 
     def test_refuses_untrusted_or_incomplete_uploads_and_another_commit(self):
         for field, value in (('author', {'login': 'someone-else'}), ('author', None), ('draft', False),

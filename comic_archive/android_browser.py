@@ -477,6 +477,8 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
             self.transport.assets.metrics = self.asset_metrics
         self._automatic = TapasHTTPAdapter(transport=self.transport,
             expected_account_id=getattr(self, 'expected_account_id', None))
+        self._automatic.series_seeds = getattr(self, '_series_seeds', {})
+        self._automatic.unavailable_headers = getattr(self, '_unavailable_headers', {})
         return self._automatic
 
     def begin_task(self):

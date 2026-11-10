@@ -269,7 +269,7 @@ class WebtoonTests(unittest.TestCase):
         # Who is signed in is checked before the list, which is all on one page.
         self.assertEqual([url for url, _ in client.calls], [USER_INFO, SUBSCRIPTIONS])
         with self.assertRaisesRegex(ArchiveError, 'no such list'):
-            adapter.inspect_library(category='unlocked')
+            adapter.inspect_library(category='recent')
 
     def test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none(self, sleep):
         adapter, client = reader({USER_INFO: who()})

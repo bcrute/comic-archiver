@@ -581,6 +581,37 @@ esac
             with self.assertRaises(subprocess.CalledProcessError):
                 build.smoke(self.app(doctor_exit=3), '9.9.9')
 
+    def test_smoke_uses_an_isolated_home_and_never_the_existing_sign_in(self):
+        app = self.app()
+        owner = self.root / 'existing-home'
+        owner.mkdir()
+        state = owner / 'state.json'
+        state.write_text('PRIVATE_EXISTING_SESSION')
+        before = state.read_bytes(), state.stat().st_mtime_ns
+        environments = []
+
+        def execute(args, *, env, **kwargs):
+            environments.append(dict(env))
+            home = Path(env['HOME'])
+            self.assertNotEqual(home, owner)
+            self.assertTrue(home.is_dir())
+            for key in ('XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME'):
+                self.assertTrue(Path(env[key]).is_relative_to(home))
+            self.assertNotIn('DISPLAY', env)
+            self.assertNotIn('WAYLAND_DISPLAY', env)
+            output = 'comic-archive 9.9.9' if args[-1] == '--version' else '{"ok": true}'
+            return subprocess.CompletedProcess(args, 0, stdout=output, stderr='')
+
+        with patch.dict(os.environ, HOME=str(owner), DISPLAY=':0', WAYLAND_DISPLAY='wayland-0',
+                        XDG_STATE_HOME=str(owner), XDG_DATA_HOME=str(owner),
+                        XDG_CONFIG_HOME=str(owner), XDG_CACHE_HOME=str(owner)), \
+                patch.object(build, 'run', side_effect=execute):
+            build.smoke(app, '9.9.9')
+        self.assertEqual(len(environments), 3)
+        self.assertEqual(len({env['HOME'] for env in environments}), 1)
+        self.assertFalse(Path(environments[0]['HOME']).exists())
+        self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+
 
 class LauncherBehaviourTests(WorkspaceCase):
     def setUp(self):

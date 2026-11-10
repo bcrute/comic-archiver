@@ -41,6 +41,10 @@ Download the newest version from the [Releases page](https://github.com/bcrute/c
 There's a version for Windows 10 and 11 and one for Linux. The Releases page explains how to install it, including
 the warnings Windows shows because the app isn't signed yet.
 
+The Intel macOS development build has passed native VM testing. It is ad-hoc signed and has not been
+notarised or published. Build and installation notes are in
+[the macOS development instructions](docs/development.md#build-the-macos-package).
+
 ## Using it
 
 1. On the dashboard, each site has its own card. Click **Sign in** on your site's card, and sign in with your email
@@ -56,8 +60,37 @@ works; browser extensions don't run inside the app.
 On Tappytoon it saves free chapters and the ones you've bought or are renting. A rented chapter is labeled with
 the date the rental ends.
 
-On Webtoon it saves the series you subscribe to, every episode the website shows. Episodes Webtoon only lets you
-read in its phone app, such as Daily Pass and Fast Pass ones, aren't on the website, so they aren't saved.
+On Webtoon it checks your subscriptions and your account's Unlocked list. It saves
+website-readable episodes and account-list candidates when the authenticated reader
+returns complete content, including app-only episodes. Pricing, ownership and expiry
+flags guide discovery; they do not override a successful reader response. Actual
+provider refusals are respected. Separate whole-series purchases and exhaustive
+account completeness have not yet been qualified.
+
+Downloads and storage cards show Free, Bought / unlocked, Limited and Unknown type
+episodes, with separate saved and pending counts. These are recorded classifications;
+unknown types remain unclassified. The provider's reader establishes access; catalogue flags alone do not reject a complete reader response.
+
+Use **Download: All types** on a provider's dashboard card to choose Paid / unlocked,
+Free, Limited unlocks, and Unknown type episodes. All types are initially selected.
+Paid / unlocked also includes free episodes from series with a recorded permanent
+purchase or unlock. Uncheck Free to leave unrelated free-only series out of future
+downloads, including restoration of deleted episodes. Choices are saved separately
+for each provider and never delete existing files. A running download pauses to
+apply a change, then continues; a paused download stays paused. Limited unlocks are
+existing grants only: the app never starts WUF timers, claims episodes, or buys
+anything. Unknown type keeps episodes whose provider labels are inconclusive
+eligible for the reader to check; deselecting it excludes those unknown types.
+Unknown type can include free episodes when the provider cannot identify their
+type, so deselect that category as well for confirmed paid series only.
+
+The Library page expands from provider to series to recorded episodes, with a
+saved/pending indicator for each episode. Format shows CBZ/EPUB (or the recorded
+legacy format); Access shows free/unlocked/limited classifications and marks
+mixed series. Unknown values stay explicit. It reads the local inventory on demand;
+it does not browse files or query providers. Saved can include cloud storage, and
+an unlisted episode may simply not have been discovered yet. Refresh updates the
+indicators. Episode selection and selective downloading are not enabled yet.
 
 If you'd like a copy in the cloud as well, the app can also save to your own Backblaze B2 storage. Settings walks
 you through setting it up.
@@ -79,7 +112,8 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 | Webtoon | Works |
 | Windows 10 and 11 | Works |
 | Linux | Works |
-| Mac | Not planned yet |
+| macOS (Intel) | Development build tested on macOS 15 |
+| macOS (Apple Silicon) | Build support implemented; native execution not tested |
 
 ## Other ways to save your comics
 
@@ -91,6 +125,14 @@ tools, and if you already read in one of them, keep using it. Comic Archiver is 
 - It's one program you install and press Start. No extension repositories to add, no phone, no Docker.
 - It saves what your account has bought or unlocked on Tapas, Tappytoon and Webtoon, and picks up where it left
   off.
+
+Tapas discovery includes the account Library’s Wait Until Free list as well as Free Episodes.
+These lists supply series to check; appearing there does not establish episode access or
+activate an unlock. The app still uses readable episode candidates and the authenticated
+reader response. It does not claim tickets, spend currency, or activate waiting periods.
+If a listed series’ header returns 404 or 410, its observed numeric identity and title allow
+the app to check the episode list and reader. Authentication failures, throttling, invalid
+identities, incomplete content, and other metadata errors retain their existing checks.
 
 ## Building it yourself
 

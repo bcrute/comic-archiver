@@ -16,6 +16,8 @@ LIBRARY_SECONDS = 3600
 STARTING_SECONDS = 120
 # Updates count as delayed once none has arrived for this long.
 DELAYED_SECONDS = 3 * POLL_SECONDS
+# A cached progress timestamp must tolerate multiple normal refresh cycles.
+NO_PROGRESS_SECONDS = 3 * POLL_SECONDS
 # A failure stays on the dashboard this long, so it can be read.
 MESSAGE_SECONDS = 30
 # The speed shown is the average over the last minute. A second more lets a late refresh count.
@@ -118,12 +120,16 @@ def wait_text(seconds):
 
 def unconfirmed_downloads(estimate):
     """Unchecked series are possible future work, not episodes known to be waiting."""
-    return bool(estimate and not number(estimate.get('waiting_episodes')) and number(estimate.get('unchecked_series')))
+    return bool(estimate and not number(estimate.get('waiting_episodes'))
+                and (number(estimate.get('unchecked_series')) or number(estimate.get('checking_series'))
+                     or estimate.get('checking_lists') is True))
 
 
 def estimate_tip(estimate):
     if unconfirmed_downloads(estimate):
-        unchecked = number(estimate.get('unchecked_series'))
+        unchecked = max(number(estimate.get('unchecked_series')), number(estimate.get('checking_series')))
+        if not unchecked:
+            return 'Your account lists are still being checked. No episodes are currently queued.'
         return (f"No episodes are currently queued. {display(unchecked)} "
                 + ('series has' if unchecked == 1 else 'series have')
                 + ' no completed check; they may have nothing new to download.')
@@ -132,11 +138,16 @@ def estimate_tip(estimate):
 
 def time_left(estimate, *, background=False):
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
-    if not estimate or not (waiting or unchecked):
+    if not estimate:
         return ''
     if unconfirmed_downloads(estimate):
+        unchecked = max(unchecked, number(estimate.get('checking_series')))
+        if not unchecked:
+            return 'Your account lists are still being checked; download time is unknown until new episodes are found.'
         return (f"{display(unchecked)} series {'has' if unchecked == 1 else 'have'} not been checked yet. "
                 'No episodes are currently queued; download time is unknown until new episodes are found.')
+    if not (waiting or unchecked):
+        return ''
     if type(estimate.get('seconds')) is not int:
         return 'Working out how long this will take. An estimate appears after about five minutes of downloading.'
     left = (f"{display(waiting)} {'episode is' if waiting == 1 else 'episodes are'} waiting"
@@ -148,13 +159,16 @@ def time_left(estimate, *, background=False):
 
 
 def space_needed(estimate):
-    unchecked = number((estimate or {}).get('unchecked_series'))
-    if not estimate or not (number(estimate.get('waiting_episodes')) or unchecked):
+    unchecked = max(number((estimate or {}).get('unchecked_series')), number((estimate or {}).get('checking_series')))
+    if not estimate:
         return ''
     if unconfirmed_downloads(estimate):
         free = estimate.get('free_bytes')
         return ('No episodes are currently queued. Download size is unknown until new episodes are found.'
                 + (f' This disk has {room(free)} free.' if type(free) is int else ''))
+    if not (number(estimate.get('waiting_episodes')) or unchecked):
+        free = estimate.get('free_bytes')
+        return f'This disk has {room(free)} free.' if type(free) is int else ''
     if type(estimate.get('left_bytes')) is not int:
         return ''
     saved, left, free = number(estimate.get('saved_bytes')), estimate['left_bytes'], estimate.get('free_bytes')
@@ -165,16 +179,14 @@ def space_needed(estimate):
     return f'Your whole library should take about {room(saved + left)} of space{parts}.{rough}{disk}'
 
 
-# Why a checked episode was not downloaded, in the order Settings lists them. An episode still waiting to be
-# downloaded is not one of them.
+# Stable diagnostic categories, also used by Android's count API. Pending downloads are excluded.
 NOT_DOWNLOADED = {'scheduled': 'Not released yet',
                   'temporary_access': 'Time-limited, with access the app couldn’t confirm is still current',
                   'novel': 'Novels this site’s download doesn’t support'}
 
 
 def not_downloaded_counts(status):
-    """How many checked episodes each reason kept from being downloaded, in the order Settings lists them. The
-    Android app gets these counts and words the reasons itself."""
+    """Raw counts for diagnostic and Android consumers, including ordinary availability states."""
     counts = status.get('episodes_by_status') or {}
     reasons = status.get('unsupported_by_reason') if isinstance(status.get('unsupported_by_reason'), dict) else {}
     known = {key: number(reasons.get(key)) for key in NOT_DOWNLOADED}
@@ -184,18 +196,47 @@ def not_downloaded_counts(status):
 
 
 def not_downloaded(status, site):
-    """Settings' table of why checked episodes were not downloaded: every reason, with how many, so a short
-    folder is never a mystery."""
-    reasons = {'locked': f'Locked on your {site} account. Buy or unlock them on {site}, then press Continue'} | NOT_DOWNLOADED | {
-        'unsupported': 'In a form the app can’t save yet', 'failed': 'Stopped by download errors'}
-    return [{'reason': reasons[key], 'count': display(count)} for key, count in not_downloaded_counts(status).items()]
+    """Compact exceptions for the desktop. Ordinary account availability stays in diagnostic counts."""
+    counts = not_downloaded_counts(status)
+    reasons = status.get('unsupported_by_reason')
+    reasons = reasons if isinstance(reasons, dict) else {}
+    incomplete = sum(number(reasons.get(key)) for key in ('reader_manifest_incomplete', 'novel_manifest_incomplete'))
+    ordering = sum(number(reasons.get(key)) for key in ('order_unverified', 'ordering_unverified'))
+    rows = [('Download errors', counts['failed']), ('Incomplete content', incomplete),
+            ('Page order unknown', ordering), ('Access not confirmed', counts['temporary_access']),
+            ('Unsupported format', counts['novel'] + max(0, counts['unsupported'] - incomplete - ordering))]
+    return [{'reason': reason, 'count': display(count)} for reason, count in rows if count]
 
 
-def held_reason(code, site, missing):
+def episode_types(status):
+    """Stable rows for recorded downloads, without inventing unknown counts."""
+    counts = status.get('episode_types')
+    counts = counts if isinstance(counts, dict) else {}
+    rows = []
+    for key, label in (('free', 'Free'), ('bought', 'Bought / unlocked'),
+                       ('limited', 'Limited'), ('unclassified', 'Unknown type')):
+        item = counts.get(key)
+        item = item if isinstance(item, dict) else {}
+        rows.append({'key': key, 'label': label} | {
+            field: display(item[field]) if type(item.get(field)) is int and item[field] >= 0 else NONE
+            for field in ('saved', 'waiting')})
+    return rows
+
+
+def held_reason(code, site, missing, audit=None):
     """Why a held download stopped, in a few words for its card; what to do is on the card's buttons."""
     if code == 'archive_incomplete':
+        audit = audit or {}
+        gaps = number(audit.get('series_scan_gap_count'))
+        if gaps:
+            return f"{display(gaps)} {'series list is' if gaps == 1 else 'series lists are'} incomplete"
+        if number(audit.get('inventory_index_problem_count')):
+            return 'The saved-file index needs another check'
+        cannot = number(audit.get('unsupported_recorded_accessible_episode_count'))
+        if not missing and cannot:
+            return f"{display(cannot)} {'episode' if cannot == 1 else 'episodes'} could not be saved"
         return (f"{display(missing)} {'episode' if missing == 1 else 'episodes'} could not be saved" if missing
-                else 'Some saved files need another check')
+                else 'Completion needs another check')
     reasons = {'source_refused': f'{site} asked the app to slow down',
                'source_recovery_limit': f'{site} asked the app to slow down',
                'source_access_changed': f'{site} still would not send an episode after waiting',
@@ -214,10 +255,12 @@ def held_reason(code, site, missing):
 def time_row(estimate):
     """The card's Time left: about how long, and no more."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
-    if not estimate or not (waiting or unchecked):
+    if not estimate:
         return ''
     if unconfirmed_downloads(estimate):
         return 'Unknown until checked'
+    if not (waiting or unchecked):
+        return ''
     if type(estimate.get('seconds')) is not int:
         return ESTIMATING
     return span(estimate['seconds'])
@@ -226,11 +269,14 @@ def time_row(estimate):
 def space_row(estimate):
     """The card's Space: what is still to come and the disk's free room; and whether that room is too little."""
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
-    if not estimate or not (waiting or unchecked):
+    unchecked = max(unchecked, number((estimate or {}).get('checking_series')))
+    if not estimate:
         return '', False
     free = estimate.get('free_bytes')
     if unconfirmed_downloads(estimate):
         return 'No downloads queued' + (f' | {room(free)} free' if type(free) is int else ''), False
+    if not (waiting or unchecked):
+        return (f'{room(free)} free' if type(free) is int else ''), False
     if type(estimate.get('left_bytes')) is not int:
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
@@ -311,6 +357,7 @@ class State:
     workspace_id: str = None  # The open library's name, from which a bucket name is suggested.
     saved_at: list = field(default_factory=list)  # (time, bytes saved since the app began counting) at each refresh.
     counted: tuple = (None, 0)  # The step last read, and what it had saved then.
+    transfer_scope: float = None  # A resumed download begins a fresh speed measurement.
 
     def site(self):
         """The open site's name; Tapas until the list of sites is known."""
@@ -327,8 +374,18 @@ class State:
     def download_started(self):
         self.signin_used = True
 
-    def received_status(self, value, now):
+    def received_status(self, value, now, transfer=None):
         self.status = value
+        if isinstance(transfer, dict):
+            total, scope = transfer.get('downloaded_bytes'), transfer.get('scope')
+            if type(total) is int and total >= 0 and type(scope) is float and 0 < scope <= now:
+                if self.transfer_scope != scope or self.saved_at and total < self.saved_at[-1][1]:
+                    self.saved_at = []
+                self.transfer_scope = scope
+                self._sample(now, total)
+                return
+        if self.transfer_scope is not None:
+            return  # A missing checkpoint must not turn a cumulative count back into a per-step count.
         last = (value or {}).get('last_run') if isinstance((value or {}).get('last_run'), dict) else {}
         saved = ((value or {}).get('progress') or {}).get('downloaded_bytes')
         # One count across steps, and across checking lists or series: the time between saving images is part of
@@ -339,6 +396,9 @@ class State:
             # Each step counts from nothing: what a new one has saved, it saved since the last refresh.
             total += saved - before if step == last.get('id') and saved >= before else saved
             self.counted = (last.get('id'), saved)
+        self._sample(now, total)
+
+    def _sample(self, now, total):
         recent = [(at, count) for at, count in self.saved_at if now - at <= SPEED_SECONDS]
         # A scheduled read can arrive late on a busy or sleeping drive. Retain
         # one previous sample so a minute's work still has a measured rate.
@@ -399,6 +459,79 @@ def save_place(s):
 
 CARD_FIELDS = ('Account', 'Downloader', 'Status', 'Step', 'Progress', 'Saved', 'Time left', 'Space',
                'Running for', 'Speed', 'Download speed', 'Note')
+DASHBOARD_FIELDS = ('Status', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed')
+
+
+def card_summary(s=None, v=None):
+    """Stable dashboard facts, including estimates; internal step counters stay in diagnostics."""
+    if s is None or v is None:
+        return {'state': 'Not signed in', 'tone': 'neutral', 'appearance': 'neutral', 'rows': [
+            dict(name=name, value='Sign in to get started' if name == 'Status' else NONE, warning=False, tip='')
+            for name in DASHBOARD_FIELDS]}
+    facts = {row['name']: dict(row) for row in v['rows']}
+    label, tone = v['state'], v['tone']
+    account = s.account or {}
+    running = s.loaded and s.status is not None and account.get('status') == 'running'
+    if running and v['state'] not in ('Reconnecting', 'Sign-in needed', 'Signing in'):
+        retry = account.get('retry')
+        if isinstance(retry, dict):
+            text = 'Waiting for Wi-Fi' if v['allow_visible'] else 'Waiting to retry automatically'
+            label, tone = 'Waiting', 'working'
+        elif v['live_waiting']:
+            text, label = 'Waiting for an update', 'Waiting'
+        elif account.get('phase') == 'verify':
+            text = label = 'Finishing'
+        else:
+            text = label = 'Working'
+        facts['Status'].update(value=text, warning=tone == 'warning')
+    elif account.get('status') == 'stopped' and not v['allow_visible'] and v['state'] == 'Paused':
+        facts['Status'].update(value='Paused')
+    elif account.get('status') == 'finished' and v['state'] == 'Finished':
+        purchase = account.get('purchase_history')
+        incomplete_history = (s.site() == 'Tapas' and (
+            not isinstance(purchase, dict) or purchase.get('status') != 'checked'))
+        if incomplete_history:
+            facts['Status'].update(value='Finished; some episodes could not be checked', warning=True)
+            label, tone = 'Needs attention', 'warning'
+        elif number((account.get('audit') or {}).get('unsupported_recorded_accessible_episode_count')):
+            facts['Status'].update(value='Finished; some episodes could not be saved', warning=True)
+            label, tone = 'Needs attention', 'warning'
+    estimate = (s.status or {}).get('estimate') or {}
+    if account.get('status') == 'finished' or (account.get('status') == 'held' and account.get('code') == 'archive_incomplete'):
+        facts['Time left'].update(value=NONE, tip='')
+        facts['Space'].update(value=NONE, tip='', warning=False)
+    elif unconfirmed_downloads(estimate):
+        for name in ('Time left', 'Space'):
+            facts[name].update(value='Estimating…', tip='Estimates become available as episodes are found.', warning=False)
+    else:
+        time = facts['Time left']['value']
+        if time == ESTIMATING:
+            facts['Time left']['value'] = 'Estimating…'
+        elif time != NONE:
+            facts['Time left']['value'] = '~' + time.replace(' minutes', ' min')
+        left = estimate.get('left_bytes')
+        if type(left) is int and left >= 0 and number(estimate.get('waiting_episodes')):
+            tip = ESTIMATE_TIP
+            if type(estimate.get('free_bytes')) is int:
+                tip += f" {room(estimate['free_bytes'])} free on this disk."
+            facts['Space'].update(value='~' + room(left), tip=tip)
+        else:
+            facts['Space'].update(value=NONE, tip='', warning=False)
+    if (label == 'Needs attention' or account.get('status') == 'held'
+            or (s.message is not None and s.message.error)):
+        appearance = 'attention'
+    elif label in ('Waiting', 'Reconnecting', 'Status unavailable', 'Offline'):
+        appearance = 'waiting'
+    elif label == 'Paused':
+        appearance = 'paused'
+    elif account.get('status') == 'finished' and label == 'Finished':
+        appearance = 'complete'
+    elif running:
+        appearance = 'active'
+    else:
+        appearance = 'neutral'
+    return {'state': label, 'tone': tone, 'appearance': appearance,
+            'rows': [facts[name] for name in DASHBOARD_FIELDS]}
 
 
 def card_rows(values=None):
@@ -465,7 +598,7 @@ def view(s, now):
     v['folder_tooltip'] = 'Pause saving before you change the folder.' if locked else ''
     v['folder_lock'] = ('The folder can’t be changed while episodes are downloading. Press Pause on the dashboard first.'
                         if locked else '')
-    # The open site's own speed: the site list in the header chooses which one Settings shows.
+    # Each site's dashboard dropdown changes only that site's pace.
     speeds = {'fast': f'The quickest. If {site} keeps pausing the download, choose a slower speed.',
               'medium': 'About half the Fast speed.',
               'slow': 'About one quarter of the Fast speed.'}
@@ -474,8 +607,8 @@ def view(s, now):
     v['speed_visible'] = signed_in
     v['speed_label'] = f'Speed on {site}'
     v['speed'] = speed
-    v['speed_enabled'] = not (s.busy or running or signing_in or s.account is None)
-    v['speed_help'] = 'Pause to change the speed.' if running else speeds[speed]
+    v['speed_enabled'] = not (s.busy or signing_in or s.account is None)
+    v['speed_help'] = speeds[speed] + (' Changing speed briefly pauses and resumes this download.' if running else '')
     v['signin_note'] = f'Sign in to {site} to choose how fast it saves.'
     v['signin_note_visible'] = not signed_in
     v['signout_visible'] = signed_in
@@ -515,7 +648,7 @@ def view(s, now):
     missing = max(0, number(audit.get('missing_recorded_accessible_episode_count')) - cannot_save)
     lists = account.get('lists') if isinstance(account.get('lists'), dict) else {}
     list_names = {'unlocked': 'Bought', 'subscribed': 'Subscribed', 'updated': 'Updated', 'recent': 'Recent',
-                  'free_episodes': 'Free episodes'}
+                  'free_episodes': 'Free episodes', 'wait_until_free': 'Wait until free'}
     list_phase = running and account.get('phase') == 'lists'
     active = list_names.get(lists.get('current'))
     counts = status.get('episodes_by_status') or {}
@@ -524,6 +657,7 @@ def view(s, now):
     v['not_downloaded_visible'] = bool(skipped) and (bool(status.get('session_configured'))
                                                      or any(row['count'] != '0' for row in skipped))
     v['not_downloaded'] = skipped if v['not_downloaded_visible'] else []
+    v['episode_types'] = episode_types(status)
     age = account['progress_age_seconds'] + since if type(account.get('progress_age_seconds')) is int else None
     elapsed = account['elapsed_seconds'] + since if type(account.get('elapsed_seconds')) is int else None
     since_refresh = max(0, math.floor(now - s.refreshed_at)) if s.refreshed_at else None
@@ -532,11 +666,11 @@ def view(s, now):
     between = account['between_steps_seconds'] + since if type(account.get('between_steps_seconds')) is int else None
     retry = account.get('retry') if running and isinstance(account.get('retry'), dict) and type(account['retry'].get('seconds')) is int else None
     retry_in = wait_text(max(0, retry['seconds'] - since) if retry else 0)
-    waiting = not retry and (age >= 60 if age is not None else between >= 60 if between is not None
-                             else elapsed is not None and elapsed >= 60)
+    activity_age = age if age is not None else between if between is not None else elapsed
+    waiting = running and not retry and activity_age is not None and activity_age >= NO_PROGRESS_SECONDS
     verifying = running and account.get('phase') == 'verify'
     if verifying:
-        waiting = False  # A local integrity check may spend minutes reading a large archive.
+        waiting = False  # Completion bookkeeping is not another download step.
     v['live_waiting'] = waiting or disconnected
     v.update(heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh))
     # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
@@ -572,10 +706,8 @@ def view(s, now):
     if running and not disconnected:
         phases = {'existing_backlog': 'Finishing saved downloads', 'lists': 'Finding your series',
                   'series': 'Checking series and downloading', 'archive': 'Downloading episodes',
-                  'verify': 'Checking saved files'}
+                  'verify': 'Finishing download'}
         step = '' if list_phase else step_progress(progress).rstrip('.')
-        if verifying:
-            row('Note', 'Local file check; no provider requests. Large libraries take time.')
         row('Step', ' | '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
@@ -586,6 +718,8 @@ def view(s, now):
                 if matching and type(progress.get('reading_list_page_count')) is int else f' | now {active}' if active else ''))
         elif account.get('phase') == 'series':
             row('Series left', f"{display(status.get('scan_remaining_series_count'))} to check")
+        elif account.get('phase') == 'archive' and number(status.get('scan_remaining_series_count')):
+            row('Progress', f"{display(status['scan_remaining_series_count'])} series waiting")
     if disconnected and running:
         row('Updates', 'Delayed: reaching the downloader again', True)
     elif retry:
@@ -596,12 +730,13 @@ def view(s, now):
                         else f'The connection to {site} was interrupted')
             + ('' if network_held else f'; carries on in {retry_in}'), True)
     elif running and waiting:
-        row('Waiting', f'No progress for over a minute; {site} may be slow', True)
+        row('Waiting', f'No new progress reported for {duration(activity_age)}', True)
     elif batch_running and not running:
         row('Step', 'Pausing after the image being saved' if progress.get('cancellation_requested')
             else 'Finishing the current step')
     if account_status == 'held' and not needs_login and not running:
-        reason = held_reason(account.get('code'), site, missing)
+        detail = {'series_scan_gap_count': status.get('series_scan_gap_count', 0)} | audit
+        reason = held_reason(account.get('code'), site, missing, detail)
         row('Finished' if finished else 'Stopped', reason, True)
     elif account.get('code') == 'login_required' and needs_login:
         row('Stopped', f'{site} signed you out', True)
@@ -610,17 +745,18 @@ def view(s, now):
     if network_held and not running:
         row('Connection', f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
     if account_status == 'finished':
-        row('Finished', f'Every episode your account can read is saved, except {display(cannot_save)} in a form the app '
-            'can’t save yet' if cannot_save else 'Every episode your account can read is saved' if number(counts.get('archived'))
-            else f'No episodes your {site} account can save were found')
+        row('Finished', 'Done')
     # Saved, Time left, Space, Speed and Download speed are on every card, so cards side by side read alike; NONE where nothing is known.
     row('Saved', NONE if s.status is None else
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
-    estimate = status.get('estimate') if account.get('configured') and not finished else None
-    time = time_row(estimate)
+    estimate = status.get('estimate') if account.get('configured') else None
+    if estimate is not None:
+        estimate = dict(estimate, checking_lists=list_phase)
+    time = time_row(estimate) if not finished else ''
     row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
-    space, short = space_row(estimate)
-    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')
+    space, short = space_row({'free_bytes': estimate.get('free_bytes')} if finished and estimate else estimate)
+    estimated_space = estimate and (number(estimate.get('waiting_episodes')) or unconfirmed_downloads(estimate))
+    row('Space', space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')
     if running and elapsed is not None:
         row('Running for', duration(elapsed) + ('' if age is None else
             f" | last {'check update' if verifying else 'saved'} {duration(age)} ago"))
@@ -630,8 +766,26 @@ def view(s, now):
     # What arrives, apart from Speed, which paces the requests.
     measured = s.speed() if running and s.saved_at else None
     row('Download speed', NONE if measured is None else rate(measured))
-    if finished and site == 'Tapas':
-        row('Note', 'Tapas’s account lists may not include every older purchase')
+    notes = []
+    if account_status == 'finished' and cannot_save:
+        notes.append(f'{display(cannot_save)} episodes use a format the app can’t save yet')
+    purchase = account.get('purchase_history')
+    if finished and site == 'Tapas' and not isinstance(purchase, dict):
+        notes.append('Purchase history not checked')
+    if site == 'Tapas' and isinstance(purchase, dict):
+        if purchase.get('status') == 'pending':
+            notes.append('Checking purchase history')
+        elif purchase.get('status') == 'partial':
+            reasons = {'history_view_unverified': 'Purchase-history view could not be verified',
+                       'history_rows_unverified': 'Purchase-history entries need another check',
+                       'history_page_repeated': 'Purchase-history paging repeated a page',
+                       'history_continuation_unverified': 'Purchase-history paging could not be verified',
+                       'history_association_unresolved': 'Some purchase-history entries could not be matched to series',
+                       'history_checkpoint_unreadable': 'Purchase-history progress could not be read',
+                       'history_reader_unavailable': 'Purchase-history checking is unavailable in this reader'}
+            notes.append(reasons.get(purchase.get('code'), 'Purchase-history check incomplete'))
+    if notes:
+        row('Note', ' | '.join(notes))
     v['rows'] = list(rows.values())
     v['save_place'] = save_place(s)
     return v
@@ -652,13 +806,13 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
             label, tone = 'Sign-in needed', 'warning'
         elif running:
             phases = {'lists': ('Finding your series', 'Finding series'), 'series': ('Checking your library', 'Checking series'),
-                      'archive': ('Saving your episodes', 'Downloading'), 'verify': ('Checking saved files', 'Checking files'),
+                      'archive': ('Saving your episodes', 'Downloading'), 'verify': ('Finishing download', 'Finishing'),
                       'existing_backlog': ('Finishing saved downloads', 'Downloading')}
             (title, label), tone = phases.get(account.get('phase'), ('Saving your library', 'Working')), 'working'
             if waiting:
                 title, label, tone = 'Waiting for a progress update', 'Waiting', 'warning'
         elif account.get('status') == 'held' and account.get('code') == 'archive_incomplete':
-            title, label, tone = 'Finished, with episodes missing', 'Finished', 'warning'
+            title, label, tone = 'Completion needs attention', 'Needs attention', 'warning'
         elif account.get('status') in ('held', 'stopped'):
             title, label, tone = 'Your download is paused', 'Paused', 'warning'
         elif batch_running:

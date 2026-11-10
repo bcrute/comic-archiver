@@ -80,6 +80,22 @@ class BrowserTransportTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', str(caught.exception))
 
     @patch('comic_archive.adapters.tapas.Transport')
+    def test_missing_header_and_episode_list_keep_exact_numeric_route_and_status(self, assets):
+        from comic_archive.errors import MetadataError
+        page = Mock(url='https://tapas.io/')
+        transport = BrowserReadTransport(page, Mock())
+        for status in (404, 410):
+            for path in ('/series/42', '/series/42/episodes?page=1&max_limit=20'):
+                page.evaluate.return_value = {'status': status, 'text': 'PRIVATE_BODY',
+                                              'source_response_kind': 'html', 'retry_after': None}
+                with self.assertRaises(MetadataError) as caught:
+                    transport.get('https://tapas.io' + path)
+                self.assertEqual(caught.exception.source_series_id, '42')
+                self.assertEqual(caught.exception.source_http_status, status)
+                self.assertEqual(caught.exception.source_route, path.split('?')[0])
+                self.assertNotIn('PRIVATE_BODY', repr(caught.exception.__dict__))
+
+    @patch('comic_archive.adapters.tapas.Transport')
     def test_series_page_reads_use_the_normal_site_first_and_refuse_redirects_and_errors(self, assets):
         page = Mock(url='about:blank')
         landing = {'url': None}
@@ -157,6 +173,25 @@ class BrowserTransportTests(unittest.TestCase):
                 self.assertNotIn('PRIVATE', str(error.exception))
                 assets.return_value.close.assert_called_once()
 
+    @patch('comic_archive.adapters.tapas.Transport')
+    def test_history_get_accepts_only_the_observed_indexed_read_contract(self, assets):
+        page = Mock(url='https://tapas.io/')
+        page.evaluate.return_value = {'status': 200, 'text': '{"code":200}', 'source_response_kind': 'json'}
+        transport = BrowserReadTransport(page, Mock())
+        for index in (0, 1, 9999):
+            url = f"https://tapas.io/profile/transactions?to_prev={'false' if index == 0 else 'true'}&index={index}"
+            self.assertEqual(transport.get(url, max_bytes=4194304), b'{"code":200}')
+            script, args = page.evaluate.call_args.args
+            self.assertIn("method:'GET'", script)
+            self.assertEqual((args['url'], args['accept'], args['limit']), (url, 'application/json', 4194304))
+        page.evaluate.reset_mock()
+        for query in ('', '?index=0', '?to_prev=true&index=0', '?to_prev=true&index=01',
+                      '?to_prev=true&index=-1', '?to_prev=true&index=10000',
+                      '?to_prev=true&index=1&action=buy', '?to_prev=true&index=1&index=2'):
+            with self.subTest(query=query), self.assertRaises(ArchiveError):
+                transport.get('https://tapas.io/profile/transactions'+query)
+        page.evaluate.assert_not_called()
+
 
 class AdapterBase(unittest.TestCase):
     def setUp(self):
@@ -215,6 +250,21 @@ class StartupAndLimitTests(AdapterBase):
 
 
     @patch('comic_archive.adapters.tapas.Transport')
+    def test_normal_and_fast_http_readers_share_observed_seeds_and_missing_header_cache(self, assets):
+        from comic_archive.fast_import import FastBrowserAdapter
+        self.adapter.seed_series('42', 'Observed')
+        for create in (TapasAdapter.automatic_adapter, FastBrowserAdapter.automatic_adapter):
+            first = create(self.adapter)
+            first.unavailable_headers['42'] = 404
+            second = create(self.adapter)
+            self.assertIs(second.series_seeds, first.series_seeds)
+            self.assertIs(second.unavailable_headers, first.unavailable_headers)
+            self.assertEqual(second.series_seeds['42'], 'Observed')
+            self.assertEqual(second.unavailable_headers['42'], 404)
+        self.adapter.seed_series('42', 'Refreshed')
+        self.assertNotIn('42', second.unavailable_headers)
+
+    @patch('comic_archive.adapters.tapas.Transport')
     def test_threaded_image_reads_share_the_jobs_stop_and_time_limit(self, assets):
         # Threaded image reads go straight to the asset client, never through the browser transport's own checks.
         self.adapter.deadline = time.monotonic() + 3600
@@ -249,7 +299,6 @@ class ManualCaptureTests(AdapterBase):
     @patch('builtins.input', return_value='y')
     def test_capture_refuses_access_that_is_not_verified_for_this_exact_episode(self, prompt, save):
         for verified in ({'source_episode_id': '82', 'access_state': 'tapas_free'},
-                         {'source_episode_id': '81', 'access_state': 'locked'},
                          {'source_episode_id': '81'}):
             self.adapter.episode_access.return_value = verified
             with self.assertRaises(ArchiveError):
@@ -324,7 +373,7 @@ class ManualCaptureTests(AdapterBase):
         self.adapter._automatic = Mock()
         self.assertIs(self.adapter.refresh(episode), self.adapter._automatic.refresh.return_value)
 
-    def test_retrieve_refuses_expired_temporary_access_before_any_request(self):
+    def test_retrieve_uses_provider_response_despite_reported_expiry(self):
         page = Page(1, 'https://us-a.tapas.io/pc/a/1.jpg?sig=TEST')
 
         def manifest(expires):
@@ -332,9 +381,9 @@ class ManualCaptureTests(AdapterBase):
                                                          access_expires_at=expires),))
         self.adapter.transport = Mock()
         self.adapter._manifest = manifest('2000-01-01T00:00:00Z')
-        with self.assertRaises(AccessDenied):
-            self.adapter.retrieve(page)
-        self.adapter.transport.get.assert_not_called()
+        self.assertIs(self.adapter.retrieve(page), self.adapter.transport.get.return_value)
+        self.adapter.transport.get.assert_called_once_with(page.location)
+        self.adapter.transport.reset_mock()
         self.adapter._manifest = manifest('2999-01-01T00:00:00Z')
         self.assertIs(self.adapter.retrieve(page), self.adapter.transport.get.return_value)
         self.adapter.transport.get.assert_called_once_with(page.location)

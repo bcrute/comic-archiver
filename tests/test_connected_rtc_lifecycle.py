@@ -1,26 +1,29 @@
 """Actual UDP/ICE retirement, not an admitted application peer or file grant."""
 
 import asyncio
+import importlib.util
 import unittest
 from struct import pack
 
-from aiortc import (
-    RTCConfiguration,
-    RTCIceCandidate,
-    RTCIceGatherer,
-    RTCIceTransport,
-    RTCPeerConnection,
-)
-from aiortc.rtcsctptransport import (
-    SCTP_DATA_FIRST_FRAG,
-    WEBRTC_STRING,
-    DataChunk,
-    crc32c,
-    tsn_plus_one,
-)
+AVAILABLE = importlib.util.find_spec('aiortc') is not None and importlib.util.find_spec('jwcrypto') is not None
+if AVAILABLE:
+    from aiortc import (
+        RTCConfiguration,
+        RTCIceCandidate,
+        RTCIceGatherer,
+        RTCIceTransport,
+        RTCPeerConnection,
+    )
+    from aiortc.rtcsctptransport import (
+        SCTP_DATA_FIRST_FRAG,
+        WEBRTC_STRING,
+        DataChunk,
+        crc32c,
+        tsn_plus_one,
+    )
 
-from comic_archive.connected.rpc import CONTROL_MAX
-from comic_archive.connected.rtc import _IceRetirement, _SctpReceiveBounds
+    from comic_archive.connected.rpc import CONTROL_MAX
+    from comic_archive.connected.rtc import _IceRetirement, _SctpReceiveBounds
 
 
 class SilentSocket(asyncio.DatagramProtocol):
@@ -35,6 +38,7 @@ class SilentSocket(asyncio.DatagramProtocol):
         self.closed.set_result(error)
 
 
+@unittest.skipUnless(AVAILABLE, 'Opt-in connected extra required; skip is not connected qualification')
 class ConnectedIceLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.transports, self.errors = [], []
@@ -192,6 +196,7 @@ class ConnectedIceLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 answering.cancel()
                 await asyncio.gather(answering, return_exceptions=True)
 
+@unittest.skipUnless(AVAILABLE, 'Opt-in connected extra required; skip is not connected qualification')
 class ConnectedSctpBoundsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.pcs, self.owners, self.errors = [], [], []

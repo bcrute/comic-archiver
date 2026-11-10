@@ -38,6 +38,29 @@ def fields(v):
 
 
 class WordingTests(unittest.TestCase):
+    def test_incomplete_listing_is_attention_without_a_damage_claim_or_estimate(self):
+        for audit in ({'series_scan_gap_count': 1}, {}):
+            with self.subTest(audit=audit):
+                s = state(account={'status': 'held', 'configured': True, 'code': 'archive_incomplete', 'audit': audit},
+                          status={'session_configured': True, 'worker': {'reported_state': 'ready'},
+                                  'series_scan_gap_count': 1,
+                                  'estimate': {'waiting_episodes': 0, 'seconds': None, 'unchecked_series': 1}})
+                summary = model.card_summary(s, model.view(s, NOW))
+                rows = {row['name']: row for row in summary['rows']}
+                self.assertEqual((summary['state'], summary['appearance']), ('Needs attention', 'attention'))
+                self.assertEqual(rows['Status']['value'], '1 series list is incomplete')
+                self.assertEqual((rows['Time left']['value'], rows['Space']['value']), ('—', '—'))
+                self.assertTrue(rows['Status']['warning'])
+
+    def test_episode_types_keep_stable_rows_and_distinguish_unknown_counts(self):
+        rows = model.episode_types({})
+        self.assertEqual([row['label'] for row in rows], ['Free', 'Bought / unlocked', 'Limited', 'Unknown type'])
+        self.assertTrue(all(row['saved'] == '—' and row['waiting'] == '—' for row in rows))
+        rows = model.episode_types({'episode_types': {'free': {'saved': 1200, 'waiting': 0},
+                                                     'limited': {'saved': -1, 'waiting': True}}})
+        self.assertEqual((rows[0]['saved'], rows[0]['waiting']), ('1,200', '0'))
+        self.assertEqual((rows[2]['saved'], rows[2]['waiting']), ('—', '—'))
+
     def test_a_refusal_is_worded_for_its_code_and_names_the_open_site(self):
         self.assertEqual(model.error_text('login_required', 'Webtoon'), 'Your Webtoon session needs a fresh login.')
         self.assertIn('Tapas refused a request', model.error_text('source_refused'))
@@ -100,7 +123,7 @@ class WordingTests(unittest.TestCase):
     def test_a_held_download_says_why_it_stopped_in_a_few_words_and_leaves_what_to_do_to_the_buttons(self):
         cases = {('archive_incomplete', 1): '1 episode could not be saved',
                  ('archive_incomplete', 3): '3 episodes could not be saved',
-                 ('archive_incomplete', 0): 'Some saved files need another check',
+                 ('archive_incomplete', 0): 'Completion needs another check',
                  ('source_refused', 0): 'Tapas asked the app to slow down',
                  ('source_recovery_limit', 0): 'Tapas asked the app to slow down',
                  ('source_access_changed', 0): 'Tapas still would not send an episode after waiting',
@@ -286,8 +309,8 @@ class ButtonTests(unittest.TestCase):
         self.assertIn('If Tapas keeps pausing', alone['speed_help'])
         both = view(sites=[TAPAS, TAPPYTOON], account={'status': 'stopped', 'speed': 'medium'})
         self.assertEqual((both['speed_label'], both['speed'], both['speed_help']), ('Speed on Tapas', 'medium', 'About half the Fast speed.'))
-        self.assertEqual(view(account=account(speed='bogus'))['speed_help'], 'Pause to change the speed.')
-        self.assertFalse(view(account=account())['speed_enabled'])
+        self.assertIn('briefly pauses and resumes', view(account=account(speed='bogus'))['speed_help'])
+        self.assertTrue(view(account=account())['speed_enabled'])
         signed_out = view(status={'worker': {'reported_state': 'ready'}})
         self.assertTrue(signed_out['signin_note_visible'] and not signed_out['speed_visible'])
         self.assertEqual(signed_out['signin_note'], 'Sign in to Tapas to choose how fast it saves.')
@@ -321,7 +344,108 @@ class ButtonTests(unittest.TestCase):
         self.assertFalse(view(busy=True)['network_enabled'])
 
 
+class CardSummaryTests(unittest.TestCase):
+    def test_card_colours_follow_status_for_every_provider(self):
+        for provider in ('Tapas', 'Webtoon', 'Tappytoon'):
+            for account_state, extras, expected in (
+                ('running', {}, 'active'), ('stopped', {}, 'paused'),
+                ('finished', {'purchase_history': {'status': 'checked'}}, 'complete'),
+                ('running', {'retry': {'reason': 'source', 'seconds': 60}}, 'waiting'),
+                ('held', {'code': 'source_refused'}, 'attention')):
+                with self.subTest(provider=provider, state=account_state, expected=expected):
+                    s = state(sites=[{'name': provider, 'current': True}],
+                              account=account(status=account_state, progress_age_seconds=10, **extras))
+                    self.assertEqual(model.card_summary(s, model.view(s, NOW))['appearance'], expected)
+
+    def test_estimates_are_compact_honest_and_preserve_capacity_warnings(self):
+        s = state(account=account(progress_age_seconds=10))
+        s.status['estimate'] = {'waiting_episodes': 20, 'seconds': 3600,
+                                'left_bytes': 4_800_000_000, 'free_bytes': 1_000_000_000}
+        summary = model.card_summary(s, model.view(s, NOW))
+        self.assertEqual(fields(summary)['Time left'][0], '~an hour')
+        self.assertEqual(fields(summary)['Space'], ('~4.8 GB', True))
+        space = next(row for row in summary['rows'] if row['name'] == 'Space')
+        self.assertIn('1.0 GB free', space['tip'])
+        # An unchecked account does not have a confirmed download size or ETA.
+        s.status['estimate']['waiting_episodes'] = 0
+        s.status['estimate']['unchecked_series'] = 688
+        unknown = model.card_summary(s, model.view(s, NOW))
+        self.assertEqual(fields(unknown)['Time left'][0], 'Estimating…')
+        self.assertEqual(fields(unknown)['Space'][0], 'Estimating…')
+        self.assertNotIn('688', str(unknown))
+        s.account['status'] = 'finished'
+        done = fields(model.card_summary(s, model.view(s, NOW)))
+        self.assertEqual((done['Time left'][0], done['Space'][0]), ('—', '—'))
+
+    def test_all_provider_cards_keep_only_basic_fields_across_internal_steps(self):
+        for provider in ('Tapas', 'Webtoon', 'Tappytoon'):
+            for phase in ('lists', 'series', 'archive', 'verify'):
+                with self.subTest(provider=provider, phase=phase):
+                    s = state(sites=[{'name': provider, 'current': True}],
+                              account=account(phase=phase, elapsed_seconds=600, progress_age_seconds=10))
+                    s.status.update(scan_remaining_series_count=688,
+                                    estimate={'unchecked_series': 688, 'left_bytes': 4_800_000_000,
+                                              'seconds': 36000, 'waiting_episodes': 100},
+                                    progress={'status': 'running', 'phase': 'scan',
+                                              'series_checks_completed': 1, 'series_check_target_count': 10})
+                    s.received_status(s.status, NOW - 60, {'scope': NOW - 100, 'downloaded_bytes': 0})
+                    s.received_status(s.status, NOW, {'scope': NOW - 100, 'downloaded_bytes': 6_000_000})
+                    summary = model.card_summary(s, model.view(s, NOW))
+                    shown = fields(summary)
+                    self.assertEqual(tuple(shown), ('Status', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed'))
+                    self.assertEqual(shown['Status'][0], 'Finishing' if phase == 'verify' else 'Working')
+                    self.assertEqual(shown['Saved'][0], '3 episodes')
+                    self.assertEqual(shown['Download speed'][0], '100 KB/s')
+                    self.assertNotIn('688', str(summary))
+                    self.assertNotIn('estimated', str(summary))
+
+    def test_simple_cards_keep_real_errors_and_incomplete_completion_visible(self):
+        cases = [
+            (state(account=account(status='stopped')), 'Paused'),
+            (state(account=account(status='held', code='source_refused')), 'Tapas asked the app to slow down'),
+            (state(account=account(retry={'reason': 'source', 'seconds': 300})), 'Waiting to retry automatically'),
+            (state(account=account(status='finished', purchase_history={'status': 'partial',
+                         'code': 'history_rows_unverified'})), 'Finished; some episodes could not be checked'),
+            (state(account=account(status='finished', purchase_history={'status': 'checked'})), 'Done'),
+        ]
+        for s, expected in cases:
+            with self.subTest(expected=expected):
+                summary = model.card_summary(s, model.view(s, NOW))
+                self.assertEqual(fields(summary)['Status'][0], expected)
+                self.assertEqual(tuple(fields(summary)), model.DASHBOARD_FIELDS)
+                if 'could not' in expected:
+                    self.assertEqual(summary['state'], 'Needs attention')
+                    self.assertTrue(fields(summary)['Status'][1])
+        self.assertEqual(tuple(fields(model.card_summary())), model.DASHBOARD_FIELDS)
+        loading = state(loaded=False, account=account())
+        opening = fields(model.card_summary(loading, model.view(loading, NOW)))
+        self.assertEqual(tuple(opening), model.DASHBOARD_FIELDS)
+        self.assertEqual(opening['Status'][0], 'Opening…')
+
+
 class StatusTests(unittest.TestCase):
+    def test_cumulative_speed_survives_step_changes_and_resets_after_resume_or_counter_loss(self):
+        s = state(account=account())
+        def read(at, count, scope=NOW - 10):
+            s.received_status({'progress': {'downloaded_bytes': 0}}, at,
+                              transfer={'scope': scope, 'downloaded_bytes': count})
+            return s.speed()
+        self.assertIsNone(read(NOW, 5_000_000))
+        self.assertEqual(read(NOW + 60, 11_000_000), 100_000)
+        self.assertEqual(read(NOW + 120, 11_000_000), 0)
+        # A resumed download starts a fresh measurement; paused time and old samples do not dilute it.
+        self.assertIsNone(read(NOW + 1000, 11_000_000, NOW + 999))
+        self.assertEqual(read(NOW + 1060, 14_000_000, NOW + 999), 50_000)
+        # Missing/malformed status never switches back to the unreliable per-step counter.
+        previous = list(s.saved_at)
+        for transfer in (None, {}, {'scope': NOW + 999, 'downloaded_bytes': True},
+                         {'scope': NOW + 999, 'downloaded_bytes': -1}):
+            s.received_status({'progress': {'downloaded_bytes': 900_000_000}}, NOW + 1061, transfer)
+            self.assertEqual(s.saved_at, previous)
+        # A controller reset or trimmed history cannot produce a negative rate or a false spike.
+        self.assertIsNone(read(NOW + 1120, 100, NOW + 999))
+        self.assertEqual(read(NOW + 1180, 600_100, NOW + 999), 10_000)
+
     def test_a_minute_between_reads_is_current_and_late_reads_still_measure_speed(self):
         self.assertEqual((model.POLL_SECONDS, model.LIBRARY_SECONDS), (60, 3600))
         self.assertGreater(model.DELAYED_SECONDS, 2 * model.POLL_SECONDS)
@@ -331,6 +455,18 @@ class StatusTests(unittest.TestCase):
         s.received_status({'last_run': {'id': 'run'}, 'progress': {'downloaded_bytes': 6_200_000}}, NOW + 62)
         self.assertEqual(s.speed(), 100_000)
         self.assertEqual(len(s.saved_at), 2)
+
+    def test_regular_minute_refreshes_do_not_look_like_a_stalled_download(self):
+        self.assertGreater(model.NO_PROGRESS_SECONDS, 2 * model.POLL_SECONDS)
+        s = state()
+        for cycle in range(4):
+            at = NOW + cycle * model.POLL_SECONDS
+            s.received_account(account(progress_age_seconds=10), at)
+            shown = model.view(s, at + model.POLL_SECONDS - 1)
+            self.assertFalse(shown['live_waiting'])
+            self.assertNotIn('No new progress', fields(shown)['Status'][0])
+        # An old timestamp on a paused account is not an active-download stall.
+        self.assertFalse(view(account={'status': 'stopped', 'progress_age_seconds': 600})['live_waiting'])
 
     def test_a_download_shows_how_fast_it_saved_over_the_last_minute(self):
         s = state(account=account())
@@ -400,10 +536,10 @@ class StatusTests(unittest.TestCase):
                  ({'account': {'status': 'stopped', 'go_after_seconds': 600}, 'account_at': NOW},
                   {'Status': ('Continue in about 10 minutes', False)}),
                  ({'account': {'status': 'finished'}},
-                  {'Status': ('Every episode your account can read is saved', False),
-                   'Note': ('Tapas’s account lists may not include every older purchase', False)}),
+                  {'Status': ('Done', False),
+                   'Note': ('Purchase history not checked', False)}),
                  ({'account': {'status': 'finished'}, 'status': {'session_configured': True, 'worker': {'reported_state': 'ready'}}},
-                  {'Status': ('No episodes your Tapas account can save were found', False), 'Saved': ('0 episodes', False)}),
+                  {'Status': ('Done', False), 'Saved': ('0 episodes', False)}),
                  ({'account': {'status': 'held', 'code': 'archive_incomplete',
                                'audit': {'missing_recorded_accessible_episode_count': 2}}},
                   {'Status': ('2 episodes could not be saved', True)}),
@@ -414,14 +550,14 @@ class StatusTests(unittest.TestCase):
                   {'Status': ('2 episodes could not be saved', True)}),
                  ({'account': {'status': 'finished', 'audit': {'missing_recorded_accessible_episode_count': 1234,
                                                                'unsupported_recorded_accessible_episode_count': 1234}}},
-                  {'Status': ('Every episode your account can read is saved, except 1,234 in a form the app can’t save yet',
-                                False)}),
+                  {'Status': ('Done', False),
+                   'Note': ('1,234 episodes use a format the app can’t save yet | Purchase history not checked', False)}),
                  ({'status': {'session_configured': True, 'worker': {'reported_state': 'busy'}}},
                   {'Step': ('Finishing the current step', False)}),
                  ({'status': {'session_configured': True, 'worker': {'reported_state': 'ready'},
                               'progress': {'status': 'running', 'cancellation_requested': True}}},
                   {'Step': ('Pausing after the image being saved', False)}),
-                 ({'account': account(phase='verify')}, {'Step': ('Checking saved files', False)}),
+                 ({'account': account(phase='verify')}, {'Step': ('Finishing download', False)}),
                  ({'account': account(phase='new')}, {'Step': ('Downloading', False)}),
                  ({'account': account(), 'status': {'session_configured': True, 'worker': {'reported_state': 'busy'},
                                                     'progress': {'status': 'running', 'phase': 'archive', 'completed': 2,
@@ -456,39 +592,48 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn('Lists', series)
 
     def test_download_settings_tables_why_checked_episodes_were_not_downloaded(self):
-        # The first outside report: a folder stopped at 100 of 144 with nothing on screen to say why.
-        reported = view(status={'session_configured': True, 'episodes_by_status': {'archived': 100, 'unavailable': 44}})
+        status = {'session_configured': True, 'episodes_by_status': {'archived': 100, 'unavailable': 44}}
+        reported = view(status=status)
         self.assertEqual(fields(reported)['Saved'][0], '100 episodes')
-        self.assertNotIn('not_saved', reported)
-        self.assertTrue(reported['not_downloaded_visible'])
-        self.assertEqual([(row['reason'], row['count']) for row in reported['not_downloaded']], [
-            ('Locked on your Tapas account. Buy or unlock them on Tapas, then press Continue', '44'),
-            ('Not released yet', '0'),
-            ('Time-limited, with access the app couldn’t confirm is still current', '0'),
-            ('Novels this site’s download doesn’t support', '0'),
-            ('In a form the app can’t save yet', '0'),
-            ('Stopped by download errors', '0')])
-        every = view(sites=[dict(TAPAS, name='Webtoon')], status={
+        self.assertFalse(reported['not_downloaded_visible'])
+        self.assertEqual(reported['not_downloaded'], [])
+        # Availability stays available to diagnostics and Android's raw count API.
+        self.assertEqual(model.not_downloaded_counts(status)['locked'], 44)
+        every = view(status={
             'episodes_by_status': {'archived': 5, 'queued': 7, 'unavailable': 1200, 'unsupported': 9, 'failed': 2},
             'unsupported_by_reason': {'scheduled': 3, 'temporary_access': 2, 'novel': 1, 'reader_manifest_incomplete': 3}})
         self.assertTrue(every['not_downloaded_visible'])
-        self.assertEqual([row['count'] for row in every['not_downloaded']], ['1,200', '3', '2', '1', '3', '2'])
-        self.assertTrue(every['not_downloaded'][0]['reason'].startswith('Locked on your Webtoon account.'))
+        self.assertEqual([(row['reason'], row['count']) for row in every['not_downloaded']],
+                         [('Download errors', '2'), ('Incomplete content', '3'),
+                          ('Access not confirmed', '2'), ('Unsupported format', '1')])
 
     def test_the_not_downloaded_table_waits_for_the_library_and_never_invents_or_loses_episodes(self):
         unread = view(status=None)
         self.assertEqual((unread['not_downloaded_visible'], unread['not_downloaded']), (False, []))
-        # Signed in with nothing skipped: the table shows, all zero. Signed out with nothing skipped: no table.
-        self.assertEqual([row['count'] for row in view()['not_downloaded']], ['0'] * 6)
+        self.assertEqual(view()['not_downloaded'], [])
         self.assertFalse(view(status={'episodes_by_status': {'archived': 3}})['not_downloaded_visible'])
         self.assertTrue(view(status={'episodes_by_status': {'failed': 1}})['not_downloaded_visible'])
         odd = view(status={'session_configured': True,
                            'episodes_by_status': {'unavailable': -1, 'failed': '2', 'unsupported': True}})
-        self.assertEqual([row['count'] for row in odd['not_downloaded']], ['0'] * 6)
+        self.assertEqual(odd['not_downloaded'], [])
         for reasons in (None, ['scheduled'], {'scheduled': 0}):
             with self.subTest(reasons=reasons):
                 rows = view(status={'episodes_by_status': {'unsupported': 2}, 'unsupported_by_reason': reasons})['not_downloaded']
-                self.assertEqual([row['count'] for row in rows], ['0', '0', '0', '0', '2', '0'])
+                self.assertEqual(rows, [{'reason': 'Unsupported format', 'count': '2'}])
+        order = view(status={'episodes_by_status': {'unsupported': 5},
+                             'unsupported_by_reason': {'order_unverified': 2, 'ordering_unverified': 1,
+                                                       'novel_manifest_incomplete': 2}})
+        self.assertEqual(order['not_downloaded'], [{'reason': 'Incomplete content', 'count': '2'},
+                                                  {'reason': 'Page order unknown', 'count': '3'}])
+
+    def test_purchase_history_note_reports_actual_partial_checks(self):
+        complete = view(account={'status': 'finished', 'purchase_history': {'status': 'checked', 'pages': 3}})
+        self.assertEqual(fields(complete)['Note'], ('—', False))
+        partial = view(account={'status': 'finished', 'purchase_history': {
+            'status': 'partial', 'code': 'history_continuation_unverified'}})
+        self.assertEqual(fields(partial)['Note'][0], 'Purchase-history paging could not be verified')
+        pending = view(account={'status': 'running', 'purchase_history': {'status': 'pending'}})
+        self.assertEqual(fields(pending)['Note'][0], 'Checking purchase history')
 
     def test_the_saved_count_time_left_and_space_follow_what_was_read(self):
         # Every card has the same fields, signed in or not, so cards side by side read alike.
@@ -517,6 +662,34 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'estimate': estimate}, account={'status': 'stopped'}))['Space'], ('—', False))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
+
+    def test_series_waiting_for_a_download_batch_are_named_as_waiting(self):
+        shown = view(account=account(phase='archive'), status={
+            'session_configured': True, 'worker': {'reported_state': 'busy'}, 'scan_remaining_series_count': 23,
+            'progress': {'status': 'running', 'phase': 'archive', 'completed': 2, 'downloaded_pages': 180}})
+        self.assertEqual(fields(shown)['Step'], ('Downloading episodes', False))
+        self.assertIn('23 series waiting', fields(shown)['Progress'][0])
+
+    def test_emptying_the_queue_keeps_rechecks_and_free_space_visible(self):
+        estimate = {'waiting_episodes': 1, 'unchecked_series': 0, 'checking_series': 43,
+                    'seconds': 60, 'left_bytes': 20_000_000, 'free_bytes': 1_400_000_000_000}
+        current = state(account=account(phase='series'), status={'session_configured': True, 'estimate': estimate})
+        initial = model.view(current, NOW)
+        self.assertEqual(fields(initial)['Time left'], ('5 minutes', False))
+        estimate.update(waiting_episodes=0, seconds=0, left_bytes=0)
+        checking = model.view(current, NOW)
+        self.assertEqual(fields(checking)['Time left'], ('Unknown until checked', False))
+        self.assertEqual(fields(checking)['Space'], ('No downloads queued | 1.4 TB free', False))
+        self.assertEqual(list(fields(checking)), list(fields(initial)))
+        self.assertNotIn('checking_lists', estimate)
+        current.account = account(status='finished', phase='finished')
+        finished = model.view(current, NOW)
+        self.assertEqual(fields(finished)['Time left'], ('—', False))
+        self.assertEqual(fields(finished)['Space'], ('1.4 TB free', False))
+        self.assertEqual(next(row['tip'] for row in finished['rows'] if row['name'] == 'Space'), '')
+        estimate['checking_series'] = 0
+        current.account = account(phase='lists')
+        self.assertEqual(fields(model.view(current, NOW))['Time left'], ('Unknown until checked', False))
 
     def test_unchecked_series_do_not_claim_that_downloads_are_waiting(self):
         from comic_archive.estimate import remaining
@@ -572,12 +745,13 @@ class LiveTests(unittest.TestCase):
     def test_local_verification_shows_counts_without_blaming_the_provider(self):
         progress={'phase':'verify','status':'running','audit_stage':'archives','archives_checked':120,
                   'archives_total':6000,'archive_bytes_checked':3_000_000_000,'audit_elapsed_seconds':120}
-        shown=view(account=account(phase='verify',elapsed_seconds=600,progress_age_seconds=120),
+        shown=view(account=account(phase='verify',elapsed_seconds=600,progress_age_seconds=model.NO_PROGRESS_SECONDS + model.POLL_SECONDS),
                    status={'session_configured':True,'worker':{'reported_state':'busy'},'progress':progress})
         rows=fields(shown)
         self.assertIn('120 / 6,000 archives',rows['Progress'][0])
         self.assertIn('3.0 GB',rows['Progress'][0])
-        self.assertIn('no provider requests',rows['Note'][0])
+        self.assertEqual(rows['Note'][0], '—')
+        self.assertIn('Finishing download', rows['Step'][0])
         self.assertIn('last check update',rows['Running for'][0])
         self.assertFalse(shown['live_waiting'])
         self.assertNotIn('slow',rows['Status'][0])
@@ -602,14 +776,16 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(fields(view(account=account(retry={'reason': 'network', 'seconds': 60}),
                                      network={'wifi_only': True, 'allowed': False}))['Status'],
                          ('For Wi-Fi or a wired connection', True))
-        for timing in ({'progress_age_seconds': 60}, {'between_steps_seconds': 60}, {'elapsed_seconds': 60}):
-            with self.subTest(timing):
-                v = view(account=account(**timing))
-                self.assertEqual(fields(v)['Status'], ('No progress for over a minute; Tapas may be slow', True))
+        for name in ('progress_age_seconds', 'between_steps_seconds', 'elapsed_seconds'):
+            with self.subTest(name):
+                before = view(account=account(**{name: model.NO_PROGRESS_SECONDS - 1}))
+                self.assertFalse(before['live_waiting'])
+                v = view(account=account(**{name: model.NO_PROGRESS_SECONDS}))
+                self.assertEqual(fields(v)['Status'], ('No new progress reported for 3m 0s', True))
                 self.assertTrue(v['live_waiting'])
                 self.assertEqual((v['title'], v['state'], v['tone']), ('Waiting for a progress update', 'Waiting', 'warning'))
         self.assertFalse(view(account=account(progress_age_seconds=10, elapsed_seconds=600))['live_waiting'])
-        self.assertNotIn('No progress', fields(view(account=account(progress_age_seconds=10, elapsed_seconds=600)))['Status'][0])
+        self.assertNotIn('No new progress', fields(view(account=account(progress_age_seconds=10, elapsed_seconds=600)))['Status'][0])
 
     def test_the_heading_names_the_state_of_the_download_in_a_word(self):
         cases = [({'loaded': False}, ('Loading your status…', 'Loading', 'neutral')),
@@ -618,7 +794,7 @@ class LiveTests(unittest.TestCase):
                  ({'status': {'worker': {'reported_state': 'ready'}}}, ('Sign in to get started', 'Sign-in needed', 'warning')),
                  ({'account': account(phase='lists')}, ('Finding your series', 'Finding series', 'working')),
                  ({'account': account(phase='other')}, ('Saving your library', 'Working', 'working')),
-                 ({'account': {'status': 'held', 'code': 'archive_incomplete'}}, ('Finished, with episodes missing', 'Finished', 'warning')),
+                 ({'account': {'status': 'held', 'code': 'archive_incomplete'}}, ('Completion needs attention', 'Needs attention', 'warning')),
                  ({'account': {'status': 'held'}}, ('Your download is paused', 'Paused', 'warning')),
                  ({'account': {'status': 'new'}, 'status': {'session_configured': True, 'worker': {'reported_state': 'busy'}}},
                   ('Finishing the current step', 'Working', 'working')),

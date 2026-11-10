@@ -71,13 +71,15 @@ SIGNIN_FINISHING = 'Finishing sign-in…\n\nThis can take a minute. Comic Archiv
 # runJavaScript does not wait for promises, so one script starts the request and a later one reads what it left.
 # Both run in an isolated world, where the page's own scripts can neither see nor replace the answer.
 # A new page is asked at once, so a finished sign-in is noticed within a second; after that, every three seconds.
+# Identity must bypass the browser cache: a cached guest can outlive login,
+# and a cached account can outlive logout. Provider variants retain this rule.
 SIGNIN_ASK = """(() => {
   const box = window.comicArchive = window.comicArchive || {};
   const now = Date.now();
   if (box.busy || now - (box.asked || 0) < 3000) return;
   box.busy = true;
   box.asked = now;
-  fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', redirect: 'error', headers: {Accept: 'application/json'}})
+  fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: {Accept: 'application/json'}})
     .then(response => response.ok ? response.text() : null)
     .then(text => { box.answer = text; box.busy = false; }, () => { box.answer = null; box.busy = false; });
 })()"""
@@ -97,10 +99,10 @@ SIGNIN_READ = """(() => {
 # Tappytoon's pages carry who is signed in within their page data, as the downloader reads it. The page asks
 # for its library page and passes on only the account's number, in the shape that data has.
 TAPPYTOON_ASK = SIGNIN_ASK.replace(
-    """fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', redirect: 'error', headers: {Accept: 'application/json'}})
+    """fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: {Accept: 'application/json'}})
     .then(response => response.ok ? response.text() : null)
     .then(text => { box.answer = text; box.busy = false; }""",
-    """fetch('/en/me/library/unlocked/comics', {method: 'GET', credentials: 'same-origin', redirect: 'error', headers: {Accept: 'text/html'}})
+    """fetch('/en/me/library/unlocked/comics', {method: 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: {Accept: 'text/html'}})
     .then(response => response.ok ? response.text() : null)
     .then(text => {
       const found = text && /<script id="__NEXT_DATA__"[^>]*>([\\s\\S]*?)<\\/script>/.exec(text);
@@ -1216,7 +1218,7 @@ class Shell:
             self.finish()
 
     def choose_location(self):
-        """Asked for in Settings: pick another library folder, in the computer's own folder dialog."""
+        """Pick another shared library folder in the computer's own folder dialog."""
         if self.choosing or self.phase != 'open':
             return  # The window's clocks keep running under the dialogs below.
         self.choosing = True

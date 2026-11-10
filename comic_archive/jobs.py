@@ -1,5 +1,6 @@
 """Reusable jobs for CLI, a private website or a worker; no purchase actions."""
 import math
+import logging
 import shutil
 import time
 import traceback
@@ -73,13 +74,17 @@ class DownloadBudget:
     def check(self):
         if self.cancellation is not None:
             self.cancellation.check()
+        binding_check = getattr(self.adapter, 'check_session_binding', None)
+        if callable(binding_check):
+            binding_check()
         if self.max_seconds is not None and time.monotonic() - self.started >= self.max_seconds:
             raise RunLimit("The job time budget is exhausted; its queue is retained.")
 
     def access_check(self):
         if self.cancellation is not None: self.cancellation.check()
-        from .expiry import check_expiration
-        check_expiration(self.access_expires_at)
+        binding_check = getattr(self.adapter, 'check_session_binding', None)
+        if callable(binding_check):
+            binding_check()
 
     def retrieve(self, page):
         self.check()
@@ -202,6 +207,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         summary = {"run_id": run_id, "status": "running", "archived_episode_ids": [],
                    "unavailable_episode_ids": [], "unsupported_episode_ids": [],
                    "not_free_episode_ids": [],
+                   'excluded_episode_ids': [],
                    'deferred_asset_episode_ids':[],
                    'enriched_series_ids':[],'metadata_unavailable_series':[],
                    "downloaded_pages": 0, "downloaded_bytes": 0, "inventory_complete": False,
@@ -266,6 +272,10 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 identity = adapter.account_identity()
                 inventory.bind_account(identity)
                 adapter.expected_account_id = identity
+                if getattr(adapter, 'supports_entitlement_discovery', False) is True:
+                    inventory.enable_tappytoon_entitlement_discovery()
+                if getattr(adapter, 'supports_series_seed', False) is True:
+                    inventory.enable_series_header_fallback()
                 if getattr(adapter, 'supports_novels', False) is True:
                     inventory.enable_novels()
                 if getattr(adapter,'supports_expiring_access',False) is True:
@@ -302,6 +312,11 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                     selected = [row for row in candidates if row['id'] == retry_episode_id]
                 if free_only:
                     summary['recent_free_selected_count']=sum(row.get('recent_free_candidate')==1 for row in selected)
+                if getattr(adapter, 'supports_series_seed', False) is True:
+                    selected_series = {row['series_id'] for row in selected}
+                    for row in inventory.watched_series():
+                        if row['id'] in selected_series:
+                            adapter.seed_series(row['id'], row['title'])
                 with_store = Store(output, min_free_bytes=min_free_bytes,
                                    cache_journal='wal' if profile == 'fast' else None)
                 try:
@@ -330,11 +345,19 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 raise MetadataError("Captured episode does not match the queued source identities.")
                             episode=manifest.episodes[0]
                             if free_only and not daily_candidate(episode.access,episode.access_expires_at):
-                                inventory.record_access(key, episode.access, expires_at=episode.access_expires_at)
+                                inventory.record_access(key, episode.access, expires_at=episode.access_expires_at, reader_confirmed=True)
                                 summary["not_free_episode_ids"].append(key)
                                 current = None
                                 continue
-                            inventory.record_access(key, episode.access, expires_at=episode.access_expires_at)
+                            inventory.record_access(key, episode.access, expires_at=episode.access_expires_at, reader_confirmed=True)
+                            from .download_selection import selected as selected_for_download
+                            if not selected_for_download(inventory.db, key):
+                                inventory.mark(key, 'queued')
+                                summary['excluded_episode_ids'].append(key)
+                                logging.getLogger('comic_archive.download').info(
+                                    'Episode %s: excluded by saved download choices after reader classification; page_assets_requested=false archive_published=false', key)
+                                current = None
+                                continue
                             budget.access_expires_at=episode.access_expires_at
                             if retry_episode_id is not None:
                                 summary['reader_probe_succeeded'] = True
@@ -381,6 +404,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                     or len(summary['deferred_asset_episode_ids']) >= MAX_DEFERRED_ASSET_FAILURES):
                                 raise
                         except AccessDenied:
+                            inventory.record_reader_denial(key)
                             inventory.record_access(key, 'unavailable_or_unverified')
                             inventory.mark(key, "unavailable", "access_denied")
                             summary["unavailable_episode_ids"].append(key)
@@ -391,7 +415,11 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 code = 'content_unsupported'
                             inventory.mark(key, "unsupported", code)
                             summary["unsupported_episode_ids"].append(key)
-                            print(f"Episode {key} of series {current['series_id']}: not saved, {code} ({describe(error)}).",
+                            details = ''
+                            if code == 'novel_manifest_incomplete':
+                                from .novels import novel_diagnostics
+                                details = ''.join(f' {name}={value}' for name, value in novel_diagnostics(error).items())
+                            print(f"Episode {key} of series {current['series_id']}: not saved, {code}{details} ({describe(error)}).",
                                   flush=True)
                             if code=='reader_manifest_incomplete':
                                 current=None
@@ -506,7 +534,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             if isinstance(assets,Transport):assets.metrics=previous_transport_metrics
 
 
-def sync(adapter, output=Path("Library"), report=None, categories=None, include_history=False,history_pages=100,history_resume=False,scan_limit=None,refresh_lists=True,scan_only=False,metadata_speed='normal', **options):
+def sync(adapter, output=Path("Library"), report=None, categories=None, include_history=False,history_pages=100,history_resume=False,scan_limit=None,refresh_lists=True,scan_only=False,metadata_speed='normal', history_round=None, **options):
     """Refresh observed lists and watched series, reserving time to archive.
 
     Bounded runs spend at most half their time on metadata. Successful series
@@ -524,11 +552,15 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
         raise ArchiveError('Watched-only sync cannot also request reading-list categories or account history.')
     if type(include_history) is not bool or type(history_resume) is not bool or (history_resume and not include_history):
         raise ArchiveError('History discovery must be an explicit boolean.')
+    if history_round is not None and (not isinstance(history_round, str) or not history_round or len(history_round) > 100 or include_history):
+        raise ArchiveError('Durable purchase discovery needs a bounded round identity and cannot use the exploratory history reader.')
     if type(history_pages) is not int or not 1 <= history_pages <= 500:
         raise ArchiveError('History page limit must be from 1 to 500.')
     if scan_limit is not None and (type(scan_limit) is not int or scan_limit < 1):
         raise ArchiveError('Series scan limit must be a positive integer.')
-    categories = list(CATEGORIES) if categories is None else categories
+    provider = getattr(adapter, 'site', None)
+    defaults = provider.lists if isinstance(provider, sites.Site) else CATEGORIES
+    categories = list(defaults) if categories is None else categories
     if (not isinstance(categories, (list, tuple)) or not categories or
             any(not isinstance(c, str) or c not in sites.LISTS for c in categories)
             or len(set(categories)) != len(categories)):
@@ -536,7 +568,12 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
     scan_counts = {'series_checks_completed':0,'successful_series_checks':0,
                    'held_series_checks':0,'series_check_target_count':0}
     reading_lists = []
+    purchase_check = {}
     def refresh_inventory(inventory, budget, run_id):
+        if history_round is not None:
+            from .purchase_history import reconcile
+            job_progress(inventory.root, run_id, phase='purchase_history')
+            purchase_check.update(reconcile(adapter, inventory, history_round, budget.check, pages=1, links=10))
         if include_history:
             budget.check()
             job_progress(inventory.root,run_id,phase='history')
@@ -611,10 +648,23 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             scan_counts['series_checks_completed'] += 1
             scan_counts['held_series_checks' if held else 'successful_series_checks'] += 1
             job_progress(inventory.root,run_id,phase='scan',series_id=series_id,**scan_counts)
+        def download_ready():
+            # The controller drains candidates before its next series step.
+            # Return committed discoveries instead of making their queue wait
+            # behind the rest of this metadata batch, including partial lists.
+            ready = scan_only and not refresh_lists and inventory.has_selected_pending()
+            if ready:
+                logging.getLogger('comic_archive.download').info(
+                    'scan yield: reason=download_candidates_ready checked=%s target=%s held=%s',
+                    scan_counts['series_checks_completed'], scan_counts['series_check_target_count'],
+                    scan_counts['held_series_checks'])
+            return ready
         for series in candidates:
             budget.check()
             job_progress(inventory.root,run_id,phase='scan',series_id=series['id'],**scan_counts)
             try:
+                if getattr(adapter, 'supports_series_seed', False) is True:
+                    adapter.seed_series(series['id'], series['title'])
                 extra={'comic_only':True} if (getattr(adapter,'supports_comic_series_classification',False) is True
                         and getattr(adapter,'supports_novels',False) is not True) else {}
                 inspected = adapter.inspect_series(series["id"], strict_order=False,**extra)
@@ -624,12 +674,14 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 retain_partial_series(inventory,error)
                 inventory.record_scan_gap(series['id'],error.observed_count,error.reported_count)
                 series_checkpoint(series['id'],held=True)
+                if download_ready():
+                    break
                 continue
             except MetadataError as error:
                 status=getattr(error,'source_http_status',None)
                 if (type(status) is not int or status not in {404,410}
                         or getattr(error,'source_series_id',None)!=series['id']
-                        or getattr(error,'source_route',None)!=f"/series/{series['id']}"):
+                        or getattr(error,'source_route',None) not in {f"/series/{series['id']}", f"/series/{series['id']}/episodes"}):
                     raise
                 inventory.record_series_unavailable(series['id'],status)
                 series_checkpoint(series['id'],held=True)
@@ -650,11 +702,21 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             inventory.observe(series["id"], inspected["title"], inspected["episodes"], "sync")
             inventory.record_series_scan(series['id'])
             series_checkpoint(series['id'])
-        inventory.finish_scan_cycle()
+            if download_ready():
+                break
+        from .purchase_history import pending as history_pending
+        if not history_pending(inventory):
+            inventory.finish_scan_cycle()
     def refresh(inventory, budget, run_id):
         # Establish the persistent cycle before list pagination can exhaust
         # its window; newly observed series then contribute to remaining work.
         inventory.scan_candidates()
+        history_pages_before = 0
+        if history_round is not None:
+            from .purchase_history import state as history_state
+            before = history_state(inventory)
+            if before.get('round') == history_round:
+                history_pages_before = before['pages']
         deadline = adapter.deadline
         scan_seconds = budget.max_seconds if scan_only else (budget.max_seconds / 2 if budget.max_seconds is not None else None)
         scan_deadline = budget.started + scan_seconds if scan_seconds is not None else None
@@ -680,8 +742,15 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             result['state'] = 'limited'
         finally:
             adapter.deadline = deadline
+            if history_round is not None:
+                from .purchase_history import summary as history_summary
+                kept = history_summary(inventory)
+                kept['pages_read'] = max(0, kept.get('pages', 0) - history_pages_before)
+                purchase_check.update(kept)
         scan_status=inventory.status()
         result.update(scan_counts)
+        if purchase_check:
+            result['purchase_history'] = purchase_check
         result['remaining_series_count'] = scan_status['scan_remaining_series_count']
         result['series_scan_gaps']=scan_status['series_scan_gaps']
         if result['series_scan_gaps'] and result['state']=='finished':

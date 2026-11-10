@@ -255,7 +255,10 @@ def combined(summaries):
 def library_overview(summary, cloud_offered, *, device_name='this computer'):
     """The dashboard's saved-library card: its counts, its storage places and a sentence about them."""
     if summary is None:
-        return {'metrics': [('—', 'Saved episodes'), ('—', 'Saved files')], 'locations': [],
+        names = ['Saved episodes', 'Saved files']
+        if cloud_offered:
+            names += ['Episodes on this device', 'Cloud episode copies']
+        return {'metrics': [('—', name) for name in names], 'locations': [],
                 'summary': 'Counting your saved files…'}
     locations = summary.get('locations') or []
     device = next((g for g in locations if g.get('id') == 'device'), {})

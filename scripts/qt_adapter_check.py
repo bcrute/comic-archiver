@@ -48,7 +48,7 @@ SESSION, KEEP = 'made-up-signed-in-value', 'made-up-unchanged-value'
 EXPECTED_COOKIES = {'session', 'keep', 'wide', 'visit'}
 # The account's lists: which series each holds and how many a page shows.
 LISTS = {'SUBSCRIBED': (range(101, 116), 5), 'RECENT': (range(201, 225), 24),
-         'UPDATED': (range(301, 309), 4), 'FREE_EPISODES': (range(401, 407), 3)}
+         'UPDATED': (range(301, 309), 4), 'FREE_EPISODES': (range(401, 407), 3), 'WAIT_UNTIL_FREE': (range(501, 508), 4)}
 KNOWN = {number for numbers, _ in LISTS.values() for number in numbers} | {999}
 DETAILED, EPISODES, CHALLENGED = 101, range(5001, 5026), 9403
 # Episodes whose read the stand-in ends without an answer: one for its first second only, one every time.
@@ -129,7 +129,7 @@ def reading_list(category, number):
 <nav class="section-filter"><ul class="filter-wrap">
 <li class="filter-item{' on' if filtered else ''}" data-type="FREE_EPISODES"><a class="item-title"
  href="/reading-list?category=FREE_EPISODES&amp;type=ALL">Free Episodes</a></li>
-<li class="filter-item" data-type="WAIT_UNTIL_FREE"><a class="item-title"
+<li class="filter-item{' on' if category == 'WAIT_UNTIL_FREE' else ''}" data-type="WAIT_UNTIL_FREE"><a class="item-title"
  href="/reading-list?category=WAIT_UNTIL_FREE&amp;type=ALL">Wait Until Free</a></li></ul></nav>{note}
 <ul class="content-list-wrap">{items}</ul>
 <section class="paging-wrap"><a class="paging__button paging__button--prev{'' if number > 1 else ' disabled'}"></a>{numbered}{following}</section>''')
@@ -692,6 +692,18 @@ def exercise(engine, project):
             check('the filter and its next page were reached by real clicks',
                   clicked(found, [first, ORIGIN + '/reading-list?category=FREE_EPISODES&type=ALL']), shown(found))
 
+        def wait_until_free():
+            handed = []
+            value = call('inspect_library wait_until_free', lambda: adapter.inspect_library(
+                category='wait_until_free', on_page=handed.append))
+            check('WUF-only series are discovered through their own selected filter',
+                  value['complete'] is True and numbered(value) == expected('WAIT_UNTIL_FREE')
+                  and value['scope'] == 'wait_until_free' and value['public_type_code'] == 'WAIT_UNTIL_FREE', outline(value))
+            check('WUF checkpoints retain their scope and restore the prior page',
+                  [len(page['series']) for page in handed] == [4, 3]
+                  and all(page['scope'] == 'wait_until_free' for page in handed)
+                  and value['restore_succeeded'] is True and adapter.page.url == first, outline(value))
+
         def series_reads():
             mark, before = len(SEEN), adapter.page.url
             value = call('series_identity', lambda: adapter.series_identity('story-101'))
@@ -716,10 +728,15 @@ def exercise(engine, project):
             check('every episode of a series is listed in order with its access',
                   value['complete'] is True and value['episode_count'] == 25 and value['ordering_verified'] is True
                   and value['accessible_episode_count'] == 5 and [row['id'] for row in listed] == [str(number) for number in EPISODES]
-                  and [row['access_state'] for row in listed[:5]] == ['tapas_free'] * 3 + ['tapas_unlocked'] * 2
-                  and [row['authorization_reason'] for row in listed[5:8]] == ['access_denied', 'scheduled', 'access_denied']
+                  and [row['access_state'] for row in listed] == (
+                      ['tapas_free'] * 3 + ['tapas_limited', 'tapas_unlocked'] + ['unavailable_or_unverified'] * 20)
+                  # Metadata flags describe candidates; only an actual reader
+                  # refusal can establish that this account cannot read one.
+                  and all(row['authorization_reason'] is None for row in listed)
                   and listed[3]['access_expires_at'] == '2099-01-01T00:00:00+00:00',
-                  {key: item for key, item in value.items() if key != 'episodes'})
+                  {'summary': {key: item for key, item in value.items() if key != 'episodes'},
+                   'episode_access': [{key: row[key] for key in ('id', 'access_state', 'authorization_reason',
+                                                               'access_expires_at')} for row in listed]})
             asked = [row['target'] for row in rows(mark, path=f'/series/{DETAILED}/episodes')]
             check('the episode list is asked for page by page',
                   asked == [f'/series/{DETAILED}/episodes?page={page}&max_limit=20' for page in (1, 2)], asked)
@@ -803,7 +820,7 @@ def exercise(engine, project):
                         if writes else ''))
 
         for name, body in (('identity', identity), ('subscribed', subscribed), ('own scripts', own_scripts), ('recent', recent),
-                           ('updated', updated), ('free episodes', free_episodes), ('series reads', series_reads),
+                           ('updated', updated), ('free episodes', free_episodes), ('wait until free', wait_until_free), ('series reads', series_reads),
                            ('refusals', refusals), ('failed reads', failed_reads), ('capture', capture), ('session', session)):
             group(name, body)
 

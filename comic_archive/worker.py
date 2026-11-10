@@ -12,7 +12,7 @@ import os
 import secrets
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
-WORKER_VERSION = 80
+WORKER_VERSION = 82
 ADMISSION_WAIT_SECONDS = 10
 from pathlib import Path
 from . import sites
@@ -83,16 +83,10 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
     if operation == 'audit_account':
         if args:
             raise ArchiveError('Account audits accept no paths or source options.')
-        from .audit import audit_library
-        report = Path('Library/.archive-state/account-audit.json')
-        value = audit_library(Path('Library'), report, progress=audit_progress)
-        report.chmod(0o600)
-        return {k: value[k] for k in ('audited_at', 'archive_integrity_passed',
-                'verified_inventory_episode_count', 'portable_archive_count',
-                'missing_recorded_accessible_episode_count', 'unsupported_recorded_accessible_episode_count', 'coverage_blockers',
-                'series_scan_gap_count', 'account_inventory_complete')} | {
-                'inventory_index_problem_count': len(value['inventory_index_problems']),
-                'unindexed_archive_count': len(value['unindexed_archives'])}
+        # Keep the queue operation compatible with existing controller records;
+        # automatic completion no longer runs the explicit full-file audit.
+        from .audit import check_completion
+        return check_completion(Path('Library'))
     if operation in {"archive_discovered", "sync"}:
         if upload_first:
             from .cloud import upload_pending
@@ -131,6 +125,7 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
             allowed.add('include_history')
             allowed.add('history_pages')
             allowed.add('history_resume')
+            allowed.add('history_round')
             allowed.add('scan_limit')
         if set(args) - allowed or type(args.get("free_only", False)) is not bool:
             raise ArchiveError("Archive jobs accept only fixed limits, a free-only boolean and sync reading-list categories.")

@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 import base64
 import binascii
+import logging
 
 from .models import ArchiveError
 from .errors import UnsupportedContent
@@ -14,8 +15,18 @@ from .errors import UnsupportedContent
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 TEXT_TAGS = frozenset({'div', 'p', 'span', 'em', 'strong', 'i', 'b', 'u', 's', 'del',
                       'sub', 'sup', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3',
-                      'h4', 'h5', 'h6', 'br', 'hr', 'strike'})
-VOID_TAGS = frozenset({'br', 'hr'})
+                      'h4', 'h5', 'h6', 'br', 'hr', 'strike', 'table', 'caption',
+                      'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'colgroup', 'col'})
+VOID_TAGS = frozenset({'br', 'hr', 'col'})
+NORMALIZED_TAGS = {'font': 'span'}
+TABLE_SPANS = {'td': {'colspan', 'rowspan'}, 'th': {'colspan', 'rowspan'},
+               'col': {'span'}, 'colgroup': {'span'}}
+NOVEL_REASONS = frozenset({'unsupported_tag', 'hidden_content', 'table_span_invalid',
+                         'illustration_source_unsupported', 'illustration_source_ambiguous',
+                         'illustration_count_limit', 'illustration_size_limit',
+                         'illustration_base64_invalid', 'illustration_format_incomplete'})
+DIAGNOSTIC_TAGS = frozenset({'script', 'style', 'iframe', 'object', 'embed', 'svg', 'math',
+                            'audio', 'video', 'form', 'input', 'button', 'textarea', 'select', 'a', 'other'})
 MAX_ILLUSTRATION_BYTES = 10 * 1024 * 1024
 MAX_ILLUSTRATIONS = 1000
 IMAGE_TYPES = {'.jpg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp'}
@@ -36,11 +47,34 @@ def xml_text(value, quote=True):
     return escape(NOT_XML.sub('', value), quote=quote)
 
 
-def incomplete(reason=None):
+def incomplete(reason=None, tag=None):
     error = UnsupportedContent('Novel reader lacks a complete supported text chapter; its queue is retained.')
     error.code = 'novel_manifest_incomplete'
     error.novel_reason = reason
+    if tag is not None:
+        error.novel_tag = tag if tag in DIAGNOSTIC_TAGS else 'other'
     return error
+
+
+def novel_diagnostics(error):
+    """Fixed reasons and tag names only; never chapter text, attributes or URLs."""
+    result = {}
+    reason, tag = getattr(error, 'novel_reason', None), getattr(error, 'novel_tag', None)
+    if isinstance(reason, str) and reason in NOVEL_REASONS:
+        result['reason'] = reason
+    if isinstance(tag, str) and tag in DIAGNOSTIC_TAGS:
+        result['tag'] = tag
+    return result
+
+
+def table_span(name, value):
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{1,5}', value):
+        raise ValueError
+    number = int(value)
+    low, high = (0, 65534) if name == 'rowspan' else (1, 1000)
+    if not low <= number <= high:
+        raise ValueError
+    return str(number)
 
 
 def safe_style(value):
@@ -86,8 +120,12 @@ def validate_fragment(fragment, illustrations=()):
                         or element.get('src') not in names or list(element) or element.text):
                     raise ValueError
                 observed.append(element.get('src'))
-            elif element.tag not in TEXT_TAGS or set(element.attrib) - {'style'}:
+            elif element.tag not in TEXT_TAGS or set(element.attrib) - ({'style'} | TABLE_SPANS.get(element.tag, set())):
                 raise ValueError
+            for key in TABLE_SPANS.get(element.tag, ()):
+                value = element.get(key)
+                if value is not None and table_span(key, value) != value:
+                    raise ValueError
             if element.get('style') is not None and safe_style(element.get('style')) != element.get('style'):
                 raise ValueError
         if observed != names:
@@ -108,8 +146,13 @@ class NovelHTML(HTMLParser):
         self.closed = False
         self.parts = []
         self.illustrations = []
+        self.legacy_fonts = self.tables = 0
 
     def handle_starttag(self, tag, attrs):
+        if self.body_depth is not None:
+            self.legacy_fonts += tag == 'font'
+            self.tables += tag == 'table'
+        tag = NORMALIZED_TAGS.get(tag, tag)
         attrs = dict(attrs)
         scoped = attrs.get('id') == 'episode-' + self.episode_id or bool(self.stack and self.stack[-1][1])
         if attrs.get('id') == 'episode-' + self.episode_id:
@@ -125,10 +168,19 @@ class NovelHTML(HTMLParser):
             if 'hidden' in attrs:
                 raise incomplete()
         elif self.body_depth is not None:
-            if tag not in TEXT_TAGS | {'img'} or 'hidden' in attrs:
-                raise incomplete()
+            if tag not in TEXT_TAGS | {'img'}:
+                raise incomplete('unsupported_tag', tag)
+            if 'hidden' in attrs:
+                raise incomplete('hidden_content')
             style = safe_style(attrs.get('style'))
             attr = f' style="{xml_text(style)}"' if style else ''
+            for key in sorted(TABLE_SPANS.get(tag, ())):
+                if key in attrs:
+                    try:
+                        value = table_span(key, attrs[key])
+                    except ValueError:
+                        raise incomplete('table_span_invalid') from None
+                    attr += f' {key}="{value}"'
             if tag == 'img':
                 source = attrs.get('src', '')
                 match = re.fullmatch(r'data:(image/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=\s]+)', source)
@@ -168,6 +220,7 @@ class NovelHTML(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
+        tag = NORMALIZED_TAGS.get(tag, tag)
         if self.body_depth is not None:
             if not self.stack or self.stack[-1][0] != tag:
                 raise incomplete()
@@ -193,6 +246,10 @@ class NovelHTML(HTMLParser):
             validate_fragment(fragment, tuple(self.illustrations))
         except ArchiveError:
             raise incomplete() from None
+        if self.legacy_fonts or self.tables:
+            logging.getLogger('comic_archive.download').info(
+                'novel markup: legacy_fonts_normalized=%s tables_preserved=%s chapter_complete=true',
+                self.legacy_fonts, self.tables)
         return fragment
 
 

@@ -83,6 +83,8 @@ class FastBrowserAdapter(TapasAdapter):
         # A pooled image client never replaces fresh identity/access checks.
         self._automatic = TapasHTTPAdapter(transport=self.transport,
             expected_account_id=getattr(self, 'expected_account_id', None))
+        self._automatic.series_seeds = getattr(self, '_series_seeds', {})
+        self._automatic.unavailable_headers = getattr(self, '_unavailable_headers', {})
         return self._automatic
 
 

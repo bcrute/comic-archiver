@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from . import sites
 from .models import ArchiveError
 from .transport import Transport, asset_url
+from .webtoon_gateway import gateway_route
 
 # The Android WebView signs in on the mobile origin. Its real user agent is
 # redirected there even for who-am-i; a bare HTTPX agent receives HTTP 403.
@@ -111,18 +112,20 @@ class AndroidTransport(Transport):
                          cookie_source=source.header_for, cookie_sink=source.apply)
         self.store = source
 
-    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False):
+    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False, reader_json=False):
         """Route canonical Tapas identities through its Android mobile origin.
 
         Validate before routing. The cookie store is asked for the destination URL;
         no canonical-host header is copied to another host, no arbitrary redirect
         is followed, and CDN/other-origin requests retain their existing boundaries.
         """
-        asset_url(url, self.site)
+        if gateway_route(url, self.site) is None:
+            asset_url(url, self.site)
         parsed = urlsplit(url)
         if self.site == ANDROID_TAPAS and parsed.netloc == 'tapas.io':
             url = parsed._replace(netloc=self.site.host).geturl()
-        return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies, image=image)
+        options = {'reader_json': reader_json} if reader_json is not False else {}
+        return super().get(url, max_bytes, authorization=authorization, take_cookies=take_cookies, image=image, **options)
 
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
         # Tapas serves navigation redirects for mobile API paths unless the

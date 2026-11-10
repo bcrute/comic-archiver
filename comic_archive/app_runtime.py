@@ -416,7 +416,7 @@ class Runtime:
         """Open the site's library in the library folder; the window reads it through this from now on."""
         root, place, session, state = self._place(self.site)
         try:
-            registry = LocalWorkspaceRegistry(place)
+            registry = LocalWorkspaceRegistry(place, closing=self._closing)
         except (OSError, sqlite3.Error) as error:
             LOG.error('library cannot be opened: %s', describe(error))
             raise ArchiveError(UNWRITABLE) from None

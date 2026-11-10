@@ -10,13 +10,14 @@ never writes it anywhere. The pictures of a chapter are given only with the cook
 list hands out, and the app keeps those for that chapter's pictures, as a browser does.
 """
 import json
+import logging
 import re
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from .. import sites
-from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
-from ..expiry import expiration
+from ..errors import AccessDenied, AuthenticationError, MetadataError
+from ..expiry import observed_expiration
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
 from ..transport import ExpiredAsset, Transport, asset_url
@@ -61,30 +62,26 @@ def account(state):
 
 
 def access(chapter):
-    """The access mark of a chapter as Tappytoon describes it to this reader."""
-    if chapter['isAccessible'] and chapter['isFree']:
+    """Positive bulk hints seed work; contradictory flags do not deny a reader."""
+    if chapter.get('isFree') is True:
         return SITE.free
-    if chapter['isAccessible'] and (chapter['isUserUnlocked'] or chapter['isUserRented']):
+    if chapter.get('isUserUnlocked') is True:
         return SITE.unlocked
+    if chapter.get('isUserRented') is True:
+        return SITE.limited
+    # isAccessible also describes published paid chapters with no user license.
+    # A complete requested reader can still establish unclassified access below.
     return 'unavailable_or_unverified'
 
 
 def rental_end(chapter):
-    """When a rented chapter can no longer be read; None for one that is free or kept."""
-    if access(chapter) != SITE.unlocked or chapter['isUserUnlocked']:
-        return None
-    if not isinstance(chapter.get('rentalExpiredAt'), str):
-        raise MetadataError('Tappytoon gave a rented chapter without the end of its rental.')
-    return expiration(chapter['rentalExpiredAt'])
+    if chapter.get('isUserRented') is True and chapter.get('isUserUnlocked') is not True:
+        return observed_expiration(chapter.get('rentalExpiredAt'))
+    return None
 
 
 def listed_access(chapter):
-    """(access mark, why it is not readable, end of rental) of a listed chapter. A rental without a
-    readable end is listed as unverified, so one odd chapter does not stop the series' whole list."""
-    try:
-        return access(chapter), None, rental_end(chapter)
-    except (MetadataError, UnsupportedContent):
-        return 'unavailable_or_unverified', 'temporary_access', None
+    return access(chapter), None, rental_end(chapter)
 
 
 def checked_chapter(item, comic=None):
@@ -95,8 +92,6 @@ def checked_chapter(item, comic=None):
             raise TypeError
         if not isinstance(item['title'], str) or not item['title'].strip():
             raise TypeError
-        if any(type(item[name]) is not bool for name in ('isFree', 'isAccessible', 'isUserUnlocked', 'isUserRented')):
-            raise TypeError
     except (KeyError, TypeError):
         raise MetadataError('Tappytoon gave a chapter of an unexpected shape.') from None
     return item
@@ -104,6 +99,7 @@ def checked_chapter(item, comic=None):
 
 class TappytoonAdapter(SiteReader):
     site = SITE
+    supports_entitlement_discovery = True
 
     def __init__(self, session: Path | None = None, preferred=None, headless=True, interval=1.0, transport=None):
         self.session = session
@@ -224,7 +220,7 @@ class TappytoonAdapter(SiteReader):
     def chapters(self, key):
         """Every chapter Tappytoon lists in a series, in its order."""
         found = [checked_chapter(item, int(key)) for item in self.listed(
-            f'/comics/{int(key)}/chapters', {'sort': 'asc', 'limit': 100, 'excludes': 'wait_until_free',
+            f'/comics/{int(key)}/chapters', {'sort': 'asc', 'limit': 100,
                                              'skipAgeRatingRestriction': 'true', 'locale': 'en'})]
         ids = [chapter['id'] for chapter in found]
         orders = [chapter['order'] for chapter in found]
@@ -245,6 +241,10 @@ class TappytoonAdapter(SiteReader):
             listed.append({'id': str(chapter['id']), 'title': chapter['title'].strip(), 'order': chapter['order'] + 1,
                            'source_scene': None, 'access_state': mark, 'authorization_reason': reason,
                            'access_expires_at': expires, 'source_url': self.episode_url(str(chapter['id']))})
+        logging.getLogger('comic_archive.download').info(
+            'tappytoon discovery: series=%s chapters=%s candidates=%s unverified=%s', key, len(listed),
+            sum(episode['access_state'] in sites.ACCESS for episode in listed),
+            sum(episode['access_state'] not in sites.ACCESS for episode in listed))
         return {'complete': True, 'authenticated': True, 'source_series_id': key, 'title': comic['title'].strip(),
                 'episode_count': len(listed), 'ordering_verified': True,
                 'accessible_episode_count': sum(episode['access_state'] in sites.ACCESS for episode in listed),
@@ -283,14 +283,15 @@ class TappytoonAdapter(SiteReader):
         try:
             chapter = checked_chapter(self.api(f'/chapters/{match[1]}', {'locale': 'en'}))
         except ExpiredAsset as error:
-            if getattr(error, 'source_http_status', None) not in {403, 404, 410}:
+            if getattr(error, 'source_http_status', None) not in {404, 410}:
                 raise
+            logging.getLogger('comic_archive.download').info(
+                'reader access: provider=tappytoon episode=%s result=denied stage=chapter_metadata http_status=%s reason=chapter_unavailable',
+                match[1], error.source_http_status)
             raise AccessDenied('Tappytoon no longer gives this chapter to this account; it will not be read.') from None
         if chapter['id'] != int(match[1]):
             raise MetadataError('Tappytoon showed a different chapter than the one asked for.')
         mark = access(chapter)
-        if mark not in sites.ACCESS:
-            raise AccessDenied('This chapter is neither free, bought nor rented; it will not be read.')
         expires = rental_end(chapter)
         return chapter, mark, expires
 
@@ -310,6 +311,9 @@ class TappytoonAdapter(SiteReader):
         except ArchiveError as error:
             # Set aside like a locked chapter, so the rest of the download goes on; any other refusal stops it.
             if getattr(error, 'source_http_status', None) == 400 and NO_LICENSE in getattr(error, 'source_answer', b''):
+                logging.getLogger('comic_archive.download').info(
+                    'reader access: provider=tappytoon episode=%s result=denied stage=reader_manifest http_status=400 reason=license_denied',
+                    chapter['id'])
                 raise AccessDenied('Tappytoon did not give this chapter to this account; it will not be read.') from None
             raise
         try:
@@ -324,7 +328,10 @@ class TappytoonAdapter(SiteReader):
         pages = tuple(Page(order, location, False) for order, location in enumerate(locations, 1))
         series = Series(comic['slug'], comic['title'].strip(), source_url=f"{HOME}/en/book/{comic['slug']}",
                         source=SITE.key, platform_id=key, slug=comic['slug'])
-        episode = Episode(str(chapter['id']), series.id, chapter['title'].strip(), chapter['order'] + 1, pages, mark,
+        episode = Episode(str(chapter['id']), series.id, chapter['title'].strip(), chapter['order'] + 1, pages,
+                          mark if mark in sites.ACCESS else SITE.readable,
                           self.episode_url(str(chapter['id'])), access_expires_at=expires)
+        logging.getLogger('comic_archive.download').info(
+            'reader access: provider=tappytoon result=complete metadata_access=%s images=%s', mark, len(pages))
         self._manifest = Manifest(series, (episode,))
         return self._manifest

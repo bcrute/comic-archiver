@@ -16,8 +16,8 @@ from comic_archive.task_cancellation import cancelled_result, queued_stop_reques
 from comic_archive.worker import controller_ticks, execute, private_json
 from test_archive import png
 
-KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'status', 'phase', 'code', 'lists',
-        'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit'}
+KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'status', 'phase', 'code', 'lists',
+        'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit', 'purchase_history', 'transfer'}
 STATUSES = {'running', 'held', 'stopped', 'finished'}
 PHASES = ['existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished']
 RETRY_REASONS = {'connection', 'source', 'images', 'idle'}
@@ -39,6 +39,14 @@ def status_problems(value):
         problems.append('supported/coverage_verified changed')
     if value.get('speed') not in account_ui.SPEEDS:
         problems.append(f"speed {value.get('speed')!r}")
+    from comic_archive.download_selection import validate
+    try:
+        if value.get('download_types') is not None:
+            validate(value['download_types'])
+        elif 'download_types' in value and (value.get('status'), value.get('code')) != ('held', 'controller_failed'):
+            problems.append('unavailable choices without a held status')
+    except ArchiveError:
+        problems.append('invalid download types')
     if not value.get('configured'):
         if value.get('status') in ('running', 'held'):
             problems.append('running or held while not configured')
@@ -62,6 +70,11 @@ def status_problems(value):
         if key in value and (type(value[key]) is not int or value[key] < 0):
             problems.append(f'{key} {value[key]!r}')
     audit = value.get('audit')
+    transfer = value.get('transfer')
+    if transfer is not None and (set(transfer) != {'scope', 'downloaded_bytes'}
+                                 or type(transfer['scope']) is not float or transfer['scope'] <= 0
+                                 or type(transfer['downloaded_bytes']) is not int or transfer['downloaded_bytes'] < 0):
+        problems.append(f'transfer {transfer}')
     if audit is not None and not all(type(n) is int and n >= 0 for n in audit.values()):
         problems.append(f'audit {audit}')
     return problems

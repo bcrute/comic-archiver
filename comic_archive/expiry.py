@@ -1,6 +1,6 @@
-"""Explicit expiration evidence for a currently readable grant."""
+"""Reported expiration metadata and user-selected queue preferences."""
 from datetime import datetime, timezone
-from .errors import AccessDenied, UnsupportedContent
+from .errors import UnsupportedContent
 from .models import ArchiveError
 
 
@@ -21,15 +21,19 @@ def expiration(value):
         raise error from None
 
 
-def check_expiration(value):
-    if value is not None and datetime.fromisoformat(expiration(value))<=now():
-        raise AccessDenied('Episode access has expired; no reader or image request will be started.')
+def observed_expiration(value):
+    """Keep usable provider metadata without turning it into a reader veto."""
+    try:
+        return expiration(value)
+    except UnsupportedContent:
+        import logging
+        logging.getLogger('comic_archive.download').info('access metadata: ignored field=expiration reason=invalid_timestamp')
+        return None
 
 
 def daily_candidate(access, expires_at):
-    from .sites import FREE, UNLOCKED
-    return access in FREE or (access in UNLOCKED and expires_at is not None
-                                and datetime.fromisoformat(expiration(expires_at))>now())
+    from .sites import FREE, UNLOCKED, LIMITED
+    return access in FREE | LIMITED or (access in UNLOCKED and observed_expiration(expires_at) is not None)
 
 
 def queue_priority(value):

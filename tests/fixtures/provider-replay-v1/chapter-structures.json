@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-11-10",
+  "kind": "sanitized observed chapter structure",
+  "transformations": [
+    "Episode identity replaced with81",
+    "All chapter text replaced with numbered fixture tokens",
+    "Attribute names and tag nesting retained; identifying and unsupported style values replaced",
+    "No account data, image bytes or delivery URLs retained"
+  ],
+  "cases": {
+    "tapas-legacy-font.html": {
+      "text_tokens": 3,
+      "observed_tag_counts": {
+        "div": 8,
+        "font": 5,
+        "span": 5,
+        "br": 2
+      },
+      "sanitized_sha256": "b879cf8b13197ecf1658e1bb6e84ef7268373a84dd2b6381ac89480cb9c822f8"
+    },
+    "tapas-table.html": {
+      "text_tokens": 93,
+      "observed_tag_counts": {
+        "div": 2,
+        "p": 89,
+        "i": 23,
+        "span": 91,
+        "b": 4,
+        "table": 1,
+        "tbody": 1,
+        "tr": 1,
+        "td": 1,
+        "br": 1
+      },
+      "sanitized_sha256": "e8f0599533a917bfffdb1ff7a813087c5766af8beefc0da567f0f81b23fc37c9"
+    }
+  }
+}

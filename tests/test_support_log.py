@@ -231,6 +231,10 @@ class SupportLogTests(unittest.TestCase):
 
 class DriveTests(unittest.TestCase):
     def setUp(self):
+        # These fixtures describe Linux's mount table; native Mac volumes have their own adapter tests.
+        platform = patch.object(osdep.sys, 'platform', 'linux')
+        platform.start()
+        self.addCleanup(platform.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -250,7 +254,7 @@ class DriveTests(unittest.TestCase):
 
     def test_the_drive_a_folder_is_on_is_the_deepest_mount_holding_it(self):
         home = Path('/home/someone')
-        mounts = ['/dev/sda1 / ext4 rw 0 0', 'tmpfs /tmp tmpfs rw 0 0',
+        mounts = ['/dev/sda1 / ext4 rw 0 0', f'tmpfs {Path("/tmp").resolve()} tmpfs rw 0 0',
                   f'/dev/sdb1 {self.root}/media/USB\\040Drive exfat rw 0 0',
                   f'//server/share {self.root}/media/nas cifs rw 0 0', f'/dev/sdc1 {self.root}/media/card vfat rw 0 0']
         self.assertEqual(self.drive(home, mounts), ('local', 'ext4'))

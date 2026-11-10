@@ -50,7 +50,7 @@ class SiteProfileTests(unittest.TestCase):
 
     def test_a_sign_in_saved_before_sites_existed_is_tapass_and_an_unknown_site_is_refused(self):
         self.assertIs(sites.of_session(self.session), sites.DEFAULT)
-        self.assertEqual(download_control.lists(self.session), ('subscribed', 'updated', 'recent', 'free_episodes'))
+        self.assertEqual(download_control.lists(self.session), ('subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free'))
         self.session.mkdir()
         for text in ('somewhere', '', 'Webtoon'):
             (self.session / 'site').write_text(text)

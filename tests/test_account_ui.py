@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import tempfile
+import threading
 import os
 from types import SimpleNamespace
 import unittest
@@ -20,6 +21,59 @@ from test_jobs import AccountAdapter
 
 
 class AccountUITests(unittest.TestCase):
+    def test_unreadable_choices_hold_safely_and_can_be_replaced_without_starting_downloads(self):
+        with Inventory(self.workspace.library) as inventory:
+            inventory.db.execute("INSERT INTO settings VALUES ('download_types','{PRIVATE')")
+            inventory.db.commit()
+        value = account_ui.status(self.workspace)
+        self.assertEqual((value['status'], value['code'], value['download_types']), ('held', 'controller_failed', None))
+        self.assertNotIn('PRIVATE', json.dumps(value))
+        choices = dict(bought=True, free=False, limited=False, unclassified=False)
+        fixed = self.registry.choose_download_types(LOCAL_OWNER, self.workspace.id, choices)
+        self.assertEqual(fixed['download_types'], choices)
+        self.assertFalse(fixed['configured'])
+        self.assertFalse(list((self.queue / 'requests').iterdir()))
+
+    def test_download_types_are_saved_without_starting_an_idle_account(self):
+        choices = dict(bought=True, free=False, limited=False, unclassified=False)
+        changed = self.registry.choose_download_types(LOCAL_OWNER, self.workspace.id, choices)
+        self.assertEqual(changed['download_types'], choices)
+        self.assertFalse(changed['configured'])
+        self.assertEqual(changed['speed'], 'fast')
+        self.assertFalse(list((self.queue / 'requests').iterdir()))
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(inventory.status()['download_types'], choices)
+
+    def test_running_type_change_waits_for_receipt_preserves_files_and_excludes_the_old_backlog(self):
+        from comic_archive.download_selection import TYPES
+        task, _ = self.running_batch()
+        saved = self.workspace.library / 'kept.cbz'
+        saved.write_bytes(b'existing archive')
+        choices = dict(bought=True, free=False, limited=False, unclassified=False)
+
+        def stopped(_):
+            self.assertEqual(account_ui.download_types(self.workspace), dict.fromkeys(TYPES, True))
+            self.assertEqual(self.state()['status'], 'stopped')
+            self.cancelled_batch(task)
+
+        with patch.object(account_ui.time, 'sleep', side_effect=stopped):
+            changed = self.registry.choose_download_types(LOCAL_OWNER, self.workspace.id, choices)
+        self.assertEqual((changed['status'], changed['download_types']), ('running', choices))
+        self.assertEqual(saved.read_bytes(), b'existing archive')
+        self.assertIsNone(self.outstanding())
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(inventory.pending(), [])
+
+    def test_failed_type_change_keeps_old_preferences_and_stays_paused(self):
+        from comic_archive.download_selection import TYPES
+        task, _ = self.running_batch()
+        choices = dict(bought=True, free=False, limited=False, unclassified=False)
+        with patch.object(account_ui, 'SPEED_CHANGE_WAIT_SECONDS', 0), self.assertRaises(ArchiveError):
+            self.registry.choose_download_types(LOCAL_OWNER, self.workspace.id, choices)
+        self.assertEqual(account_ui.download_types(self.workspace), dict.fromkeys(TYPES, True))
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.assertEqual(self.outstanding(), task)
+
     def setUp(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name);self.registry=LocalWorkspaceRegistry(self.root)
@@ -120,12 +174,16 @@ class AccountUITests(unittest.TestCase):
             self.assertEqual(self.state()['stage'],'lists')
             self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
 
-    def test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused(self):
-        from comic_archive.errors import LibraryBusy
-        with self.assertRaises(ArchiveError):self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'ludicrous')
-        self.registry.start_account(LOCAL_OWNER,self.workspace.id)
-        with self.assertRaises(LibraryBusy):self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
-        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
+    def test_an_unknown_speed_is_refused_without_stopping_a_running_download(self):
+        with self.assertRaises(ArchiveError):
+            self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'ludicrous')
+        task, run = self.running_batch()
+        before = self.state()
+        with self.assertRaises(ArchiveError):
+            self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'ludicrous')
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.outstanding(), task)
+        self.assertFalse(RunCancellation(self.workspace.library, run).requested())
 
     def test_a_speed_file_this_app_cannot_read_means_the_fast_speed_and_go_still_works(self):
         for content in (b'ludicrous\n',b'\xff\xfe'):
@@ -143,11 +201,33 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')['speed'],'medium')
         self.assertEqual(mine.read_text(),'slow\n')
         self.assertFalse((self.workspace.session/account_ui.SPEED_FILE).is_symlink())
+        if account_ui.NOFOLLOW:
+            # A regular file can be moved and replaced by a link between the
+            # initial inspection and open. Linking the same inode bypasses an
+            # identity comparison, so the no-follow open must still refuse it.
+            path = self.workspace.session / account_ui.SPEED_FILE
+            path.write_text('slow\n')
+            kept = self.root / 'original-speed.txt'
+            original_open = os.open
+            changed = False
+
+            def swap_before_open(filename, flags, *args, **kwargs):
+                nonlocal changed
+                if Path(filename) == path and not changed:
+                    changed = True
+                    path.rename(kept)
+                    path.symlink_to(kept)
+                return original_open(filename, flags, *args, **kwargs)
+
+            with patch('comic_archive.account_ui.os.open', side_effect=swap_before_open):
+                self.assertEqual(account_ui.speed(self.workspace), 'fast')
+            self.assertTrue(changed)
+            self.assertEqual(kept.read_text(), 'slow\n')
 
     def test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands(self):
         self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
         with patch('os.replace',side_effect=OSError):
-            with self.assertRaisesRegex(ArchiveError,'could not save that speed'):
+            with self.assertRaisesRegex(ArchiveError,'could not be saved'):
                 self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'slow')
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'medium')
 
@@ -157,11 +237,10 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'fast')
         self.assertEqual(self.actions.speed('slow')['speed'],'slow')
         self.assertEqual(self.actions.poll(cloud=False,network=False)['account']['speed'],'slow')
-        # Under a running download the person is told to try again after Pause, and the speed stands.
+        # The same action can change a running download between worker steps.
         self.actions.go()
-        with self.assertRaises(Refused) as refused:self.actions.speed('fast')
-        self.assertEqual(refused.exception.code,'library_busy')
-        self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['speed'],'slow')
+        self.assertEqual(self.actions.speed('fast')['status'], 'running')
+        self.assertEqual(self.registry.account_status(LOCAL_OWNER, self.workspace.id)['speed'], 'fast')
 
     def test_pause_then_go_keeps_the_same_pending_discovery_task(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
@@ -209,6 +288,19 @@ class AccountUITests(unittest.TestCase):
                 self.assertNotIn('PRIVATE',json.dumps(account_ui.status(self.workspace)))
                 self.assertNotEqual(account_ui.status(self.workspace).get(key),unknown)
 
+    def test_purchase_history_warnings_reach_the_dashboard_without_private_records(self):
+        value = {'configured': True, 'status': 'running', 'phase': 'series', 'purchase_history': {
+            'status': 'partial', 'code': 'history_rows_unverified', 'pages': 1, 'discovered': 9,
+            'unresolved': 0, 'transactions': 'PRIVATE', 'cursor': 'PRIVATE'}}
+        with patch.object(download_control, 'status', return_value=value):
+            result = account_ui.status(self.workspace)
+        self.assertEqual(result['purchase_history'], {'status': 'partial', 'code': 'history_rows_unverified',
+                                                     'pages': 1, 'discovered': 9, 'unresolved': 0})
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        value['purchase_history'].update(code='PRIVATE', pages=True, discovered=-1, unresolved='PRIVATE')
+        with patch.object(download_control, 'status', return_value=value):
+            self.assertEqual(account_ui.status(self.workspace)['purchase_history'], {'status': 'partial'})
+
     def test_each_reason_the_whole_download_held_reaches_the_page_so_it_can_say_what_to_do(self):
         for code in sorted(download_control.HOLDS):
             with patch.object(download_control,'status',return_value={'configured':True,'status':'held','code':code}):
@@ -232,6 +324,56 @@ class AccountUITests(unittest.TestCase):
             private_json(worker/'status.json',{'state':'busy','task_id':'other'})
             self.assertNotEqual(account_ui.status(self.workspace).get('progress_age_seconds'),10)
 
+    def test_transfer_counts_completed_batches_and_only_the_current_tasks_checkpoint(self):
+        account_ui.start(self.workspace)
+        started = self.started()
+        stamp = lambda seconds: datetime.fromtimestamp(started + seconds, timezone.utc).isoformat()
+        def task(number, published, finished, count, outcome='ok'):
+            task_id = 'job-' + f'{number:024x}'
+            self.change('INSERT INTO tasks (task_id,kind,operation,options,reserved_at,published_at,finished_at,'
+                        'outcome,bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', task_id, 'download',
+                        'archive_discovered', '{}', stamp(published), stamp(published),
+                        stamp(finished) if finished is not None else None, outcome, count)
+            return task_id
+        task(1, -100, -90, 900)  # An earlier account scan is outside this counter.
+        task(2, 1, 10, 100)
+        task(3, 11, 15, 20, 'error')  # Bytes already transferred still count after a partial failure.
+        current = task(4, 16, None, None)
+        path = self.workspace.library / '.archive-state/progress.json'
+        def checkpoint(count, changed, task_id=current):
+            private_json(self.queue / 'status.json', {'state': 'busy', 'task_id': task_id})
+            private_json(path, {'status': 'running', 'phase': 'metadata', 'downloaded_bytes': count})
+            os.utime(path, (started + changed, started + changed))
+        def total():
+            value = account_ui.status(self.workspace)
+            self.assertNotIn('_transfer', value)
+            self.assertNotIn(current, json.dumps(value))
+            self.assertEqual(value['transfer']['scope'], started)
+            return value['transfer']['downloaded_bytes']
+        with patch('comic_archive.account_ui.time.time', return_value=started + 600):
+            checkpoint(30, 20)
+            self.assertEqual(total(), 150)
+            private_json(self.queue / 'responses' / (current + '.json'),
+                         {'task_id': current, 'status': 'ok', 'result': {'downloaded_bytes': 30}})
+            private_json(self.queue / 'status.json', {'state': 'ready'})
+            self.assertEqual(total(), 150)  # Worker finished; controller has not settled its receipt yet.
+            self.change('UPDATE tasks SET finished_at=?, bytes=? WHERE task_id=?', stamp(80), 30, current)
+            self.assertEqual(total(), 150)  # Completion replaces the checkpoint, never adds it twice.
+            following = task(5, 90, None, None)
+            self.assertEqual(total(), 150)  # Old task's progress cannot belong to this task.
+            checkpoint(5, 100)
+            self.assertEqual(total(), 150)  # Fresh file, but the worker belongs to another task.
+            checkpoint(5, 20, following)
+            self.assertEqual(total(), 150)  # Matching worker, stale checkpoint.
+            checkpoint(5, 100, following)
+            self.assertEqual(total(), 155)
+            for invalid in (True, -1, '5'):
+                checkpoint(invalid, 100, following)
+                self.assertEqual(total(), 150)
+            checkpoint(5, 601, following)
+            self.assertEqual(total(), 150)  # A future checkpoint is not current progress.
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+
     def test_list_progress_and_activity_come_from_existing_checkpoints_without_dispatch(self):
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         started=self.started()
@@ -243,7 +385,7 @@ class AccountUITests(unittest.TestCase):
         os.utime(path,(started+20,started+20))
         with patch('comic_archive.account_ui.time.time',return_value=started+90):
             result=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(result['lists'],{'checked':1,'total':4,'current':'updated'})
+        self.assertEqual(result['lists'],{'checked':1,'total':5,'current':'updated'})
         self.assertEqual(result['elapsed_seconds'],90)
         self.assertEqual(result['progress_age_seconds'],70)
         self.assertNotIn('PRIVATE',json.dumps(result))
@@ -329,15 +471,15 @@ class AccountUITests(unittest.TestCase):
         with patch('comic_archive.account_ui.time.time',return_value=started+20):
             self.assertNotIn('progress_age_seconds',self.registry.account_status(LOCAL_OWNER,self.workspace.id))
 
-    def test_go_after_pause_keeps_the_step_that_is_out_and_paces_the_next_at_the_chosen_speed(self):
+    def test_go_after_a_paused_speed_change_starts_a_fresh_step_at_the_chosen_speed(self):
         task,run=self.running_batch()
         self.registry.pause_account(LOCAL_OWNER,self.workspace.id)
         # The downloader has stopped the step, but its receipt is not settled yet.
         self.end_batch(task,{'status':'ok','result':{'run_id':run,'status':'cancelled',**self.CANCELLED}})
         self.registry.choose_speed(LOCAL_OWNER,self.workspace.id,'medium')
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        # The step still out was asked for at the earlier pace; the steps after it follow the chosen speed.
-        self.assertEqual(self.outstanding(),task)
+        # Changing pace settles the cancelled step before a new one can be queued.
+        self.assertIsNone(self.outstanding())
         self.assertEqual(self.next_pace(),('medium',4,0.5,1024**3))
         self.tick()
         again=self.outstanding()
@@ -364,6 +506,185 @@ class AccountUITests(unittest.TestCase):
         private_json(self.queue/'responses'/(task+'.json'),{'task_id':task,**value})
         if request:(self.queue/'requests'/(task+'.json')).unlink()
         private_json(self.queue/'status.json',{'state':'ready'})
+
+    def cancelled_batch(self, task):
+        from comic_archive.task_cancellation import cancelled_result
+        result = cancelled_result(self.workspace.library, 'archive_discovered')
+        result['cancelled_before_start'] = False
+        self.end_batch(task, {'status': 'ok', 'result': result})
+
+    def test_running_speed_change_waits_for_terminal_work_then_queues_only_the_new_pace(self):
+        task, run = self.running_batch()
+        saved = self.workspace.library / 'kept.cbz'; saved.write_bytes(b'kept archive')
+        self.change('UPDATE state SET failed_retries=1, network_waits=2, source_probes=1')
+        before = self.state()
+        old_request = json.loads((self.queue / 'requests' / (task + '.json')).read_text())
+
+        def finish(_):
+            self.assertTrue(RunCancellation(self.workspace.library, run).requested())
+            self.assertEqual(self.state()['status'], 'stopped')
+            self.assertEqual(account_ui.speed(self.workspace), 'fast')
+            self.assertEqual(json.loads((self.queue / 'requests' / (task + '.json')).read_text()), old_request)
+            self.cancelled_batch(task)
+        with patch.object(account_ui.time, 'sleep', side_effect=finish):
+            changed = self.actions.speed('medium')
+        self.assertEqual((changed['status'], changed['speed']), ('running', 'medium'))
+        self.assertIsNone(self.outstanding())
+        for key in ('stretch_started_at', 'failed_retries', 'network_waits', 'source_probes'):
+            self.assertEqual(self.state()[key], before[key], key)
+        self.assertEqual(saved.read_bytes(), b'kept archive')
+        self.tick()
+        fresh = self.outstanding(); self.assertNotEqual(fresh, task)
+        request = json.loads((self.queue / 'requests' / (fresh + '.json')).read_text())
+        self.assertEqual(self.pace(request['args']), ('medium', 4, 0.5, 1024**3))
+        self.assertEqual([p.stem for p in (self.queue / 'requests').glob('*.json')], [fresh])
+
+    def test_a_terminal_receipt_cannot_resume_until_the_writer_releases_the_library(self):
+        from comic_archive.locking import LibraryLock
+        task, _ = self.running_batch()
+        held, release = threading.Event(), threading.Event()
+        def writer():
+            with LibraryLock(self.workspace.library):
+                held.set()
+                release.wait(3)
+        thread = threading.Thread(target=writer); thread.start()
+        try:
+            self.assertTrue(held.wait(3))
+            self.cancelled_batch(task)
+            def finish(_):
+                self.assertEqual(account_ui.speed(self.workspace), 'fast')
+                self.assertEqual(self.state()['status'], 'stopped')
+                release.set(); thread.join(3)
+                self.assertFalse(thread.is_alive())
+            with patch.object(account_ui.time, 'sleep', side_effect=finish) as slept:
+                changed = self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'medium')
+            slept.assert_called_once()
+            self.assertEqual((changed['status'], changed['speed']), ('running', 'medium'))
+        finally:
+            release.set(); thread.join(3)
+
+    def test_a_queued_old_pace_is_cancelled_before_a_fresh_task_can_use_the_new_speed(self):
+        task, _ = self.running_batch()
+        private_json(self.queue / 'status.json', {'state': 'ready'})
+        def stopped(_):
+            from comic_archive.task_cancellation import queued_stop_requested
+            self.assertTrue(queued_stop_requested(self.workspace.session, task))
+            self.assertEqual(self.state()['status'], 'stopped')
+            self.cancelled_batch(task)
+        with patch.object(account_ui.time, 'sleep', side_effect=stopped):
+            self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'slow')
+        self.assertIsNone(self.outstanding())
+        self.tick()
+        fresh = self.outstanding(); self.assertNotEqual(fresh, task)
+        request = json.loads((self.queue / 'requests' / (fresh + '.json')).read_text())
+        self.assertEqual(self.pace(request['args']), ('slow', 2, 1.0, 1024**3))
+
+    def test_a_request_sent_before_its_publication_commit_is_stopped_before_replacement(self):
+        task, run = self.running_batch()
+        self.change('UPDATE tasks SET published_at=NULL WHERE task_id=?', task)
+        def stopped(_):
+            self.assertTrue(RunCancellation(self.workspace.library, run).requested())
+            self.assertEqual(account_ui.speed(self.workspace), 'fast')
+            self.assertEqual(self.outstanding(), task)
+            self.cancelled_batch(task)
+        with patch.object(account_ui.time, 'sleep', side_effect=stopped) as slept:
+            changed = self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'medium')
+        slept.assert_called_once()
+        self.assertEqual((changed['status'], changed['speed']), ('running', 'medium'))
+        self.assertIsNone(self.outstanding())
+
+    def test_speed_change_timeout_keeps_the_old_choice_and_the_download_paused(self):
+        task, _ = self.running_batch()
+        with patch.object(account_ui, 'SPEED_CHANGE_WAIT_SECONDS', 0):
+            with self.assertRaisesRegex(ArchiveError, 'still stopping'):
+                self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'slow')
+        self.assertEqual((self.state()['status'], account_ui.speed(self.workspace)), ('stopped', 'fast'))
+        self.assertEqual(self.outstanding(), task)
+        self.assertFalse((self.queue / 'responses' / (task + '.json')).exists())
+
+    def test_the_speed_action_reports_a_timeout_and_its_real_paused_state(self):
+        self.running_batch()
+        with patch.object(account_ui, 'SPEED_CHANGE_WAIT_SECONDS', 0):
+            with self.assertRaises(Refused) as refused:
+                self.actions.speed('medium')
+        self.assertEqual(refused.exception.code, 'speed_change_failed')
+        self.assertIn('still stopping', str(refused.exception))
+        self.assertEqual(self.actions.account()['status'], 'stopped')
+        self.assertEqual(self.actions.account()['speed'], 'fast')
+
+    def test_speed_save_failure_after_cancellation_does_not_restart_the_download(self):
+        task, _ = self.running_batch()
+        with patch.object(account_ui.time, 'sleep', side_effect=lambda _: self.cancelled_batch(task)), \
+                patch.object(account_ui, 'choose_speed', side_effect=ArchiveError('Could not save speed')):
+            with self.assertRaisesRegex(ArchiveError, 'could not be saved'):
+                self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'slow')
+        self.assertEqual((self.state()['status'], account_ui.speed(self.workspace)), ('stopped', 'fast'))
+        self.tick()
+        self.assertIsNone(self.outstanding())
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+
+    def test_a_speed_save_error_never_exposes_the_underlying_path_or_secret(self):
+        task, _ = self.running_batch()
+        with patch.object(account_ui.time, 'sleep', side_effect=lambda _: self.cancelled_batch(task)), \
+                patch.object(account_ui, 'choose_speed', side_effect=OSError('PRIVATE_PATH_AND_KEY')):
+            with self.assertRaises(Refused) as refused:
+                self.actions.speed('slow')
+        self.assertEqual(refused.exception.code, 'speed_change_failed')
+        self.assertIn('could not be saved', str(refused.exception))
+        self.assertNotIn('PRIVATE', str(refused.exception))
+        self.assertEqual(self.actions.account()['status'], 'stopped')
+
+    def test_changing_speed_on_an_already_paused_task_does_not_start_it(self):
+        task, _ = self.running_batch()
+        self.registry.pause_account(LOCAL_OWNER, self.workspace.id)
+        with patch.object(account_ui.time, 'sleep', side_effect=lambda _: self.cancelled_batch(task)):
+            changed = self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'slow')
+        self.assertEqual((changed['status'], changed['speed']), ('stopped', 'slow'))
+        self.assertIsNone(self.outstanding())
+        self.tick()
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+
+    def test_changing_speed_does_not_shorten_a_provider_wait_or_clear_its_retries(self):
+        self.registry.start_account(LOCAL_OWNER, self.workspace.id)
+        until = download_control._stamp(download_control._now() + timedelta(minutes=10))
+        self.change("UPDATE state SET status='waiting', code='source', wait_until=?, source_probes=2, failed_retries=1", until)
+        changed = self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'medium')
+        self.assertEqual(changed['speed'], 'medium')
+        self.assertEqual((self.state()['status'], self.state()['code'], self.state()['wait_until']), ('waiting', 'source', until))
+        self.assertEqual((self.state()['source_probes'], self.state()['failed_retries']), (2, 1))
+        self.tick()
+        self.assertIsNone(self.outstanding())
+
+    def test_a_provider_refusal_arriving_during_speed_change_keeps_its_retry_after(self):
+        task, _ = self.running_batch()
+        def refused(_):
+            self.end_batch(task, {'status': 'error', 'error_code': 'source_refused',
+                                 'result': {'pause_reason': 'source_refused', 'retry_after_seconds': 600}})
+        with patch.object(account_ui.time, 'sleep', side_effect=refused):
+            changed = self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'slow')
+        self.assertEqual(changed['speed'], 'slow')
+        self.assertEqual(self.state()['status'], 'waiting')
+        self.assertGreaterEqual(changed['retry']['seconds'], 599)
+        self.tick()
+        self.assertIsNone(self.outstanding())
+
+    def test_closing_during_a_speed_change_never_resumes_or_saves_the_new_speed(self):
+        task, _ = self.running_batch()
+        def closing(_):
+            self.cancelled_batch(task)
+            self.registry._closing.set()
+        with patch.object(account_ui.time, 'sleep', side_effect=closing):
+            with self.assertRaisesRegex(ArchiveError, 'closing'):
+                self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'medium')
+        self.assertEqual((self.state()['status'], account_ui.speed(self.workspace)), ('stopped', 'fast'))
+
+    def test_selecting_the_current_speed_does_not_interrupt_the_task(self):
+        task, run = self.running_batch()
+        before = self.state()
+        self.registry.choose_speed(LOCAL_OWNER, self.workspace.id, 'fast')
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.outstanding(), task)
+        self.assertFalse(RunCancellation(self.workspace.library, run).requested())
 
     def test_pause_stops_the_batch_in_progress_instead_of_letting_it_run_out(self):
         _,run=self.running_batch()
@@ -428,11 +749,15 @@ class AccountUITests(unittest.TestCase):
         # Tappytoon's three lists were read, then a chapter stopped the download.
         self.change("UPDATE lists SET read_at=?, complete=1, observed_series_count=1",datetime.now(timezone.utc).isoformat())
         self.change("UPDATE state SET status='held', code='task_failed', stage='series'")
-        lists=sorted(tuple(row) for row in download_control._connect(self.queue).execute('SELECT * FROM lists'))
+        def saved_lists():
+            db=download_control._connect(self.queue)
+            try:return sorted(tuple(row) for row in db.execute('SELECT * FROM lists'))
+            finally:db.close()
+        lists=saved_lists()
         self.assertEqual(len(lists),3)
         self.assertEqual(self.registry.account_status(LOCAL_OWNER,self.workspace.id)['status'],'held')
         self.assertEqual(self.registry.start_account(LOCAL_OWNER,self.workspace.id)['status'],'running')
-        self.assertEqual(sorted(tuple(row) for row in download_control._connect(self.queue).execute('SELECT * FROM lists')),lists)
+        self.assertEqual(saved_lists(),lists)
         self.assertEqual(self.state()['stage'],'series')
 
     def test_go_still_meets_a_hold_that_arrived_after_pause(self):

@@ -21,8 +21,8 @@ from comic_archive.run_receipts import failure_result
 from comic_archive.worker import controller_ticks, execute, private_json
 from test_download_integration import OfflineAdapter, library_archives
 
-KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'status', 'phase', 'code', 'lists',
-        'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit'}
+KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'status', 'phase', 'code', 'lists',
+        'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit', 'purchase_history', 'transfer'}
 STATUSES = {'running', 'held', 'stopped', 'finished'}
 PHASES = ['existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished']
 RETRY_REASONS = {'connection', 'source', 'images', 'idle'}
@@ -65,6 +65,13 @@ class DownloadContractTests(unittest.TestCase):
         self.assertIs(value['supported'], True)
         self.assertIs(value['coverage_verified'], False)
         self.assertIn(value['speed'], account_ui.SPEEDS)
+        choices = value['download_types']
+        if choices is None:
+            self.assertEqual((value.get('status'), value.get('code')), ('held', 'controller_failed'))
+        else:
+            self.assertEqual(set(choices), {'bought', 'free', 'limited', 'unclassified'})
+            self.assertTrue(all(type(enabled) is bool for enabled in choices.values()))
+            self.assertTrue(any(choices.values()))
         if not value['configured']:
             self.assertNotIn(value.get('status'), {'running', 'held'})
             return
@@ -88,6 +95,12 @@ class DownloadContractTests(unittest.TestCase):
                 self.assertGreaterEqual(value[key], 0, key)
         if 'audit' in value:
             self.assertTrue(all(type(n) is int and n >= 0 for n in value['audit'].values()), value['audit'])
+        if 'transfer' in value:
+            self.assertEqual(set(value['transfer']), {'scope', 'downloaded_bytes'})
+            self.assertIs(type(value['transfer']['scope']), float)
+            self.assertGreater(value['transfer']['scope'], 0)
+            self.assertIs(type(value['transfer']['downloaded_bytes']), int)
+            self.assertGreaterEqual(value['transfer']['downloaded_bytes'], 0)
 
     def tick(self):
         for _, tick in controller_ticks():
@@ -135,7 +148,7 @@ class DownloadContractTests(unittest.TestCase):
 
     def assert_saved_whole_account(self, state):
         self.assertEqual(state['status'], 'finished', state)
-        self.assertEqual(state['audit']['verified_inventory_episode_count'], 3)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
         self.assertEqual(state['audit']['missing_recorded_accessible_episode_count'], 0)
         self.assertEqual({p.suffix for p in library_archives(self.library)}, {'.cbz', '.epub'})
         self.assertFalse(any(path in ('/episode/83', '/episode/92') for _, path in self.adapter.transport.calls))
@@ -158,7 +171,9 @@ class DownloadContractTests(unittest.TestCase):
         state = self.drive()
         self.assert_saved_whole_account(state)
         phases = [PHASES.index(s['phase']) for s in self.seen if s.get('phase')]
-        self.assertEqual(phases, sorted(phases), 'The round went back a stage')
+        finishing = phases.index(PHASES.index('verify'))
+        self.assertTrue(all(phase >= PHASES.index('verify') for phase in phases[finishing:]),
+                        'Completed acquisition must not restart after finishing begins')
         totals = {s['lists']['total'] for s in self.seen if 'lists' in s}
         self.assertEqual(len(totals), 1)
         self.assertTrue(any(s['lists']['checked'] == s['lists']['total'] for s in self.seen if 'lists' in s))
@@ -235,7 +250,9 @@ class DownloadContractTests(unittest.TestCase):
         original = path.read_bytes()
         path.write_bytes(b'corrupt archive')
         state = self.drive()
-        self.assertEqual((state['status'], state['code']), ('held', 'archive_incomplete'))
+        self.assertEqual(state['status'], 'finished')
+        self.assertTrue(verify(self.library, decode_images=True), 'An explicit integrity check must still detect corruption')
+        self.assertNotIn('verified_inventory_episode_count', state['audit'])
         path.write_bytes(original)
         self.go()
         self.assert_saved_whole_account(self.drive())
@@ -252,7 +269,7 @@ class DownloadContractTests(unittest.TestCase):
         self.assertEqual(state['status'], 'finished', state)
         self.assertEqual(state['audit']['missing_recorded_accessible_episode_count'], 1)
         self.assertEqual(state['audit']['unsupported_recorded_accessible_episode_count'], 1)
-        self.assertEqual(state['audit']['verified_inventory_episode_count'], 3)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
 
 
 if __name__ == '__main__':

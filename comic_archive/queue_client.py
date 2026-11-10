@@ -44,6 +44,7 @@ def submit_job(session, operation, options=None,*,_task_id=None):
         allowed.add('include_history')
         allowed.add('history_pages')
         allowed.add('history_resume')
+        allowed.add('history_round')
         allowed.add('scan_limit')
     if (set(options) - allowed or type(options.get("free_only", False)) is not bool
             or type(options.get('scan_only',False)) is not bool
@@ -53,6 +54,9 @@ def submit_job(session, operation, options=None,*,_task_id=None):
             or type(options.get('refresh_lists',True)) is not bool
             or (not options.get('refresh_lists',True) and (options.get('categories') is not None or options.get('include_history',False)))):
         raise ArchiveError("Unsupported queue job options.")
+    if options.get('history_round') is not None and (not isinstance(options['history_round'], str)
+            or not options['history_round'] or len(options['history_round']) > 100 or options.get('include_history')):
+        raise ArchiveError('Invalid durable purchase-discovery round.')
     for key in ("limit", "max_pages", "max_bytes",'scan_limit'):
         if options.get(key) is not None and (type(options[key]) is not int or options[key] < 1):
             raise ArchiveError("Queued episode/page/byte limits must be positive integers.")

@@ -1290,7 +1290,7 @@
  {
   "id": "tappytoon-unlocked-ignored",
   "source": "comic_archive/adapters/tappytoon.py",
-  "old": "    if chapter['isAccessible'] and (chapter['isUserUnlocked'] or chapter['isUserRented']):",
+  "old": "    if chapter.get('isUserUnlocked') is True:",
   "new": "    if False:",
   "test_file": "test_tappytoon.py",
   "test": "test_series_details_and_chapter_list_come_from_tappytoons_api"
@@ -1373,15 +1373,15 @@
   "old": "        if chapter['id'] != int(match[1]):",
   "new": "        if False:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-locked-read",
   "source": "comic_archive/adapters/tappytoon.py",
-  "old": "        if mark not in sites.ACCESS:",
-  "new": "        if False:",
+  "old": "            if getattr(error, 'source_http_status', None) == 400 and NO_LICENSE in getattr(error, 'source_answer', b''):",
+  "new": "            if False:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-not-pictures",
@@ -1389,7 +1389,7 @@
   "old": "            if listing['mediaType'] != 'image':",
   "new": "            if False:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-pictures-anywhere",
@@ -1397,7 +1397,7 @@
   "old": "            locations = [asset_url(item['url'], SITE) for item in files]",
   "new": "            locations = [item['url'] for item in files]",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-picture-twice",
@@ -1405,7 +1405,7 @@
   "old": " or len({item['sortKey'] for item in files}) != len(files)",
   "new": "",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-pictures-unsorted",
@@ -1429,7 +1429,7 @@
   "old": "        if (parts.scheme, parts.netloc, parts.query) != ('https', SITE.host, '') or match is None:",
   "new": "        if match is None:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "site-key-anywhere",
@@ -1485,7 +1485,7 @@
   "old": "        if [page.location for page in new.pages] != [page.location for page in episode.pages]:",
   "new": "        if False:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "cloud-windows-linux-helper",
@@ -1554,18 +1554,18 @@
  {
   "id": "tappytoon-rented-ignored",
   "source": "comic_archive/adapters/tappytoon.py",
-  "old": "    if chapter['isAccessible'] and (chapter['isUserUnlocked'] or chapter['isUserRented']):",
-  "new": "    if chapter['isAccessible'] and chapter['isUserUnlocked']:",
+  "old": "    if chapter.get('isUserRented') is True:",
+  "new": "    if False:",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_rented_chapter_is_read_with_the_end_of_its_rental_and_one_without_an_end_is_not"
+  "test": "test_rental_timestamp_is_retained_when_known_and_does_not_gate_reader_access"
  },
  {
   "id": "tappytoon-rental-without-end",
   "source": "comic_archive/adapters/tappytoon.py",
-  "old": "    if not isinstance(chapter.get('rentalExpiredAt'), str):",
-  "new": "    if False:",
+  "old": "        return observed_expiration(chapter.get('rentalExpiredAt'))",
+  "new": "        return None",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_rented_chapter_is_read_with_the_end_of_its_rental_and_one_without_an_end_is_not"
+  "test": "test_rental_timestamp_is_retained_when_known_and_does_not_gate_reader_access"
  },
  {
   "id": "tappytoon-rental-checked-late",
@@ -1573,7 +1573,7 @@
   "old": "        expires = rental_end(chapter)\n",
   "new": "        expires = None\n",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_rented_chapter_is_read_with_the_end_of_its_rental_and_one_without_an_end_is_not"
+  "test": "test_rental_timestamp_is_retained_when_known_and_does_not_gate_reader_access"
  },
  {
   "id": "tappytoon-bought-list-dropped",
@@ -1621,7 +1621,7 @@
   "old": "            if getattr(error, 'source_http_status', None) == 400 and NO_LICENSE in",
   "new": "            if NO_LICENSE in",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "tappytoon-any-400-taken-for-no-license",
@@ -1629,7 +1629,7 @@
   "old": " and NO_LICENSE in getattr(error, 'source_answer', b''):",
   "new": ":",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "refusal-answer-not-kept",
@@ -1645,7 +1645,7 @@
   "old": "f\"Page request refused or redirected (HTTP {response.status_code}); refresh in the reader.\"",
   "new": "\"Page request refused or redirected; refresh in the reader.\"",
   "test_file": "test_tappytoon.py",
-  "test": "test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons"
+  "test": "test_reader_refusals_and_invalid_manifests_prevent_saving"
  },
  {
   "id": "starting-downloader-unreported",
@@ -2669,7 +2669,7 @@
   "old": "    if value not in SPEEDS:\n        raise ArchiveError('Comic Archiver does not know that speed.')\n",
   "new": "",
   "test_file": "test_account_ui.py",
-  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
+  "test": "test_an_unknown_speed_is_refused_without_stopping_a_running_download"
  },
  {
   "id": "speed-unreadable-file-used-as-it-is",
@@ -2682,18 +2682,18 @@
  {
   "id": "speed-save-failure-unreported",
   "source": "comic_archive/account_ui.py",
-  "old": "    except OSError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
-  "new": "    except ZeroDivisionError:\n        raise ArchiveError('Comic Archiver could not save that speed.",
+  "old": "            raise error_type('save') from None",
+  "new": "            return",
   "test_file": "test_account_ui.py",
   "test": "test_a_speed_that_cannot_be_saved_is_reported_and_the_earlier_choice_stands"
  },
  {
-  "id": "speed-changed-under-running-download",
-  "source": "comic_archive/local_library.py",
-  "old": "                raise LibraryBusy('Pause the download before changing its speed.')",
-  "new": "                pass",
+  "id": "speed-change-restarts-a-paused-download",
+  "source": "comic_archive/download_control.py",
+  "old": "            resume = previous['status'] in ('running', 'waiting') and can_resume()",
+  "new": "            resume = can_resume()",
   "test_file": "test_account_ui.py",
-  "test": "test_a_speed_cannot_be_changed_under_a_running_download_and_an_unknown_one_is_refused"
+  "test": "test_changing_speed_on_an_already_paused_task_does_not_start_it"
  },
  {
   "id": "ended-step-reported-as-quiet-step",
@@ -2962,8 +2962,8 @@
  {
   "id": "pages-busy-wifi-not-put-back",
   "source": "comic_archive/window_pages.py",
-  "old": "self.render()  # Another action is running; show the saved choice again.",
-  "new": "pass",
+  "old": "if s.busy:\n            self.render()  # Another action is running; show the saved choice again.\n            return",
+  "new": "if False:\n            self.render()  # Another action is running; show the saved choice again.\n            return",
   "test_file": "test_window_pages.py",
   "test": "test_a_connection_choice_made_while_another_action_runs_is_put_back"
  },
@@ -2973,12 +2973,12 @@
   "old": "s.network_saving = False",
   "new": "s.network_saving = True",
   "test_file": "test_window_pages.py",
-  "test": "test_the_connection_choice_is_saved_and_then_shown_as_saved"
+  "test": "test_the_connection_policy_can_still_be_changed_without_a_settings_field"
  },
  {
   "id": "pages-refused-choice-no-refresh",
   "source": "comic_archive/window_pages.py",
-  "old": "self.poll_soon()  # Shows the choice as it was kept.",
+  "old": "self.poll_soon(key)  # Shows the choice as it was kept.",
   "new": "pass",
   "test_file": "test_window_pages.py",
   "test": "test_a_refused_storage_choice_says_why_and_shows_the_kept_one_again"
@@ -3018,8 +3018,8 @@
  {
   "id": "dashboard-files-while-busy",
   "source": "comic_archive/window_pages.py",
-  "old": "self.files.setEnabled(not s.busy)",
-  "new": "self.files.setEnabled(True)",
+  "old": "set_enabled(self.files, not s.busy)",
+  "new": "set_enabled(self.files, True)",
   "test_file": "test_window_pages.py",
   "test": "test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts"
  },
@@ -3394,16 +3394,16 @@
  {
   "id": "signout-without-asking",
   "source": "comic_archive/window_pages.py",
-  "old": "if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):",
-  "new": "if s.busy:",
+  "old": "if not self.shell.ask(SIGN_OUT.format(site=s.site())):",
+  "new": "if False:",
   "test_file": "test_window_pages.py",
   "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
  },
  {
   "id": "signout-asks-while-busy",
   "source": "comic_archive/window_pages.py",
-  "old": "if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):",
-  "new": "if not self.shell.ask(SIGN_OUT.format(site=s.site())):",
+  "old": "if s.busy or not (s.status or {}).get('session_configured'):",
+  "new": "if not (s.status or {}).get('session_configured'):",
   "test_file": "test_window_pages.py",
   "test": "test_sign_out_waits_for_a_download_and_a_refusal_is_said"
  },
@@ -3418,24 +3418,24 @@
  {
   "id": "signout-not-reread",
   "source": "comic_archive/window_pages.py",
-  "old": "            self.poll_soon()\n        self.account_act(self.actions.sign_out, signed_out)",
-  "new": "        self.account_act(self.actions.sign_out, signed_out)",
+  "old": "            self.poll_soon(key)\n        self.account_act(actions.sign_out, signed_out, key=key)",
+  "new": "        self.account_act(actions.sign_out, signed_out, key=key)",
   "test_file": "test_window_pages.py",
   "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
  },
  {
   "id": "signout-row-always-shown",
   "source": "comic_archive/window_pages.py",
-  "old": "self.signout_row.setVisible(v['signout_visible'])",
-  "new": "self.signout_row.setVisible(True)",
+  "old": "set_visible(self.signout, v['signout_visible'])",
+  "new": "set_visible(self.signout, True)",
   "test_file": "test_window_pages.py",
   "test": "test_sign_out_asks_first_then_forgets_the_sign_in_and_offers_sign_in_again"
  },
  {
   "id": "signout-always-enabled",
   "source": "comic_archive/window_pages.py",
-  "old": "self.signout.setEnabled(v['signout_enabled'])",
-  "new": "self.signout.setEnabled(True)",
+  "old": "set_enabled(self.signout, v['signout_enabled'])",
+  "new": "set_enabled(self.signout, True)",
   "test_file": "test_window_pages.py",
   "test": "test_sign_out_waits_for_a_download_and_a_refusal_is_said"
  },
@@ -3506,8 +3506,8 @@
  {
   "id": "webtoon-account-may-change",
   "source": "comic_archive/adapters/webtoon.py",
-  "old": "if named is None or self._account is not None and named != self._account:",
-  "new": "if named is None:",
+  "old": "if (named is None or self._account is not None and named != self._account\n                or self.expected_account_id is not None and named != self.expected_account_id):",
+  "new": "if (named is None\n                or self.expected_account_id is not None and named != self.expected_account_id):",
   "test_file": "test_webtoon.py",
   "test": "test_the_account_is_the_one_webtoons_own_answer_names_and_it_must_stay_the_same"
  },
@@ -3522,8 +3522,8 @@
  {
   "id": "webtoon-subscriptions-unchecked-account",
   "source": "comic_archive/adapters/webtoon.py",
-  "old": "        self.account_identity()\n        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))",
-  "new": "        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))",
+  "old": "        self.account_identity()\n        if category == 'unlocked':",
+  "new": "        if category == 'unlocked':",
   "test_file": "test_webtoon.py",
   "test": "test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none"
  },
@@ -4034,10 +4034,10 @@
  {
   "id": "tapas-bought-paid-only-episode-refused",
   "source": "comic_archive/adapters/tapas_http.py",
-  "old": "    if info[\"scheduled\"] is True:\n        raise unsupported(",
-  "new": "    if info.get(\"must_pay\") is True:\n        raise AccessDenied(\"Episode requires an unlock.\")\n    if info[\"scheduled\"] is True:\n        raise unsupported(",
+  "old": "    if info.get('unlocked') is True:",
+  "new": "    if False:",
   "test_file": "test_tapas_http.py",
-  "test": "test_a_bought_paid_only_episode_is_readable_and_an_unbought_one_is_not"
+  "test": "test_bulk_discovery_avoids_probing_every_unowned_paid_episode"
  },
  {
   "id": "worker-start-dies-on-a-status-check",
@@ -4266,8 +4266,8 @@
  {
   "id": "scan-round-old-refusals-not-first",
   "source": "comic_archive/inventory.py",
-  "old": "ORDER BY CASE WHEN scans.observed_at < ? AND",
-  "new": "ORDER BY CASE WHEN scans.observed_at > ? AND",
+  "old": "WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e",
+  "new": "WHEN scans.observed_at > ? AND EXISTS(SELECT 1 FROM episodes e",
   "test_file": "test_jobs.py",
   "test": "test_a_round_of_checks_begun_before_an_update_starts_over_and_corrects_old_refusals"
  },
@@ -4698,8 +4698,8 @@
  {
   "id": "dc-audit-zeroes",
   "source": "comic_archive/download_control.py",
-  "old": "type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in AUDIT_ZEROES)",
-  "new": "type(result.get(key)) is int for key in AUDIT_ZEROES)",
+  "old": "type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in keys)",
+  "new": "type(result.get(key)) is int for key in keys)",
   "test_file": "test_download_control.py",
   "test": "test_an_audit_that_finds_something_missing_holds_and_go_audits_again"
  },
@@ -4778,8 +4778,8 @@
  {
   "id": "dc-pause-forgets-unsent",
   "source": "comic_archive/download_control.py",
-  "old": "        if task is not None and task['published_at'] is None:\n",
-  "new": "        if False:\n",
+  "old": "        if task is not None and task['published_at'] is None:\n            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))",
+  "new": "        if False:\n            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))",
   "test_file": "test_download_control.py",
   "test": "test_pause_stops_and_forgets_a_step_never_sent_but_leaves_one_out_to_answer"
  },
@@ -4992,12 +4992,12 @@
   "test": "test_a_symlinked_place_for_the_old_files_is_refused"
  },
  {
-  "id": "cards-never-two-to-a-row",
+  "id": "cards-respect-page-margins",
   "source": "comic_archive/window_pages.py",
-  "old": "self._lay_out(2 if width - self.margins >= CARD_COLUMNS_FROM else 1)",
-  "new": "self._lay_out(2 if width >= CARD_COLUMNS_FROM else 1)",
+  "old": "available = width - self.margins",
+  "new": "available = width",
   "test_file": "test_window_pages.py",
-  "test": "test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one"
+  "test": "test_cards_use_the_compact_three_two_one_column_layout"
  },
  {
   "id": "go-on-all-sites-goes-only-on-the-chosen-one",
@@ -5114,7 +5114,7 @@
  {
   "id": "unopened-card-shows-no-fields",
   "source": "comic_archive/window_pages.py",
-  "old": "            self._fields(dashboard_model.unopened_rows())\n",
+  "old": "            self._fields(dashboard_model.card_summary()['rows'])\n",
   "new": "            self._fields([])\n",
   "test_file": "test_window_pages.py",
   "test": "test_every_site_that_works_has_a_card_and_one_not_opened_yet_offers_only_its_sign_in"
@@ -5146,8 +5146,8 @@
  {
   "id": "finished-download-still-estimates",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    estimate = status.get('estimate') if account.get('configured') and not finished else None\n",
-  "new": "    estimate = status.get('estimate') if account.get('configured') else None\n",
+  "old": "    time = time_row(estimate) if not finished else ''\n",
+  "new": "    time = time_row(estimate)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
  },
@@ -5178,7 +5178,7 @@
  {
   "id": "space-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space else '')\n",
+  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')\n",
   "new": "    row('Space', space or NONE, short)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
@@ -5186,18 +5186,18 @@
  {
   "id": "card-hint-never-shown",
   "source": "comic_archive/window_pages.py",
-  "old": "            hint.setVisible(bool(tip))\n",
-  "new": "            hint.setVisible(False)\n",
+  "old": "            set_visible(hint, bool(tip))\n",
+  "new": "            set_visible(hint, False)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_optional_field_hints_stay_next_to_values_when_present"
  },
  {
   "id": "card-hint-always-shown",
   "source": "comic_archive/window_pages.py",
-  "old": "            hint.setVisible(bool(tip))\n",
-  "new": "            hint.setVisible(True)\n",
+  "old": "            set_visible(hint, bool(tip))\n",
+  "new": "            set_visible(hint, True)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_optional_field_hints_stay_next_to_values_when_present"
  },
  {
   "id": "card-hint-has-no-tooltip",
@@ -5205,7 +5205,7 @@
   "old": "            hint.setToolTip(tip)\n",
   "new": "",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_optional_field_hints_stay_next_to_values_when_present"
  },
  {
   "id": "card-hint-tap-shows-nothing",
@@ -5213,7 +5213,7 @@
   "old": "            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), hint.toolTip(), hint))\n",
   "new": "            hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), '', hint))\n",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_optional_field_hints_stay_next_to_values_when_present"
  },
  {
   "id": "all-sites-card-shares-its-row",
@@ -5221,7 +5221,7 @@
   "old": "        self.grid.addWidget(self.library_card, 0, 0, 1, columns)\n",
   "new": "        self.grid.addWidget(self.library_card, 0, 0)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one"
+  "test": "test_cards_use_the_compact_three_two_one_column_layout"
  },
  {
   "id": "site-cards-start-on-the-all-sites-row",
@@ -5229,7 +5229,7 @@
   "old": "            self.grid.addWidget(card, 1 + index // columns, index % columns)\n",
   "new": "            self.grid.addWidget(card, index // columns, index % columns)\n",
   "test_file": "test_window_pages.py",
-  "test": "test_the_cards_sit_two_to_a_row_in_a_wide_window_and_one_in_a_narrow_one"
+  "test": "test_cards_use_the_compact_three_two_one_column_layout"
  },
  {
   "id": "library-unavailable-never-said",
@@ -5253,13 +5253,13 @@
   "old": "layout.setStretchFactor(value, 0 if tip else 1)",
   "new": "layout.setStretchFactor(value, 1)",
   "test_file": "test_window_pages.py",
-  "test": "test_a_card_says_its_time_and_space_left_are_rough_guesses"
+  "test": "test_optional_field_hints_stay_next_to_values_when_present"
  },
  {
-  "id": "all-sites-counts-not-centered",
+  "id": "compact-overview-total-hidden",
   "source": "comic_archive/window_pages.py",
-  "old": "                label.setAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignCenter)\n",
-  "new": "",
+  "old": "            cell.setVisible(index == 0)",
+  "new": "            cell.setVisible(False)",
   "test_file": "test_window_pages.py",
   "test": "test_the_dashboard_shows_the_library_once_it_is_read_and_says_it_is_drawn"
  },
@@ -5530,7 +5530,7 @@
  {
   "id": "unsupported-episode-not-logged",
   "source": "comic_archive/jobs.py",
-  "old": "                            print(f\"Episode {key} of series {current['series_id']}: not saved, {code} ({describe(error)}).\",\n                                  flush=True)\n",
+  "old": "                            print(f\"Episode {key} of series {current['series_id']}: not saved, {code}{details} ({describe(error)}).\",\n                                  flush=True)\n",
   "new": "",
   "test_file": "test_jobs.py",
   "test": "test_unsupported_reason_is_preserved_without_raw_exception_or_unknown_codes"
@@ -5601,11 +5601,11 @@
  },
  {
   "id": "worker-cannot-save-dropped",
-  "source": "comic_archive/worker.py",
-  "old": "'unsupported_recorded_accessible_episode_count', ",
+  "source": "comic_archive/audit.py",
+  "old": "            'unsupported_recorded_accessible_episode_count': unsupported,\n",
   "new": "",
   "test_file": "test_worker.py",
-  "test": "test_account_audit_runs_against_the_fixed_library_path_and_keeps_its_report_private"
+  "test": "test_automatic_completion_reads_only_inventory_and_never_runs_a_full_audit"
  },
  {
   "id": "dc-cannot-save-holds",
@@ -5634,8 +5634,8 @@
  {
   "id": "card-cannot-save-unsaid",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            'can\u2019t save yet' if cannot_save else",
-  "new": "            'can\u2019t save yet' if False else",
+  "old": "    if account_status == 'finished' and cannot_save:",
+  "new": "    if False:",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions"
  },
@@ -6130,7 +6130,7 @@
  {
   "id": "download-speed-read-at-each-refresh",
   "source": "comic_archive/app_actions.py",
-  "old": "    state.received_status(reading['status'], now)\n",
+  "old": "    state.received_status(reading['status'], now, transfer=(reading.get('account') or {}).get('transfer'))\n",
   "new": "    state.status = reading['status']\n",
   "test_file": "test_app_actions.py",
   "test": "test_a_refresh_is_put_on_the_state_and_what_it_did_not_read_is_kept"
@@ -6138,10 +6138,10 @@
  {
   "id": "tapas-locked-episode-checks-the-sign-in",
   "source": "comic_archive/adapters/tapas_http.py",
-  "old": "            self.stage = \"session\"\n            self.check_session()\n            raise",
-  "new": "            raise",
+  "old": "        if self.expected_account_id is not None and str(user[\"id\"]) != self.expected_account_id:",
+  "new": "        if False:",
   "test_file": "test_tapas_http.py",
-  "test": "test_a_sign_in_ended_since_the_step_began_is_a_sign_out_not_a_locked_episode"
+  "test": "test_expected_account_change_stops_before_episode_metadata_or_reader"
  },
  {
   "id": "tapas-fast-page-requests-under-the-limit",
@@ -6186,8 +6186,8 @@
  {
   "id": "site-images-pace-on-the-phone",
   "source": "comic_archive/android_transport.py",
-  "old": "take_cookies=take_cookies, image=image)",
-  "new": "take_cookies=take_cookies)",
+  "old": "take_cookies=take_cookies, image=image, **options)",
+  "new": "take_cookies=take_cookies, **options)",
   "test_file": "test_android_transport.py",
   "test": "test_images_keep_the_image_pace_on_the_phone_as_on_the_desktop"
  },
@@ -6394,8 +6394,8 @@
  {
   "id": "image-upgrade-forgets-retry-budget",
   "source": "comic_archive/inventory.py",
-  "old": "status='queued',error_code=NULL,attempts=0 ",
-  "new": "status='queued',error_code=NULL ",
+  "old": "                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL,attempts=0 \"",
+  "new": "                    self.db.execute(\"UPDATE episodes SET status='queued',error_code=NULL \"",
   "test_file": "test_inventory.py",
   "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
@@ -6404,8 +6404,8 @@
   "source": "comic_archive/inventory.py",
   "old": "              or (image_recheck and row['access_state'] in sites.ACCESS)",
   "new": "",
-  "test_file": "test_download_control.py",
-  "test": "test_continue_after_old_webtoon_image_failures_downloads_before_auditing_again"
+  "test_file": "test_inventory.py",
+  "test": "test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once"
  },
  {
   "id": "image-png-ignores-crc",
@@ -6506,7 +6506,7 @@
  {
   "id": "dashboard-speculative-size-shown-as-queued",
   "source": "comic_archive/dashboard_model.py",
-  "old": "return bool(estimate and not number(estimate.get('waiting_episodes')) and number(estimate.get('unchecked_series')))",
+  "old": "return bool(estimate and not number(estimate.get('waiting_episodes'))\n                and (number(estimate.get('unchecked_series')) or number(estimate.get('checking_series'))\n                     or estimate.get('checking_lists') is True))",
   "new": "return False",
   "test_file": "test_dashboard_model.py",
   "test": "test_unchecked_series_do_not_claim_that_downloads_are_waiting"
@@ -6638,5 +6638,493 @@
   "new": "    return None\n",
   "test_file": "test_app_runtime.py",
   "test": "test_a_library_whose_own_folders_lead_elsewhere_is_never_opened_but_one_reached_through_a_junction_is"
+ },
+ {
+  "id": "speed-change-accepts-queued-as-finished",
+  "source": "comic_archive/account_ui.py",
+  "old": "if response['status'] in ('ok', 'error') and worker.get('state') == 'ready':",
+  "new": "if worker.get('state') == 'ready':",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_queued_old_pace_is_cancelled_before_a_fresh_task_can_use_the_new_speed"
+ },
+ {
+  "id": "speed-change-ignores-existing-provider-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "if resume and value['status'] in ('running', 'waiting') and previous['status'] == 'waiting':",
+  "new": "if False:",
+  "test_file": "test_account_ui.py",
+  "test": "test_changing_speed_does_not_shorten_a_provider_wait_or_clear_its_retries"
+ },
+ {
+  "id": "progress-warning-fires-every-refresh",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "NO_PROGRESS_SECONDS = 3 * POLL_SECONDS",
+  "new": "NO_PROGRESS_SECONDS = POLL_SECONDS",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_regular_minute_refreshes_do_not_look_like_a_stalled_download"
+ },
+{
+ "id": "tapas-wuf-list-omitted",
+ "source": "comic_archive/sites.py",
+ "old": "('subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free')",
+ "new": "('subscribed', 'updated', 'recent', 'free_episodes')",
+ "test_file": "test_download_integration.py",
+ "test": "test_wuf_only_comic_and_novel_with_missing_headers_are_discovered_and_published"
+},
+{
+ "id": "tapas-header-fallback-hides-throttle",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "if getattr(error, 'source_http_status', None) not in {404, 410} or key not in self.series_seeds:",
+ "new": "if key not in self.series_seeds:",
+ "test_file": "test_tapas_http.py",
+ "test": "test_missing_header_without_seed_and_non_missing_errors_never_fall_back"
+},
+{
+ "id": "tapas-header-fallback-repeats-failed-request",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "if key in self.unavailable_headers and key in self.series_seeds:",
+ "new": "if False:",
+ "test_file": "test_tapas_http.py",
+ "test": "test_account_seed_allows_missing_header_scan_capture_and_metadata_without_repeated_404"
+},
+{
+ "id": "tapas-filter-upgrade-skips-new-list",
+ "source": "comic_archive/download_control.py",
+ "old": "    if unread and value['stage'] in ('series', 'archive', 'verify'):\n        value['stage'] = 'lists'\n",
+ "new": "",
+ "test_file": "test_download_control.py",
+ "test": "test_upgrade_reads_new_wuf_list_without_repeating_completed_lists"
+},
+{
+ "id": "tappytoon-availability-queues-unowned-catalogue",
+ "source": "comic_archive/adapters/tappytoon.py",
+ "old": "    # isAccessible also describes published paid chapters with no user license.\n    # A complete requested reader can still establish unclassified access below.\n    return 'unavailable_or_unverified'",
+ "new": "    if chapter.get('isAccessible') is True:\n        return SITE.readable\n    return 'unavailable_or_unverified'",
+ "test_file": "test_tappytoon.py",
+ "test": "test_complete_reader_wins_over_negative_flags_without_bulk_locked_probes"
+},
+{
+ "id": "tappytoon-availability-upgrade-misses-old-queue",
+ "source": "comic_archive/jobs.py",
+ "old": "                if getattr(adapter, 'supports_entitlement_discovery', False) is True:\n                    inventory.enable_tappytoon_entitlement_discovery()\n",
+ "new": "",
+ "test_file": "test_tappytoon.py",
+ "test": "test_availability_only_paid_catalogue_and_legacy_unattempted_queue_do_not_probe_readers"
+},
+{
+ "id": "tappytoon-availability-upgrade-discards-reader-work",
+ "source": "comic_archive/inventory.py",
+ "old": "AND status='queued' AND attempts=0 ",
+ "new": "AND status='queued' ",
+ "test_file": "test_inventory.py",
+ "test": "test_tappytoon_correction_preserves_saved_partial_attempted_and_historically_owned_work"
+},
+{
+ "id": "completion-forgets-unenumerated-series",
+ "source": "comic_archive/audit.py",
+ "old": "missing == unsupported and invalid == 0 and gaps == 0",
+ "new": "missing == unsupported and invalid == 0",
+ "test_file": "test_audit.py",
+ "test": "test_completion_retains_missing_series_until_a_successful_scan_recovers_them"
+},
+{
+ "id": "pipeline-assumes-optional-series-seeds",
+ "source": "comic_archive/pipeline.py",
+ "old": "self.supports_series_seed = getattr(self._inner, 'supports_series_seed', False) is True",
+ "new": "self.supports_series_seed = True",
+ "test_file": "test_pipeline.py",
+ "test": "test_optional_series_seed_capability_comes_from_the_owned_adapter"
+},
+{
+ "id": "dashboard-disable-advances-focus-to-another-provider",
+ "source": "comic_archive/window_pages.py",
+ "old": "    if not enabled and widget.hasFocus():\n        widget.clearFocus()\n",
+ "new": "",
+ "test_file": "test_window_pages.py",
+ "test": "test_card_actions_do_not_focus_another_provider_or_move_the_scroll_position"
+},
+{
+ "id": "dashboard-primary-replacement-advances-focus",
+ "source": "comic_archive/window_pages.py",
+ "old": "        if previous is not primary and previous.hasFocus():\n            previous.clearFocus()\n",
+ "new": "",
+ "test_file": "test_window_pages.py",
+ "test": "test_connection_permission_disappearing_does_not_focus_the_next_card"
+},
+{
+ "id": "old-catalogue-refusals-delay-never-checked-series",
+ "source": "comic_archive/inventory.py",
+ "old": "ORDER BY CASE WHEN scans.observed_at IS NULL THEN 0\n                WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,",
+ "new": "ORDER BY CASE WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 0 ELSE 1 END,",
+ "test_file": "test_inventory.py",
+ "test": "test_unchecked_series_precede_old_refusals_without_resetting_scan_or_reader_checkpoints"
+},
+{
+ "id": "series-batch-makes-new-queue-wait",
+ "source": "comic_archive/jobs.py",
+ "old": "ready = scan_only and not refresh_lists and inventory.has_selected_pending()",
+ "new": "ready = False",
+ "test_file": "test_jobs.py",
+ "test": "test_controller_scan_yields_new_candidates_then_resumes_without_rechecking_saved_series"
+},
+{
+ "id": "missing-episode-info-still-stops-readable-content",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "info, reader_html = self._reader_document(url, match[1], error.source_http_status)",
+ "new": "raise error",
+ "test_file": "test_tapas_http.py",
+ "test": "test_missing_info_uses_website_reader_document_without_duplicate_reader_or_info_requests"
+},
+{
+ "id": "missing-reader-still-holds-whole-download",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "status not in {404, 410}\n                or getattr(error, 'source_response_kind', None) == 'challenge'",
+ "new": "status not in {410}\n                or getattr(error, 'source_response_kind', None) == 'challenge'",
+ "test_file": "test_tapas_http.py",
+ "test": "test_missing_reader_is_episode_local_but_auth_throttle_and_outages_remain_holds"
+},
+{
+ "id": "missing-reader-swallowing-rate-limit",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "status not in {404, 410}\n                or getattr(error, 'source_response_kind', None) == 'challenge'",
+ "new": "status not in {404, 410, 429}\n                or getattr(error, 'source_response_kind', None) == 'challenge'",
+ "test_file": "test_tapas_http.py",
+ "test": "test_missing_reader_is_episode_local_but_auth_throttle_and_outages_remain_holds"
+},
+{
+ "id": "reader-document-conflicting-series-accepted",
+ "source": "comic_archive/adapters/tapas_http.py",
+ "old": "if platform_id is not None and platform_id != observed_series:",
+ "new": "if False:",
+ "test_file": "test_tapas_http.py",
+ "test": "test_missing_info_does_not_accept_wrong_episode_series_or_partial_comic_document"
+},
+ {
+  "id": "speed-completed-batches-not-forwarded",
+  "source": "comic_archive/app_actions.py",
+  "old": "transfer=(reading.get('account') or {}).get('transfer')",
+  "new": "transfer=None",
+  "test_file": "test_app_actions.py",
+  "test": "test_all_provider_cards_measure_batches_completed_between_minute_refreshes"
+ },
+ {
+  "id": "speed-current-task-bytes-omitted",
+  "source": "comic_archive/account_ui.py",
+  "old": "                total += saved",
+  "new": "                total += 0",
+  "test_file": "test_account_ui.py",
+  "test": "test_transfer_counts_completed_batches_and_only_the_current_tasks_checkpoint"
+ },
+ {
+  "id": "speed-ignores-completed-batches",
+  "source": "comic_archive/download_control.py",
+  "old": "'completed_bytes': completed_bytes",
+  "new": "'completed_bytes': 0",
+  "test_file": "test_account_ui.py",
+  "test": "test_transfer_counts_completed_batches_and_only_the_current_tasks_checkpoint"
+ },
+ {
+  "id": "speed-stale-task-checkpoint-counted",
+  "source": "comic_archive/account_ui.py",
+  "old": "if worker.get('task_id') == task['id']:",
+  "new": "if True:",
+  "test_file": "test_account_ui.py",
+  "test": "test_transfer_counts_completed_batches_and_only_the_current_tasks_checkpoint"
+ },
+ {
+  "id": "speed-stale-progress-counted",
+  "source": "comic_archive/account_ui.py",
+  "old": "task['published_at'] <= path.stat().st_mtime <= now",
+  "new": "path.stat().st_mtime <= now",
+  "test_file": "test_account_ui.py",
+  "test": "test_transfer_counts_completed_batches_and_only_the_current_tasks_checkpoint"
+ },
+ {
+  "id": "speed-resume-keeps-old-samples",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "self.transfer_scope != scope or self.saved_at and total < self.saved_at[-1][1]",
+  "new": "self.saved_at and total < self.saved_at[-1][1]",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_cumulative_speed_survives_step_changes_and_resets_after_resume_or_counter_loss"
+ },
+ {
+  "id": "basic-card-internal-fields-visible",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "'rows': [facts[name] for name in DASHBOARD_FIELDS]",
+  "new": "'rows': list(facts.values())",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_all_provider_cards_keep_only_basic_fields_across_internal_steps"
+ },
+ {
+  "id": "basic-card-phase-label-leaks",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            text = label = 'Working'",
+  "new": "            text = label = account.get('phase')",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_all_provider_cards_keep_only_basic_fields_across_internal_steps"
+ },
+ {
+  "id": "basic-card-unchecked-finished-as-done",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "        if incomplete_history:",
+  "new": "        if False:",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_simple_cards_keep_real_errors_and_incomplete_completion_visible"
+ },
+ {
+  "id": "dashboard-shows-diagnostics-instead-of-summary",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self._fields(summary['rows'])",
+  "new": "        self._fields(v['rows'])",
+  "test_file": "test_window_pages.py",
+  "test": "test_all_provider_cards_hide_internal_backlogs_without_recreating_fields"
+ },
+ {
+  "id": "card-status-colour-stuck-on-active",
+  "source": "comic_archive/window_pages.py",
+  "old": "self._appearance(summary['appearance'])",
+  "new": "self._appearance('active')",
+  "test_file": "test_window_pages.py",
+  "test": "test_status_colours_match_across_providers_and_update_existing_widgets"
+ },
+ {
+  "id": "card-status-background-stuck-on-active",
+  "source": "comic_archive/window_art.py",
+  "old": "card_colours(self.property('appearance'),",
+  "new": "card_colours('active',",
+  "test_file": "test_window_pages.py",
+  "test": "test_status_colours_match_across_providers_and_update_existing_widgets"
+ },
+ {
+  "id": "download-types-lost-on-read",
+  "source": "comic_archive/download_selection.py",
+  "old": "return validate(json.loads(row[0]))",
+  "new": "return dict.fromkeys(TYPES, True)",
+  "test_file": "test_download_selection.py",
+  "test": "test_defaults_preserve_every_type_and_saved_choices_are_strict_and_durable"
+ },
+ {
+  "id": "download-types-excluded-restored",
+  "source": "comic_archive/inventory.py",
+  "old": "            query += ' AND ' + clause(self.db, 'episodes')",
+  "new": "            query += ' AND 1'",
+  "test_file": "test_download_selection.py",
+  "test": "test_deleted_unwanted_free_episode_stays_deleted_across_subsequent_runs_until_reselected"
+ },
+ {
+  "id": "download-types-reader-filter-ignored",
+  "source": "comic_archive/jobs.py",
+  "old": "if not selected_for_download(inventory.db, key):",
+  "new": "if False:",
+  "test_file": "test_download_selection.py",
+  "test": "test_reader_reclassification_is_applied_before_images_are_requested"
+ },
+ {
+  "id": "download-types-paid-history-lost",
+  "source": "comic_archive/inventory.py",
+  "old": "            remember_paid_series(self.db, series_id)\n\n    def reader_cycle",
+  "new": "            pass\n\n    def reader_cycle",
+  "test_file": "test_download_selection.py",
+  "test": "test_paid_choice_includes_free_companions_for_every_provider_but_not_unrelated_free_series"
+ },
+ {
+  "id": "download-types-cancelled-audit-reused",
+  "source": "comic_archive/download_control.py",
+  "old": "if (value['status'] == 'finished' or value['code'] == 'archive_incomplete' or audit_cancelled):",
+  "new": "if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_type_change_does_not_reuse_an_audit_cancelled_under_the_old_selection"
+ },
+ {
+  "id": "completion-continue-only-repeats-local-audit",
+  "source": "comic_archive/download_control.py",
+  "old": "gaps, episodes = inventory.prepare_completion_retry()",
+  "new": "gaps, episodes = 0, 0",
+  "test_file": "test_download_control.py",
+  "test": "test_continue_retries_an_incomplete_listing_instead_of_repeating_the_same_local_audit"
+ },
+ {
+  "id": "completion-retry-recrawls-all-series",
+  "source": "comic_archive/inventory.py",
+  "old": "        if retry is not None:\n            return retry if limit is None else retry[:limit]",
+  "new": "        if False:\n            return retry if limit is None else retry[:limit]",
+  "test_file": "test_jobs.py",
+  "test": "test_completion_retry_sync_checks_only_the_partial_series_without_restarting_the_account_crawl"
+ },
+ {
+  "id": "completion-held-shows-finished",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "title, label, tone = 'Completion needs attention', 'Needs attention', 'warning'",
+  "new": "title, label, tone = 'Finished, with episodes missing', 'Finished', 'warning'",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_incomplete_listing_is_attention_without_a_damage_claim_or_estimate"
+ },
+ {
+  "id": "completion-held-keeps-estimating",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    if account.get('status') == 'finished' or (account.get('status') == 'held' and account.get('code') == 'archive_incomplete'):",
+  "new": "    if account.get('status') == 'finished':",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_incomplete_listing_is_attention_without_a_damage_claim_or_estimate"
+ },
+ {
+  "id": "download-types-excluded-backlog-yields-every-series",
+  "source": "comic_archive/inventory.py",
+  "old": "clause(self.db) + ' LIMIT 1'",
+  "new": "'1 LIMIT 1'",
+  "test_file": "test_jobs.py",
+  "test": "test_excluded_free_backlog_does_not_break_metadata_batches_into_single_series"
+ },
+ {
+  "id": "download-choices-dialog-loses-themed-background",
+  "source": "comic_archive/window_style.py",
+  "old": "QMainWindow, QDialog, QStackedWidget",
+  "new": "QMainWindow, QStackedWidget",
+  "test_file": "test_window_pages.py",
+  "test": "test_download_choice_dialog_checkbox_save_cancel_and_empty_selection"
+ },
+ {
+  "id": "download-choices-short-dialog-squeezes-content",
+  "source": "comic_archive/window_pages.py",
+  "old": "        box.addWidget(area, 1)",
+  "new": "        box.addWidget(content, 1)",
+  "test_file": "test_window_pages.py",
+  "test": "test_download_choices_keep_wrapped_text_and_buttons_accessible_in_a_short_dialog"
+ },
+ {
+  "id": "download-types-local-status-drops-breakdown",
+  "source": "comic_archive/local_library.py",
+  "old": "'episodes_by_status','episode_types','unsupported_by_reason'",
+  "new": "'episodes_by_status','unsupported_by_reason'",
+  "test_file": "test_local_library.py",
+  "test": "test_real_poll_preserves_recorded_episode_types_for_the_download_cards"
+ },
+ {
+  "id": "novel-observed-legacy-font-rejected",
+  "source": "comic_archive/novels.py",
+  "old": "NORMALIZED_TAGS = {'font': 'span'}",
+  "new": "NORMALIZED_TAGS = {}",
+  "test_file": "test_novels.py",
+  "test": "test_observed_font_and_table_chapters_preserve_all_text_in_verified_epubs"
+ },
+ {
+  "id": "novel-observed-table-rejected",
+  "source": "comic_archive/novels.py",
+  "old": "'strike', 'table', 'caption',",
+  "new": "'strike', 'caption',",
+  "test_file": "test_novels.py",
+  "test": "test_observed_font_and_table_chapters_preserve_all_text_in_verified_epubs"
+ },
+ {
+  "id": "novel-table-span-limit-ignored",
+  "source": "comic_archive/novels.py",
+  "old": "if not low <= number <= high:",
+  "new": "if False:",
+  "test_file": "test_novels.py",
+  "test": "test_table_spans_survive_sanitization_and_invalid_spans_hold"
+ },
+ {
+  "id": "completion-type-change-loses-reader-retry",
+  "source": "comic_archive/download_control.py",
+  "old": "                if previous['code'] == 'archive_incomplete':",
+  "new": "                if False:",
+  "test_file": "test_download_control.py",
+  "test": "test_changing_choices_after_incomplete_completion_retains_targeted_retry"
+ },
+ {
+  "id": "novel-failure-log-omits-markup-reason",
+  "source": "comic_archive/jobs.py",
+  "old": "not saved, {code}{details} ({describe(error)}).",
+  "new": "not saved, {code} ({describe(error)}).",
+  "test_file": "test_novels.py",
+  "test": "test_unsupported_novel_job_logs_the_markup_reason_without_chapter_data"
+ },
+ {
+  "id": "provider-replay-tappytoon-discards-earlier-pages",
+  "source": "comic_archive/adapters/tappytoon.py",
+  "old": "            found += value",
+  "new": "            found = value",
+  "test_file": "test_provider_replays.py",
+  "test": "test_observed_tappytoon_pages_reach_the_real_end_with_all_episode_types"
+ },
+ {
+  "id": "provider-replay-tapas-ignores-reported-total",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "                if len(episodes) != total:",
+  "new": "                if False:",
+  "test_file": "test_provider_replays.py",
+  "test": "test_changed_tapas_total_is_a_mismatch_not_a_complete_list"
+ },
+ {
+  "id": "saved-signin-rejection-deletes-session",
+  "source": "comic_archive/window_signin.py",
+  "old": "    except AuthenticationError:\n        return 'expired'\n",
+  "new": "    except AuthenticationError:\n        forget_session(workspace.session)\n        return 'expired'\n",
+  "test_file": "test_window_signin.py",
+  "test": "test_reopening_with_a_rejected_session_preserves_it_and_the_library"
+ },
+ {
+  "id": "linux-smoke-reuses-owner-home",
+  "source": "scripts/build_linux_app.py",
+  "old": "env = clean_env(HOME=str(home), XDG_STATE_HOME=paths['state'],",
+  "new": "env = clean_env(HOME=os.environ['HOME'], XDG_STATE_HOME=paths['state'],",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_smoke_uses_an_isolated_home_and_never_the_existing_sign_in"
+ },
+ {
+  "id": "signin-tapas-reuses-cached-identity",
+  "source": "comic_archive/desktop_app.py",
+  "old": "  fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', cache: 'no-store',",
+  "new": "  fetch('/who-am-i', {method: 'GET', credentials: 'same-origin', cache: 'default',",
+  "test_file": "test_signin_browser.py",
+  "test": "test_real_browser_identity_is_fresh_after_login_and_logout_for_every_provider"
+ },
+ {
+  "id": "signin-tappytoon-reuses-cached-identity",
+  "source": "comic_archive/desktop_app.py",
+  "old": "fetch('/en/me/library/unlocked/comics', {method: 'GET', credentials: 'same-origin', cache: 'no-store',",
+  "new": "fetch('/en/me/library/unlocked/comics', {method: 'GET', credentials: 'same-origin', cache: 'default',",
+  "test_file": "test_signin_browser.py",
+  "test": "test_real_browser_identity_is_fresh_after_login_and_logout_for_every_provider"
+ },
+ {
+  "id": "signin-webtoon-reuses-cached-identity",
+  "source": "comic_archive/desktop_app.py",
+  "old": "WEBTOON_ASK = SIGNIN_ASK.replace(\"fetch('/who-am-i'\", f\"fetch('{USER_INFO}'\")",
+  "new": "WEBTOON_ASK = SIGNIN_ASK.replace(\"fetch('/who-am-i'\", f\"fetch('{USER_INFO}'\").replace(\"cache: 'no-store'\", \"cache: 'default'\")",
+  "test_file": "test_signin_browser.py",
+  "test": "test_real_browser_identity_is_fresh_after_login_and_logout_for_every_provider"
+ },
+ {
+  "id": "qt-cocoa-wheel-native-source-lost",
+  "source": "comic_archive/qt_engine.py",
+  "old": "source = sources.MouseEventSynthesizedBySystem if sys.platform == 'darwin' else sources.MouseEventNotSynthesized",
+  "new": "source = sources.MouseEventNotSynthesized",
+  "test_file": "test_qt_engine.py",
+  "test": "test_cocoa_wheel_uses_the_native_source_and_other_platforms_keep_their_source"
+ },
+ {
+  "id": "qt-wheel-nonmac-source-changed",
+  "source": "comic_archive/qt_engine.py",
+  "old": "source = sources.MouseEventSynthesizedBySystem if sys.platform == 'darwin' else sources.MouseEventNotSynthesized",
+  "new": "source = sources.MouseEventSynthesizedBySystem",
+  "test_file": "test_qt_engine.py",
+  "test": "test_cocoa_wheel_uses_the_native_source_and_other_platforms_keep_their_source"
+ },
+ {
+  "id": "release-mac-native-gate-ignored",
+  "source": "scripts/verify_release.py",
+  "old": "if not isinstance(checks, dict) or set(checks) != MAC_CHECKS or any(checks[key] is not True for key in MAC_CHECKS):",
+  "new": "if not isinstance(checks, dict) or set(checks) != MAC_CHECKS:",
+  "test_file": "test_release_gate.py",
+  "test": "test_mac_download_requires_native_checks_architecture_and_truthful_signing"
+ },
+ {
+  "id": "release-040-mac-omitted",
+  "source": "scripts/verify_release.py",
+  "old": "if 'macos' not in value and tuple(map(int, version.split('-')[0].split('.'))) >= (0, 4, 0):",
+  "new": "if False:",
+  "test_file": "test_release_gate.py",
+  "test": "test_040_release_cannot_omit_the_mac_download_and_evidence"
  }
 ]

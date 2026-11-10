@@ -14,6 +14,8 @@ CODE = re.compile(r'[a-z][a-z0-9_:]{0,63}')
 def system():
     """The operating system, as plainly as a support reply needs it."""
     name = platform.system()
+    if name == 'Darwin':
+        return ('macOS ' + platform.mac_ver()[0]).strip()
     if name == 'Windows':
         # Windows 11 still calls itself release 10; its build number tells the two apart.
         return f"Windows {platform.release()} (build {platform.version().rpartition('.')[2]})"
@@ -57,6 +59,11 @@ def site_lines(name, s):
     rows = (('Episodes', status.get('episodes_by_status')), ('Not downloaded', status.get('unsupported_by_reason')),
             ('Problems', status.get('unsaved_by_code')), ('Last check', account.get('audit')))
     lines += [f'{label}: {_counts(value)}' for label, value in rows if _counts(value)]
+    purchase = account.get('purchase_history')
+    if isinstance(purchase, dict):
+        words = [_word(purchase.get(key)) for key in ('status', 'code')]
+        counts = _counts({key: purchase[key] for key in ('pages', 'discovered', 'unresolved') if key in purchase})
+        lines.append('Purchase history: ' + ' / '.join(word for word in words if word) + (f'; {counts}' if counts else ''))
     series = [f'{label} {_count(status.get(key))}' for label, key in (
         ('known', 'series_count'), ('to check', 'scan_remaining_series_count'),
         ('with gaps', 'series_scan_gap_count'), ('never checked', 'series_without_scan_checkpoint_count'))

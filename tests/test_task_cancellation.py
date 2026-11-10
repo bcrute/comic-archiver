@@ -102,6 +102,13 @@ class QueuedStopTests(unittest.TestCase):
             with self.subTest(operation=operation),self.assertRaises(ArchiveError):cancelled_result(library,operation)
         self.assertFalse(library.exists())
 
+    def test_a_speed_change_can_leave_a_durable_stop_before_worker_admission(self):
+        result = request_running_stop(self.session, self.task, include_queued=True)
+        self.assertEqual(result['status'], 'cancellation_requested')
+        self.assertTrue(queued_stop_requested(self.session, self.task))
+        self.assertTrue((self.root / 'requests' / (self.task + '.json')).is_file())
+        self.assertFalse((self.root / 'responses' / (self.task + '.json')).exists())
+
     def test_a_stop_left_with_a_running_task_is_read_only_by_the_worker_process_running_it(self):
         library=self.project/'Library';marker=self.root/'cancellations'/f'{self.task}.json'
         self.assertEqual(request_running_stop(self.session,self.task)['status'],'not_running')  # Still queued.

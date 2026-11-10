@@ -678,9 +678,13 @@ class Surface:
         q = self.loop.q
         target, spot = self.target(), q.QtCore.QPointF(x, y)
         turn = q.QtCore.QPoint(-int(delta_x), -int(delta_y))
+        sources = q.QtCore.Qt.MouseEventSource
+        # Cocoa otherwise delivers a trusted DOM wheel event without scrolling
+        # its pixel delta. The native engine check exercises actual movement.
+        source = sources.MouseEventSynthesizedBySystem if sys.platform == 'darwin' else sources.MouseEventNotSynthesized
         q.QtWidgets.QApplication.sendEvent(target, q.QtGui.QWheelEvent(
             spot, target.mapToGlobal(spot), turn, turn, q.QtCore.Qt.MouseButton.NoButton,
-            q.QtCore.Qt.KeyboardModifier.NoModifier, q.QtCore.Qt.ScrollPhase.NoScrollPhase, False))
+            q.QtCore.Qt.KeyboardModifier.NoModifier, q.QtCore.Qt.ScrollPhase.NoScrollPhase, False, source))
 
     def close(self):
         if self.closed:

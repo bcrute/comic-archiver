@@ -28,7 +28,7 @@ REASONS = {'scheduled', 'novel', 'temporary_access', 'order_unverified', 'reader
 REASONS |= {'archive_path_invalid','archive_identity_mismatch'}
 REASONS |= {'novel_manifest_incomplete','novel_access_unverified'}
 PROVENANCE = {'subscribed', 'recent', 'updated', 'transaction_history', 'sync',
-              'selected_series', 'episode_check', 'discovery_report','free_episodes'}
+              'selected_series', 'episode_check', 'discovery_report','free_episodes','wait_until_free'}
 
 
 def _portable_path(root, relative):
@@ -76,10 +76,43 @@ def _source_series(meta):
 
 def _site(rows, portable):
     """The site a library saves from, named by its recorded access and saved exports; Tapas when nothing names one."""
-    found = {site.key for site in sites.SITES for row in rows if row['access_state'] in (site.free, site.unlocked)}
+    found = {site.key for site in sites.SITES for row in rows if row['access_state'] in (site.free, site.unlocked, site.readable, site.limited)}
     found |= {entry['metadata'].get('source') for entry in portable.values()
               if isinstance(entry['metadata'], dict) and entry['metadata'].get('source') in sites.KEYS}
     return found.pop() if len(found) == 1 else 'mixed' if found else sites.DEFAULT.key
+
+
+def check_completion(output):
+    """Finish from recorded results; unchanged archive contents are not reread.
+
+    Normal acquisition already verifies new archives and reconciles missing or
+    changed files. This is bookkeeping, not a fresh integrity or ownership audit.
+    """
+    root = Path(output)
+    archived = missing = unsupported = invalid = 0
+    with LibraryLock(root), Inventory(root, read_only=True) as inventory:
+        gaps = len(inventory.scan_gaps())
+        included = inventory.selected_episode_ids()
+        for row in inventory.db.execute('SELECT id,series_id,status,access_state,archive_path FROM episodes'):
+            invalid += int(not observed_id(row['id']) or not observed_id(row['series_id'])
+                           or row['status'] not in STATUSES
+                           or row['status'] == 'archived' and not row['archive_path'])
+            archived += int(row['status'] == 'archived')
+            if (row['access_state'] in SUPPORTED and row['status'] != 'archived'
+                    and (included is None or row['id'] in included)):
+                missing += 1
+                unsupported += int(row['status'] == 'unsupported')
+    logging.getLogger(DOWNLOAD_LOG).info(
+        'completion: mode=inventory archived=%d missing=%d unsupported=%d index_problems=%d scan_gaps=%d '
+        'archive_contents_rechecked=false local_only=true', archived, missing, unsupported, invalid, gaps)
+    return {'checked_at': timestamp(), 'check_mode': 'inventory',
+            'completion_check_passed': missing == unsupported and invalid == 0 and gaps == 0,
+            'recorded_archived_episode_count': archived,
+            'missing_recorded_accessible_episode_count': missing,
+            'unsupported_recorded_accessible_episode_count': unsupported,
+            'inventory_index_problem_count': invalid,
+            'series_scan_gap_count': gaps,
+            'account_inventory_complete': False, 'archive_contents_rechecked': False}
 
 
 class AuditProgress:
@@ -297,6 +330,8 @@ def audit_library(output, report=None, *, progress=None):
                  'integrity_problems': integrity_problems, 'series_metadata_problems': folder_problems,
                  'inventory_index_problems': index_problems,
                  'unindexed_archives': unindexed, 'series': series, 'episodes': episodes}
+        from .purchase_history import summary as purchase_summary
+        value['purchase_history'] = purchase_summary(inventory)
         if not scanned: value['coverage_blockers'].append('watched_series_scan_incomplete')
         if status['series_scan_gap_count']:value['coverage_blockers'].append('series_episode_counts_unreconciled')
         if unresolved_supported: value['coverage_blockers'].append('recorded_accessible_episodes_missing')

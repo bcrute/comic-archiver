@@ -39,9 +39,39 @@ class LocalLibraryTests(unittest.TestCase):
         (queue/'status.json').write_text('{"state":"ready"}')
         return queue/'requests'
 
+    def test_real_poll_preserves_recorded_episode_types_for_the_download_cards(self):
+        from comic_archive import dashboard_model
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('42', 'Series', [
+                {'id': str(key), 'title': 'Episode', 'order': key, 'access_state': access}
+                for key, access in ((81, 'tapas_free'), (82, 'tapas_free'), (83, 'tapas_unlocked'),
+                                    (84, 'tapas_limited'), (85, 'tapas_readable'))], 'fixture')
+            for key in ('81', '83', '85'):
+                inventory.mark(key, 'archived')
+        reading = self.actions.poll(network=False, cloud=False)
+        expected = {'free': {'saved': 1, 'waiting': 1}, 'bought': {'saved': 1, 'waiting': 0},
+                    'limited': {'saved': 0, 'waiting': 1}, 'unclassified': {'saved': 1, 'waiting': 0}}
+        self.assertEqual(reading['status']['episode_types'], expected)
+        rows = dashboard_model.episode_types(reading['status'])
+        self.assertEqual([(row['saved'], row['waiting']) for row in rows],
+                         [('1', '1'), ('1', '0'), ('0', '1'), ('1', '0')])
+        self.assertEqual(rows[-1]['label'], 'Unknown type')
+        self.assertFalse(list(self.workspace.session.glob('worker/requests/*')))
+
+    def test_episode_inventory_obeys_workspace_scope_and_never_initializes_a_database(self):
+        # Simulate an existing provider folder whose index is not present.
+        (self.workspace.library / '.archive-state' / 'inventory.sqlite3').unlink()
+        result = self.registry.episode_inventory(LOCAL_OWNER, self.registry.workspace_id)
+        self.assertFalse(result['initialized'])
+        self.assertFalse((self.workspace.library / '.archive-state' / 'inventory.sqlite3').exists())
+        with self.assertRaises(ArchiveError):
+            self.registry.episode_inventory('other-owner', self.registry.workspace_id)
+        with self.assertRaises(ArchiveError):
+            self.registry.episode_inventory(LOCAL_OWNER, '0' * 32)
+
     def test_open_existing_file_hands_only_that_file_to_the_fixed_opener_and_copies_nothing(self):
         archive,identifier=self.file_to_open()
-        with patch('comic_archive.local_library.WINDOWS',False), patch('comic_archive.local_library.subprocess.Popen') as launch:
+        with patch('comic_archive.local_library.WINDOWS',False), patch('comic_archive.local_library.sys.platform','linux'), patch('comic_archive.local_library.subprocess.Popen') as launch:
             launch.return_value.wait.return_value=0
             before=list(archive.parent.iterdir())
             # Opening a saved file does not wait for a download that holds the library.
@@ -52,6 +82,17 @@ class LocalLibraryTests(unittest.TestCase):
             self.assertNotIn(str(archive),json.dumps(result))
             self.assertEqual(list(archive.parent.iterdir()),before)
             self.assertEqual(archive.read_bytes(),b'owned portable file')
+            self.assertFalse(list(self.workspace.session.glob('worker/requests/*')))
+
+    def test_macos_open_uses_launch_services_with_the_registered_file(self):
+        archive, identifier = self.file_to_open()
+        with patch('comic_archive.local_library.WINDOWS', False), \
+                patch('comic_archive.local_library.sys.platform', 'darwin'), \
+                patch('comic_archive.local_library.subprocess.Popen') as launch:
+            launch.return_value.wait.return_value = 0
+            self.assertEqual(self.actions.open_file(identifier), {'status': 'open_requested'})
+            self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', str(archive)])
+            self.assertEqual(archive.read_bytes(), b'owned portable file')
             self.assertFalse(list(self.workspace.session.glob('worker/requests/*')))
 
     def test_open_refuses_foreign_missing_private_and_symlinked_files_before_launch(self):

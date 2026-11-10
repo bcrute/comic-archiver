@@ -8,6 +8,24 @@ from comic_archive.monitoring import library_status
 
 
 class MonitoringTests(unittest.TestCase):
+    def test_rechecking_known_series_is_visible_without_forecasting_new_downloads(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work) / 'Library'
+            with Inventory(root) as inventory:
+                inventory.observe('42', 'Fixture', [], 'fixture')
+                inventory.scan_candidates()
+                inventory.record_series_scan('42')
+                inventory.finish_scan_cycle()
+                inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-01T00:00:00Z'")
+                inventory.db.commit()
+                inventory.scan_candidates()
+            value = library_status(root)
+            self.assertEqual(value['series_without_scan_checkpoint_count'], 0)
+            self.assertEqual(value['estimate']['checking_series'], 1)
+            self.assertEqual(value['estimate']['waiting_episodes'], 0)
+            self.assertEqual(value['estimate']['unchecked_series'], 0)
+            self.assertEqual(value['estimate']['left_bytes'], 0)
+
     def test_audit_progress_is_safe_and_scoped_to_the_active_worker_task(self):
         from comic_archive.monitoring import _progress
         good = {'phase':'verify','status':'running','archives_checked':2,'archives_total':9,

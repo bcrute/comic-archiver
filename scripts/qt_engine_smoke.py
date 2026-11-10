@@ -8,6 +8,7 @@ the internet. Needs the desktop extra (PySide6); run it on the build fleet:
     python scripts/qt_engine_smoke.py
 """
 import http.server
+import ctypes
 import json
 import os
 import re
@@ -65,6 +66,9 @@ LEAVE = (b'<!doctype html><html><body><button id="stay" style="display:block;wid
 SHY = (b'<!doctype html><html><head><style>body{margin:0} a{display:block;position:absolute;left:0;top:0;width:200px;'
        b'height:40px;background:#ccc}</style></head><body><a id="decoy" href="/page3">Decoy</a><a id="shy" href="/page2">Shy</a>'
        b'<script>const shy = document.getElementById("shy");'
+       b'const trace = []; for (const kind of ["pointermove","pointerdown","pointerup","click"]) '
+       b'addEventListener(kind, e => { if (trace.length < 30) trace.push([kind,e.target.id,e.clientX,e.clientY,e.isTrusted,e.defaultPrevented]); '
+       b'document.documentElement.dataset.mouseTrace = JSON.stringify(trace); }, true);'
        b'shy.addEventListener("mouseenter", () => { shy.style.top = "200px"; }, {once: true});</script></body></html>')
 STORE = b'<!doctype html><html><body><script>localStorage.setItem("written", "yes")</script></body></html>'
 PNG = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c626001000000050001'
@@ -437,8 +441,19 @@ def work(origin):
               armed is True and heard == (None, None) and target.landed() is False, (armed, heard))
         page.goto(origin + '/shy', wait_until='domcontentloaded')
         mark = len(SEEN)
-        with page.expect_navigation(wait_until='domcontentloaded', timeout=10000):
-            page.locator('#shy').click(timeout=8000)
+        try:
+            with page.expect_navigation(wait_until='domcontentloaded', timeout=10000):
+                page.locator('#shy').click(timeout=8000)
+        except qt_engine.TimeoutError:
+            try:
+                detail = {'url':page.url, 'hit':page.call('box.hit'),
+                          'events':page.locator('html').get_attribute('data-mouse-trace'),
+                          'links':page.evaluate('() => [...document.querySelectorAll("a")].map(e => '
+                                                '({id:e.id, y:e.getBoundingClientRect().y}))')}
+            except qt_engine.Error as error:
+                detail = {'observation_error':type(error).__name__}
+            print(f'NOTE moving-link state: {detail}', flush=True)
+            raise
         check('a link that moves away under the pointer is still the one pressed',
               page.url == origin + '/page2' and '/page3' not in paths(mark), (page.url, paths(mark)))
 
@@ -473,6 +488,11 @@ def work(origin):
 
     def scrolling():
         page.goto(home, wait_until='domcontentloaded')
+        hints = context.loop.call(lambda: {
+            'platform': context.loop.q.QtGui.QGuiApplication.platformName(),
+            'lines': context.loop.q.QtGui.QGuiApplication.styleHints().wheelScrollLines(),
+            'viewport': [context.surface.view.width(), context.surface.view.height()]})
+        print(f'NOTE wheel configuration: {hints}', flush=True)
         page.mouse.move(400, 300)
         for _ in range(3):
             page.mouse.wheel(0, 1200)
@@ -480,6 +500,31 @@ def work(origin):
         moved = page.evaluate('() => window.scrollY')
         check('the wheel scrolls the page', moved > 0, moved)
         check('the wheel is a real one to the page', settled(lambda: page.locator('html').get_attribute('data-wheel'), 'true') == 'true')
+        if sys.platform == 'darwin' and moved == 0:
+            # Observe native event variants after recording the failed contract;
+            # none of these observations can turn that failure into a pass.
+            print(f'NOTE wheel DOM: {page.evaluate("({height:document.documentElement.scrollHeight, y:scrollY, visible:document.visibilityState})")}', flush=True)
+            for phased, system in ((False, False), (False, True), (True, False), (True, True)):
+                page.evaluate('() => window.scrollTo(0, 0)')
+                page.wait_for_timeout(100)
+
+                def turn(phased=phased, system=system):
+                    q = context.loop.q
+                    phases = q.QtCore.Qt.ScrollPhase
+                    source = q.QtCore.Qt.MouseEventSource
+                    source = source.MouseEventSynthesizedBySystem if system else source.MouseEventNotSynthesized
+                    target = context.surface.target()
+                    spot, delta = q.QtCore.QPointF(400, 300), q.QtCore.QPoint(0, -1200)
+                    sequence = ((phases.ScrollBegin, delta), (phases.ScrollEnd, q.QtCore.QPoint())) if phased else (
+                        (phases.NoScrollPhase, delta),)
+                    for phase, step in sequence:
+                        q.QtWidgets.QApplication.sendEvent(target, q.QtGui.QWheelEvent(
+                            spot, target.mapToGlobal(spot), step, step, q.QtCore.Qt.MouseButton.NoButton,
+                            q.QtCore.Qt.KeyboardModifier.NoModifier, phase, False, source))
+
+                context.loop.call(turn)
+                page.wait_for_timeout(500)
+                print(f'NOTE Mac wheel phased={phased} system={system}: scrollY={page.evaluate("window.scrollY")}', flush=True)
         page.evaluate('() => window.scrollTo(0, 0)')
         far = page.locator('#far')
         far.scroll_into_view_if_needed(timeout=2000)
@@ -514,14 +559,23 @@ def work(origin):
     def recovery():
         page.goto(home, wait_until='domcontentloaded')
         pid = context.loop.call(lambda: context.surface.page.renderProcessPid())
-        fields = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
-        filtered = fields.get('Seccomp', '').strip()
-        try:
-            apart = os.readlink(f'/proc/{pid}/ns/pid') != os.readlink('/proc/self/ns/pid')
-        except OSError:
-            apart = 'unreadable'
-        print(f'NOTE sandbox: page process system-call filter {filtered} (2 is on), process space of its own: {apart}', flush=True)
-        check('the page process is confined by the engine', filtered == '2', filtered)
+        if sys.platform == 'darwin':
+            # Chromium uses Seatbelt here, not Linux's seccomp/procfs. This is
+            # the same OS query used by Chromium's Seatbelt::IsSandboxed.
+            sandbox = ctypes.CDLL('/usr/lib/libsandbox.dylib').sandbox_check
+            sandbox.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
+            sandbox.restype = ctypes.c_int
+            confined = sandbox(pid, None, 0)
+            check('the page process is confined by the engine', confined == 1, confined)
+        elif sys.platform.startswith('linux'):
+            fields = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
+            filtered = fields.get('Seccomp', '').strip()
+            try:
+                apart = os.readlink(f'/proc/{pid}/ns/pid') != os.readlink('/proc/self/ns/pid')
+            except OSError:
+                apart = 'unreadable'
+            print(f'NOTE sandbox: page process system-call filter {filtered} (2 is on), process space of its own: {apart}', flush=True)
+            check('the page process is confined by the engine', filtered == '2', filtered)
         os.kill(pid, signal.SIGKILL)
         check('a page process that ends is noticed', settled(lambda: context.surface.gone, True) is True)
         check('a page without its process is nowhere', page.url == 'about:blank', page.url)

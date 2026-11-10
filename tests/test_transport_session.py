@@ -40,6 +40,17 @@ class Client:
 
 
 class TransportTests(unittest.TestCase):
+    def test_reader_json_accept_is_limited_to_tapas_episode_routes(self):
+        client = Client([Response(data=b'{}')])
+        transport = Transport(client=client, interval=0.25)
+        self.assertEqual(transport.get('https://tapas.io/episode/81', reader_json=True), b'{}')
+        self.assertEqual(client.calls[0][1]['Accept'], 'application/json')
+        for url in ('https://us-a.tapas.io/pc/1.jpg', 'https://tapas.io/series/42',
+                    'https://tapas.io/episode/81?other=1'):
+            with self.assertRaises(ArchiveError):transport.get(url, reader_json=True)
+        with self.assertRaises(ArchiveError):transport.get('https://tapas.io/episode/81', reader_json='yes')
+        self.assertEqual(len(client.calls), 1)
+
     @patch('comic_archive.transport.time.sleep')
     def test_rate_limit_stops_other_threads_from_starting_or_retrying_requests(self, sleep):
         client = Client([Response(429), Response()])

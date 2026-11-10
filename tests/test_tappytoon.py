@@ -21,7 +21,7 @@ from comic_archive.transport import Transport
 API = 'https://api-global.tappytoon.com'
 CDN = 'https://content-repository-cdn.tappytoon.com/67'
 KEY = 'Bearer ' + 'k' * 40
-CHAPTERS = API + '/comics/67/chapters?sort=asc&limit=100&excludes=wait_until_free&skipAgeRatingRestriction=true&locale=en'
+CHAPTERS = API + '/comics/67/chapters?sort=asc&limit=100&skipAgeRatingRestriction=true&locale=en'
 COMIC = {'id': 67, 'category': 'comic', 'title': 'Sample Series ', 'slug': 'sample-series', 'description': 'Short.',
          'longDescription': 'A story made up for tests.', 'authors': [{'id': 1, 'name': 'First Author'}, {'id': 2, 'name': 'Second Author'}],
          'coverImageUrl': 'https://image-repository-cdn.tappytoon.com/series/67/cover.jpg'}
@@ -190,7 +190,6 @@ class TappytoonTests(unittest.TestCase):
             'leads elsewhere': {CHAPTERS: Answer(json.dumps([chapter(0)]).encode(), headers=[('Link', f'<{API}/comics/68/chapters?cursor=x>; rel="next"')])},
             'other series': {CHAPTERS: [chapter(0, comic=68)]},
             'twice': {CHAPTERS: [chapter(0), chapter(0)]},
-            'missing marks': {CHAPTERS: [{k: v for k, v in chapter(0).items() if k != 'isFree'}]},
             'other shape': {CHAPTERS: {'chapters': []}},
         }
         for name, change in broken.items():
@@ -199,12 +198,12 @@ class TappytoonTests(unittest.TestCase):
                 adapter.inspect_series('67')
             self.assertFalse(any('/chapters/9' in url or url.startswith(CDN) for url, _ in client.calls))
 
-    def test_a_chapter_is_read_only_when_it_is_free_or_unlocked_and_its_pictures_are_tappytoons(self, sleep):
+    def test_reader_refusals_and_invalid_manifests_prevent_saving(self, sleep):
         base = series_answers()
         url = 'https://www.tappytoon.com/en/chapters/900'
         listing = f'{API}/content-delivery/contents/manifest?chapterId=900&variant=high&locale=en&canAcceptSignedCookie=true'
         wrong = {
-            'locked': ({f'{API}/chapters/900?locale=en': chapter(0, free=False)}, AccessDenied),
+            'locked': ({f'{API}/chapters/900?locale=en': chapter(0, free=False), listing: NO_LICENSE}, AccessDenied),
             'another chapter': ({f'{API}/chapters/900?locale=en': chapter(1)}, MetadataError),
             'pictures elsewhere': ({listing: {'mediaType': 'image', 'files': [{'sortKey': 0, 'url': 'https://example.com/a.jpg'}]}}, ArchiveError),
             'no pictures': ({listing: {'mediaType': 'image', 'files': []}}, MetadataError),
@@ -307,7 +306,51 @@ class TappytoonTests(unittest.TestCase):
         self.assertEqual((sorted(result['archived_episode_ids']), result['unavailable_episode_ids']), (['900', '901'], ['903']))
         self.assertEqual(verify(self.root), [])
 
-    def test_a_rented_chapter_is_read_with_the_end_of_its_rental_and_one_without_an_end_is_not(self, sleep):
+    @patch('builtins.print')
+    def test_availability_only_paid_catalogue_and_legacy_unattempted_queue_do_not_probe_readers(self, output, sleep):
+        from comic_archive.inventory import Inventory
+        following = CHAPTERS + '&cursor=abc'
+        paid = chapter(2, free=False) | {'isAccessible': True}
+        answers = series_answers() | {KEY_PAGE: page_data(account=5),
+            LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}],
+            following: [paid, chapter(3, free=False, unlocked=True)]}
+        with Inventory(self.root) as inventory:
+            inventory.observe('67', 'Sample Series', [{'id': '902', 'title': 'Episode 3', 'order': 3,
+                               'access_state': 'tappytoon_readable'}], 'sync')
+        adapter, client = reader(answers)
+        with adapter:
+            result = sync(adapter, self.root, categories=['unlocked'])
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
+        self.assertEqual(result['unavailable_episode_ids'], [])
+        self.assertFalse(any('/chapters/902?' in url or 'chapterId=902&' in url for url, _ in client.calls))
+        with Inventory(self.root, read_only=True) as inventory:
+            row = inventory.db.execute("SELECT * FROM episodes WHERE id='902'").fetchone()
+            self.assertEqual((row['status'], row['access_state'], row['attempts']),
+                             ('unavailable', 'unavailable_or_unverified', 0))
+            self.assertIsNone(row['error_code'])
+        self.assertEqual(verify(self.root), [])
+
+    @patch('builtins.print')
+    def test_expired_contract_free_hint_is_tried_but_actual_manifest_license_denial_is_recorded(self, output, sleep):
+        following = CHAPTERS + '&cursor=abc'
+        free = chapter(0) | {'isContractExpired': True, 'isRestrictedToMe': True}
+        refused = f'{API}/content-delivery/contents/manifest?chapterId=900&variant=high&locale=en&canAcceptSignedCookie=true'
+        first = Answer(json.dumps([free, chapter(1)]).encode(), headers=[('Link', f'<{following}>; rel="next"')])
+        answers = series_answers() | {KEY_PAGE: page_data(account=5),
+            LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}], CHAPTERS: first,
+            f'{API}/chapters/900?locale=en': free, refused: NO_LICENSE}
+        adapter, client = reader(answers)
+        with adapter, self.assertLogs('comic_archive.download', level='INFO') as logs:
+            result = sync(adapter, self.root, categories=['unlocked'])
+        self.assertEqual(sorted(result['archived_episode_ids']), ['901', '903'])
+        self.assertEqual(result['unavailable_episode_ids'], ['900'])
+        self.assertIn(refused, [url for url, _ in client.calls])
+        self.assertIn('stage=reader_manifest http_status=400 reason=license_denied', ' '.join(logs.output))
+        self.assertFalse(any(url.startswith(CDN + '/0/') for url, _ in client.calls))
+        self.assertNotIn(KEY, ' '.join(logs.output))
+        self.assertEqual(verify(self.root), [])
+
+    def test_rental_timestamp_is_retained_when_known_and_does_not_gate_reader_access(self, sleep):
         rented = chapter(2, free=False) | {'isAccessible': True, 'isUserRented': True, 'rentalExpiredAt': RENTAL_END}
         following = CHAPTERS + '&cursor=abc'
         answers = series_answers() | {f'{API}/chapters/902?locale=en': rented,
@@ -315,14 +358,31 @@ class TappytoonTests(unittest.TestCase):
         adapter, _ = reader(answers)
         listed = {e['id']: (e['access_state'], e['access_expires_at']) for e in adapter.inspect_series('67')['episodes']}
         self.assertEqual(listed, {'900': ('tappytoon_free', None), '901': ('tappytoon_free', None),
-                                  '902': ('tappytoon_unlocked', '2099-11-01T10:00:00+00:00'), '903': ('tappytoon_unlocked', None)})
+                                  '902': ('tappytoon_limited', '2099-11-01T10:00:00+00:00'), '903': ('tappytoon_unlocked', None)})
         episode = adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902').episodes[0]
         self.assertEqual(episode.access_expires_at, '2099-11-01T10:00:00+00:00')
         for end in (None, 'soon'):
             adapter, client = reader(answers | {f'{API}/chapters/902?locale=en': rented | {'rentalExpiredAt': end}})
-            with self.subTest(end=end), self.assertRaises(ArchiveError):
-                adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902')
-            self.assertFalse(any('manifest' in url for url, _ in client.calls))
+            with self.subTest(end=end):
+                episode = adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902').episodes[0]
+                self.assertIsNone(episode.access_expires_at)
+                self.assertEqual(len(episode.pages), 2)
+
+    def test_complete_reader_wins_over_negative_flags_without_bulk_locked_probes(self, sleep):
+        following = CHAPTERS + '&cursor=abc'
+        available_paid = chapter(2, free=False) | {'isAccessible': True}
+        answers = series_answers() | {following: [available_paid, chapter(3, free=False, unlocked=True)],
+                                     f'{API}/chapters/902?locale=en': available_paid}
+        adapter, client = reader(answers)
+        listing = adapter.inspect_series('67')
+        locked = next(row for row in listing['episodes'] if row['id'] == '902')
+        self.assertEqual(locked['access_state'], 'unavailable_or_unverified')
+        self.assertFalse(any('manifest' in url for url, _ in client.calls))
+        episode = adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902').episodes[0]
+        self.assertEqual(episode.access, 'tappytoon_readable')
+        self.assertEqual([adapter.retrieve(page) for page in episode.pages], [png(20), png(21)])
+        adapter, _ = reader(answers | {f'{API}/chapters/902?locale=en': chapter(2, free=False, unlocked=True) | {'isAccessible': False}})
+        self.assertEqual(adapter.capture_automatic('https://www.tappytoon.com/en/chapters/902').episodes[0].access, 'tappytoon_unlocked')
 
     def test_a_list_that_leads_back_to_a_page_already_read_stops_there(self, sleep):
         following = CHAPTERS + '&cursor=abc'
@@ -334,7 +394,7 @@ class TappytoonTests(unittest.TestCase):
             self.assertEqual([url for url, _ in client.calls if '/chapters' in url], [CHAPTERS, following])
 
     @patch('builtins.print')
-    def test_a_rented_chapter_without_a_readable_end_is_listed_as_unverified_and_the_rest_of_the_series_is_saved(self, output, sleep):
+    def test_rentals_without_valid_timestamps_remain_candidates_and_reader_decides(self, output, sleep):
         following = CHAPTERS + '&cursor=abc'
         for end in (None, 'soon', 5):
             rented = chapter(2, free=False) | {'isAccessible': True, 'isUserRented': True, 'rentalExpiredAt': end}
@@ -343,16 +403,16 @@ class TappytoonTests(unittest.TestCase):
             with self.subTest(end=end):
                 self.assertEqual({e['id']: (e['access_state'], e['authorization_reason'], e['access_expires_at']) for e in listing['episodes']},
                                  {'900': ('tappytoon_free', None, None), '901': ('tappytoon_free', None, None),
-                                  '902': ('unavailable_or_unverified', 'temporary_access', None),
+                                  '902': ('tappytoon_limited', None, None),
                                   '903': ('tappytoon_unlocked', None, None)})
-                self.assertEqual(listing['accessible_episode_count'], 3)
+                self.assertEqual(listing['accessible_episode_count'], 4)
         answers = series_answers() | {KEY_PAGE: page_data(account=5), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}],
                                       following: [rented, chapter(3, free=False, unlocked=True)]}
         adapter, client = reader(answers)
         with adapter:
             result = sync(adapter, self.root, categories=['unlocked'])
-        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '903'])
-        self.assertFalse(any('chapterId=902' in url for url, _ in client.calls))
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901', '902', '903'])
+        self.assertTrue(any('chapterId=902' in url for url, _ in client.calls))
 
     def test_a_rate_limit_met_in_one_job_stops_only_that_job_on_the_same_reader(self, sleep):
         adapter, client = reader({KEY_PAGE: Answer(b'', 429, headers=[('Retry-After', '30')])})
@@ -393,32 +453,51 @@ class TappytoonTests(unittest.TestCase):
 
     def test_a_chapter_tappytoon_no_longer_gives_or_has_is_set_aside_without_asking_for_its_pictures(self, sleep):
         url = 'https://www.tappytoon.com/en/chapters/900'
-        for code in (403, 404, 410):
+        for code in (404, 410):
             adapter, client = reader(series_answers() | {f'{API}/chapters/900?locale=en': Answer(b'{}', code)})
             for check in (adapter.capture_automatic, adapter.episode_access):
                 with self.subTest(code=code, check=check.__name__), self.assertRaises(AccessDenied):
                     check(url)
             self.assertFalse(any('manifest' in address or address.startswith(CDN) for address, _ in client.calls))
+        adapter, _ = reader(series_answers() | {f'{API}/chapters/900?locale=en': Answer(b'{}', 403)})
+        with self.assertRaises(ArchiveError) as held:
+            adapter.capture_automatic(url)
+        self.assertNotIsInstance(held.exception, AccessDenied)
         adapter, _ = reader(series_answers() | {f'{API}/chapters/900?locale=en': Answer(b'{}', 401)})
         with self.assertRaises(ArchiveError) as raised:
             adapter.capture_automatic(url)
         self.assertNotIsInstance(raised.exception, AccessDenied)
 
-    def test_whether_a_chapter_may_be_read_is_told_from_its_details_alone(self, sleep):
+    def test_denial_logs_identify_metadata_or_manifest_without_private_response(self, sleep):
+        listing = f'{API}/content-delivery/contents/manifest?chapterId=900&variant=high&locale=en&canAcceptSignedCookie=true'
+        cases = [({f'{API}/chapters/900?locale=en': Answer(b'PRIVATE_BODY', 404)}, 'chapter_metadata', '404'),
+                 ({listing: Answer(b'PRIVATE_BODY does not have the license', 400)}, 'reader_manifest', '400')]
+        for changes, stage, code in cases:
+            adapter, _ = reader(series_answers() | changes)
+            with self.subTest(stage=stage), self.assertLogs('comic_archive.download', level='INFO') as logged:
+                with self.assertRaises(AccessDenied):
+                    adapter.capture_automatic('https://www.tappytoon.com/en/chapters/900')
+            message = '\n'.join(logged.output)
+            self.assertIn('stage=' + stage, message)
+            self.assertIn('http_status=' + code, message)
+            self.assertIn('episode=900', message)
+            self.assertNotIn('PRIVATE', message)
+            self.assertNotIn('https://', message)
+
+    def test_metadata_probe_records_hints_without_claiming_reader_authorization(self, sleep):
         rented = chapter(2, free=False) | {'isAccessible': True, 'isUserRented': True, 'rentalExpiredAt': RENTAL_END}
         adapter, client = reader(series_answers() | {f'{API}/chapters/902?locale=en': rented})
         self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/900'),
                          {'source_episode_id': '900', 'access_state': 'tappytoon_free', 'access_expires_at': None})
         self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/902'),
-                         {'source_episode_id': '902', 'access_state': 'tappytoon_unlocked',
+                         {'source_episode_id': '902', 'access_state': 'tappytoon_limited',
                           'access_expires_at': '2099-11-01T10:00:00+00:00'})
         for end in (None, 'soon'):
             adapter.transport.client.answers[f'{API}/chapters/902?locale=en'] = rented | {'rentalExpiredAt': end}
-            with self.subTest(end=end), self.assertRaises(ArchiveError):
-                adapter.episode_access('https://www.tappytoon.com/en/chapters/902')
+            with self.subTest(end=end):
+                self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/902')['access_state'], 'tappytoon_limited')
         adapter.transport.client.answers[f'{API}/chapters/902?locale=en'] = chapter(2, free=False)
-        with self.assertRaises(AccessDenied):
-            adapter.episode_access('https://www.tappytoon.com/en/chapters/902')
+        self.assertEqual(adapter.episode_access('https://www.tappytoon.com/en/chapters/902')['access_state'], 'unavailable_or_unverified')
         with self.assertRaises(ArchiveError):
             adapter.episode_access('https://www.tappytoon.com/en/book/sample-series')
         self.assertFalse(any('manifest' in url or url.startswith(CDN) for url, _ in client.calls))

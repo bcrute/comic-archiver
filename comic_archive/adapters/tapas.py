@@ -3,6 +3,7 @@ import re
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urljoin
+from ..sites import DEFAULT
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from ..session import browser_api, launch_browser, load_session, save_session
 from ..transport import Transport, asset_url
@@ -109,10 +110,12 @@ class BrowserReadTransport:
                 finish_route(route, 'abort'); return
         if not self.deny_mutation(route):finish_route(route,'continue_')
 
-    def get(self, url, max_bytes=None):
+    def get(self, url, max_bytes=None, *, reader_json=False):
         if self.network_guard is not None: self.network_guard.check()
+        if type(reader_json) is not bool:
+            raise ArchiveError('Reader response mode must be an explicit boolean.')
         try:
-            return self._get(url, max_bytes)
+            return self._get(url, max_bytes, reader_json=True) if reader_json is True else self._get(url, max_bytes)
         except ArchiveError:
             raise
         except Exception as error:
@@ -173,16 +176,28 @@ class BrowserReadTransport:
             return value
         raise error
 
-    def _get(self, url, max_bytes=None):
+    def _get(self, url, max_bytes=None, *, reader_json=False):
         if callable(self.cancel_check):self.cancel_check()
         if self.deadline is not None and time.monotonic() >= self.deadline:
             raise RunLimit("The job time budget is exhausted; its queue is retained.")
         parsed = urlsplit(asset_url(url))
+        if reader_json and (parsed.hostname != 'tapas.io' or parsed.query or parsed.fragment
+                            or not re.fullmatch(r'/episode/[1-9][0-9]{0,19}', parsed.path)):
+            raise ArchiveError('Reader JSON is available only on the exact Tapas episode route.')
         if parsed.hostname != "tapas.io":
             self.assets.deadline = self.deadline
             self.assets.cancel_check = self.cancel_check
             return self.assets.get(url, max_bytes=max_bytes) if max_bytes is not None else self.assets.get(url)
-        if not re.fullmatch(r"/(?:who-am-i|episode/[0-9]+(?:/info)?|series/[0-9]+(?:/episodes)?|series/[A-Za-z0-9_-]{1,100}/info)", parsed.path):
+        history = parsed.path == '/profile/transactions'
+        if history:
+            from ..purchase_history import continuation_url
+            query = parse_qsl(parsed.query, keep_blank_values=True)
+            values = dict(query)
+            index = values.get('index', '')
+            if (len(query) != 2 or set(values) != {'index', 'to_prev'} or not re.fullmatch(r'0|[1-9][0-9]{0,3}', index)
+                    or url != continuation_url({'contract': 'tapas-transactions-index-v1', 'index': int(index)})):
+                raise ArchiveError('History metadata request is outside the observed pagination contract.')
+        if not history and not re.fullmatch(r"/(?:who-am-i|episode/[0-9]+(?:/info)?|series/[0-9]+(?:/episodes)?|series/[A-Za-z0-9_-]{1,100}/info)", parsed.path):
             raise ArchiveError("Browser metadata request is outside the observed GET routes.")
         if not isinstance(self.page.url, str) or not self.page.url.startswith("https://tapas.io/"):
             self.page.goto("https://tapas.io/", wait_until="domcontentloaded")
@@ -235,8 +250,8 @@ class BrowserReadTransport:
             # A redirect is answered with status 0, not followed: a page visit that is redirected is refused as well.
             script = script.replace("redirect:'error'", "redirect:'manual'")
         arguments = {"url": url, "timeout": timeout,
-               'accept':'text/html' if reader else 'application/json',
-               'limit':8388608 if reader else 2097152}
+               'accept':'text/html' if reader and not reader_json else 'application/json',
+               'limit':8388608 if reader else 4194304 if history else 2097152}
         try:
             value = self.read(script, arguments)
         except Exception as error:
@@ -255,16 +270,17 @@ class BrowserReadTransport:
             unavailable=NetworkUnavailable('Tapas metadata is temporarily unavailable; this job has paused without retrying the request.')
             unavailable.source_http_status=value['status']
             raise retain_retry_after(unavailable, value.get('retry_after'))
-        if value['status'] in {404,410} and re.fullmatch(r'/series/[1-9][0-9]{0,19}',parsed.path):
+        series_route = re.fullmatch(r'/series/([1-9][0-9]{0,19})(?:/episodes)?', parsed.path)
+        if value['status'] in {404,410} and series_route:
             unavailable=MetadataError('Observed series metadata is unavailable; its source identity is retained.')
             unavailable.source_http_status=value['status']
-            unavailable.source_series_id=parsed.path.rsplit('/',1)[1]
+            unavailable.source_series_id=series_route[1]
             unavailable.source_route=parsed.path
             raise unavailable
         if value["status"] != 200:
             detail = ' (browser challenge)' if diagnostics.get('source_response_kind') == 'challenge' else ''
             refused = ArchiveError(f"Normal browser metadata GET {parsed.path} returned HTTP {value['status']}{detail}; this job has stopped.")
-            if value['status'] in {403,429}:
+            if value['status'] in {403,404,410,429}:
                 refused.source_http_status = value['status']
                 for key, item in diagnostics.items():
                     setattr(refused, key, item)
@@ -285,6 +301,7 @@ class BrowserReadTransport:
 
 
 class TapasAdapter:
+    site = DEFAULT
     supports_novels=True
     supports_expiring_access=True
     supports_comic_series_classification=True
@@ -370,6 +387,8 @@ class TapasAdapter:
         self.transport.assets.deadline=self.transport.deadline
         self.transport.assets.cancel_check=self.transport.cancel_check
         self._automatic = TapasHTTPAdapter(transport=self.transport, expected_account_id=getattr(self, "expected_account_id", None))
+        self._automatic.series_seeds = getattr(self, '_series_seeds', {})
+        self._automatic.unavailable_headers = getattr(self, '_unavailable_headers', {})
         return self._automatic
 
     def account_identity(self):
@@ -394,6 +413,16 @@ class TapasAdapter:
 
     def episode_access(self, url):
         return self.automatic_adapter().episode_access(url)
+
+    def seed_series(self, key, title):
+        seeds = getattr(self, '_series_seeds', None)
+        if seeds is None:
+            seeds = self._series_seeds = {}
+        from .tapas_http import checked_series_seed
+        seeds[key] = checked_series_seed(key, title)
+        if not hasattr(self, '_unavailable_headers'):
+            self._unavailable_headers = {}
+        self._unavailable_headers.pop(key, None)
 
     def series_identity(self,key):
         return self.automatic_adapter().series_identity(key)
@@ -424,23 +453,32 @@ class TapasAdapter:
     def inspect_series(self, key, strict_order=True, comic_only=False):
         return self.automatic_adapter().inspect_series(key, strict_order=strict_order,comic_only=comic_only)
 
+    supports_series_seed=True
     supports_library_checkpoint=True
 
     def inspect_library(self, details=False, category="subscribed",on_page=None):
+        if category=='wait_until_free':
+            before=self._inspect_library_details('subscribed',research=False)
+            return self._inspect_free_episode_filter(before,max_pages=200,on_page=on_page,
+                                                     known_scope_only=True,category=category)
         if category=='free_episodes':
             before=self._inspect_library_details('subscribed',research=False)
-            return self._inspect_free_episode_filter(before,max_pages=50,on_page=on_page,known_scope_only=True)
+            return self._inspect_free_episode_filter(before,max_pages=200,on_page=on_page,known_scope_only=True)
         if not details:
             return self.inspect_library_pages(category,200,on_page=on_page)
         observed = self._inspect_library_details(category)
         observed['free_episode_filter']=self._inspect_free_episode_filter(observed,max_pages=50)
         return observed
 
-    def _inspect_free_episode_filter(self,before,max_pages=2,on_page=None,known_scope_only=False):
+    def _inspect_free_episode_filter(self,before,max_pages=2,on_page=None,known_scope_only=False,category='free_episodes'):
         """Bounded normal account-list navigation; no reader or unlock action."""
-        from .library_navigation import reading_list_location, supplied_filter_location
-        if type(max_pages) is not int or not 1<=max_pages<=50:
-            raise ArchiveError('Free-filter inspection requires a page limit from 1 to 50.')
+        from .library_navigation import LIBRARY_FILTERS, reading_list_location, supplied_filter_location
+        if category not in LIBRARY_FILTERS:
+            raise ArchiveError('Choose an observed Library filter.')
+        expected_code, expected_label = LIBRARY_FILTERS[category]
+        maximum = 200
+        if type(max_pages) is not int or not 1<=max_pages<=maximum:
+            raise ArchiveError(f'Library filter page limit must be from 1 to {maximum}.')
         start=self.page.url
         initial=reading_list_location(start)
         result={'authenticated':before.get('authenticated') is True,'complete':False,
@@ -453,18 +491,18 @@ class TapasAdapter:
                 or initial is None or initial['page']!=1 or initial['category']!=before.get('scope')):
             result['blocker']='Initial account-list scope is unverified; no filter was clicked.';return result
         controls=self.page.locator('nav.section-filter li.filter-item a.item-title')
-        indices=controls.evaluate_all("""els=>els.map((e,index)=>({index,
+        indices=controls.evaluate_all("""(els,label)=>els.map((e,index)=>({index,
             label:e.innerText.trim().toLowerCase().replace(/\\s+/g,' ')}))
-            .filter(e=>e.label==='free episodes').map(e=>e.index)""")
+            .filter(e=>e.label===label).map(e=>e.index)""",expected_label)
         if (not isinstance(indices,list) or len(indices)>20
                 or any(type(index) is not int or not 0<=index<100 for index in indices)):
-            raise ArchiveError('Free-filter control structure is unsupported; no click was attempted.')
+            raise ArchiveError('Library filter control structure is unsupported; no click was attempted.')
         result['matching_control_count']=len(indices)
         target=controls.nth(indices[0]) if len(indices)==1 else None
         if (target is None or target.count()!=1 or not target.is_visible()
-                or re.sub(r'\s+',' ',target.inner_text().strip().lower())!='free episodes'):
+                or re.sub(r'\s+',' ',target.inner_text().strip().lower())!=expected_label):
             result['control_visible']=False
-            result['blocker']='Free Episodes is hidden or ambiguous; no forced click was attempted.';return result
+            result['blocker']='The requested Library filter is hidden or ambiguous; no forced click was attempted.';return result
         result['control_visible']=True
         href=urljoin(start,target.get_attribute('href') or '')
         provided=supplied_filter_location(href)
@@ -479,10 +517,10 @@ class TapasAdapter:
         result['filter_query_field']=axes[0]
         # Only this supplied category/type representation has a live verified
         # navigation proof. Other named-control shapes retain the small probe.
-        proven_shape=(axes==['category'] and provided['category']=='free_episodes'
-                      and code.upper()=='FREE_EPISODES' and provided['type'].upper()=='ALL')
+        proven_shape=(axes==['category'] and provided['category']==category
+                      and code.upper()==expected_code and provided['type'].upper()=='ALL')
         if known_scope_only and not proven_shape:
-            result['blocker']='The observed Free Episodes category/All route is unavailable; discovery did not activate an alternative.'
+            result['blocker']='The observed Library filter category/All route is unavailable; discovery did not activate an alternative.'
             return result
         page_limit=max_pages if proven_shape else min(max_pages,2)
         result['page_limit']=page_limit
@@ -495,7 +533,7 @@ class TapasAdapter:
         moved=False;phase='filter_navigation';found={};seen=set()
         def selected():
             if (target.count()!=1 or not target.is_visible()
-                    or re.sub(r'\s+',' ',target.inner_text().strip().lower())!='free episodes'):
+                    or re.sub(r'\s+',' ',target.inner_text().strip().lower())!=expected_label):
                 return False
             node=target.locator('..');classes=(node.get_attribute('class') or '').split()
             result['selection_structure']={'classes':[value for value in classes[:10]
@@ -518,9 +556,9 @@ class TapasAdapter:
         try:
             current=navigate(target)
             if current!=provided or not selected():
-                result['blocker']='The free-filter page/selection is unverified; no pager was clicked.';return result
+                result['blocker']='The Library filter page/selection is unverified; no pager was clicked.';return result
             result.update(membership_verified=True,scope=public_scope(current),
-                          verified_filter='free_episodes',
+                          verified_filter=category,
                           public_type_code=code.upper() if code.upper() in {'FREE','FREE_EPISODES','WUF','WAIT_UNTIL_FREE'} else None)
             result['view_semantics']=self._reading_filter_semantics()
             for index in range(page_limit):
@@ -533,7 +571,7 @@ class TapasAdapter:
                 result['series']=list(found.values());result['observed_series_count']=len(found)
                 result['pages'].append({'page':current['page'],'series_count':len(candidates)})
                 if on_page is not None and proven_shape:
-                    on_page({'authenticated':True,'membership_verified':True,'scope':'free_episodes',
+                    on_page({'authenticated':True,'membership_verified':True,'scope':category,
                              'account_membership_verified':False,'account_inventory_complete':False,
                              'complete':False,'series':list(candidates.values()),'pages':list(result['pages'])})
                 next_control=self.page.locator('section.paging-wrap .paging__button--next')
@@ -559,7 +597,7 @@ class TapasAdapter:
         except (AuthenticationError,RunLimit):raise
         except Exception as error:
             result['navigation_failure']={'phase':phase,'exception_class':type(error).__name__}
-            result['blocker']='Normal free-filter navigation failed; no retry was attempted.';return result
+            result['blocker']='Normal Library filter navigation failed; no retry was attempted.';return result
         finally:
             result['normal_network']=observation.summary()
             if moved:
@@ -873,6 +911,48 @@ class TapasAdapter:
                     'blocker':'History coverage and pagination are not established; navigation evidence does not authorize comic retrieval.'}
         finally:
             self.page.remove_listener('response',observation.on_response)
+
+    def purchase_history_page(self, cursor=None):
+        """Read the indexed, read-only endpoint used by the normal history pager."""
+        from .tapas_history import read_page
+        from ..purchase_history import continuation_url
+        # The worker already bound this adapter to account_identity at the
+        # beginning of the step. Direct callers must establish that binding.
+        if not getattr(self, 'expected_account_id', None):
+            self.expected_account_id = self.account_identity()
+        http = self.automatic_adapter()
+        url = continuation_url(cursor) if cursor is not None else continuation_url({'contract': 'tapas-transactions-index-v1', 'index': 0})
+        raw = http.transport.get(url, max_bytes=4 * 1024 * 1024)
+        return read_page(raw, 0 if cursor is None else cursor['index'])
+
+    def purchase_series_identity(self, url):
+        """Resolve a history association through normal metadata, never images."""
+        match = re.fullmatch(r'https://tapas\.io/series/([A-Za-z0-9_-]{1,100})(?:/info)?', url)
+        if match:
+            return self.series_identity(match[1])
+        episode = re.fullmatch(r'https://tapas\.io/episode/([1-9][0-9]{0,19})', url)
+        if episode is None:
+            raise MetadataError('History returned an unexpected content association.')
+        http = self.automatic_adapter()
+        info = http.json_get(f'/episode/{episode[1]}/info')
+        if type(info.get('id')) is not int or str(info['id']) != episode[1]:
+            raise MetadataError('History episode metadata identifies another episode.')
+        series = info.get('series_id')
+        if type(series) is not int or series <= 0:
+            from .reader import ReaderHTML, safe_primitives
+            raw = http.transport.get(url, max_bytes=8 * 1024 * 1024)
+            if len(raw) > 8 * 1024 * 1024:
+                raise MetadataError('History episode metadata exceeds the supported size.')
+            try:
+                text = raw.decode('utf-8')
+            except UnicodeError:
+                raise MetadataError('History episode metadata has an unsupported encoding.') from None
+            parser = ReaderHTML(episode[1])
+            parser.feed(text)
+            series = safe_primitives('\n'.join(parser.inline)).get('seriesId')
+            if type(series) is not int or series <= 0:
+                return None
+        return http.series_identity(str(series))
 
     def inspect_transaction_history(self, max_pages=3,on_page=None,resume=False):
         if type(max_pages) is not int or not 1 <= max_pages <= 500:
@@ -1295,12 +1375,12 @@ class TapasAdapter:
 
     def _capture(self):
         episode_id, title, order, url = self.requested
-        # User confirmation establishes full-reader visibility, never a grant
-        # of account access. Refresh this gate before every capture or retry.
+        # Confirm the requested identity and signed-in session before reading
+        # the full-reader view. Metadata flags are annotations, not a veto.
         verified = self.episode_access(url)
         if (verified.get('source_episode_id') != episode_id or
-                verified.get('access_state') not in {'tapas_free','tapas_unlocked'}):
-            raise ArchiveError('Manual capture requires verified access to this exact episode.')
+                not isinstance(verified.get('access_state'), str)):
+            raise ArchiveError('Manual capture requires metadata for this exact episode.')
         if self.transport:
             self.transport.close()
             self.transport = None
@@ -1344,15 +1424,13 @@ class TapasAdapter:
                                    network_guard=getattr(self,'network_guard',None), agent=getattr(self.context, 'agent', None))
         return Episode(episode_id, self.series.id, title, order,
                        tuple(Page(i, u, False) for i, u in enumerate(urls, 1)),
-                       verified['access_state'], url, access_expires_at=verified.get('access_expires_at'))
+                       verified['access_state'] if verified['access_state'] in {'tapas_free','tapas_unlocked','tapas_limited'} else 'tapas_readable',
+                       url, access_expires_at=verified.get('access_expires_at'))
 
     def manifest(self):
         return self._manifest
 
     def retrieve(self, page, max_bytes=None):
-        from ..expiry import check_expiration
-        manifest=getattr(self,'_manifest',None)
-        if manifest is not None: check_expiration(manifest.episodes[0].access_expires_at)
         return self.transport.get(page.location, max_bytes=max_bytes) if max_bytes is not None else self.transport.get(page.location)
 
     def asset_request(self, page, max_bytes=None):

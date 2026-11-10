@@ -1,6 +1,7 @@
 """Actual CLI refusal before native state acquisition; no fabricated consent."""
 
 import os
+import importlib.util
 import json
 import selectors
 import shutil
@@ -15,6 +16,8 @@ from comic_archive.connected.files import Index, SharedRoot
 
 
 class ConnectedCliTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec('jwcrypto') is not None and importlib.util.find_spec('aiortc') is not None,
+                         'Opt-in connected extra required; skip is not connected qualification')
     def test_default_registration_stays_fixed_and_opt_in_discovers_finished_downloads(self):
         fixture = Path(__file__).parent / "fixtures/local-reading-v1/payload"
         for watching in (False, True):

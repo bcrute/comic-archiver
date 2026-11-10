@@ -53,6 +53,16 @@ class Site:
         """The access mark of an episode the account bought or unlocked."""
         return self.key + '_unlocked'
 
+    @property
+    def limited(self):
+        """A reported rental or other time-limited unlock; the reader decides access."""
+        return self.key + '_limited'
+
+    @property
+    def readable(self):
+        """A reader candidate or response without a verified free/paid classification."""
+        return self.key + '_readable'
+
     def keeps_cookie(self, domain):
         return isinstance(domain, str) and domain.lstrip('.') in self.cookie_domains
 
@@ -62,9 +72,9 @@ class Site:
 
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',
-         ('subscribed', 'updated', 'recent', 'free_episodes'), ('m.tapas.io',), ('#gdpr-cookie-message',)),
+         ('subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free'), ('m.tapas.io',), ('#gdpr-cookie-message',)),
     Site('webtoon', 'Webtoon', True, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
-         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed',), ()),
+         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed', 'unlocked'), ()),
     Site('tappytoon', 'Tappytoon', True, 'https://www.tappytoon.com', ('tappytoon.com', 'www.tappytoon.com'),
          ('www.tappytoon.com', 'api-global.tappytoon.com', 'content-repository-cdn.tappytoon.com'), ('tappytoon.com',),
          '/en/login', ('unlocked', 'subscribed', 'recent'), ()),
@@ -75,7 +85,9 @@ KEYS = frozenset(site.key for site in SITES)
 FREE = frozenset(site.free for site in SITES)
 UNLOCKED = frozenset(site.unlocked for site in SITES)
 # Every access mark that lets an episode be saved, whichever site it came from.
-ACCESS = FREE | UNLOCKED
+READABLE = frozenset(site.readable for site in SITES)
+LIMITED = frozenset(site.limited for site in SITES)
+ACCESS = FREE | UNLOCKED | READABLE | LIMITED
 # Every account list Go can read, whichever site it belongs to.
 LISTS = frozenset(name for site in SITES for name in site.lists)
 

@@ -1,0 +1,371 @@
+{
+  "message": {
+    "type": "response",
+    "service": "com.naver.webtoon",
+    "version": "fixture",
+    "result": {
+      "unlockedEpisodeProducts": [
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 71,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "FREE_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/1.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 70,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/2.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 69,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/3.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 68,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/4.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 67,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/5.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 66,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/6.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 65,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/7.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 64,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/8.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 63,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/9.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 62,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/10.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 61,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/11.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 60,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/12.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 59,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/13.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 58,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/14.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 57,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/15.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 56,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/16.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 55,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/17.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 54,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/18.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 51,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/19.png?delivery=fixture"
+        },
+        {
+          "titleNo": 7,
+          "titleName": "Fixture title",
+          "episodeNo": 50,
+          "episodeTitleName": "Fixture title",
+          "contentType": "WEBTOON",
+          "rightInfo": {
+            "hasRight": true,
+            "infinite": true,
+            "rewardAd": false,
+            "timeDeal": false,
+            "productPolicy": "PAID_POLICY"
+          },
+          "videoRightInfo": {
+            "hasRight": false
+          },
+          "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/20.png?delivery=fixture"
+        }
+      ]
+    }
+  }
+}

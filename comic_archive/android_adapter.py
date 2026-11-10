@@ -16,8 +16,9 @@ against the stand-in site before beta; each fails closed into honest blockers, n
   controls; the card extraction below reproduces the rendered-DOM rules (adapters/tapas.py
   _series_cards) from the served HTML, and a supplied adjacent Next link stands in for the
   visible Next control the browser flow requires.
-- The Free Episodes filter and transaction history are visible browser flows; discovery
-  reports an honest blocker for the first and refuses the second.
+- Named Free Episodes/WUF filters follow source-provided links when present; a
+  surface without those links reports a partial view. Transaction history remains
+  a visible desktop-browser flow.
 """
 import re
 from html.parser import HTMLParser
@@ -165,8 +166,10 @@ class AndroidTapasAdapter:
     core's: jobs.archive_discovered and jobs.sync see the adapter surface they already call.
     """
 
+    site = sites.DEFAULT
     supports_novels = True
     supports_expiring_access = True
+    supports_series_seed = True
     supports_series_metadata = True
     supports_comic_series_classification = True
     supports_library_checkpoint = True
@@ -258,6 +261,9 @@ class AndroidTapasAdapter:
         """Accepted so lookahead-enabled jobs validate; the single HTTP reader has nothing to prepare."""
         return None
 
+    def seed_series(self, key, title):
+        self._http.seed_series(key, title)
+
     def series_metadata(self, key):
         self._sync_state()
         return self._http.series_metadata(key)
@@ -284,18 +290,96 @@ class AndroidTapasAdapter:
         if details:
             raise ArchiveError('Detailed library research is a desktop-browser flow; '
                                'the Android worker lists the reading list only.')
-        if category in {'free_episodes', 'recent'}:
+        if category in {'free_episodes', 'wait_until_free'}:
+            return self.inspect_filtered_library(category, 200, on_page=on_page)
+        if category == 'recent':
             self._sync_state()
             self._http.check_session()
             return {'authenticated': True, 'membership_verified': True, 'scope': category,
                     'complete': False, 'account_inventory_complete': False, 'pages': [], 'series': [],
                     'boundary_observed': False, 'restore_succeeded': None,
                     'reader_or_comic_pages_requested': False, 'duplicate_series_on_later_pages': 0,
-                    'blocker': ('The Recent list is unavailable on the mobile reading-list surface; '
-                                'the Android worker did not request it.' if category == 'recent' else
-                                'The Free Episodes filter is a visible browser control; '
-                                'the Android worker did not request it.')}
+                    'blocker': 'The Recent list is unavailable on the mobile reading-list surface; the Android worker did not request it.'}
         return self.inspect_library_pages(category, 200, on_page=on_page)
+
+    def inspect_filtered_library(self, category, max_pages=200, on_page=None):
+        """Read only the named filter and adjacent pager links supplied by the site."""
+        from .adapters.library_navigation import FilterNavigationHTML, LIBRARY_FILTERS, verified_filter_location
+        if category not in LIBRARY_FILTERS or type(max_pages) is not int or not 1 <= max_pages <= 200:
+            raise ArchiveError('Choose a supported Library filter and a bounded page count.')
+        self._sync_state()
+        self._http.check_session()
+        result = {'authenticated': True, 'membership_verified': True, 'scope': category,
+                  'complete': False, 'account_inventory_complete': False, 'account_membership_verified': False,
+                  'pages': [], 'series': [], 'boundary_observed': False, 'restore_succeeded': None,
+                  'reader_or_comic_pages_requested': False, 'duplicate_series_on_later_pages': 0}
+        def read(url):
+            raw = self.transport.get(url)
+            if len(raw) > 8 * 1024 * 1024:
+                raise ArchiveError('Library filter HTML exceeds the supported size.')
+            try:
+                document = raw.decode('utf-8')
+            except UnicodeError:
+                raise ArchiveError('Library filter HTML has an unsupported encoding.') from None
+            navigation, listing = FilterNavigationHTML(url), ReadingListHTML(url)
+            navigation.feed(document)
+            listing.feed(document)
+            navigation.close()
+            listing.close()
+            return navigation, listing
+        start = 'https://tapas.io/reading-list?category=SUBSCRIBED'
+        navigation = getattr(self, '_library_filter_navigation', None)
+        if navigation is None:
+            navigation, _ = read(start)
+            self._library_filter_navigation = navigation
+        supplied = [entry['url'] for entry in navigation.filters if entry['category'] == category]
+        if len(supplied) != 1:
+            result['blocker'] = 'The named Library filter is absent or ambiguous on this surface; no route was guessed.'
+            return result
+        url = supplied[0]
+        found, identities, seen = {}, set(), set()
+        for _ in range(max_pages):
+            location = verified_filter_location(url, category)
+            if location is None or location['page'] != len(result['pages']) + 1:
+                result['blocker'] = 'The supplied Library filter page has an unexpected scope or cursor.'
+                break
+            navigation, listing = read(url)
+            self._http.check_session()
+            if navigation.selected != {category}:
+                result['blocker'] = 'The served Library filter does not confirm the requested selection.'
+                break
+            candidates = {card['source_url']: card for card in listing.cards}
+            signature = tuple(sorted(candidates))
+            if not signature or signature in seen:
+                result['blocker'] = 'The filtered list is empty or repeats an earlier page; completeness remains unverified.'
+                break
+            seen.add(signature)
+            result['duplicate_series_on_later_pages'] += sum(
+                url in found or card['source_series_id'] in identities for url, card in candidates.items())
+            found.update(candidates)
+            identities.update(card['source_series_id'] for card in candidates.values() if card['source_series_id'])
+            result['series'] = list(found.values())
+            result['pages'].append({'page': location['page'], 'series_count': len(candidates)})
+            if on_page is not None:
+                on_page(dict(result, series=list(candidates.values()), pages=list(result['pages'])))
+            if len(navigation.next_controls) != 1:
+                result['blocker'] = 'The filtered Next control is absent or ambiguous.'
+                break
+            next_control = navigation.next_controls[0]
+            if next_control['disabled']:
+                result.update(boundary_observed=True, complete=result['duplicate_series_on_later_pages'] == 0
+                              and all(card['source_series_id'] for card in result['series']))
+                if not result['complete']:
+                    result['blocker'] = 'Repeated series at the boundary leave membership incomplete.'
+                break
+            following = verified_filter_location(next_control['url'], category)
+            if following is None or following['page'] != location['page'] + 1:
+                result['blocker'] = 'The supplied Next link changed the filter or skipped a page.'
+                break
+            url = next_control['url']
+        else:
+            result['blocker'] = 'The Library filter page budget was reached.'
+        return result
 
     def inspect_library_pages(self, category='subscribed', max_pages=3, on_page=None):
         """Follow the site's own supplied reading-list pages; list membership grants no access."""
@@ -329,6 +413,11 @@ class AndroidTapasAdapter:
             except UnicodeError:
                 result['blocker'] = 'Reading-list HTML has an unsupported encoding; retained pages are partial.'
                 break
+            if page == 1 and category == 'subscribed':
+                from .adapters.library_navigation import FilterNavigationHTML
+                self._library_filter_navigation = FilterNavigationHTML(url)
+                self._library_filter_navigation.feed(html)
+                self._library_filter_navigation.close()
             parser = ReadingListHTML(url)
             parser.feed(html)
             parser.close()

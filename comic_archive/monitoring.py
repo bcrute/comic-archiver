@@ -68,8 +68,12 @@ def library_status(output,session=None):
     with Inventory(root,read_only=True) as inventory:
         result = inventory.status()
     from .estimate import remaining
-    result['estimate'] = remaining(result['episodes_by_status'], result['series_count'],
+    result['estimate'] = remaining(result.get('selected_episodes_by_status', result['episodes_by_status']), result['series_count'],
                                    result['series_without_scan_checkpoint_count'], result['recent_pace'], result['saved_bytes'])
+    # Rechecking an existing series is still work, but does not imply another
+    # average series' worth of downloads. Keep it separate from the forecast.
+    if result['scan_remaining_series_count']:
+        result['estimate']['checking_series'] = result['scan_remaining_series_count']
     try:
         result['estimate']['free_bytes'] = shutil.disk_usage(root).free
     except OSError:

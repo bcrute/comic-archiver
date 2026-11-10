@@ -148,15 +148,18 @@ class CloudToolsLocationTests(unittest.TestCase):
                 ('Linux', 'x86_64', ('linux', 'amd64'), self.home/'.local/share/comic-archive/tools'),
                 ('Linux', 'aarch64', ('linux', 'arm64'), self.home/'.local/share/comic-archive/tools'),
                 ('Windows', 'AMD64', ('windows', 'amd64'), local/'comic-archiver/tools'),
-                ('Windows', 'ARM64', ('windows', 'arm64'), local/'comic-archiver/tools')):
+                ('Windows', 'ARM64', ('windows', 'arm64'), local/'comic-archiver/tools'),
+                ('Darwin', 'x86_64', ('osx', 'amd64'), self.home/'.local/share/comic-archive/tools'),
+                ('Darwin', 'arm64', ('osx', 'arm64'), self.home/'.local/share/comic-archive/tools')):
             with self.subTest(system=system, machine=machine), patch.dict(os.environ, {'LOCALAPPDATA': str(local)}):
                 self.platform(system, machine)
                 self.assertEqual(cloud_tools.location(), (folder/cloud_tools.VERSION/'-'.join(build), build))
                 self.assertTrue(cloud_tools.offered())
+        self.platform('Windows', 'ARM64')
         # Without its own variable, Windows keeps a person's local files in their profile's AppData.
         with patch.dict(os.environ, {'LOCALAPPDATA': ''}):
             self.assertEqual(cloud_tools.location()[0].parent.parent, self.home/'AppData/Local/comic-archiver/tools')
-        for system, machine in (('Windows', 'x86'), ('Darwin', 'arm64'), ('Linux', 'riscv64')):
+        for system, machine in (('Windows', 'x86'), ('Darwin', 'riscv64'), ('Linux', 'riscv64'), ('FreeBSD', 'x86_64')):
             with self.subTest(system=system, machine=machine):
                 self.platform(system, machine)
                 with self.assertRaises(ArchiveError): cloud_tools.location()

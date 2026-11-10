@@ -35,6 +35,119 @@ class InventoryTests(unittest.TestCase):
         self.work = Path(temporary.name)
         self.root = self.work / 'Library'
 
+    def test_completion_retry_keeps_other_checkpoints_and_attempts_each_gap_once(self):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+                inventory.record_series_scan(key)
+            inventory.record_scan_gap('42', 2, 3)
+            before = [tuple(row) for row in inventory.db.execute('SELECT * FROM series_scans')]
+            self.assertEqual(inventory.prepare_completion_retry(), (1, 0))
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
+        with Inventory(self.root) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+            inventory.record_scan_gap('42', 2, 3)
+            self.assertEqual(inventory.scan_candidates(), [])
+            self.assertTrue(inventory.finish_scan_cycle())
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+            self.assertEqual([tuple(row) for row in inventory.db.execute('SELECT * FROM series_scans')], before)
+            self.assertEqual(len(inventory.scan_gaps()), 1)
+            self.assertIsNone(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone())
+
+    def test_completion_retry_requeues_only_incomplete_readers_and_never_saved_files(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81'), episode('82'), episode('83')], 'fixture')
+            inventory.mark('81', 'unsupported', 'novel_manifest_incomplete')
+            inventory.mark('82', 'unsupported', 'scheduled')
+            path = self.root / 'Series/003.cbz'
+            path.parent.mkdir()
+            path.write_bytes(b'saved archive fixture')
+            inventory.db.execute("UPDATE episodes SET status='archived',archive_path='Series/003.cbz',"
+                                 "file_signature='saved' WHERE id='83'")
+            inventory.db.commit()
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            row = inventory.db.execute("SELECT status,archive_path,file_signature FROM episodes WHERE id='83'").fetchone()
+            self.assertEqual(tuple(row), ('archived', 'Series/003.cbz', 'saved'))
+            self.assertEqual(path.read_bytes(), b'saved archive fixture')
+
+    def test_unchecked_series_precede_old_refusals_without_resetting_scan_or_reader_checkpoints(self):
+        with Inventory(self.root) as inventory:
+            for key in ('1', '2', '3', '90', '91', '92'):
+                inventory.observe(key, 'Series ' + key, [], 'fixture')
+            inventory.observe('1', 'Old refusals', [episode('81', access='unavailable_or_unverified')], 'fixture')
+            for key in ('1', '2'):
+                inventory.record_series_scan(key)
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-01T00:00:00+00:00'")
+            inventory.scan_candidates()
+            cycle = inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()[0]
+            inventory.record_series_scan('3')
+            inventory.record_series_unavailable('92', 404)
+            inventory.record_reader_denial('81')
+            episodes = [tuple(r) for r in inventory.db.execute('SELECT * FROM episodes')]
+            denials = [tuple(r) for r in inventory.db.execute('SELECT * FROM reader_denials')]
+            self.assertEqual([r['id'] for r in inventory.scan_candidates(2)], ['90', '91'])
+            self.assertEqual([r['id'] for r in inventory.scan_candidates()], ['90', '91', '1', '2'])
+            inventory.record_series_scan('90')
+        with Inventory(self.root) as inventory:
+            self.assertEqual([r['id'] for r in inventory.scan_candidates()], ['91', '1', '2'])
+            self.assertEqual(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()[0], cycle)
+            self.assertEqual([tuple(r) for r in inventory.db.execute('SELECT * FROM episodes')], episodes)
+            self.assertEqual([tuple(r) for r in inventory.db.execute('SELECT * FROM reader_denials')], denials)
+            self.assertEqual([r['source_series_id'] for r in inventory.scan_gaps()], ['92'])
+
+    def test_reader_denial_survives_refresh_and_restart_until_next_round_or_changed_hint(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81')], 'fixture')
+            inventory.scan_candidates()
+            inventory.record_reader_denial('81')
+            inventory.record_access('81', 'unavailable_or_unverified')
+            inventory.mark('81', 'unavailable', 'access_denied')
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81')], 'fixture')
+            self.assertEqual(inventory.pending(), [])
+            inventory.observe('42', 'Series', [episode('81', access='tapas_unlocked')], 'fixture')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            inventory.record_reader_denial('81')
+            inventory.record_access('81', 'unavailable_or_unverified')
+            inventory.observe('42', 'Series', [episode('81', access='tapas_unlocked')], 'fixture')
+            self.assertEqual(inventory.pending(), [])
+            inventory.db.execute("UPDATE settings SET value='2099-01-01T00:00:00+00:00' WHERE key='scan_cycle_started'")
+            inventory.observe('42', 'Series', [episode('81', access='tapas_unlocked')], 'fixture')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+
+    def test_negative_bulk_hint_preserves_existing_candidate_but_does_not_queue_whole_catalogue(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81')], 'fixture')
+            inventory.observe('42', 'Series', [episode('81', access='unavailable_or_unverified'),
+                                               episode('82', order=2, access='unavailable_or_unverified')], 'fixture')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+
+    def test_episode_types_separate_saved_pending_and_unavailable_without_opening_files(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81'), episode('82', access='tapas_unlocked'),
+                episode('83', access='tapas_limited'), episode('84', access='tapas_readable'),
+                episode('85', access='unavailable_or_unverified'), episode('86', access='tapas_unlocked') |
+                {'access_expires_at': '2000-01-01T00:00:00+00:00'}], 'fixture')
+            inventory.mark('81', 'archived')
+            inventory.mark('82', 'archived')
+            inventory.mark('83', 'archived')
+            inventory.mark('84', 'failed', 'job_failed')
+            self.assertEqual(inventory.episode_type_counts(), {
+                'free': {'saved': 1, 'waiting': 0}, 'bought': {'saved': 1, 'waiting': 0},
+                'limited': {'saved': 1, 'waiting': 1}, 'unclassified': {'saved': 0, 'waiting': 1}})
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.status()['episode_types']['limited'], {'saved': 1, 'waiting': 1})
+
+    def test_confirmed_reader_success_clears_previous_denial(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81')], 'fixture')
+            inventory.record_reader_denial('81')
+            inventory.record_access('81', 'tapas_free', reader_confirmed=True)
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM reader_denials WHERE episode_id='81'").fetchone())
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+
     def test_symlinked_library_or_state_folder_is_refused_without_writing_through_it(self):
         real = self.work / 'real'
         real.mkdir()
@@ -168,6 +281,62 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual([r['id'] for r in inventory.pending()], ['81'])
 
 
+    def test_tappytoon_correction_preserves_saved_partial_attempted_and_historically_owned_work(self):
+        with Inventory(self.root) as inventory:
+            rows = [episode(str(key), key - 80, 'tappytoon_readable') for key in range(81, 91)]
+            rows[5]['access_state'] = 'tappytoon_free'
+            rows[8]['access_state'] = 'webtoon_readable'
+            inventory.observe('42', 'Series', rows, 'sync')
+            inventory.mark('82', 'queued', attempted=True)
+            inventory.mark('83', 'archived')
+            inventory.mark('84', 'failed', 'job_failed', attempted=True)
+            inventory.mark('85', 'downloading', attempted=True)
+            inventory.db.execute("UPDATE episodes SET archive_path='Series/partial.cbz' WHERE id='87'")
+            inventory.db.execute("INSERT INTO observations VALUES ('88','2026-10-01T00:00:00+00:00','tappytoon_unlocked')")
+            inventory.mark('90', 'unavailable', 'access_denied', attempted=True)
+            partial = self.root / 'Series' / 'partial.cbz'
+            partial.parent.mkdir()
+            partial.write_bytes(b'existing partial work')
+            before = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
+            inventory.enable_tappytoon_entitlement_discovery()
+            after = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
+            self.assertEqual((after['81']['status'], after['81']['access_state'], after['81']['attempts']),
+                             ('unavailable', 'unavailable_or_unverified', 0))
+            self.assertIsNone(after['81']['error_code'])
+            self.assertEqual({key: value for key, value in after.items() if key != '81'},
+                             {key: value for key, value in before.items() if key != '81'})
+            self.assertEqual(partial.read_bytes(), b'existing partial work')
+            # A newly bought chapter is discoverable again; direct reader confirmations remain valid.
+            inventory.observe('42', 'Series', [episode('81', 1, 'tappytoon_unlocked'),
+                episode('91', 11, 'tappytoon_readable')], 'episode_check')
+        with Inventory(self.root) as inventory:
+            inventory.enable_tappytoon_entitlement_discovery()
+            self.assertEqual(inventory.db.execute("SELECT status FROM episodes WHERE id='81'").fetchone()[0], 'queued')
+            self.assertEqual(inventory.db.execute("SELECT status FROM episodes WHERE id='91'").fetchone()[0], 'queued')
+
+    def test_header_fallback_upgrade_requeues_only_old_missing_metadata_once(self):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43', '44'):
+                inventory.observe(key, 'Series', [], 'fixture')
+                inventory.record_series_scan(key)
+            inventory.record_series_unavailable('42', 404)
+            inventory.record_series_unavailable('43', 410)
+            inventory.record_scan_gap('44', 1, 2)
+            inventory.observe('42', 'Series', [episode('81'), episode('82', 2)], 'fixture')
+            inventory.mark('81', 'failed', 'image_invalid', attempted=True)
+            inventory.mark('82', 'archived')
+            before = [tuple(row) for row in inventory.db.execute('SELECT * FROM episodes')]
+            inventory.enable_series_header_fallback()
+            self.assertEqual([row[0] for row in inventory.db.execute('SELECT series_id FROM series_scans')], ['44'])
+            self.assertEqual([row['source_series_id'] for row in inventory.scan_gaps()], ['44'])
+            self.assertEqual([tuple(row) for row in inventory.db.execute('SELECT * FROM episodes')], before)
+            inventory.record_series_scan('42')
+            inventory.record_series_unavailable('42', 404)
+        with Inventory(self.root) as inventory:
+            inventory.enable_series_header_fallback()
+            self.assertEqual({row['source_series_id'] for row in inventory.scan_gaps()}, {'42', '44'})
+            self.assertEqual({row[0] for row in inventory.db.execute('SELECT series_id FROM series_scans')}, {'42', '44'})
+
     def test_scan_gaps_ignore_rows_with_unknown_codes_and_old_inventories_without_the_table(self):
         with Inventory(self.root) as inventory:
             inventory.observe('42', 'S', [], 'fixture')
@@ -203,6 +372,50 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual([row['id'] for row in inventory.pending()], ['82', '83'])
             inventory.observe('42', 'S', [episode('81', 1, 'tapas_unlocked')] + listed[1:], 'subscribed')
             self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83'])
+
+    def test_product_flag_recovery_is_once_and_only_resets_exhausted_accessible_webtoon_failures(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode('81', access='webtoon_free'),
+                episode('82', access='webtoon_unlocked'), episode('83', access='tapas_free'),
+                episode('84', access='webtoon_free')], 'subscribed')
+            for key in ('81', '82', '83'):
+                for _ in range(MAX_FAILED_ATTEMPTS):
+                    inventory.mark(key, 'failed', 'job_failed', attempted=True)
+            inventory.mark('84', 'failed', 'job_failed', attempted=True)
+            before = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
+            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_product_flag_recheck'")
+            inventory.db.commit()
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertIn('81', [row['id'] for row in inventory.pending()])
+            self.assertIn('82', [row['id'] for row in inventory.pending()])
+            self.assertNotIn('83', [row['id'] for row in inventory.pending()])
+            self.assertEqual(dict(inventory.db.execute("SELECT * FROM episodes WHERE id='81'").fetchone()), before['81'])
+        with Inventory(self.root) as inventory:
+            after = {row['id']: dict(row) for row in inventory.db.execute('SELECT * FROM episodes')}
+            for key in ('81', '82'):
+                self.assertEqual(after.pop(key), before.pop(key) | {'status': 'queued', 'error_code': None, 'attempts': 0})
+            self.assertEqual(after, before)
+            for _ in range(MAX_FAILED_ATTEMPTS):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+        with Inventory(self.root) as inventory:
+            self.assertNotIn('81', [row['id'] for row in inventory.pending()])
+            self.assertEqual(inventory.db.execute("SELECT attempts FROM episodes WHERE id='81'").fetchone()[0], MAX_FAILED_ATTEMPTS)
+
+    def test_product_flag_recovery_rolls_back_if_the_checkpoint_cannot_be_saved(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode('81', access='webtoon_free')], 'subscribed')
+            for _ in range(MAX_FAILED_ATTEMPTS):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            inventory.db.execute("DELETE FROM settings WHERE key='webtoon_product_flag_recheck'")
+            inventory.db.execute("CREATE TRIGGER fail_product_upgrade BEFORE INSERT ON settings "
+                "WHEN NEW.key='webtoon_product_flag_recheck' BEGIN SELECT RAISE(ABORT,'interrupted'); END")
+            inventory.db.commit()
+        with self.assertRaises(sqlite3.IntegrityError):
+            Inventory(self.root)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()),
+                             ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM settings WHERE key='webtoon_product_flag_recheck'").fetchone())
 
     def test_image_structure_upgrade_requeues_only_exhausted_accessible_failures_once(self):
         with Inventory(self.root) as inventory:

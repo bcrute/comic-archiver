@@ -235,7 +235,8 @@ class OverviewTests(unittest.TestCase):
                  {'id': 'b2', 'label': 'Backblaze B2', 'episodes': 10, 'files': 0, 'connected': False}]
 
     def test_the_library_card_counts_dashes_until_the_files_are_counted(self):
-        self.assertEqual(model.library_overview(None, True), {'metrics': [('—', 'Saved episodes'), ('—', 'Saved files')],
+        self.assertEqual(model.library_overview(None, True), {'metrics': [('—', 'Saved episodes'), ('—', 'Saved files'),
+                                                                        ('—', 'Episodes on this device'), ('—', 'Cloud episode copies')],
                                                               'locations': [], 'summary': 'Counting your saved files…'})
 
     def test_without_cloud_storage_only_this_computer_is_counted(self):

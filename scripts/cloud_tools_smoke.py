@@ -1,4 +1,4 @@
-"""Verify the actual pinned Linux helper download without any provider login.
+"""Verify the platform's actual pinned helper download without any provider login.
 
 Run only through the CI validation. The install stays inside this job's
 private temporary home, and no secret is supplied.

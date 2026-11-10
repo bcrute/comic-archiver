@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, PRIVATE_FOLDER
 from comic_archive import account_ui, download_control as dc
 from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
@@ -20,7 +20,7 @@ from comic_archive.worker import private_json
 from comic_archive.workspace import Workspace
 from download_harness import status_problems
 
-TAPAS_LISTS = ['subscribed', 'updated', 'recent', 'free_episodes']
+TAPAS_LISTS = ['subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free']
 
 
 def counted(**values):
@@ -167,7 +167,111 @@ class Controller(unittest.TestCase):
 
 
 class ControllerTests(Controller):
+    def test_speed_change_keeps_an_unpaced_list_request_running(self):
+        self.go()
+        task, request = self.published()
+        self.assertEqual(request['operation'], 'sync')
+        before = self.state()
+        saved, waited = [], []
+        dc.change_speed(self.session, self.library, lambda: saved.append(True),
+                        lambda key: waited.append(key), lambda: True)
+        self.assertEqual(saved, [True])
+        self.assertEqual(waited, [])
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.requests(), [task])
+        self.assertEqual(json.loads((self.queue / 'requests' / (task + '.json')).read_text()), request)
+
+    def test_closing_before_an_idle_setting_change_does_not_save_or_start_work(self):
+        saved, waited = [], []
+        with self.assertRaisesRegex(ArchiveError, 'closing'):
+            dc.change_speed(self.session, self.library, lambda: saved.append(True),
+                            lambda key: waited.append(key), lambda: False, selection=True)
+        self.assertEqual(saved, [])
+        self.assertEqual(waited, [])
+        self.assertFalse((self.queue / dc.STATE_FILE).exists())
+        self.assertEqual(self.requests(), [])
+
+    def test_reader_classification_exclusions_are_progress_but_are_not_counted_as_saved(self):
+        self.assertTrue(dc.progressed(counted(excluded_episode_ids=['81'])))
+        self.assertFalse(dc.progressed(counted(excluded_episode_ids='81')))
+
+    def test_type_change_does_not_reuse_an_audit_cancelled_under_the_old_selection(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        saved = []
+        response = {'status': 'ok', 'result': counted(status='cancelled')}
+
+        def stopped(task):
+            self.answer(response, task)
+            return response
+
+        dc.change_speed(self.session, self.library, lambda: saved.append(True), stopped, lambda: True, selection=True)
+        self.assertEqual(saved, [True])
+        self.assertEqual((self.state()['status'], self.state()['stage'], self.state()['audit']), ('running', 'archive', None))
+
+    def test_continue_retries_an_incomplete_listing_instead_of_repeating_the_same_local_audit(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        with Inventory(self.library) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+                inventory.record_series_scan(key)
+            inventory.record_scan_gap('42', 2, 3)
+        self.ok({'completion_check_passed': False, 'recorded_archived_episode_count': 14894,
+                 'missing_recorded_accessible_episode_count': 0,
+                 'unsupported_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0,
+                 'series_scan_gap_count': 1})
+        self.tick()
+        self.assertEqual(self.state()['status'], 'held')
+        self.assertEqual(self.status()['audit']['series_scan_gap_count'], 1)
+        self.go()
+        _, request = self.published()
+        self.assertEqual(request['operation'], 'sync')
+        self.assertFalse(request['args']['refresh_lists'])
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+
+    def test_changing_choices_after_incomplete_completion_retains_targeted_retry(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        with Inventory(self.library) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+                inventory.record_series_scan(key)
+            inventory.observe('43', 'Series', [{'id': '81', 'title': 'Chapter', 'order': 1,
+                                              'access_state': 'tapas_free'}], 'fixture')
+            inventory.mark('81', 'unsupported', 'novel_manifest_incomplete')
+            inventory.record_scan_gap('42', 2, 3)
+        self.ok({'completion_check_passed': False, 'recorded_archived_episode_count': 0,
+                 'missing_recorded_accessible_episode_count': 1, 'unsupported_recorded_accessible_episode_count': 1,
+                 'inventory_index_problem_count': 0, 'series_scan_gap_count': 1})
+        self.tick()
+        self.assertEqual(self.state()['code'], 'archive_incomplete')
+        dc.change_speed(self.session, self.library, lambda: None, lambda task: self.fail('No task to cancel'),
+                        lambda: True, selection=True)
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.assertEqual(self.requests(), [])
+        self.go()
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+
     # The record itself.
+
+    def test_webtoon_schedules_its_unlocked_list_after_subscriptions(self):
+        (self.session / 'site').write_text('webtoon\n')
+        self.go()
+        _, first = self.published()
+        self.assertEqual(first['args']['categories'], ['subscribed'])
+        self.ok(counted(refresh={'reading_lists': [{'category': 'subscribed', 'complete': True,
+                                                   'observed_series_count': 0}]}))
+        _, second = self.published()
+        self.assertEqual(second['args']['categories'], ['unlocked'])
+        self.assertEqual(list(self.lists()), ['subscribed', 'unlocked'])
 
     def test_go_makes_a_private_record_with_the_sites_lists_and_reads_the_first_one(self):
         self.assertEqual(dc.status(self.session, self.library), {'configured': False})
@@ -180,7 +284,8 @@ class ControllerTests(Controller):
         value = self.state()
         self.assertEqual((value['status'], value['stage'], value['code']), ('running', 'lists', None))
         task, request = self.published()
-        self.assertEqual(request, {'operation': 'sync', 'args': dc.LIST_READ | {'categories': ['subscribed']}})
+        self.assertEqual(request, {'operation': 'sync', 'args': dc.LIST_READ | {
+            'categories': ['subscribed'], 'history_round': self.state()['round_started_at']}})
         self.assertEqual(self.tasks()[0]['kind'], 'list')
         self.assertEqual(dc.outstanding(self.session, self.library), task)
 
@@ -314,8 +419,9 @@ class ControllerTests(Controller):
         self.go()
         self.read_lists()
         _, request = self.published()
-        self.assertEqual(self.status()['lists'], {'checked': 4, 'total': 4})
-        self.assertEqual(request['args'], dc.SERIES_CHECK | {'metadata_speed': 'fast'})
+        self.assertEqual(self.status()['lists'], {'checked': 5, 'total': 5})
+        self.assertEqual(request['args'], dc.SERIES_CHECK | {'metadata_speed': 'fast',
+                                                           'history_round': self.state()['round_started_at']})
         self.assertEqual(self.state()['stage'], 'series')
         self.assertEqual(self.status()['phase'], 'series')
         with Inventory(self.library) as inventory:
@@ -344,6 +450,44 @@ class ControllerTests(Controller):
         self.go()
         self.assertTrue(all(row['read_at'] is None for row in self.lists().values()))
         self.assertEqual(self.published()[1]['args']['categories'], ['subscribed'])
+
+    def test_lightweight_completion_finishes_without_claiming_a_fresh_integrity_audit(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        self.ok({'completion_check_passed': True, 'recorded_archived_episode_count': 3,
+                 'missing_recorded_accessible_episode_count': 0,
+                 'unsupported_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0,
+                 'archive_contents_rechecked': False})
+        self.tick()
+        self.assertEqual(self.state()['status'], 'finished')
+        self.assertEqual(self.status()['audit']['recorded_archived_episode_count'], 3)
+        self.assertNotIn('verified_inventory_episode_count', self.status()['audit'])
+        self.assertFalse(self.requests())
+
+    def test_a_failed_completion_receipt_cannot_be_overridden_by_a_legacy_integrity_flag(self):
+        self.go()
+        self.read_lists()
+        self.published()
+        self.ok({'completion_check_passed': False, 'archive_integrity_passed': True,
+                 'missing_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0,
+                 'unindexed_archive_count': 0})
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+
+    def test_download_activity_is_shown_while_series_discovery_is_waiting(self):
+        self.downloading()
+        self.change("UPDATE state SET stage='series'")
+        self.assertEqual(dc.status(self.session, self.library)['phase'], 'archive')
+        self.assertEqual(self.state()['stage'], 'series')
+
+    def test_upgrade_reads_new_wuf_list_without_repeating_completed_lists(self):
+        self.go()
+        self.read_lists(TAPAS_LISTS[:-1])
+        self.change("UPDATE state SET stage='series'")
+        _, request = self.published()
+        self.assertEqual(request['args']['categories'], ['wait_until_free'])
+        self.assertTrue(all(self.lists()[name]['read_at'] for name in TAPAS_LISTS[:-1]))
 
     def test_episodes_already_waiting_are_saved_before_the_lists_are_read(self):
         self.pending_episode()
@@ -841,6 +985,22 @@ class ControllerTests(Controller):
                 shown = self.status()
                 self.assertEqual(shown['status'], 'running' if status == 'waiting' else status)
 
+    def test_purchase_discovery_status_is_cached_and_damaged_checkpoint_is_explicit(self):
+        from comic_archive import purchase_history
+        self.go()
+        with Inventory(self.library) as inventory:
+            inventory.bind_account('synthetic-account')
+            binding = inventory.db.execute("SELECT value FROM settings WHERE key='account_binding'").fetchone()[0]
+            purchase_history.save(inventory, {'version': 1, 'binding': binding, 'round': 'round', 'status': 'pending',
+                                              'pages': 1, 'discovered': 1, 'unresolved': 0, 'cursor': None})
+        self.assertEqual(dc.status(self.session, self.library)['purchase_history']['status'], 'pending')
+        self.assertGreater(dc._inventory(self.library)['remaining'], 0)
+        with Inventory(self.library) as inventory:
+            inventory.db.execute('UPDATE settings SET value=? WHERE key=?', ('broken', purchase_history.KEY))
+            inventory.db.commit()
+        self.assertEqual(dc.status(self.session, self.library)['purchase_history'],
+                         {'status': 'partial', 'code': 'history_checkpoint_unreadable'})
+
     def test_each_named_speed_carries_its_own_download_and_metadata_policy(self):
         for speed, pace in (('fast', 'fast'), ('medium', 'medium'), ('slow', 'slow')):
             account_ui.choose_speed(self.workspace, speed)
@@ -902,7 +1062,7 @@ class MoveTests(Controller):
         for name in dc.OLD_FILES:
             self.assertFalse((self.queue / name).exists())
         for folder in (self.queue / 'legacy', *(self.queue / 'legacy').iterdir()):
-            self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(folder.stat().st_mode & 0o777, PRIVATE_FOLDER)
         self.assertEqual((self.queue / dc.STATE_FILE).stat().st_mode & 0o777, PRIVATE_FILE)
         self.assertNotIn(b'PRIVATE', (self.queue / dc.STATE_FILE).read_bytes())
         self.assertEqual({c: row['complete'] for c, row in self.lists().items()}, dict.fromkeys(TAPAS_LISTS, 1))

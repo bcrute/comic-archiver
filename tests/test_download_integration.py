@@ -18,7 +18,7 @@ from comic_archive import download_control
 from comic_archive.adapters.tapas_http import TapasHTTPAdapter
 from comic_archive.archive import episode_archives, sidecar_path, verify
 from comic_archive.inventory import Inventory
-from comic_archive.errors import AuthenticationError
+from comic_archive.errors import AccessDenied, AuthenticationError
 from comic_archive.models import ArchiveError
 from comic_archive.run_receipts import failure_result
 from comic_archive.worker import execute, private_json
@@ -79,8 +79,10 @@ class SyntheticTransport:
             if parts[2:] == ['info']:
                 return envelope(self.info(key))
             if len(parts) == 2:
-                if key in ('83', '92') or key in self.revoked:
-                    raise AssertionError('Denied reader requested')
+                if key in self.revoked:
+                    raise AccessDenied('The provider refused the requested reader.')
+                if key in ('83', '92'):
+                    raise AssertionError('Unowned catalogue reader requested')
                 if key == '91':
                     image = base64.b64encode(png(1)).decode()
                     # A real supplied type-label mismatch must retain the PNG bytes.
@@ -193,7 +195,7 @@ class DownloadIntegrationTests(unittest.TestCase):
         self.assertEqual(registry.start_account(LOCAL_OWNER,registry.workspace_id)['status'],'running')
         state=self.drive()
         self.assertEqual(state['status'],'finished',self.last_response)
-        self.assertEqual(registry.account_status(LOCAL_OWNER,registry.workspace_id)['audit']['verified_inventory_episode_count'],3)
+        self.assertEqual(registry.account_status(LOCAL_OWNER,registry.workspace_id)['audit']['recorded_archived_episode_count'],3)
         self.assertEqual({p.suffix for p in library_archives(self.library)},{'.cbz','.epub'})
         self.assertFalse(any(path in ('/episode/83','/episode/92') for _,path in self.adapter.transport.calls))
         self.assertEqual(verify(self.library,decode_images=True),[])
@@ -208,13 +210,60 @@ class DownloadIntegrationTests(unittest.TestCase):
     def test_go_at_the_slow_speed_saves_the_whole_account_comic_and_novel(self):
         self.go('slow')
 
+    def test_removed_episode_does_not_hold_controller_and_readable_missing_info_is_saved(self):
+        from comic_archive.errors import MetadataError
+        self.start()
+        self.assertEqual(self.drive()['status'], 'finished')
+        before = {path: path.read_bytes() for path in library_archives(self.library)}
+        transport = self.adapter.transport
+        transport.episodes.update({
+            '84': {'id': 84, 'scene': 4, 'title': 'Removed', 'book': False, 'free': True},
+            '85': {'id': 85, 'scene': 5, 'title': 'Readable', 'book': False, 'free': True}})
+        normal = transport.get
+        def get(url, **options):
+            path = urlsplit(url).path
+            if path == '/series/42/episodes':
+                data = json.loads(normal(url, **options))['data']
+                data['episodes'] += [transport.info(key) for key in ('84', '85')]
+                data['pagination']['total'] += 2
+                return envelope(data)
+            if path in ('/episode/84/info', '/episode/85/info', '/episode/84'):
+                transport.calls.append((urlsplit(url).hostname, path))
+                error = MetadataError('PRIVATE_PROVIDER_RESPONSE')
+                error.source_http_status = 404
+                raise error
+            if path == '/episode/85':
+                self.assertTrue(options.get('reader_json'))
+                html = normal(url).decode().replace('id="episode-85"', 'id="episode-85" data-series-id="42"')
+                return envelope({'episode': transport.info('85'), 'html': html})
+            return normal(url, **options)
+        transport.get = get
+        self.start()
+        state = self.drive()
+        self.assertEqual(state['status'], 'finished', self.last_response)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 4)
+        self.assertEqual(verify(self.library, decode_images=True), [])
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+        with Inventory(self.library, read_only=True) as inventory:
+            removed = inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='84'").fetchone()
+            self.assertEqual(tuple(removed), ('unavailable', 'access_denied'))
+            self.assertEqual(inventory.db.execute("SELECT status FROM episodes WHERE id='85'").fetchone()[0], 'archived')
+        # There is no timed account-wide retry or failed task for a missing reader.
+        self.assertFalse(any(item['outcome'] == 'error' for item in self.controller_tasks()))
+
+    def controller_tasks(self):
+        import sqlite3
+        with sqlite3.connect((self.root / 'download.sqlite3').as_uri() + '?mode=ro', uri=True) as db:
+            db.row_factory = sqlite3.Row
+            return [dict(row) for row in db.execute('SELECT outcome FROM tasks')]
+
     def test_empty_account_to_mixed_portable_library_across_many_steps_then_a_second_round_saves_nothing_again(self):
         self.start()
         # One episode a step, so the account takes several steps that must add up without loss or repetition.
         with patch.object(download_control, 'DOWNLOAD', download_control.DOWNLOAD | {'limit': 1}):
             state = self.drive()
         self.assertEqual(state['status'], 'finished', self.last_response)
-        self.assertEqual(state['audit']['verified_inventory_episode_count'], 3)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
         self.assertEqual(state['audit']['missing_recorded_accessible_episode_count'], 0)
         self.assertGreaterEqual(self.executed.count('archive_discovered'), 3)
         self.assertEqual(verify(self.library, decode_images=True), [])
@@ -228,6 +277,69 @@ class DownloadIntegrationTests(unittest.TestCase):
         self.assertEqual(self.drive()['status'], 'finished')
         self.assertEqual({str(p): (p.read_bytes(), sidecar_path(p).read_bytes()) for p in library_archives(self.library)}, original)
         self.assertEqual(self.images(), images)
+
+    def test_wuf_only_comic_and_novel_with_missing_headers_are_discovered_and_published(self):
+        from comic_archive.errors import MetadataError
+        transport = self.adapter.transport
+        normal_get = transport.get
+        missing = {'/series/42': 404, '/series/43': 410}
+        def get(url, **options):
+            path = urlsplit(url).path
+            if path in missing:
+                transport.calls.append((urlsplit(url).hostname, path))
+                error = MetadataError('Missing series header')
+                error.source_http_status = missing[path]
+                raise error
+            return normal_get(url, **options)
+        transport.get = get
+        categories = []
+        normal_list = self.adapter.inspect_library
+        def library(category):
+            categories.append(category)
+            result = normal_list(category)
+            if category != 'wait_until_free':
+                result['series'] = []
+            return result
+        self.adapter.inspect_library = library
+        self.start()
+        state = self.drive()
+        self.assertEqual(state['status'], 'finished', self.last_response)
+        self.assertEqual(categories, list(self.adapter.site.lists))
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
+        self.assertEqual({path.suffix for path in library_archives(self.library)}, {'.cbz', '.epub'})
+        self.assertEqual(verify(self.library, decode_images=True), [])
+        self.assertFalse(any(path in ('/episode/83', '/episode/92') for _, path in transport.calls))
+        # A second round retains existing archives rather than duplicating or fetching them again.
+        before = {str(path): path.read_bytes() for path in library_archives(self.library)}
+        images = self.images()
+        self.start()
+        self.assertEqual(self.drive()['status'], 'finished', self.last_response)
+        self.assertEqual({str(path): path.read_bytes() for path in library_archives(self.library)}, before)
+        self.assertEqual(self.images(), images)
+
+    def test_unavailable_series_is_held_while_other_series_still_publish(self):
+        from comic_archive.errors import MetadataError
+        transport = self.adapter.transport
+        normal_get, normal_list = transport.get, self.adapter.inspect_library
+        def get(url, **options):
+            if urlsplit(url).path in ('/series/44', '/series/44/episodes'):
+                error = MetadataError('Missing metadata')
+                error.source_http_status = 404
+                raise error
+            return normal_get(url, **options)
+        def library(category):
+            result = normal_list(category)
+            if category == 'wait_until_free':
+                result['series'].append({'source_series_id': '44', 'title': 'Unavailable'})
+            return result
+        transport.get, self.adapter.inspect_library = get, library
+        self.start()
+        state = self.drive()
+        self.assertEqual(state['status'], 'held', self.last_response)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['source_series_id'] for row in inventory.scan_gaps()], ['44'])
+        self.assertEqual({path.suffix for path in library_archives(self.library)}, {'.cbz', '.epub'})
 
     def test_restart_after_publication_observes_receipt_without_repeating_assets(self):
         self.start()
@@ -277,8 +389,8 @@ class DownloadIntegrationTests(unittest.TestCase):
         self.adapter.transport.revoked.add('82')
         state = self.drive()
         self.assertEqual(state['status'], 'finished')
-        self.assertEqual(state['audit']['verified_inventory_episode_count'], 2)
-        self.assertNotIn(('tapas.io', '/episode/82'), self.adapter.transport.calls)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 2)
+        self.assertEqual(self.adapter.transport.calls.count(('tapas.io', '/episode/82')), 1)
         self.assertEqual(self.images(), 2)
 
     def test_corrupt_saved_archive_prevents_completion_until_repaired(self):
@@ -287,12 +399,16 @@ class DownloadIntegrationTests(unittest.TestCase):
         path = library_archives(self.library)[0]
         original = path.read_bytes()
         path.write_bytes(b'corrupt archive')
-        self.assertEqual(self.drive()['code'], 'archive_incomplete')
+        completed = self.drive()
+        self.assertEqual(completed['status'], 'finished')
+        self.assertNotIn('verified_inventory_episode_count', completed['audit'])
+        self.assertTrue(verify(self.library, decode_images=True), 'Explicit verification must detect the damaged file')
         calls = list(self.adapter.transport.calls)
         path.write_bytes(original)
         self.start()
         self.assertEqual(self.drive()['status'], 'finished')
-        self.assertEqual(self.adapter.transport.calls, calls)
+        self.assertEqual(self.images(), self.images(calls))
+        self.assertEqual(verify(self.library, decode_images=True), [])
 
 
 if __name__ == '__main__':

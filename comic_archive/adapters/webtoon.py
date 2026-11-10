@@ -1,7 +1,8 @@
-"""Webtoon: what its website shows the signed-in account, read over HTTPS with the saved sign-in's cookies.
+"""Webtoon website episodes and authenticated mobile reader responses.
 
 Only GET requests are made, to Webtoon's own pages, its episode list and its image host. Nothing is bought,
-unlocked or changed. The website shows only part of many series; what it does not show is not saved.
+unlocked or changed. Mobile account lists seed candidates; complete authenticated reader responses
+establish actual access. Catalogue flags are advisory.
 
 Webtoon numbers a series' episodes from 1 within that series, and keeps its Canvas series at other addresses
 than its Originals. The library needs one number per series and one per episode, so:
@@ -9,16 +10,19 @@ than its Originals. The library needs one number per series and one per episode,
 - an episode is its series' number times EPISODES, plus its number in the series.
 """
 import json
+import logging
 import re
+import time
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from .. import sites
-from ..errors import AuthenticationError, MetadataError
+from ..errors import AuthenticationError, MetadataError, UnsupportedContent
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
-from ..transport import Transport, asset_url
+from ..transport import ExpiredAsset, Transport, asset_url
+from ..webtoon_gateway import MobileAPI, PAGE_SIZE as MOBILE_PAGE_SIZE
 from .site_reader import SiteReader
 
 SITE = sites.named('webtoon')
@@ -180,6 +184,7 @@ def parsed(data):
 
 class WebtoonAdapter(SiteReader):
     site = SITE
+    supports_library_checkpoint = True
 
     def __init__(self, session: Path | None = None, preferred=None, headless=True, interval=1.0, transport=None):
         self.session = session
@@ -192,6 +197,201 @@ class WebtoonAdapter(SiteReader):
         # Where each episode's page is, as Webtoon names it, learnt from the series' episode list.
         self.viewers = {}
         self._account = None
+        self._mobile = MobileAPI(self.transport, self.account_identity)
+        self._mobile_titles_snapshot = None
+        self._mobile_series_info = {}
+        self._mobile_catalogues = {}
+        self._known_mobile_episodes = set()
+        self._mobile_image_identities = {}
+        self._mobile_capture_marker = None
+        self._pending_mobile = None
+
+    def mobile_available(self):
+        available = getattr(self.transport, 'has_webtoon_session', None)
+        return callable(available) and available()
+
+    def check_session_binding(self):
+        if (self._mobile_capture_marker is not None
+                and self.transport.webtoon_session_marker() != self._mobile_capture_marker):
+            self._pending_mobile = None
+            self._mobile_titles_snapshot = None
+            raise AuthenticationError('The Webtoon session changed; resume after signing in again.')
+
+    def check(self):
+        self.check_session_binding()
+
+    def retrieve(self, page, max_bytes=None):
+        self.check_session_binding()
+        data = super().retrieve(page, max_bytes)
+        self.check_session_binding()
+        return data
+
+    def _mobile_titles(self, refresh=False, on_page=None):
+        if self._mobile_titles_snapshot is None or refresh:
+            self._mobile_titles_snapshot = None
+            found, batch = {}, []
+            for row in self._mobile.listed('myUnlockedTitleProductsV1.json', 'unlockedTitleProducts'):
+                title = row.get('title')
+                if row.get('contentType') != 'WEBTOON':
+                    raise UnsupportedContent('Webtoon returned an unsupported unlocked content type.')
+                if not isinstance(title, str) or not title.strip() or len(title) > 500:
+                    raise MetadataError('Webtoon returned an unlocked title without its name.')
+                key = series_key(row['titleNo'], False)
+                if key in found:
+                    raise MetadataError('Webtoon repeated a title in its unlocked list.')
+                found[key] = {'source_series_id': key, 'title': title.strip()}
+                batch.append(found[key])
+                if len(batch) == MOBILE_PAGE_SIZE and callable(on_page):
+                    on_page({'authenticated': True, 'membership_verified': True, 'scope': 'unlocked',
+                             'complete': False, 'boundary_observed': False, 'series': batch})
+                    batch = []
+            self._mobile_titles_snapshot = found
+        return self._mobile_titles_snapshot
+
+    @staticmethod
+    def _mobile_right(row, title_no):
+        if (type(row.get('titleNo')) is not int or row['titleNo'] != title_no
+                or row.get('contentType') != 'WEBTOON'):
+            raise MetadataError('Webtoon returned unlocks for a different series or content type.')
+        key = episode_key(str(title_no), row.get('episodeNo'))
+        title = row.get('episodeTitleName')
+        right = row.get('rightInfo')
+        if not isinstance(title, str) or not title.strip() or len(title) > 500:
+            raise MetadataError('Webtoon returned an episode without its name.')
+        right = right if isinstance(right, dict) else {}
+        policy = right.get('productPolicy') if right.get('hasRight') is True else None
+        access = (SITE.unlocked if policy == 'PAID_POLICY' and right.get('infinite') is True
+                  else SITE.free if policy == 'FREE_POLICY' else SITE.readable)
+        if right.get('hasRight') is True and (right.get('infinite') is False
+                or right.get('rewardAd') is True or right.get('timeDeal') is True):
+            access = SITE.limited
+        # Account-list membership supplies a bounded candidate, even when its
+        # advisory rights fields contradict the authenticated reader response.
+        return {'id': key, 'title': title.strip(), 'order': row['episodeNo'], 'source_scene': None,
+                'access_state': access, 'authorization_reason': None, 'access_expires_at': None}
+
+    def _mobile_episode_rows(self, key):
+        title_no, canvas = split_series(key)
+        if canvas:
+            return {}
+        rows = {}
+        for row in self._mobile.listed('myUnlockedEpisodeProductsV1.json', 'unlockedEpisodeProducts', titleNo=title_no):
+            item = self._mobile_right(row, title_no)
+            rows[item['id']] = item
+        self._known_mobile_episodes.update(rows)
+        self._mobile_catalogues[key] = rows
+        return rows
+
+    def _mobile_series(self, key):
+        if key not in self._mobile_series_info:
+            title_no, canvas = split_series(key)
+            if canvas:
+                raise MetadataError('Webtoon mobile unlocks cannot identify a Canvas series.')
+            result = self._mobile.request('titleHomeMainV3', titleNo=title_no)
+            try:
+                title, metadata = result['title'], result['episodeMeta']
+                link = metadata['titleHomePcWebUrl']
+                parts = urlsplit(link)
+                match = LIST.fullmatch(parts.path)
+                if (type(title['titleNo']) is not int or title['titleNo'] != title_no
+                        or (parts.scheme, parts.netloc) != ('https', SITE.host) or match is None
+                        or numbers(link) != (title_no, None) or match[1] == 'canvas'):
+                    raise ValueError
+                authors = title.get('authorList', [])
+                if not isinstance(authors, list) or any(not isinstance(a, dict) or not isinstance(a.get('authorName'), str)
+                                                       or not a['authorName'].strip() for a in authors):
+                    raise ValueError
+                cover = title.get('posterThumbnailUrl')
+                if cover is not None:
+                    cover = asset_url(urljoin('https://webtoon-phinf.pstatic.net/', cover), SITE)
+                series = Series(self.library_id(key, match[2]), title['title'],
+                                tuple(dict.fromkeys(a['authorName'].strip() for a in authors))[:20],
+                                title.get('synopsis'), link, SITE.key, key, match[2], cover_url=cover)
+            except (KeyError, TypeError, ValueError, AttributeError, ArchiveError):
+                raise MetadataError('Webtoon returned inconsistent mobile series metadata.') from None
+            self._mobile_series_info[key] = series
+        return self._mobile_series_info[key]
+
+    def _capture_mobile(self, key):
+        self.account_identity()
+        marker = self.transport.webtoon_session_marker()
+        series_key_value, number = split_episode(key)
+        title_no, _ = split_series(series_key_value)
+        result = self._mobile.request('episodeInfoWithLogin.json', titleNo=title_no, episodeNo=number)
+        info = result.get('episodeInfo')
+        images = info.get('imageInfo') if isinstance(info, dict) else None
+        count = info.get('count') if isinstance(info, dict) else None
+
+        def rejected(reason, page=None):
+            # These fixed field names and bounded counts describe the failure
+            # without exposing titles, account data or signed delivery URLs.
+            logging.getLogger('comic_archive.download').info(
+                'webtoon manifest: rejected reason=%s series=%s episode=%s declared_images=%s listed_images=%s page=%s',
+                reason, title_no, number, count if type(count) is int and 0 <= count <= 10000 else None,
+                len(images) if isinstance(images, list) and len(images) <= 10000 else None, page)
+            error = MetadataError('Webtoon returned an incomplete or inconsistent mobile episode manifest '
+                                  f'(reason={reason}).')
+            error.source_validation_reason = reason
+            raise error
+
+        if not isinstance(info, dict):
+            rejected('episode_info_shape')
+        if type(info.get('episodeSeq')) is not int or info['episodeSeq'] != number:
+            rejected('episode_identity')
+        title = info.get('episodeTitle')
+        if not isinstance(title, str) or not title.strip() or len(title) > 500:
+            rejected('episode_title')
+        # A complete authenticated reader response decides actual access.
+        hint = self._mobile_catalogues.get(series_key_value, {}).get(key, {})
+        access = hint.get('access_state', SITE.readable)
+        try:
+            link = self.viewer(info.get('linkUrl'), title_no, number)
+        except (ArchiveError, TypeError, ValueError):
+            rejected('viewer_identity')
+        if type(count) is not int or not 0 < count <= 10000 or not isinstance(images, list) or len(images) != count:
+            rejected('image_count')
+        if any(not isinstance(image, dict) for image in images):
+            rejected('image_record_shape')
+        if (any(type(image.get('sortOrder')) is not int for image in images)
+                or [image['sortOrder'] for image in images] != list(range(count))):
+            rejected('image_order')
+        pages, identities = [], []
+        for index, image in enumerate(images, 1):
+            if not isinstance(image.get('url'), str) or not image['url'] or image['url'] != image['url'].strip():
+                rejected('image_url', index)
+            try:
+                address = urljoin('https://webtoon-phinf.pstatic.net/', image['url'])
+                parts = urlsplit(asset_url(address, SITE))
+            except (ArchiveError, ValueError):
+                rejected('image_url', index)
+            if parts.hostname not in {'webtoon-phinf.pstatic.net', 'webtoons-static.pstatic.net'} or parts.fragment:
+                rejected('image_host', index)
+            if type(image.get('cutId')) is not int or image['cutId'] < 0:
+                rejected('image_cut_identity', index)
+            if any(type(image.get(field)) is not int or not 0 < image[field] <= 100000 for field in ('width', 'height')):
+                rejected('image_dimensions', index)
+            if type(image.get('fileSize')) is not int or image['fileSize'] < 0:
+                rejected('image_file_size', index)
+            # Preserve the delivered query, notice page and image ordering.
+            pages.append(Page(index, address, False))
+            identities.append((image['cutId'], image['width'], image['height'], image['fileSize'],
+                               parts.scheme, parts.netloc, parts.path))
+        series = self._mobile_series(series_key_value)
+        match = VIEWER.fullmatch(urlsplit(link).path)
+        list_match = LIST.fullmatch(urlsplit(series.source_url).path)
+        if (match[1], match[2]) != (list_match[1], list_match[2]):
+            rejected('series_viewer_identity')
+        if marker is None or marker != self.transport.webtoon_session_marker():
+            raise AuthenticationError('The Webtoon session changed while checking episode access.')
+        episode = Episode(key, series.id, title.strip(), number, tuple(pages), access, link)
+        self.viewers[key] = link
+        self._known_mobile_episodes.add(key)
+        self._mobile_image_identities[key] = tuple(identities)
+        self._mobile_capture_marker = marker
+        self._manifest = Manifest(series, (episode,))
+        logging.getLogger('comic_archive.download').info(
+            'reader access: provider=webtoon result=complete metadata_access=%s images=%s', access, count)
+        return self._manifest
 
     def account_identity(self):
         """The signed-in account, as Webtoon's own pages name it. Once one is seen, it must stay the same: a
@@ -201,7 +401,10 @@ class WebtoonAdapter(SiteReader):
             named = account(json.loads(data))
         except ValueError:
             raise MetadataError('Webtoon gave an unexpected answer about who is signed in.') from None
-        if named is None or self._account is not None and named != self._account:
+        if (named is None or self._account is not None and named != self._account
+                or self.expected_account_id is not None and named != self.expected_account_id):
+            self._pending_mobile = None
+            self._mobile_titles_snapshot = None
             raise AuthenticationError('Sign in to Webtoon again.')
         self._account = named
         return named
@@ -223,6 +426,15 @@ class WebtoonAdapter(SiteReader):
         if category not in SITE.lists:
             raise ArchiveError('Webtoon has no such list.')
         self.account_identity()
+        if category == 'unlocked':
+            if not self.mobile_available():
+                raise AuthenticationError('Sign in to Webtoon again to check its unlocked episode list.')
+            found = self._mobile_titles(refresh=True, on_page=on_page)
+            result = {'authenticated': True, 'membership_verified': True, 'scope': category,
+                      'complete': True, 'boundary_observed': True, 'series': list(found.values())}
+            if callable(on_page):
+                on_page(result)
+            return result
         page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))
         if page.subscriptions is None:
             raise MetadataError('Webtoon gave a subscriptions page without its list.')
@@ -237,8 +449,11 @@ class WebtoonAdapter(SiteReader):
                 raise MetadataError('Webtoon gave a subscriptions list of an unexpected shape.')
             key = series_key(title_no, match[1] == 'canvas')
             found.setdefault(key, {'source_series_id': key, 'title': title})
-        return {'authenticated': True, 'membership_verified': True, 'scope': category, 'complete': True,
-                'boundary_observed': True, 'series': list(found.values())}
+        result = {'authenticated': True, 'membership_verified': True, 'scope': category, 'complete': True,
+                  'boundary_observed': True, 'series': list(found.values())}
+        if callable(on_page):
+            on_page(result)
+        return result
 
     def episode_list(self, key):
         """Every episode the website shows in a series, in Webtoon's order: (number, title, page address)."""
@@ -285,25 +500,44 @@ class WebtoonAdapter(SiteReader):
         return HOME + parts.path + '?' + parts.query
 
     def inspect_series(self, key, strict_order=False, comic_only=True):
-        episodes = self.episode_list(key)
-        if not episodes:
+        _, canvas = split_series(key)
+        website_error = None
+        try:
+            episodes = self.episode_list(key)
+        except ExpiredAsset as error:
+            if canvas or not self.mobile_available() or getattr(error, 'source_http_status', None) not in {404, 410}:
+                raise
+            episodes = []
+            website_error = error
+        verified = self.signed_in()
+        mobile = verified and not canvas and self.mobile_available() and key in self._mobile_titles()
+        if website_error is not None and not mobile:
+            raise website_error
+        mobile_rows = self._mobile_episode_rows(key) if mobile else {}
+        if not episodes and not mobile_rows:
             error = MetadataError('Webtoon shows no episodes of this series.')
             error.source_http_status, error.source_series_id, error.source_route = 404, key, f'/series/{key}'
             raise error
-        title = self.series_page(key).text('title')
+        title = self.series_page(key).text('title') if episodes else self._mobile_series(key).title
         if not title:
             raise MetadataError('Webtoon gave a series page without its title.')
         # Without an account there is no evidence any listed episode may be read: the list is
         # reported as enumerated but unverified, and the importer refuses unauthenticated series.
-        verified = self.signed_in()
         listed = [{'id': episode_key(key, number), 'title': name, 'order': number, 'source_scene': None,
                    'access_state': SITE.free if verified else None,
                    'authorization_reason': None if verified else 'webtoon_access_unverified',
                    'access_expires_at': None,
                    'source_url': self.viewers[episode_key(key, number)]} for number, name, _ in episodes]
+        merged = {item['id']: item for item in listed}
+        for identity, item in mobile_rows.items():
+            # Keep the account-list hint alongside website candidates. Neither
+            # catalogue is a substitute for the authenticated reader response.
+            if identity not in merged or item['access_state'] in sites.ACCESS:
+                merged[identity] = item
+        listed = sorted(merged.values(), key=lambda item: item['order'])
         return {'complete': True, 'authenticated': verified, 'source_series_id': key, 'title': title,
                 'episode_count': len(listed), 'ordering_verified': True,
-                'accessible_episode_count': len(listed) if verified else 0,
+                'accessible_episode_count': sum(item['access_state'] in sites.ACCESS for item in listed),
                 'series_content_flags': {'comic': True, 'book': False}, 'episodes': listed}
 
     def series_page(self, key):
@@ -318,6 +552,9 @@ class WebtoonAdapter(SiteReader):
         return parsed(self.transport.get(url))
 
     def series_metadata(self, key):
+        _, canvas = split_series(key)
+        if not canvas and self.mobile_available() and key in self._mobile_titles():
+            return self._mobile_series(key)
         page = self.series_page(key)
         title = page.text('title')
         canonical = page.meta.get('og:url', '')
@@ -341,7 +578,17 @@ class WebtoonAdapter(SiteReader):
     def episode_url(self, key):
         series, _ = split_episode(key)
         if key not in self.viewers:
-            self.episode_list(series)
+            try:
+                self.episode_list(series)
+            except ExpiredAsset as error:
+                if (split_series(series)[1] or not self.mobile_available()
+                        or getattr(error, 'source_http_status', None) not in {404, 410}):
+                    raise
+        if key not in self.viewers and not split_series(series)[1] and self.mobile_available():
+            if series not in self._mobile_catalogues and series in self._mobile_titles():
+                self._mobile_episode_rows(series)
+            manifest = self._capture_mobile(key)
+            self._pending_mobile = (manifest, time.monotonic())
         if key not in self.viewers:
             raise MetadataError('Webtoon no longer shows this episode.')
         return self.viewers[key]
@@ -357,7 +604,27 @@ class WebtoonAdapter(SiteReader):
             raise ArchiveError('This is not a Webtoon episode page.')
         canvas = match[1] == 'canvas'
         key = series_key(title_no, canvas)
-        page = parsed(self.transport.get(url))
+        identity = episode_key(key, episode_no)
+        if not canvas and self.mobile_available():
+            cached, self._pending_mobile = self._pending_mobile, None
+            pending = cached[0] if cached is not None and time.monotonic() - cached[1] <= 30 else None
+            if (pending is not None and pending.episodes[0].id == identity
+                    and pending.episodes[0].source_url == url):
+                self.check_session_binding()
+                self._manifest = pending
+                return pending
+            if key not in self._mobile_catalogues and key in self._mobile_titles():
+                self._mobile_episode_rows(key)
+            if identity in self._known_mobile_episodes:
+                return self._capture_mobile(identity)
+        try:
+            page = parsed(self.transport.get(url))
+        except ExpiredAsset as error:
+            if canvas or not self.mobile_available() or getattr(error, 'source_http_status', None) not in {404, 410}:
+                raise
+            return self._capture_mobile(identity)
+        if not page.images and not canvas and self.mobile_available():
+            return self._capture_mobile(identity)
         canonical = page.links.get('canonical', '')
         if numbers(canonical) != (title_no, episode_no) or VIEWER.fullmatch(urlsplit(canonical).path) is None:
             raise MetadataError('Webtoon showed a different episode than the one asked for.')
@@ -372,3 +639,13 @@ class WebtoonAdapter(SiteReader):
         episode = Episode(episode_key(key, episode_no), series.id, title, episode_no, pages, SITE.free, url)
         self._manifest = Manifest(series, (episode,))
         return self._manifest
+
+    def refresh(self, episode):
+        if episode.id not in self._mobile_image_identities:
+            return super().refresh(episode)
+        before = self._mobile_image_identities[episode.id]
+        manifest = self._capture_mobile(episode.id)
+        if before != self._mobile_image_identities[episode.id]:
+            raise MetadataError('Webtoon changed the mobile episode during delivery; cached pages are retained.')
+        # Query-only URL renewal keeps the existing page/cache identities.
+        return manifest.episodes[0]

@@ -18,8 +18,8 @@ def home_environment(home, state=None):
 
 
 def linux_only(reason):
-    """Leave a whole test file out on Windows; called at the top of a file whose subject Windows does not have."""
-    if os.name == 'nt':
+    """Leave Linux package checks out on other desktop platforms."""
+    if sys.platform != 'linux':
         raise unittest.SkipTest(reason)
 
 

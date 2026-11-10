@@ -734,7 +734,7 @@ class AppRuntimeTests(unittest.TestCase):
             self.assertIn('did not accept the stop request: LibraryBusy', logs.output[0]); self.assertNotIn('PRIVATE', ''.join(logs.output))
             self.background['status'].return_value = {'running': False, 'state': 'stopped'}
 
-    @unittest.skipUnless(Path('/proc/self/cmdline').is_file(), 'needs /proc')
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process signalling required')
     def test_only_the_running_downloader_of_this_library_is_ended(self):
         session = self.sign_in(); folder = session / 'worker'; folder.mkdir()
         def child(*words):
@@ -809,7 +809,7 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', ''.join(logs.output))
         self.assertTrue(self.runtime._launch.acquire(blocking=False)); self.runtime._launch.release()
 
-    @unittest.skipUnless(Path('/proc/self/cmdline').is_file(), 'needs /proc')
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process signalling required')
     def test_a_downloader_in_the_process_group_of_the_app_is_ended_alone(self):
         session = self.sign_in(); folder = session / 'worker'; folder.mkdir()
         process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', '--session-dir', str(session), 'browser-worker'],

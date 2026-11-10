@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import android_release
 
 CHECKS = {'validation', 'mutation', 'qt_engine', 'linux_build', 'windows_build', 'bundle_audits'}
+MAC_CHECKS = {'native_tests', 'qt_engine', 'native_window', 'package_smoke', 'bundle_audit'}
 SUMS = 'SHA256SUMS.txt'
 
 
@@ -22,6 +23,20 @@ def digest(path):
 def owned_by(actor, owner):
     return (isinstance(actor, dict) and isinstance(actor.get('login'), str)
             and actor['login'].casefold() == owner.casefold())
+
+
+def macos_asset(value, version):
+    """An optional Mac download needs its own native evidence and signing limits."""
+    if (not isinstance(value, dict) or set(value) != {'architecture', 'checks', 'signing', 'notarized'}
+            or value['architecture'] not in ('x86_64', 'arm64')
+            or value['signing'] not in ('ad-hoc', 'developer-id')
+            or type(value['notarized']) is not bool
+            or value['notarized'] and value['signing'] != 'developer-id'):
+        raise ValueError('Mac evidence must identify the qualified architecture and actual signing status.')
+    checks = value['checks']
+    if not isinstance(checks, dict) or set(checks) != MAC_CHECKS or any(checks[key] is not True for key in MAC_CHECKS):
+        raise ValueError('Every required native Mac check must pass.')
+    return f"ComicArchiver-{version}-macos-{value['architecture']}.zip"
 
 
 def check_sums(path, artifacts):
@@ -41,6 +56,25 @@ def read_evidence(folder):
     return json.loads(evidence.read_text('utf-8'))
 
 
+def check_notes(body):
+    """Keep app downloads visible before prose, screenshots and collapsed install guides."""
+    error = 'Release notes must start with a platform download table containing direct HTTPS download links.'
+    if not isinstance(body, str):
+        raise ValueError(error)
+    body = re.sub(r'\A(?:\s*<!--.*?-->)*\s*', '', body, flags=re.S)
+    lines = body.splitlines()
+    if (len(lines) < 3 or not lines[0].startswith('|') or not lines[0].rstrip().endswith('|')
+            or not re.fullmatch(r'\|(?:\s*:?-{3,}:?\s*\|){2,}\s*', lines[1])):
+        raise ValueError(error)
+    table = []
+    for line in lines[2:]:
+        if not line.startswith('|'):
+            break
+        table.append(line)
+    if not any(re.search(r'\[[^\]]+\]\(https://[^\s)]+\)', line) for line in table):
+        raise ValueError(error)
+
+
 def verify(folder, commit, release, owner, version, *, android_cert=None, android_identity=None,
            android_build_tools=None):
     evidence = folder / 'release-evidence.json'
@@ -53,6 +87,7 @@ def verify(folder, commit, release, owner, version, *, android_cert=None, androi
             or release.get('tag_name') != 'v' + version
             or not owned_by(release.get('author'), owner)):
         raise ValueError('The owner must stage a draft release for this exact commit and version.')
+    check_notes(release.get('body'))
     assets = release.get('assets', [])
     if not isinstance(assets, list):
         raise ValueError('The release must include uploaded asset metadata.')
@@ -71,6 +106,10 @@ def verify(folder, commit, release, owner, version, *, android_cert=None, androi
         raise ValueError('The required suite must pass without skips.')
     expected = {f'ComicArchiver-{version}-linux-x86_64.tar.gz', f'ComicArchiver-{version}-windows-x86_64.zip',
                 f'ComicArchiver-{version}-windows-x86_64-setup.exe'}
+    if 'macos' not in value and tuple(map(int, version.split('-')[0].split('.'))) >= (0, 4, 0):
+        raise ValueError('Mac evidence is required for 0.4.0 and later.')
+    if 'macos' in value:
+        expected.add(macos_asset(value['macos'], version))
     android_asset = None
     if value['schema_version'] == 2:
         android_asset = android_release.check_evidence(value, commit, version, android_identity, android_cert)

@@ -8,20 +8,22 @@ import html
 import time
 
 from . import app_actions, dashboard_model, license_texts, storage_model, support_details, support_log
+from .window_library import EpisodeLibrary
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
 
-ROUTES = ('dashboard', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
-TABS = (('downloads', 'Downloads'), ('storage', 'Storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
+ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
+TABS = (('downloads', 'Downloads && storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
 SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
             '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
             '\n\nYour saved episodes stay where they are. To download again, sign in again.')
 # After signing out: the library folders the app opened before that it could not sign out in.
 SIGNED_OUT_AWAY = {1: ('Signed out of {site}, except in this library folder, which Comic Archiver can\'t reach:\n{folders}\n'
-                       'Connect the drive it\'s on, choose the folder with Change folder…, and sign out there.'),
+                       'Connect the drive it\'s on, choose the folder using the edit icon beside the library folder '
+                       'on the dashboard, and sign out there.'),
                    2: ('Signed out of {site}, except in these library folders, which Comic Archiver can\'t reach:\n'
-                       '{folders}\nConnect the drives they\'re on, choose each folder with Change folder…, and sign out '
-                       'there.')}
+                       '{folders}\nConnect the drives they\'re on, choose each folder using the edit icon beside the '
+                       'library folder on the dashboard, and sign out there.')}
 # Asked once for a cloud connection that came with the library folder, before any new episode goes to it.
 CLOUD_CONFIRM = ('This library folder saves new episodes to {bucket}. That connection came with the folder: it '
                  'wasn\'t set up in Comic Archiver on this computer.\n\nKeep saving new episodes there?\n\n'
@@ -94,12 +96,13 @@ SUPPORT_LOG = ('Asked for the app’s log? Save log for support puts it in one f
 LOG_SAVED = 'Saved in your Downloads folder as “{name}”.'
 LOG_FAILED = 'The log could not be saved. Check that your Downloads folder can be written to.'
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
-CARD_COLUMNS_FROM = 900
+CARD_COLUMNS_FROM = 660
+CARD_THREE_COLUMNS_FROM = 1000
 
 
 def route_of(name, cloud_offered):
     """The page a request leads to: a Settings tab that is not offered leads to the first one."""
-    if name == 'settings':
+    if name in ('settings', 'settings/storage'):
         return 'settings/downloads'
     if name == 'settings/b2' and not cloud_offered:
         return 'settings/downloads'
@@ -133,6 +136,7 @@ def paint(q, window, dark):
     for role in (q.QtGui.QPalette.ColorRole.Link, q.QtGui.QPalette.ColorRole.LinkVisited):
         palette.setColor(role, q.QtGui.QColor(colours(dark)['accent']))
     app.setPalette(palette)
+    window.setProperty('comicDark', bool(dark))
     window.setStyleSheet(stylesheet(dark))
 
 
@@ -233,8 +237,31 @@ class Kit:
             box.addStretch(1)
         return holder
 
-    def combo(self, choices, changed=None):
-        combo = self.w.QComboBox()
+    def combo(self, choices, changed=None, *, wheel_changes=True):
+        if wheel_changes:
+            combo = self.w.QComboBox()
+        else:
+            self_kit = self
+
+            class PageCombo(self.w.QComboBox):
+                def wheelEvent(self, event):
+                    # A wheel over a closed selector belongs to the page. The
+                    # popup's own list still handles scrolling when opened.
+                    parent = self.parentWidget()
+                    while parent is not None and not isinstance(parent, self_kit.w.QScrollArea):
+                        parent = parent.parentWidget()
+                    if parent is not None:
+                        viewport = parent.viewport()
+                        position = viewport.mapFromGlobal(event.globalPosition().toPoint())
+                        forwarded = self_kit.q.QtGui.QWheelEvent(self_kit.q.QtCore.QPointF(position), event.globalPosition(),
+                                                                 event.pixelDelta(), event.angleDelta(), event.buttons(),
+                                                                 event.modifiers(), event.phase(), event.inverted())
+                        self_kit.w.QApplication.sendEvent(viewport, forwarded)
+                        event.accept()
+                        return
+                    event.ignore()
+            combo = PageCombo()
+            combo.setFocusPolicy(self.q.QtCore.Qt.FocusPolicy.StrongFocus)
         for key, text in choices:
             combo.addItem(text, key)
         if changed is not None:
@@ -266,6 +293,20 @@ def reserved(widget):
     policy = widget.sizePolicy()
     policy.setRetainSizeWhenHidden(True)
     widget.setSizePolicy(policy)
+
+
+def set_enabled(widget, enabled):
+    """Release focus before Qt disables a control and advances to another card."""
+    if not enabled and widget.hasFocus():
+        widget.clearFocus()
+    widget.setEnabled(enabled)
+
+
+def set_visible(widget, visible):
+    """A control disappearing during an update must not focus another card."""
+    if not visible and widget.hasFocus():
+        widget.clearFocus()
+    widget.setVisible(visible)
 
 
 def say(label, text, error=False):
@@ -312,6 +353,7 @@ class Header:
     """The bar along the top: the app's name, its three pages and the light/dark switch."""
 
     def __init__(self, kit, pages):
+        self.kit = kit
         w = kit.w
         self.widget = w.QWidget()
         self.widget.setObjectName('header')
@@ -324,7 +366,7 @@ class Header:
         self.nav = {}
         group = w.QButtonGroup(self.widget)
         group.setExclusive(True)
-        for key, text in (('dashboard', 'Dashboard'), ('settings', 'Settings')):
+        for key, text in (('dashboard', 'Dashboard'), ('library', 'Library'), ('settings', 'Settings')):
             button = kit.button(text, lambda key=key: pages.go_to(key))
             button.setObjectName('nav')
             button.setCheckable(True)
@@ -338,6 +380,10 @@ class Header:
 
     def show(self, route, dark):
         self.nav[route.partition('/')[0]].setChecked(True)
+        from .window_art import icon
+        from .window_style import colours
+        for key, button in self.nav.items():
+            button.setIcon(icon(self.kit.q, key, colours(dark)['accent' if button.isChecked() else 'text']))
         # The switch shows where it leads: the sun to light, the moon to dark.
         self.theme.setText('☀' if dark else '☾')
         tip = 'Switch to light mode' if dark else 'Switch to dark mode'
@@ -361,87 +407,249 @@ class SiteCard:
     """One site's download at a glance: its state, its buttons, and what is so now, a field and its value each."""
 
     def __init__(self, kit, pages, key, name):
-        w, self.kit, self.key, self.name = kit.w, kit, key, name
-        self.widget, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
+        w, self.kit, self.pages, self.key, self.name = kit.w, kit, pages, key, name
+        from .window_art import paper_card, paper_mark
+        self.widget = paper_card(kit.q)
+        self.widget.setProperty('provider', key)
+        box = w.QVBoxLayout(self.widget)
+        box.setContentsMargins(18, 18, 18, 18)
+        box.setSpacing(10)
         self.widget.setAccessibleName(name)
         self.widget.setProperty('site', True)
         top = w.QHBoxLayout()
-        top.addWidget(kit.label(name, 'sectionTitle'), 1)
+        top.setContentsMargins(0, 0, 8, 0)
+        top.setSpacing(6)
+        top.addWidget(paper_mark(kit.q))
+        top.addWidget(kit.single_line(name, 'providerTitle'), 1)
         self.pill = kit.label('Loading', 'pill', wrap=False)
         top.addWidget(self.pill)
         box.addLayout(top)
         self.fields = w.QGridLayout()
-        self.fields.setHorizontalSpacing(16)
-        self.fields.setVerticalSpacing(6)
+        self.fields.setHorizontalSpacing(10)
+        self.fields.setVerticalSpacing(8)
         self.fields.setColumnStretch(1, 1)
         box.addLayout(self.fields)
-        self.cells, self.hints = [], []
-        self._fields(dashboard_model.unopened_rows())
+        self.cells, self.hints, self.rules = [], [], []
+        self._fields(dashboard_model.card_summary()['rows'])
         self.message = kit.single_line('')
         reserved(self.message)
         box.addWidget(self.message)
+        self.selection = kit.button('Download: All types', lambda: pages.open_download_choices(key), 'downloadChoice')
+        self.selection.setAccessibleName(f'Download choices for {name}')
+        box.addWidget(self.selection)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
         self.doing = 'signin'
         acts = {'signin': pages.signin, 'go': pages.go, 'pause': pages.pause}
         self.action = kit.button('Sign in', lambda: acts[self.doing](key), 'go')
         self.action.setMinimumWidth(self.action.fontMetrics().horizontalAdvance('Signing in…') + 48)
-        self.allow = kit.button('Allow this connection', lambda: pages.allow_network(key), 'secondary')
-        box.addWidget(kit.row(self.action, self.allow, spacing=8))
+        self.signout = kit.button('Sign out', lambda: pages.sign_out(key), 'destructive')
+        self.signout.setAccessibleName(f'Sign out of {name}')
+        reserved(self.signout)
+        self.signout.hide()
+        self.allow = kit.button('Allow connection', lambda: pages.allow_network(key), 'secondary')
+        self.allow.setAccessibleName('Allow this connection')
+        # Connection permission precedes Start/Continue. Share their slot so a
+        # hidden permission control does not leave an empty button row.
+        self.primary = w.QWidget()
+        self.primary_layout = w.QStackedLayout(self.primary)
+        self.primary_layout.setContentsMargins(0, 0, 0, 0)
+        self.primary_layout.addWidget(self.action)
+        self.primary_layout.addWidget(self.allow)
+        actions = kit.row(self.primary, self.signout, spacing=8, stretch=False)
+        actions.layout().setStretchFactor(self.primary, 1)
+        actions.layout().setStretchFactor(self.signout, 1)
+        box.addWidget(actions)
         box.addStretch(1)
 
+    def _show_primary(self, primary):
+        previous = self.primary_layout.currentWidget()
+        if previous is not primary and previous.hasFocus():
+            previous.clearFocus()
+        for button in (self.action, self.allow):
+            button.setSizePolicy(self.kit.w.QSizePolicy.Policy.Preferred if button is primary
+                                 else self.kit.w.QSizePolicy.Policy.Ignored, self.kit.w.QSizePolicy.Policy.Fixed)
+        self.primary_layout.setCurrentWidget(primary)
+
+    def _appearance(self, appearance):
+        if self.widget.property('appearance') == appearance:
+            return
+        self.widget.setProperty('appearance', appearance)
+        # The palette belongs to the state, so descendants must be repolished when that state changes.
+        for widget in (self.widget, *self.widget.findChildren(self.kit.w.QWidget)):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+
     def _fields(self, rows):
-        if [name.text() for name, _ in self.cells] != [row['name'] for row in rows]:
+        paper = tuple(row['name'] for row in rows) == dashboard_model.DASHBOARD_FIELDS
+        if [name.property('fieldKey') for name, _ in self.cells] != [row['name'] for row in rows]:
             for name, value in self.cells:
                 discard(self.fields, name, value.parentWidget())
-            self.cells, self.hints = [], []
+            for rule in self.rules:
+                discard(self.fields, rule)
+            self.cells, self.hints, self.rules = [], [], []
+            for column in range(4):
+                self.fields.setColumnStretch(column, 1 if column in ((0, 1) if paper else (1,)) else 0)
+            parts = {}
             for index, row in enumerate(rows):
-                name, value = self.kit.label(row['name'], 'fieldName', wrap=False), self.kit.single_line('', 'fieldValue')
+                key = row['name']
+                captions = {'Saved': 'Episodes saved', 'Time left': 'Time left',
+                            'Space': 'Space needed', 'Download speed': 'Transfer rate', 'Status': '●'}
+                if paper and key in ('Time left', 'Space', 'Status'):
+                    from .window_art import symbol_label
+                    name = symbol_label(self.kit.q, '' if key == 'Status' else captions[key],
+                                        {'Time left': 'clock', 'Space': 'storage', 'Status': 'info'}[key])
+                    name.setObjectName('fieldName')
+                else:
+                    name = self.kit.label(captions.get(key, key) if paper else key, 'fieldName', wrap=False)
+                name.setProperty('fieldKey', key)
+                name.setAccessibleName(key)
+                if paper and key in ('Time left', 'Space'):
+                    name.setObjectName('estimateLabel')
+                elif paper and key == 'Saved':
+                    name.setObjectName('episodeCaption')
+                elif paper and key == 'Status':
+                    name.setObjectName('statusSymbol')
+                if row['name'] == 'Speed':
+                    self.speed = value = self.kit.combo([(key, SPEED_NAMES[key]) for key in SPEEDS],
+                                                       lambda speed: self.pages.speed(speed, self.key), wheel_changes=False)
+                    value.setAccessibleName(f'Speed on {self.name}')
+                    value.setObjectName('dashboardSpeed')
+                    value.setPlaceholderText(dashboard_model.NONE)
+                    value.setCurrentIndex(-1)
+                    value.setEnabled(False)
+                    value.setMinimumWidth(0)
+                else:
+                    role = {'Saved': 'episodeTotal', 'Time left': 'estimateValue', 'Space': 'estimateValue',
+                            'Download speed': 'transferValue', 'Status': 'cardStatus'}.get(key, 'fieldValue')
+                    value = self.kit.single_line('', role if paper else 'fieldValue')
                 hint = self.kit.hint()
-                reserved(hint)
+                if not paper or key in ('Time left', 'Space'):
+                    reserved(hint)
                 holder = self.kit.row(value, hint, spacing=6)
-                self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
-                self.fields.addWidget(holder, index, 1)
+                parts[key] = (name, holder)
+                if paper:
+                    if key == 'Status':
+                        name.setFixedWidth(22)
+                        holder.layout().insertWidget(0, name)
+                        self.fields.addWidget(holder, 7, 0, 1, 2)
+                    elif key not in ('Speed', 'Download speed'):
+                        positions = {'Saved': ((1, 0, 1, 2), (0, 0, 1, 2)),
+                                     'Time left': ((2, 0, 1, 1), (3, 0, 1, 1)),
+                                     'Space': ((2, 1, 1, 1), (3, 1, 1, 1))}
+                        caption_at, value_at = positions[key]
+                        self.fields.addWidget(name, *caption_at)
+                        self.fields.addWidget(holder, *value_at)
+                else:
+                    self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
+                    self.fields.addWidget(holder, index, 1)
                 placed(name, holder)
+                if paper and key == 'Speed':
+                    name.hide()  # The compact dropdown names its setting accessibly; it needs no extra caption.
                 self.cells.append((name, value))
                 self.hints.append(hint)
-        for (_, value), hint, row in zip(self.cells, self.hints, rows, strict=True):
-            value.setText(row['value'])
+            if paper:
+                rate_name, rate_value = parts['Download speed']
+                speed_name, speed_value = parts['Speed']
+                transfer = self.kit.row(rate_name, rate_value, speed_name, speed_value, spacing=8, stretch=False)
+                transfer.layout().setStretchFactor(rate_value, 1)
+                self.fields.addWidget(transfer, 5, 0, 1, 2)
+                self.rules.append(transfer)
+                for index in (4, 6):
+                    rule = self.kit.w.QFrame()
+                    rule.setObjectName('cardRule')
+                    self.fields.addWidget(rule, index, 0, 1, 2)
+                    self.rules.append(rule)
+        for (name, value), hint, row in zip(self.cells, self.hints, rows, strict=True):
+            if row['name'] != 'Speed':
+                text = row['value']
+                if paper and row['name'] == 'Saved':
+                    text = text.removesuffix(' episodes').removesuffix(' episode')
+                value.setText(text)
+            if paper and row['name'] == 'Status':
+                appearance = self.widget.property('appearance')
+                name.setSymbol({'active': 'spinner', 'complete': 'check', 'paused': 'pause',
+                                'waiting': 'clock', 'attention': 'alert'}.get(appearance, 'info'))
+                tone(name, 'tone', 'warning' if row['warning'] else '')
             tone(value, 'tone', 'warning' if row['warning'] else '')
             tip = row.get('tip', '')
             hint.setToolTip(tip)
             hint.setAccessibleDescription(tip)
-            hint.setVisible(bool(tip))
+            set_visible(hint, bool(tip))
             # A hint follows the value; spare width goes after it. The row keeps
             # its height, and long values can still shrink and elide on one line.
             policy = self.kit.w.QSizePolicy.Policy
-            value.setSizePolicy(policy.Preferred if tip else policy.Ignored, policy.Fixed)
+            value.setSizePolicy(policy.Fixed if row['name'] == 'Speed' else policy.Preferred if tip else policy.Ignored,
+                                policy.Fixed)
             layout = value.parentWidget().layout()
             layout.setStretchFactor(value, 0 if tip else 1)
-            layout.setStretch(2, 1 if tip else 0)
+            layout.setStretch(layout.count() - 1, 1 if tip else 0)
 
     def show(self, s, v):
+        from .download_selection import HELP, LABELS, TYPES
+        from .window_art import icon
+        from .window_style import card_colours
+        chosen = (s.account or {}).get('download_types', dict.fromkeys(TYPES, True)) if s is not None else dict.fromkeys(TYPES, True)
+        available = isinstance(chosen, dict)
+        if not available:
+            chosen = dict.fromkeys(TYPES, False)
+        count = sum(bool(chosen.get(key)) for key in TYPES)
+        suffix = 'All types' if count == len(TYPES) else 'Paid series' if chosen.get('bought') and count == 1 else LABELS[next(key for key in TYPES if chosen.get(key))] if count == 1 else f'{count} types'
+        self.selection.setText('Download: ' + suffix)
+        self.selection.setToolTip('\n'.join(f'{LABELS[key]}: {HELP[key]}' for key in TYPES if chosen.get(key)))
+        if not available:
+            self.selection.setText('Download: Unavailable')
+            self.selection.setToolTip('Saved choices could not be read. Choose the desired episode types again.')
+        set_enabled(self.selection, s is not None and not s.busy)
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
         if v is None:
+            self._appearance('neutral')
             self.pill.setText('Not signed in')
             tone(self.pill, 'tone', '')  # The plain look.
             tone(self.widget, 'tone', '')
-            self._fields(dashboard_model.unopened_rows())
+            self._fields(dashboard_model.card_summary()['rows'])
+            self.speed.setCurrentIndex(-1)
+            set_enabled(self.speed, False)
+            self.speed.setToolTip(f'Sign in to {self.name} to choose a speed.')
             say(self.message, '')
             self.doing = 'signin'
-            self.action.setEnabled(True)
+            set_enabled(self.action, True)
             self.action.setText('Sign in')
-            self.allow.setVisible(False)
+            self._show_primary(self.action)
+            set_visible(self.signout, False)
             return
-        self.pill.setText(v['state'])
-        tone(self.pill, 'tone', v['tone'])
-        tone(self.widget, 'tone', 'warning' if v['tone'] == 'warning' else 'status')
-        self._fields(v['rows'])
+        summary = dashboard_model.card_summary(s, v)
+        self._appearance(summary['appearance'])
+        self.pill.setText({'Needs attention': 'Attention', 'Sign-in needed': 'Sign in',
+                          'Status unavailable': 'Offline'}.get(summary['state'], summary['state']))
+        tone(self.pill, 'tone', summary['tone'])
+        tone(self.widget, 'tone', 'warning' if summary['tone'] == 'warning' else 'status')
+        self._fields(summary['rows'])
+        if v['speed_visible'] and s.account is not None:
+            choose(self.speed, v['speed'])
+        else:
+            self.speed.setCurrentIndex(-1)
+        speed_enabled = v['speed_visible'] and v['speed_enabled']
+        set_enabled(self.speed, speed_enabled)
+        speed_tip = v['speed_help'] if v['speed_visible'] else v['signin_note']
+        speed_row = next(row for row in v['rows'] if row['name'] == 'Speed')
+        if speed_row['warning']:
+            speed_tip += ' ' + speed_row['value']
+        self.speed.setToolTip(speed_tip)
         say(self.message, v['signin_status'], v['signin_status_error'])
         self.doing = v['action']
-        self.action.setEnabled(v['action_enabled'])
+        set_enabled(self.action, v['action_enabled'])
         self.action.setText(v['action_text'])
-        self.allow.setVisible(v['allow_visible'])
-        self.allow.setEnabled(v['allow_enabled'])
+        colours = card_colours(summary['appearance'], bool(self.widget.window().property('comicDark')))
+        self.action.setIcon(icon(self.kit.q, 'pause' if self.doing == 'pause' else 'play' if self.doing == 'go' else 'info',
+                                 colours['button-text']))
+        self.selection.setIcon(icon(self.kit.q, 'filter', colours['text'], 16))
+        set_visible(self.signout, v['signout_visible'])
+        set_enabled(self.signout, v['signout_enabled'])
+        self.signout.setToolTip(v['signout_help'])
+        primary = self.allow if v['allow_visible'] and self.doing == 'go' else self.action
+        self._show_primary(primary)
+        set_enabled(self.allow, v['allow_enabled'])
 
 
 class Dashboard:
@@ -453,28 +661,27 @@ class Dashboard:
         content = w.QWidget()
         column = w.QVBoxLayout(content)
         column.setContentsMargins(32, 24, 32, 24)
-        column.setSpacing(20)
-        top = w.QHBoxLayout()
-        title, _ = heading(kit, 'Dashboard')
-        top.addWidget(title, 1)
+        column.setSpacing(16)
         self.updated = kit.single_line('Checking current status…', 'muted')
-        self.updated.setSizePolicy(w.QSizePolicy.Policy.Fixed, w.QSizePolicy.Policy.Fixed)
-        self.updated.setFixedWidth(self.updated.fontMetrics().horizontalAdvance(
-            'Updates delayed · trying to reconnect') + 12)
+        self.updated.setParent(content)
+        self.updated.hide()
         self.go_all = kit.button('Start all', pages.go_all, 'secondary')
         self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
+        self.go_all.setObjectName('toolbarAction')
+        self.pause_all.setObjectName('toolbarAction')
         reserved(self.pause_all)
-        for part in (self.updated, self.go_all, self.pause_all):
-            top.addWidget(part, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
-        column.addLayout(top)
         self.grid_holder = w.QWidget()
         self.grid = w.QGridLayout(self.grid_holder)
         self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setSpacing(20)
+        self.grid.setSpacing(16)
         self.columns = 0
         self.library_card = self._library(kit, pages)
         self.cards = {}
         column.addWidget(self.grid_holder)
+        from .window_art import symbol_label
+        estimate_note = symbol_label(kit.q, 'Estimates adjust as episodes are discovered.', 'info')
+        estimate_note.setObjectName('muted')
+        column.addWidget(estimate_note)
         column.addWidget(kit.label(FOOTER, 'muted'))
         column.addStretch(1)
         self.widget = kit.scroll(content)
@@ -485,42 +692,57 @@ class Dashboard:
 
     def _library(self, kit, pages):
         w = kit.w
-        card, box = kit.frame('card', margins=(20, 20, 20, 20), spacing=10)
+        card, box = kit.frame('libraryOverview', margins=(0, 0, 0, 0), spacing=8)
+        card.setAccessibleName('All sites library')
         self.library_title = kit.label('All sites', 'sectionTitle')
-        box.addWidget(self.library_title)
-        self.save = kit.label('', rich=True, wrap=False)
-        self.save.setSizePolicy(w.QSizePolicy.Policy.Ignored, w.QSizePolicy.Policy.Fixed)
-        reserved(self.save)
-        box.addWidget(self.save)
-        # The counts, and beside them where the episodes are kept.
-        counts = w.QHBoxLayout()
-        counts.setSpacing(20)
+        self.library_title.setParent(card)
+        self.library_title.hide()
+        self.counting = kit.label('⌛ Counting episodes…', 'muted', wrap=False)
+        self.counting.setAccessibleName('Counting saved episodes')
+        self.counting.setToolTip('Reading saved-file counts. Previous totals stay visible until the count finishes.')
+        reserved(self.counting)
+        self.counting.hide()
         self.metrics = w.QGridLayout()
-        self.metrics.setSpacing(12)
-        counts.addLayout(self.metrics, 1)
+        self.metrics.setContentsMargins(0, 0, 0, 0)
+        self.metrics.setSpacing(0)
+        metric_holder = w.QWidget()
+        metric_holder.setLayout(self.metrics)
         self.metric_cells = []
-        self.places = w.QVBoxLayout()
-        self.places.setSpacing(10)
-        counts.addLayout(self.places, 1)
+        self.files = kit.button('Open library folder', pages.open_folder, 'secondary')
+        self.files.setObjectName('toolbarAction')
+        library_top = kit.row(metric_holder, self.files, spacing=12)
+        library_top.layout().addWidget(self.go_all)
+        library_top.layout().addWidget(self.pause_all)
+        box.addWidget(library_top)
+        self.save = kit.single_line('')
+        self.save.setSizePolicy(w.QSizePolicy.Policy.Preferred, w.QSizePolicy.Policy.Fixed)
+        reserved(self.save)
+        self.change_folder = w.QToolButton()
+        self.change_folder.setObjectName('editFolder')
+        self.change_folder.setText('✎')
+        self.change_folder.setAccessibleName('Change library folder for all sites')
+        self.change_folder.setCursor(kit.q.QtCore.Qt.CursorShape.PointingHandCursor)
+        self.change_folder.clicked.connect(pages.change_folder)
+        location = kit.row(self.save, self.change_folder, spacing=6)
+        location.layout().addWidget(self.counting)
+        box.addWidget(location)
+        self.destination = kit.single_line('', 'muted')
+        box.addWidget(self.destination)
+        # Keep the existing aggregate data available for descriptions without turning the overview into a table.
+        self.places_holder = w.QWidget(card)
+        self.places_holder.hide()
+        self.places = w.QVBoxLayout(self.places_holder)
         self.place_labels = []
-        box.addLayout(counts)
         # Said only when the counts could not be read.
         self.library_summary = kit.single_line('')
         reserved(self.library_summary)
         self.library_summary.setVisible(False)
         box.addWidget(self.library_summary)
-        self.files = kit.button('Open library folder', pages.open_folder, 'secondary')
-        box.addWidget(kit.row(self.files))
-        self.cloud_entry = kit.label('Optional: keep a copy in your own cloud storage. '
-                                     '<a href="settings/b2">Set it up in Settings</a>.', 'muted', rich=True, wrap=False)
-        self.cloud_entry.setSizePolicy(w.QSizePolicy.Policy.Ignored, w.QSizePolicy.Policy.Fixed)
-        reserved(self.cloud_entry)
-        box.addWidget(self.cloud_entry)
-        box.addStretch(1)
         return card
 
     def _resized(self, width):
-        self._lay_out(2 if width - self.margins >= CARD_COLUMNS_FROM else 1)
+        available = width - self.margins
+        self._lay_out(3 if available >= CARD_THREE_COLUMNS_FROM else 2 if available >= CARD_COLUMNS_FROM else 1)
 
     def _lay_out(self, columns, force=False):
         """Put the cards back in the grid, in order, so many to a row; the All sites card has a row to itself."""
@@ -533,7 +755,7 @@ class Dashboard:
         self.grid.addWidget(self.library_card, 0, 0, 1, columns)
         for index, card in enumerate(cards):
             self.grid.addWidget(card, 1 + index // columns, index % columns)
-        for index in range(2):
+        for index in range(3):
             self.grid.setColumnStretch(index, 1 if index < columns else 0)
 
     def _sites(self, sites):
@@ -552,18 +774,24 @@ class Dashboard:
         if [cell[0] for cell in self.metric_cells] == [name for _, name in metrics]:
             for (_, number), (value, _) in zip(self.metric_cells, metrics, strict=True):
                 number.setText(value)
+            if self.metric_cells:
+                self.metric_cells[0][1].parentWidget().setToolTip(' | '.join(f'{value} {name}' for value, name in metrics))
             return
         for _, number in self.metric_cells:
             discard(self.metrics, number.parentWidget())
         self.metric_cells = []
         for index, (value, name) in enumerate(metrics):
-            cell, box = self.kit.frame('metric', margins=(12, 16, 12, 16), spacing=2)
-            number, caption = self.kit.label(value, 'metricNumber', wrap=False), self.kit.label(name, 'muted')
+            cell, box = self.kit.frame('metric', vertical=False, margins=(0, 0, 0, 0), spacing=8)
+            cell.setParent(self.library_card)
+            number = self.kit.single_line(value, 'metricNumber')
+            number.setSizePolicy(self.kit.w.QSizePolicy.Policy.Preferred, self.kit.w.QSizePolicy.Policy.Fixed)
+            caption = self.kit.label('saved episodes' if index == 0 else name, 'muted', wrap=False)
             for label in (number, caption):
-                label.setAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignCenter)
                 box.addWidget(label)
-            self.metrics.addWidget(cell, index // 2, index % 2)
-            placed(cell)
+            if index == 0:
+                self.metrics.addWidget(cell, 0, 0)
+                cell.setToolTip(' | '.join(f'{value} {name}' for value, name in metrics))
+            cell.setVisible(index == 0)
             self.metric_cells.append((name, number))
 
     def _places(self, places):
@@ -578,24 +806,33 @@ class Dashboard:
             label = self.kit.label(f"{place['label']} | {place['counts']}", 'place', wrap=False)
             label.setProperty('place', place['id'])
             self.places.addWidget(label)
-            placed(label)
+            label.hide()
             self.place_labels.append(label)
 
     def show(self, s, sites, views, everything):
         """s is the chosen site's state; views each site's state and view by key, for the sites open; everything the
         dashboard's own: its updated line and its two buttons."""
-        say(self.updated, everything['updated'])
-        self.go_all.setEnabled(everything['go_all'])
-        self.pause_all.setVisible(everything['pause_all'])
+        from .window_art import icon
+        from .window_style import colours
+        ink = colours(bool(self.widget.window().property('comicDark')))['text']
+        for button, symbol in ((self.files, 'folder'), (self.go_all, 'play'), (self.pause_all, 'pause')):
+            button.setIcon(icon(self.kit.q, symbol, ink))
+        self.updated.setText(everything['updated'])
+        set_enabled(self.go_all, everything['go_all'])
+        set_visible(self.pause_all, everything['pause_all'])
         self._sites(sites)
         for key, card in self.cards.items():
             card.show(*views.get(key, (None, None)))
         place = dashboard_model.save_place(s)
-        self.save.setText(f'<span>Saving to</span> <b>{html.escape(place)}</b> <a href="settings/storage">Change in Settings</a>'
-                          if place else '')
-        self.save.setVisible(bool(place))
-        self.cloud_entry.setVisible(storage_model.storage_choice(s)['entry_visible'])
-        self.files.setEnabled(not s.busy)
+        root = s.library_root or ''
+        self.save.setText(f'Library folder: {root}' if root else '')
+        self.save.setVisible(bool(root))
+        set_enabled(self.change_folder, bool(root) and everything['folder_enabled'])
+        self.change_folder.setToolTip(everything['folder_tooltip'] or 'Change library folder for all sites')
+        self.destination.setText(f'Saving to {place}' if place and place != root else '')
+        self.destination.setVisible(bool(place and place != root))
+        set_enabled(self.files, not s.busy)
+        self.counting.setVisible(bool(self.pages.counting))
         summary = storage_model.combined([state.summary for state, _ in views.values()])
         say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')
         if summary is False:
@@ -605,8 +842,166 @@ class Dashboard:
         self._places(overview['locations'])
 
 
+class ProviderSettingsCard:
+    """One provider's download exceptions and storage controls, bound to that provider."""
+
+    def __init__(self, kit, pages, key, name):
+        self.kit, self.pages, self.key = kit, pages, key
+        w = kit.w
+        self.widget, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
+        self.widget.setAccessibleName(f'{name} downloads and storage')
+        self.pill = kit.label('Not signed in', 'pill', wrap=False)
+        box.addWidget(kit.row(kit.label(name, 'sectionTitle'), self.pill))
+        self.device_stored = kit.single_line('—')
+        self.device_stored.setSizePolicy(w.QSizePolicy.Policy.Preferred, w.QSizePolicy.Policy.Fixed)
+        box.addWidget(kit.row(kit.label('This device', 'fieldName', wrap=False), self.device_stored))
+        self.cloud_row = w.QWidget()
+        cloud = w.QHBoxLayout(self.cloud_row)
+        cloud.setContentsMargins(0, 0, 0, 0)
+        self.b2_stored = kit.single_line('—')
+        self.b2_pill = kit.label('Not set up', 'pill', wrap=False)
+        cloud.addWidget(kit.label('Backblaze B2', 'fieldName', wrap=False))
+        cloud.addWidget(self.b2_stored, 1)
+        cloud.addWidget(self.b2_pill)
+        box.addWidget(self.cloud_row)
+        self.choice = w.QWidget()
+        choice = w.QVBoxLayout(self.choice)
+        choice.setContentsMargins(0, 0, 0, 0)
+        choice.addWidget(kit.label('Save new episodes to', 'strong'))
+        self.options_box = w.QHBoxLayout()
+        self.options_box.setSpacing(24)
+        self.options_box.addStretch(1)
+        choice.addLayout(self.options_box)
+        self.option_group = w.QButtonGroup(self.choice)
+        self.option_group.setExclusive(True)
+        self.option_group.idClicked.connect(lambda index: pages.choose_storage(self.options[index]['key'], key))
+        self.options, self.option_buttons = [], []
+        self.choice_lock, self.choice_help = kit.label('', 'muted'), kit.label('', 'muted')
+        for part in (self.choice_lock, self.choice_help):
+            choice.addWidget(part)
+        box.addWidget(self.choice)
+        self.choice_status = kit.label('')
+        box.addWidget(self.choice_status)
+        self.episode_types = {}
+        types = w.QWidget()
+        types.setAccessibleName(f'{name} episode types')
+        types.setToolTip('Saved episodes and episodes waiting to download. Types reflect the provider’s last report.')
+        grid = w.QGridLayout(types)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setColumnStretch(0, 1)
+        for column, text in enumerate(('Episode type', 'Saved', 'Pending')):
+            grid.addWidget(kit.label(text, 'strong', wrap=False), 0, column)
+        for index, item in enumerate(dashboard_model.episode_types({}), 1):
+            grid.addWidget(kit.label(item['label'], 'fieldName', wrap=False), index, 0)
+            cells = []
+            for column in (1, 2):
+                cell = kit.label('—', wrap=False)
+                cell.setAlignment(kit.q.QtCore.Qt.AlignmentFlag.AlignRight | kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
+                grid.addWidget(cell, index, column)
+                cells.append(cell)
+            self.episode_types[item['key']] = cells
+        box.addWidget(types)
+        self.not_downloaded = w.QTableWidget(0, 2)
+        self.not_downloaded.setHorizontalHeaderLabels(['Issue', 'Episodes'])
+        self.not_downloaded.horizontalHeaderItem(0).setTextAlignment(kit.q.QtCore.Qt.AlignmentFlag.AlignLeft
+                                                                   | kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self.not_downloaded.horizontalHeaderItem(1).setTextAlignment(kit.q.QtCore.Qt.AlignmentFlag.AlignRight
+                                                                   | kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self.not_downloaded.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.not_downloaded.setSelectionMode(w.QAbstractItemView.SelectionMode.NoSelection)
+        self.not_downloaded.setWordWrap(False)
+        self.not_downloaded.verticalHeader().setVisible(False)
+        self.not_downloaded.setShowGrid(False)
+        self.not_downloaded.setAlternatingRowColors(True)
+        self.not_downloaded.setVerticalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.not_downloaded.setHorizontalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.not_downloaded.horizontalHeader().setSectionResizeMode(0, w.QHeaderView.ResizeMode.Stretch)
+        self.not_downloaded.horizontalHeader().setSectionResizeMode(1, w.QHeaderView.ResizeMode.ResizeToContents)
+        self.not_downloaded.setAccessibleName(f'{name} download issues')
+        self.issues_status = kit.label('Not checked', 'muted', wrap=False)
+        box.addWidget(kit.label('Download issues', 'strong'))
+        box.addWidget(self.issues_status)
+        box.addWidget(self.not_downloaded)
+        self.b2_setup = kit.button('Cloud settings', lambda: pages.provider_cloud(key), 'secondary')
+        box.addWidget(kit.row(self.b2_setup))
+
+    def show(self, s, v):
+        if s is None:
+            self.pill.setText('Not signed in')
+            tone(self.pill, 'tone', '')
+            self.device_stored.setText('—')
+            self.choice.hide()
+            self.cloud_row.hide()
+            self.b2_setup.hide()
+            self.choice_status.hide()
+            self.not_downloaded.hide()
+            self.issues_status.setText('Not checked')
+            self.issues_status.show()
+            for cells in self.episode_types.values():
+                for cell in cells:
+                    cell.setText('—')
+            return
+        self.pill.setText(v['state'])
+        tone(self.pill, 'tone', v['tone'])
+        place = storage_model.storage(s)
+        self.device_stored.setText(place['device_stored'] if s.summary is not False else 'Counts unavailable')
+        self.cloud_row.setVisible(s.cloud_offered)
+        self.b2_stored.setText(place['b2_stored'] or '—')
+        self.b2_pill.setText(place['b2_pill'])
+        tone(self.b2_pill, 'tone', place['b2_tone'])
+        self.b2_setup.setVisible(s.cloud_offered)
+        self.b2_setup.setEnabled(v['site_enabled'])
+        choice = storage_model.storage_choice(s)
+        self.choice.setVisible(choice['visible'])
+        self._storage_options(choice['options'])
+        say(self.choice_lock, choice['lock'])
+        self.choice_help.setText(choice['help'])
+        message = s.choice_message or v['settings_status']
+        say(self.choice_status, message, bool(s.choice_message) or v['settings_status_error'])
+        for item in v['episode_types']:
+            saved, waiting = self.episode_types[item['key']]
+            saved.setText(item['saved'])
+            waiting.setText(item['waiting'])
+        rows = v['not_downloaded']
+        self._not_downloaded(rows)
+        self.not_downloaded.setVisible(bool(rows))
+        self.issues_status.setVisible(not rows)
+        self.issues_status.setText('No recorded issues' if s.status is not None else 'Not checked')
+
+    def _not_downloaded(self, rows):
+        table, w = self.not_downloaded, self.kit.w
+        table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            table.setItem(index, 0, w.QTableWidgetItem(row['reason']))
+            count = w.QTableWidgetItem(row['count'])
+            count.setTextAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignRight | self.kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(index, 1, count)
+        table.resizeRowsToContents()
+        # The whole table shows at once: it is short, and sits in a page that scrolls.
+        table.setFixedHeight(table.horizontalHeader().height() + sum(table.rowHeight(i) for i in range(len(rows)))
+                             + 2 * table.frameWidth())
+
+    def _storage_options(self, options):
+        if [(o['key'], o['label']) for o in self.options] != [(o['key'], o['label']) for o in options]:
+            for button in self.option_buttons:
+                self.option_group.removeButton(button)
+                button.deleteLater()
+            self.option_buttons = []
+            for index, option in enumerate(options):
+                button = self.kit.w.QRadioButton(option['label'])
+                self.option_group.addButton(button, index)
+                self.options_box.insertWidget(self.options_box.count() - 1, button)
+                self.option_buttons.append(button)
+        self.options = options
+        for button, option in zip(self.option_buttons, options, strict=True):
+            button.setEnabled(option['enabled'])
+            if option['checked'] and not button.isChecked():
+                button.setChecked(True)
+
+
+
 class Settings:
-    """Downloads, Storage, Backblaze B2 and About, each on a tab of its own."""
+    """Provider download/storage cards, cloud setup and About."""
 
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
@@ -634,7 +1029,7 @@ class Settings:
             self.tabs[key] = button
         tabs.addStretch(1)
         side = w.QWidget()
-        side.setFixedWidth(200)
+        side.setFixedWidth(224)
         side.setLayout(tabs)
         layout.addWidget(side, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
         panels = w.QVBoxLayout()
@@ -642,7 +1037,7 @@ class Settings:
         self.status = kit.label('')
         panels.addWidget(self.status)
         # Only the open tab takes room, so a short one is not as tall as the longest.
-        self.panels = {'downloads': self._downloads(kit, pages), 'storage': self._storage(kit, pages), 'b2': self._b2(kit, pages),
+        self.panels = {'downloads': self._downloads(kit, pages), 'b2': self._b2(kit, pages),
                        'about': self._about(kit, pages)}
         from .window_style import READING
         for panel in self.panels.values():
@@ -659,68 +1054,25 @@ class Settings:
         self.widget = kit.scroll(content)
 
     def _downloads(self, kit, pages):
-        card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        box.addWidget(kit.label('Downloads', 'sectionTitle'))
-        # Each site has its own sign-in, speed and record of what it did not download: this tab shows the one chosen.
-        self.site = kit.combo([], pages.choose_site)
-        self.site.setAccessibleName('Site')
-        self.site_row = kit.row(kit.label('Site', 'strong', wrap=False), self.site)
-        box.addWidget(self.site_row)
-        self.signin_note = kit.label('', 'muted')
-        box.addWidget(self.signin_note)
-        # First on the tab: which checked episodes were not downloaded, and why.
-        self.not_downloaded = kit.w.QTableWidget(0, 2)
-        self.not_downloaded.setHorizontalHeaderLabels(['Reason', 'Episodes'])
-        self.not_downloaded.setEditTriggers(kit.w.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.not_downloaded.setSelectionMode(kit.w.QAbstractItemView.SelectionMode.NoSelection)
-        self.not_downloaded.setWordWrap(True)
-        self.not_downloaded.verticalHeader().setVisible(False)
-        self.not_downloaded.setShowGrid(False)
-        self.not_downloaded.setAlternatingRowColors(True)  # Wrapped reasons stay readable across to their counts.
-        self.not_downloaded.setVerticalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.not_downloaded.setHorizontalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        modes = kit.w.QHeaderView.ResizeMode
-        self.not_downloaded.horizontalHeader().setSectionResizeMode(0, modes.Stretch)
-        self.not_downloaded.horizontalHeader().setSectionResizeMode(1, modes.ResizeToContents)
-        self.not_downloaded.setAccessibleName('Episodes not downloaded, by reason')
-        self.not_downloaded_row = kit.w.QWidget()
-        row = kit.w.QVBoxLayout(self.not_downloaded_row)
-        row.setContentsMargins(0, 0, 0, 8)
-        row.setSpacing(6)
-        row.addWidget(kit.label('Not downloaded', 'strong'))
-        row.addWidget(self.not_downloaded)
-        box.addWidget(self.not_downloaded_row)
-        self.speed_label = kit.label('Speed', 'strong')
-        self.speed = kit.combo([(key, SPEED_NAMES[key]) for key in SPEEDS], pages.speed)
-        self.speed_help = kit.label('', 'muted')
-        self.speed_row = kit.w.QWidget()
-        row = kit.w.QVBoxLayout(self.speed_row)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        row.addWidget(self.speed_label)
-        row.addWidget(kit.row(self.speed))
-        row.addWidget(self.speed_help)
-        box.addWidget(self.speed_row)
-        self.network = kit.w.QCheckBox('Also save on metered and mobile connections')
-        self.network.toggled.connect(pages.wifi_choice)
-        self.network_help = kit.label('', 'muted')
-        self.network_row = kit.w.QWidget()
-        row = kit.w.QVBoxLayout(self.network_row)
-        row.setContentsMargins(0, 8, 0, 0)
-        row.addWidget(self.network)
-        row.addWidget(self.network_help)
-        box.addWidget(self.network_row)
-        self.signout = kit.button('Sign out', pages.sign_out, 'secondary')
-        self.signout_help = kit.label('', 'muted')
-        self.signout_row = kit.w.QWidget()
-        row = kit.w.QVBoxLayout(self.signout_row)
-        row.setContentsMargins(0, 8, 0, 0)
-        row.setSpacing(6)
-        row.addWidget(kit.label('Sign-in', 'strong'))
-        row.addWidget(self.signout_help)
-        row.addWidget(kit.row(self.signout))
-        box.addWidget(self.signout_row)
-        return card
+        self.providers = kit.w.QWidget()
+        self.provider_box = kit.w.QVBoxLayout(self.providers)
+        self.provider_box.setContentsMargins(0, 0, 0, 0)
+        self.provider_box.setSpacing(16)
+        self.provider_cards = {}
+        return self.providers
+
+    def _providers(self, sites, views):
+        available = [item for item in sites if item.get('available')]
+        if list(self.provider_cards) != [item['key'] for item in available]:
+            for card in self.provider_cards.values():
+                discard(self.provider_box, card.widget)
+            self.provider_cards = {item['key']: ProviderSettingsCard(self.kit, self.pages, item['key'], item['name'])
+                                   for item in available}
+            for card in self.provider_cards.values():
+                self.provider_box.addWidget(card.widget)
+            placed(*(card.widget for card in self.provider_cards.values()))
+        for key, card in self.provider_cards.items():
+            card.show(*views.get(key, (None, None)))
 
     def _about(self, kit, pages):
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
@@ -749,79 +1101,14 @@ class Settings:
         text = license_texts.read(path)
         self.license_text.setPlainText('This text could not be read.' if text is None else text)
 
-    def _not_downloaded(self, rows):
-        table, w = self.not_downloaded, self.kit.w
-        table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
-            table.setItem(index, 0, w.QTableWidgetItem(row['reason']))
-            count = w.QTableWidgetItem(row['count'])
-            count.setTextAlignment(self.kit.q.QtCore.Qt.AlignmentFlag.AlignRight | self.kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(index, 1, count)
-        table.resizeRowsToContents()
-        # The whole table shows at once: it is short, and sits in a page that scrolls.
-        table.setFixedHeight(table.horizontalHeader().height() + sum(table.rowHeight(i) for i in range(len(rows)))
-                             + 2 * table.frameWidth())
-
-    def _storage(self, kit, pages):
-        w = kit.w
-        card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        box.addWidget(kit.label('Where your episodes are kept', 'sectionTitle'))
-        self.choice = w.QWidget()
-        choice = w.QVBoxLayout(self.choice)
-        choice.setContentsMargins(0, 0, 0, 8)
-        choice.setSpacing(6)
-        choice.addWidget(kit.label('Store new episodes on', 'strong'))
-        self.options_box = w.QHBoxLayout()
-        self.options_box.setSpacing(24)
-        self.options_box.addStretch(1)
-        choice.addLayout(self.options_box)
-        self.option_group = w.QButtonGroup(self.choice)
-        self.option_group.setExclusive(True)
-        self.option_group.idClicked.connect(lambda index: pages.choose_storage(self.options[index]['key']))
-        self.options, self.option_buttons = [], []
-        self.choice_lock = kit.label('', 'muted')
-        self.choice_help = kit.label('', 'muted')
-        self.choice_status = kit.label('')
-        for part in (self.choice_lock, self.choice_help, self.choice_status):
-            choice.addWidget(part)
-        box.addWidget(self.choice)
-        box.addWidget(kit.label('Each place shows what it holds. Cloud storage is set up on its own tab.', 'muted'))
-        cards = w.QVBoxLayout()
-        cards.setSpacing(16)
-        device, inner = kit.frame('inner', margins=(16, 16, 16, 16), spacing=8)
-        inner.addWidget(kit.label('This device', 'sectionTitle'))
-        self.folder = kit.label('', rich=True)
-        self.folder.setTextInteractionFlags(kit.q.QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
-        inner.addWidget(self.folder)
-        self.device_stored = kit.label('Counting…')
-        inner.addWidget(self.device_stored)
-        self.open_folder = kit.button('Open library folder', pages.open_folder, 'secondary')
-        self.change_folder = kit.button('Change folder…', pages.change_folder, 'secondary')
-        inner.addWidget(kit.row(self.open_folder, self.change_folder, spacing=8))
-        self.folder_lock = kit.label('', 'muted')
-        inner.addWidget(self.folder_lock)
-        cards.addWidget(device)
-        self.b2_card, inner = kit.frame('inner', margins=(16, 16, 16, 16), spacing=8)
-        top = w.QHBoxLayout()
-        top.addWidget(kit.label('Backblaze B2', 'sectionTitle'), 1)
-        self.b2_pill = kit.label('Not set up', 'pill', wrap=False)
-        top.addWidget(self.b2_pill)
-        inner.addLayout(top)
-        self.b2_text = kit.label('')
-        self.b2_stored = kit.label('')
-        inner.addWidget(self.b2_text)
-        inner.addWidget(self.b2_stored)
-        self.b2_open = kit.button('Open in Backblaze', lambda: pages.link('browse'), 'secondary')
-        self.b2_setup = kit.button('Set up', lambda: pages.go_to('settings/b2'))
-        inner.addWidget(kit.row(self.b2_open, self.b2_setup, spacing=8))
-        cards.addWidget(self.b2_card)
-        box.addLayout(cards)
-        return card
-
     def _b2(self, kit, pages):
         w = kit.w
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
         box.addWidget(kit.label('Save to your Backblaze B2 account', 'sectionTitle'))
+        self.site = kit.combo([], pages.choose_site)
+        self.site.setAccessibleName('Site')
+        self.site_row = kit.row(kit.label('Site', 'strong', wrap=False), self.site)
+        box.addWidget(self.site_row)
         self.b2_state, state = kit.frame('state', vertical=False, margins=(14, 10, 14, 10), spacing=12)
         self.b2_state_pill = kit.label('Not set up', 'pill', wrap=False)
         self.b2_state_text = kit.label('')
@@ -944,23 +1231,6 @@ class Settings:
         self.key_id.clear()
         self.application_key.clear()
 
-    def _storage_options(self, options):
-        if [(o['key'], o['label']) for o in self.options] != [(o['key'], o['label']) for o in options]:
-            for button in self.option_buttons:
-                self.option_group.removeButton(button)
-                button.deleteLater()
-            self.option_buttons = []
-            for index, option in enumerate(options):
-                button = self.kit.w.QRadioButton(option['label'])
-                self.option_group.addButton(button, index)
-                self.options_box.insertWidget(self.options_box.count() - 1, button)
-                self.option_buttons.append(button)
-        self.options = options
-        for button, option in zip(self.option_buttons, options, strict=True):
-            button.setEnabled(option['enabled'])
-            if option['checked'] and not button.isChecked():
-                button.setChecked(True)
-
     def _cleanups(self, cleanup):
         if [c['test_id'] for c in cleanup] != [b.property('test') for b in self.cleanups]:
             for button in self.cleanups:
@@ -974,14 +1244,14 @@ class Settings:
         for button, record in zip(self.cleanups, cleanup, strict=True):
             button.setEnabled(record['enabled'])
 
-    def show(self, s, v, tab):
+    def show(self, s, v, tab, sites, views):
         for key, button in self.tabs.items():
             button.setVisible(key != 'b2' or s.cloud_offered)
         self.tabs[tab].setChecked(True)
         for key, panel in self.panels.items():
             panel.setVisible(key == tab)
-        say(self.status, v['settings_status'], v['settings_status_error'])
-        sites = list(s.sites)
+        say(self.status, v['settings_status'] if tab != 'downloads' else '', v['settings_status_error'])
+        self._providers(sites, views)
         if [self.site.itemData(i) for i in range(self.site.count())] != [item['key'] for item in sites]:
             blocked = self.site.blockSignals(True)
             self.site.clear()
@@ -989,50 +1259,9 @@ class Settings:
                 self.site.addItem(item['name'] if item.get('available') else item['name'] + ' — coming later', item['key'])
                 self.site.model().item(self.site.count() - 1).setEnabled(bool(item.get('available')))
             self.site.blockSignals(blocked)
-        choose(self.site, next((item['key'] for item in sites if item.get('current')), None))
+        choose(self.site, self.pages.chosen)
         self.site_row.setVisible(bool(sites))
         self.site.setEnabled(v['site_enabled'])
-        self.signin_note.setText(v['signin_note'])
-        self.signin_note.setVisible(v['signin_note_visible'])
-        self.speed_row.setVisible(v['speed_visible'])
-        self.speed_label.setText(v['speed_label'])
-        choose(self.speed, v['speed'])
-        self.speed.setEnabled(v['speed_enabled'])
-        self.speed_help.setText(v['speed_help'])
-        self.network_row.setVisible(v['network_visible'])
-        if not s.network_saving and self.network.isChecked() != v['network_checked']:
-            blocked = self.network.blockSignals(True)
-            self.network.setChecked(v['network_checked'])
-            self.network.blockSignals(blocked)
-        self.network.setEnabled(v['network_enabled'])
-        self.network_help.setText(v['network_help'])
-        self.signout_row.setVisible(v['signout_visible'])
-        self.signout.setText(v['signout_text'])
-        self.signout.setEnabled(v['signout_enabled'])
-        self.signout_help.setText(v['signout_help'])
-        self.not_downloaded_row.setVisible(v['not_downloaded_visible'])
-        self._not_downloaded(v['not_downloaded'])
-        # Storage.
-        choice = storage_model.storage_choice(s)
-        self.choice.setVisible(choice['visible'])
-        self._storage_options(choice['options'])
-        say(self.choice_lock, choice['lock'])
-        self.choice_help.setText(choice['help'])
-        say(self.choice_status, s.choice_message, bool(s.choice_message))
-        place = storage_model.storage(s)
-        self.folder.setText(f'<span>Folder</span> <b>{html.escape(s.library_folder or "")}</b>')
-        self.device_stored.setText(place['device_stored'])
-        self.change_folder.setEnabled(v['folder_enabled'])
-        self.change_folder.setToolTip(v['folder_tooltip'])
-        self.open_folder.setEnabled(not s.busy)
-        say(self.folder_lock, v['folder_lock'])
-        self.b2_card.setVisible(s.cloud_offered)
-        self.b2_pill.setText(place['b2_pill'])
-        tone(self.b2_pill, 'tone', place['b2_tone'])
-        self.b2_text.setText(place['b2_text'])
-        say(self.b2_stored, place['b2_stored'])
-        self.b2_open.setVisible(place['b2_links_visible'])
-        self.b2_setup.setText(place['b2_setup'])
         # Backblaze B2.
         b2 = storage_model.b2(s, s.steps_open)
         self.b2_state_pill.setText(b2['pill'])
@@ -1089,7 +1318,7 @@ class Pages:
         self.polling = {}  # Each site's state with a refresh on its way.
         self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
-        kit = Kit(q, self.link)
+        kit = self.kit = Kit(q, self.link)
         w = q.QtWidgets
         self.widget = w.QWidget()
         column = w.QVBoxLayout(self.widget)
@@ -1100,7 +1329,8 @@ class Pages:
         self.stack = w.QStackedWidget()
         self.dashboard = Dashboard(kit, self)
         self.settings = Settings(kit, self)
-        for page in (self.dashboard, self.settings):
+        self.library = EpisodeLibrary(kit, self)
+        for page in (self.dashboard, self.library, self.settings):
             self.stack.addWidget(page.widget)
         column.addWidget(self.stack, 1)
 
@@ -1148,10 +1378,12 @@ class Pages:
             self.settings.forget_keys()
         opened = route.partition('/')[0] != self.route.partition('/')[0]
         self.route = route
-        page = self.dashboard if route == 'dashboard' else self.settings
+        page = self.dashboard if route == 'dashboard' else self.library if route == 'library' else self.settings
         self.stack.setCurrentWidget(page.widget)
-        if opened:
+        if opened and hasattr(page.widget, 'verticalScrollBar'):
             page.widget.verticalScrollBar().setValue(0)
+        if route == 'library':
+            self.library.show()
         self.render()
 
     def link(self, target):
@@ -1196,6 +1428,7 @@ class Pages:
         self.polling = {}
         self.cloud_asked = set()
         self.settings.forget_keys()
+        self.library.reset()
         self.start(then)
         self.render()
 
@@ -1209,7 +1442,8 @@ class Pages:
     def drawn(self):
         """Whether the dashboard shows the chosen site's library, read."""
         card = self.dashboard.cards.get(self.chosen)
-        return self.state.loaded and card is not None and [name.text() for name, _ in card.cells][:1] == ['Account']
+        return (self.state.loaded and card is not None
+                and tuple(name.property('fieldKey') for name, _ in card.cells) == dashboard_model.DASHBOARD_FIELDS)
 
     def poll(self, then=None, *, automatic=False):
         """Read active sites on the timer; explicit reads may refresh an idle site."""
@@ -1255,6 +1489,7 @@ class Pages:
         if key in self.counting or self.states.get(key) is not s:
             return
         self.counting[key] = s
+        self.render()
         # A later request to recount (for example a completed upload) must survive
         # this callback. Clear only the request this read is about to serve.
         s.library_refresh = False
@@ -1284,16 +1519,14 @@ class Pages:
         everything = {'updated': oldest[1]['updated'] if active or any(state.offline for state, _ in views.values())
                       or not all(state.loaded for state, _ in views.values())
                       else 'Automatic updates paused', 'go_all': any(view['go_enabled'] for _, view in views.values()),
-                      'pause_all': any(view['pause_visible'] for _, view in views.values())}
+                      'pause_all': any(view['pause_visible'] for _, view in views.values()),
+                      'folder_enabled': v['folder_enabled'] and all(view['folder_enabled'] for _, view in views.values()),
+                      'folder_tooltip': next((view['folder_tooltip'] for _, view in views.values()
+                                              if view['folder_tooltip']), v['folder_tooltip'])}
         self.header.show(self.route, self.shell.dark())
         self.dashboard.show(s, sites, views, everything)
         if self.route.startswith('settings/'):
-            # A new folder takes every site with it, so it waits for every site's download.
-            locks = [view['folder_lock'] for _, view in views.values() if view['folder_lock']]
-            v = dict(v, folder_enabled=all(view['folder_enabled'] for _, view in views.values()) and v['folder_enabled'],
-                     folder_tooltip=next((view['folder_tooltip'] for _, view in views.values() if view['folder_tooltip']), ''),
-                     folder_lock=locks[0] if locks else '')
-            self.settings.show(s, v, self.route.partition('/')[2])
+            self.settings.show(s, v, self.route.partition('/')[2], sites, views)
 
     # What the person asks for.
 
@@ -1338,9 +1571,12 @@ class Pages:
         s = self.of(key)
         self.account_act(self.actions_for(key).signin, lambda value: s.received_site_auth(value, self.now()), key=key)
 
-    def sign_out(self):
-        s = self.state
-        if s.busy or not self.shell.ask(SIGN_OUT.format(site=s.site())):
+    def sign_out(self, key=None):
+        key = key or self.chosen
+        s, actions = self.of(key), self.actions_for(key)
+        if s.busy or not (s.status or {}).get('session_configured'):
+            return
+        if not self.shell.ask(SIGN_OUT.format(site=s.site())):
             return
 
         def signed_out(value):
@@ -1351,8 +1587,8 @@ class Pages:
             if kept:
                 s.message = dashboard_model.Message(SIGNED_OUT_AWAY[min(len(kept), 2)].format(
                     site=s.site(), folders='\n'.join(kept)), True)
-            self.poll_soon()
-        self.account_act(self.actions.sign_out, signed_out)
+            self.poll_soon(key)
+        self.account_act(actions.sign_out, signed_out, key=key)
 
     def go(self, key=None):
         s = self.of(key or self.chosen)
@@ -1435,8 +1671,124 @@ class Pages:
         key = key or self.chosen
         self.q.QtCore.QTimer.singleShot(0, self.widget, lambda: self.poll_site(key))  # Dropped with the pages if they go first.
 
-    def speed(self, value):
-        self.account_act(lambda: self.actions.speed(value), lambda account: self.state.received_account(account, self.now()))
+    def speed(self, value, key=None):
+        key = key or self.chosen
+        s, actions = self.of(key), self.actions_for(key)
+        if s.busy:
+            self.render()
+            return
+        s.message = dashboard_model.Message(f'Changing speed to {SPEED_NAMES.get(value, "the selected speed")}…')
+
+        def work():
+            try:
+                return actions.speed(value), None
+            except app_actions.Refused as error:
+                # A failed change may have paused the controller. Read that local state now.
+                try:
+                    account = actions.account()
+                except app_actions.Refused:
+                    account = None
+                return account, str(error)
+
+        def done(result):
+            account, error = result
+            if account is not None:
+                s.received_account(account, self.now())
+            s.message = dashboard_model.Message(error, True) if error else None
+        self.act(work, done, key=key)
+
+    def open_download_choices(self, key):
+        """Type choices only; selecting individual series/episodes comes later."""
+        from .download_selection import HELP, LABELS, TYPES
+        state = self.of(key)
+        if state.busy:
+            return
+        dialog = self.q.QtWidgets.QDialog(self.widget)
+        dialog.setWindowTitle(f'What to download from {find_site(key).name}')
+        dialog.setMinimumWidth(440)
+        box = self.q.QtWidgets.QVBoxLayout(dialog)
+        box.setContentsMargins(24, 24, 24, 24)
+        box.setSpacing(12)
+        content = self.q.QtWidgets.QWidget()
+        body = self.q.QtWidgets.QVBoxLayout(content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(12)
+        body.setSizeConstraint(self.q.QtWidgets.QLayout.SizeConstraint.SetMinAndMaxSize)
+        area = self.kit.scroll(content)
+        area.setHorizontalScrollBarPolicy(self.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        box.addWidget(area, 1)
+        chosen = (state.account or {}).get('download_types', dict.fromkeys(TYPES, True))
+        if chosen is None:
+            chosen = dict.fromkeys(TYPES, False)
+        checks = {}
+        for kind in TYPES:
+            check = self.q.QtWidgets.QCheckBox(LABELS[kind])
+            check.setObjectName('downloadType_' + kind)
+            check.setChecked(bool(chosen.get(kind)))
+            check.setToolTip(HELP[kind])
+            body.addWidget(check)
+            description = self.q.QtWidgets.QLabel(HELP[kind])
+            description.setWordWrap(True)
+            description.setObjectName('muted')
+            description.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
+                                      self.q.QtWidgets.QSizePolicy.Policy.Minimum)
+            body.addWidget(description)
+            checks[kind] = check
+        note = self.q.QtWidgets.QLabel('Already saved files are kept. Choices also apply on future runs. '
+                                       'A running download pauses to apply changes, then continues.')
+        note.setWordWrap(True)
+        note.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
+                           self.q.QtWidgets.QSizePolicy.Policy.Minimum)
+        body.addWidget(note)
+        buttons = self.q.QtWidgets.QDialogButtonBox(
+            self.q.QtWidgets.QDialogButtonBox.StandardButton.Save | self.q.QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        save = buttons.button(self.q.QtWidgets.QDialogButtonBox.StandardButton.Save)
+        def changed():
+            save.setEnabled(any(check.isChecked() for check in checks.values()))
+        for check in checks.values():
+            check.toggled.connect(changed)
+        changed()
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        box.addWidget(buttons)
+        # Native dialogs can inherit their styled fonts after the initial size
+        # calculation. Measure the wrapped content after polishing; on a short
+        # screen only the descriptions scroll, leaving both actions reachable.
+        dialog.ensurePolished()
+        margins = box.contentsMargins()
+        width = max(dialog.minimumWidth(), box.minimumSize().width())
+        content_width = width - margins.left() - margins.right()
+        height = max(body.totalHeightForWidth(content_width), body.minimumSize().height())
+        height += buttons.sizeHint().height()
+        height += margins.top() + margins.bottom() + box.spacing()
+        dialog.resize(width, min(height, dialog.screen().availableGeometry().height() - 80))
+        if dialog.exec() == self.q.QtWidgets.QDialog.DialogCode.Accepted:
+            self.download_types({kind: check.isChecked() for kind, check in checks.items()}, key)
+        dialog.deleteLater()
+
+    def download_types(self, value, key):
+        state, actions = self.of(key), self.actions_for(key)
+        if state.busy:
+            return
+        state.message = dashboard_model.Message('Applying download choices…')
+
+        def work():
+            try:
+                return actions.download_types(value), None
+            except app_actions.Refused as error:
+                try:
+                    account = actions.account()
+                except app_actions.Refused:
+                    account = None
+                return account, str(error)
+
+        def done(result):
+            account, error = result
+            if account is not None:
+                state.received_account(account, self.now())
+            state.message = dashboard_model.Message(error, True) if error else None
+            self.poll_soon(key)
+        self.act(work, done, key=key)
 
     def wifi_choice(self, allowed):
         s = self.state
@@ -1475,8 +1827,9 @@ class Pages:
             self.poll_soon()
         self.account_act(allowed, kept, key=key)
 
-    def choose_storage(self, chosen):
-        s = self.state
+    def choose_storage(self, chosen, key=None):
+        key = key or self.chosen
+        s, actions = self.of(key), self.actions_for(key)
         if s.busy:
             self.render()
             return
@@ -1486,6 +1839,8 @@ class Pages:
             s.cloud, s.choice_message = value, ''
 
         def finished(value, error):
+            if self.states.get(key) is not s:
+                return
             s.busy = False
             if error is None:
                 kept(value)
@@ -1493,10 +1848,10 @@ class Pages:
                 s.choice_message = error
             self.render()
             if error is not None:
-                self.poll_soon()  # Shows the choice as it was kept.
+                self.poll_soon(key)  # Shows the choice as it was kept.
         s.busy = True
         self.render()
-        self.run(lambda: self.actions.choose_storage(chosen, targets), finished)
+        self.run(lambda: actions.choose_storage(chosen, targets), finished)
 
     def confirm_cloud(self, key):
         """Ask once whether new episodes may go to a connection the library folder brought; until the person
@@ -1558,6 +1913,12 @@ class Pages:
         self.act(lambda: self.actions.cloud_cleanup(test_id), self._task('cloud-cleanup'), cloud=True)
 
     # Asked of the window itself.
+
+    def provider_cloud(self, key):
+        if key == self.chosen:
+            self.go_to('settings/b2')
+        else:
+            self.shell.choose_site(key, lambda: self.go_to('settings/b2'))
 
     def choose_site(self, key):
         self.shell.choose_site(key)

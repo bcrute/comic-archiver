@@ -6,7 +6,7 @@ import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from support import PRIVATE_FILE
 from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import verify, sidecar_path
@@ -72,6 +72,121 @@ class AccountAdapter:
 
 
 class JobTests(unittest.TestCase):
+    @patch('builtins.print')
+    def test_excluded_free_backlog_does_not_break_metadata_batches_into_single_series(self, output):
+        from comic_archive.download_selection import save
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43', '44'):
+                inventory.observe(key, 'Series', [], 'fixture')
+            inventory.observe('42', 'Series', [{'id': '81', 'title': 'Free', 'order': 1,
+                                              'access_state': 'tapas_free'}], 'fixture')
+            save(inventory.db, dict(bought=True, free=False, limited=False, unclassified=False))
+
+        def inspected(key, strict_order=False):
+            self.adapter.calls.append(('series', key))
+            return dict(complete=True, authenticated=True, source_series_id=key, title='Series', episodes=[])
+
+        self.adapter.inspect_series = inspected
+        result = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual(result['refresh']['series_checks_completed'], 3)
+        self.assertEqual(result['refresh']['remaining_series_count'], 0)
+        self.assertEqual(self.adapter.downloads, [])
+
+    @patch('builtins.print')
+    def test_completion_retry_sync_checks_only_the_partial_series_without_restarting_the_account_crawl(self, output):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+                inventory.record_series_scan(key)
+            checkpoint = inventory.db.execute("SELECT observed_at FROM series_scans WHERE series_id='43'").fetchone()[0]
+            inventory.record_scan_gap('42', 2, 3)
+            inventory.prepare_completion_retry()
+        result = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual([call for call in self.adapter.calls if isinstance(call, tuple) and call[0] == 'series'], [('series', '42')])
+        self.assertEqual(self.adapter.downloads, [])
+        self.assertEqual(result['refresh']['remaining_series_count'], 0)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.db.execute("SELECT observed_at FROM series_scans WHERE series_id='43'").fetchone()[0], checkpoint)
+            self.assertIsNone(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone())
+            self.assertEqual(inventory.scan_gaps(), [])
+
+    @patch('builtins.print')
+    def test_controller_scan_yields_new_candidates_then_resumes_without_rechecking_saved_series(self, output):
+        for key in ('42', '43'):
+            with Inventory(self.root) as inventory:
+                inventory.observe(key, 'Series', [], 'fixture')
+        inspect = self.adapter.inspect_series
+        def inspected(key, **options):
+            if key == '42':
+                return inspect(key, **options)
+            self.adapter.calls.append(('series', key))
+            return {'authenticated': True, 'complete': True, 'source_series_id': key, 'title': 'Other', 'episodes': []}
+        self.adapter.inspect_series = inspected
+        first = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual(first['refresh']['series_checks_completed'], 1)
+        self.assertEqual(first['refresh']['remaining_series_count'], 1)
+        self.assertEqual(first['refresh']['state'], 'partial')
+        self.assertEqual(first['archived_episode_ids'], [])
+        self.assertNotIn(('series', '43'), self.adapter.calls)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual({row['id'] for row in inventory.pending()}, {'81', '82'})
+            cycle = inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()[0]
+        saved = archive_discovered(self.adapter, self.root)
+        self.assertEqual(saved['archived_episode_ids'], ['82', '81'])
+        original_files = {path: path.read_bytes() for path in self.root.rglob('*.cbz')}
+        self.assertTrue(original_files)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()[0], cycle)
+        self.adapter.calls.clear()
+        resumed = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual(resumed['refresh']['series_checks_completed'], 1)
+        self.assertEqual(resumed['refresh']['remaining_series_count'], 0)
+        self.assertEqual(resumed['archived_episode_ids'], [])
+        self.assertNotIn(('series', '42'), self.adapter.calls)
+        self.assertIn(('series', '43'), self.adapter.calls)
+        self.assertEqual({path: path.read_bytes() for path in self.root.rglob('*.cbz')}, original_files)
+        self.assertEqual(verify(self.root), [])
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertIsNone(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone())
+
+    @patch('builtins.print')
+    def test_controller_scan_keeps_its_batch_when_series_have_no_download_candidates(self, output):
+        self.adapter.access = {}
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+        result = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual(result['refresh']['series_checks_completed'], 2)
+        self.assertEqual(result['refresh']['remaining_series_count'], 0)
+        self.assertEqual(result['archived_episode_ids'], [])
+        self.assertEqual(self.adapter.downloads, [])
+        self.assertEqual([call for call in self.adapter.calls if isinstance(call, tuple) and call[0] == 'series'],
+                         [('series', '42'), ('series', '43')])
+
+    @patch('builtins.print')
+    def test_controller_scan_yields_partial_candidates_without_claiming_the_series_is_complete(self, output):
+        from comic_archive.adapters.pagination import EpisodeCountMismatch
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+        def inspected(key, **options):
+            self.adapter.calls.append(('series', key))
+            error = EpisodeCountMismatch(key, 1, 2)
+            error.partial_inspection = {'authenticated': True, 'complete': False, 'source_series_id': key,
+                'title': 'Series', 'episode_count': 1, 'episodes': [
+                    {'id': '81', 'title': 'First', 'order': 1, 'access_state': 'tapas_free'}]}
+            raise error
+        self.adapter.inspect_series = inspected
+        result = sync(self.adapter, self.root, refresh_lists=False, scan_only=True, scan_limit=10)
+        self.assertEqual(result['refresh']['series_checks_completed'], 1)
+        self.assertEqual(result['refresh']['held_series_checks'], 1)
+        self.assertEqual(result['refresh']['state'], 'partial')
+        self.assertNotIn(('series', '43'), self.adapter.calls)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            self.assertEqual([row['source_series_id'] for row in inventory.scan_gaps()], ['42'])
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
+
     @patch('builtins.print')
     def test_scan_duration_excludes_download_time_and_is_zero_for_archive_only(self,output):
         clock=[0.0];inspect=self.adapter.inspect_series;retrieve=self.adapter.retrieve
@@ -179,8 +294,8 @@ class JobTests(unittest.TestCase):
                    'authorization_reason':reason} for i,reason in enumerate(reasons)]
         with Inventory(self.root) as inventory:
             inventory.observe('42','S',episodes,'fixture')
-            self.assertEqual(inventory.status()['episodes_by_status'],{'unsupported':3,'unavailable':2})
-            self.assertEqual(inventory.status()['unsupported_by_reason'],{'novel':1,'scheduled':1,'temporary_access':1})
+            self.assertEqual(inventory.status()['episodes_by_status'],{'unsupported':1,'unavailable':4})
+            self.assertEqual(inventory.status()['unsupported_by_reason'],{'novel':1})
             self.assertEqual(inventory.pending(),[])
             # Why episodes not saved fell short, by the app's own codes only, for the details copied for support.
             self.assertEqual(inventory.status()['unsaved_by_code'],{})
@@ -599,6 +714,87 @@ class JobTests(unittest.TestCase):
         sync(self.adapter,self.root,self.report,include_history=True)
 
     @patch('builtins.print')
+    def test_durable_history_discovers_an_old_series_without_granting_access_or_replaying_the_page(self, output):
+        sync(self.adapter, self.root, self.report)
+        self.adapter.purchase_history_page = Mock(return_value={
+            'authenticated': True, 'scope_verified': True, 'record_ids': ['synthetic-record'], 'page_identity': 'index:0',
+            'links': ['https://tapas.io/series/older-owned-title'], 'next_cursor': None, 'boundary_verified': True})
+        self.adapter.purchase_series_identity = Mock(return_value={'source_series_id': '43', 'title': 'Older title'})
+        original = self.adapter.inspect_series
+
+        def inspected(key, strict_order=False):
+            if key == '43':
+                return {'authenticated': True, 'complete': True, 'source_series_id': '43', 'title': 'Older title',
+                        'episodes': [{'id': '84', 'title': 'Locked', 'order': 1, 'access_state': 'unavailable_or_unverified'}]}
+            return original(key, strict_order)
+
+        self.adapter.inspect_series = inspected
+        result = sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        self.assertEqual(result['refresh']['purchase_history']['status'], 'checked')
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.db.execute("SELECT status FROM episodes WHERE id='84'").fetchone()[0], 'unavailable')
+        self.assertNotIn(('capture', '84'), self.adapter.calls)
+        sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        self.adapter.purchase_history_page.assert_called_once()
+
+    @patch('builtins.print')
+    def test_paged_history_recovers_an_owned_episode_missed_by_lists_and_preserves_existing_archives(self, output):
+        from comic_archive.adapters.tapas_history import read_page
+        import hashlib
+        # The ordinary discovery pass has no trace of the older series.
+        initial = sync(self.adapter, self.root, self.report)
+        self.assertEqual(set(initial['archived_episode_ids']), {'81', '82'})
+        before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in self.root.rglob('*.cbz')}
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM series WHERE id='43'").fetchone())
+        inspect = self.adapter.inspect_series
+        capture = self.adapter.capture_automatic
+        older = Series('older', 'Older', platform_id='43')
+
+        def inspect_series(key, strict_order=False):
+            if key == '43':
+                return {'authenticated': True, 'complete': True, 'source_series_id': '43', 'title': 'Older',
+                        'episodes': [{'id': '84', 'title': 'Owned', 'order': 1, 'access_state': 'tapas_unlocked'}]}
+            return inspect(key, strict_order)
+
+        def capture_episode(url):
+            if url.endswith('/84'):
+                self.adapter.calls.append(('capture', '84'))
+                return Manifest(older, (Episode('84', 'older', 'Owned', 1,
+                    (Page(1, 'https://us-a.tapas.io/pc/older.jpg', False),), 'tapas_unlocked', url),))
+            return capture(url)
+
+        pages = []
+        for index, slug in enumerate(('known', 'older')):
+            body = ('<div class="tr"><div class="td date" title="2000-01-01">Date</div>'
+                    f'<div class="td desc">Unlocked episode of <a href="/series/{slug}" class="bold" target="_blank">Title</a></div>'
+                    '<div class="td amount txt-r">Amount</div></div>')
+            pages.append(read_page(json.dumps({'code': 200, 'data': {'body': body,
+                'pagination': {'index': index, 'has_next': index == 0}}}).encode(), index))
+        self.adapter.purchase_history_page = Mock(side_effect=pages)
+        self.adapter.purchase_series_identity = lambda url: {'source_series_id': '43' if url.endswith('/older') else '42', 'title': 'Title'}
+        self.adapter.inspect_series = inspect_series
+        self.adapter.capture_automatic = capture_episode
+        # Authorization is still checked by the normal pipeline, not inferred
+        # from a transaction. Normal list answers continue to omit this series.
+        access = self.adapter.episode_access
+        self.adapter.episode_access = lambda url: {'source_episode_id': '84', 'access_state': 'tapas_unlocked'} if url.endswith('/84') else access(url)
+        first = sync(self.adapter, self.root, history_round='one-start', scan_only=True)
+        self.assertEqual(first['refresh']['purchase_history']['status'], 'pending')
+        second = sync(self.adapter, self.root, history_round='one-start', scan_only=True, refresh_lists=False)
+        self.assertEqual(second['refresh']['purchase_history']['status'], 'checked')
+        saved = archive_discovered(self.adapter, self.root)
+        self.assertEqual(saved['archived_episode_ids'], ['84'])
+        self.assertEqual(verify(self.root), [])
+        self.assertEqual(len(list(self.root.rglob('*.cbz'))), len(before) + 1)
+        for path, digest in before.items():
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
+        # Further chunks in this round reuse the completed discovery checkpoint.
+        sync(self.adapter, self.root, history_round='one-start', scan_only=True, refresh_lists=False)
+        self.assertEqual(self.adapter.purchase_history_page.call_count, 2)
+        self.assertEqual(self.adapter.calls.count(('capture', '84')), 1)
+
+    @patch('builtins.print')
     def test_history_credentials_are_rejected_before_snapshot_storage(self, output):
         self.adapter.inspect_transaction_history=lambda max_pages,on_page=None:{'authenticated':True,
             'content_links':['https://user:secret@tapas.io/series/s']}
@@ -673,21 +869,35 @@ class JobTests(unittest.TestCase):
             self.assertEqual([row["id"] for row in inventory.scan_candidates()], ["43"])
             # The round as an earlier version left it: no rules recorded.
             inventory.db.execute("DELETE FROM settings WHERE key='scan_cycle_rules'")
+            inventory.observe('41', 'Previously checked without refusals', [], 'subscribed')
+            inventory.record_series_scan('41')
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-01T00:00:00+00:00' WHERE series_id='41'")
             inventory.db.commit()
         self.adapter.access["83"] = "tapas_unlocked"
         del self.adapter.reasons["83"]
         with Inventory(self.root) as inventory:
             inventory.observe("44", "Never checked", [], "subscribed")
             # Before the round starts over, every series counts as still to check, so its first check is progress.
-            self.assertEqual(inventory.status()["scan_remaining_series_count"], 3)
+            self.assertEqual(inventory.status()["scan_remaining_series_count"], 4)
         self.adapter.calls.clear()
-        # The series holding the old refusal is checked ahead of ones never checked.
+        # New discoveries come first; older refusals still precede ordinary rechecks.
         second = sync(self.adapter, self.root, scan_limit=1)
-        self.assertEqual([call for call in self.adapter.calls if call[0] == "series"], [("series", "42")])
-        self.assertEqual(second["archived_episode_ids"], ["83"])
-        self.assertEqual(second["inventory"]["scan_remaining_series_count"], 2)
+        self.assertEqual([call for call in self.adapter.calls if call[0] == "series"], [("series", "43")])
+        self.assertEqual(second["archived_episode_ids"], [])
+        self.assertEqual(second["inventory"]["scan_remaining_series_count"], 3)
         with Inventory(self.root) as inventory:
-            self.assertEqual([row["id"] for row in inventory.scan_candidates()], ["43", "44"])
+            self.assertEqual([row["id"] for row in inventory.scan_candidates()], ["44", "42", "41"])
+        self.adapter.calls.clear()
+        third = sync(self.adapter, self.root, scan_limit=1)
+        self.assertEqual(third['archived_episode_ids'], [])
+        self.assertEqual([call for call in self.adapter.calls if call[0] == 'series'], [('series', '44')])
+        self.adapter.calls.clear()
+        recovered = sync(self.adapter, self.root, scan_limit=1)
+        self.assertEqual([call for call in self.adapter.calls if call[0] == 'series'], [('series', '42')])
+        self.assertEqual(recovered['archived_episode_ids'], ['83'])
+        self.assertEqual(recovered['inventory']['scan_remaining_series_count'], 1)
+        with Inventory(self.root) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['41'])
         self.assertEqual(verify(self.root), [])
 
     @patch('builtins.print')

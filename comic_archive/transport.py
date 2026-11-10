@@ -1,5 +1,6 @@
 """HTTPS retrieval with shared request spacing; never log URLs or secrets."""
 import re
+import hashlib
 import time
 import logging
 import threading
@@ -11,6 +12,7 @@ from . import sites
 from .errors import AssetReadUnavailable, NetworkUnavailable, RunLimit
 from .downloads import validate_request_interval
 from .transfer_metrics import TransferMetrics, network_failure_code
+from .webtoon_gateway import AGENT as WEBTOON_AGENT, gateway_route, session_cookie
 # How much of a refused request's answer is kept with its error.
 REFUSAL_BYTES = 4096
 
@@ -163,16 +165,28 @@ class Transport:
             else:
                 self.last = time.monotonic()
 
-    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False):
+    def get(self, url, max_bytes=None, *, authorization=None, take_cookies=False, image=False, reader_json=False):
         """A page's bytes. 'authorization' is the site's own key for its API; 'take_cookies' keeps the cookies
         the answer sets, as a browser would, for the requests that follow; 'image' keeps to the image pace."""
         if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
             raise RunLimit("The download byte budget is exhausted.")
-        asset_url(url, self.site)
+        mobile_route = gateway_route(url, self.site)
+        if mobile_route is None:
+            asset_url(url, self.site)
         host = urlsplit(url).hostname
         headers = {"Referer": self.site.referer}
+        if type(reader_json) is not bool:
+            raise ArchiveError('Reader response mode must be an explicit boolean.')
+        if reader_json:
+            parsed = urlsplit(url)
+            if (self.site.key != 'tapas' or parsed.scheme != 'https' or host != self.site.host
+                    or parsed.query or parsed.fragment or not re.fullmatch(r'/episode/[1-9][0-9]{0,19}', parsed.path)):
+                raise ArchiveError('Reader JSON is available only on the exact Tapas episode route.')
+            headers['Accept'] = 'application/json'
         if self.agent:
             headers["User-Agent"] = self.agent
+        if mobile_route is not None:
+            headers['User-Agent'] = WEBTOON_AGENT
         if authorization is not None:
             # The key goes only where the site's own cookies may go, never to a CDN.
             if (host not in self.site.cookie_hosts or not isinstance(authorization, str) or not authorization.isascii()
@@ -185,7 +199,16 @@ class Transport:
             # header after admission on every attempt, using exactly one cookie authority.
             headers.pop("Cookie", None)
             cookie = ''
-            if self.cookie_source is not None:
+            if mobile_route is not None:
+                # Mobile API credentials are explicitly delegated from this
+                # site's authoritative website store. Other cookies, CDNs,
+                # other gateway services and the public clock receive none.
+                if mobile_route != 'clock':
+                    cookie = self._webtoon_session_cookie()
+                    if not cookie:
+                        from .errors import AuthenticationError
+                        raise AuthenticationError('Sign in to Webtoon again.')
+            elif self.cookie_source is not None:
                 # Asked after policy/cancellation admission on every attempt, so a cookie
                 # that changed or disappeared between attempts (or on a redirect hop, which
                 # is a new request) is never reused. Jar cookies never take this path.
@@ -200,6 +223,25 @@ class Transport:
                 return self._request(url, headers, max_bytes, attempt, take_cookies)
             except _RetryRequest as retry:
                 self._wait(retry.delay)
+
+    def _webtoon_session_cookie(self, *, check_budget=True):
+        if self.site.key != 'webtoon':
+            return ''
+        if check_budget:
+            self._check_budget()
+        header = (self.cookie_source(self.site.home + '/') if self.cookie_source is not None
+                  else self.cookie_header(self.site.host))
+        return session_cookie(header)
+
+    def has_webtoon_session(self):
+        """Capability only; the adapter must still verify the account and episode rights."""
+        return bool(self._webtoon_session_cookie())
+
+    def webtoon_session_marker(self):
+        """Private in-memory binding, also usable from the transport's cancellation check."""
+        cookie = self._webtoon_session_cookie(check_budget=False)
+        canonical = '; '.join(sorted(cookie.split('; ')))
+        return hashlib.sha256(canonical.encode('ascii')).digest() if cookie else None
 
     def cookie_header(self, host):
         if host not in self.site.cookie_hosts:
@@ -267,7 +309,7 @@ class Transport:
 
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
         # Only CDN assets enter these metrics, never same-origin account JSON.
-        measured = urlsplit(url).hostname != self.site.host
+        measured = urlsplit(url).hostname != self.site.host and gateway_route(url, self.site) is None
         started = time.monotonic()
         status = None
         failure = None

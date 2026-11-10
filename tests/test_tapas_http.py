@@ -12,6 +12,107 @@ def envelope(value):
 
 
 class TapasHTTPTests(unittest.TestCase):
+    def reader_document_responses(self, info=None, html=None, reader_error=None):
+        self.responses()
+        normal = self.transport.get.side_effect
+        fragment = (html if html is not None else self.html).decode().replace(
+            '<div id="episode-81">', '<div id="episode-81" data-series-id="42">')
+        def get(url, **options):
+            if url.endswith('/episode/81/info'):
+                raise self.header_failure(404)
+            if url.endswith('/episode/81'):
+                if reader_error is not None:
+                    raise reader_error
+                self.assertEqual(options, {'reader_json': True, 'max_bytes': 8 * 1024 * 1024})
+                return envelope({'episode': self.info if info is None else info, 'html': fragment})
+            return normal(url, **options)
+        self.transport.get.side_effect = get
+
+    def test_missing_info_uses_website_reader_document_without_duplicate_reader_or_info_requests(self):
+        self.reader_document_responses()
+        with self.assertLogs('comic_archive.download', level='INFO') as logs:
+            result = self.adapter.capture('https://tapas.io/episode/81')
+        self.assertEqual(result.series.platform_id, '42')
+        self.assertEqual((result.episodes[0].id, result.episodes[0].order, result.episodes[0].access), ('81', 1, 'tapas_free'))
+        self.assertEqual(len(result.episodes[0].pages), 2)
+        self.assertEqual(self.requested(), ['https://tapas.io/episode/81/info', 'https://tapas.io/episode/81',
+                                          'https://tapas.io/series/42'])
+        self.assertIn('fallback=website_reader_document', '\n'.join(logs.output))
+        self.assertNotIn('PRIVATE', '\n'.join(logs.output))
+
+    def test_missing_reader_is_episode_local_but_auth_throttle_and_outages_remain_holds(self):
+        for status in (404, 410, 401, 403, 429, 503):
+            with self.subTest(status=status):
+                self.transport.get.reset_mock()
+                error = self.header_failure(status)
+                self.reader_document_responses(reader_error=error)
+                with self.assertRaises(ArchiveError) as caught:
+                    self.adapter.capture('https://tapas.io/episode/81')
+                self.assertEqual(isinstance(caught.exception, AccessDenied), status in (404, 410))
+                self.assertEqual(caught.exception.source_http_status, status)
+                self.assertEqual(self.requested(), ['https://tapas.io/episode/81/info', 'https://tapas.io/episode/81'])
+
+    def test_missing_info_does_not_accept_wrong_episode_series_or_partial_comic_document(self):
+        cases = [(self.info | {'id': 82}, self.html),
+                 (self.info, self.html.replace(b'var seriesId = 42', b'var seriesId = 43')),
+                 (self.info, b'<div id="episode-82" data-series-id="42"><img class="content__img" src="https://us-a.tapas.io/pc/1.jpg"></div>'),
+                 (self.info, self.html.replace(b'</div>', b'<span data-series-id="43"></span></div>'))]
+        for info, html in cases:
+            with self.subTest(info_id=info['id'], html=html[:20]):
+                self.reader_document_responses(info=info, html=html)
+                with self.assertRaises(ArchiveError):
+                    self.adapter.capture('https://tapas.io/episode/81')
+
+    def test_reader_document_preserves_novel_type_and_expiration_without_positive_flags(self):
+        info = self.info | {'book': True, 'free': False, 'unlocked': False, 'closing_date': '2099-01-01T00:00:00Z'}
+        html = b'<div id="episode-81"><div id="epub-81" class="ep-epub-content"><p>A complete chapter.</p></div></div>'
+        self.reader_document_responses(info=info, html=html)
+        normal = self.transport.get.side_effect
+        self.transport.get.side_effect = lambda url, **options: (
+            envelope({'id': 42, 'title': 'Series', 'url': 'series-slug', 'comic': False, 'book': True})
+            if url.endswith('/series/42') else normal(url, **options))
+        result = self.adapter.capture('https://tapas.io/episode/81')
+        self.assertEqual(result.episodes[0].content_type, 'novel')
+        self.assertEqual(result.episodes[0].access, 'tapas_readable')
+        self.assertIsNotNone(result.episodes[0].access_expires_at)
+        self.assertIn('complete chapter', result.episodes[0].text_html)
+
+    def test_free_only_access_check_can_use_missing_info_reader_metadata(self):
+        self.reader_document_responses()
+        result = self.adapter.episode_access('https://tapas.io/episode/81')
+        self.assertEqual(result['access_state'], 'tapas_free')
+        self.assertEqual(self.requested(), ['https://tapas.io/who-am-i', 'https://tapas.io/episode/81/info',
+                                          'https://tapas.io/episode/81'])
+
+    def test_existing_info_with_missing_reader_is_also_episode_local(self):
+        self.responses()
+        normal = self.transport.get.side_effect
+        self.transport.get.side_effect = lambda url, **options: (
+            (_ for _ in ()).throw(self.header_failure(404)) if url.endswith('/episode/81') else normal(url, **options))
+        with self.assertRaises(AccessDenied):
+            self.adapter.capture('https://tapas.io/episode/81')
+
+    def test_reader_document_still_works_when_optional_series_header_is_missing(self):
+        self.reader_document_responses()
+        normal = self.transport.get.side_effect
+        self.transport.get.side_effect = lambda url, **options: (
+            (_ for _ in ()).throw(self.header_failure(404)) if url.endswith('/series/42') else normal(url, **options))
+        self.adapter.seed_series('42', 'Observed title')
+        result = self.adapter.capture('https://tapas.io/episode/81')
+        self.assertEqual(result.series.platform_id, '42')
+        self.assertEqual(len(result.episodes[0].pages), 2)
+
+    def test_reader_document_refuses_error_envelopes_and_private_details_are_not_logged(self):
+        for payload in ([], {'data': {}}, {'code': 403, 'data': {'episode': self.info, 'html': ''}},
+                        {'data': {'episode': self.info, 'html': ''}, 'errorDetails': 'PRIVATE_RESPONSE'}):
+            self.reader_document_responses()
+            normal = self.transport.get.side_effect
+            self.transport.get.side_effect = lambda url, **options: (
+                json.dumps(payload).encode() if url.endswith('/episode/81') else normal(url, **options))
+            with self.assertRaises(MetadataError) as caught:
+                self.adapter.capture('https://tapas.io/episode/81')
+            self.assertNotIn('PRIVATE', str(caught.exception))
+
 
     def test_comic_only_scan_holds_explicit_novel_before_episode_pagination(self):
         self.transport.get.side_effect=[envelope({'user':{'id':123}}),
@@ -67,29 +168,25 @@ class TapasHTTPTests(unittest.TestCase):
             self.transport.get.side_effect=[envelope({'user':{'id':123}}),envelope({'id':42,'title':'S'}),
                 envelope({'episodes':[self.info|change|{'token':'PRIVATE'},self.info|{'id':82,'scene':2}],
                           'pagination':{'page':1,'total':3,'has_next':False,'token':'PRIVATE'}})]
-            if change:
-                with self.assertRaises(MetadataError) as caught:self.adapter.inspect_series('42',strict_order=False)
-                self.assertNotIsInstance(caught.exception,EpisodeCountMismatch)
-            else:
-                with self.assertRaises(EpisodeCountMismatch) as caught:self.adapter.inspect_series('42',strict_order=False)
-                partial=caught.exception.partial_inspection
-                self.assertFalse(partial['complete']);self.assertTrue(partial['authenticated'])
-                self.assertEqual(partial['source_series_id'],'42')
-                self.assertEqual([row['id'] for row in partial['episodes']],['81','82'])
-                self.assertEqual([row['order'] for row in partial['episodes']],[1,2])
-                self.assertNotIn('PRIVATE',json.dumps(caught.exception.__dict__))
+            with self.assertRaises(EpisodeCountMismatch) as caught:
+                self.adapter.inspect_series('42', strict_order=False)
+            partial = caught.exception.partial_inspection
+            self.assertFalse(partial['complete'])
+            self.assertTrue(partial['authenticated'])
+            self.assertEqual(partial['source_series_id'], '42')
+            self.assertEqual([row['id'] for row in partial['episodes']], ['81', '82'])
+            self.assertEqual([row['order'] for row in partial['episodes']], [1, 2])
+            self.assertEqual(partial['episodes'][0]['access_state'],
+                             'unavailable_or_unverified' if change else 'tapas_free')
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.__dict__))
             self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20')
 
-    def test_unsupported_metadata_has_specific_safe_reason_without_requesting_a_reader(self):
-        for change,code in (({'scheduled':True},'scheduled'),
-                            ({'closing_date':'PRIVATE_VALUE'},'temporary_access')):
+    def test_advisory_scheduling_and_expiry_do_not_veto_complete_reader(self):
+        for change in ({'scheduled': True}, {'closing_date': 'PRIVATE_VALUE'}):
             self.transport.reset_mock()
-            self.responses(info=self.info|change)
-            with self.assertRaises(UnsupportedContent) as error:
-                self.adapter.capture('https://tapas.io/episode/81')
-            self.assertEqual(error.exception.code,code)
-            self.assertNotIn('PRIVATE',str(error.exception))
-            self.assertEqual(self.transport.get.call_count,1)
+            self.responses(info=self.info | change)
+            self.assertEqual(len(self.adapter.capture('https://tapas.io/episode/81').episodes[0].pages), 2)
+            self.assertEqual(self.transport.get.call_count, 3)
 
     def test_series_metadata_uses_observed_markup_and_cover_without_reader_requests(self):
         from test_series_metadata import HTML
@@ -112,8 +209,8 @@ class TapasHTTPTests(unittest.TestCase):
         self.transport.get.side_effect=[envelope({'user':{'id':123}}),
             envelope({'id':42,'title':'S'}),envelope({'pagination':{'page':2,'has_next':False,'total':1},
                 'episodes':[self.info | {'free':'unexpected'}]})]
-        with self.assertRaises(MetadataError):
-            self.adapter.inspect_series('42')
+        result = self.adapter.inspect_series('42')
+        self.assertEqual(result['episodes'][0]['access_state'], 'unavailable_or_unverified')
         self.assertEqual(self.transport.get.call_count,3)
 
     def setUp(self):
@@ -140,24 +237,132 @@ class TapasHTTPTests(unittest.TestCase):
     def requested(self):
         return [call.args[0] for call in self.transport.get.call_args_list]
 
+    def header_failure(self, status):
+        error = MetadataError('Unavailable metadata')
+        error.source_http_status = status
+        return error
+
+    def missing_header_responses(self, status=404, episodes=None):
+        self.responses()
+        normal = self.transport.get.side_effect
+        def get(url, **options):
+            if url == 'https://tapas.io/series/42':
+                raise self.header_failure(status)
+            if '/series/42/episodes?' in url:
+                rows = [self.info] if episodes is None else episodes
+                return envelope({'episodes': rows, 'pagination': {'page': 1, 'total': len(rows), 'has_next': False}})
+            return normal(url, **options)
+        self.transport.get.side_effect = get
+
+    def test_account_seed_allows_missing_header_scan_capture_and_metadata_without_repeated_404(self):
+        for status in (404, 410):
+            with self.subTest(status=status):
+                self.adapter = TapasHTTPAdapter(transport=self.transport)
+                self.transport.reset_mock()
+                self.missing_header_responses(status)
+                self.adapter.seed_series('42', 'Observed title')
+                with self.assertLogs('comic_archive.download', level='INFO') as logs:
+                    scanned = self.adapter.inspect_series('42', strict_order=False)
+                    manifest = self.adapter.capture('https://tapas.io/episode/81')
+                    with self.assertRaises(MetadataError):
+                        self.adapter.series_metadata('42')
+                self.assertTrue(scanned['complete'])
+                self.assertEqual(scanned['episodes'][0]['id'], '81')
+                self.assertEqual((manifest.series.platform_id, manifest.series.title), ('42', 'Observed title'))
+                self.assertEqual(len(manifest.episodes[0].pages), 2)
+                self.assertIsNone(manifest.series.source_url)
+                self.assertEqual(self.requested().count('https://tapas.io/series/42'), 1)
+                self.assertIn('stage=series_header', ' '.join(logs.output))
+                self.assertIn(f'http_status={status}', ' '.join(logs.output))
+                self.assertNotIn('Observed title', ' '.join(logs.output))
+                self.assertNotIn('PRIVATE', ' '.join(logs.output))
+
+    def test_missing_header_without_seed_and_non_missing_errors_never_fall_back(self):
+        self.missing_header_responses()
+        with self.assertRaises(MetadataError):
+            self.adapter.inspect_series('42')
+        self.assertFalse(any('/episodes?' in url for url in self.requested()))
+        for status in (401, 403, 429, 500):
+            self.transport.reset_mock()
+            self.missing_header_responses(status)
+            self.adapter.seed_series('42', 'Observed')
+            with self.assertRaises(MetadataError):
+                self.adapter.inspect_series('42')
+            self.assertFalse(any('/episodes?' in url for url in self.requested()))
+
+    def test_seed_does_not_hide_malformed_or_wrong_identity_metadata(self):
+        for response in (b'not json', envelope({'id': 43, 'title': 'Other'})):
+            self.transport.get.side_effect = [envelope({'user': {'id': 123}}), response]
+            self.adapter.seed_series('42', 'Observed')
+            with self.assertRaises(ArchiveError):
+                self.adapter.inspect_series('42')
+        for key, title in (('slug', 'Title'), ('42', ''), ('42', 'x' * 501), (42, 'Title')):
+            with self.assertRaises(MetadataError):
+                self.adapter.seed_series(key, title)
+
+    def test_missing_header_keeps_reader_identity_and_completeness_checks(self):
+        self.missing_header_responses()
+        self.adapter.seed_series('42', 'Observed')
+        with self.assertRaises(MetadataError):
+            self.adapter.capture('https://tapas.io/episode/81', series_id='invented-slug')
+        self.responses(html=self.html.replace(b'seriesId = 42', b'seriesId = 43'))
+        normal = self.transport.get.side_effect
+        self.transport.get.side_effect = lambda url, **options: (
+            envelope({'id': 43, 'title': 'Other', 'url': 'other', 'comic': True, 'book': False})
+            if url == 'https://tapas.io/series/43' else normal(url, **options))
+        with self.assertRaises(ArchiveError):
+            self.adapter.capture('https://tapas.io/episode/81', series_id='42')
+        self.missing_header_responses()
+        normal = self.transport.get.side_effect
+        self.transport.get.side_effect = lambda url, **options: (
+            b'<script>var seriesId=42;</script><div id="episode-81"></div>'
+            if url == 'https://tapas.io/episode/81' else normal(url, **options))
+        with self.assertRaises(UnsupportedContent):
+            self.adapter.capture('https://tapas.io/episode/81')
+
+    def test_missing_header_does_not_turn_a_partial_episode_list_into_a_complete_scan(self):
+        from comic_archive.adapters.pagination import EpisodeCountMismatch
+        self.adapter.seed_series('42', 'Observed')
+        self.transport.get.side_effect = [envelope({'user': {'id': 123}}), self.header_failure(404),
+            envelope({'episodes': [self.info], 'pagination': {'page': 1, 'total': 2, 'has_next': False}})]
+        with self.assertRaises(EpisodeCountMismatch) as caught:
+            self.adapter.inspect_series('42', strict_order=False)
+        self.assertFalse(caught.exception.partial_inspection['complete'])
+        self.assertEqual(caught.exception.partial_inspection['episodes'][0]['id'], '81')
+
+    def test_header_and_episode_list_missing_is_typed_as_held_series(self):
+        self.adapter.seed_series('42', 'Observed')
+        self.transport.get.side_effect = [envelope({'user': {'id': 123}}),
+                                         self.header_failure(404), self.header_failure(410)]
+        with self.assertRaises(MetadataError) as caught:
+            self.adapter.inspect_series('42')
+        self.assertEqual(caught.exception.source_series_id, '42')
+        self.assertEqual(caught.exception.source_http_status, 410)
+        self.assertEqual(caught.exception.source_route, '/series/42/episodes')
+
+    def test_refresh_retains_previously_verified_slug_when_header_disappears(self):
+        self.responses()
+        self.adapter.seed_series('42', 'Observed')
+        episode = self.adapter.capture('https://tapas.io/episode/81').episodes[0]
+        self.missing_header_responses()
+        renewed = self.adapter.refresh(episode)
+        self.assertEqual(renewed.series_id, episode.series_id)
+        self.assertEqual([page.location for page in renewed.pages], [page.location for page in episode.pages])
+
     def test_explicit_temporary_unlock_captures_expiry_after_normal_account_and_reader_checks(self):
         from datetime import datetime, timezone
         now=datetime(2026,10,8,18,tzinfo=timezone.utc)
         self.responses(info=self.info|{'free':False,'unlocked':True,'closing_date':'2026-10-08T20:00:00Z'})
         with patch('comic_archive.expiry.now',return_value=now):
             manifest=self.adapter.capture('https://tapas.io/episode/81')
-        self.assertEqual(manifest.episodes[0].access,'tapas_unlocked')
+        self.assertEqual(manifest.episodes[0].access,'tapas_limited')
         self.assertEqual(manifest.episodes[0].access_expires_at,'2026-10-08T20:00:00+00:00')
         self.assertEqual(self.transport.get.call_count,3)
 
-    def test_grant_expiring_between_metadata_and_reader_does_not_start_reader(self):
-        from datetime import datetime, timezone
-        from comic_archive.errors import AccessDenied
-        before=datetime(2026,10,8,18,tzinfo=timezone.utc);deadline=datetime(2026,10,8,20,tzinfo=timezone.utc)
-        self.responses(info=self.info|{'closing_date':deadline.isoformat()})
-        with patch('comic_archive.expiry.now',side_effect=[before,deadline]),self.assertRaises(AccessDenied):
-            self.adapter.capture('https://tapas.io/episode/81')
-        self.assertEqual(self.transport.get.call_count,1)
+    def test_past_expiry_is_metadata_and_reader_still_decides(self):
+        self.responses(info=self.info | {'closing_date': '2000-01-01T00:00:00Z'})
+        self.assertEqual(len(self.adapter.capture('https://tapas.io/episode/81').episodes[0].pages), 2)
+        self.assertEqual(self.transport.get.call_count, 3)
 
     def test_authenticated_info_gate_html_order_and_automatic_metadata(self):
         self.responses()
@@ -187,48 +392,34 @@ class TapasHTTPTests(unittest.TestCase):
         with self.assertRaises(ArchiveError) as caught:self.adapter.capture('https://tapas.io/episode/81')
         self.assertFalse(hasattr(caught.exception,'source_retry_episode_id'))
 
-    def test_locked_wuf_preview_and_inconsistent_flags_stop_before_reader_or_assets(self):
-        info = "https://tapas.io/episode/81/info"
-        # Locked: the sign-in is checked then, as a sign-in that ended reads every bought episode as locked.
-        for updates, requests in (({"free": False, "unlocked": False}, [info, "https://tapas.io/who-am-i"]),
-                                  ({"free": False, "unlocked": False, "must_pay": True}, [info, "https://tapas.io/who-am-i"]),
-                                  ({"scheduled": True}, [info]), ({"closing_date": "expired"}, [info]),
-                                  ({"free": "true", "unlocked": 1}, [info])):
+    def test_contradictory_flags_cannot_veto_complete_authenticated_reader(self):
+        for updates in ({'free': False, 'unlocked': False}, {'scheduled': True},
+                        {'closing_date': 'expired'}, {'free': 'true', 'unlocked': 1}):
             with self.subTest(updates=updates):
                 self.transport.reset_mock()
                 self.responses(info=self.info | updates)
-                with self.assertRaises(ArchiveError):
-                    self.adapter.capture("https://tapas.io/episode/81")
-                self.assertEqual(self.requested(), requests)
+                episode = self.adapter.capture('https://tapas.io/episode/81').episodes[0]
+                self.assertEqual(len(episode.pages), 2)
+                self.assertEqual(self.transport.get.call_count, 3)
 
-    def test_unlocked_flag_requires_explicit_boolean_and_current_allowed_state(self):
-        self.assertEqual(access_state(self.info | {"free": False, "unlocked": True}), "tapas_unlocked")
-        with self.assertRaises(ArchiveError):
-            access_state(self.info | {"free": False, "unlocked": "true"})
+    def test_bulk_hints_require_positive_booleans_without_claiming_denial(self):
+        self.assertEqual(access_state(self.info | {'free': False, 'unlocked': True}), 'tapas_unlocked')
+        self.assertEqual(access_state(self.info | {'free': False, 'unlocked': 'true'}), 'unavailable_or_unverified')
 
-    def test_a_bought_paid_only_episode_is_readable_and_an_unbought_one_is_not(self):
-        # Tapas keeps must_pay=true on a paid-only episode after the account buys it.
-        paid_only = self.info | {"free": False, "must_pay": True}
-        self.assertEqual(access_state(paid_only | {"unlocked": True}), "tapas_unlocked")
-        with self.assertRaises(AccessDenied):
-            access_state(paid_only | {"unlocked": False})
+    def test_bulk_discovery_avoids_probing_every_unowned_paid_episode(self):
+        paid_only = self.info | {'free': False, 'must_pay': True}
+        self.assertEqual(access_state(paid_only | {'unlocked': True}), 'tapas_unlocked')
+        self.assertEqual(access_state(paid_only | {'unlocked': False}), 'unavailable_or_unverified')
 
-    def test_a_sign_in_ended_since_the_step_began_is_a_sign_out_not_a_locked_episode(self):
-        locked = self.info | {"free": False, "unlocked": False}
-        for user in ({}, {"id": 0}, {"id": True}, {"id": "123"}):
-            self.transport.reset_mock()
-            self.responses(info=locked, user=user)
+    def test_session_identity_is_checked_at_step_start_and_episode_identity_at_capture(self):
+        for user in ({}, {'id': 0}, {'id': True}, {'id': '123'}):
+            self.responses(user=user)
             with self.assertRaises(AuthenticationError):
-                self.adapter.capture("https://tapas.io/episode/81")
-            self.assertEqual(self.requested(), ["https://tapas.io/episode/81/info", "https://tapas.io/who-am-i"])
-        # Still signed in: the episode really is locked to this account.
-        self.responses(info=locked)
-        with self.assertRaises(AccessDenied):
-            self.adapter.capture("https://tapas.io/episode/81")
+                self.adapter.account_identity()
         self.transport.reset_mock()
-        self.responses(info=self.info | {"id": 82})
+        self.responses(info=self.info | {'id': 82})
         with self.assertRaises(ArchiveError):
-            self.adapter.capture("https://tapas.io/episode/81")
+            self.adapter.capture('https://tapas.io/episode/81')
         self.assertEqual(self.transport.get.call_count, 1)
 
     def test_expected_account_change_stops_before_episode_metadata_or_reader(self):
@@ -238,10 +429,6 @@ class TapasHTTPTests(unittest.TestCase):
         with self.assertRaises(AuthenticationError):
             self.adapter.account_identity()
         self.assertEqual(self.requested(), ["https://tapas.io/who-am-i"])
-        # Another account signed in during the step: its locked answers are a sign-out, not locked episodes.
-        self.responses(info=self.info | {"free": False, "unlocked": False})
-        with self.assertRaises(AuthenticationError):
-            self.adapter.capture("https://tapas.io/episode/81")
 
     def test_access_probe_never_requests_the_reader_or_page_assets(self):
         self.responses(info=self.info | {"free": False, "unlocked": True})
@@ -274,9 +461,10 @@ class TapasHTTPTests(unittest.TestCase):
         episode = self.adapter.capture("https://tapas.io/episode/81").episodes[0]
         self.transport.reset_mock()
         self.responses(info=self.info | {"free": False, "unlocked": False})
-        with self.assertRaises(ArchiveError):
-            self.adapter.refresh(episode)
-        self.assertEqual(self.transport.get.call_count, 2)
+        renewed = self.adapter.refresh(episode)
+        self.assertEqual(renewed.pages, episode.pages)
+        self.assertEqual(renewed.access, 'tapas_readable')
+        self.assertEqual(self.transport.get.call_count, 3)
 
     def test_pagination_follows_server_cursor_orders_episodes_and_checks_total(self):
         self.transport.get.side_effect = [
@@ -328,19 +516,18 @@ class TapasHTTPTests(unittest.TestCase):
             envelope({'pagination':{'page':2,'has_next':False,'total':6},'episodes':items})]
         result=self.adapter.inspect_series('42')
         self.assertEqual([row['authorization_reason'] for row in result['episodes']],
-                         [None,'access_denied',None,'scheduled','temporary_access',None])
+                         [None] * 6)
         self.assertEqual([row['access_state'] for row in result['episodes']],
-                         ['tapas_free','unavailable_or_unverified','tapas_free','unavailable_or_unverified','unavailable_or_unverified',
+                         ['tapas_free','unavailable_or_unverified','tapas_free','tapas_free','tapas_free',
                           'tapas_unlocked'])
         self.assertEqual(self.transport.get.call_count,3)
         self.assertNotIn('PRIVATE',json.dumps(result))
 
-    def test_missing_or_nonboolean_allow_flags_fail_closed(self):
-        for key in ("scheduled", "book", "closing_date"):
+    def test_missing_advisory_flags_do_not_override_a_positive_bulk_hint(self):
+        for key in ('scheduled', 'closing_date'):
             info = dict(self.info)
             del info[key]
-            with self.assertRaises(ArchiveError):
-                access_state(info)
+            self.assertEqual(access_state(info), 'tapas_free')
 
     def test_series_slug_resolves_quoted_server_id_and_checks_metadata_slug(self):
         self.transport.get.side_effect = [b'<script>var seriesId="42";</script>',
@@ -358,8 +545,7 @@ class TapasHTTPTests(unittest.TestCase):
         self.assertEqual(access_state(observed['episode']), 'tapas_free')
         locked = observed['known_locked_episode'] | {'closing_date': None}
         self.assertFalse(locked['must_pay'])
-        with self.assertRaises(ArchiveError):
-            access_state(locked)
+        self.assertEqual(access_state(locked), 'unavailable_or_unverified')
         self.assertEqual(observed['initial_html']['data-src']['comic_asset_count'], 88)
         self.assertEqual(observed['dom_before_scroll']['current']['comic_asset_count'], 2)
 
@@ -372,8 +558,7 @@ class TapasHTTPTests(unittest.TestCase):
         self.assertEqual(episode['page_count'], 47)
         self.assertFalse(episode['scrolling_required'])
         self.assertFalse(observed['discovery']['complete'])
-        with self.assertRaises(ArchiveError):
-            access_state(episode['authorization'] | {'unlocked': False})
+        self.assertEqual(access_state(episode['authorization'] | {'unlocked': False}), 'unavailable_or_unverified')
 
     def test_session_folder_builds_a_tapas_only_cookie_transport_inside_the_library_guard_and_closes_it(self):
         import tempfile

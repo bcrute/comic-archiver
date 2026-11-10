@@ -14,7 +14,7 @@ import unittest
 
 from comic_archive.android_adapter import AndroidTapasAdapter, ReadingListHTML, signed_in_probe
 from comic_archive.android_transport import AndroidTransport
-from comic_archive.errors import AccessDenied, AuthenticationError
+from comic_archive.errors import AuthenticationError
 from comic_archive.models import ArchiveError
 from comic_archive.transport import Transport
 
@@ -211,20 +211,93 @@ class AndroidTapasAdapterDiscoveryTests(unittest.TestCase):
 
     def test_free_episodes_reports_an_honest_blocker_without_requesting_the_filter(self):
         transport = library_transport()
+        transport.responses['https://m.tapas.io/reading-list?category=SUBSCRIBED'] = LIBRARY_1
         result = AndroidTapasAdapter(transport=transport).inspect_library(category='free_episodes')
         self.assertEqual((result['authenticated'], result['membership_verified'], result['scope']), (True, True, 'free_episodes'))
         self.assertEqual((result['series'], result['pages'], result['complete']), ([], [], False))
         self.assertEqual(result['blocker'],
-                         'The Free Episodes filter is a visible browser control; '
-                         'the Android worker did not request it.')
-        self.assertEqual([url for url, _ in transport.fetched], [WHO_AM_I])
+                         'The named Library filter is absent or ambiguous on this surface; no route was guessed.')
+        self.assertEqual([url for url, _ in transport.fetched],
+                         [WHO_AM_I, 'https://m.tapas.io/reading-list?category=SUBSCRIBED'])
+
+
+class AndroidNamedFilterTests(unittest.TestCase):
+    start = 'https://m.tapas.io/reading-list?category=SUBSCRIBED'
+    first = 'https://m.tapas.io/reading-list?category=WAIT_UNTIL_FREE&type=ALL'
+    second = first + '&pageNumber=2'
+
+    def filtered(self, number, following=None, selected='WAIT_UNTIL_FREE'):
+        nav = (f'<nav class="section-filter"><li class="filter-item on" data-type="{selected}">'
+               f'<a href="/reading-list?category={selected}&amp;type=ALL">'
+               f'{"Wait Until Free" if selected == "WAIT_UNTIL_FREE" else "Free Episodes"}</a></li></nav>')
+        pager = ('<section class="paging-wrap"><a class="paging__button--next" '
+                 + (f'href="{following}"></a>' if following else 'aria-disabled="true"></a>') + '</section>')
+        return (nav.encode() + page([card(40 + number, f'title-{number}', 'Observed')]) + pager.encode())
+
+    def transport(self, second=None):
+        return SyntheticTransport({WHO_AM_I: SIGNED_IN, self.start: self.filtered(9),
+            self.first: self.filtered(1, self.second), self.second: second or self.filtered(2)})
+
+    def test_source_supplied_wuf_pages_emit_candidates_and_stop_at_explicit_boundary(self):
+        transport = self.transport()
+        adapter = AndroidTapasAdapter(transport=transport)
+        checkpoints = []
+        result = adapter.inspect_library(category='wait_until_free', on_page=checkpoints.append)
+        self.assertTrue(result['complete'])
+        self.assertTrue(result['boundary_observed'])
+        self.assertEqual([row['source_series_id'] for row in result['series']], ['41', '42'])
+        self.assertEqual([row['scope'] for row in checkpoints], ['wait_until_free', 'wait_until_free'])
+        self.assertFalse(result['account_inventory_complete'])
+        self.assertFalse(result['account_membership_verified'])
+        self.assertEqual([url for url, _ in transport.fetched],
+                         [WHO_AM_I, self.start, self.first, WHO_AM_I, self.second, WHO_AM_I])
+
+    def test_wrong_selected_filter_or_next_scope_retains_partial_without_following_it(self):
+        for document in (self.filtered(1, selected='FREE_EPISODES'),
+                         self.filtered(1, '/reading-list?category=FREE_EPISODES&type=ALL'),
+                         self.filtered(1, self.first + '&pageNumber=3')):
+            transport = self.transport()
+            transport.responses[self.first] = document
+            result = AndroidTapasAdapter(transport=transport).inspect_library(category='wait_until_free')
+            self.assertFalse(result['complete'])
+            self.assertNotIn(self.second, [url for url, _ in transport.fetched])
+            self.assertTrue(all('/episode/' not in url for url, _ in transport.fetched))
+
+    def test_repeated_pages_and_bounded_walk_never_claim_complete(self):
+        transport = self.transport(second=self.filtered(1))
+        result = AndroidTapasAdapter(transport=transport).inspect_library(category='wait_until_free')
+        self.assertFalse(result['complete'])
+        self.assertEqual(len(result['series']), 1)
+        transport = self.transport()
+        result = AndroidTapasAdapter(transport=transport).inspect_filtered_library('wait_until_free', max_pages=1)
+        self.assertFalse(result['complete'])
+        self.assertEqual(len(result['series']), 1)
+        self.assertNotIn(self.second, [url for url, _ in transport.fetched])
+
+    def test_existing_subscribed_page_supplies_filter_without_another_start_request(self):
+        transport = self.transport()
+        transport.responses[LIST_1] = self.filtered(9)
+        adapter = AndroidTapasAdapter(transport=transport)
+        adapter.inspect_library(category='subscribed')
+        result = adapter.inspect_library(category='wait_until_free')
+        self.assertTrue(result['complete'])
+        self.assertNotIn(self.start, [url for url, _ in transport.fetched])
+
+    def test_absent_and_ambiguous_filters_do_not_guess_a_route(self):
+        for content in (page([card(42, 'title', 'Observed')]), self.filtered(9) * 2):
+            transport = self.transport()
+            transport.responses[self.start] = content
+            result = AndroidTapasAdapter(transport=transport).inspect_library(category='wait_until_free')
+            self.assertFalse(result['complete'])
+            self.assertEqual(result['series'], [])
+            self.assertEqual([url for url, _ in transport.fetched], [WHO_AM_I, self.start])
 
 
 class AndroidTapasAdapterArchiveTests(unittest.TestCase):
     def test_a_locked_episode_is_refused_by_the_real_access_gate_before_any_reader(self):
         transport = library_transport()
-        with self.assertRaises(AccessDenied):
-            AndroidTapasAdapter(transport=transport).episode_access('https://tapas.io/episode/9003')
+        state = AndroidTapasAdapter(transport=transport).episode_access('https://tapas.io/episode/9003')
+        self.assertEqual(state['access_state'], 'unavailable_or_unverified')
         # The reused core gate: verified identity, the episode's own info, and nothing else.
         self.assertEqual([url for url, _ in transport.fetched], [WHO_AM_I, LOCKED_INFO])
         self.assertEqual(transport.fetched[1][1], 'session=GOLDEN')
@@ -243,7 +316,7 @@ class AndroidTapasAdapterArchiveTests(unittest.TestCase):
                                       'access_expires_at': None, 'source_url': 'https://tapas.io/episode/9001'},
                                      {'id': '9003', 'title': 'Locked Gate', 'order': 2, 'source_scene': 2,
                                       'access_state': 'unavailable_or_unverified',
-                                      'authorization_reason': 'access_denied',
+                                      'authorization_reason': None,
                                       'access_expires_at': None, 'source_url': 'https://tapas.io/episode/9003'}]})
         novel = adapter.inspect_series('2002', strict_order=False)
         self.assertEqual(novel['series_content_flags'], {'book': True, 'comic': False})

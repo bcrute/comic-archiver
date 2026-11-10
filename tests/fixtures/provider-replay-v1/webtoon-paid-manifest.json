@@ -1,0 +1,1169 @@
+{
+  "message": {
+    "type": "response",
+    "service": "com.naver.webtoon",
+    "version": "fixture",
+    "result": {
+      "episodeInfo": {
+        "episodeSeq": 70,
+        "episodeTitle": "Fixture title",
+        "linkUrl": "https://www.webtoons.com/en/fantasy/sample-series/episode/viewer?title_no=7&episode_no=70",
+        "previousEpisodeProduct": true,
+        "previousEpisodePreviewProduct": false,
+        "previousEpisodeCompleteProduct": true,
+        "previousEpisodeDailyPass": false,
+        "previousEpisodePassUseRestrictEpisode": false,
+        "previousEpisodeRewardAd": true,
+        "previousEpisodeTimeDeal": false,
+        "previousEpisodePrice": 3,
+        "previousEpisodeNo": 69,
+        "previousEpisodeTitle": "fixture",
+        "previousEpisodeViewingType": "IMAGE",
+        "nextEpisodeProduct": true,
+        "nextEpisodePreviewProduct": false,
+        "nextEpisodeCompleteProduct": true,
+        "nextEpisodeDailyPass": false,
+        "nextEpisodePassUseRestrictEpisode": false,
+        "nextEpisodeRewardAd": false,
+        "nextEpisodeTimeDeal": false,
+        "nextEpisodePrice": 0,
+        "nextEpisodeNo": 71,
+        "nextEpisodeTitle": "fixture",
+        "nextEpisodeViewingType": "IMAGE",
+        "priorityViewingType": "IMAGE",
+        "likeItCount": 1,
+        "likeIt": false,
+        "bgmPlaySortOrder": 0,
+        "serviceStatus": "STANDBY",
+        "titleServiceStatus": "SERVICE",
+        "exposureYmdt": 1700000000000,
+        "writingAuthorName": "Fixture title",
+        "pictureAuthorName": "Fixture title",
+        "communityAuthorList": [],
+        "creatorNote": "fixture",
+        "weekday": "fixture",
+        "adExposure": {
+          "status": "fixture",
+          "exposure": true
+        },
+        "previewProduct": false,
+        "completeProduct": true,
+        "dailyPass": false,
+        "rewardAd": true,
+        "timeDeal": false,
+        "productPolicy": "PAID_POLICY",
+        "passUseRestrictEpisode": false,
+        "catchUpInfo": {
+          "showCatchUpNotification": true,
+          "remainingEpisodeCount": 1
+        },
+        "imageInfo": [
+          {
+            "sortOrder": 0,
+            "cutId": 1,
+            "url": "https://webtoon-phinf.pstatic.net/observed/1.png?delivery=fixture",
+            "fileSize": 0,
+            "width": 800,
+            "height": 910
+          },
+          {
+            "sortOrder": 1,
+            "cutId": 2,
+            "url": "https://webtoon-phinf.pstatic.net/observed/2.png?delivery=fixture",
+            "fileSize": 464738,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 2,
+            "cutId": 3,
+            "url": "https://webtoon-phinf.pstatic.net/observed/3.png?delivery=fixture",
+            "fileSize": 453715,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 3,
+            "cutId": 4,
+            "url": "https://webtoon-phinf.pstatic.net/observed/4.png?delivery=fixture",
+            "fileSize": 746930,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 4,
+            "cutId": 5,
+            "url": "https://webtoon-phinf.pstatic.net/observed/5.png?delivery=fixture",
+            "fileSize": 227954,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 5,
+            "cutId": 6,
+            "url": "https://webtoon-phinf.pstatic.net/observed/6.png?delivery=fixture",
+            "fileSize": 427717,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 6,
+            "cutId": 7,
+            "url": "https://webtoon-phinf.pstatic.net/observed/7.png?delivery=fixture",
+            "fileSize": 584610,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 7,
+            "cutId": 8,
+            "url": "https://webtoon-phinf.pstatic.net/observed/8.png?delivery=fixture",
+            "fileSize": 208743,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 8,
+            "cutId": 9,
+            "url": "https://webtoon-phinf.pstatic.net/observed/9.png?delivery=fixture",
+            "fileSize": 418696,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 9,
+            "cutId": 10,
+            "url": "https://webtoon-phinf.pstatic.net/observed/10.png?delivery=fixture",
+            "fileSize": 435639,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 10,
+            "cutId": 11,
+            "url": "https://webtoon-phinf.pstatic.net/observed/11.png?delivery=fixture",
+            "fileSize": 477087,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 11,
+            "cutId": 12,
+            "url": "https://webtoon-phinf.pstatic.net/observed/12.png?delivery=fixture",
+            "fileSize": 271805,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 12,
+            "cutId": 13,
+            "url": "https://webtoon-phinf.pstatic.net/observed/13.png?delivery=fixture",
+            "fileSize": 394229,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 13,
+            "cutId": 14,
+            "url": "https://webtoon-phinf.pstatic.net/observed/14.png?delivery=fixture",
+            "fileSize": 575130,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 14,
+            "cutId": 15,
+            "url": "https://webtoon-phinf.pstatic.net/observed/15.png?delivery=fixture",
+            "fileSize": 365289,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 15,
+            "cutId": 16,
+            "url": "https://webtoon-phinf.pstatic.net/observed/16.png?delivery=fixture",
+            "fileSize": 207466,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 16,
+            "cutId": 17,
+            "url": "https://webtoon-phinf.pstatic.net/observed/17.png?delivery=fixture",
+            "fileSize": 445691,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 17,
+            "cutId": 18,
+            "url": "https://webtoon-phinf.pstatic.net/observed/18.png?delivery=fixture",
+            "fileSize": 453689,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 18,
+            "cutId": 19,
+            "url": "https://webtoon-phinf.pstatic.net/observed/19.png?delivery=fixture",
+            "fileSize": 273547,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 19,
+            "cutId": 20,
+            "url": "https://webtoon-phinf.pstatic.net/observed/20.png?delivery=fixture",
+            "fileSize": 672487,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 20,
+            "cutId": 21,
+            "url": "https://webtoon-phinf.pstatic.net/observed/21.png?delivery=fixture",
+            "fileSize": 317580,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 21,
+            "cutId": 22,
+            "url": "https://webtoon-phinf.pstatic.net/observed/22.png?delivery=fixture",
+            "fileSize": 233533,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 22,
+            "cutId": 23,
+            "url": "https://webtoon-phinf.pstatic.net/observed/23.png?delivery=fixture",
+            "fileSize": 920342,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 23,
+            "cutId": 24,
+            "url": "https://webtoon-phinf.pstatic.net/observed/24.png?delivery=fixture",
+            "fileSize": 455614,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 24,
+            "cutId": 25,
+            "url": "https://webtoon-phinf.pstatic.net/observed/25.png?delivery=fixture",
+            "fileSize": 375270,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 25,
+            "cutId": 26,
+            "url": "https://webtoon-phinf.pstatic.net/observed/26.png?delivery=fixture",
+            "fileSize": 521790,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 26,
+            "cutId": 27,
+            "url": "https://webtoon-phinf.pstatic.net/observed/27.png?delivery=fixture",
+            "fileSize": 452257,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 27,
+            "cutId": 28,
+            "url": "https://webtoon-phinf.pstatic.net/observed/28.png?delivery=fixture",
+            "fileSize": 538518,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 28,
+            "cutId": 29,
+            "url": "https://webtoon-phinf.pstatic.net/observed/29.png?delivery=fixture",
+            "fileSize": 229228,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 29,
+            "cutId": 30,
+            "url": "https://webtoon-phinf.pstatic.net/observed/30.png?delivery=fixture",
+            "fileSize": 316997,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 30,
+            "cutId": 31,
+            "url": "https://webtoon-phinf.pstatic.net/observed/31.png?delivery=fixture",
+            "fileSize": 423702,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 31,
+            "cutId": 32,
+            "url": "https://webtoon-phinf.pstatic.net/observed/32.png?delivery=fixture",
+            "fileSize": 389290,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 32,
+            "cutId": 33,
+            "url": "https://webtoon-phinf.pstatic.net/observed/33.png?delivery=fixture",
+            "fileSize": 254943,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 33,
+            "cutId": 34,
+            "url": "https://webtoon-phinf.pstatic.net/observed/34.png?delivery=fixture",
+            "fileSize": 281848,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 34,
+            "cutId": 35,
+            "url": "https://webtoon-phinf.pstatic.net/observed/35.png?delivery=fixture",
+            "fileSize": 364540,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 35,
+            "cutId": 36,
+            "url": "https://webtoon-phinf.pstatic.net/observed/36.png?delivery=fixture",
+            "fileSize": 320773,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 36,
+            "cutId": 37,
+            "url": "https://webtoon-phinf.pstatic.net/observed/37.png?delivery=fixture",
+            "fileSize": 376355,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 37,
+            "cutId": 38,
+            "url": "https://webtoon-phinf.pstatic.net/observed/38.png?delivery=fixture",
+            "fileSize": 378184,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 38,
+            "cutId": 39,
+            "url": "https://webtoon-phinf.pstatic.net/observed/39.png?delivery=fixture",
+            "fileSize": 484365,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 39,
+            "cutId": 40,
+            "url": "https://webtoon-phinf.pstatic.net/observed/40.png?delivery=fixture",
+            "fileSize": 508911,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 40,
+            "cutId": 41,
+            "url": "https://webtoon-phinf.pstatic.net/observed/41.png?delivery=fixture",
+            "fileSize": 327312,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 41,
+            "cutId": 42,
+            "url": "https://webtoon-phinf.pstatic.net/observed/42.png?delivery=fixture",
+            "fileSize": 395401,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 42,
+            "cutId": 43,
+            "url": "https://webtoon-phinf.pstatic.net/observed/43.png?delivery=fixture",
+            "fileSize": 286118,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 43,
+            "cutId": 44,
+            "url": "https://webtoon-phinf.pstatic.net/observed/44.png?delivery=fixture",
+            "fileSize": 304474,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 44,
+            "cutId": 45,
+            "url": "https://webtoon-phinf.pstatic.net/observed/45.png?delivery=fixture",
+            "fileSize": 469661,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 45,
+            "cutId": 46,
+            "url": "https://webtoon-phinf.pstatic.net/observed/46.png?delivery=fixture",
+            "fileSize": 267434,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 46,
+            "cutId": 47,
+            "url": "https://webtoon-phinf.pstatic.net/observed/47.png?delivery=fixture",
+            "fileSize": 360905,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 47,
+            "cutId": 48,
+            "url": "https://webtoon-phinf.pstatic.net/observed/48.png?delivery=fixture",
+            "fileSize": 379617,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 48,
+            "cutId": 49,
+            "url": "https://webtoon-phinf.pstatic.net/observed/49.png?delivery=fixture",
+            "fileSize": 210451,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 49,
+            "cutId": 50,
+            "url": "https://webtoon-phinf.pstatic.net/observed/50.png?delivery=fixture",
+            "fileSize": 253828,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 50,
+            "cutId": 51,
+            "url": "https://webtoon-phinf.pstatic.net/observed/51.png?delivery=fixture",
+            "fileSize": 305653,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 51,
+            "cutId": 52,
+            "url": "https://webtoon-phinf.pstatic.net/observed/52.png?delivery=fixture",
+            "fileSize": 577878,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 52,
+            "cutId": 53,
+            "url": "https://webtoon-phinf.pstatic.net/observed/53.png?delivery=fixture",
+            "fileSize": 259469,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 53,
+            "cutId": 54,
+            "url": "https://webtoon-phinf.pstatic.net/observed/54.png?delivery=fixture",
+            "fileSize": 322282,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 54,
+            "cutId": 55,
+            "url": "https://webtoon-phinf.pstatic.net/observed/55.png?delivery=fixture",
+            "fileSize": 455252,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 55,
+            "cutId": 56,
+            "url": "https://webtoon-phinf.pstatic.net/observed/56.png?delivery=fixture",
+            "fileSize": 352918,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 56,
+            "cutId": 57,
+            "url": "https://webtoon-phinf.pstatic.net/observed/57.png?delivery=fixture",
+            "fileSize": 229542,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 57,
+            "cutId": 58,
+            "url": "https://webtoon-phinf.pstatic.net/observed/58.png?delivery=fixture",
+            "fileSize": 434838,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 58,
+            "cutId": 59,
+            "url": "https://webtoon-phinf.pstatic.net/observed/59.png?delivery=fixture",
+            "fileSize": 434754,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 59,
+            "cutId": 60,
+            "url": "https://webtoon-phinf.pstatic.net/observed/60.png?delivery=fixture",
+            "fileSize": 205422,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 60,
+            "cutId": 61,
+            "url": "https://webtoon-phinf.pstatic.net/observed/61.png?delivery=fixture",
+            "fileSize": 481610,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 61,
+            "cutId": 62,
+            "url": "https://webtoon-phinf.pstatic.net/observed/62.png?delivery=fixture",
+            "fileSize": 341723,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 62,
+            "cutId": 63,
+            "url": "https://webtoon-phinf.pstatic.net/observed/63.png?delivery=fixture",
+            "fileSize": 346230,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 63,
+            "cutId": 64,
+            "url": "https://webtoon-phinf.pstatic.net/observed/64.png?delivery=fixture",
+            "fileSize": 361555,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 64,
+            "cutId": 65,
+            "url": "https://webtoon-phinf.pstatic.net/observed/65.png?delivery=fixture",
+            "fileSize": 522205,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 65,
+            "cutId": 66,
+            "url": "https://webtoon-phinf.pstatic.net/observed/66.png?delivery=fixture",
+            "fileSize": 375248,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 66,
+            "cutId": 67,
+            "url": "https://webtoon-phinf.pstatic.net/observed/67.png?delivery=fixture",
+            "fileSize": 270460,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 67,
+            "cutId": 68,
+            "url": "https://webtoon-phinf.pstatic.net/observed/68.png?delivery=fixture",
+            "fileSize": 555144,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 68,
+            "cutId": 69,
+            "url": "https://webtoon-phinf.pstatic.net/observed/69.png?delivery=fixture",
+            "fileSize": 422904,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 69,
+            "cutId": 70,
+            "url": "https://webtoon-phinf.pstatic.net/observed/70.png?delivery=fixture",
+            "fileSize": 343324,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 70,
+            "cutId": 71,
+            "url": "https://webtoon-phinf.pstatic.net/observed/71.png?delivery=fixture",
+            "fileSize": 615640,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 71,
+            "cutId": 72,
+            "url": "https://webtoon-phinf.pstatic.net/observed/72.png?delivery=fixture",
+            "fileSize": 359371,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 72,
+            "cutId": 73,
+            "url": "https://webtoon-phinf.pstatic.net/observed/73.png?delivery=fixture",
+            "fileSize": 334469,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 73,
+            "cutId": 74,
+            "url": "https://webtoon-phinf.pstatic.net/observed/74.png?delivery=fixture",
+            "fileSize": 317228,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 74,
+            "cutId": 75,
+            "url": "https://webtoon-phinf.pstatic.net/observed/75.png?delivery=fixture",
+            "fileSize": 622638,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 75,
+            "cutId": 76,
+            "url": "https://webtoon-phinf.pstatic.net/observed/76.png?delivery=fixture",
+            "fileSize": 391932,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 76,
+            "cutId": 77,
+            "url": "https://webtoon-phinf.pstatic.net/observed/77.png?delivery=fixture",
+            "fileSize": 522708,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 77,
+            "cutId": 78,
+            "url": "https://webtoon-phinf.pstatic.net/observed/78.png?delivery=fixture",
+            "fileSize": 528099,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 78,
+            "cutId": 79,
+            "url": "https://webtoon-phinf.pstatic.net/observed/79.png?delivery=fixture",
+            "fileSize": 222529,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 79,
+            "cutId": 80,
+            "url": "https://webtoon-phinf.pstatic.net/observed/80.png?delivery=fixture",
+            "fileSize": 351184,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 80,
+            "cutId": 81,
+            "url": "https://webtoon-phinf.pstatic.net/observed/81.png?delivery=fixture",
+            "fileSize": 491681,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 81,
+            "cutId": 82,
+            "url": "https://webtoon-phinf.pstatic.net/observed/82.png?delivery=fixture",
+            "fileSize": 249591,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 82,
+            "cutId": 83,
+            "url": "https://webtoon-phinf.pstatic.net/observed/83.png?delivery=fixture",
+            "fileSize": 476821,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 83,
+            "cutId": 84,
+            "url": "https://webtoon-phinf.pstatic.net/observed/84.png?delivery=fixture",
+            "fileSize": 423394,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 84,
+            "cutId": 85,
+            "url": "https://webtoon-phinf.pstatic.net/observed/85.png?delivery=fixture",
+            "fileSize": 278644,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 85,
+            "cutId": 86,
+            "url": "https://webtoon-phinf.pstatic.net/observed/86.png?delivery=fixture",
+            "fileSize": 545581,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 86,
+            "cutId": 87,
+            "url": "https://webtoon-phinf.pstatic.net/observed/87.png?delivery=fixture",
+            "fileSize": 417498,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 87,
+            "cutId": 88,
+            "url": "https://webtoon-phinf.pstatic.net/observed/88.png?delivery=fixture",
+            "fileSize": 406412,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 88,
+            "cutId": 89,
+            "url": "https://webtoon-phinf.pstatic.net/observed/89.png?delivery=fixture",
+            "fileSize": 111652,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 89,
+            "cutId": 90,
+            "url": "https://webtoon-phinf.pstatic.net/observed/90.png?delivery=fixture",
+            "fileSize": 609120,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 90,
+            "cutId": 91,
+            "url": "https://webtoon-phinf.pstatic.net/observed/91.png?delivery=fixture",
+            "fileSize": 397649,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 91,
+            "cutId": 92,
+            "url": "https://webtoon-phinf.pstatic.net/observed/92.png?delivery=fixture",
+            "fileSize": 297757,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 92,
+            "cutId": 93,
+            "url": "https://webtoon-phinf.pstatic.net/observed/93.png?delivery=fixture",
+            "fileSize": 271726,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 93,
+            "cutId": 94,
+            "url": "https://webtoon-phinf.pstatic.net/observed/94.png?delivery=fixture",
+            "fileSize": 305003,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 94,
+            "cutId": 95,
+            "url": "https://webtoon-phinf.pstatic.net/observed/95.png?delivery=fixture",
+            "fileSize": 366101,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 95,
+            "cutId": 96,
+            "url": "https://webtoon-phinf.pstatic.net/observed/96.png?delivery=fixture",
+            "fileSize": 450005,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 96,
+            "cutId": 97,
+            "url": "https://webtoon-phinf.pstatic.net/observed/97.png?delivery=fixture",
+            "fileSize": 322777,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 97,
+            "cutId": 98,
+            "url": "https://webtoon-phinf.pstatic.net/observed/98.png?delivery=fixture",
+            "fileSize": 369205,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 98,
+            "cutId": 99,
+            "url": "https://webtoon-phinf.pstatic.net/observed/99.png?delivery=fixture",
+            "fileSize": 354556,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 99,
+            "cutId": 100,
+            "url": "https://webtoon-phinf.pstatic.net/observed/100.png?delivery=fixture",
+            "fileSize": 481645,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 100,
+            "cutId": 101,
+            "url": "https://webtoon-phinf.pstatic.net/observed/101.png?delivery=fixture",
+            "fileSize": 351422,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 101,
+            "cutId": 102,
+            "url": "https://webtoon-phinf.pstatic.net/observed/102.png?delivery=fixture",
+            "fileSize": 310711,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 102,
+            "cutId": 103,
+            "url": "https://webtoon-phinf.pstatic.net/observed/103.png?delivery=fixture",
+            "fileSize": 438090,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 103,
+            "cutId": 104,
+            "url": "https://webtoon-phinf.pstatic.net/observed/104.png?delivery=fixture",
+            "fileSize": 477964,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 104,
+            "cutId": 105,
+            "url": "https://webtoon-phinf.pstatic.net/observed/105.png?delivery=fixture",
+            "fileSize": 364170,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 105,
+            "cutId": 106,
+            "url": "https://webtoon-phinf.pstatic.net/observed/106.png?delivery=fixture",
+            "fileSize": 829626,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 106,
+            "cutId": 107,
+            "url": "https://webtoon-phinf.pstatic.net/observed/107.png?delivery=fixture",
+            "fileSize": 344004,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 107,
+            "cutId": 108,
+            "url": "https://webtoon-phinf.pstatic.net/observed/108.png?delivery=fixture",
+            "fileSize": 268685,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 108,
+            "cutId": 109,
+            "url": "https://webtoon-phinf.pstatic.net/observed/109.png?delivery=fixture",
+            "fileSize": 581015,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 109,
+            "cutId": 110,
+            "url": "https://webtoon-phinf.pstatic.net/observed/110.png?delivery=fixture",
+            "fileSize": 300732,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 110,
+            "cutId": 111,
+            "url": "https://webtoon-phinf.pstatic.net/observed/111.png?delivery=fixture",
+            "fileSize": 308299,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 111,
+            "cutId": 112,
+            "url": "https://webtoon-phinf.pstatic.net/observed/112.png?delivery=fixture",
+            "fileSize": 467146,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 112,
+            "cutId": 113,
+            "url": "https://webtoon-phinf.pstatic.net/observed/113.png?delivery=fixture",
+            "fileSize": 491673,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 113,
+            "cutId": 114,
+            "url": "https://webtoon-phinf.pstatic.net/observed/114.png?delivery=fixture",
+            "fileSize": 489186,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 114,
+            "cutId": 115,
+            "url": "https://webtoon-phinf.pstatic.net/observed/115.png?delivery=fixture",
+            "fileSize": 284137,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 115,
+            "cutId": 116,
+            "url": "https://webtoon-phinf.pstatic.net/observed/116.png?delivery=fixture",
+            "fileSize": 403056,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 116,
+            "cutId": 117,
+            "url": "https://webtoon-phinf.pstatic.net/observed/117.png?delivery=fixture",
+            "fileSize": 415065,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 117,
+            "cutId": 118,
+            "url": "https://webtoon-phinf.pstatic.net/observed/118.png?delivery=fixture",
+            "fileSize": 631496,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 118,
+            "cutId": 119,
+            "url": "https://webtoon-phinf.pstatic.net/observed/119.png?delivery=fixture",
+            "fileSize": 301196,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 119,
+            "cutId": 120,
+            "url": "https://webtoon-phinf.pstatic.net/observed/120.png?delivery=fixture",
+            "fileSize": 172606,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 120,
+            "cutId": 121,
+            "url": "https://webtoon-phinf.pstatic.net/observed/121.png?delivery=fixture",
+            "fileSize": 51264,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 121,
+            "cutId": 122,
+            "url": "https://webtoon-phinf.pstatic.net/observed/122.png?delivery=fixture",
+            "fileSize": 88881,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 122,
+            "cutId": 123,
+            "url": "https://webtoon-phinf.pstatic.net/observed/123.png?delivery=fixture",
+            "fileSize": 582490,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 123,
+            "cutId": 124,
+            "url": "https://webtoon-phinf.pstatic.net/observed/124.png?delivery=fixture",
+            "fileSize": 532988,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 124,
+            "cutId": 125,
+            "url": "https://webtoon-phinf.pstatic.net/observed/125.png?delivery=fixture",
+            "fileSize": 466495,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 125,
+            "cutId": 126,
+            "url": "https://webtoon-phinf.pstatic.net/observed/126.png?delivery=fixture",
+            "fileSize": 446089,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 126,
+            "cutId": 127,
+            "url": "https://webtoon-phinf.pstatic.net/observed/127.png?delivery=fixture",
+            "fileSize": 420061,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 127,
+            "cutId": 128,
+            "url": "https://webtoon-phinf.pstatic.net/observed/128.png?delivery=fixture",
+            "fileSize": 368103,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 128,
+            "cutId": 129,
+            "url": "https://webtoon-phinf.pstatic.net/observed/129.png?delivery=fixture",
+            "fileSize": 775450,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 129,
+            "cutId": 130,
+            "url": "https://webtoon-phinf.pstatic.net/observed/130.png?delivery=fixture",
+            "fileSize": 445548,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 130,
+            "cutId": 131,
+            "url": "https://webtoon-phinf.pstatic.net/observed/131.png?delivery=fixture",
+            "fileSize": 395311,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 131,
+            "cutId": 132,
+            "url": "https://webtoon-phinf.pstatic.net/observed/132.png?delivery=fixture",
+            "fileSize": 273386,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 132,
+            "cutId": 133,
+            "url": "https://webtoon-phinf.pstatic.net/observed/133.png?delivery=fixture",
+            "fileSize": 157985,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 133,
+            "cutId": 134,
+            "url": "https://webtoon-phinf.pstatic.net/observed/134.png?delivery=fixture",
+            "fileSize": 594236,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 134,
+            "cutId": 135,
+            "url": "https://webtoon-phinf.pstatic.net/observed/135.png?delivery=fixture",
+            "fileSize": 419121,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 135,
+            "cutId": 136,
+            "url": "https://webtoon-phinf.pstatic.net/observed/136.png?delivery=fixture",
+            "fileSize": 630026,
+            "width": 800,
+            "height": 1280
+          },
+          {
+            "sortOrder": 136,
+            "cutId": 137,
+            "url": "https://webtoon-phinf.pstatic.net/observed/137.png?delivery=fixture",
+            "fileSize": 24982,
+            "width": 800,
+            "height": 664
+          }
+        ],
+        "bgmInfo": [],
+        "bgmEffectType": "fixture",
+        "product": true,
+        "count": 137,
+        "thumbnailImageUrl": "https://webtoon-phinf.pstatic.net/observed/138.png?delivery=fixture",
+        "previousEpisodeThumbnailUrl": "https://webtoon-phinf.pstatic.net/observed/139.png?delivery=fixture",
+        "nextEpisodeThumbnailUrl": "https://webtoon-phinf.pstatic.net/observed/140.png?delivery=fixture"
+      },
+      "superLikeEnabled": false
+    }
+  }
+}

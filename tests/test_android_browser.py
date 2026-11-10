@@ -302,6 +302,20 @@ class BrowserAdapterTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             AndroidTapasBrowserAdapter(self.session, self.factory).capture('https://tapas.io/episode/81')
 
+    def test_native_browser_recreated_http_reader_keeps_account_seed_and_missing_header_cache(self):
+        adapter = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
+        try:
+            adapter.seed_series('42', 'Observed')
+            first = adapter.automatic_adapter()
+            first.unavailable_headers['42'] = 410
+            second = adapter.automatic_adapter()
+            self.assertIs(first.series_seeds, second.series_seeds)
+            self.assertIs(first.unavailable_headers, second.unavailable_headers)
+            self.assertEqual(second.series_seeds['42'], 'Observed')
+            self.assertEqual(second.unavailable_headers['42'], 410)
+        finally:
+            adapter.close()
+
     def test_ordinary_native_browser_accepts_the_fixed_medium_and_slow_asset_rates(self):
         from comic_archive.fast_import import relative_policy
         for speed in ('medium', 'slow'):

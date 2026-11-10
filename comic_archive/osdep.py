@@ -1,4 +1,4 @@
-"""What Linux and Windows do differently with files, locks and processes, kept in one place.
+"""What desktop platforms do differently with files, locks and processes, kept in one place.
 
 The rest of the app asks here and stays the same on both. Nothing in this
 module knows about libraries, sites or accounts.
@@ -167,11 +167,16 @@ def hide(path):
 
 
 def keep_awake(running):
-    """Ask Windows not to go to sleep while a download runs, or let it sleep again; the screen may still turn off.
+    """Keep Windows or macOS awake while a download runs; the screen may still turn off.
 
     The request belongs to the thread that makes it, so the same thread lifts it, and Windows drops it
-    when that thread or the app ends. Elsewhere this does nothing.
+    when that thread or the app ends. macOS uses an idle-sleep assertion tied to
+    this process. Elsewhere this does nothing.
     """
+    if sys.platform == 'darwin' and not WINDOWS:
+        from .macos import keep_awake as mac_keep_awake
+        mac_keep_awake(running)
+        return
     if not WINDOWS:
         return
     import ctypes
@@ -326,6 +331,9 @@ def runs_command(pid, words):
     try:
         if WINDOWS:
             return os.path.normcase(_image(pid)) == os.path.normcase(sys.executable)
+        if sys.platform == 'darwin':
+            from .macos import runs_command as mac_runs_command
+            return mac_runs_command(pid, words)
         given = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
         return all(os.fsencode(word) in given for word in words)
     except OSError:
@@ -381,6 +389,9 @@ WINDOWS_DRIVES = {2: 'removable', 3: 'local', 4: 'network', 5: 'disc', 6: 'memor
 def drive(path, mounts=Path('/proc/self/mounts'), blocks=Path('/sys/class/block')):
     """(kind, file system) of the drive a folder is on; kind is local, removable, network, disc, memory or unknown."""
     try:
+        if sys.platform == 'darwin' and not WINDOWS:
+            from .macos import drive as mac_drive
+            return mac_drive(path)
         return _windows_drive(path) if WINDOWS else _mounted_drive(path, mounts, blocks)
     except (AttributeError, OSError, ValueError):
         return 'unknown', 'unknown'

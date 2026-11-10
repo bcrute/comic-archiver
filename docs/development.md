@@ -3,12 +3,27 @@
 Notes for building the app, checking a change and making a release. Using the app is covered in the
 [README](../README.md) and on the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest).
 
-Android is under development. Its implementation blocks, evidence and release criteria are in
-the [Android delivery roadmap](android-roadmap.md). The built-in reader and the independently developed
-the web reader connection have their own scope and evidence in the
-[reader and connected-library roadmap](reader-and-connected-library-roadmap.md). Connected source-checkout
-acceptance does not qualify an Android reader or a public release. The commands below cover the existing
-desktop app.
+Comic Archiver obtains CBZ/EPUB files; it does not embed a reader or edit reading progress.
+Android implementation blocks, evidence and release criteria are in the
+[Android delivery roadmap](android-roadmap.md). The commands below cover the desktop app.
+
+## Release notes: downloads first
+
+Every release must begin with the platform download table, before any introduction,
+highlights, change history or installation instructions. Link directly to each
+published asset and identify its operating system and architecture. Keep the table
+expanded and visible; users must not need to search the notes or open an accordion
+to find the app. Include only assets that are actually qualified and attached to
+that release, with any development-build limitation stated beside its link.
+
+Put Windows, Linux and macOS installation instructions in separate collapsed
+`<details>` sections below the table. Keep installation screenshots inside their
+platform's section. Omit the `open` attribute so the sections start collapsed.
+Keep blank lines around Markdown inside these sections so GitHub renders it.
+Use the [release-note template](../.github/RELEASE_TEMPLATE.md), replace its placeholders,
+remove unshipped platforms and preview the rendered notes before publishing.
+The publication verifier rejects release notes that put prose or collapsed
+sections before the table, or omit a direct HTTPS download link from it.
 
 ## Why the history here is short
 
@@ -94,7 +109,64 @@ python -m unittest discover -s tests
 
 Many of them make symlinks, which an ordinary Windows account may do only with Developer Mode switched on.
 
+## Build the macOS package
+
+Run through the macOS fleet profile with the Xcode command line tools available.
+Prepare a build environment with the pinned runtime and the test/build tools:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r packaging/macos-requirements.txt
+.venv/bin/python -m pip install -e ".[test]" setuptools wheel
+.venv/bin/python scripts/build_macos_app.py --smoke
+```
+
+This builds `dist/ComicArchiver-<version>-macos-<architecture>.zip`, containing
+`Comic Archiver.app` with its own checksum-pinned Python and hash-pinned Qt and
+Python dependencies. It reuses the desktop wheel, licence collection and exact
+dependency audit. The smoke check removes the original app folder, unpacks the
+ZIP into a different folder with spaces, verifies the bundle signature and runs
+the packaged window's Cocoa self-test and browser doctor. It also runs the
+packaged uninstall command in a separate synthetic home, checking that sign-in
+and cloud-key files are removed while a saved episode stays. Run it through the fleet's
+macOS profile. The native window check is `python scripts/macos_native_probe.py`;
+it retains a screenshot and worker-identity results in the job's artifact folder.
+For a source checkout, prepare the native connection-cost helper with
+`python scripts/build_macos_app.py --prepare-native` on the build machine before
+running the app. The bundle includes this helper. It asks Apple's Network
+framework whether the current connection is expensive or in Low Data Mode;
+unavailable or unknown connection information keeps the default transfer rule
+paused. No network names or addresses leave the probe.
+
+Builds select Intel or Apple Silicon from the native build machine. Intel VM
+results do not qualify Apple Silicon execution. Bundles are ad-hoc signed;
+Developer ID signing, notarisation and public release qualification are separate.
+The optional connected-reader bridge is not bundled or qualified on macOS.
+Default test discovery records missing connected extras as skips; those skips
+are not evidence for the bridge. The Linux validation gate installs the extras
+and continues to require its complete suite without skips.
+Python and helper downloads may use the acquiring cache via
+`COMIC_ARCHIVER_BUILD_DOWNLOAD_BASE` and `COMIC_ARCHIVER_CI_HELPER_DOWNLOAD_BASE`;
+the published SHA-256 pins remain mandatory. No proxy or TLS bypass is needed.
+
+The Intel development build was exercised on macOS 15.8.2 with Python 3.14.8
+and Qt 6.11.2. Default discovery ran 2,252 tests: 2,204 passed and 48 were
+explicitly skipped for Linux-only packaging or missing optional connected extras.
+All 11 stop/resume scenarios and three consecutive 101-check engine runs passed.
+The delivered ZIP passed relocated Cocoa launch, sign-in cookie handling, browser
+startup, native process/network probes, dependency audit, credential removal
+with saved-file preservation, and strict signature verification after launch.
+Earlier intermittent wheel and moving-link smoke failures remain in the private
+validation record; the engine runtime was not changed to obtain those passes.
+
+For installation, updates and removal, see
+[`README_FIRST.txt`](../packaging/macos/README_FIRST.txt), also included in the app.
+
 ## Check a change
+
+A regression must reproduce a reported failure through the production boundary
+where it occurred, and demonstrate that the test detects the fault. A focused
+test pass or a successful development build does not establish release readiness.
 
 Run these commands through the shared CI fleet helper, using its private host configuration. All automated
 suites and builds run on the project's build machines, including a Windows VM; unavailable capacity leaves checks
@@ -120,10 +192,17 @@ the full validated commit SHA. Upload the evidence using the owner's release cre
 uploader and SHA-256, which the publisher checks against the downloaded evidence. Contents write permission
 is sufficient; no commit-status permission is needed.
 The evidence records the commit, version, successful gates, suite totals without skips, and each download's
-size and SHA-256. The draft may also hold `SHA256SUMS.txt` listing exactly those three hashes; any other asset
+size and SHA-256. The draft may also hold `SHA256SUMS.txt` listing exactly the attested hashes; any other asset
 stops publication. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
 to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
+
+Releases from 0.4.0 also require a Mac download. Its `macos` evidence records
+the qualified architecture, actual signing/notarization status and successful
+native tests, engine, window, package smoke and bundle audit checks. The verifier
+then requires that exact additional ZIP and includes it in the checksum contract.
+An unattested Mac file, a failing native check or an architecture mismatch stops
+publication; the existing desktop and Android gates remain required.
 
 Schema2 adds the universal Android APK while retaining all three desktop downloads
 and required checks. It verifies the actual APK's original approved signing
@@ -137,7 +216,7 @@ current debug phone build is not a publishable release artifact.
 
 | Path | What it holds |
 |---|---|
-| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `window_pages.py` draws the window's pages from the plain models beside it (`dashboard_model.py`, `storage_model.py`), and `app_actions.py` is what they ask of the library. `osdep.py` holds what Linux and Windows do differently with files, locks and processes. |
+| `comic_archive/` | The app. `desktop_app.py` is the window, `app_runtime.py` starts and stops the pieces behind it, `qt_engine.py` is the web engine, `worker.py` does the saving, `window_pages.py` draws the window's pages from the plain models beside it (`dashboard_model.py`, `storage_model.py`), and `app_actions.py` is what they ask of the library. `osdep.py` holds platform-specific files, locks and processes; `macos.py` implements native Mac integration. |
 | `comic_archive/adapters/` | What is specific to one site. |
 | `packaging/`, `scripts/build_linux_app.py` | The Linux package. |
 | `packaging/windows/`, `scripts/build_windows_app.py` | The Windows package and its installer. `scripts/make_windows_icon.py` redraws its icon. |

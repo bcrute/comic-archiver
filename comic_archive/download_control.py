@@ -2,7 +2,7 @@
 
 Between two worker tasks it settles the receipt of the task it had out, then asks the library what is next:
 episodes waiting are saved first, then each reading list is read, then the round's series are checked, then the
-saved files are audited. It never contacts a site itself; the worker's bounded jobs do. Holds are only for what
+recorded results are checked. It never contacts a site itself; the worker's bounded jobs do. Holds are only for what
 the person must fix; anything that may clear by itself is a wait, and progress forgives the tries spent on it.
 """
 from contextlib import ExitStack
@@ -58,7 +58,8 @@ MISSING = 'missing_recorded_accessible_episode_count'
 # Missing episodes in a form the app cannot save yet: a check finds them again every time, so they never hold a download.
 CANNOT_SAVE = 'unsupported_recorded_accessible_episode_count'
 AUDIT_ZEROES = (MISSING, 'inventory_index_problem_count', 'unindexed_archive_count')
-AUDIT_KEYS = ('verified_inventory_episode_count', *AUDIT_ZEROES, CANNOT_SAVE)
+AUDIT_KEYS = ('verified_inventory_episode_count', 'recorded_archived_episode_count', *AUDIT_ZEROES, CANNOT_SAVE,
+              'series_scan_gap_count')
 TASK = re.compile(r'job-[a-f0-9]{24}')
 # The three records 0.2 kept, moved into this one at the first open after the update (each under its lock).
 OLD_FILES = ('account-export.json', 'completion.json', 'backlog.json')
@@ -247,7 +248,8 @@ def _inventory(library):
         return {'pending': 0, 'remaining': 0}  # Nothing saved or found yet: the first list read makes the record.
     with Inventory(library, read_only=True) as inventory:
         status = inventory.status()
-        return {'pending': len(inventory.pending()), 'remaining': status['scan_remaining_series_count']}
+        from .purchase_history import pending
+        return {'pending': len(inventory.pending()), 'remaining': status['scan_remaining_series_count'] + int(pending(inventory))}
 
 
 def _pace(session):
@@ -301,10 +303,15 @@ def progressed(result):
     Counts of what is left cannot tell: they also rise when a round of checks starts over or a series appears."""
     refresh = result.get('refresh')
     checked = refresh.get('series_checks_completed') if isinstance(refresh, dict) else None
+    history = refresh.get('purchase_history') if isinstance(refresh, dict) else None
+    history_pages = history.get('pages_read') if isinstance(history, dict) else None
+    history_links = history.get('links_processed') if isinstance(history, dict) else None
     return bool(result.get('archived_episode_ids') or result.get('downloaded_pages')
+                or type(history_pages) is int and history_pages > 0
+                or type(history_links) is int and history_links > 0
                 or type(checked) is int and checked > 0
                 or any(isinstance(result.get(key), list) and result[key]
-                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids')))
+                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids', 'excluded_episode_ids')))
 
 
 def _retry_after(result):
@@ -401,8 +408,13 @@ def _settle(db, value, task, response, session):
         LOG.info('download: the check counted ' + ', '.join(f'{key} {n}' for key, n in sorted(value['audit'].items())))
         value['failed_retries'] = 0
         cannot = value['audit'].get(CANNOT_SAVE, 0)
-        if result.get('archive_integrity_passed') is True and all(
-                type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in AUDIT_ZEROES):
+        # New workers finish from recorded acquisition results. Accept a full
+        # audit receipt from an older worker too, without requiring a new read.
+        inventory_check = result.get('completion_check_passed') is True
+        keys = (MISSING, 'inventory_index_problem_count') if inventory_check else AUDIT_ZEROES
+        legacy_check = 'completion_check_passed' not in result and result.get('archive_integrity_passed') is True
+        if (inventory_check or legacy_check) and all(
+                type(result.get(key)) is int and result[key] == (cannot if key == MISSING else 0) for key in keys):
             value.update(stage='finished', status='finished', code=None, wait_until=None)
         else:
             _hold(value, 'archive_incomplete')
@@ -466,6 +478,10 @@ def _next(db, value, session, library):
     value['episodes_waiting'] = waiting['pending']
     read = {row['category'] for row in db.execute('SELECT category FROM lists WHERE read_at IS NOT NULL')}
     unread = [c for c in lists(session) if c not in read]
+    if unread and value['stage'] in ('series', 'archive', 'verify'):
+        value['stage'] = 'lists'
+    if value['stage'] in ('archive', 'verify') and waiting['remaining']:
+        value['stage'] = 'series'
     if value['stage'] == 'lists' and not unread:
         value['stage'] = 'series'
     if value['stage'] == 'series' and not waiting['remaining']:
@@ -473,14 +489,15 @@ def _next(db, value, session, library):
     if value['stage'] == 'archive' and not waiting['pending']:
         value['stage'] = 'verify'
     options, speed = _pace(session)
+    discovery = {'history_round': value['round_started_at']} if sites.of_session(Path(session)).key == 'tapas' else {}
     if value['source_episode'] is not None:
         _reserve(db, 'probe', 'archive_discovered', options | {'limit': 1, 'retry_episode_id': value['source_episode']})
     elif waiting['pending']:
         _reserve(db, 'download', 'archive_discovered', options)
     elif value['stage'] == 'lists':
-        _reserve(db, 'list', 'sync', LIST_READ | {'categories': [unread[0]]})
+        _reserve(db, 'list', 'sync', LIST_READ | {'categories': [unread[0]]} | discovery)
     elif value['stage'] == 'series':
-        _reserve(db, 'series', 'sync', SERIES_CHECK | {'metadata_speed': speed})
+        _reserve(db, 'series', 'sync', SERIES_CHECK | {'metadata_speed': speed} | discovery)
     else:
         _reserve(db, 'audit', 'audit_account', {})
 
@@ -824,6 +841,13 @@ def start(session, library=Path('Library')):
             db.execute('UPDATE lists SET read_at=NULL, complete=NULL, observed_series_count=NULL')
         elif value['code'] == 'archive_incomplete':
             value['audit'] = None  # Audited again from where it stopped; the last counts no longer stand.
+            if _outstanding(db) is None:
+                with Inventory(library) as inventory:
+                    gaps, episodes = inventory.prepare_completion_retry()
+                if gaps:
+                    value['stage'] = 'series'
+                elif episodes:
+                    value['stage'] = 'archive'
         value.update(status='running', code=None, wait_until=None, stretch_started_at=now, idle_waits=0,
                      network_waits=0, source_probes=0, failed_retries=0)
         if value['go_after'] and _now() < _instant(value['go_after']):
@@ -832,6 +856,106 @@ def start(session, library=Path('Library')):
         value['go_after'] = None
         _save(db, value, 'Go')
     _transaction(session, library, go, create=True)
+
+
+
+def change_speed(session, library, save, wait, can_resume, *, selection=False):
+    """Replace a paced step only after its real terminal receipt, retaining progress and retry state.
+
+    The controller lock prevents another task being reserved during the change. The
+    durable stop is committed before cancellation; interruption or failure leaves it paused.
+    """
+    root = _root(session, library, require_queue=False)
+    with wait_for_library(root / '.download-state', 5):
+        def stop(db, value, root):
+            if value is None:
+                return None
+            task = _outstanding(db)
+            if not selection and task is not None and task['kind'] not in ('download', 'probe', 'series'):
+                return None  # List discovery and local verification do not use the chosen pace.
+            previous = dict(value)
+            if task is not None and task['published_at'] is None:
+                from .monitoring import _read
+                from .task_cancellation import admission_lock
+                with admission_lock(session):
+                    worker = _read(root / 'status.json')
+                    files = [root / kind / (task['task_id'] + '.json') for kind in ('requests', 'responses')]
+                    admitted = (any(path.exists() or path.is_symlink() for path in files)
+                                or worker.get('state') == 'busy' and worker.get('task_id') == task['task_id'])
+                    if admitted:
+                        # Publication may have succeeded just before its database commit was interrupted.
+                        task['published_at'] = task['reserved_at']
+                        db.execute('UPDATE tasks SET published_at=? WHERE task_id=?',
+                                   (task['published_at'], task['task_id']))
+                    else:
+                        db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
+                        task = None  # Never sent; the next reservation reads the new pace.
+            if value['status'] in ('running', 'waiting'):
+                # Even if this change fails, an explicit Continue must respect an existing wait.
+                deadlines = [v for v in (value['go_after'], value['wait_until']) if v]
+                value.update(status='stopped', code=None, wait_until=None,
+                             go_after=max(deadlines, key=_instant) if deadlines else None)
+                _save(db, value, 'changing download choices' if selection else 'changing speed')
+            return previous, task
+        paused = _transaction(session, library, stop, require_queue=False)
+        if paused is None:
+            if not can_resume():
+                raise ArchiveError('The app is closing. The setting was not changed.')
+            save()
+            return
+        previous, task = paused
+        response = wait(task['task_id']) if task is not None else None
+        if not can_resume():
+            raise ArchiveError('The app is closing. The download remains paused.')
+        save()  # Failure leaves the committed stop and the previous speed in place.
+
+        def finish(db, value, root):
+            current = _outstanding(db)
+            if ((task is None and current is not None)
+                    or (task is not None and (current is None or current['task_id'] != task['task_id']))):
+                raise ArchiveError('The download changed while stopping. It was not restarted.')
+            resume = previous['status'] in ('running', 'waiting') and can_resume()
+            if resume:
+                value.update(status='running', code=None, wait_until=None, go_after=previous['go_after'])
+            if task is not None:
+                _settle(db, value, current, response, session)
+                result = response.get('result')
+                if (response.get('status') == 'ok' and isinstance(result, dict)
+                        and result.get('status') == 'cancelled' and _valid(result, current)):
+                    if not progressed(result):
+                        value['failed_retries'] = previous['failed_retries']
+                    if resume:
+                        value.update(status='running', code=None, wait_until=None)
+            if resume and value['status'] in ('running', 'waiting') and previous['status'] == 'waiting':
+                deadlines = [v for v in (previous['wait_until'], value['wait_until']) if v]
+                until = max(deadlines, key=_instant) if deadlines else None
+                if until and _now() < _instant(until):
+                    value.update(status='waiting', code=value['code'] or previous['code'], wait_until=until)
+            deadlines = [v for v in (previous['go_after'], value['go_after'],
+                                     previous['wait_until'] if previous['status'] == 'waiting' else None) if v]
+            value['go_after'] = max(deadlines, key=_instant) if deadlines else None
+            if not can_resume() and value['status'] in ('running', 'waiting'):
+                deadlines = [v for v in (value['go_after'], value['wait_until']) if v]
+                value.update(status='stopped', code=None, wait_until=None,
+                             go_after=max(deadlines, key=_instant) if deadlines else None)
+            if selection:
+                value['audit'] = None  # Completion must reflect the newly selected scope.
+                audit_cancelled = (task is not None and task['kind'] == 'audit'
+                                   and response.get('status') == 'ok' and isinstance(response.get('result'), dict)
+                                   and response['result'].get('status') == 'cancelled'
+                                   and _valid(response['result'], current))
+                if (value['status'] == 'finished' or value['code'] == 'archive_incomplete' or audit_cancelled):
+                    value.update(status='running' if resume and can_resume() else 'stopped', stage='archive',
+                                 code=None, wait_until=None)
+                if previous['code'] == 'archive_incomplete':
+                    # Saving choices must not erase the recovery that Continue
+                    # would have prepared for the held completion check.
+                    with Inventory(library) as inventory:
+                        gaps, _ = inventory.prepare_completion_retry()
+                    if gaps:
+                        value['stage'] = 'series'
+            _save(db, value, 'download choices changed' if selection else 'speed changed')
+        _transaction(session, library, finish, require_queue=False)
 
 
 def request_stop(session, library=Path('Library')):
@@ -919,11 +1043,15 @@ def status(session, library=Path('Library')):
     if db is None:
         return {'configured': False}
     try:
+        db.execute('BEGIN')  # The completed total and outstanding task must describe the same instant.
         value = _state(db)
         if value is None:
             return {'configured': False}
         rows = {row['category']: row for row in db.execute('SELECT * FROM lists')}
         task = _outstanding(db)
+        completed_bytes = db.execute(
+            'SELECT COALESCE(SUM(bytes), 0) FROM tasks WHERE finished_at IS NOT NULL '
+            'AND published_at >= ? AND bytes >= 0', (value['round_started_at'],)).fetchone()[0]
     except (Damaged, sqlite3.DatabaseError):
         return {'configured': True, 'status': 'held', 'phase': 'lists', 'code': 'controller_failed'}
     finally:
@@ -934,6 +1062,8 @@ def status(session, library=Path('Library')):
     read = [c for c in categories if c in rows and rows[c]['read_at'] is not None]
     stage = value['stage']
     result['phase'] = ('existing_backlog' if stage == 'lists' and not read and value['episodes_waiting'] else stage)
+    if task is not None and task['kind'] in ('download', 'probe') and result['phase'] != 'existing_backlog':
+        result['phase'] = 'archive'
     result['lists'] = {'checked': len(read), 'total': len(categories)}
     if stage == 'lists' and len(read) < len(categories):
         result['lists']['current'] = next(c for c in categories if c not in read)
@@ -949,8 +1079,21 @@ def status(session, library=Path('Library')):
         if left > 0:
             result['go_after_seconds'] = left
     result['started_at'] = _instant(value['stretch_started_at']).timestamp()
+    result['_transfer'] = {'scope': result['started_at'], 'completed_bytes': completed_bytes}
+    if task is not None and task['kind'] in ('download', 'probe') and task['published_at']:
+        result['_transfer']['task'] = {'id': task['task_id'],
+                                       'published_at': _instant(task['published_at']).timestamp()}
     if value['audit'] is not None:
         result['audit'] = value['audit']
+    if (Path(library) / '.archive-state/inventory.sqlite3').is_file():
+        from .purchase_history import summary
+        try:
+            with Inventory(library, read_only=True) as inventory:
+                purchase = summary(inventory)
+        except (ArchiveError, sqlite3.DatabaseError):
+            purchase = {'status': 'partial', 'code': 'history_checkpoint_unreadable'}
+        if purchase:
+            result['purchase_history'] = purchase
     result['outstanding'] = task['task_id'] if task else None
     return result
 

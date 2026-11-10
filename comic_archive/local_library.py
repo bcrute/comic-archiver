@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import sys
 import threading
 import time
 
@@ -47,7 +48,8 @@ class NoSignIn:
 class LocalWorkspaceRegistry:
     """Present one existing project as a workspace, with no data migration."""
 
-    def __init__(self, project_root):
+    def __init__(self, project_root, *, closing=None):
+        self._closing = closing if closing is not None else threading.Event()
         self.project_root = Path(project_root).absolute()
         if not self.project_root.is_dir() or any(p.is_symlink() for p in (self.project_root, *self.project_root.parents)):
             raise ArchiveError('Use an existing project directory without symlinked parents.')
@@ -181,7 +183,7 @@ class LocalWorkspaceRegistry:
     def status(self,owner,workspace_id):
         workspace=self.resolve(owner,workspace_id)
         data=library_status(workspace.library,workspace.session)
-        result={k:data[k] for k in ('inventory_complete','last_completed_scan','series_count','episode_count','episodes_by_status','unsupported_by_reason','unsaved_by_code',
+        result={k:data[k] for k in ('inventory_complete','last_completed_scan','series_count','episode_count','episodes_by_status','episode_types','unsupported_by_reason','unsaved_by_code',
                                    'scan_remaining_series_count','series_without_scan_checkpoint_count',
                                    'series_without_episode_observations_count','series_scan_gap_count','series_scan_gaps','scan_cycle_started','scan_freshness','progress','worker','source_recovery','queue_priority','estimate')}
         result['workspace_id']=workspace.id
@@ -280,14 +282,10 @@ class LocalWorkspaceRegistry:
             return self.account_status(owner, workspace_id)
 
     def choose_speed(self, owner, workspace_id, value):
-        from .errors import LibraryBusy
-        from .account_ui import choose_speed
+        from .account_ui import change_speed
         workspace = self.resolve(owner, workspace_id)
         with LibraryLock(workspace.session / '.account-ui'):
-            # Go applies the choice, so what the window shows while a download runs is the pace it runs at.
-            if self.account_status(owner, workspace_id).get('status') == 'running':
-                raise LibraryBusy('Pause the download before changing its speed.')
-            choose_speed(workspace, value)
+            change_speed(workspace, value, closing=self._closing)
             return self.account_status(owner, workspace_id)
 
     def pause_account(self, owner, workspace_id):
@@ -295,6 +293,13 @@ class LocalWorkspaceRegistry:
         workspace = self.resolve(owner, workspace_id)
         with LibraryLock(workspace.session / '.account-ui'):
             pause(workspace)
+            return self.account_status(owner, workspace_id)
+
+    def choose_download_types(self, owner, workspace_id, value):
+        from .account_ui import change_download_types
+        workspace = self.resolve(owner, workspace_id)
+        with LibraryLock(workspace.session / '.account-ui'):
+            change_download_types(workspace, value, closing=self._closing)
             return self.account_status(owner, workspace_id)
 
     def cloud_signin_status(self, owner, workspace_id):
@@ -327,7 +332,8 @@ class LocalWorkspaceRegistry:
             if WINDOWS:
                 os.startfile(path)  # Windows takes the file and reports nothing more about the application.
                 return {'status': 'open_requested'}
-            process = subprocess.Popen(['xdg-open', str(path)], stdin=subprocess.DEVNULL,
+            opener = '/usr/bin/open' if sys.platform == 'darwin' else 'xdg-open'
+            process = subprocess.Popen([opener, str(path)], stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detached())
             try:
                 result = process.wait(timeout=2)
@@ -349,6 +355,11 @@ class LocalWorkspaceRegistry:
         from .locking import LibraryLock
         with LibraryLock(self.resolve(owner, workspace_id).library):
             pass
+
+    def episode_inventory(self, owner, workspace_id, series_id=None, offset=0):
+        """Recorded acquisition indicators, independent of the saved-file catalog."""
+        from .episode_index import page
+        return page(self.resolve(owner, workspace_id).library, series_id=series_id, offset=offset)
 
     def resolve(self, owner, workspace_id):
         if owner != LOCAL_OWNER or workspace_id != self.workspace_id:
