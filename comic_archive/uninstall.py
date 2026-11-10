@@ -82,6 +82,10 @@ def forget_connections(folder):
         return
     for path in folder.glob('*.conf'):
         path.unlink(missing_ok=True)  # A link goes, never what it points to.
+    for work in folder.glob('signin-*'):
+        # A cloud sign-in that was ended before it finished left its key here.
+        if work.is_dir() and not work.is_symlink() and not junction(work):
+            shutil.rmtree(work, ignore_errors=True)
     record = folder / 'targets.json'
     if record.is_file():
         try:
@@ -96,6 +100,18 @@ def through_junction(path, root):
     nothing is stopped, read or removed through it; the library folder itself is the person's own."""
     root = Path(root).absolute()
     return any(junction(folder) for folder in (path, *path.parents) if root in folder.parents)
+
+
+def places(root, site):
+    """The folders in a library folder that may hold a site's sign-in and library.
+
+    The first site's were kept in the library folder itself before sites had folders of their own. Moving
+    them can be cut short, so both places are looked in, whatever the record of the move says.
+    """
+    found = [sites.folder(root, site)]
+    if site.key == sites.DEFAULT.key:
+        found += [Path(root), Path(root) / site.name]
+    return list(dict.fromkeys(found))
 
 
 def same_folder(one, other):
@@ -113,30 +129,32 @@ def sign_out_elsewhere(site, here):
     for root in libraries():
         if not app_runtime.present(root):
             continue
-        try:
-            place = safe_root(sites.folder(root, site))
-            session = private_path(place, 'session')
-        except ArchiveError:
-            continue  # Never followed, as when uninstalling.
-        if same_folder(place, here) or not session.is_dir() or through_junction(session, root):
-            continue
-        try:
-            if stop_downloader(session):
-                forget_session(session)
-            else:
-                kept.append(root)
-        except (ArchiveError, OSError) as error:
-            LOG.warning('signing out could not clear a library folder: %s', app_runtime.describe(error))
-            kept.append(root)
+        for place in places(root, site):
+            try:
+                place = safe_root(place)
+                session = private_path(place, 'session')
+            except ArchiveError:
+                continue  # Never followed, as when uninstalling.
+            if same_folder(place, here) or not session.is_dir() or through_junction(session, root):
+                continue
+            try:
+                if stop_downloader(session):
+                    forget_session(session)
+                elif root not in kept:
+                    kept.append(root)
+            except (ArchiveError, OSError) as error:
+                LOG.warning('signing out could not clear a library folder: %s', app_runtime.describe(error))
+                if root not in kept:
+                    kept.append(root)
     return [*kept, *(root for root in unreachable() if root not in kept)]
 
 
 def forget(root):
     """Forget the sign-ins and cloud keys kept in one library folder. False when a downloader would not stop."""
     stopped = True
-    for site in sites.SITES:
+    for place in dict.fromkeys(place for site in sites.SITES for place in places(root, site)):
         try:
-            place = safe_root(sites.folder(root, site))
+            place = safe_root(place)
             session = private_path(place, 'session')
         except ArchiveError:
             continue  # A symlinked folder is never followed; the app never saved through one.

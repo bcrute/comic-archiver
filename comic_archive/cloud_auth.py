@@ -6,14 +6,35 @@ status fields are returned to the UI.
 import configparser
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
+import time
 import uuid
 
 from . import cloud
 from .archive_paths import directory
 from .models import ArchiveError
 from .locking import LibraryLock
+
+
+# A sign-in takes seconds. A working folder older than this was left by one that was ended before it finished.
+STALE_SECONDS = 3600
+
+
+def sweep(folder):
+    """Remove the working folders, each holding a key, that sign-ins ended before they finished left behind.
+
+    One still going on, as another site's that shares this folder may be, is recent and is left alone.
+    """
+    from .osdep import junction
+    for work in Path(folder).glob('signin-*'):
+        try:
+            if (work.is_dir() and not work.is_symlink() and not junction(work)
+                    and time.time() - work.stat().st_mtime > STALE_SECONDS):
+                shutil.rmtree(work, ignore_errors=True)
+        except OSError:
+            continue
 
 
 def validate(provider, credentials):
@@ -102,6 +123,7 @@ class SignIn:
             folder = directory(cloud.connection_folder(root)); folder.chmod(0o700)
             from .windows_privacy import folder as protect_folder
             protect_folder(folder)
+            sweep(folder)
             with tempfile.TemporaryDirectory(prefix='signin-', dir=folder) as work:
                 config = Path(work) / 'rclone.conf'
                 config.touch(mode=0o600)

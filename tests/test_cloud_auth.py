@@ -40,6 +40,24 @@ class CloudSignInTests(unittest.TestCase):
         self.assertFalse(list((self.root/'.archive-state/cloud').glob('connection-*')))
         self.assertFalse(list(config.parent.glob('signin-*')))
 
+    def test_a_new_sign_in_clears_the_key_an_earlier_one_left_when_it_was_ended_before_it_finished(self):
+        import time
+        from comic_archive import cloud_auth
+        folder = self.root/'.archive-state/cloud'; folder.mkdir(parents=True)
+        stale, recent, outside = folder/'signin-stale', folder/'signin-recent', self.root.parent/'outside'
+        for work in (stale, recent, outside):
+            work.mkdir(); (work/'rclone.conf').write_text('[b2]\nkey = PRIVATE_KEY\n')
+        (folder/'signin-link').symlink_to(outside, target_is_directory=True)
+        old = time.time() - cloud_auth.STALE_SECONDS - 60
+        os.utime(stale, (old, old)); os.utime(outside, (old, old))
+        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
+                patch('comic_archive.cloud.Transfer'):
+            self.signin.start('b2', self.credentials)
+            self.assertEqual(self.finish()['status'], 'connected')
+        self.assertFalse(stale.exists())
+        # One that may still be going on, and anything a link leads to, is left.
+        self.assertTrue((recent/'rclone.conf').is_file()); self.assertTrue((outside/'rclone.conf').is_file())
+
     def test_a_new_sign_in_deletes_the_connection_file_it_replaces_unless_a_test_cleanup_needs_it(self):
         def sign_in():
             with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \

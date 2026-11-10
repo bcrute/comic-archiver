@@ -7510,5 +7510,37 @@
   "new": "        try:\n            value = _json(path)\n        except ZeroDivisionError:\n            continue  # A receipt",
   "test_file": "test_shared.py",
   "test": "test_a_test_receipt_that_cannot_be_read_does_not_keep_a_moved_library_from_being_linked"
+ },
+ {
+  "id": "half-moved-library-keeps-a-sign-in",
+  "source": "comic_archive/uninstall.py",
+  "old": "        found += [Path(root), Path(root) / site.name]\n",
+  "new": "        pass\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_move_into_the_first_sites_folder_that_was_cut_short_leaves_no_sign_in_or_key_behind"
+ },
+ {
+  "id": "unfinished-cloud-sign-in-key-survives-uninstall",
+  "source": "comic_archive/uninstall.py",
+  "old": "            shutil.rmtree(work, ignore_errors=True)\n",
+  "new": "            pass\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_key_of_a_cloud_sign_in_that_was_ended_before_it_finished_is_removed"
+ },
+ {
+  "id": "new-cloud-sign-in-leaves-stale-keys",
+  "source": "comic_archive/cloud_auth.py",
+  "old": "            sweep(folder)\n",
+  "new": "",
+  "test_file": "test_cloud_auth.py",
+  "test": "test_a_new_sign_in_clears_the_key_an_earlier_one_left_when_it_was_ended_before_it_finished"
+ },
+ {
+  "id": "new-cloud-sign-in-removes-one-still-going-on",
+  "source": "comic_archive/cloud_auth.py",
+  "old": "                    and time.time() - work.stat().st_mtime > STALE_SECONDS):\n",
+  "new": "                    and True):\n",
+  "test_file": "test_cloud_auth.py",
+  "test": "test_a_new_sign_in_clears_the_key_an_earlier_one_left_when_it_was_ended_before_it_finished"
  }
 ]

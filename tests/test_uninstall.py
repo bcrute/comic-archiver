@@ -79,6 +79,42 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(list(cloud.iterdir()), [])
         self.assertEqual(list(self.root.iterdir()), [self.root / '.comic-shared'])  # Nothing is made in its place.
 
+    def test_a_move_into_the_first_sites_folder_that_was_cut_short_leaves_no_sign_in_or_key_behind(self):
+        from comic_archive import site_layout
+        # Whatever the record of the move says, part may be in the old place and part in the new.
+        for recorded in (False, True):
+            root = self.home / f'half moved {recorded}'
+            sessions = [sign_in(root), sign_in(root / 'Tapas')]
+            clouds = [root / 'Library/.archive-state/cloud', root / 'Tapas/Library/.archive-state/cloud']
+            for folder in clouds:
+                connection(folder)
+            if recorded:
+                (root / '.comic-shared').mkdir()
+                (root / '.comic-shared' / site_layout.MARKER).write_text(json.dumps(site_layout.SCHEMA))
+            self.assertEqual(site_layout.known(root), recorded)
+            with self.subTest(recorded=recorded):
+                self.assertTrue(uninstall.forget(root))
+                self.assertEqual([path for session in sessions for path in session.glob('state.*')], [])
+                self.assertEqual([path for folder in clouds for path in folder.glob('*.conf')], [])
+        # Signing out of the first site elsewhere clears both places too.
+        root = self.home / 'half moved again'
+        sessions = [sign_in(root), sign_in(root / 'Tapas')]
+        app_runtime.remember_library(root)
+        uninstall.sign_out_elsewhere(sites.DEFAULT, self.root / 'Tapas')
+        self.assertEqual([path for session in sessions for path in session.glob('state.*')], [])
+
+    def test_the_key_of_a_cloud_sign_in_that_was_ended_before_it_finished_is_removed(self):
+        cloud = self.root / '.comic-shared/cloud'
+        connection(cloud)
+        work, outside = cloud / 'signin-abc123', self.home / 'outside'
+        for folder in (work, outside):
+            folder.mkdir(); (folder / 'rclone.conf').write_text('[b2]\nkey = PRIVATE_KEY\n')
+        (cloud / 'signin-link').symlink_to(outside, target_is_directory=True)
+        (cloud / 'signin-notes').write_text('a file, not a working folder')
+        self.assertTrue(uninstall.forget_all())
+        self.assertFalse(work.exists())
+        self.assertTrue((outside / 'rclone.conf').is_file())  # Never followed.
+
     def test_a_librarys_link_cannot_send_uninstalling_to_a_folder_elsewhere(self):
         # The link is a file inside the library, and a library can come from anywhere: only the shared
         # settings in the library folder itself are the app's to clear.
