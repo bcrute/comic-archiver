@@ -7366,5 +7366,37 @@
   "new": "    if result.get('status') != 'cancelled' and not _valid(result, task) or result.get('status') not in ('finished', 'limited', 'cancelled', 'paused'):",
   "test_file": "test_download_control.py",
   "test": "test_a_download_receipt_that_only_says_cancelled_cannot_be_counted"
+ },
+ {
+  "id": "partial-tapas-reader-taken-for-a-locked-episode",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "if not parser.images and access == 'unavailable_or_unverified':",
+  "new": "if access == 'unavailable_or_unverified':",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds"
+ },
+ {
+  "id": "empty-readable-tapas-reader-taken-for-a-locked-episode",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "if not parser.images and access == 'unavailable_or_unverified':",
+  "new": "if not parser.images:",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds"
+ },
+ {
+  "id": "locked-tapas-reader-denied-without-checking-the-sign-in",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "not a reader that has changed.\n                    self.check_session()\n",
+  "new": "not a reader that has changed.\n",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds"
+ },
+ {
+  "id": "locked-tapas-reader-pauses-the-run",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "raise AccessDenied('Tapas shows this episode without its pages; other episodes can continue.')",
+  "new": "pass",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds"
  }
 ]

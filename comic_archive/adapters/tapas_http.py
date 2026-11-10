@@ -412,6 +412,14 @@ class TapasHTTPAdapter:
         else:
             urls = ordered_sources(parser.images)
             if urls is None:
+                if not parser.images and access == 'unavailable_or_unverified':
+                    # Tapas shows a locked episode's reader without any of its pages. While the sign-in still
+                    # holds, that is its answer about this episode, not a reader that has changed.
+                    self.check_session()
+                    logging.getLogger('comic_archive.download').info(
+                        'reader access: provider=tapas episode=%s result=unavailable stage=reader '
+                        'reason=reader_locked retry=next_scan_round_or_changed_hint', match[1])
+                    raise AccessDenied('Tapas shows this episode without its pages; other episodes can continue.')
                 raise unsupported("Normal reader HTML lacks a complete ordered comic manifest; use browser inspection.",'reader_manifest_incomplete')
         platform_id = safe_primitives("\n".join(parser.inline)).get("seriesId")
         if reader_html is not None:

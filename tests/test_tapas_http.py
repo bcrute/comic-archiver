@@ -402,6 +402,30 @@ class TapasHTTPTests(unittest.TestCase):
                 self.assertEqual(len(episode.pages), 2)
                 self.assertEqual(self.transport.get.call_count, 3)
 
+    def test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds(self):
+        empty = b'<script>var seriesId = 42;</script><div id="episode-81"><article></article></div>'
+        locked = self.info | {'free': False, 'unlocked': False, 'must_pay': True}
+        self.responses(info=locked, html=empty)
+        with self.assertLogs('comic_archive.download', level='INFO') as captured, self.assertRaises(AccessDenied):
+            self.adapter.capture('https://tapas.io/episode/81')
+        self.assertIn('reason=reader_locked', '\n'.join(captured.output))
+        self.assertEqual(self.requested()[-1], 'https://tapas.io/who-am-i')
+        # A sign-in that lapsed looks the same from the reader: that holds for the person, it is not a refusal.
+        self.responses(info=locked, html=empty, user={})
+        with self.assertRaises(AuthenticationError):
+            self.adapter.capture('https://tapas.io/episode/81')
+        # An episode the account may read whose reader comes back empty is still a reader that changed.
+        for readable in (self.info, self.info | {'free': False, 'unlocked': True, 'must_pay': True}):
+            self.responses(info=readable, html=empty)
+            with self.subTest(readable=readable), self.assertRaises(UnsupportedContent) as caught:
+                self.adapter.capture('https://tapas.io/episode/81')
+            self.assertEqual(caught.exception.code, 'reader_manifest_incomplete')
+        # Pages that cannot all be placed are never taken for a locked episode.
+        partial = self.html.replace(b'data-src="https://us-a.tapas.io/pc/a/2.jpg?signature=TEST"', b'data-src="https://example.com/x.jpg"')
+        self.responses(info=locked, html=partial)
+        with self.assertRaises(UnsupportedContent):
+            self.adapter.capture('https://tapas.io/episode/81')
+
     def test_bulk_hints_require_positive_booleans_without_claiming_denial(self):
         self.assertEqual(access_state(self.info | {'free': False, 'unlocked': True}), 'tapas_unlocked')
         self.assertEqual(access_state(self.info | {'free': False, 'unlocked': 'true'}), 'unavailable_or_unverified')
