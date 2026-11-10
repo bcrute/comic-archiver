@@ -13,7 +13,7 @@ class SignInBrowserTests(unittest.TestCase):
         env.pop('DISPLAY', None)
         env.pop('WAYLAND_DISPLAY', None)
         done = subprocess.run([sys.executable, str(root / 'scripts/signin_browser_smoke.py')],
-                              cwd=root, env=env, capture_output=True, text=True, timeout=90)
+                              cwd=root, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         result = json.loads(done.stdout.splitlines()[-1])
         self.assertTrue(result['ok'])

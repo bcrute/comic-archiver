@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from comic_archive import qt_engine, sites  # noqa: E402
+from comic_archive import qt_engine, session, sites  # noqa: E402
 from comic_archive.desktop_app import ASKS, SIGNIN_READ, signed_in  # noqa: E402
 
 
@@ -52,7 +52,7 @@ class IdentitySite(http.server.BaseHTTPRequestHandler):
 def exercise(origin, server):
     observed = {}
     with qt_engine.Driver() as driver:
-        browser = driver.qt.launch(headless=True)
+        browser = session.launch_browser(driver, 'qt', headless=True)
         try:
             for site in sites.SITES:
                 context = browser.new_context(service_workers='block')

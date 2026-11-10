@@ -66,8 +66,11 @@ class BrowserSessionTests(unittest.TestCase):
         from comic_archive import qt_engine
         with patch.dict(sys.modules, {'playwright': None, 'playwright.sync_api': None}):
             self.assertIs(self.real_api('qt'), qt_engine.Driver)
-        self.assertIs(session.launch_browser(self.driver, 'qt', headless=True), self.driver.qt.launch.return_value)
-        self.driver.qt.launch.assert_called_once_with(headless=True, timeout=15000)
+        for platform, timeout in (('darwin', 60000), ('linux', 15000), ('win32', 15000)):
+            with self.subTest(platform=platform), patch.object(session.sys, 'platform', platform):
+                self.driver.qt.launch.reset_mock()
+                self.assertIs(session.launch_browser(self.driver, 'qt', headless=True), self.driver.qt.launch.return_value)
+                self.driver.qt.launch.assert_called_once_with(headless=True, timeout=timeout)
         self.driver.chromium.launch.assert_not_called(); self.driver.firefox.launch.assert_not_called()
         with self.assertRaisesRegex(ArchiveError, 'chromium, firefox or qt'):
             session.launch_browser(self.driver, 'safari')

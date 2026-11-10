@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import sys
 from pathlib import Path
 from . import archive_paths, sites, windows_privacy
 from .models import ArchiveError
@@ -45,7 +46,9 @@ def launch_browser(driver, preferred="auto", headless=False):
     failures = []
     for engine in engines:
         try:
-            return getattr(driver, engine).launch(headless=headless, timeout=15000)
+            # Loading QtWebEngine on a cold Mac can exceed the ordinary launch deadline.
+            timeout = 60000 if engine == 'qt' and sys.platform == 'darwin' else 15000
+            return getattr(driver, engine).launch(headless=headless, timeout=timeout)
         except Exception as error:
             failures.append(f"{engine}: {browser_failure_reason(error)}")
             if engine != engines[-1]:
