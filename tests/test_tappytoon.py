@@ -234,6 +234,23 @@ class TappytoonTests(unittest.TestCase):
                 adapter.capture_automatic(address)
         self.assertEqual(client.calls, [])
 
+    def test_a_chapter_is_recorded_as_refused_only_while_the_page_still_names_the_account(self, sleep):
+        url = 'https://www.tappytoon.com/en/chapters/903'
+        listing = f'{API}/content-delivery/contents/manifest?chapterId=903&variant=high&locale=en&canAcceptSignedCookie=true'
+        answers = series_answers() | {KEY_PAGE: page_data(account=5), listing: NO_LICENSE}
+        adapter, client = reader(answers)
+        adapter.account_identity()
+        with self.assertRaises(AccessDenied):
+            adapter.capture_automatic(url)
+        self.assertEqual([call[0] for call in client.calls].count(KEY_PAGE), 2)
+        # The sign-in ran out: the same answer now says nothing about the chapter, and the person is asked back.
+        for later in (page_data(), page_data(account=7)):
+            adapter, client = reader(answers)
+            adapter.account_identity()
+            client.answers = answers | {KEY_PAGE: later}
+            with self.subTest(later=later[-110:]), self.assertRaises(AuthenticationError):
+                adapter.capture_automatic(url)
+
     def test_the_account_is_the_one_tappytoons_own_page_names_and_must_stay_signed_in(self, sleep):
         adapter, client = reader({KEY_PAGE: page_data(account=123456789)})
         self.assertEqual(adapter.account_identity(), '123456789')

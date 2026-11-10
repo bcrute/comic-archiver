@@ -7398,5 +7398,21 @@
   "new": "pass",
   "test_file": "test_tapas_http.py",
   "test": "test_a_locked_reader_with_no_pages_sets_the_episode_aside_only_while_the_sign_in_holds"
+ },
+ {
+  "id": "tappytoon-denial-recorded-without-checking-the-sign-in",
+  "source": "comic_archive/adapters/tappytoon.py",
+  "old": "                if self._account is not None:\n                    # A sign-in that has run out is answered the same way.",
+  "new": "                if False:\n                    # A sign-in that has run out is answered the same way.",
+  "test_file": "test_tappytoon.py",
+  "test": "test_a_chapter_is_recorded_as_refused_only_while_the_page_still_names_the_account"
+ },
+ {
+  "id": "tappytoon-denial-check-reuses-the-old-page",
+  "source": "comic_archive/adapters/tappytoon.py",
+  "old": "account before this counts as Tappytoon's answer about the chapter.\n                    self.key(renew=True)",
+  "new": "account before this counts as Tappytoon's answer about the chapter.\n                    self.key()",
+  "test_file": "test_tappytoon.py",
+  "test": "test_a_chapter_is_recorded_as_refused_only_while_the_page_still_names_the_account"
  }
 ]

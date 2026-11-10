@@ -311,6 +311,10 @@ class TappytoonAdapter(SiteReader):
         except ArchiveError as error:
             # Set aside like a locked chapter, so the rest of the download goes on; any other refusal stops it.
             if getattr(error, 'source_http_status', None) == 400 and NO_LICENSE in getattr(error, 'source_answer', b''):
+                if self._account is not None:
+                    # A sign-in that has run out is answered the same way. The page must still name the
+                    # account before this counts as Tappytoon's answer about the chapter.
+                    self.key(renew=True)
                 logging.getLogger('comic_archive.download').info(
                     'reader access: provider=tappytoon episode=%s result=denied stage=reader_manifest http_status=400 reason=license_denied',
                     chapter['id'])
