@@ -7118,13 +7118,5 @@
   "new": "if not isinstance(checks, dict) or set(checks) != MAC_CHECKS:",
   "test_file": "test_release_gate.py",
   "test": "test_mac_download_requires_native_checks_architecture_and_truthful_signing"
- },
- {
-  "id": "release-040-mac-omitted",
-  "source": "scripts/verify_release.py",
-  "old": "if 'macos' not in value and tuple(map(int, version.split('-')[0].split('.'))) >= (0, 4, 0):",
-  "new": "if False:",
-  "test_file": "test_release_gate.py",
-  "test": "test_040_release_cannot_omit_the_mac_download_and_evidence"
  }
 ]

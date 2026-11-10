@@ -106,8 +106,6 @@ def verify(folder, commit, release, owner, version, *, android_cert=None, androi
         raise ValueError('The required suite must pass without skips.')
     expected = {f'ComicArchiver-{version}-linux-x86_64.tar.gz', f'ComicArchiver-{version}-windows-x86_64.zip',
                 f'ComicArchiver-{version}-windows-x86_64-setup.exe'}
-    if 'macos' not in value and tuple(map(int, version.split('-')[0].split('.'))) >= (0, 4, 0):
-        raise ValueError('Mac evidence is required for 0.4.0 and later.')
     if 'macos' in value:
         expected.add(macos_asset(value['macos'], version))
     android_asset = None

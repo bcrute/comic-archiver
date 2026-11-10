@@ -197,7 +197,7 @@ stops publication. `scripts/verify_release.py` defines and checks this contract.
 to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
 
-Releases from 0.4.0 also require a Mac download. Its `macos` evidence records
+A release may include a separately qualified Mac download. Its `macos` evidence records
 the qualified architecture, actual signing/notarization status and successful
 native tests, engine, window, package smoke and bundle audit checks. The verifier
 then requires that exact additional ZIP and includes it in the checksum contract.

@@ -3,7 +3,6 @@
 | Windows 10 or 11 (64-bit) | [`ComicArchiver-{version}-windows-x86_64-setup.exe`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64-setup.exe) |
 | Windows, without installing | [`ComicArchiver-{version}-windows-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip) |
 | Linux (x86_64) | [`ComicArchiver-{version}-linux-x86_64.tar.gz`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-linux-x86_64.tar.gz) |
-| Mac (Intel) | [`ComicArchiver-{version}-macos-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip) |
 
 ## Changes in {version}
 
@@ -109,21 +108,7 @@ uninstall, right-click Comic Archiver in the applications menu, choose **Uninsta
 
 </details>
 
-<details>
-<summary>Mac install and update</summary>
 
-Download and extract the ZIP, then move `Comic Archiver.app` to Applications.
-This build includes Python and Qt. Native testing covers Intel macOS 15;
-Apple Silicon execution remains unqualified.
-
-The app is ad-hoc signed and is not notarized by Apple. If macOS blocks it as
-an unidentified developer, review the download and follow
-[Apple's instructions for opening an unnotarized app](https://support.apple.com/en-gb/102445).
-
-To update, close Comic Archiver and replace the app. Keep your library and settings.
-The included `README_FIRST.txt` describes removal and saved-file preservation.
-
-</details>
 
 `SHA256SUMS.txt` lists each file's SHA-256, to check a download against. These files were built and self-tested
 from the tagged source. `release-evidence.json` records the validation results and download

@@ -31,12 +31,6 @@ class ReleaseGateTests(unittest.TestCase):
             path = self.folder / f'ComicArchiver-{self.version}-{suffix}'
             path.write_bytes(b'synthetic download ' + suffix.encode())
             self.value['artifacts'][path.name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
-        if tuple(map(int, self.version.split('-')[0].split('.'))) >= (0, 4, 0):
-            path = self.folder / f'ComicArchiver-{self.version}-macos-x86_64.zip'
-            path.write_bytes(b'synthetic qualified Mac download')
-            self.value['artifacts'][path.name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
-            self.value['macos'] = {'architecture': 'x86_64', 'checks': dict.fromkeys(release.MAC_CHECKS, True),
-                                   'signing': 'ad-hoc', 'notarized': False}
         self.save()
 
     def save(self):
@@ -111,13 +105,6 @@ class ReleaseGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()  # An unqualified Mac ZIP cannot accompany desktop downloads.
 
-    def test_040_release_cannot_omit_the_mac_download_and_evidence(self):
-        self.version = '0.4.0'
-        self.value['version'] = self.version
-        self.save()
-        with self.assertRaisesRegex(ValueError, 'Mac evidence is required'):
-            self.verify()
-
     def test_refuses_untrusted_or_incomplete_uploads_and_another_commit(self):
         for field, value in (('author', {'login': 'someone-else'}), ('author', None), ('draft', False),
                              ('target_commitish', 'b' * 40), ('tag_name', 'v0.1.4'),
@@ -181,6 +168,23 @@ class ReleaseGateTests(unittest.TestCase):
         self.value['artifacts'][name] = {'size': 17, 'sha256': release.digest(self.folder / name)}
         (self.folder / 'release-evidence.json').write_text(json.dumps(self.value), encoding='utf-8')
         with self.assertRaises(ValueError):
+            self.verify()
+
+
+class Desktop040ReleaseGateTests(ReleaseGateTests):
+    """Qualify the current desktop release with only platforms ready to ship."""
+    VERSION = '0.4.0'
+
+    def test_linux_and_windows_can_ship_while_mac_is_pending(self):
+        self.assertNotIn('macos', self.value)
+        self.assertEqual(len(self.value['artifacts']), 3)
+        self.assertEqual(self.verify(), self.value)
+        name = f'ComicArchiver-{self.version}-macos-x86_64.zip'
+        path = self.folder / name
+        path.write_bytes(b'unqualified Mac download')
+        self.value['artifacts'][name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'exactly the required platform downloads'):
             self.verify()
 
 

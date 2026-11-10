@@ -9,6 +9,10 @@ from types import SimpleNamespace
 import unittest
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# The offscreen Windows plugin does not discover the system fonts itself.
+# Use those fonts so layout checks measure real text rather than missing-glyph boxes.
+if os.name == 'nt' and os.environ.get('WINDIR'):
+    os.environ.setdefault('QT_QPA_FONTDIR', os.path.join(os.environ['WINDIR'], 'Fonts'))
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 from comic_archive import app_actions, dashboard_model, storage_model, window_pages, window_style  # noqa: E402
@@ -27,6 +31,14 @@ APP = None
 def setUpModule():
     global APP
     APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    families = QtGui.QFontDatabase.families()
+    if not families:
+        raise RuntimeError('Layout checks require fonts; Qt has no font families loaded.')
+    if os.name == 'nt' and os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+        family = 'Segoe UI' if 'Segoe UI' in families else 'Arial'
+        if family not in families:
+            raise RuntimeError('Offscreen Windows layout checks require the system GUI fonts.')
+        APP.setFont(QtGui.QFont(family, 9))
 
 
 def settle():
