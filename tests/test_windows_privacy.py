@@ -64,10 +64,26 @@ class PrivacyTests(unittest.TestCase):
     def test_cloud_config_is_protected_before_it_is_returned_to_the_helper(self):
         from comic_archive import cloud
         path = self.root / 'config'; path.write_bytes(b'dummy credential')
+        path.chmod(0o600)
         with patch.object(privacy, 'file', side_effect=privacy.PrivateStorageError(privacy.MESSAGE)) as protect:
-            with self.assertRaises(privacy.PrivateStorageError): cloud._config(path)
+            with self.assertRaises(privacy.PrivateStorageError): cloud._config(path, (self.root,))
         protect.assert_called_once_with(path)
         self.assertEqual(path.read_bytes(), b'dummy credential')
+
+    def test_a_file_outside_the_apps_own_connection_folders_is_never_changed(self):
+        # A library brought from elsewhere names its connection file; that may be any file on the computer.
+        from comic_archive import cloud
+        elsewhere = self.root / 'elsewhere'; elsewhere.mkdir()
+        path = elsewhere / 'config'; path.write_bytes(b'someone else\'s file'); path.chmod(0o600)
+        own = self.root / 'Library/.archive-state/cloud'; own.mkdir(parents=True)
+        with patch.object(privacy, 'file') as protect:
+            for folders in ((), (own,), cloud._own_folders(self.root / 'Library')):
+                self.assertEqual(cloud._config(path, folders), path)
+            self.assertIsNone(cloud._bucket({'config': str(path), 'remote': 'b2'}))
+            protect.assert_not_called()
+            inside = own / 'rclone.conf'; inside.write_bytes(b'[b2]\ntype=b2\n'); inside.chmod(0o600)
+            cloud._config(inside, cloud._own_folders(self.root / 'Library'))
+            protect.assert_called_once_with(inside)
 
     def native_api(self, *, attributes=0, links=1, flags=8, dacl=True, result=0):
         api = {key: Mock(return_value=1) for key in ('open', 'info', 'volume', 'dacl', 'set', 'close')}

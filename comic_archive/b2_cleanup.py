@@ -1,5 +1,4 @@
 """Remove only exact journaled pilot/staging filenames, including partials."""
-import configparser
 import re
 import threading
 
@@ -25,12 +24,11 @@ def cleanup_file(transfer, path, *, upload=False):
     if (not (pilot or stage or sent) or parts[0] != CLOUD_ROOT
             or not valid_export_id(parts[1]) or not valid_export_id(parts[3])):
         raise ArchiveError('B2 cleanup accepts only exact recorded test, staging or interrupted upload files.')
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.read(transfer.config)
+    from .cloud import read_connection
     try:
-        section = parser[transfer.target['remote']]
+        section = read_connection(transfer.target | {'config': str(transfer.config)})
         key = (section['account'], section['key'])
-    except (configparser.Error, KeyError):
+    except (ArchiveError, KeyError):
         raise CloudTransferError('cloud_login_required') from None
     cancel = threading.Event()
     with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:

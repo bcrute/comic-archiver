@@ -34,6 +34,8 @@ RETIRED = ('google', 'dropbox', 'proton')
 LABELS = {'b2': 'Backblaze B2'}
 REMOTE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}')
 CLOUD_ROOT = 'Comic-Archive'
+# A connection file holds one short section; nothing larger is read.
+CONNECTION_BYTES = 64 * 1024
 # Failures every upload to the connection would meet; the others are one episode's own.
 CONNECTION_FAILURES = {'b2_key_permissions', 'b2_bucket_mismatch', 'b2_private_bucket',
                        'cloud_login_required', 'cloud_space', 'cloud_cap', 'cloud_rate_limited',
@@ -219,33 +221,60 @@ def _size(path):
         return 0
 
 
-def _config(path):
+def _own_folders(root):
+    """Where this app itself writes a library's connection files."""
+    return {safe_root(root) / '.archive-state/cloud', connection_folder(root)}
+
+
+def _config(path, own=()):
+    """A connection's private file, as a checked path.
+
+    A library brought from elsewhere names the file itself, so the name is not trusted: the file is only
+    looked at. Its permissions are repaired only when it lies in one of the 'own' folders, where this app
+    writes connection files; a file anywhere else is never changed.
+    """
     path = safe_root(path)
-    from .windows_privacy import file as protect_file
-    if path.is_file():
+    if path.is_file() and path.parent in {safe_root(folder) for folder in own}:
+        from .windows_privacy import file as protect_file
         protect_file(path)
     if not path.is_file() or (not osdep.WINDOWS and path.stat().st_mode & 0o077):
         raise ArchiveError('Cloud authentication needs a private rclone config file (permissions 600).')
     return path
 
 
+def read_connection(target, own=()):
+    """A connection's own part of its private file, as a dict: the one reader of that file's contents.
+
+    The path is checked, the read is bounded and only text is taken, so a file a brought library names
+    cannot stall the app, fill its memory or stop it with an error of another kind.
+    """
+    path = _config(target['config'], own)
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        if path.stat().st_size > CONNECTION_BYTES:
+            raise ValueError
+        parser.read_string(osdep.read_text(path, encoding='utf-8'))
+        return dict(parser[target['remote']])
+    except (configparser.Error, KeyError, ValueError, OSError):
+        raise ArchiveError('The cloud connection file is unreadable. Sign in to it again.') from None
+
+
 class Transfer:
-    def __init__(self, provider, target):
+    def __init__(self, provider, target, *, root=None):
         if provider not in PROVIDERS:
             raise ArchiveError('Choose a supported cloud provider.')
         self.provider, self.target = provider, target
         self.binary = _binary()
-        self.config = _config(target['config'])
+        own = _own_folders(root) if root is not None else ()
+        self.config = _config(target['config'], own)
         self.bucket = None
         if provider == 'b2':
             from .b2_auth import BUCKET
-            parser = configparser.ConfigParser(interpolation=None)
             try:
-                parser.read(self.config)
-                self.bucket = parser[target['remote']]['archive_bucket']
+                self.bucket = read_connection(target, own)['archive_bucket']
                 if not BUCKET.fullmatch(self.bucket):
                     raise ValueError
-            except (configparser.Error, KeyError, ValueError):
+            except (ArchiveError, KeyError, ValueError):
                 raise ArchiveError('Connect B2 using the setup walkthrough to choose a private library bucket.') from None
         # Verify the selected connection's backend without reading or printing
         # credentials, or accepting local/SFTP/alias targets through this API.
@@ -381,7 +410,7 @@ def configure_target(root, provider, *, remote=None, config=None):
     remote = provider if remote is None else remote
     if not isinstance(remote, str) or not REMOTE.fullmatch(remote):
         raise ArchiveError('Cloud connection name is invalid.')
-    config = _config(config or root / '.archive-state/cloud/rclone.conf')
+    config = _config(config or root / '.archive-state/cloud/rclone.conf', _own_folders(root))
     target = {'remote':remote, 'config':str(config), 'enabled':False, 'tested':False, 'target_id':str(uuid.uuid4())}
     from .cloud_runtime import transfer as platform_transfer
     platform_transfer(root, provider, target)
@@ -452,11 +481,9 @@ def taking(target):
 def _bucket(target):
     """The B2 bucket a connection saves to, for the person to see; None when unreadable."""
     from .b2_auth import BUCKET
-    parser = configparser.ConfigParser(interpolation=None)
     try:
-        parser.read(target['config'])
-        name = parser[target['remote']]['archive_bucket']
-    except (configparser.Error, KeyError, OSError):
+        name = read_connection(target)['archive_bucket']
+    except (ArchiveError, KeyError):
         return None
     return name if BUCKET.fullmatch(name) else None
 
@@ -1052,6 +1079,9 @@ def evict_uploaded(root):
                 current = settings(root)
                 if not current or any(saved['target_id'] != current['targets'].get(name, {}).get('target_id')
                                       for name,saved in zip(providers,receipts,strict=True)):
+                    continue
+                if any(not taking(current['targets'][name]) for name in providers):
+                    # Turned off, or brought here and not yet agreed to: nothing is deleted on its account.
                     continue
                 seen.add(relative)
                 if archive.exists():

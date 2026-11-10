@@ -7414,5 +7414,53 @@
   "new": "account before this counts as Tappytoon's answer about the chapter.\n                    self.key()",
   "test_file": "test_tappytoon.py",
   "test": "test_a_chapter_is_recorded_as_refused_only_while_the_page_still_names_the_account"
+ },
+ {
+  "id": "foreign-connection-file-permissions-rewritten",
+  "source": "comic_archive/cloud.py",
+  "old": "    if path.is_file() and path.parent in {safe_root(folder) for folder in own}:\n",
+  "new": "    if path.is_file():\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_a_file_outside_the_apps_own_connection_folders_is_never_changed"
+ },
+ {
+  "id": "own-connection-file-left-unrepaired",
+  "source": "comic_archive/cloud.py",
+  "old": "    if path.is_file() and path.parent in {safe_root(folder) for folder in own}:\n",
+  "new": "    if False:\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_cloud_config_is_protected_before_it_is_returned_to_the_helper"
+ },
+ {
+  "id": "connection-file-read-without-a-size-bound",
+  "source": "comic_archive/cloud.py",
+  "old": "        if path.stat().st_size > CONNECTION_BYTES:\n",
+  "new": "        if False:\n",
+  "test_file": "test_cloud.py",
+  "test": "test_a_connection_file_a_brought_library_names_is_read_safely_or_not_at_all"
+ },
+ {
+  "id": "connection-file-that-is-not-text-stops-the-app",
+  "source": "comic_archive/cloud.py",
+  "old": "    except (configparser.Error, KeyError, ValueError, OSError):\n        raise ArchiveError('The cloud connection file is unreadable.",
+  "new": "    except (configparser.Error, KeyError, OSError):\n        raise ArchiveError('The cloud connection file is unreadable.",
+  "test_file": "test_cloud.py",
+  "test": "test_a_connection_file_a_brought_library_names_is_read_safely_or_not_at_all"
+ },
+ {
+  "id": "bucket-shown-from-an-unchecked-file",
+  "source": "comic_archive/cloud.py",
+  "old": "        name = read_connection(target)['archive_bucket']\n    except (ArchiveError, KeyError):",
+  "new": "        name = read_connection(target)['archive_bucket']\n    except KeyError:",
+  "test_file": "test_cloud.py",
+  "test": "test_a_connection_file_a_brought_library_names_is_read_safely_or_not_at_all"
+ },
+ {
+  "id": "local-copy-deleted-for-a-connection-that-is-off",
+  "source": "comic_archive/cloud.py",
+  "old": "                if any(not taking(current['targets'][name]) for name in providers):\n",
+  "new": "                if False:\n",
+  "test_file": "test_cloud.py",
+  "test": "test_nothing_is_deleted_here_for_a_connection_that_is_off_or_not_agreed_to"
  }
 ]

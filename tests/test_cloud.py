@@ -691,6 +691,20 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'],0)
         self.assertEqual(archive.read_bytes(),original)
 
+    def test_nothing_is_deleted_here_for_a_connection_that_is_off_or_not_agreed_to(self):
+        self.publish();self.ready()
+        with patch.object(cloud,'evict_uploaded',return_value={'local_archives_deleted':0,'freed_bytes':0}):
+            archive,_ = self.publish('82')
+        original = archive.read_bytes()
+        cloud.enable(self.root,'b2',False)
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'],0)
+        cloud.enable(self.root,'b2',True)
+        with patch('comic_archive.cloud_runtime.trusted',return_value=False):
+            self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'],0)
+        self.assertEqual(archive.read_bytes(),original)
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'],1)
+        self.assertFalse(archive.exists())
+
     def test_a_damaged_cloud_receipt_is_not_evidence_that_an_episode_is_safely_offloaded(self):
         self.publish();self.ready();archive,_ = self.publish('82')
         self.assertFalse(archive.exists())
@@ -778,6 +792,30 @@ class TransferTests(unittest.TestCase):
             with self.assertRaises(ArchiveError):cloud.Transfer('proton',self.target)
             with self.assertRaises(ArchiveError):cloud.Transfer('local',self.target)
         with patch('comic_archive.cloud_tools.on_path',return_value=None),self.assertRaises(ArchiveError):cloud.Transfer('b2',self.target)
+
+    def test_a_connection_file_a_brought_library_names_is_read_safely_or_not_at_all(self):
+        self.assertEqual(cloud.read_connection(self.target)['archive_bucket'],'library-bucket')
+        self.assertEqual(cloud._bucket(self.target),'library-bucket')
+        folder = self.config.parent
+        good = '[b2]\ntype=b2\narchive_bucket=library-bucket\n'
+        files = {'not text': b'[b2]\narchive_bucket=\xff\xfe\n',
+                 'too large': (good + '#' * cloud.CONNECTION_BYTES).encode(),
+                 'another connection': good.replace('[b2]', '[elsewhere]').encode(),
+                 'no section': b'archive_bucket=library-bucket\n'}
+        paths = {}
+        for name, data in files.items():
+            paths[name] = folder / name; paths[name].write_bytes(data); paths[name].chmod(0o600)
+        paths['missing'] = folder / 'missing'
+        paths['link'] = folder / 'link'; paths['link'].symlink_to(self.config)
+        paths['folder'] = folder / 'folder'; paths['folder'].mkdir()
+        if hasattr(os, 'mkfifo'):
+            # Opening a pipe nobody writes to would wait forever; it must be refused unopened.
+            paths['pipe'] = folder / 'pipe'; os.mkfifo(paths['pipe'], 0o600)
+        for name, path in paths.items():
+            target = {'config': str(path), 'remote': 'b2'}
+            with self.subTest(name):
+                with self.assertRaises(ArchiveError): cloud.read_connection(target)
+                self.assertIsNone(cloud._bucket(target))
 
     def test_failed_timeout_and_oversized_subprocess_output_are_sanitized(self):
         transfer = object.__new__(cloud.Transfer);transfer.binary='/fake/rclone';transfer.config=self.config

@@ -33,7 +33,7 @@ def relocate(library, previous, shared):
             raise ArchiveError('Cloud authentication must not be symlinked.')
         if not candidate.is_file():
             return value  # A missing connection still needs sign-in; do not adopt another file.
-        return value | {'config': str(_config(candidate))}
+        return value | {'config': str(_config(candidate, (destination,)))}
 
     paths = [shared / 'cloud/targets.json', library / '.archive-state/cloud/targets.json']
     for path in paths:

@@ -4,7 +4,6 @@ The shared cloud controller still owns destinations, durable intents, verificati
 receipts and local deletion. This adapter never deletes a local original. Requests
 use private bucket-scoped credentials, bounded metadata and the shared network guard.
 """
-import configparser
 import hashlib
 import re
 import threading
@@ -15,7 +14,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from . import b2_auth
-from .cloud import Transfer, _config, transfer_timeout
+from .cloud import Transfer, _config, _own_folders, read_connection, transfer_timeout
 from .cloud_errors import CloudTransferError
 from .models import ArchiveError
 from .network import NetworkGuard
@@ -61,7 +60,8 @@ class NativeB2Transfer(Transfer):
         if provider != 'b2':
             raise ArchiveError('Choose a supported cloud provider.')
         self.provider, self.target = provider, dict(target)
-        self.config = _config(target['config'])
+        own = _own_folders(root)
+        self.config = _config(target['config'], own)
         self.guard = NetworkGuard(root)
         self.full_readback = False
         self.cancel = threading.Event()
@@ -69,16 +69,17 @@ class NativeB2Transfer(Transfer):
         self._authorization = None
         self._authorized_at = 0
         self._lock = threading.RLock()
-        parser = configparser.ConfigParser(interpolation=None)
         try:
-            parser.read(self.config)
-            section = parser[target['remote']]
+            section = read_connection(target, own)
+        except ArchiveError:
+            raise CloudTransferError('cloud_login_required') from None
+        try:
             if section['type'] != 'b2':
                 raise ValueError
             self.bucket = section['archive_bucket']
             self._credentials = {'key_id': section['account'], 'application_key': section['key'], 'bucket': self.bucket}
             b2_auth.validate(self._credentials)
-        except (configparser.Error, KeyError, ValueError):
+        except (KeyError, ValueError):
             raise CloudTransferError('cloud_login_required') from None
         protect_http_logs()
 

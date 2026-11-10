@@ -23,7 +23,7 @@ def transfer(root, provider, target):
         from .b2_native import NativeB2Transfer
         return NativeB2Transfer(root, provider, target)
     from .cloud import Transfer
-    return Transfer(provider, target)
+    return Transfer(provider, target, root=root)
 
 
 def ensure(root, cancel):
