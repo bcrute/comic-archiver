@@ -6,50 +6,21 @@
 
 ## Changes in {version}
 
-- **Choose which episode types to save.** Each provider offers paid/unlocked, free, limited-unlock and unknown-type choices. Paid series include their free companion episodes; existing saved files are kept.
-- **Check your episode list.** The read-only Library view groups series and episodes by provider, so you can see which episodes have been saved.
-- **More readable novel chapters can be saved.** EPUB export preserves supported legacy font markup and tables, with clearer diagnostics for unsupported content.
-
-- **Every site downloads at once.** Signed in to more than one of Tapas, Tappytoon and Webtoon? Each one now
-  downloads alongside the others. **Start all** and **Pause all** start and pause them together.
-- **A dashboard you can read at a glance.** One card across the top counts everything saved from every site, beside
-  where it is kept. Then each site has a card of its own, with what it is doing in a few short lines and one button
-  for what can be done now: **Sign in**, **Start**, **Continue** or **Pause**. Time and space left each end in a
-  **?** that says they are rough guesses. The cards reflow to fit the window.
-- **A download goes on by itself after a wait.** Comic Archiver now keeps one record of your download instead of
-  three that could disagree, which is what made a download pause for no clear reason. A dropped connection is
-  tried again after 1, 2, 4, 8 and 15 minutes, then every 15 minutes until it is back. A step that saved nothing,
-  or a site that refuses, waits 5, 15 and then 60 minutes before the download stops and asks you.
-- **Episodes the app can't save yet no longer stop a download.** Before, a download that met episodes in a form the
-  app can't save yet ended by saying they could not be saved and asking you to press Go, which never helped. It
-  now finishes, and its card says how many there are. The download and storage details list them by reason.
-- **More control over download speed.** Medium aims for about half the rate of Fast, and Slow for about a quarter.
-- **When a download stops, the window says why.** Each stop comes with what to do about it, such as signing in
-  again. Press **Continue** once you have.
-- **Pause stops the download, and Continue carries on from there.** Closing the window or switching off the computer
-  pauses it the same way.
-- **Your download carries on after the update.** The first start moves it to the new record, and **Continue** picks up
-  where it stopped. Keep using this version after the update: older versions do not understand the new
-  library folder layout.
-- **Asking for help is easier.** **Settings → About → Copy details for support** copies a short summary of each
-  site's download to paste into a message. It has no series titles, folder names or sign-in details. If you are
-  asked for the app's log, **Save log for support** next to it puts everything the app recorded in one file in
-  your Downloads folder, to attach to an email. Series and episodes are in it by number only, never by title, and
-  it has no folder names or sign-in details.
-
-- **Existing libraries are organized automatically.** On startup, the app moves older Tapas folders into
-  `Tapas` beside `Tappytoon` and `Webtoon` in your chosen library folder. Saved archives are moved, not copied.
-  **Open library folder** opens that folder in your usual file manager.
-- **Clearer progress with less background work.** Local file checks show their progress. Estimates say when
-  downloads have not been queued yet, and paused sites stop refreshing. Dashboard fields stay in place.
-- **More reliable image recovery.** Valid images with extra trailing data are preserved, and episodes blocked
-  by the older image check are retried automatically. Support logs include the details needed to diagnose
-  image failures.
-
-- **Private sign-ins in copied Windows libraries.** Existing app state receives the same restricted access
-  as new state when opened. Saved archive permissions stay as they are. The library drive must support
-  Windows file access permissions, such as NTFS. A Windows path-length failure while recording cloud
-  backups is also fixed.
+- **Choose which episode types to save.** Set each provider to save paid or unlocked episodes, free episodes,
+  existing limited unlocks, or episodes whose access type is unknown. Paid series include their free companion
+  episodes. Changing these choices keeps your saved files.
+- **See what's saved.** The Library page groups recorded episodes by provider and series, with saved and pending
+  indicators, file format, and access type. Settings shows saved and pending counts by episode type and lists
+  download issues for each provider.
+- **Find more episodes you can read.** Tapas checks purchase history for series it may have missed. Webtoon
+  checks the account's unlocked list and can save app-only episodes when the signed-in reader returns the complete
+  episode.
+- **Use the main controls on the dashboard.** Each provider card shows its status, time and space estimates, and
+  transfer rate. Change speed or sign out from the card, and edit the shared library folder beside its path.
+- **Save more novel chapters as EPUB.** The exporter handles older font markup and tables, and support logs
+  give more specific reasons when chapter content cannot be saved.
+- **Keep sign-in status current.** The app requests fresh account information when checking whether sign-in
+  or sign-out has completed.
 
 Each is self-contained: nothing else needs installing.
 
