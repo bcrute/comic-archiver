@@ -87,12 +87,25 @@ def suites(prepare=False):
 def static_checks():
     """Lint and security rules over the code, then known vulnerabilities in the installed dependencies."""
     command([sys.executable, '-m', 'ruff', 'check', '--no-cache', 'comic_archive', 'scripts', 'tests'])
-    frozen = subprocess.run(['uv', 'pip', 'freeze', '--python', sys.executable], cwd=ROOT, check=True,
-                            capture_output=True, text=True, timeout=120).stdout
-    # This project itself is installed editable and is not on the package index.
+    # Every distribution this interpreter can import, wherever it is installed: a list made from the
+    # environment's own folder is empty when the packages come from the system's.
     requirements = OUT / 'audit-requirements.txt'
-    requirements.write_text(''.join(line + '\n' for line in frozen.splitlines() if '==' in line and not line.startswith('-e')))
-    command([sys.executable, '-m', 'pip_audit', '--disable-pip', '--no-deps', '--progress-spinner', 'off', '-r', requirements])
+    requirements.write_text(installed_requirements())
+    from scripts.audit_bundle import audit
+    print('Validation stage: dependency audit of ' + str(len(requirements.read_text().splitlines())) + ' distributions', flush=True)
+    audit(requirements, OUT / 'audit.json')
+
+
+def installed_requirements(distributions=None):
+    """name==version for each installed distribution; the audit refuses an empty list and leaves this project out."""
+    from importlib import metadata
+    from scripts.audit_bundle import canonical
+    found = {}
+    for item in metadata.distributions() if distributions is None else distributions:
+        name = item.metadata['Name'] if item.metadata else None
+        if isinstance(name, str) and name:
+            found.setdefault(canonical(name), f'{name}=={item.version}')
+    return ''.join(line + '\n' for _, line in sorted(found.items()))
 
 
 def installed_package():

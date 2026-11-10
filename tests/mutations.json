@@ -7118,5 +7118,37 @@
   "new": "if not isinstance(checks, dict) or set(checks) != MAC_CHECKS:",
   "test_file": "test_release_gate.py",
   "test": "test_mac_download_requires_native_checks_architecture_and_truthful_signing"
+ },
+ {
+  "id": "audit-skipped-distribution-counts-clean",
+  "source": "scripts/audit_bundle.py",
+  "old": " or 'skip_reason' in item",
+  "new": "",
+  "test_file": "test_audit_bundle.py",
+  "test": "test_a_vulnerability_failed_scanner_or_empty_report_stops_packaging"
+ },
+ {
+  "id": "audit-unreported-distribution-counts-clean",
+  "source": "scripts/audit_bundle.py",
+  "old": "            != sorted(canonical(line.split('==', 1)[0]) for line in wanted.splitlines())):",
+  "new": "            != sorted(canonical(str(item.get('name'))) for item in found)):",
+  "test_file": "test_audit_bundle.py",
+  "test": "test_a_vulnerability_failed_scanner_or_empty_report_stops_packaging"
+ },
+ {
+  "id": "validation-audit-list-left-empty",
+  "source": "scripts/validate.py",
+  "old": "found.setdefault(canonical(name), f'{name}=={item.version}')",
+  "new": "pass",
+  "test_file": "test_gate_scripts.py",
+  "test": "test_the_audited_list_names_every_importable_distribution_once"
+ },
+ {
+  "id": "validation-audit-not-run-on-the-list",
+  "source": "scripts/validate.py",
+  "old": "    audit(requirements, OUT / 'audit.json')",
+  "new": "    pass",
+  "test_file": "test_gate_scripts.py",
+  "test": "test_the_dependency_audit_reads_that_list_and_stops_when_it_is_empty"
  }
 ]

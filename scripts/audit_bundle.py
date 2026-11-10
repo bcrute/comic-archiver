@@ -8,6 +8,10 @@ import sys
 import tempfile
 
 
+def canonical(name):
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
 def dependencies(text):
     """The application's own wheel is local; every third-party distribution must have an exact version."""
     result = []
@@ -16,8 +20,7 @@ def dependencies(text):
             continue
         if not re.fullmatch(r'[A-Za-z0-9_.-]+==[A-Za-z0-9_.+!-]+', line):
             raise ValueError('The bundled dependency list contains an unpinned distribution.')
-        name = line.split('==', 1)[0].lower().replace('_', '-').replace('.', '-')
-        if name != 'comic-archive':
+        if canonical(line.split('==', 1)[0]) != 'comic-archive':
             result.append(line)
     if not result:
         raise ValueError('The bundled dependency list is empty.')
@@ -27,11 +30,17 @@ def dependencies(text):
 def audit(requirements, output):
     with tempfile.TemporaryDirectory(prefix='comic-audit-') as temporary:
         selected = Path(temporary) / 'requirements.txt'
-        selected.write_text(dependencies(Path(requirements).read_text('utf-8')), encoding='utf-8')
+        wanted = dependencies(Path(requirements).read_text('utf-8'))
+        selected.write_text(wanted, encoding='utf-8')
         subprocess.run([sys.executable, '-m', 'pip_audit', '--disable-pip', '--no-deps', '--progress-spinner', 'off',
                         '--format', 'json', '--output', str(output), '-r', str(selected)], check=True, timeout=300)
     report = json.loads(Path(output).read_text('utf-8'))
-    if not report.get('dependencies') or any(item.get('vulns') for item in report['dependencies']):
+    found = report.get('dependencies')
+    # A distribution the scanner skipped, or never reported, was not audited: that is not a clean result.
+    if (not isinstance(found, list) or not found
+            or any(not isinstance(item, dict) or item.get('vulns') or 'skip_reason' in item for item in found)
+            or sorted(canonical(str(item.get('name'))) for item in found)
+            != sorted(canonical(line.split('==', 1)[0]) for line in wanted.splitlines())):
         raise RuntimeError('The bundled dependency audit did not pass.')
 
 

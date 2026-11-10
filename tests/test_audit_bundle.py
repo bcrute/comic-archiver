@@ -34,6 +34,19 @@ class BundleAuditTests(unittest.TestCase):
                     else:
                         with self.assertRaises(RuntimeError):
                             audit(requirements, report)
+            # A distribution the scanner skipped, left out or added was not audited as listed.
+            requirements.write_text('comic-archive==0.1.5\nhttpx==0.28.1\nTyping_Extensions==4.15.0\n')
+            clean = [{'name':'httpx', 'version':'0.28.1', 'vulns':[]}, {'name':'typing-extensions', 'version':'4.15.0', 'vulns':[]}]
+            for found, passes in ((clean, True), (clean[:1], False), (clean + [{'name':'other', 'version':'1', 'vulns':[]}], False),
+                                  ([clean[0], {'name':'typing-extensions', 'skip_reason':'not on the index'}], False),
+                                  ([clean[0], 'typing-extensions'], False), ({'httpx':clean[0]}, False)):
+                with self.subTest(found=found), patch('scripts.audit_bundle.subprocess.run',
+                        side_effect=lambda args, found=found, **kwargs: report.write_text(json.dumps({'dependencies':found}))):
+                    if passes:
+                        audit(requirements, report)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            audit(requirements, report)
             with patch('scripts.audit_bundle.subprocess.run', side_effect=subprocess.CalledProcessError(1, ['audit'])):
                 with self.assertRaises(subprocess.CalledProcessError):
                     audit(requirements, report)

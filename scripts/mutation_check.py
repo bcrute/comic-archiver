@@ -14,7 +14,7 @@ while it runs.
 
 An entry: {"id", "source": "comic_archive/x.py", "old": text found exactly once
 in that file, "new": its replacement, "test_file": "test_x.py", "test": name}.
-Exit status 0 only when every change was caught. A change that stops the test
+Exit status 0 only when there was at least one change and every change was caught. A change that stops the test
 from running at all (an import error, a timeout) is CRASHED, not caught.
 """
 import json
@@ -91,7 +91,8 @@ def main():
             print(results[-1], flush=True)
     caught = sum(line.startswith('CAUGHT') for line in results)
     print(f'SUMMARY {caught} of {len(results)} changes caught')
-    return 0 if caught == len(results) else 1
+    # An empty or cut-short list checked nothing, which is not a pass.
+    return 0 if results and caught == len(results) else 1
 
 
 if __name__ == '__main__':
