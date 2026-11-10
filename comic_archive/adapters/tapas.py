@@ -41,6 +41,10 @@ def read_only_source_request(route):
 REPEAT_PAUSES = (2, 6, 20)
 
 
+# What a mistake in this app's own code raises; a browser or connection failure is none of these.
+OWN_FAULTS = (TypeError, AttributeError, NameError, LookupError, AssertionError, ArithmeticError, ImportError)
+
+
 class ReadFailed(Exception):
     """A read the page made that ended without a usable answer.
 
@@ -116,7 +120,8 @@ class BrowserReadTransport:
             raise ArchiveError('Reader response mode must be an explicit boolean.')
         try:
             return self._get(url, max_bytes, reader_json=True) if reader_json is True else self._get(url, max_bytes)
-        except ArchiveError:
+        except (ArchiveError, *OWN_FAULTS):
+            # A mistake in this app is not the network's: it stops the job as itself, where the log can show it.
             raise
         except Exception as error:
             if self.deadline is not None and time.monotonic() >= self.deadline:

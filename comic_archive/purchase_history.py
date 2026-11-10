@@ -116,7 +116,7 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
             try:
                 identity = adapter.purchase_series_identity(row[0])
             except ArchiveError as error:
-                if not isinstance(error, MetadataError) and getattr(error, 'source_http_status', None) != 404:
+                if not isinstance(error, MetadataError) and getattr(error, 'source_http_status', None) not in {404, 410}:
                     raise
                 LOG.info('purchase history: association=unresolved code=history_association_invalid')
                 identity = None

@@ -7302,5 +7302,37 @@
   "new": "                    raise MetadataError('Webtoon returned an unsupported unlocked content type.')\n",
   "test_file": "test_webtoon_paid.py",
   "test": "test_an_unlocked_item_that_is_not_a_webtoon_is_left_out_without_losing_the_list"
+ },
+ {
+  "id": "gone-purchase-link-stops-every-round",
+  "source": "comic_archive/purchase_history.py",
+  "old": "not in {404, 410}:",
+  "new": "not in {404}:",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_purchase_link_that_is_gone_is_set_aside_and_any_other_refusal_still_stops"
+ },
+ {
+  "id": "any-purchase-link-refusal-is-set-aside",
+  "source": "comic_archive/purchase_history.py",
+  "old": "not in {404, 410}:",
+  "new": "not in {400, 404, 410}:",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_purchase_link_that_is_gone_is_set_aside_and_any_other_refusal_still_stops"
+ },
+ {
+  "id": "own-mistake-reported-as-network-failure",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        except (ArchiveError, *OWN_FAULTS):\n",
+  "new": "        except ArchiveError:\n",
+  "test_file": "test_tapas.py",
+  "test": "test_browser_failure_classification_suppresses_private_details"
+ },
+ {
+  "id": "lookup-mistake-reported-as-network-failure",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "NameError, LookupError, AssertionError",
+  "new": "NameError, AssertionError",
+  "test_file": "test_tapas.py",
+  "test": "test_browser_failure_classification_suppresses_private_details"
  }
 ]

@@ -158,6 +158,23 @@ class PurchaseHistoryTests(unittest.TestCase):
             self.assertIs(refused.exception, error)
             self.assertTrue(purchase_history.pending(inventory))
 
+    def test_a_purchase_link_that_is_gone_is_set_aside_and_any_other_refusal_still_stops(self):
+        for status in (404, 410):
+            error = ArchiveError('Synthetic source refusal')
+            error.source_http_status = status
+            self.root = self.root.parent / f'Library {status}'
+            self.adapter.purchase_history_page.return_value = self.page([self.older], ['a'], boundary=True)
+            self.adapter.purchase_series_identity.side_effect = error
+            with self.subTest(status=status), self.store() as inventory:
+                purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+                self.assertEqual([row[0] for row in inventory.db.execute('SELECT resolved FROM purchase_history_links')], [-1])
+        error = ArchiveError('Synthetic source refusal')
+        error.source_http_status = 400
+        self.root = self.root.parent / 'Library 400'
+        self.adapter.purchase_series_identity.side_effect = error
+        with self.store() as inventory, self.assertRaises(ArchiveError):
+            purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+
     def test_changed_response_markup_is_partial_without_blocking_normal_discovery(self):
         self.adapter.purchase_history_page.side_effect = MetadataError('PRIVATE response shape')
         with self.store() as inventory:

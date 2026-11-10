@@ -77,6 +77,11 @@ class TapasTests(unittest.TestCase):
             with self.assertRaises(NetworkUnavailable) as caught:transport.get('https://tapas.io/episode/81')
             self.assertEqual(caught.exception.browser_failure_code,code)
             self.assertNotIn('PRIVATE',str(caught.exception))
+        # A mistake in the app's own code is not reported as the network's.
+        for fault in (TypeError('own mistake'),AttributeError('own mistake'),KeyError('own mistake')):
+            transport._get=Mock(side_effect=fault)
+            with self.assertRaises(type(fault)) as caught:transport.get('https://tapas.io/episode/81')
+            self.assertIs(caught.exception,fault)
 
     @patch('comic_archive.adapters.tapas.Transport')
     def test_the_log_names_a_browser_failure_and_only_the_built_in_engines_own_message(self,assets):
