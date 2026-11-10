@@ -609,6 +609,34 @@ class JobTests(unittest.TestCase):
             self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1,'failed':1})
 
     @patch('builtins.print')
+    def test_starts_cut_short_do_not_count_towards_setting_an_episode_aside(self,output):
+        from comic_archive.cancellation import RunCancelled
+        from comic_archive.errors import NetworkUnavailable
+        capture=self.adapter.capture_automatic
+        ends=[RunCancelled('stopped'),RunLimit('limit'),NetworkUnavailable('offline'),RunCancelled('stopped')]
+        def cut_short(url):
+            if url.endswith('/82') and ends:raise ends.pop(0)
+            return capture(url)
+        def row():
+            with Inventory(self.root,read_only=True) as inventory:
+                return tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='82'").fetchone())
+        self.adapter.capture_automatic=cut_short
+        for code in ('cancelled','run_limit','network_unavailable','cancelled'):
+            archive_discovered(self.adapter,self.root,self.report)
+            self.assertEqual(row(),('queued',code,0))
+        # Its first real failure is its first: it is tried again, not set aside.
+        def broken(url):
+            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            return capture(url)
+        self.adapter.capture_automatic=broken
+        with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report)
+        self.assertEqual(row(),('failed','job_failed',1))
+        with Inventory(self.root,read_only=True) as inventory:
+            self.assertIn('82',[item['id'] for item in inventory.pending()])
+        self.adapter.capture_automatic=capture
+        self.assertIn('82',archive_discovered(self.adapter,self.root,self.report)['archived_episode_ids'])
+
+    @patch('builtins.print')
     def test_a_job_waits_for_a_short_library_writer_instead_of_failing_before_its_run(self,output):
         held=threading.Event();release=threading.Event()
         def writer():

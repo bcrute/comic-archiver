@@ -327,7 +327,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             raise RunLimit("The configured free disk reserve was reached; its queue is retained.")
                         key = current["id"]
                         archived_series=None
-                        inventory.mark(key, "downloading", attempted=True)
+                        inventory.mark(key, "downloading")
                         print(f"Archiving episode {key}; {len(summary['archived_episode_ids'])} episodes completed in this run.", flush=True)
                         try:
                             if free_only:
@@ -521,7 +521,10 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 # A refusal is the site's, not the episode's: it is not counted towards parking the episode.
                 code = ("interrupted" if isinstance(error, KeyboardInterrupt)
                         else "source_refused" if summary.get('pause_reason') == 'source_refused' else "job_failed")
-                inventory.mark(current["id"], "queued" if code == "interrupted" else "failed", code)
+                # Only a failure of the episode's own counts: a start that Pause, a limit, an outage or a refusal
+                # cut short says nothing against the episode.
+                inventory.mark(current["id"], "queued" if code == "interrupted" else "failed", code,
+                               attempted=code == "job_failed")
                 print(f"Episode {current['id']} of series {current['series_id']}: {code}.", flush=True)
             print(f'This step stopped: {describe(error)}.', flush=True)
             checkpoint("interrupted" if isinstance(error, KeyboardInterrupt) else "paused")

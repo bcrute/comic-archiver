@@ -146,6 +146,17 @@ class Inventory:
                         logging.getLogger('comic_archive.download').info(
                             'inventory recovery: reason=webtoon_product_flag retry_candidates=%s budget=%s once=true',
                             repaired, MAX_FAILED_ATTEMPTS)
+                # Earlier versions counted every start. Starts that did not end in a failure of the episode's
+                # own are forgotten once, so one later failure does not set the episode aside.
+                if not self.db.execute("SELECT 1 FROM settings WHERE key='attempts_count_failures'").fetchone():
+                    # Never-tried Tappytoon seeds are still told from tried ones by this count until that
+                    # one-time correction has run.
+                    seeds = ('' if self.db.execute(
+                        "SELECT 1 FROM settings WHERE key='tappytoon_entitlement_discovery_enabled'").fetchone()
+                        else " AND access_state!='tappytoon_readable'")
+                    self.db.execute("UPDATE episodes SET attempts=0 WHERE attempts>0 "
+                                    "AND NOT (status='failed' AND error_code='job_failed')" + seeds)
+                    self.db.execute("INSERT INTO settings VALUES ('attempts_count_failures','1')")
                 self.db.commit()
             except BaseException:
                 self.close()
@@ -579,10 +590,15 @@ class Inventory:
             retried = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
                 "WHERE status='unsupported' AND error_code IN ('reader_manifest_incomplete','novel_manifest_incomplete') "
                 'AND access_state IN ' + sites.sql_list(sites.ACCESS)).rowcount
+            # The check counts an episode set aside after repeated failures as missing, so Continue must be
+            # able to clear it: each gets one new bounded cycle, or the same hold would come straight back.
+            failed = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
+                "WHERE status='failed' AND error_code='job_failed' AND attempts>=? "
+                'AND access_state IN ' + sites.sql_list(sites.ACCESS), (MAX_FAILED_ATTEMPTS,)).rowcount
         logging.getLogger('comic_archive.download').info(
-            'completion retry requested: series_lists=%s incomplete_manifests=%s scope=recorded_gaps saved_files_retained=true',
-            len(keys), retried)
-        return len(keys), retried
+            'completion retry requested: series_lists=%s incomplete_manifests=%s set_aside_failures=%s '
+            'scope=recorded_gaps saved_files_retained=true', len(keys), retried, failed)
+        return len(keys), retried + failed
 
     def scan_gaps(self):
         # Read-only dashboards can open a pre-upgrade inventory while its old

@@ -7166,5 +7166,69 @@
   "new": "                    pass",
   "test_file": "test_novels.py",
   "test": "test_epub_with_correct_hashes_but_altered_structure_or_metadata_fails_verification"
+ },
+ {
+  "id": "episode-start-counted-as-a-failure",
+  "source": "comic_archive/jobs.py",
+  "old": "                        inventory.mark(key, \"downloading\")\n                        print(f\"Archiving episode",
+  "new": "                        inventory.mark(key, \"downloading\", attempted=True)\n                        print(f\"Archiving episode",
+  "test_file": "test_jobs.py",
+  "test": "test_starts_cut_short_do_not_count_towards_setting_an_episode_aside"
+ },
+ {
+  "id": "episode-failure-not-counted",
+  "source": "comic_archive/jobs.py",
+  "old": "attempted=code == \"job_failed\")",
+  "new": "attempted=False)",
+  "test_file": "test_jobs.py",
+  "test": "test_an_episode_that_keeps_failing_is_tried_after_the_others_and_then_held"
+ },
+ {
+  "id": "old-start-counts-kept",
+  "source": "comic_archive/inventory.py",
+  "old": "                    self.db.execute(\"UPDATE episodes SET attempts=0 WHERE attempts>0 \"",
+  "new": "                    self.db.execute(\"UPDATE episodes SET attempts=attempts WHERE attempts>0 \"",
+  "test_file": "test_inventory.py",
+  "test": "test_starts_counted_by_earlier_versions_are_forgotten_once_and_failures_kept"
+ },
+ {
+  "id": "old-failure-counts-forgotten",
+  "source": "comic_archive/inventory.py",
+  "old": "                                    \"AND NOT (status='failed' AND error_code='job_failed')\" + seeds)",
+  "new": "                                    + seeds)",
+  "test_file": "test_inventory.py",
+  "test": "test_starts_counted_by_earlier_versions_are_forgotten_once_and_failures_kept"
+ },
+ {
+  "id": "old-start-counts-forgotten-every-open",
+  "source": "comic_archive/inventory.py",
+  "old": "                    self.db.execute(\"INSERT INTO settings VALUES ('attempts_count_failures','1')\")",
+  "new": "                    pass",
+  "test_file": "test_inventory.py",
+  "test": "test_starts_counted_by_earlier_versions_are_forgotten_once_and_failures_kept"
+ },
+ {
+  "id": "continue-leaves-set-aside-failures",
+  "source": "comic_archive/inventory.py",
+  "old": "        return len(keys), retried + failed\n",
+  "new": "        return len(keys), retried\n",
+  "test_file": "test_inventory.py",
+  "test": "test_completion_retry_gives_episodes_set_aside_after_failures_one_more_cycle"
+ },
+ {
+  "id": "continue-requeues-failures-still-being-tried",
+  "source": "comic_archive/inventory.py",
+  "old": "\"WHERE status='failed' AND error_code='job_failed' AND attempts>=? \"\n                'AND access_state IN ' + sites.sql_list(sites.ACCESS), (MAX_FAILED_ATTEMPTS,)).rowcount\n        logging",
+  "new": "\"WHERE status='failed' AND error_code='job_failed' AND attempts>=? \"\n                'AND access_state IN ' + sites.sql_list(sites.ACCESS), (0,)).rowcount\n        logging",
+  "test_file": "test_inventory.py",
+  "test": "test_completion_retry_gives_episodes_set_aside_after_failures_one_more_cycle"
+ },
+ {
+  "id": "continue-requeues-episodes-without-access",
+  "source": "comic_archive/inventory.py",
+  "old": "\"WHERE status='failed' AND error_code='job_failed' AND attempts>=? \"\n                'AND access_state IN ' + sites.sql_list(sites.ACCESS), (MAX_FAILED_ATTEMPTS,)).rowcount\n        logging",
+  "new": "\"WHERE status='failed' AND error_code='job_failed' AND attempts>=? \"\n                , (MAX_FAILED_ATTEMPTS,)).rowcount\n        logging",
+  "test_file": "test_inventory.py",
+  "test": "test_completion_retry_gives_episodes_set_aside_after_failures_one_more_cycle"
  }
 ]

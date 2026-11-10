@@ -72,6 +72,26 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(tuple(row), ('archived', 'Series/003.cbz', 'saved'))
             self.assertEqual(path.read_bytes(), b'saved archive fixture')
 
+    def test_completion_retry_gives_episodes_set_aside_after_failures_one_more_cycle(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [episode('81'), episode('82', 2), episode('83', 3),
+                                               episode('84', 4, 'unavailable_or_unverified')], 'fixture')
+            for key, times in (('81', MAX_FAILED_ATTEMPTS), ('82', MAX_FAILED_ATTEMPTS - 1), ('84', MAX_FAILED_ATTEMPTS)):
+                for _ in range(times):
+                    inventory.mark(key, 'failed', 'job_failed', attempted=True)
+            inventory.mark('83', 'failed', 'source_refused')
+            inventory.db.execute("UPDATE episodes SET attempts=? WHERE id='83'", (MAX_FAILED_ATTEMPTS,))
+            self.assertNotIn('81', [row['id'] for row in inventory.pending()])
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
+            rows = {row['id']: (row['status'], row['error_code'], row['attempts'])
+                    for row in inventory.db.execute('SELECT * FROM episodes')}
+            # Only the one that had used its tries; one still being tried, a refusal and one without access stay.
+            self.assertEqual(rows, {'81': ('queued', None, 0), '82': ('failed', 'job_failed', MAX_FAILED_ATTEMPTS - 1),
+                                    '83': ('failed', 'source_refused', MAX_FAILED_ATTEMPTS),
+                                    '84': ('failed', 'job_failed', MAX_FAILED_ATTEMPTS)})
+            self.assertEqual([row['id'] for row in inventory.pending()][0], '81')
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 0))
+
     def test_unchecked_series_precede_old_refusals_without_resetting_scan_or_reader_checkpoints(self):
         with Inventory(self.root) as inventory:
             for key in ('1', '2', '3', '90', '91', '92'):
@@ -456,6 +476,29 @@ class InventoryTests(unittest.TestCase):
             self.assertNotIn('81', [row['id'] for row in inventory.pending()])
             self.assertEqual(tuple(inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()),
                              ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
+
+    def test_starts_counted_by_earlier_versions_are_forgotten_once_and_failures_kept(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode(str(key), key - 80, access) for key, access in (
+                (81, 'tapas_free'), (82, 'tapas_free'), (83, 'tapas_free'), (84, 'tapas_free'), (85, 'tappytoon_readable'))],
+                'subscribed')
+            for key, status, code, attempts in (('81', 'queued', 'interrupted', 5), ('82', 'failed', 'job_failed', 2),
+                                                ('83', 'archived', None, 4), ('84', 'failed', 'source_refused', 3),
+                                                ('85', 'queued', None, 1)):
+                inventory.db.execute('UPDATE episodes SET status=?,error_code=?,attempts=? WHERE id=?', (status, code, attempts, key))
+            inventory.db.execute("DELETE FROM settings WHERE key IN ('attempts_count_failures','tappytoon_entitlement_discovery_enabled')")
+            inventory.db.commit()
+        def counts():
+            return dict(inventory.db.execute('SELECT id,attempts FROM episodes'))
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(counts(), {'81': 5, '82': 2, '83': 4, '84': 3, '85': 1})
+        with Inventory(self.root) as inventory:
+            # A tried Tappytoon seed keeps its count until the correction that reads it has run.
+            self.assertEqual(counts(), {'81': 0, '82': 2, '83': 0, '84': 0, '85': 1})
+            inventory.db.execute('UPDATE episodes SET attempts=7')
+            inventory.db.commit()
+        with Inventory(self.root) as inventory:
+            self.assertEqual(set(counts().values()), {7})
 
     def test_image_structure_upgrade_rolls_back_the_requeue_if_its_marker_cannot_be_saved(self):
         with Inventory(self.root) as inventory:
