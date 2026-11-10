@@ -7278,5 +7278,29 @@
   "new": "value = json.loads(path.read_text())",
   "test_file": "test_network.py",
   "test": "test_on_windows_settings_being_replaced_are_read_once_the_new_file_is_in_place"
+ },
+ {
+  "id": "webtoon-removed-episode-stops-the-run",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "raise AccessDenied('Webtoon no longer shows this episode.')",
+  "new": "raise MetadataError('Webtoon no longer shows this episode.')",
+  "test_file": "test_webtoon.py",
+  "test": "test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops"
+ },
+ {
+  "id": "webtoon-empty-episode-page-stops-the-run",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "        if not pages:\n",
+  "new": "        if False:\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops"
+ },
+ {
+  "id": "webtoon-other-unlocked-item-loses-the-list",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "                    skipped += 1\n                    continue\n",
+  "new": "                    raise MetadataError('Webtoon returned an unsupported unlocked content type.')\n",
+  "test_file": "test_webtoon_paid.py",
+  "test": "test_an_unlocked_item_that_is_not_a_webtoon_is_left_out_without_losing_the_list"
  }
 ]

@@ -346,6 +346,24 @@ class WebtoonTests(unittest.TestCase):
                 adapter.capture_automatic(address)
         self.assertEqual(client.calls, [])
 
+    def test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops(self, sleep):
+        url = HOME + viewer_link('fantasy', 'sample-series', 7, 1)
+        empty = viewer_page('fantasy', 'sample-series', 7, 1, [])
+        adapter, _ = reader({url: empty}, SignedIn)
+        with self.assertRaises(AccessDenied):
+            adapter.capture_automatic(url)
+        # An empty page that is not the episode's own is a fault, not a locked episode.
+        for name, page in (('another episode', empty.replace(b'episode_no=1"', b'episode_no=2"', 1)),
+                           ('no title', empty.replace(b'class="subj_episode"', b'class="other"'))):
+            adapter, _ = reader({url: page}, SignedIn)
+            with self.subTest(name), self.assertRaises(MetadataError):
+                adapter.capture_automatic(url)
+        # Episode 3 is not in the series' list: Webtoon took it down after it was queued.
+        adapter, _ = reader(series_pages(), SignedIn)
+        with self.assertRaises(AccessDenied):
+            adapter.episode_url('7000003')
+        self.assertTrue(adapter.episode_url('7000002').endswith('episode_no=2'))
+
     def test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once(self, sleep):
         self.assertIs(worker.reader(sites.named('webtoon')), WebtoonAdapter)
         adapter, _ = reader({})

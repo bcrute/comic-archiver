@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from .. import sites
-from ..errors import AuthenticationError, MetadataError, UnsupportedContent
+from ..errors import AccessDenied, AuthenticationError, MetadataError
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
 from ..transport import ExpiredAsset, Transport, asset_url
@@ -229,11 +229,13 @@ class WebtoonAdapter(SiteReader):
     def _mobile_titles(self, refresh=False, on_page=None):
         if self._mobile_titles_snapshot is None or refresh:
             self._mobile_titles_snapshot = None
-            found, batch = {}, []
+            found, batch, skipped = {}, [], 0
             for row in self._mobile.listed('myUnlockedTitleProductsV1.json', 'unlockedTitleProducts'):
                 title = row.get('title')
                 if row.get('contentType') != 'WEBTOON':
-                    raise UnsupportedContent('Webtoon returned an unsupported unlocked content type.')
+                    # Something else the account unlocked: not ours to save, and no reason to lose the rest of the list.
+                    skipped += 1
+                    continue
                 if not isinstance(title, str) or not title.strip() or len(title) > 500:
                     raise MetadataError('Webtoon returned an unlocked title without its name.')
                 key = series_key(row['titleNo'], False)
@@ -245,6 +247,9 @@ class WebtoonAdapter(SiteReader):
                     on_page({'authenticated': True, 'membership_verified': True, 'scope': 'unlocked',
                              'complete': False, 'boundary_observed': False, 'series': batch})
                     batch = []
+            if skipped:
+                logging.getLogger('comic_archive.download').info(
+                    'Webtoon unlocked list: skipped=%d reason=content_type_unsupported', skipped)
             self._mobile_titles_snapshot = found
         return self._mobile_titles_snapshot
 
@@ -590,7 +595,8 @@ class WebtoonAdapter(SiteReader):
             manifest = self._capture_mobile(key)
             self._pending_mobile = (manifest, time.monotonic())
         if key not in self.viewers:
-            raise MetadataError('Webtoon no longer shows this episode.')
+            # Taken down or moved since it was queued: set aside like any episode the account cannot read.
+            raise AccessDenied('Webtoon no longer shows this episode.')
         return self.viewers[key]
 
     def capture_automatic(self, url):
@@ -634,6 +640,9 @@ class WebtoonAdapter(SiteReader):
         if (not series_title.strip() or not title or not series_link.startswith(HOME + '/')
                 or LIST.fullmatch(urlsplit(series_link).path) is None or numbers(series_link) != (title_no, None)):
             raise MetadataError('Webtoon showed an episode page without its titles.')
+        if not pages:
+            # The right episode's page, with nothing to read on it for this account.
+            raise AccessDenied('Webtoon showed this episode without its pages.')
         series = Series(self.library_id(key, match[2]), series_title.strip(), source_url=original(series_link) + f'?title_no={title_no}',
                         source=SITE.key, platform_id=key, slug=match[2])
         episode = Episode(episode_key(key, episode_no), series.id, title, episode_no, pages, SITE.free, url)

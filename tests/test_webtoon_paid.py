@@ -169,6 +169,21 @@ class PaidWebtoonTests(unittest.TestCase):
         self.assertEqual(site.content_calls(), [])
         self.assertEqual(site.asset_calls(), [])
 
+    def test_an_unlocked_item_that_is_not_a_webtoon_is_left_out_without_losing_the_list(self):
+        reader, site = adapter()
+        site.titles = [title(8) | {'contentType': 'SYNTHETIC_OTHER', 'title': 'PRIVATE_OTHER'}, title()]
+        with self.assertLogs('comic_archive.download', level='INFO') as captured:
+            unlocked = reader.inspect_library(category='unlocked')
+        self.assertEqual(unlocked['series'], [{'source_series_id': '7', 'title': 'Sample Series'}])
+        self.assertTrue(unlocked['complete'])
+        logs = '\n'.join(captured.output)
+        self.assertIn('skipped=1 reason=content_type_unsupported', logs)
+        self.assertNotIn('PRIVATE', logs)
+        # A webtoon whose row is wrong still stops the list.
+        site.titles = [title() | {'title': ''}]
+        with self.assertRaises(MetadataError):
+            reader.inspect_library(category='unlocked')
+
     def test_pagination_observes_a_real_boundary_and_rejects_repeated_entries(self):
         reader, site = adapter()
         site.titles = [title(i) for i in range(1, PAGE_SIZE + 2)]
