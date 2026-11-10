@@ -347,6 +347,10 @@ def verify_epub(z, meta):
                         raise ValueError
                 elif tag == 'img' and (key == 'alt' or key == 'src' and value in names):
                     pass
+                elif key in TABLE_SPANS.get(tag, ()):
+                    # What the chapter's own check lets through, a saved chapter may hold.
+                    if table_span(key, value) != value:
+                        raise ValueError
                 elif (key, value) not in {('id', 'chapter'), ('href', 'chapter.xhtml'),
                         ('{http://www.w3.org/XML/1998/namespace}lang', 'und'),
                         ('{http://www.idpf.org/2007/ops}type', 'toc')}:

@@ -138,6 +138,19 @@ class NovelTests(unittest.TestCase):
         self.assertIn('colspan="2"', text)
         self.assertIn('rowspan="0"', text)
         validate_fragment(text)
+        # The saved chapter passes the same check that reads it back, spans included.
+        chapter = Episode('81', self.adapter.series.id, 'Chapter', 1, (), 'tapas_free',
+                          'https://tapas.io/episode/81', content_type='novel', text_html=text)
+        store = Store(self.root)
+        try:
+            store.archive(Manifest(self.adapter.series, (chapter,)), self.adapter, progress=lambda _: None)
+        finally:
+            store.close()
+        self.assertEqual(verify(self.root, decode_images=True), [])
+        with zipfile.ZipFile(next(self.root.rglob('*.epub'))) as packet:
+            saved = packet.read('EPUB/chapter.xhtml').decode()
+        for span in ('<col span="2"', 'colspan="2"', 'rowspan="0"'):
+            self.assertIn(span, saved)
         for value in ('-1', '1001', '1; color:red', '', None):
             markup = body.replace('colspan="02"', 'colspan' if value is None else f'colspan="{value}"')
             with self.subTest(value=value):
@@ -576,7 +589,12 @@ class NovelTests(unittest.TestCase):
                  'wrong text size': (entries, meta | {'text_size': 1}, False),
                  'script in nav': (*edited('EPUB/nav.xhtml', b'</nav>', b'<script></script></nav>'), False),
                  'unsafe style in nav': (*edited('EPUB/nav.xhtml', b'<li>', b'<li style="color: red">'), False),
-                 'unknown attribute in nav': (*edited('EPUB/nav.xhtml', b'<li>', b'<li onclick="x()">'), False)}
+                 'unknown attribute in nav': (*edited('EPUB/nav.xhtml', b'<li>', b'<li onclick="x()">'), False),
+                 'span on a tag that takes none': (*edited('EPUB/nav.xhtml', b'<li>', b'<li colspan="2">'), False),
+                 'span not written as a plain number': (*edited(
+                     'EPUB/nav.xhtml', b'</nav>', b'<table><tr><td colspan="02">x</td></tr></table></nav>'), False)}
+        self.assertEqual(self.verify_package(*edited(
+            'EPUB/nav.xhtml', b'</nav>', b'<table><tr><td colspan="2">x</td></tr></table></nav>')), [])
         for name, (package, metadata, deflate) in cases.items():
             with self.subTest(name):
                 self.assertEqual(self.verify_package(package, metadata, deflate), corrupt)

@@ -7150,5 +7150,21 @@
   "new": "    pass",
   "test_file": "test_gate_scripts.py",
   "test": "test_the_dependency_audit_reads_that_list_and_stops_when_it_is_empty"
+ },
+ {
+  "id": "novel-saved-table-spans-refused",
+  "source": "comic_archive/novels.py",
+  "old": "                elif key in TABLE_SPANS.get(tag, ()):",
+  "new": "                elif False:",
+  "test_file": "test_novels.py",
+  "test": "test_table_spans_survive_sanitization_and_invalid_spans_hold"
+ },
+ {
+  "id": "novel-saved-table-span-value-unchecked",
+  "source": "comic_archive/novels.py",
+  "old": "                    if table_span(key, value) != value:\n                        raise ValueError",
+  "new": "                    pass",
+  "test_file": "test_novels.py",
+  "test": "test_epub_with_correct_hashes_but_altered_structure_or_metadata_fails_verification"
  }
 ]
