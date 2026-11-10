@@ -7462,5 +7462,13 @@
   "new": "                if False:\n",
   "test_file": "test_cloud.py",
   "test": "test_nothing_is_deleted_here_for_a_connection_that_is_off_or_not_agreed_to"
+ },
+ {
+  "id": "standard-folder-connections-trusted-unopened",
+  "source": "comic_archive/cloud_trust.py",
+  "old": "    roots = [app_runtime.saved_root(), *app_runtime.opened_libraries()]\n",
+  "new": "    roots = [app_runtime.default_root(), app_runtime.saved_root(), *app_runtime.opened_libraries()]\n",
+  "test_file": "test_cloud_trust.py",
+  "test": "test_a_library_put_in_the_standard_folder_before_the_app_first_ran_is_asked_about"
  }
 ]

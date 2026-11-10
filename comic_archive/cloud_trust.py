@@ -54,14 +54,14 @@ def _write(folder, digests):
 
 def _opened():
     """The connections in every library folder this computer opened before connections were noted: each was set
-    up by the person, or used by them, before this version."""
+    up by the person, or used by them, before this version.
+
+    Only folders the app itself noted as opened count. The standard folder is one of them once it was opened;
+    a library put there before the app first ran was brought, like any other.
+    """
     from . import app_runtime, sites
     from .cloud import settings
     roots = [app_runtime.saved_root(), *app_runtime.opened_libraries()]
-    try:
-        roots.insert(0, app_runtime.default_root())
-    except ArchiveError:
-        pass
     found = set()
     for root in dict.fromkeys(root for root in roots if root is not None):
         for site in sites.SITES:

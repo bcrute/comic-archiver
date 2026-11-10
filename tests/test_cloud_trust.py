@@ -144,6 +144,17 @@ class CloudTrustTests(unittest.TestCase):
         self.record.write_text(json.dumps({'connections': ['A' * 64, 7]}))
         self.assertFalse(self.b2(roots[0])['confirmed'])
 
+    def test_a_library_put_in_the_standard_folder_before_the_app_first_ran_is_asked_about(self):
+        brought = self.library(self.home / 'Comic Archiver')
+        self.assertEqual(app_runtime.default_root(), self.home / 'Comic Archiver')
+        self.assertFalse(self.record.exists())
+        cloud_runtime.note_connections()  # The first start: nothing was opened here before.
+        self.assertEqual(json.loads(self.record.read_text())['connections'], [])
+        self.assertFalse(self.b2(brought)['confirmed'])
+        app_runtime.remember_library(self.home / 'Comic Archiver')
+        cloud_runtime.note_connections()
+        self.assertFalse(self.b2(brought)['confirmed'])
+
     def test_android_and_the_command_line_tools_use_every_connection_as_before(self):
         root = self.library(self.home / 'Downloads/Comic Archiver')
         with patch.object(cloud_runtime, '_android', True):
