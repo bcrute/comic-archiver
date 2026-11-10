@@ -21,7 +21,7 @@ class SharedSettingsTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.top = Path(temporary.name)
-        self.tapas, self.other = self.top / 'Library', self.top / 'Other/Library'
+        self.tapas, self.other = self.top / 'Library', self.top / 'Webtoon/Library'
         self.store = self.top / '.comic-shared'
         FakeTransfer.files = {}; FakeTransfer.fail_provider = None; FakeTransfer.fail_delete = False; FakeTransfer.fail_upload = False
         transfer = patch.object(cloud, 'Transfer', FakeTransfer); transfer.start(); self.addCleanup(transfer.stop)
@@ -306,11 +306,56 @@ class SharedSettingsTests(unittest.TestCase):
     def test_a_library_folder_moved_by_hand_uses_the_shared_settings_beside_it_now(self):
         shared.link(self.tapas, self.store)
         shared.choose_cloud(self.tapas, 'separate')
-        elsewhere = self.top / 'Moved/.comic-shared'
-        shared.link(self.tapas, elsewhere)
-        self.assertEqual((shared.folder(self.tapas), shared.cloud_mode(self.tapas)), (elsewhere, 'separate'))
-        shared.link(self.tapas, elsewhere)
-        self.assertEqual(shared.folder(self.tapas), elsewhere)
+        moved = self.top / 'Moved'; moved.mkdir(); self.tapas.rename(moved / 'Library')
+        self.assertNotIn(self.store, shared.beside(moved / 'Library'))
+        library, elsewhere = moved / 'Library', moved / '.comic-shared'
+        # Until the app links it where it is now, the folder its link still names is not used.
+        self.assertEqual((shared.folder(library), shared.cloud_mode(library)), (None, None))
+        shared.link(library, elsewhere)
+        self.assertEqual((shared.folder(library), shared.cloud_mode(library)), (elsewhere, 'separate'))
+        shared.link(library, elsewhere)
+        self.assertEqual(shared.folder(library), elsewhere)
+
+    def test_a_link_naming_a_folder_that_is_not_beside_the_library_is_never_followed(self):
+        # A library can come from anywhere, and its link is a file inside it.
+        outside = self.top / 'outside/.comic-shared'
+        network.configure(self.tapas, True)
+        (outside / 'cloud').mkdir(parents=True)
+        (outside / 'network-policy.json').write_text(json.dumps({'schema_version': 1, 'wifi_only': False}))
+        link = self.tapas / shared.LINK
+        link.write_text(json.dumps({'schema_version': 1, 'folder': str(outside), 'cloud': 'shared'}))
+        self.assertEqual((shared.folder(self.tapas), shared.cloud_folder(self.tapas), shared.cloud_mode(self.tapas)),
+                         (None, None, None))
+        self.assertTrue(network.policy(self.tapas)['wifi_only'])
+        self.assertEqual(cloud.connection_folder(self.tapas), self.own(self.tapas))
+        with self.assertRaises(ArchiveError):
+            shared.choose_cloud(self.tapas, 'separate')
+        with self.assertRaises(ArchiveError):
+            shared.link(self.tapas, outside)
+        # A folder that is not a site's is not looked past: the folder above the library folder is not the app's.
+        stray = self.top / 'Stray/Library'
+        self.assertEqual(shared.beside(stray), (self.top / 'Stray/.comic-shared',))
+        with self.assertRaises(ArchiveError):
+            shared.link(stray, self.store)
+        self.assertEqual(list((outside / 'cloud').iterdir()), [])
+        # Both places the app itself puts shared settings are accepted: beside the library, and one folder up.
+        for library in (self.tapas, self.other):
+            shared.link(library, self.store)
+            self.assertEqual(shared.folder(library), self.store)
+
+    def test_a_test_receipt_that_cannot_be_read_does_not_keep_a_moved_library_from_being_linked(self):
+        original = self.top / 'Original'
+        library, store = original / 'Library', original / '.comic-shared'
+        shared.link(library, store)
+        config = self.config(store / 'cloud')
+        cloud.configure_target(library, 'b2', config=config)
+        receipts = library / '.archive-state/cloud/tests'; receipts.mkdir(parents=True, exist_ok=True)
+        (receipts / 'broken.json').write_text('not json')
+        moved = self.top / 'Moved'; original.rename(moved)
+        library, store = moved / 'Library', moved / '.comic-shared'
+        shared.link(library, store)
+        self.assertEqual(shared.folder(library), store)
+        self.assertEqual(cloud._config(cloud.settings(library)['targets']['b2']['config']), store / 'cloud' / config.name)
 
     def test_unreadable_or_symlinked_shared_settings_are_refused_and_nothing_is_guessed(self):
         shared.link(self.tapas, self.store)

@@ -48,7 +48,10 @@ def relocate(library, previous, shared):
                     _write(path, changed)
     tests = safe_root(library / '.archive-state/cloud/tests')
     for path in tests.glob('*.json'):
-        value = _json(path)
+        try:
+            value = _json(path)
+        except ArchiveError:
+            continue  # A receipt that cannot be read names no connection to repair, and must not hold up the rest.
         if isinstance(value.get('connection'), dict):
             changed = value | {'connection': connection(value['connection'])}
             if changed != value:

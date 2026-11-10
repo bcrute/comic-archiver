@@ -79,16 +79,20 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(list(cloud.iterdir()), [])
         self.assertEqual(list(self.root.iterdir()), [self.root / '.comic-shared'])  # Nothing is made in its place.
 
-    def test_a_library_linked_to_shared_settings_elsewhere_has_those_connections_forgotten(self):
+    def test_a_librarys_link_cannot_send_uninstalling_to_a_folder_elsewhere(self):
+        # The link is a file inside the library, and a library can come from anywhere: only the shared
+        # settings in the library folder itself are the app's to clear.
         place = self.root / 'Webtoon'
         sign_in(place, sites.SITES[1])
-        moved = self.home / 'moved/.comic-shared'
-        connection(moved / 'cloud')
+        elsewhere = self.home / 'elsewhere/.comic-shared'
+        connection(elsewhere / 'cloud')
+        connection(self.root / '.comic-shared/cloud')
         link = place / 'Library/.archive-state/shared.json'
         link.parent.mkdir(parents=True)
-        link.write_text(json.dumps({'schema_version': 1, 'folder': str(moved), 'cloud': 'shared'}))
+        link.write_text(json.dumps({'schema_version': 1, 'folder': str(elsewhere), 'cloud': 'shared'}))
         self.assertTrue(uninstall.forget_all())
-        self.assertFalse((moved / 'cloud/connection-1.conf').exists())
+        self.assertTrue((elsewhere / 'cloud/connection-1.conf').exists())
+        self.assertFalse((self.root / '.comic-shared/cloud/connection-1.conf').exists())
         link.write_text('unreadable')
         self.assertTrue(uninstall.forget_all())  # Its own sign-in is still forgotten.
 

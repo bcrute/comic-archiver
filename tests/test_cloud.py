@@ -563,7 +563,7 @@ class CloudTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):cloud.settings(self.root)
 
     def test_a_retired_connection_among_the_shared_ones_survives_another_librarys_change(self):
-        other, store = self.base/'Other/Library', self.base/'.comic-shared'
+        other, store = self.base/'Webtoon/Library', self.base/'.comic-shared'
         for library in (self.root, other):shared.link(library, store)
         self.configured();path = store/'cloud/targets.json'
         _, google = self.retired(path)

@@ -37,6 +37,32 @@ def _read(library):
         raise ArchiveError('Shared settings are unreadable; saved episodes are kept.') from None
 
 
+def beside(library):
+    """Where a library's shared settings can be: in the library folder itself.
+
+    That is the folder that holds the library, for the first site's library from before sites had folders
+    of their own, or the one above it when the library is in a site's folder. Nowhere else is the app's.
+    """
+    from .sites import SITES
+    from .state_paths import private_path
+    library = safe_root(library)
+    places = [library.parent]
+    if library.parent.name in {site.name for site in SITES}:
+        places.append(library.parent.parent)
+    return tuple(private_path(place, 'shared') for place in places)
+
+
+def _linked(library):
+    """The link, while the folder it names is beside this library.
+
+    The link is a file inside the library, and a library can come from anywhere. A folder named elsewhere
+    is never read, written or cleared on its word: until the app links the library again where it is now,
+    the library counts as not linked and keeps its own settings.
+    """
+    value = _read(library)
+    return value if value is not None and Path(value['folder']) in beside(library) else None
+
+
 def _write(library, value):
     path = safe_root(library) / LINK
     directory(path.parent).chmod(0o700)
@@ -46,19 +72,19 @@ def _write(library, value):
 
 def folder(library):
     """The shared settings folder this library is linked to, or None."""
-    value = _read(library)
+    value = _linked(library)
     return safe_root(value['folder']) if value else None
 
 
 def cloud_folder(library):
     """Where this library's cloud connections are kept, when they are the shared ones; None when it keeps its own."""
-    value = _read(library)
+    value = _linked(library)
     return safe_root(value['folder']) / 'cloud' if value and value['cloud'] == 'shared' else None
 
 
 def cloud_mode(library):
     """'shared', 'separate', or None for a library that is not linked."""
-    value = _read(library)
+    value = _linked(library)
     return value['cloud'] if value else None
 
 
@@ -67,7 +93,7 @@ def choose_cloud(library, mode):
     if mode not in MODES:
         raise ArchiveError('Choose shared or separate cloud storage.')
     with LibraryLock(library):
-        value = _read(library)
+        value = _linked(library)
         if value is None:
             raise ArchiveError('This library has no shared settings.')
         _write(library, value | {'cloud': mode})
@@ -81,6 +107,8 @@ def link(library, shared):
     a cloud connection and this library has its own, it keeps its own, so neither is lost.
     """
     library, shared = safe_root(library), safe_root(shared)
+    if shared not in beside(library):
+        raise ArchiveError('Shared settings are kept in the library folder, beside the library that uses them.')
     value = _read(library)
     if value is not None:
         if value['folder'] != str(shared):

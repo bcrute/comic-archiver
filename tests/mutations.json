@@ -7470,5 +7470,45 @@
   "new": "    roots = [app_runtime.default_root(), app_runtime.saved_root(), *app_runtime.opened_libraries()]\n",
   "test_file": "test_cloud_trust.py",
   "test": "test_a_library_put_in_the_standard_folder_before_the_app_first_ran_is_asked_about"
+ },
+ {
+  "id": "shared-link-followed-wherever-it-points",
+  "source": "comic_archive/shared.py",
+  "old": "    return value if value is not None and Path(value['folder']) in beside(library) else None\n",
+  "new": "    return value\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_naming_a_folder_that_is_not_beside_the_library_is_never_followed"
+ },
+ {
+  "id": "library-linked-to-a-folder-elsewhere",
+  "source": "comic_archive/shared.py",
+  "old": "    if shared not in beside(library):\n",
+  "new": "    if False:\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_naming_a_folder_that_is_not_beside_the_library_is_never_followed"
+ },
+ {
+  "id": "folder-above-any-library-counts-as-the-apps",
+  "source": "comic_archive/shared.py",
+  "old": "    if library.parent.name in {site.name for site in SITES}:\n",
+  "new": "    if True:\n",
+  "test_file": "test_shared.py",
+  "test": "test_a_link_naming_a_folder_that_is_not_beside_the_library_is_never_followed"
+ },
+ {
+  "id": "uninstall-clears-a-folder-a-library-names",
+  "source": "comic_archive/shared.py",
+  "old": "    return value if value is not None and Path(value['folder']) in beside(library) else None\n",
+  "new": "    return value\n",
+  "test_file": "test_uninstall.py",
+  "test": "test_a_librarys_link_cannot_send_uninstalling_to_a_folder_elsewhere"
+ },
+ {
+  "id": "unreadable-test-receipt-blocks-relinking",
+  "source": "comic_archive/cloud_paths.py",
+  "old": "        try:\n            value = _json(path)\n        except ArchiveError:\n            continue  # A receipt",
+  "new": "        try:\n            value = _json(path)\n        except ZeroDivisionError:\n            continue  # A receipt",
+  "test_file": "test_shared.py",
+  "test": "test_a_test_receipt_that_cannot_be_read_does_not_keep_a_moved_library_from_being_linked"
  }
 ]

@@ -384,7 +384,7 @@ class AppRuntimeTests(unittest.TestCase):
             library.start()
             self.assertIsNone(library.change_site(example))
             self.assertEqual(library.site, example)
-        self.assertEqual([shared.folder(place / 'Library') for place in (self.root / 'Tapas', self.root / 'Example')], [store, store])
+            self.assertEqual([shared.folder(place / 'Library') for place in (self.root / 'Tapas', self.root / 'Example')], [store, store])
         self.assertIn(store, {call.args[0] for call in hide.call_args_list})
         self.assertEqual(stat.S_IMODE(store.stat().st_mode), PRIVATE_FOLDER)
 
