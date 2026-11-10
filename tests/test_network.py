@@ -134,6 +134,18 @@ class NetworkTests(unittest.TestCase):
         with self.assertRaises(ArchiveError): policy(self.root)
         with self.assertRaises(ArchiveError): NetworkGuard(self.root).check()
 
+    def test_on_windows_settings_being_replaced_are_read_once_the_new_file_is_in_place(self):
+        from comic_archive import osdep
+        with patch('comic_archive.network.probe', return_value={'connection': 'wifi', 'metered': False}):
+            configure(self.root, False)
+        real = Path.read_text; refusals = [PermissionError(13, 'delete pending'), PermissionError(13, 'delete pending')]
+        def being_replaced(path, *args, **kwargs):
+            if refusals: raise refusals.pop()
+            return real(path, *args, **kwargs)
+        with patch.object(osdep, 'WINDOWS', True), patch.object(Path, 'read_text', being_replaced), patch.object(osdep.time, 'sleep'):
+            self.assertEqual(policy(self.root), {'schema_version': 1, 'wifi_only': False})
+        self.assertEqual(refusals, [])
+
     def test_probe_commands_return_trimmed_text_and_failures_make_the_route_unknown(self):
         from comic_archive.network import _command
         with patch('comic_archive.network.subprocess.run', return_value=Mock(returncode=0, stdout=b' wifi\n')):

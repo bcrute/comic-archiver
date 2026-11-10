@@ -11,6 +11,7 @@ import time
 from .archive import atomic_json
 from .archive_paths import directory
 from .models import ArchiveError
+from .osdep import read_text
 from .storage import safe_root
 
 
@@ -34,7 +35,7 @@ def policy(root):
     try:
         if path.stat().st_size > 4096:
             raise ValueError
-        value = json.loads(path.read_text())
+        value = json.loads(read_text(path))
         if (set(value) != {'schema_version', 'wifi_only'} or type(value['schema_version']) is not int
                 or value['schema_version'] != 1 or type(value['wifi_only']) is not bool):
             raise ValueError

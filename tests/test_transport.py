@@ -100,6 +100,49 @@ class TransportLimitTests(unittest.TestCase):
         sleep.assert_any_call(2)
         sleep.assert_any_call(4)
 
+    @patch('comic_archive.transport.time.sleep')
+    def test_a_gateway_or_cdn_outage_that_never_clears_holds_the_job_to_resume(self, sleep):
+        # 520-530 are the CDN saying it cannot reach the site; like a gateway's 502-504
+        # they say nothing about the episode being read.
+        for status in (502, 503, 504, 520, 522, 530):
+            with self.subTest(status=status):
+                client = Client([Response(status), Response(status), Response(status), Response()])
+                with self.assertRaises(NetworkUnavailable) as error:
+                    Transport(client=client).get('https://cdn.tapas.io/a')
+                self.assertEqual(error.exception.source_http_status, status)
+                self.assertEqual(len(client.calls), 3)
+        for status in (500, 501, 505, 519, 531):
+            with self.subTest(status=status):
+                client = Client([Response(status), Response(status), Response(status)])
+                with self.assertRaises(ArchiveError) as error:
+                    Transport(client=client).get('https://cdn.tapas.io/a')
+                self.assertNotIsInstance(error.exception, NetworkUnavailable)
+
+    @patch('comic_archive.transport.time.sleep')
+    def test_a_read_that_fails_on_a_sites_api_host_holds_the_job_and_only_an_image_host_defers_the_episode(self, sleep):
+        import httpx
+        from comic_archive import sites
+        from comic_archive.errors import AssetReadUnavailable
+        cases = (('webtoon', 'https://m.webtoons.com/api/v1/webtoon/1/episodes', False),
+                 ('webtoon', 'https://www.webtoons.com/en/favorite', False),
+                 ('webtoon', 'https://webtoon-phinf.pstatic.net/a.jpg', True),
+                 ('tappytoon', 'https://api-global.tappytoon.com/comics/1/chapters', False),
+                 ('tappytoon', 'https://content-repository-cdn.tappytoon.com/a.jpg', True),
+                 ('tapas', 'https://tapas.io/series/1', False),
+                 ('tapas', 'https://cdn.tapas.io/pc/page', True))
+        for key, url, image in cases:
+            with self.subTest(url=url):
+                client = Client([])
+                def fail(*args, **kwargs):
+                    raise httpx.ReadTimeout('Synthetic read timeout')
+                client.stream = fail
+                transport = Transport(client=client, site=sites.named(key))
+                with self.assertRaises(NetworkUnavailable) as error:
+                    transport.get(url)
+                self.assertIs(isinstance(error.exception, AssetReadUnavailable), image)
+                # Account reads stay out of the image figures.
+                self.assertEqual(transport.metrics.snapshot()['requests'], 3 if image else 0)
+
     def test_the_job_deadline_cuts_a_long_server_pause_short_instead_of_sleeping_through_it(self):
         clock = Clock()
         client = Client([Response(503, headers={'Retry-After': '30'}), Response()])

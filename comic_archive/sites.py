@@ -69,6 +69,14 @@ class Site:
     def asset_host(self, host):
         return isinstance(host, str) and any(host == domain or host.endswith('.' + domain) for domain in self.asset_domains)
 
+    def account_host(self, host):
+        """Whether this host answers for the account (the site's pages or its API), not for one page image."""
+        return host == self.host or host in API_HOSTS.get(self.key, ())
+
+
+# Hosts besides a site's home that serve its lists and episode details. A read that fails
+# there says the site is unreachable, not that one image is.
+API_HOSTS = {'webtoon': frozenset({'m.webtoons.com'}), 'tappytoon': frozenset({'api-global.tappytoon.com'})}
 
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',

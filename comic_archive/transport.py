@@ -15,6 +15,9 @@ from .transfer_metrics import TransferMetrics, network_failure_code
 from .webtoon_gateway import AGENT as WEBTOON_AGENT, gateway_route, session_cookie
 # How much of a refused request's answer is kept with its error.
 REFUSAL_BYTES = 4096
+# Answers that say the way to the server is down (a gateway's, or the CDN's own 520-530),
+# not that this one request is at fault: the job is held to resume rather than the episode failed.
+OUTAGE_STATUSES = frozenset({502, 503, 504, *range(520, 531)})
 
 
 class _NoClientCookies(DefaultCookiePolicy):
@@ -309,7 +312,7 @@ class Transport:
 
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
         # Only CDN assets enter these metrics, never same-origin account JSON.
-        measured = urlsplit(url).hostname != self.site.host and gateway_route(url, self.site) is None
+        measured = not self.site.account_host(urlsplit(url).hostname) and gateway_route(url, self.site) is None
         started = time.monotonic()
         status = None
         failure = None
@@ -346,7 +349,7 @@ class Transport:
                     if 500 <= response.status_code < 600:
                         from .retry_after import retry_after_seconds, retain_retry_after
                         if attempt == 2:
-                            if response.status_code in {502,503,504}:
+                            if response.status_code in OUTAGE_STATUSES:
                                 error=NetworkUnavailable('Image server remains unavailable; resume later.')
                                 error.source_http_status=response.status_code
                                 raise retain_retry_after(error, response.headers.get('Retry-After'))

@@ -7230,5 +7230,53 @@
   "new": "\"WHERE status='failed' AND error_code='job_failed' AND attempts>=? \"\n                , (MAX_FAILED_ATTEMPTS,)).rowcount\n        logging",
   "test_file": "test_inventory.py",
   "test": "test_completion_retry_gives_episodes_set_aside_after_failures_one_more_cycle"
+ },
+ {
+  "id": "cdn-outage-fails-the-episode",
+  "source": "comic_archive/transport.py",
+  "old": "OUTAGE_STATUSES = frozenset({502, 503, 504, *range(520, 531)})",
+  "new": "OUTAGE_STATUSES = frozenset({502, 503, 504})",
+  "test_file": "test_transport.py",
+  "test": "test_a_gateway_or_cdn_outage_that_never_clears_holds_the_job_to_resume"
+ },
+ {
+  "id": "cdn-origin-unreachable-530-fails-the-episode",
+  "source": "comic_archive/transport.py",
+  "old": "*range(520, 531)",
+  "new": "*range(520, 530)",
+  "test_file": "test_transport.py",
+  "test": "test_a_gateway_or_cdn_outage_that_never_clears_holds_the_job_to_resume"
+ },
+ {
+  "id": "plain-server-error-holds-the-job",
+  "source": "comic_archive/transport.py",
+  "old": "if response.status_code in OUTAGE_STATUSES:",
+  "new": "if response.status_code >= 500:",
+  "test_file": "test_transport.py",
+  "test": "test_a_gateway_or_cdn_outage_that_never_clears_holds_the_job_to_resume"
+ },
+ {
+  "id": "api-host-read-failure-defers-one-episode",
+  "source": "comic_archive/sites.py",
+  "old": "return host == self.host or host in API_HOSTS.get(self.key, ())",
+  "new": "return host == self.host",
+  "test_file": "test_transport.py",
+  "test": "test_a_read_that_fails_on_a_sites_api_host_holds_the_job_and_only_an_image_host_defers_the_episode"
+ },
+ {
+  "id": "image-host-read-failure-holds-the-job",
+  "source": "comic_archive/transport.py",
+  "old": "measured = not self.site.account_host(urlsplit(url).hostname) and",
+  "new": "measured = False and",
+  "test_file": "test_transport.py",
+  "test": "test_a_read_that_fails_on_a_sites_api_host_holds_the_job_and_only_an_image_host_defers_the_episode"
+ },
+ {
+  "id": "network-settings-read-without-waiting-out-a-replace",
+  "source": "comic_archive/network.py",
+  "old": "value = json.loads(read_text(path))",
+  "new": "value = json.loads(path.read_text())",
+  "test_file": "test_network.py",
+  "test": "test_on_windows_settings_being_replaced_are_read_once_the_new_file_is_in_place"
  }
 ]
