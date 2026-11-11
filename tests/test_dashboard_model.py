@@ -197,8 +197,20 @@ class StateTests(unittest.TestCase):
         s = state(status={'worker': {'reported_state': 'offline'}}, site_auth={'status': 'connected'}, connected_at=NOW)
         self.assertEqual(model.worker_state(s, NOW + model.STARTING_SECONDS - 1), 'starting')
         self.assertEqual(model.worker_state(s, NOW + model.STARTING_SECONDS), 'offline')
+        # Once its time is up it is looked at once more, and only once for that sign-in.
+        self.assertFalse(model.start_overdue(s, NOW + model.STARTING_SECONDS - 1))
+        self.assertTrue(model.start_overdue(s, NOW + model.STARTING_SECONDS))
+        s.start_read = s.connected_at
+        self.assertFalse(model.start_overdue(s, NOW + model.STARTING_SECONDS))
+        s.start_read = 0
+        s.status = {'worker': {'reported_state': 'ready'}}
+        self.assertFalse(model.start_overdue(s, NOW + model.STARTING_SECONDS))
+        s.status = {'worker': {'reported_state': 'offline'}}
         s.site_auth = {'status': 'idle'}
+        self.assertFalse(model.start_overdue(s, NOW + model.STARTING_SECONDS))
         self.assertEqual(model.worker_state(s, NOW), 'offline')
+        never = state(status={'worker': {'reported_state': 'offline'}}, site_auth={'status': 'connected'})
+        self.assertFalse(model.start_overdue(never, NOW))  # No sign-in was kept in this window.
 
     def test_new_episodes_are_said_to_go_to_the_chosen_cloud_or_the_folder(self):
         b2 = {'targets': [{'provider': 'b2', 'connected': True, 'enabled': True}]}

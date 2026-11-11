@@ -344,6 +344,7 @@ class State:
     account_at: float = 0  # When the account's state arrived, to count on from.
     refreshed_at: float = 0
     connected_at: float = 0
+    start_read: float = 0  # The sign-in (its connected_at) whose downloader was looked at once its time was up.
     signin_used: bool = False  # Go has used this sign-in; a later failure outweighs its earlier check.
     network_at: float = 0
     library_at: float = 0
@@ -449,6 +450,14 @@ def worker_state(s, now):
             and now - s.connected_at < STARTING_SECONDS):
         return 'starting'
     return reported
+
+
+def start_overdue(s, now):
+    """Whether a sign-in's downloader has had its time to start and has not been heard to say it is there: the
+    moment to look once more, before the card says it is not working."""
+    reported = ((s.status or {}).get('worker') or {}).get('reported_state')
+    return bool(reported not in WORKING and (s.site_auth or {}).get('status') == 'connected' and s.connected_at
+                and now - s.connected_at >= STARTING_SECONDS and s.start_read != s.connected_at)
 
 
 def save_place(s):

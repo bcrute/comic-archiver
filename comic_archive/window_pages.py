@@ -1454,8 +1454,9 @@ class Pages:
         chosen = self.chosen
         for key in self.open_keys():
             s = self.of(key)
-            if automatic and s.loaded and not dashboard_model.updating(s):
-                continue
+            if (automatic and s.loaded and not dashboard_model.updating(s)
+                    and dashboard_model.worker_state(s, self.now()) != 'starting'):
+                continue  # A downloader still starting is read on the timer too, until it says it is there.
             self.poll_site(key, then if key == chosen else None, timed=automatic)
 
     def poll_site(self, key, then=None, *, timed=False):
@@ -1524,6 +1525,12 @@ class Pages:
     def render(self):
         now, chosen = self.now(), self.chosen
         s = self.state
+        for key in self.open_keys():
+            state = self.states.get(key)
+            if state is not None and dashboard_model.start_overdue(state, now):
+                # Its time to start is up: one look, asked for once, before the card says it is not working.
+                state.start_read = state.connected_at
+                self.poll_soon(key)
         views = {key: (self.states[key], dashboard_model.view(self.states[key], now)) for key in self.shown()}
         v = views[chosen][1] if chosen in views else dashboard_model.view(s, now)
         # Until a site's context is read, the app's own list stands in, so every open site has its card.

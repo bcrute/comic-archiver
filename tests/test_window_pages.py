@@ -1186,6 +1186,35 @@ class DashboardTests(PagesCase):
         self.pages.poll_site('webtoon')
         self.assertEqual(len(self.sites['webtoon'].named('poll')), 1)
 
+    def test_a_downloader_starting_after_a_sign_in_is_read_on_the_timer_and_once_more_when_its_time_is_up(self):
+        self.open()
+        self.actions.reading['status']['worker']['reported_state'] = 'offline'
+        self.actions.reading['site_auth'] = {'status': 'connected'}
+        self.pages.poll_site('tapas')  # The sign-in was kept now; its downloader has not said it is there.
+        s = self.pages.states['tapas']
+        settle()
+        self.actions.calls.clear()
+        self.clock[0] += 60
+        self.pages.poll(automatic=True)
+        self.assertEqual(len(self.actions.named('poll')), 1)
+        self.clock[0] += dashboard_model.STARTING_SECONDS - 61
+        self.pages.render(); settle()
+        self.assertEqual(len(self.actions.named('poll')), 1)  # Not before its time is up.
+        # It said it is there just after the last timed read. Its time is up: one look finds it, and no more follow.
+        self.actions.reading['status']['worker']['reported_state'] = 'ready'
+        self.clock[0] += 1
+        self.pages.render(); settle()
+        self.assertEqual(len(self.actions.named('poll')), 2)
+        self.assertEqual(dashboard_model.worker_state(s, self.clock[0]), 'ready')
+        self.actions.reading['status']['worker']['reported_state'] = 'offline'
+        self.pages.poll_site('tapas')
+        self.actions.calls.clear()
+        for _ in range(3):
+            self.clock[0] += 1
+            self.pages.render(); settle()
+        self.pages.poll(automatic=True)
+        self.assertEqual(self.actions.calls, [])  # Looked at once for this sign-in; the timer leaves it be again.
+
     def test_a_pause_finishes_its_inflight_step_then_stops_local_status_reads(self):
         self.open()
         self.actions.reading['account']['status'] = 'stopped'
