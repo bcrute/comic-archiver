@@ -373,6 +373,27 @@ class LocalWorkspaceRegistry:
         return workspace
 
 
+def _make_key(root, path):
+    """Write a new key beside its place, then put it there whole. Never replaces a key another run just made."""
+    def write(target):
+        with os.fdopen(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | NOFOLLOW, 0o600), 'wb') as stream:
+            stream.write(secrets.token_bytes(32)); stream.flush(); os.fsync(stream.fileno())
+    temporary = root / f'registry.key.{secrets.token_hex(8)}.tmp'
+    write(temporary)
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        pass
+    except OSError:
+        # A drive that cannot give a file a second name. Written in place; one cut short is empty, and made again.
+        try:
+            write(path)
+        except FileExistsError:
+            pass
+    finally:
+        temporary.unlink()
+
+
 def _private_key(root):
     """The secret behind this library's name and file links, made on first use and kept private."""
     root = directory(root)
@@ -381,12 +402,13 @@ def _private_key(root):
     if path.is_symlink():
         raise ArchiveError('Refusing a symlinked library key.')
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | NOFOLLOW, 0o600)
-    except FileExistsError:
+        if path.stat().st_size == 0:
+            # A run that was ended between making the file and writing the key; nothing was ever named with it.
+            path.unlink()
+    except FileNotFoundError:
         pass
-    else:
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(secrets.token_bytes(32)); stream.flush(); os.fsync(stream.fileno())
+    if not path.exists():
+        _make_key(root, path)
     with os.fdopen(os.open(path, os.O_RDONLY | NOFOLLOW), 'rb') as stream:
         key = stream.read(33)
     if len(key) != 32:

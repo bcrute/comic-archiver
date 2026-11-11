@@ -52,6 +52,18 @@ class LockingTests(unittest.TestCase):
             self.assertIsInstance(error, LibraryBusy)
         self.assertIsNone(in_another_thread(lambda: enter_and_leave(self.root)))
 
+    def test_a_wait_that_ran_out_between_two_looks_at_the_clock_never_sleeps_a_negative_time(self):
+        slept = []
+        def waiting():
+            # The clock reads 0 at the start, 4 when the wait is checked, and 9 when the pause is worked out.
+            with patch('comic_archive.locking.time.monotonic', side_effect=[0, 4, 9, 9, 9]), \
+                    patch('comic_archive.locking.time.sleep', side_effect=slept.append):
+                wait_for_library(self.root, 5).__enter__()
+        with LibraryLock(self.root):
+            error = in_another_thread(waiting)
+        self.assertIsInstance(error, LibraryBusy)
+        self.assertEqual(slept, [0])
+
     def test_leaving_a_lock_that_was_never_entered_does_not_release_the_holders_lock(self):
         with LibraryLock(self.root):
             LibraryLock(self.root).__exit__(None, None, None)

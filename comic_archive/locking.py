@@ -28,7 +28,7 @@ def wait_for_library(root, seconds=0):
         except LibraryBusy:
             if time.monotonic() >= deadline:
                 raise
-            time.sleep(min(1,deadline-time.monotonic()))
+            time.sleep(max(0,min(1,deadline-time.monotonic())))
     try:
         yield lock
     finally:

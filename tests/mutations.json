@@ -7758,5 +7758,37 @@
   "new": "        except BlockingIOError:\n            return False\n        fcntl.flock(descriptor, fcntl.LOCK_UN)\n        return False\n",
   "test_file": "test_background.py",
   "test": "test_two_checks_at_once_never_take_each_other_for_a_worker"
+ },
+ {
+  "id": "empty-library-key-rejected-forever",
+  "source": "comic_archive/local_library.py",
+  "old": "        if path.stat().st_size == 0:\n",
+  "new": "        if False:\n",
+  "test_file": "test_local_library.py",
+  "test": "test_a_library_key_cut_short_before_it_was_written_is_made_again_whole"
+ },
+ {
+  "id": "library-key-temporary-left-behind",
+  "source": "comic_archive/local_library.py",
+  "old": "    finally:\n        temporary.unlink()\n",
+  "new": "    finally:\n        pass\n",
+  "test_file": "test_local_library.py",
+  "test": "test_a_library_key_cut_short_before_it_was_written_is_made_again_whole"
+ },
+ {
+  "id": "library-key-missing-without-hard-links",
+  "source": "comic_archive/local_library.py",
+  "old": "        try:\n            write(path)\n        except FileExistsError:\n            pass\n",
+  "new": "        pass\n",
+  "test_file": "test_local_library.py",
+  "test": "test_a_library_key_cut_short_before_it_was_written_is_made_again_whole"
+ },
+ {
+  "id": "lock-wait-sleeps-a-negative-time",
+  "source": "comic_archive/locking.py",
+  "old": "time.sleep(max(0,min(1,deadline-time.monotonic())))",
+  "new": "time.sleep(min(1,deadline-time.monotonic()))",
+  "test_file": "test_locking.py",
+  "test": "test_a_wait_that_ran_out_between_two_looks_at_the_clock_never_sleeps_a_negative_time"
  }
 ]

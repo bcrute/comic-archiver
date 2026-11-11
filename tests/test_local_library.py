@@ -248,6 +248,29 @@ class LocalLibraryTests(unittest.TestCase):
         with self.assertRaises(ArchiveError) as linked: _private_key(other)
         self.assertEqual(str(linked.exception), 'Refusing a symlinked library key.')
 
+    def test_a_library_key_cut_short_before_it_was_written_is_made_again_whole(self):
+        folder = self.root / 'cut-short'; folder.mkdir()
+        (folder / 'registry.key').write_bytes(b'')  # Ended between making the file and writing the key.
+        key = _private_key(folder)
+        self.assertEqual((len(key), (folder / 'registry.key').read_bytes()), (32, key))
+        self.assertEqual([p.name for p in folder.iterdir()], ['registry.key'])
+        self.assertEqual((folder / 'registry.key').stat().st_mode & 0o777, PRIVATE_FILE)
+        # A key another run made meanwhile is the one used, and is never replaced.
+        made = []
+        def link(source, target):
+            Path(target).write_bytes(b'k' * 32); made.append(source)
+            raise FileExistsError
+        other = self.root / 'raced'; other.mkdir()
+        with patch('comic_archive.local_library.os.link', side_effect=link):
+            self.assertEqual(_private_key(other), b'k' * 32)
+        self.assertEqual((len(made), [p.name for p in other.iterdir()]), (1, ['registry.key']))
+        # A drive that cannot give a file a second name still gets its key.
+        plain = self.root / 'no-links'; plain.mkdir()
+        with patch('comic_archive.local_library.os.link', side_effect=OSError('unsupported')):
+            key = _private_key(plain)
+        self.assertEqual((len(key), [p.name for p in plain.iterdir()]), (32, ['registry.key']))
+        self.assertEqual(_private_key(plain), key)
+
     def test_dashboard_start_does_not_take_the_writer_lock_or_reset_an_active_import(self):
         from concurrent.futures import ThreadPoolExecutor
         with Inventory(self.workspace.library) as inventory:
