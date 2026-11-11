@@ -18,7 +18,6 @@ are computed over the original files as they stand.
 """
 import hashlib
 import json
-import os
 import platform
 import re
 import threading
@@ -37,10 +36,14 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
 
-# The one active workspace, and the WebView cookie seams the Kotlin side selects
-# after confirmed drain through set_cookie_seams (Chaquopy hands the same store
-# object to the sign-in engine, so there is one cookie authority).
+# The workspace the app is showing, every site workspace opened in this process (each may
+# save at once, as on the desktop), and the WebView cookie seams the Kotlin side registers
+# through set_cookie_seams: one for each site, or one unnamed store for whichever site asks
+# (Chaquopy hands the same store object to the sign-in engine, so each site has one cookie
+# authority).
 _workspace = {"root": None, "base": None, "site_key": "tapas"}
+_open = {}
+_site_seams = {}
 _workspace_lock = threading.RLock()
 _signin_lock = threading.RLock()
 _signin_attempts = {}
@@ -49,9 +52,11 @@ _browser = {"factory": None}
 # The export summary's stat identity, so export_status polling does not re-digest a
 # library whose files have not changed. Keyed to one root: the beta has exactly one.
 _export_cache = {"root": None, "facts": None, "summary": None}
-_catalog_cache = {"root": None, "registry": None}
+_catalog_cache = {"root": None, "registry": None}  # The one asked about last.
+_catalog_registries = {}
 _catalog_lock = threading.Lock()
-_cloud_cache = {"root": None, "controller": None}
+_cloud_cache = {"root": None, "controller": None}  # The one asked about last.
+_cloud_controllers = {}
 _cloud_lock = threading.Lock()
 
 
@@ -78,16 +83,36 @@ def set_browser_seam(factory):
     with _workspace_lock:
         from comic_archive import worker_host
         from comic_archive.state_paths import session_path
-        current = _workspace['root']
-        if current is not None and worker_host.status(session_path(current))['running']:
+        if _running_roots():
             raise _BridgeError('refused', 'Stop the downloader before replacing its browser.')
         if _browser['factory'] is not factory:
             _close_browser()
         _browser['factory'] = factory
 
 
+def _site_of(root):
+    """The site a workspace was opened for; one never opened here is the one being shown."""
+    return _open.get(root, _workspace)["site_key"]
+
+
+def _running_roots(site_key=None):
+    """The opened workspaces whose downloader is running, for one site or for all of them."""
+    from comic_archive import worker_host
+    from comic_archive.state_paths import session_path
+    roots = set(_open) | {_workspace["root"]} - {None}
+    return [root for root in roots if site_key in {None, _site_of(root)}
+            and worker_host.status(session_path(root))["running"]]
+
+
+def _uses_browser(root):
+    """Only the first site reads through the native browser; no other site's stop may touch it."""
+    from comic_archive import sites
+    return _site_of(root) == sites.DEFAULT.key
+
+
 def _close_browser():
-    if _browser['factory'] is not None:
+    from comic_archive import sites
+    if _browser['factory'] is not None and not _running_roots(sites.DEFAULT.key):
         from comic_archive.android_browser import close_contexts
         close_contexts(_browser['factory'])
 
@@ -131,16 +156,18 @@ def set_cookie_seams(cookie_source, cookie_sink=None, site_key=None):
 
 
 def _replace_cookie_seams(value):
+    """A named site's store is kept for that site alone, so each site's download reads its own
+    while the others run. An unnamed store replaces every registration."""
     with _workspace_lock:
-        from comic_archive import worker_host
-        from comic_archive.state_paths import session_path
-        current = _workspace["root"]
-        if current is not None and worker_host.status(session_path(current))["running"]:
+        key = value["site_key"]
+        if _running_roots(key):
             raise _BridgeError("refused", "Stop the downloader before changing site sign-in.")
-        if current is not None and value["site_key"] not in {None, _workspace["site_key"]}:
-            raise _BridgeError("refused", "The sign-in store belongs to another site.")
         _close_browser()
-        _seams.update(value)
+        if key is None:
+            _site_seams.clear()
+            _seams.update(value)
+        else:
+            _site_seams[key] = dict(value)
 
 
 def deactivate_cookie_seams():
@@ -148,17 +175,20 @@ def deactivate_cookie_seams():
     _replace_cookie_seams({"store": None, "cookie_source": None, "cookie_sink": None, "site_key": None})
 
 
-def _cookie_seams():
-    """The registered seams as the core wants them: the store itself when the app
+def _cookie_seams(site_key):
+    """One site's registered seams as the core wants them: the store itself when the app
     registered the Kotlin object — android_adapter then takes its AndroidTransport route,
     the one request path with the asset reader the metadata pipeline needs — else the
     registered callables. A missing registration is an honest refusal, never an empty
-    header standing in for the live store."""
-    if _seams["store"] is not None:
-        return _seams["store"], None
-    if _seams["cookie_source"] is None:
+    header standing in for the live store, and never another site's store."""
+    seams = _site_seams.get(site_key, _seams)
+    if seams["site_key"] not in {None, site_key}:
+        raise _BridgeError("refused", "The sign-in store belongs to another site.")
+    if seams["store"] is not None:
+        return seams["store"], None
+    if seams["cookie_source"] is None:
         raise _BridgeError("cookie_seams_missing", "The WebView cookie store is not connected yet.")
-    return _seams["cookie_source"], _seams["cookie_sink"]
+    return seams["cookie_source"], seams["cookie_sink"]
 
 
 def _core(action):
@@ -225,9 +255,9 @@ def working_library_prepare(captured, payload, ticket, source_key, control, reco
                 or captured != stage / 'capture/workspace' or not (staged or renamed)):
             raise _BridgeError('bad_request', 'Choose this pending library copy.')
         with _workspace_lock:
-            active = _workspace['root']
-            if active is not None and any(bound == active or bound in active.parents or active in bound.parents for bound in (stage, payload)):
-                raise _BridgeError('refused', 'The active library cannot be replaced by a pending copy.')
+            for active in set(_open) | {_workspace['root']} - {None}:
+                if any(bound == active or bound in active.parents or active in bound.parents for bound in (stage, payload)):
+                    raise _BridgeError('refused', 'The active library cannot be replaced by a pending copy.')
 
         def check():
             if control.isCancelled():
@@ -251,11 +281,12 @@ def working_library_prepare(captured, payload, ticket, source_key, control, reco
 
 
 def _prepare_workspace(args):
-    """Make the one workspace's folders, hold any saved download for Go, and set the cwd.
+    """Make one site's workspace folders, hold any saved download for Go, and show that site.
 
-    The core's queue paths are workspace-relative (Library, .comic-session), so the process
-    cwd is the workspace root — set here, once, only while no downloader is running, per the
-    one-active-workspace rule.
+    Every site has a workspace of its own and each may be saving at once, as on the desktop:
+    opening one leaves the others as they are. The core is given whole paths, so the folder
+    the process runs from plays no part. A site already saving is only shown again; its
+    download is never held by looking at it.
     """
     root = _path_arg(args, "root")
     base = _path_arg(args, "base_root") if "base_root" in args else root
@@ -274,34 +305,26 @@ def _prepare_workspace(args):
             raise ArchiveError("Choose this site's own workspace.")
         with _workspace_lock:
             previous = _workspace["root"]
-            for candidate in {root, previous} - {None}:
-                if worker_host.status(session_path(candidate))["running"]:
-                    raise ArchiveError("Stop the downloader before switching workspaces.")
-            controller = _cloud_cache["controller"]
-            if previous is not None and previous != root:
-                old = Workspace(id="default", root=previous)
-                if account_ui.status(old).get("status") == "running":
-                    raise ArchiveError("Pause saving before switching sites.")
-                if controller is not None and controller.busy:
-                    raise ArchiveError("Finish the cloud activity before switching sites.")
-            _close_browser()
-            library = directory(root / "Library")
-            session = private_folder(root, "session")
-            android_session.prepare_site(session, site)
-            shared.link(library, private_folder(base, "shared"))
-            before_cwd = Path.cwd()
-            try:
-                os.chdir(root)
+            saving = worker_host.status(session_path(root))["running"]
+            if saving and _open.get(root) != {"base": base, "site_key": site.key}:
+                raise ArchiveError("Stop the downloader before switching workspaces.")
+            held = False
+            if saving:
+                library, session = root / "Library", session_path(root)
+            else:
+                _close_browser()
+                library = directory(root / "Library")
+                session = private_folder(root, "session")
+                android_session.prepare_site(session, site)
+                shared.link(library, private_folder(base, "shared"))
                 held = account_ui.reopen(Workspace(id="default", root=root), idle=True)
                 _cloud_controller(root)  # Recover held cloud tasks before Go admission.
-            except Exception:
-                os.chdir(before_cwd)
-                raise
             with _signin_lock:
                 if previous is not None and previous != root:
                     old_ticket = _signin_attempts.get(session_path(previous))
                     if old_ticket is not None:
                         old_ticket.update(active=False, verified=False)
+                _open[root] = {"base": base, "site_key": site.key}
                 _workspace.update(root=root, base=base, site_key=site.key)
                 network_android.configure(root / "net.json", require_fresh=schema == 1)
             return {"root": str(root), "library": str(library), "session": str(session),
@@ -329,9 +352,7 @@ def _worker_start(args):
         from comic_archive import worker_host
         with _workspace_lock:
             _active_root(session.parent, ArchiveError)
-            if _seams["site_key"] not in {None, _workspace["site_key"]}:
-                raise ArchiveError("The sign-in store belongs to another site.")
-            source, sink = _cookie_seams()
+            source, sink = _cookie_seams(_site_of(session.parent))
             options = {'browser_factory': _browser['factory']} if _browser['factory'] is not None else {}
             return worker_host.start_in_process(session, library, source, sink, status_path, **options)
 
@@ -349,7 +370,7 @@ def _worker_stop(args):
     def stop(ArchiveError):
         from comic_archive import worker_host
         result = worker_host.request_stop(session, wait_seconds=wait)
-        if not result['running']:
+        if not result['running'] and _uses_browser(session.parent):
             _close_browser()
         return result
 
@@ -370,7 +391,7 @@ def _account_ui_op(name):
                 with _workspace_lock:
                     _active_root(root, ArchiveError)
                     with LibraryLock(workspace.session / ".account-ui"):
-                        cloud = _cloud_cache["controller"] if _cloud_cache["root"] == str(root) else None
+                        cloud = _cloud_controllers.get(str(root))
                         if cloud is not None and cloud.busy:
                             raise ArchiveError("Finish the cloud activity before pressing Go.")
                         options = {'browser_factory': _browser['factory']} if _browser['factory'] is not None else {}
@@ -382,7 +403,7 @@ def _account_ui_op(name):
             if name == 'pause':
                 with _workspace_lock:
                     _active_root(root, ArchiveError)
-                    account_ui.pause(workspace, on_stop_requested=_interrupt_browser)
+                    account_ui.pause(workspace, on_stop_requested=_interrupt_browser if _uses_browser(root) else None)
                 return {}
             getattr(account_ui, name)(workspace)
             return {}
@@ -399,10 +420,10 @@ def _signin_probe(args, network_guard=None):
     session = _path_arg(args, "session_root")
 
     def probe(ArchiveError):
-        source, sink = _cookie_seams()
         from comic_archive import android_adapter, android_readers, android_session, sites
         key = args.get("site_key", sites.DEFAULT.key)
         site = sites.find(key) if isinstance(key, str) else None
+        source, sink = _cookie_seams(site.key if site is not None else sites.DEFAULT.key)
         if site is None:
             raise ArchiveError("Choose a supported site before signing in.")
         token = args.get("attempt")
@@ -435,7 +456,8 @@ def _signin_probe(args, network_guard=None):
 
 
 def _active_root(root, ArchiveError):
-    if _workspace["root"] is not None and _workspace["root"] != root:
+    """Work is done only in a workspace this process has opened, whichever one is showing."""
+    if _workspace["root"] is not None and root != _workspace["root"] and root not in _open:
         raise ArchiveError("Open this site's workspace before starting work.")
 
 
@@ -471,7 +493,7 @@ def _signin_attempt(args):
                 raise ArchiveError("Start a new sign-in attempt.")
             if _workspace["root"] != session.parent or _workspace["site_key"] != key:
                 raise ArchiveError("Open this site's workspace before signing in.")
-            if _seams["site_key"] not in {None, key}:
+            if _site_seams.get(key, _seams)["site_key"] not in {None, key}:
                 raise ArchiveError("The sign-in store belongs to another site.")
             _signin_attempts[session] = {"token": token, "site_key": key, "active": True,
                                          "verified": False, "deadline": time.monotonic() + duration / 1000}
@@ -512,8 +534,8 @@ def _signout_record(args):
                 _signin_attempts[session] = {"token": 0, "active": False, "verified": False,
                                              "site_key": "tapas", "deadline": 0}
             android_session.forget(session)
-            if _workspace["root"] == session.parent:
-                android_session.prepare_site(session, sites.find(_workspace["site_key"]))
+            if session.parent in _open or _workspace["root"] == session.parent:
+                android_session.prepare_site(session, sites.find(_site_of(session.parent)))
         return {}
 
     return _core(forget)
@@ -564,7 +586,7 @@ def _settings_unlocked(root):
     workspace = Workspace(id="default", root=root)
     saved = android_download.selected_speed(workspace)
     return network.status(workspace.library) | {
-        "speed": saved, "speeds": _speed_choices(_workspace['site_key'])}
+        "speed": saved, "speeds": _speed_choices(_site_of(root))}
 
 
 def _settings(args):
@@ -591,7 +613,7 @@ def _configure_settings(args):
                 if "speed" in args:
                     value = args["speed"]
                     if (not isinstance(value, str) or value not in account_ui.SPEEDS
-                            or not android_download.speed_available(_workspace['site_key'], value, _browser['factory'])):
+                            or not android_download.speed_available(_site_of(root), value, _browser['factory'])):
                         raise ArchiveError("That speed is not available in this Android build.")
                     if account_ui.status(workspace).get("status") == "running":
                         raise ArchiveError("Pause saving to change the speed.")
@@ -608,7 +630,11 @@ def _catalog_registry(root):
     from comic_archive.local_library import LocalWorkspaceRegistry
     with _catalog_lock:
         if _catalog_cache["root"] != str(root) or _catalog_cache["registry"] is None:
-            registry = LocalWorkspaceRegistry(root)
+            # One for each workspace: a site's cloud state lives in its registry, and must
+            # still be the same one after another site has been looked at.
+            registry = _catalog_registries.get(str(root))
+            if registry is None:
+                registry = _catalog_registries[str(root)] = LocalWorkspaceRegistry(root)
             _catalog_cache.update(root=str(root), registry=registry)
         return _catalog_cache["registry"]
 
@@ -700,11 +726,13 @@ def _file_open(args):
 def _cloud_controller(root):
     from comic_archive.android_cloud import AndroidCloud
     with _cloud_lock:
+        # One for each site's workspace, kept while the app runs: a site's cloud work goes on
+        # while another site is shown.
         if _cloud_cache["root"] != str(root) or _cloud_cache["controller"] is None:
-            previous = _cloud_cache["controller"]
-            if previous is not None:
-                previous.registry.cloud_signin.close()
-            _cloud_cache.update(root=str(root), controller=AndroidCloud(_catalog_registry(root)))
+            controller = _cloud_controllers.get(str(root))
+            if controller is None:
+                controller = _cloud_controllers[str(root)] = AndroidCloud(_catalog_registry(root))
+            _cloud_cache.update(root=str(root), controller=controller)
         return _cloud_cache["controller"]
 
 

@@ -107,8 +107,9 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.addCleanup(self._cleanup)
         self.root = Path(self._tmp.name)
         app_bridge._workspace.update(root=None, base=None, site_key="tapas")
+        for kept in (app_bridge._open, app_bridge._site_seams, app_bridge._cloud_controllers, app_bridge._catalog_registries): kept.clear()
         app_bridge._signin_attempts.clear()
-        app_bridge._seams.update(store=None, cookie_source=None, cookie_sink=None)
+        app_bridge._seams.update(store=None, cookie_source=None, cookie_sink=None, site_key=None)
         app_bridge._browser.update(factory=None)
         app_bridge._export_cache.update(root=None, facts=None, summary=None)
         app_bridge._catalog_cache.update(root=None, registry=None)
@@ -123,11 +124,11 @@ class BridgeLifecycleTests(unittest.TestCase):
     def call(self, op, args):
         return json.loads(app_bridge.dispatch(json.dumps({"v": 1, "op": op, "args": args})))
 
-    def test_prepare_workspace_makes_folders_holds_for_go_and_sets_the_cwd(self):
+    def test_prepare_workspace_makes_folders_holds_for_go_and_leaves_the_process_folder_alone(self):
         value = self.call("prepare_workspace", {"root": str(self.root)})
         self.assertTrue(value["ok"], value)
         self.assertFalse(value["result"]["held"])
-        self.assertEqual(Path.cwd(), self.root)
+        self.assertEqual(Path.cwd(), self._previous)
         self.assertTrue((self.root / "Library").is_dir())
         self.assertTrue((self.root / ".comic-session").is_dir())
 
@@ -572,6 +573,7 @@ class BridgeLifecycleTests(unittest.TestCase):
         row = result["result"]["rows"][0]
         self.assertEqual(row["filename"], "episode-1.cbz")
         app_bridge._catalog_cache.update(root=None, registry=None)
+        app_bridge._catalog_registries.clear()
         again = self.call("file_catalog", {"root": str(self.root), "options": {"query": "ONE", "kind": "episodes"}})
         self.assertEqual(again["result"]["rows"][0]["open"], row["open"])
         data = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "metadata", "limit": 1}})

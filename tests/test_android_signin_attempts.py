@@ -28,6 +28,7 @@ class NativeSignInAttemptTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.session = self.root / '.comic-session'
         app_bridge._workspace.update(root=None, base=None, site_key='tapas')
+        for kept in (app_bridge._open, app_bridge._site_seams, app_bridge._cloud_controllers, app_bridge._catalog_registries): kept.clear()
         app_bridge._signin_attempts.clear()
         app_bridge.set_cookie_seams(lambda url: 'sid=FIXTURE_SESSION')
         self.assertTrue(self.call('prepare_workspace', root=str(self.root))['ok'])
@@ -110,7 +111,7 @@ class NativeSignInAttemptTests(unittest.TestCase):
         self.delayed_verification(lambda: self.call('prepare_workspace', root=str(next_root),
             base_root=str(self.root), site_key='webtoon'))
         self.assertEqual(original.read_bytes(), b'fixture-original-archive')
-        self.assertEqual(Path.cwd(), next_root)
+        self.assertEqual(Path.cwd(), self.before)
         self.assertEqual(sites.of_session(next_root / '.comic-session'), sites.named('webtoon'))
         self.assertEqual(shared.folder(next_root / 'Library'), shared.folder(self.root / 'Library'))
         self.assertFalse(android_session.is_signed_in(next_root / '.comic-session'))
@@ -145,25 +146,95 @@ class NativeSignInAttemptTests(unittest.TestCase):
         self.assertFalse(self.commit()['ok'])
         self.assertTrue(self.commit(token=2)['ok'])
 
-    def test_switch_checks_the_previous_worker_and_keeps_the_previous_workspace_on_refusal(self):
+    def test_another_site_opens_while_one_saves_and_showing_a_saving_site_never_holds_it(self):
         next_root = self.root / 'Webtoon'
         with patch('comic_archive.worker_host.status',
-                   side_effect=lambda session: {'running': session == self.session}):
+                   side_effect=lambda session: {'running': session == self.session}), \
+                patch('comic_archive.account_ui.reopen', return_value=False) as reopen, \
+                patch.object(app_bridge, '_close_browser') as close:
             answer = self.call('prepare_workspace', root=str(next_root),
                                base_root=str(self.root), site_key='webtoon')
-        self.assertFalse(answer['ok'])
-        self.assertEqual(Path.cwd(), self.root)
-        self.assertFalse(next_root.exists())
+            self.assertTrue(answer['ok'], answer)
+            self.assertEqual(reopen.call_args.args[0].root, next_root)
+            reopen.reset_mock()
+            close.reset_mock()
+            # Back to the site that is saving: shown again, with its download left as it is.
+            back = self.call('prepare_workspace', root=str(self.root))
+            self.assertEqual(back['result'], {'root': str(self.root), 'library': str(self.root / 'Library'),
+                'session': str(self.session), 'site_key': 'tapas', 'held': False})
+            reopen.assert_not_called()
+            close.assert_not_called()
+            self.assertEqual(app_bridge._workspace['root'], self.root)
+            self.assertEqual(set(app_bridge._open), {self.root, next_root})
+            # A saving folder this app did not open itself is still refused.
+            app_bridge._open.clear()
+            self.assertFalse(self.call('prepare_workspace', root=str(self.root))['ok'])
+            reopen.assert_not_called()
+        self.assertEqual(Path.cwd(), self.before)
 
-    def test_stale_network_settings_cannot_retarget_the_current_sites_policy(self):
+    def test_every_opened_site_keeps_its_own_settings_and_connection_report(self):
         (self.root / 'net.json').write_text('{"connection":"wifi","metered":false}')
         next_root = self.root / 'Webtoon'
         self.assertTrue(self.call('prepare_workspace', root=str(next_root),
             base_root=str(self.root), site_key='webtoon')['ok'])
         (next_root / 'net.json').write_text('{"connection":"cellular","metered":true}')
-        self.assertTrue(self.call('settings', root=str(next_root))['ok'])
-        self.assertFalse(self.call('settings', root=str(self.root))['ok'])
-        self.assertEqual(network_android.probe(), {'connection': 'cellular', 'metered': True})
+        shown = self.call('settings', root=str(next_root))['result']
+        other = self.call('settings', root=str(self.root))['result']
+        self.assertEqual((shown['connection'], shown['allowed']), ('cellular', False))
+        self.assertEqual((other['connection'], other['allowed']), ('wifi', True))
+        # A folder this app never opened is still refused.
+        self.assertFalse(self.call('settings', root=str(self.root / 'Tappytoon'))['ok'])
+
+    def test_each_site_starts_with_its_own_sign_in_store_and_only_its_own_download_guards_it(self):
+        next_root = self.root / 'Webtoon'
+        self.assertTrue(self.call('prepare_workspace', root=str(next_root),
+            base_root=str(self.root), site_key='webtoon')['ok'])
+        first, second, later = (lambda url: 'a=1'), (lambda url: 'b=2'), (lambda url: 'c=3')
+        self.addCleanup(app_bridge._seams.update, site_key=None)
+        app_bridge.set_cookie_seams(first, None, 'tapas')
+        app_bridge.set_cookie_seams(second, None, 'webtoon')
+        started = []
+        def start(session, library, source, sink, status_path, **options):
+            started.append((session, source))
+            return {'running': True}
+        def roots(root):
+            return {'session_root': str(root / '.comic-session'), 'library_root': str(root / 'Library'),
+                    'network_status_path': str(root / 'net.json')}
+        with patch('comic_archive.worker_host.start_in_process', side_effect=start):
+            self.assertTrue(self.call('worker_start', **roots(self.root))['ok'])
+            self.assertTrue(self.call('worker_start', **roots(next_root))['ok'])
+        self.assertEqual(started, [(self.session, first), (next_root / '.comic-session', second)])
+        with patch('comic_archive.worker_host.status',
+                   side_effect=lambda session: {'running': session == self.session}):
+            app_bridge.set_cookie_seams(later, None, 'webtoon')
+            with self.assertRaises(app_bridge._BridgeError):
+                app_bridge.set_cookie_seams(later, None, 'tapas')
+            with self.assertRaises(app_bridge._BridgeError):
+                app_bridge.deactivate_cookie_seams()
+        self.assertIs(app_bridge._cookie_seams('webtoon')[0], later)
+        self.assertIs(app_bridge._cookie_seams('tapas')[0], first)
+        # A store registered for one site never answers for another.
+        app_bridge._site_seams.pop('tapas')
+        app_bridge._seams.update(site_key='webtoon')
+        with self.assertRaises(app_bridge._BridgeError):
+            app_bridge._cookie_seams('tapas')
+
+    def test_pausing_or_stopping_another_site_leaves_the_first_sites_browser_alone(self):
+        next_root = self.root / 'Webtoon'
+        self.assertTrue(self.call('prepare_workspace', root=str(next_root),
+            base_root=str(self.root), site_key='webtoon')['ok'])
+        with patch('comic_archive.account_ui.pause') as pause, \
+                patch('comic_archive.worker_host.request_stop', return_value={'running': False}), \
+                patch.object(app_bridge, '_close_browser') as close:
+            self.assertTrue(self.call('pause', root=str(next_root))['ok'])
+            self.assertIsNone(pause.call_args.kwargs['on_stop_requested'])
+            self.assertTrue(self.call('worker_stop', session_root=str(next_root / '.comic-session'))['ok'])
+            close.assert_not_called()
+            # The first site is not the one showing, and is still worked on.
+            self.assertTrue(self.call('pause', root=str(self.root))['ok'])
+            self.assertIs(pause.call_args.kwargs['on_stop_requested'], app_bridge._interrupt_browser)
+            self.assertTrue(self.call('worker_stop', session_root=str(self.session))['ok'])
+            close.assert_called_once_with()
 
     def test_wrong_folder_site_and_invalid_attempt_shapes_are_refused_before_network(self):
         wrong = self.call('prepare_workspace', root=str(self.root / 'Tapas'),

@@ -21,6 +21,7 @@ class AndroidCloudTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.addCleanup(self.clean)
         app_bridge._workspace.update(root=None, base=None, site_key='tapas')
+        for kept in (app_bridge._open, app_bridge._site_seams, app_bridge._cloud_controllers, app_bridge._catalog_registries): kept.clear()
         app_bridge._signin_attempts.clear()
         app_bridge._catalog_cache.update(root=None, registry=None)
         app_bridge._cloud_cache.update(root=None, controller=None)

@@ -9270,5 +9270,69 @@
   "new": "        if any(worker['thread'].is_alive() for key, worker in _workers.items() if key != session): raise ArchiveError('one')\n        for other in [key for key, worker in _workers.items() if not worker['thread'].is_alive()]:\n",
   "test_file": "test_worker_host.py",
   "test": "test_two_sites_run_at_once_and_stopping_one_leaves_the_other_running"
+ },
+ {
+  "id": "bridge-pause-other-site-keeps-browser",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "on_stop_requested=_interrupt_browser if _uses_browser(root) else None",
+  "new": "on_stop_requested=_interrupt_browser",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_pausing_or_stopping_another_site_leaves_the_first_sites_browser_alone"
+ },
+ {
+  "id": "bridge-stop-other-site-keeps-browser",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        if not result['running'] and _uses_browser(session.parent):",
+  "new": "        if not result['running']:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_pausing_or_stopping_another_site_leaves_the_first_sites_browser_alone"
+ },
+ {
+  "id": "bridge-worker-own-store",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "            source, sink = _cookie_seams(_site_of(session.parent))",
+  "new": "            source, sink = _cookie_seams(_workspace[\"site_key\"])",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_each_site_starts_with_its_own_sign_in_store_and_only_its_own_download_guards_it"
+ },
+ {
+  "id": "bridge-store-guarded-by-own-download",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        if _running_roots(key):",
+  "new": "        if _running_roots():",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_each_site_starts_with_its_own_sign_in_store_and_only_its_own_download_guards_it"
+ },
+ {
+  "id": "bridge-saving-site-not-reopened",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "            if saving:\n",
+  "new": "            if False:\n",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_another_site_opens_while_one_saves_and_showing_a_saving_site_never_holds_it"
+ },
+ {
+  "id": "bridge-saving-site-unopened-refused",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "            if saving and _open.get(root) != {\"base\": base, \"site_key\": site.key}:",
+  "new": "            if False:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_another_site_opens_while_one_saves_and_showing_a_saving_site_never_holds_it"
+ },
+ {
+  "id": "bridge-work-in-any-opened-site",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": " and root != _workspace[\"root\"] and root not in _open:",
+  "new": " and root != _workspace[\"root\"]:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_every_opened_site_keeps_its_own_settings_and_connection_report"
+ },
+ {
+  "id": "bridge-unopened-site-refused",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "    if _workspace[\"root\"] is not None and root != _workspace[\"root\"] and root not in _open:",
+  "new": "    if False:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_every_opened_site_keeps_its_own_settings_and_connection_report"
  }
 ]
