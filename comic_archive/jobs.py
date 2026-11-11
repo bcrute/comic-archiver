@@ -66,7 +66,6 @@ class DownloadBudget:
         self.started = time.monotonic()
         self.pages = self.bytes = self.covers = self.chapters = 0
         self.cancellation=None
-        self.access_expires_at=None
         self.reserved_pages = self.reserved_bytes = 0
         from .downloads import adapter_profile
         self.download_profile = adapter_profile(adapter)
@@ -321,7 +320,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                    cache_journal='wal' if profile == 'fast' else None)
                 try:
                     for selected_index, current in enumerate(selected):
-                        budget.access_expires_at=None
                         budget.check()
                         if shutil.disk_usage(output).free < min_free_bytes:
                             raise RunLimit("The configured free disk reserve was reached; its queue is retained.")
@@ -358,7 +356,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                     'Episode %s: excluded by saved download choices after reader classification; page_assets_requested=false archive_published=false', key)
                                 current = None
                                 continue
-                            budget.access_expires_at=episode.access_expires_at
                             if retry_episode_id is not None:
                                 summary['reader_probe_succeeded'] = True
                             inventory.mark(key, 'downloading')
@@ -425,7 +422,6 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 current=None
                                 raise MetadataError('Reader manifest is unavailable; this run paused for authorized browser inspection.') from None
                         current = None
-                        budget.access_expires_at=None
                         if archived_series is not None and getattr(adapter,'supports_series_metadata',False) is True:
                             series_key=archived_series.platform_id or archived_series.id
                             if series_key not in metadata_seen:
