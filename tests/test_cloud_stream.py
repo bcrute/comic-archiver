@@ -705,7 +705,7 @@ class B2DirectTests(unittest.TestCase):
         def finish(upload, grace=None):
             waited.append(grace); return real(upload, grace)
         with patch.object(StreamingTransfer, 'upload_bytes', upload), patch.object(cloud.DirectUpload, 'finish', finish), \
-                patch('comic_archive.publication.STOPPING_UPLOAD_SECONDS', 0.05), self.assertRaises(Crash):
+                patch('comic_archive.publication.STOPPING_UPLOAD_SECONDS', 0.05), patch('comic_archive.network.probe', return_value={'connection':'wired', 'metered':False}), self.assertRaises(Crash):
             self.publish((self.episode, following), adapter)
         self.assertEqual(waited, [0.05])
         folder = next(self.root.glob('Synthetic*'))
@@ -723,7 +723,7 @@ class B2DirectTests(unittest.TestCase):
                 threading.Timer(0.05, release.set).start(); raise Crash()
             return png(page.order)
         adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
-        with patch.object(StreamingTransfer, 'upload_bytes', upload), self.assertRaises(Crash):
+        with patch.object(StreamingTransfer, 'upload_bytes', upload), patch('comic_archive.network.probe', return_value={'connection':'wired', 'metered':False}), self.assertRaises(Crash):
             self.publish((self.episode, following), adapter)
         self.assertEqual(len(episode_archives(next(self.root.glob('Synthetic*')))), 1)
         self.assertEqual(self.target()['verified'], 2)
