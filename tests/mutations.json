@@ -6584,12 +6584,12 @@
   "test": "test_cloud_config_is_protected_before_it_is_returned_to_the_helper"
  },
  {
-  "id": "windows-private-volume-without-acls-accepted",
+  "id": "windows-permissions-set-on-a-drive-that-keeps-none",
   "source": "comic_archive/windows_privacy.py",
   "old": "        if not flags.value & 0x8:",
   "new": "        if False:",
   "test_file": "test_windows_privacy.py",
-  "test": "test_no_acl_volume_reparse_point_hard_link_wrong_type_and_null_dacl_are_refused"
+  "test": "test_a_drive_that_keeps_no_permissions_is_used_as_it_is_and_never_through_a_link"
  },
  {
   "id": "windows-private-acl-not-protected",
@@ -7854,5 +7854,21 @@
   "new": "dict.fromkeys((path.parent,)):",
   "test_file": "test_storage.py",
   "test": "test_the_saved_episodes_folders_reach_the_disk_before_its_cached_pages_are_removed"
+ },
+ {
+  "id": "drive-without-permissions-refused",
+  "source": "comic_archive/windows_privacy.py",
+  "old": "                LOG.info('Windows private storage: this drive keeps no access permissions; none are set')\n            return\n",
+  "new": "                LOG.info('Windows private storage: this drive keeps no access permissions; none are set')\n            _refuse('persistent_acls_unavailable')\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_a_drive_that_keeps_no_permissions_is_used_as_it_is_and_never_through_a_link"
+ },
+ {
+  "id": "drive-without-permissions-noted-for-every-file",
+  "source": "comic_archive/windows_privacy.py",
+  "old": "                _plain_noted = True\n",
+  "new": "                pass\n",
+  "test_file": "test_windows_privacy.py",
+  "test": "test_a_drive_that_keeps_no_permissions_is_used_as_it_is_and_never_through_a_link"
  }
 ]

@@ -116,8 +116,21 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(api['set'].call_args.args[5].value, 42)
         api['close'].assert_called_once_with(123)
 
-    def test_no_acl_volume_reparse_point_hard_link_wrong_type_and_null_dacl_are_refused(self):
-        for settings in ({'flags': 0}, {'attributes': 0x400}, {'links': 2}, {'attributes': 0x10}, {'dacl': False}):
+    def test_a_drive_that_keeps_no_permissions_is_used_as_it_is_and_never_through_a_link(self):
+        api = self.native_api(flags=0)
+        with patch.object(privacy, '_plain_noted', False), self.assertLogs('comic_archive.desktop', level='INFO') as logs:
+            self.secure_with(api)
+            self.secure_with(self.native_api(flags=0, attributes=0x10), True)
+        self.assertEqual(len(logs.output), 1)  # Said once, not for every file.
+        api['set'].assert_not_called(); api['dacl'].assert_not_called(); api['close'].assert_called_once_with(123)
+        for settings in ({'attributes': 0x400}, {'links': 2}, {'attributes': 0x10}):
+            with self.subTest(settings=settings):
+                api = self.native_api(flags=0, **settings)
+                with self.assertRaises(privacy.PrivateStorageError): self.secure_with(api)
+                api['close'].assert_called_once_with(123)
+
+    def test_reparse_point_hard_link_wrong_type_and_null_dacl_are_refused(self):
+        for settings in ({'attributes': 0x400}, {'links': 2}, {'attributes': 0x10}, {'dacl': False}):
             with self.subTest(settings=settings):
                 api = self.native_api(**settings)
                 with self.assertRaises(privacy.PrivateStorageError): self.secure_with(api)

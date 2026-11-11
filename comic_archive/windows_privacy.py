@@ -18,6 +18,7 @@ MESSAGE = ('This location cannot keep sign-in information private. Choose a libr
            'that supports Windows access permissions.')
 LOG = logging.getLogger('comic_archive.desktop')
 _protected = set()
+_plain_noted = False
 DWORD, HANDLE, POINTER = ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p
 
 
@@ -115,7 +116,13 @@ def _secure(path, directory):
         flags = DWORD()
         _check(api['volume'](handle, None, 0, None, None, ctypes.byref(flags), None, 0))
         if not flags.value & 0x8:  # FILE_PERSISTENT_ACLS: FAT/exFAT silently ignore security descriptors.
-            _refuse('persistent_acls_unavailable')
+            # A drive that keeps no permissions has none to set, and none that let another account in or keep
+            # it out. A library there works as it did before the app set permissions at all.
+            global _plain_noted
+            if not _plain_noted:
+                _plain_noted = True
+                LOG.info('Windows private storage: this drive keeps no access permissions; none are set')
+            return
         with _descriptor(directory) as descriptor:
             present, defaulted, dacl = ctypes.c_int(), ctypes.c_int(), POINTER()
             _check(api['dacl'](descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)))
