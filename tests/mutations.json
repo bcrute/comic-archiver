@@ -8550,5 +8550,53 @@
   "new": "                if False:\n                    raise SourceError(\"connection_unavailable\") from None",
   "test_file": "test_connected_console.py",
   "test": "test_a_send_the_network_fails_closes_the_connection_and_says_unavailable"
+ },
+ {
+  "id": "connected-ended-pairing-forgotten",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                self._pending.pop(pair, None)\n                self._runners.pop(pair, None)\n                self._operations.pop(pair, None)\n                self._operation_kinds.pop(pair, None)\n\n    async def begin",
+  "new": "                self._runners.pop(pair, None)\n                self._operations.pop(pair, None)\n                self._operation_kinds.pop(pair, None)\n\n    async def begin",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one"
+ },
+ {
+  "id": "connected-live-pairing-not-forgotten",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                pending.draft.closed\n                and pending.phase not in",
+  "new": "                True\n                and pending.phase not in",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one"
+ },
+ {
+  "id": "connected-approval-not-forgotten",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                and pending.phase not in {\"approved\", \"ack_unknown\", \"approval_pending\"}\n                and (runner is None",
+  "new": "                and (runner is None",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one"
+ },
+ {
+  "id": "connected-pairing-with-call-out-not-forgotten",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                and (operation is None or operation.done())\n",
+  "new": "",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one"
+ },
+ {
+  "id": "connected-forget-expires-first",
+  "source": "comic_archive/connected/controller.py",
+  "old": "        self.current()\n        self.owner.expire()\n        for pair, pending in list(self._pending.items()):",
+  "new": "        self.current()\n        for pair, pending in list(self._pending.items()):",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one"
+ },
+ {
+  "id": "connected-runner-failed-cleanup-marks-over",
+  "source": "comic_archive/connected/controller.py",
+  "old": "            try:\n                await self.finish()\n            finally:\n                # Also when",
+  "new": "            await self.finish()\n            if True:\n                # Also when",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_runner_whose_cleanup_fails_still_marks_its_pairing_over"
  }
 ]

@@ -382,6 +382,65 @@ class ConnectedPairingTests(unittest.TestCase):
                 self.state._pending(identifier())  # Live rows alone fill the cap.
             self.assertEqual(caught.exception.code, "resource_limit")
 
+    def test_a_pairing_whose_time_ran_out_is_not_in_the_way_of_a_new_one(self):
+        from comic_archive.connected.controller import (
+            _CREATE,
+            HostController,
+            PendingPairing,
+        )
+
+        review, _ = self.review()
+        pair = review.draft.pairing_id
+
+        async def run():
+            controller = HostController(self.owner, "http://127.0.0.1:1")
+            try:
+                pending = PendingPairing(_CREATE, review.draft)
+                pending._review = review
+                pending._set("review")
+                controller._pending[pair] = pending
+                controller.forget_ended()
+                self.assertEqual(controller.pending(), (pending,))  # Still within its five minutes.
+                self.now = 300
+                for phase in ("approved", "ack_unknown", "approval_pending"):
+                    pending._set(phase)
+                    controller.forget_ended()
+                    self.assertEqual(controller.pending(), (pending,), phase)  # An approval is never dropped here.
+                pending._set("unavailable")
+                busy = asyncio.get_running_loop().create_future()
+                controller._operations[pair] = busy
+                controller._operation_kinds[pair] = "pending"
+                controller.forget_ended()
+                self.assertEqual(controller.pending(), (pending,))  # A call is still out.
+                busy.set_result(None)
+                controller.forget_ended()
+                self.assertEqual(controller.pending(), ())
+                self.assertEqual((controller._operations, controller._operation_kinds), ({}, {}))
+            finally:
+                await controller.service.close()
+
+        asyncio.run(run())
+        self.assertEqual(self.state.records()[0]["status"], "revoked")
+
+    def test_a_runner_whose_cleanup_fails_still_marks_its_pairing_over(self):
+        from comic_archive.connected.controller import _CREATE, PendingPairing, _Runner
+        from comic_archive.connected.rendezvous import HostRendezvous
+        from unittest.mock import AsyncMock, Mock
+
+        async def run():
+            transport = object.__new__(HostRendezvous)
+            transport.pairing_id, transport.invalidate = identifier(), Mock()
+            pending = PendingPairing(_CREATE, Mock())
+            pending._set("waiting")
+            runner = _Runner(Mock(closed=True), transport, pending)
+            runner.finish = AsyncMock(side_effect=SourceError("connection_unavailable"))
+            with self.assertRaises(SourceError):
+                await runner.run()
+            self.assertEqual(pending.phase, "unavailable")
+            runner.controller._changed.set.assert_called_once_with()
+
+        asyncio.run(run())
+
     def test_claim_expiring_during_review_is_reported_gone_without_ending_serve(self):
         from comic_archive.connected import __main__ as cli
         from comic_archive.connected.controller import (

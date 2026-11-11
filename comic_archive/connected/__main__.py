@@ -199,6 +199,7 @@ async def console(driver, terminal, shutdown):
             if command == "quit" and not args:
                 shutdown.set()
             elif command == "pair" and not args:
+                controller.forget_ended()  # One whose time ran out is not in the way.
                 require(
                     not controller.pending(), "busy"
                 )  # Resume uncertain work, no duplicate pair.

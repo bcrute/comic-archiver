@@ -201,14 +201,17 @@ class _Runner:
             self.failure = "connection_unavailable"
         finally:
             self.stop()
-            await self.finish()
-            if self.pending is not None and self.pending.phase not in {
-                "approved",
-                "ack_unknown",
-                "approval_pending",
-            }:
-                self.pending._set("unavailable")
-            self.controller._changed.set()
+            try:
+                await self.finish()
+            finally:
+                # Also when the cleanup itself failed: a pairing that is over is never left looking live.
+                if self.pending is not None and self.pending.phase not in {
+                    "approved",
+                    "ack_unknown",
+                    "approval_pending",
+                }:
+                    self.pending._set("unavailable")
+                self.controller._changed.set()
 
     async def finish(self):
         self.stop()
@@ -290,8 +293,30 @@ class HostController:
             runner.transport.service_deadline
         )  # Permission metadata only, no RTC/read grant.
 
+    def forget_ended(self):
+        """Drop pairings that ended before approval (their five minutes ran out), whatever the service knows.
+
+        Only what is over here is dropped: its secret retired, its connection closed and no call still out.
+        """
+        self.current()
+        self.owner.expire()
+        for pair, pending in list(self._pending.items()):
+            runner, operation = self._runners.get(pair), self._operations.get(pair)
+            if (
+                pending.draft.closed
+                and pending.phase not in {"approved", "ack_unknown", "approval_pending"}
+                and (runner is None or runner.joined)
+                and (operation is None or operation.done())
+                and pair not in self._unclosed
+            ):
+                self._pending.pop(pair, None)
+                self._runners.pop(pair, None)
+                self._operations.pop(pair, None)
+                self._operation_kinds.pop(pair, None)
+
     async def begin(self):
         self.current()
+        self.forget_ended()
         require(len(self._pending) < 2 and len(self._operations) < 16, "resource_limit")
         draft = self.owner.start()
         pending = PendingPairing(_CREATE, draft)
