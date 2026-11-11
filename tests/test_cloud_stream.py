@@ -725,8 +725,8 @@ class B2DirectTests(unittest.TestCase):
         adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
         with patch.object(StreamingTransfer, 'upload_bytes', upload), patch('comic_archive.network.probe', return_value={'connection':'wired', 'metered':False}), self.assertRaises(Crash):
             self.publish((self.episode, following), adapter)
-        self.assertEqual(len(episode_archives(next(self.root.glob('Synthetic*')))), 1)
-        self.assertEqual(self.target()['verified'], 2)
+        self.assertEqual(len(episode_archives(next(self.root.glob('Synthetic*')))), 1)  # Only the seed stays here.
+        self.assertEqual((self.target()['verified'], self.target()['failed'], self.target()['pending']), (1, 0, 0))
         self.assertFalse(self.intents())
 
     def crash_after_the_cbz(self):

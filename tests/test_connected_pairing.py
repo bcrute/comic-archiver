@@ -541,7 +541,6 @@ class ConnectedPairingTests(unittest.TestCase):
             transport = object.__new__(HostRendezvous)
             transport.pairing_id, transport.invalidate = identifier(), Mock()
             transport._current = Mock(side_effect=None if code is None else SourceError(code))
-            transport.renewal_deadline = None
             made = _Runner(Mock(closed=False), transport)
             made.finish = AsyncMock()
             return made
