@@ -80,6 +80,16 @@ class SupportLogTests(unittest.TestCase):
             self.assertEqual(support_log.scrub('C:\\USERS\\SOMEONE\\AppData', [], home='C:\\Users\\Someone'), '~\\AppData')
         # A folder as short as a drive would match everywhere: it is left alone.
         self.assertEqual(support_log.scrub('C:\\x', ['C:\\'], home='/'), 'C:\\x')
+        # A Mac's folders are the same in any case, as on Windows; elsewhere another case is another folder.
+        with patch.object(support_log, 'WINDOWS', False), patch.object(support_log, 'sys', Mock(platform='darwin')):
+            self.assertEqual(support_log.scrub('/users/SOMEONE/Library', [], home='/Users/Someone'), '~/Library')
+        with patch.object(support_log, 'WINDOWS', False), patch.object(support_log, 'sys', Mock(platform='linux')):
+            self.assertEqual(support_log.scrub('/HOME/someone/x', [], home='/home/someone'), '/HOME/someone/x')
+            # The end of the home folder's path written under another start still names the person.
+            self.assertEqual(support_log.scrub('at /Users/someone/Library, not /Users/someone-else or /Users/someone2',
+                                               [], home='/Volumes/Data/Users/someone'),
+                             'at ~/Library, not /Users/someone-else or /Users/someone2')
+            self.assertEqual(support_log.scrub('/x/y', [], home='/x'), '/x/y')
 
     def site(self):
         workspace = Workspace('default', self.home)
@@ -173,8 +183,17 @@ class SupportLogTests(unittest.TestCase):
         text = support_log.bundle('Comic Archiver 0.3.0 on Linux', ['=== Tapas: x'], 'app', [self.home / 'lib'], now=when)
         self.assertEqual(text, 'Saved 2026-11-04T10:45:14+00:00; the times below are this computer’s own.\n\n'
                                'Comic Archiver 0.3.0 on Linux\n\n=== Tapas: x\n\n=== The app’s log\napp')
-        with patch.object(support_log, 'LIMIT', 40):
-            self.assertTrue(support_log.bundle('d' * 100, [], '', [], now=when).endswith('\n(shortened)'))
+        # Too much to send: each part gives up its start, never its end, where the newest lines are.
+        with patch.object(support_log, 'LIMIT', 400):
+            text = support_log.bundle('details', ['=== Tapas: x\n' + 'old line\n' * 50 + 'newest site'],
+                                      'a\n' * 300 + 'newest app', [], now=when)
+        self.assertLessEqual(len(text), 400)
+        self.assertGreater(len(text), 380)
+        self.assertTrue(text.startswith('Saved 2026-11-04T10:45:14+00:00;') and text.endswith('\na\nnewest app'))
+        self.assertIn(f'\n\ndetails\n\n=== Tapas: x\n{support_log.SHORTENED}\nold line\n', text)
+        self.assertIn(f'old line\nnewest site\n\n=== The app’s log\n{support_log.SHORTENED}\na\n', text)
+        with patch.object(support_log, 'LIMIT', 60):  # No room for more than the names: still never over.
+            self.assertLessEqual(len(support_log.bundle('d' * 100, ['=== Tapas: x\ny'], 'app', [], now=when)), 60)
         folder = self.home / 'Downloads'
         first = support_log.save(folder, 'é', now=when)
         second = support_log.save(folder, 'again', now=when)

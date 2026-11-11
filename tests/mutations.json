@@ -5394,7 +5394,7 @@
  {
   "id": "support-log-keeps-home-folder",
   "source": "comic_archive/support_log.py",
-  "old": "    names += [(spelling, '~') for spelling in _spellings(Path.home() if home is None else home)]\n",
+  "old": "    names += [(spelling, '~') for spelling in _spellings(home)]\n",
   "new": "    names += []\n",
   "test_file": "test_support_log.py",
   "test": "test_folders_are_left_out_however_they_are_spelled"
@@ -5402,8 +5402,8 @@
  {
   "id": "support-log-windows-folder-case-matters",
   "source": "comic_archive/support_log.py",
-  "old": "flags=re.IGNORECASE if WINDOWS else 0)",
-  "new": "flags=0)",
+  "old": "flags = re.IGNORECASE if _any_case() else 0",
+  "new": "flags = 0",
   "test_file": "test_support_log.py",
   "test": "test_folders_are_left_out_however_they_are_spelled"
  },
@@ -8006,5 +8006,53 @@
   "new": "            self.state.cloud_auth = value\n        self.act(actions.cloud_cancel",
   "test_file": "test_window_pages.py",
   "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
+ },
+ {
+  "id": "support-log-mac-folder-case-matters",
+  "source": "comic_archive/support_log.py",
+  "old": "    return WINDOWS or sys.platform == 'darwin'",
+  "new": "    return WINDOWS",
+  "test_file": "test_support_log.py",
+  "test": "test_folders_are_left_out_however_they_are_spelled"
+ },
+ {
+  "id": "support-log-keeps-home-name-under-another-start",
+  "source": "comic_archive/support_log.py",
+  "old": "    if home.parent.name and len(home.name) > 1:",
+  "new": "    if False:",
+  "test_file": "test_support_log.py",
+  "test": "test_folders_are_left_out_however_they_are_spelled"
+ },
+ {
+  "id": "support-log-hides-a-longer-name-that-starts-the-same",
+  "source": "comic_archive/support_log.py",
+  "old": "{re.escape(home.name)}(?![\\w.-])'",
+  "new": "{re.escape(home.name)}'",
+  "test_file": "test_support_log.py",
+  "test": "test_folders_are_left_out_however_they_are_spelled"
+ },
+ {
+  "id": "support-log-too-long-loses-its-newest-lines",
+  "source": "comic_archive/support_log.py",
+  "old": "(_end(body, share - len(head)) if",
+  "new": "(body[:share - len(head)] if",
+  "test_file": "test_support_log.py",
+  "test": "test_one_file_holds_it_all_named_for_when_it_was_saved_and_never_too_large"
+ },
+ {
+  "id": "support-log-first-long-part-takes-all-the-room",
+  "source": "comic_archive/support_log.py",
+  "old": "        share = room // (len(order) - place)",
+  "new": "        share = room",
+  "test_file": "test_support_log.py",
+  "test": "test_one_file_holds_it_all_named_for_when_it_was_saved_and_never_too_large"
+ },
+ {
+  "id": "support-log-names-alone-go-over-the-limit",
+  "source": "comic_archive/support_log.py",
+  "old": "else ''))[:max(share, 0)]",
+  "new": "else ''))",
+  "test_file": "test_support_log.py",
+  "test": "test_one_file_holds_it_all_named_for_when_it_was_saved_and_never_too_large"
  }
 ]

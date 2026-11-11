@@ -294,22 +294,52 @@ def _spellings(path):
     return {form.rstrip('/\\') for form in forms if len(form.rstrip('/\\')) > 3}
 
 
+def _any_case():
+    """Whether this computer's folders are the same folder in any case: so on Windows, and as a Mac's disk comes."""
+    return WINDOWS or sys.platform == 'darwin'
+
+
 def scrub(text, libraries, home=None):
-    """text with each library folder written as <library> and the home folder as ~, however they are spelled."""
+    """text with each library folder written as <library> and the home folder as ~, however they are spelled.
+
+    The home folder's own name goes too where only the end of its path is written, as under another mount point.
+    """
+    home = Path(Path.home() if home is None else home)
+    flags = re.IGNORECASE if _any_case() else 0
     names = [(spelling, '<library>') for folder in libraries for spelling in _spellings(folder)]
-    names += [(spelling, '~') for spelling in _spellings(Path.home() if home is None else home)]
+    names += [(spelling, '~') for spelling in _spellings(home)]
     for spelling, word in sorted(names, key=lambda name: -len(name[0])):
-        text = re.sub(re.escape(spelling), lambda _, word=word: word, text, flags=re.IGNORECASE if WINDOWS else 0)
+        text = re.sub(re.escape(spelling), lambda _, word=word: word, text, flags=flags)
+    if home.parent.name and len(home.name) > 1:
+        text = re.sub(rf'[/\\]{re.escape(home.parent.name)}[/\\]{re.escape(home.name)}(?![\w.-])', '~', text, flags=flags)
     return text
+
+
+SHORTENED = '(shortened: the start of this part is left out)'
+
+
+def _fit(parts, limit):
+    """parts as they fit in limit characters together: each too long for its share loses its start, never its
+    end, where the newest lines are; its first line, which names it, stays."""
+    fitted, room = list(parts), limit
+    order = sorted(range(len(parts)), key=lambda index: len(parts[index]))
+    for place, index in enumerate(order):
+        share = room // (len(order) - place)
+        if len(parts[index]) > share:
+            head, _, body = parts[index].partition('\n')
+            head = f'{head[:share]}\n{SHORTENED}\n'
+            fitted[index] = (head + (_end(body, share - len(head)) if share > len(head) else ''))[:max(share, 0)]
+        room -= len(fitted[index])
+    return fitted
 
 
 def bundle(details, sites, app_text, libraries, now=None):
     """The whole file: the details for support, each site's records, then the app's log."""
     stamp = (now or datetime.now().astimezone()).isoformat(timespec='seconds')
-    text = '\n\n'.join([f'Saved {stamp}; the times below are this computer’s own.', details, *sites,
-                        f'=== The app’s log\n{app_text}'])
-    text = scrub(text, libraries)
-    return text if len(text) <= LIMIT else text[:LIMIT] + '\n(shortened)'
+    parts = [f'Saved {stamp}; the times below are this computer’s own.', details, *sites,
+             f'=== The app’s log\n{app_text}']
+    parts = [scrub(part, libraries) for part in parts]
+    return '\n\n'.join(_fit(parts, LIMIT - 2 * (len(parts) - 1)))
 
 
 def save(folder, text, now=None):
