@@ -366,6 +366,22 @@ class ArchiveTests(WorkspaceCase):
         second, _ = build.make_archive(app, self.root / 'two', '1.0')
         self.assertEqual(first.read_bytes(), second.read_bytes())
 
+    def test_archive_bytes_do_not_depend_on_when_the_files_were_written(self):
+        app = self.tree()
+        with patch.dict(os.environ):
+            os.environ.pop('SOURCE_DATE_EPOCH', None)
+            first, _ = build.make_archive(app, self.root / 'one', '1.0')
+            for path in (app, app / 'LICENSE', app / 'python/bin/python3.14'):
+                os.utime(path, (1_000_000_000, 1_000_000_000))
+            second, _ = build.make_archive(app, self.root / 'two', '1.0')
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            with tarfile.open(second) as package:
+                self.assertEqual({member.mtime for member in package.getmembers()}, {build.ARCHIVE_TIME})
+            os.environ['SOURCE_DATE_EPOCH'] = '1700000000'
+            third, _ = build.make_archive(app, self.root / 'three', '1.0')
+            with tarfile.open(third) as package:
+                self.assertEqual({member.mtime for member in package.getmembers()}, {1700000000})
+
 
     def test_smoke_runs_against_the_unpacked_archive_not_the_build_tree(self):
         app = self.tree()
@@ -402,6 +418,13 @@ class OrchestrationTests(WorkspaceCase):
         self.run = patch.object(build, 'run', return_value=MagicMock(stdout='httpx==0.28.1\ncomic-archive @ file:///x.whl\n')).start()
         self.left_out = patch.object(build, 'leave_out_unused').start()
 
+        def compiled(python, app, folder):
+            cache = app / 'python/lib/python3.14/site-packages/comic_archive/__pycache__'
+            cache.mkdir(parents=True)
+            (cache / 'desktop_app.cpython-314.pyc').write_bytes(b'compiled')
+
+        self.compiled = patch.object(build, 'compile_bytecode', side_effect=compiled).start()
+
     def test_build_assembles_and_packs_the_app(self):
         app, archive, checksum = build.build()
         release = build.version()
@@ -419,9 +442,17 @@ class OrchestrationTests(WorkspaceCase):
         self.assertFalse([n for n in names if 'browsers' in n.split('/')])
         self.assertNotIn(f'{app.name}/python/bin/comic-archive', names)
         self.left_out.assert_called_once_with(app)
+        self.compiled.assert_called_once_with(app / 'python/bin/python3', app, app / 'python/lib')
+        self.assertIn(f'{app.name}/python/lib/python3.14/site-packages/comic_archive/__pycache__/desktop_app.cpython-314.pyc', names)
         self.assertIn(f'{app.name}/licenses/other/LGPL-3.0.txt', names)
         self.assertIn(f'{app.name}/share/applications/comic-archiver.desktop', names)
         self.assertEqual(frozen, f'comic-archive=={release}\nhttpx==0.28.1\n')
+
+    def test_an_app_whose_modules_were_not_compiled_is_not_packed(self):
+        self.compiled.side_effect = None
+        with self.assertRaisesRegex(RuntimeError, 'not compiled'):
+            build.build()
+        self.assertFalse((self.root / 'dist').exists())
 
     def test_missing_uv_publishes_nothing(self):
         with patch('scripts.build_linux_app.shutil.which', return_value=None):
@@ -483,13 +514,54 @@ class CommandLineTests(WorkspaceCase):
     def test_packages_install_into_the_bundled_python(self):
         with patch.dict(os.environ, {'VIRTUAL_ENV': '/leak', 'PYTHONPATH': '/leak'}):
             build.uv_install(Path('/app/python/bin/python3'), ['/w/x.whl[desktop,validation]'])
-        command = ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages', '--compile-bytecode']
+        command = ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages', '--no-compile']
         self.assertEqual([args for args, _ in self.calls],
                          [[*command, '--require-hashes', '--requirement', str(build.PACKAGING / 'linux-requirements.txt')],
                           [*command, '--no-deps', '/w/x.whl[desktop,validation]']])
         for _, kwargs in self.calls:
             self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
             self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
+
+    def compile(self, version=None, write=None):
+        app = self.root / 'build/ComicArchiver-1.0'
+        folder = app / 'python/lib'
+        (folder / 'pkg/__pycache__').mkdir(parents=True)
+
+        def ran(args, kwargs):
+            if 'compileall' in args and write is not None:
+                (folder / 'pkg/__pycache__/module.cpython-314.pyc').write_bytes(write(app))
+
+        self.on_run = ran
+        self.process.side_effect = lambda args, **kwargs: (
+            self.record(args, **kwargs), MagicMock(stdout=(version or build.PYTHON_RELEASE) + '\n'))[1]
+        build.compile_bytecode(app / 'python/bin/python3', app, folder)
+        return app, folder
+
+    def test_modules_are_compiled_apart_from_their_install_and_never_name_the_build_folder(self):
+        app, folder = self.compile(write=lambda app: b'code python/lib/pkg/module.py')
+        python = str(app / 'python/bin/python3')
+        self.assertEqual([args for args, _ in self.calls],
+                         [[python, '-I', '-c', 'import platform; print(platform.python_version())'],
+                          [python, '-I', '-m', 'compileall', '-qq', '-f', '-j', '0', '--invalidation-mode', 'unchecked-hash',
+                           '-s', str(app), str(folder)]])
+        self.assertNotIn('check', self.calls[1][1])  # Some packaged files are not meant to compile.
+        self.assertTrue(all(name not in self.calls[1][1]['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
+
+    def test_a_compiled_module_that_names_the_build_folder_stops_the_build(self):
+        with self.assertRaisesRegex(RuntimeError, 'names the build folder: python/lib/pkg/__pycache__/module'):
+            self.compile(write=lambda app: b'code ' + os.fsencode(app) + b'/python/lib/pkg/module.py')
+
+    def test_modules_are_compiled_only_by_the_python_version_that_is_bundled(self):
+        with self.assertRaisesRegex(RuntimeError, 'compiled by Python 3.13.1'):
+            self.compile(version='3.13.1')
+        self.assertEqual(len(self.calls), 1)  # Nothing was compiled.
+
+    def test_every_build_names_the_one_python_release(self):
+        self.assertEqual(build.PBS_NAME, f'cpython-{build.PYTHON_RELEASE}+{build.PBS_TAG}-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz')
+        self.assertEqual(build.pbs_name('aarch64-apple-darwin'),
+                         f'cpython-{build.PYTHON_RELEASE}+{build.PBS_TAG}-aarch64-apple-darwin-install_only_stripped.tar.gz')
+        for name in ('build_macos_app.py', 'build_windows_app.py'):
+            self.assertNotIn(build.PYTHON_RELEASE, (PROJECT / 'scripts' / name).read_text('utf-8'), name)
 
     def test_every_bundled_package_is_pinned_with_its_hashes(self):
         for name in ('linux', 'windows'):

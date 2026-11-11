@@ -35,10 +35,20 @@ PACKAGING = PROJECT / 'packaging'
 BUILD = PROJECT / 'build/linux'
 DIST = PROJECT / 'dist'
 APP = 'ComicArchiver'
+# The one Python every build bundles and compiles its modules with; the other build scripts read it from here.
+PYTHON_RELEASE = '3.14.8'
 PBS_TAG = '20261009'
-PBS_NAME = 'cpython-3.14.8+20261009-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz'
-PBS_URL = ('https://github.com/astral-sh/python-build-standalone/releases/download/' + PBS_TAG + '/'
-           + PBS_NAME.replace('+', '%2B'))
+PBS_BASE = 'https://github.com/astral-sh/python-build-standalone/releases/download/' + PBS_TAG
+# Every file in the tarball carries this time (1 January 2026 UTC), or SOURCE_DATE_EPOCH when that is set.
+ARCHIVE_TIME = 1767225600
+
+
+def pbs_name(platform_name):
+    return f'cpython-{PYTHON_RELEASE}+{PBS_TAG}-{platform_name}-install_only_stripped.tar.gz'
+
+
+PBS_NAME = pbs_name('x86_64-unknown-linux-gnu')
+PBS_URL = PBS_BASE + '/' + PBS_NAME.replace('+', '%2B')
 PBS_SHA256 = 'ddc902fd26460f728758c67d80417c1031edf97589f1f162c4ba3aa158a35998'
 EXTRAS = 'desktop,validation'
 # The license texts that come with no package in the app: Qt's (LGPL-3.0, which builds on GPL-3.0), Python's and
@@ -185,9 +195,33 @@ def build_wheel(work):
 def uv_install(python, requirements):
     # No venv (they are not relocatable); the flag is harmless if the interpreter is not marked externally managed.
     # Every package is checked against its pinned hash; the app's own wheel, built here, then needs none of its own.
-    command = ['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--compile-bytecode']
+    # Nothing is compiled here: a module compiled where it was installed names the build folder (compile_bytecode).
+    command = ['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--no-compile']
     run([*command, '--require-hashes', '--requirement', PACKAGING / 'linux-requirements.txt'])
     run([*command, '--no-deps', *requirements])
+
+
+def compile_bytecode(python, app, folder):
+    """Compile every module under folder with python, so that no compiled file names the folder it was built in.
+
+    A compiled module records the path of its source. Compiled in place, that is the build folder, the builder's
+    user name included, and the app would differ with where it was built. The path is recorded from below app
+    instead. The files are marked as never to be compared with their sources, so the times the archive gives
+    the files do not matter, and any file the bundled Python compiled for itself earlier in the build is replaced.
+    """
+    found = run([python, '-I', '-c', 'import platform; print(platform.python_version())'], capture=True).stdout.strip()
+    if found != PYTHON_RELEASE:
+        # Compiled modules are only read by the Python version that wrote them.
+        raise RuntimeError(f'The modules would be compiled by Python {found}, not {PYTHON_RELEASE}')
+    command = [python, '-I', '-m', 'compileall', '-qq', '-f', '-j', '0', '--invalidation-mode', 'unchecked-hash',
+               '-s', app, folder]
+    print('Build stage: ' + ' '.join(str(a) for a in command), flush=True)
+    # Its exit status is not the test: packages ship a few files that are not meant to compile.
+    subprocess.run([str(a) for a in command], env=clean_env(), stdout=subprocess.DEVNULL, timeout=1800)
+    marker = os.fsencode(app)
+    for path in sorted(Path(folder).rglob('*.pyc')):
+        if marker in path.read_bytes():
+            raise RuntimeError('A compiled module names the build folder: ' + path.relative_to(app).as_posix())
 
 
 def drop_entry_scripts(app):
@@ -392,9 +426,12 @@ def make_archive(app, destination, release):
     target = destination / archive_name(release)
     temporary = target.with_suffix(target.suffix + '.partial')
 
+    moment = int(os.environ.get('SOURCE_DATE_EPOCH') or ARCHIVE_TIME)
+
     def plain(info):
         info.uid = info.gid = 0
         info.uname = info.gname = 'root'
+        info.mtime = moment
         return info
 
     try:
@@ -472,6 +509,9 @@ def build():
     uv_install(python, [f'{wheel}[{EXTRAS}]'])
     drop_entry_scripts(app)
     leave_out_unused(app)
+    compile_bytecode(python, app, app / 'python/lib')
+    if not list(site_packages(app).glob('comic_archive/__pycache__/desktop_app.*.pyc')):
+        raise RuntimeError('The modules of the app were not compiled')
     collect_licenses(app)
     # list --format freeze reports installed versions even for CPython's preinstalled
     # pip, whose direct_url metadata points at the Python builder's private wheel path.

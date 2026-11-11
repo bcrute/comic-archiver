@@ -38,7 +38,7 @@ PACKAGING = PROJECT / 'packaging/windows'
 BUILD = PROJECT / 'build/windows'
 DIST = PROJECT / 'dist'
 APP = common.APP
-PYTHON_RELEASE = '3.14.8'
+PYTHON_RELEASE = common.PYTHON_RELEASE
 PYTHON_NAME = f'python-{PYTHON_RELEASE}-embed-amd64.zip'
 PYTHON_URL = f'https://www.python.org/ftp/python/{PYTHON_RELEASE}/{PYTHON_NAME}'
 # Published at https://www.python.org/downloads/release/python-3148/.
@@ -280,11 +280,7 @@ def compile_bytecode(app):
     The compiled files are marked as never to be compared with their sources: a zip rounds file times,
     and a compiled file that looks out of date is compiled again at every start.
     """
-    command = [compiling_python(app), '-I', '-m', 'compileall', '-qq', '-j', '0', '--invalidation-mode', 'unchecked-hash',
-               app / 'python/Lib']
-    print('Build stage: ' + ' '.join(str(a) for a in command), flush=True)
-    # Its exit status is not the test: packages ship a few files that are not meant to compile.
-    subprocess.run([str(a) for a in command], env=common.clean_env(), stdout=subprocess.DEVNULL, timeout=1800)
+    common.compile_bytecode(compiling_python(app), app, app / 'python/Lib')
     with zipfile.ZipFile(app / 'python' / (PYTHON_STEM + '.zip')) as library:
         if 'os.pyc' not in library.namelist():
             raise RuntimeError('The embedded Python standard library is missing')

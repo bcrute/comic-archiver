@@ -8966,5 +8966,69 @@
   "new": "            self._held = None if held is None else True",
   "test_file": "test_connected_pairing.py",
   "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
+ },
+ {
+  "id": "build-bytecode-path-stripped",
+  "source": "scripts/build_linux_app.py",
+  "old": "               '-s', app, folder]",
+  "new": "               folder]",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_modules_are_compiled_apart_from_their_install_and_never_name_the_build_folder"
+ },
+ {
+  "id": "build-bytecode-build-folder-refused",
+  "source": "scripts/build_linux_app.py",
+  "old": "        if marker in path.read_bytes():",
+  "new": "        if False:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_a_compiled_module_that_names_the_build_folder_stops_the_build"
+ },
+ {
+  "id": "build-bytecode-compiler-version",
+  "source": "scripts/build_linux_app.py",
+  "old": "    if found != PYTHON_RELEASE:",
+  "new": "    if False:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_modules_are_compiled_only_by_the_python_version_that_is_bundled"
+ },
+ {
+  "id": "build-install-does-not-compile",
+  "source": "scripts/build_linux_app.py",
+  "old": "'--break-system-packages', '--no-compile']",
+  "new": "'--break-system-packages', '--compile-bytecode']",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_packages_install_into_the_bundled_python"
+ },
+ {
+  "id": "build-archive-fixed-times",
+  "source": "scripts/build_linux_app.py",
+  "old": "        info.mtime = moment\n",
+  "new": "",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_archive_bytes_do_not_depend_on_when_the_files_were_written"
+ },
+ {
+  "id": "build-archive-source-date-epoch",
+  "source": "scripts/build_linux_app.py",
+  "old": "    moment = int(os.environ.get('SOURCE_DATE_EPOCH') or ARCHIVE_TIME)",
+  "new": "    moment = ARCHIVE_TIME",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_archive_bytes_do_not_depend_on_when_the_files_were_written"
+ },
+ {
+  "id": "build-uncompiled-app-not-packed",
+  "source": "scripts/build_linux_app.py",
+  "old": "    if not list(site_packages(app).glob('comic_archive/__pycache__/desktop_app.*.pyc')):",
+  "new": "    if False:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_an_app_whose_modules_were_not_compiled_is_not_packed"
+ },
+ {
+  "id": "build-compiles-before-packing",
+  "source": "scripts/build_linux_app.py",
+  "old": "    compile_bytecode(python, app, app / 'python/lib')\n",
+  "new": "",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_build_assembles_and_packs_the_app"
  }
 ]

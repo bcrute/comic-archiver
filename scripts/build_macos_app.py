@@ -112,9 +112,8 @@ def build():
     shutil.rmtree(app, ignore_errors=True)
     resources = app/'Contents/Resources'
     resources.mkdir(parents=True)
-    name = f'cpython-3.14.8+20261009-{"aarch64" if arch == "arm64" else arch}-apple-darwin-install_only_stripped.tar.gz'
-    base = os.environ.get('COMIC_ARCHIVER_BUILD_DOWNLOAD_BASE',
-                          'https://github.com/astral-sh/python-build-standalone/releases/download/20261009')
+    name = shared.pbs_name(('aarch64' if arch == 'arm64' else arch) + '-apple-darwin')
+    base = os.environ.get('COMIC_ARCHIVER_BUILD_DOWNLOAD_BASE', shared.PBS_BASE)
     archive = shared.fetch(base.rstrip('/')+'/'+name.replace('+', '%2B'), BUILD/'downloads'/name, PINS[arch])
     with tarfile.open(archive) as package:
         package.extractall(resources, filter='data')
@@ -131,14 +130,16 @@ def build():
         raise RuntimeError('Expected exactly one fresh wheel')
     wheel = wheels[0]
     # Python's own pip avoids adding a build-host tool dependency to the application.
-    run([python, '-m', 'pip', 'install', '--require-hashes', '-r', shared.PACKAGING/'macos-requirements.txt'])
-    run([python, '-m', 'pip', 'install', '--no-deps', wheel])
+    # Nothing is compiled here: a module compiled where it was installed names the build folder.
+    run([python, '-m', 'pip', 'install', '--no-compile', '--require-hashes', '-r', shared.PACKAGING/'macos-requirements.txt'])
+    run([python, '-m', 'pip', 'install', '--no-compile', '--no-deps', wheel])
     build_network_probe(shared.site_packages(resources)/'comic_archive/native')
     # Omit development-only Qt resources without altering framework/helper layout or signatures.
     qt = shared.site_packages(resources)/'PySide6'
     for relative in ('include', 'typesystems', 'glue', 'Qt/qml'):
         shutil.rmtree(qt/relative, ignore_errors=True)
     shared.drop_entry_scripts(resources)
+    shared.compile_bytecode(python, resources, resources/'python/lib')
     shared.collect_licenses(resources)
     listing = run([python, '-m', 'pip', 'list', '--format', 'freeze'], capture=True).stdout
     requirements = resources/'requirements-frozen.txt'
