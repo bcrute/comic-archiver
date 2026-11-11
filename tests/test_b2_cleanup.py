@@ -120,6 +120,58 @@ class B2CleanupTests(unittest.TestCase):
         self.assertEqual(error.exception.cloud_code,'cloud_verification')
         self.assertTrue(any(item['fileName']==self.path for item in self.files))
 
+    def authorizations(self):
+        return sum(req.url.path.endswith('b2_authorize_account') for req in self.requests)
+
+    def test_one_authorization_serves_every_file_a_transfer_cleans_up(self):
+        self.transfer.delete_test_file(self.path)
+        self.transfer.delete_test_file(self.path)
+        self.assertEqual(self.authorizations(), 1)
+        self.config.unlink()  # The saved connection is not read again either.
+        self.transfer.delete_test_file(self.path)
+        self.assertEqual(self.authorizations(), 1)
+
+    def test_a_failed_cleanup_asks_for_a_new_authorization_next_time(self):
+        self.transfer.delete_test_file(self.path)
+        working = self.transport
+        self.transport = httpx.MockTransport(lambda req: httpx.Response(401, json={'code': 'expired_auth_token'}))
+        with self.assertRaises(CloudTransferError): self.transfer.delete_test_file(self.path)
+        self.transport = working
+        self.transfer.delete_test_file(self.path)
+        self.assertEqual(self.authorizations(), 2)
+
+    def test_a_removal_b2_refuses_is_judged_by_whether_the_file_is_left(self):
+        real = self.request
+        def request(req):
+            if req.url.path.endswith('b2_delete_file_version'):
+                real(req)  # Removed by an earlier try whose answer never arrived.
+                return httpx.Response(400, json={'code': 'file_not_present'})
+            return real(req)
+        self.transport = httpx.MockTransport(request)
+        self.transfer.delete_test_file(self.path)
+        self.assertEqual(set(self.removed), {'partial1', 'older1', 'current1', 'hidden1'})
+        self.files.append({'bucketId':self.bucket['id'], 'fileName':self.path, 'fileId':'stays1', 'action':'upload'})
+        self.transport = httpx.MockTransport(
+            lambda req: httpx.Response(400, json={}) if req.url.path.endswith('b2_delete_file_version') else real(req))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.delete_test_file(self.path)
+        self.assertEqual(error.exception.cloud_code, 'cloud_verification')
+
+    def test_a_listing_b2_refuses_still_stops_the_cleanup(self):
+        real = self.request
+        self.transport = httpx.MockTransport(
+            lambda req: httpx.Response(400, json={}) if 'b2_list_' in req.url.path else real(req))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.delete_test_file(self.path)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertFalse(self.removed)
+
+    def test_a_removal_the_service_fails_stops_the_cleanup(self):
+        real = self.request
+        self.transport = httpx.MockTransport(
+            lambda req: httpx.Response(500, json={}) if req.url.path.endswith('b2_cancel_large_file') else real(req))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.delete_test_file(self.path)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertFalse(self.removed)
+
     def test_exact_staging_file_cleanup_has_the_same_restrictions(self):
         self.path = 'Comic-Archive/00000000-0000-0000-0000-000000000001/.staging/00000000-0000-0000-0000-000000000002/episode.cbz'
         self.files = [{'bucketId':self.bucket['id'],'fileName':self.path,'fileId':'partial1','action':'start'}]

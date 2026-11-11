@@ -43,6 +43,10 @@ def _body(response, guard, cancel):
     return value
 
 
+class Refused(CloudTransferError):
+    """B2 turned one call down for a reason that is not the key, a cap or how busy it is."""
+
+
 def _request(client, method, url, guard, cancel, **options):
     """One B2 call; a busy service is asked again a few times, waiting as it says, up to half a minute."""
     for attempt in range(4):
@@ -66,6 +70,8 @@ def _request(client, method, url, guard, cancel, **options):
                     raise CloudTransferError('b2_key_permissions')
                 elif response.status_code == 429:
                     raise CloudTransferError('cloud_rate_limited')
+                elif 400 <= response.status_code < 500:
+                    raise Refused('cloud_connection')
                 elif response.status_code != 200:
                     raise CloudTransferError('cloud_connection')
                 else:
