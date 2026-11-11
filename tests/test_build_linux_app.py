@@ -401,6 +401,7 @@ class ArchiveTests(WorkspaceCase):
 class OrchestrationTests(WorkspaceCase):
     def setUp(self):
         super().setUp()
+        self.real_audit = build.require_audit
         patch.object(build, 'BUILD', self.root / 'build').start()
         patch.object(build, 'DIST', self.root / 'dist').start()
         patch('scripts.build_linux_app.shutil.which', return_value='/usr/bin/uv').start()
@@ -424,6 +425,7 @@ class OrchestrationTests(WorkspaceCase):
             (cache / 'desktop_app.cpython-314.pyc').write_bytes(b'compiled')
 
         self.compiled = patch.object(build, 'compile_bytecode', side_effect=compiled).start()
+        self.audit = patch.object(build, 'require_audit').start()
 
     def test_build_assembles_and_packs_the_app(self):
         app, archive, checksum = build.build()
@@ -453,6 +455,20 @@ class OrchestrationTests(WorkspaceCase):
         with self.assertRaisesRegex(RuntimeError, 'not compiled'):
             build.build()
         self.assertFalse((self.root / 'dist').exists())
+
+    def test_a_python_without_the_audit_tool_is_refused_before_anything_is_built(self):
+        self.audit.side_effect = RuntimeError('pip-audit is required')
+        with self.assertRaisesRegex(RuntimeError, 'pip-audit is required'):
+            build.build()
+        self.bundle.assert_not_called()
+        self.audit.side_effect = None
+        with patch('scripts.build_linux_app.importlib.util.find_spec', return_value=None) as found, \
+                patch.object(build, 'require_audit', self.real_audit):
+            with self.assertRaisesRegex(RuntimeError, 'pip-audit is required'):
+                build.require_audit()
+            found.assert_called_once_with('pip_audit')
+            found.return_value = object()
+            build.require_audit()
 
     def test_missing_uv_publishes_nothing(self):
         with patch('scripts.build_linux_app.shutil.which', return_value=None):

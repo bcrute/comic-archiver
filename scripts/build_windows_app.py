@@ -1,9 +1,10 @@
 """Build the self-contained Windows x86_64 Comic Archiver app: its folder, a zip of it and its installer.
 
-Run on a CI host that has uv, never on the development PC:
+Run on a CI host that has uv, never on the development PC, with the project's test extra
+(its pip-audit checks the finished app's packages):
 
-    python3 scripts/build_windows_app.py                    # the app folder and its zip; on Linux or Windows
-    python scripts/build_windows_app.py --smoke --installer # on Windows only
+    uv run --extra test python scripts/build_windows_app.py                     # the app folder and its zip; on Linux or Windows
+    uv run --extra test python scripts/build_windows_app.py --smoke --installer # on Windows only
 
 The folder is put together from files alone: the pinned CPython for Windows (SHA-256 below) and the
 Windows packages from PyPI. The Windows runtime is Python's signed embeddable distribution. Nothing
@@ -358,6 +359,7 @@ def make_archive(app, destination, release):
 def build():
     if not shutil.which('uv'):
         raise RuntimeError('uv is required on the build host')
+    common.require_audit()
     release, app = common.version(), app_dir()
     shutil.rmtree(app, ignore_errors=True)
     app.mkdir(parents=True)

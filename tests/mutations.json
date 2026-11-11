@@ -9030,5 +9030,21 @@
   "new": "",
   "test_file": "test_build_linux_app.py",
   "test": "test_build_assembles_and_packs_the_app"
+ },
+ {
+  "id": "build-audit-tool-checked-first",
+  "source": "scripts/build_linux_app.py",
+  "old": "    require_audit()\n    release, app = version(), app_dir()",
+  "new": "    release, app = version(), app_dir()",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_a_python_without_the_audit_tool_is_refused_before_anything_is_built"
+ },
+ {
+  "id": "build-audit-tool-missing-refused",
+  "source": "scripts/build_linux_app.py",
+  "old": "    if importlib.util.find_spec('pip_audit') is None:",
+  "new": "    if False:",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_a_python_without_the_audit_tool_is_refused_before_anything_is_built"
  }
 ]

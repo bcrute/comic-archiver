@@ -20,7 +20,7 @@ def run(args, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, **kwargs)
 
 
-def checks(repair, groups, mutation_ids):
+def checks(groups, mutation_ids):
     output = Path(os.environ['CI_ARTIFACTS_DIR'])
     output.mkdir(parents=True, exist_ok=True)
     shutil.copy2('/opt/ci-inputs/os-packages.txt', output/'os-packages.txt')
@@ -35,12 +35,11 @@ def checks(repair, groups, mutation_ids):
     env = os.environ.copy()
     env['PATH'] = str(python.parent)+os.pathsep+env['PATH']
     stages = [('validate', [python, 'scripts/validate.py', '--prepare'])]
-    if repair or mutation_ids:
+    if mutation_ids:
         inventory = json.loads((ROOT/'tests/mutations.json').read_text())
-        selected = [m for m in inventory if m['id'] in mutation_ids] if mutation_ids else [
-            m for m in inventory if m['test_file'] in {'test_window_pages.py', 'test_cloud_tools.py'}]
-        if len(selected) != (len(set(mutation_ids)) if mutation_ids else 68):
-            raise RuntimeError('The reviewed repair selection changed')
+        selected = [m for m in inventory if m['id'] in mutation_ids]
+        if len(selected) != len(set(mutation_ids)):
+            raise RuntimeError('A mutation asked for is not in the inventory')
         selection = output/'repair-mutations.json'
         selection.write_text(json.dumps(selected, indent=2)+'\n')
         stages.append(('mutations', [python, 'scripts/mutation_check.py', selection]))
@@ -73,7 +72,6 @@ def checks(repair, groups, mutation_ids):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--repair', action='store_true', help='retain prior passes and rerun the 68 affected mutations')
     parser.add_argument('--inside', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--groups', nargs='+', choices=('validate', 'mutations', 'engine', 'adapter',
                                                       'lint', 'cloud-helper', 'installed-package'),
@@ -81,7 +79,7 @@ def main():
     parser.add_argument('--mutation-id', action='append', default=[], help='rerun an exact failed inventory entry')
     args = parser.parse_args()
     if args.inside:
-        return checks(args.repair, args.groups, args.mutation_id)
+        return checks(args.groups, args.mutation_id)
     if os.environ.get('CI') != 'true' or not os.environ.get('CI_ARTIFACTS_DIR'):
         raise RuntimeError('Use the supported fleet helper')
     output = Path(os.environ['CI_ARTIFACTS_DIR'])
@@ -120,8 +118,6 @@ def main():
         if key in os.environ:
             command += ['--env', key+'='+os.environ[key]]
     command += [image, 'python', 'scripts/linux_ci.py', '--inside']
-    if args.repair:
-        command.append('--repair')
     command += ['--groups', *args.groups]
     for identifier in args.mutation_id:
         command += ['--mutation-id', identifier]

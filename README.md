@@ -42,7 +42,7 @@ There's a version for Windows 10 and 11 and one for Linux. The Releases page exp
 the warnings Windows shows because the app isn't signed yet.
 
 The Intel macOS development build has passed native VM testing. It is ad-hoc signed and has not been
-notarised or published. Build and installation notes are in
+notarized or published. Build and installation notes are in
 [the macOS development instructions](docs/development.md#build-the-macos-package).
 
 ## Using it

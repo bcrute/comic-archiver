@@ -1,8 +1,9 @@
 """Build the self-contained Linux x86_64 Comic Archiver app and its tarball.
 
-Run on a Linux CI host that has uv, never on the development PC:
+Run on a Linux CI host that has uv, never on the development PC, with the project's test extra
+(its pip-audit checks the finished app's packages):
 
-    python3 scripts/build_linux_app.py --smoke
+    uv run --extra test python scripts/build_linux_app.py --smoke
 
 Output: dist/ComicArchiver-<version>-linux-x86_64.tar.gz and a .sha256 file.
 
@@ -17,6 +18,7 @@ session and makes no Tapas requests.
 import argparse
 import gzip
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -146,6 +148,30 @@ def run(args, *, env=None, cwd=PROJECT, timeout=None, capture=False):
         if capture:
             print(str(error.stdout)[-3000:], str(error.stderr)[-3000:], sep='\n')
         raise
+
+
+def require_audit():
+    """The finished app's packages are audited by this Python: say so before an hour is spent building."""
+    if importlib.util.find_spec('pip_audit') is None:
+        raise RuntimeError('pip-audit is required in the Python that runs this script (the test extra)')
+
+
+def require_version(shown, release):
+    if release not in shown:
+        raise RuntimeError('Packaged app reported an unexpected version')
+
+
+def require_ok(done):
+    """The self-test's own last line must say ok: its exit status alone is not the test."""
+    lines = done.stdout.strip().splitlines()
+    try:
+        ok = bool(lines) and json.loads(lines[-1]).get('ok') is True
+    except (ValueError, AttributeError):
+        ok = False
+    if not ok:
+        print(done.stdout[-3000:], done.stderr[-3000:], sep='\n')
+        raise RuntimeError('Packaged app self-test did not report ok true')
+    print('Self-test report: ' + lines[-1], flush=True)
 
 
 def app_dir():
@@ -463,19 +489,8 @@ def smoke(app, release):
         # Run as on a computer with no display, so the checks cannot lean on one the build host happens to have.
         for name in ('DISPLAY', 'WAYLAND_DISPLAY'):
             env.pop(name, None)
-        shown = run([launcher, '--version'], env=env, cwd=home, timeout=120, capture=True).stdout
-        if release not in shown:
-            raise RuntimeError('Packaged app reported an unexpected version')
-        done = run([launcher, '--self-test'], env=env, cwd=home, timeout=300, capture=True)
-        lines = done.stdout.strip().splitlines()
-        try:
-            ok = bool(lines) and json.loads(lines[-1]).get('ok') is True
-        except ValueError:
-            ok = False
-        if not ok:
-            print(done.stdout[-3000:], done.stderr[-3000:], sep='\n')
-            raise RuntimeError('Packaged app self-test did not report ok true')
-        print('Self-test report: ' + lines[-1], flush=True)
+        require_version(run([launcher, '--version'], env=env, cwd=home, timeout=120, capture=True).stdout, release)
+        require_ok(run([launcher, '--self-test'], env=env, cwd=home, timeout=300, capture=True))
         # Starts the engine, opens a fresh session and page, and loads nothing from the internet.
         # The downloader has to hide itself and do without a graphics card unaided, as it does inside the app.
         for name in ('QT_QPA_PLATFORM', 'QTWEBENGINE_CHROMIUM_FLAGS'):
@@ -500,6 +515,7 @@ def prepare(app):
 def build():
     if not shutil.which('uv'):
         raise RuntimeError('uv is required on the build host')
+    require_audit()
     release, app = version(), app_dir()
     prepare(app)
     work = BUILD / 'work'

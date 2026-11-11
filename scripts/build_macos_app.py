@@ -1,6 +1,6 @@
 """Build a relocatable macOS .app with its own Python and Qt; run only on the fleet.
 
-Uses the shared wheel, checksum, licence and audit helpers. No site credentials
+Uses the shared wheel, checksum, license and audit helpers. No site credentials
 or distribution signing identity are needed. The resulting app is ad-hoc signed.
 """
 import argparse
@@ -107,6 +107,7 @@ def icon(resources):
 
 def build():
     arch = architecture()
+    shared.require_audit()
     release = shared.version()
     app = BUILD/'Comic Archiver.app'
     shutil.rmtree(app, ignore_errors=True)
@@ -179,22 +180,25 @@ def smoke(app, archive):
         run(['ditto', '-x', '-k', archive, root])
         moved = root/app.name
         run(['codesign', '--verify', '--deep', '--strict', moved])
-        run([moved/'Contents/MacOS/ComicArchiver', '--version'], cwd=root, timeout=120)
-        run([moved/'Contents/MacOS/ComicArchiver', '--self-test'], cwd=root, timeout=300,
-            env={'QT_QPA_PLATFORM':'cocoa'})
+        # Every start of the delivered app runs in a home of its own: none can read or change the
+        # settings, the sign-ins or a library of whoever builds it.
+        home = root/'Synthetic home'
+        home.mkdir()
+        isolated = {'HOME':str(home), 'XDG_STATE_HOME':str(home/'state'),
+                    'XDG_CACHE_HOME':str(home/'cache'), 'XDG_DATA_HOME':str(home/'data')}
+        shared.require_version(run([moved/'Contents/MacOS/ComicArchiver', '--version'], cwd=root, env=isolated,
+                                   timeout=120, capture=True).stdout, shared.version())
+        shared.require_ok(run([moved/'Contents/MacOS/ComicArchiver', '--self-test'], cwd=root, timeout=300,
+                              env=isolated | {'QT_QPA_PLATFORM':'cocoa'}, capture=True))
         python = moved/'Contents/Resources/python/bin/python3'
         run([python, '-I', '-B', '-c',
              'import os,subprocess; from pathlib import Path; from comic_archive import macos; '
              'assert macos.runs_command(os.getpid(), ["-I"]); '
              'subprocess.run([str(Path(macos.__file__).parent/"native/macos-network-probe")], check=True, timeout=5)'],
-            cwd=root, timeout=30)
-        run([python, '-I', '-B', '-m', 'comic_archive', '--browser', 'qt', '--headless', 'doctor'], cwd=root, timeout=180)
+            cwd=root, env=isolated, timeout=30)
+        run([python, '-I', '-B', '-m', 'comic_archive', '--browser', 'qt', '--headless', 'doctor'], cwd=root,
+            env=isolated, timeout=180)
         # Exercise the delivered removal command against real, synthetic state.
-        # The separate home and paths cannot refer to a developer's library.
-        home = root/'Synthetic home'
-        home.mkdir()
-        isolated = {'HOME':str(home), 'XDG_STATE_HOME':str(home/'state'),
-                    'XDG_CACHE_HOME':str(home/'cache'), 'XDG_DATA_HOME':str(home/'data')}
         run([python, '-I', '-B', '-c', '''
 from comic_archive import app_runtime, sites
 from comic_archive.session import store_session
@@ -232,6 +236,8 @@ print('Packaged uninstall removed synthetic sign-in and key; saved episode prese
 
 
 def main():
+    if not __debug__:
+        raise SystemExit('The smoke checks are asserts: run this script without -O.')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--smoke', action='store_true')
     parser.add_argument('--prepare-native', action='store_true', help='prepare the source checkout network helper')

@@ -4,8 +4,7 @@ Notes for building the app, checking a change and making a release. Using the ap
 [README](../README.md) and on the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest).
 
 Comic Archiver obtains CBZ/EPUB files; it does not embed a reader or edit reading progress.
-Android implementation blocks, evidence and release criteria are in the
-[Android delivery roadmap](android-roadmap.md). The commands below cover the desktop app.
+The commands below cover the desktop app.
 
 ## Release notes: downloads first
 
@@ -32,14 +31,26 @@ where it went through more than 200 commits before this copy was published. That
 such as local paths, machine names and notes from testing with real accounts. So the public copy starts again from
 one clean commit (October 2026), and new work arrives here as it is committed there.
 
-Every release is checked on the project's own build machines before publication. More than 1,500 automated tests
-run, and the window's pages are drawn by Qt off-screen and clicked through. A mutation check then puts more than 300
-deliberate faults into the code, one at a time, and the tests must catch every one. The Windows package and its
+Every release is checked on the project's own build machines before publication. The automated tests
+run, and the window's pages are drawn by Qt off-screen and clicked through. A mutation check then puts
+deliberate faults into the code, one at a time, and the tests must catch every one; the
+[README](../README.md#how-its-tested) says how many of each. The Windows package and its
 installer are tested on Windows 11.
 
 ## Run it from this folder
 
-### What image verification checks
+### Install from this folder
+
+```sh
+uv tool install --editable . --with 'PySide6>=6.11.2,<6.12' --with 'playwright==1.63.0' --with 'Pillow>=10'
+comic-archiver
+```
+
+The library is the folder `Comic Archiver` in your home folder unless you choose another in the app. The app's own
+settings are in `~/.local/state/comic-archiver`. The sign-in is kept in a private folder inside the library and
+never leaves the computer.
+
+## What image verification checks
 
 The importer identifies JPEG, PNG, GIF, and WebP from their bytes and checks the
 format's structure before caching or publishing a page. It follows JPEG markers
@@ -62,17 +73,6 @@ the [PNG chunk format](https://www.w3.org/TR/png/), the
 [WebP's container rules](https://developers.google.com/speed/webp/docs/riff_container).
 WebP explicitly permits readers to ignore data beyond the declared container.
 See also [Pillow's distinction between verification and pixel loading](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.verify).
-
-### Install from this folder
-
-```sh
-uv tool install --editable . --with 'PySide6>=6.11.2,<6.12' --with 'playwright==1.63.0' --with 'Pillow>=10'
-comic-archiver
-```
-
-The library is the folder `Comic Archiver` in your home folder unless you choose another in the app. The app's own
-settings are in `~/.local/state/comic-archiver`. The sign-in is kept in a private folder inside the library and
-never leaves the computer.
 
 ## Build the Linux package
 
@@ -123,7 +123,7 @@ python3 -m venv .venv
 
 This builds `dist/ComicArchiver-<version>-macos-<architecture>.zip`, containing
 `Comic Archiver.app` with its own checksum-pinned Python and hash-pinned Qt and
-Python dependencies. It reuses the desktop wheel, licence collection and exact
+Python dependencies. It reuses the desktop wheel, license collection and exact
 dependency audit. The smoke check removes the original app folder, unpacks the
 ZIP into a different folder with spaces, verifies the bundle signature and runs
 the packaged window's Cocoa self-test and browser doctor. It also runs the
@@ -140,7 +140,7 @@ paused. No network names or addresses leave the probe.
 
 Builds select Intel or Apple Silicon from the native build machine. Intel VM
 results do not qualify Apple Silicon execution. Bundles are ad-hoc signed;
-Developer ID signing, notarisation and public release qualification are separate.
+Developer ID signing, notarization and public release qualification are separate.
 The optional connected-reader bridge is not bundled or qualified on macOS.
 Default test discovery records missing connected extras as skips; those skips
 are not evidence for the bridge. The Linux validation gate installs the extras
@@ -181,8 +181,8 @@ python3 scripts/qt_engine_smoke.py         # the app's real web engine against a
 None of these sign in anywhere or contact a comic site. They are heavy; this project runs them on its CI hosts
 rather than on a development PC. Validation includes Ruff lint and security rules, and pip-audit.
 
-Desktop dependencies are pinned, with the hash of each file, by `packaging/linux-requirements.txt` and
-`packaging/windows-requirements.txt`. Both packagers audit the exact installed third-party versions before
+Desktop dependencies are pinned, with the hash of each file, by `packaging/linux-requirements.txt`,
+`packaging/windows-requirements.txt` and `packaging/macos-requirements.txt`. All three packagers audit the exact installed third-party versions before
 writing a download, and include `requirements-frozen.txt` and `dependency-audit.json` in the app folder.
 Regenerate them, as their first lines say, when updating dependencies.
 
@@ -208,8 +208,7 @@ Schema2 adds the universal Android APK while retaining all three desktop downloa
 and required checks. It verifies the actual APK's original approved signing
 certificate, compiled identity and ZIP alignment, and requires Android native,
 device, real-output, update and audit evidence. Beta drafts remain prereleases
-and are not promoted to latest. See the [Android release contract](android-release-contract.md)
-for the exact fields, owner-configured fingerprint and SDK requirements. The
+and are not promoted to latest. The
 current debug phone build is not a publishable release artifact.
 
 ## Where things are

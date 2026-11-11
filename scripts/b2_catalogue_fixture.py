@@ -21,6 +21,8 @@ from comic_archive.publication import PublicationStore
 
 
 def main():
+    if not __debug__:
+        raise SystemExit('Every check here is an assert: run this script without -O.')
     assert os.environ.get("FLEET_STORAGE_JOB")
     case = helpers.CloudTests()
     case.setUp()

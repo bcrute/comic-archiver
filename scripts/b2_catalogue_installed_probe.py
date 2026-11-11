@@ -130,6 +130,8 @@ def write(path, value):
 
 
 def main():
+    if not __debug__:
+        raise SystemExit('Every check here is an assert: run this script without -O.')
     parser = argparse.ArgumentParser()
     parser.add_argument("phase", choices=("prior", "upgrade", "reopen"))
     parser.add_argument("--work", type=Path, required=True)

@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 def main():
+    if not __debug__:
+        raise SystemExit('Every check here is an assert: run this script without -O.')
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected", type=Path, required=True)
     parser.add_argument("--state", type=Path)
