@@ -227,6 +227,12 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
         self.scan.run(self.stop)
         self.assertEqual(len(self.scan.cache), 1)
 
+    def test_passes_follow_closely_while_books_arrive_and_thin_out_over_a_quiet_library(self):
+        from comic_archive.connected import discovery
+
+        self.assertEqual([discovery.pause(quiet, 0) for quiet in (0, 1, 2, 3, 4, 50)], [5, 10, 20, 40, 60, 60])
+        self.assertEqual([discovery.pause(9, failures) for failures in (1, 2, 5, 9)], [10, 20, 160, 300])
+
     def test_root_replacement_fails_closed(self):
         self.library.rename(self.base / "removed")
         self.library.mkdir()
@@ -395,6 +401,24 @@ class CatalogWatcherTests(DiscoveryFixture, unittest.IsolatedAsyncioTestCase):
                 await watcher.close()
                 with self.assertRaises(SourceError):
                     await monitor
+
+    async def test_the_watcher_waits_longer_after_each_pass_that_finds_nothing_and_starts_over_on_a_find(self):
+        watcher = CatalogWatcher({self.index.share_id: self.index})
+        finds, waits = [1, 0, 0, 2, 0], []
+        def run(scan, stopped):
+            if not finds:
+                watcher.stop()
+                return 0
+            return finds.pop(0)
+        def wait(seconds):
+            waits.append(seconds)
+            return watcher.stopped.is_set()
+        with patch.object(CompletedScan, "run", run), patch.object(watcher.stopped, "wait", wait):
+            watcher.start()
+            await self.wait_for(lambda: not watcher.thread.is_alive())
+            await watcher.close()
+        self.assertIsNone(watcher.error)
+        self.assertEqual(waits, [5, 10, 20, 5, 10, 20])
 
     async def test_replaced_index_is_not_adopted_or_modified(self):
         watcher = CatalogWatcher({self.index.share_id: self.index})

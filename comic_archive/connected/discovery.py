@@ -23,8 +23,10 @@ from .files import (
 )
 
 ENTRIES_MAX = 50000
-# A pass looks at every book's folder entry; once a minute, as the app itself looks at a library on a hard disk.
-POLL_SECONDS = 60
+# A pass looks at every book's folder entry. While books keep arriving the next pass follows closely; over a
+# quiet library the passes thin out to one a minute, as the app itself looks at a library on a hard disk.
+POLL_SECONDS = 5
+IDLE_SECONDS = 60
 JOIN_SECONDS = 8
 # A pass the disk or the index could not finish is tried again this many times, waiting longer each time.
 PASS_RETRIES = 5
@@ -47,6 +49,13 @@ def _near(directory, name):
         raise SourceError("not_found") from None
     _require(stat.S_ISREG(value.st_mode), "not_found")
     return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def pause(quiet, failures):
+    """Seconds until the next pass, after this many passes that found nothing new or could not finish."""
+    if failures:
+        return min(RETRY_SECONDS_MAX, POLL_SECONDS * 2**failures)
+    return min(IDLE_SECONDS, POLL_SECONDS * 2 ** min(quiet, 4))
 
 
 class CompletedScan:
@@ -198,20 +207,21 @@ class CatalogWatcher:
             scans = [CompletedScan(index) for _, index in self.owned]
             self.scans = scans
             self.ready.set()
-            failures = 0
+            failures = quiet = 0
             while not self.stopped.is_set():
                 try:
+                    found = 0
                     for scan in scans:
                         if self.stopped.is_set():
                             break
-                        scan.run(self.stopped)
-                    failures = 0
+                        found += scan.run(self.stopped)
+                    failures, quiet = 0, 0 if found else quiet + 1
                 except (OSError, sqlite3.Error):
                     # A busy index or a disk that did not answer; a changed library is a SourceError and ends it.
                     failures += 1
                     if failures > PASS_RETRIES:
                         raise
-                self.stopped.wait(min(RETRY_SECONDS_MAX, POLL_SECONDS * 2**failures))
+                self.stopped.wait(pause(quiet, failures))
         except BaseException as error:
             self.error = error.code if isinstance(error, SourceError) else "integrity_failed"
             self.stopped.set()

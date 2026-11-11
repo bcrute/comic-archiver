@@ -8782,5 +8782,37 @@
   "new": "    except OSError:\n        raise\n    _require(stat.S_ISREG",
   "test_file": "test_connected_discovery.py",
   "test": "test_a_pass_over_books_it_knows_opens_none_of_them"
+ },
+ {
+  "id": "connected-watcher-thins-out-when-quiet",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "    return min(IDLE_SECONDS, POLL_SECONDS * 2 ** min(quiet, 4))",
+  "new": "    return POLL_SECONDS",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_passes_follow_closely_while_books_arrive_and_thin_out_over_a_quiet_library"
+ },
+ {
+  "id": "connected-watcher-quiet-pass-never-past-a-minute",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "    return min(IDLE_SECONDS, POLL_SECONDS * 2 ** min(quiet, 4))",
+  "new": "    return POLL_SECONDS * 2 ** min(quiet, 4)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_passes_follow_closely_while_books_arrive_and_thin_out_over_a_quiet_library"
+ },
+ {
+  "id": "connected-watcher-find-starts-close-passes-over",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                    failures, quiet = 0, 0 if found else quiet + 1",
+  "new": "                    failures, quiet = 0, quiet + 1",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_the_watcher_waits_longer_after_each_pass_that_finds_nothing_and_starts_over_on_a_find"
+ },
+ {
+  "id": "connected-watcher-counts-what-a-pass-found",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                        found += scan.run(self.stopped)",
+  "new": "                        scan.run(self.stopped)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_the_watcher_waits_longer_after_each_pass_that_finds_nothing_and_starts_over_on_a_find"
  }
 ]
