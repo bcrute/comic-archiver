@@ -206,6 +206,27 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
             sidecar.write_text(json.dumps(record))
             self.assertFalse(self.index.unchanged(self.comic, series))
 
+    def test_a_pass_over_books_it_knows_opens_none_of_them(self):
+        self.assertEqual(self.scan.run(self.stop), 1)
+        with patch.object(SharedRoot, "open", autospec=True, side_effect=SharedRoot.open) as opened:
+            self.assertEqual(self.scan.run(self.stop), 0)
+        names = [call.args[1] for call in opened.call_args_list]
+        self.assertTrue(names)
+        self.assertEqual([name for name in names if not name.endswith("/series.json")], [])
+        # A record replaced by a link, or one that is gone, is still seen and its book left for a later pass.
+        sidecar = (self.library / self.comic).with_suffix(".json")
+        kept = sidecar.with_name("kept.json")
+        sidecar.rename(kept)
+        self.scan.run(self.stop)
+        self.assertEqual(self.scan.cache, {})
+        sidecar.symlink_to(kept)
+        self.scan.run(self.stop)
+        self.assertEqual(self.scan.cache, {})
+        sidecar.unlink()
+        kept.rename(sidecar)
+        self.scan.run(self.stop)
+        self.assertEqual(len(self.scan.cache), 1)
+
     def test_root_replacement_fails_closed(self):
         self.library.rename(self.base / "removed")
         self.library.mkdir()

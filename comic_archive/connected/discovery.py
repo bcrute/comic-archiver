@@ -7,6 +7,7 @@ its own bound private SQLite connections; hashing never blocks the host loop.
 import asyncio
 import os
 import sqlite3
+import stat
 import threading
 
 from ..publication import validate_public_metadata
@@ -22,7 +23,8 @@ from .files import (
 )
 
 ENTRIES_MAX = 50000
-POLL_SECONDS = 5
+# A pass looks at every book's folder entry; once a minute, as the app itself looks at a library on a hard disk.
+POLL_SECONDS = 60
 JOIN_SECONDS = 8
 # A pass the disk or the index could not finish is tried again this many times, waiting longer each time.
 PASS_RETRIES = 5
@@ -35,6 +37,16 @@ def _stamp(root, relative):
         return source.stamp
     finally:
         source.close()
+
+
+def _near(directory, name):
+    """A file's stamp read through its open folder: no path walked from the library's top, nothing opened."""
+    try:
+        value = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    except OSError:
+        raise SourceError("not_found") from None
+    _require(stat.S_ISREG(value.st_mode), "not_found")
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
 class CompletedScan:
@@ -100,7 +112,7 @@ class CompletedScan:
                             seen.add(relative)
                             fingerprint = None
                             try:
-                                fingerprint = self._fingerprint(relative, series_stamp)
+                                fingerprint = self._fingerprint(directory, child.name, series_stamp)
                                 if self.cache.get(relative) == fingerprint:
                                     continue
                                 # The existing completion verifier owns ZIP/hash/version
@@ -110,7 +122,7 @@ class CompletedScan:
                                     index.register_completed(relative, title)
                                     registered += 1
                                 self.full.discard(relative)
-                                if fingerprint == self._fingerprint(relative, _stamp(root, metadata)):
+                                if fingerprint == self._fingerprint(directory, child.name, _stamp(root, metadata)):
                                     self.cache[relative] = fingerprint
                             except SourceError as error:
                                 if error.code == "resource_limit":
@@ -139,12 +151,9 @@ class CompletedScan:
         root.current()
         return registered
 
-    def _fingerprint(self, relative, series_stamp):
-        return (
-            _stamp(self.index.root, relative),
-            _stamp(self.index.root, relative[:-4] + ".json"),
-            series_stamp,
-        )
+    @staticmethod
+    def _fingerprint(directory, name, series_stamp):
+        return (_near(directory, name), _near(directory, name[:-4] + ".json"), series_stamp)
 
 
 class CatalogWatcher:

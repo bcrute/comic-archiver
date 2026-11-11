@@ -8774,5 +8774,13 @@
   "new": "                == (_label(metadata.get(\"title\")), row[\"series_title\"], chapter)",
   "test_file": "test_connected_discovery.py",
   "test": "test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are"
+ },
+ {
+  "id": "connected-scan-missing-record-is-one-book",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "    except OSError:\n        raise SourceError(\"not_found\") from None\n    _require(stat.S_ISREG",
+  "new": "    except OSError:\n        raise\n    _require(stat.S_ISREG",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_pass_over_books_it_knows_opens_none_of_them"
  }
 ]
