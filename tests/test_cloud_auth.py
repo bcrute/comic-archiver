@@ -41,6 +41,22 @@ class CloudSignInTests(unittest.TestCase):
         self.assertFalse(list((self.root/'.archive-state/cloud').glob('connection-*')))
         self.assertFalse(list(config.parent.glob('signin-*')))
 
+    def test_how_the_sign_in_stands_can_be_asked_while_the_connection_is_being_checked_and_saved(self):
+        inside, release, answers = threading.Event(), threading.Event(), []
+
+        def configure(*args, **options):
+            inside.set()
+            release.wait(30)
+        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=self.section), \
+                patch('comic_archive.cloud.configure_target', side_effect=configure):
+            self.signin.start('b2', self.credentials)
+            self.assertTrue(inside.wait(30))
+            asking = threading.Thread(target=lambda: answers.append(self.signin.status()), daemon=True)
+            asking.start(); asking.join(10)
+            release.set()
+            self.assertEqual([answer['status'] for answer in answers], ['running'])
+            self.assertEqual(self.finish()['status'], 'connected')
+
     def test_a_new_sign_in_clears_the_key_an_earlier_one_left_when_it_was_ended_before_it_finished(self):
         import time
         from comic_archive import cloud_auth

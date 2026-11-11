@@ -8294,5 +8294,21 @@
   "new": "            if True:\n",
   "test_file": "test_desktop_app.py",
   "test": "test_a_sign_in_held_before_it_begins_or_overtaken_by_closing_shows_no_tapas_page"
+ },
+ {
+  "id": "cloud-sign-in-status-waits-on-the-connection-check",
+  "source": "comic_archive/cloud_auth.py",
+  "old": "                with LibraryLock(root):\n                    if self._cancel.is_set():",
+  "new": "                with self._lock, LibraryLock(root):\n                    if self._cancel.is_set():",
+  "test_file": "test_cloud_auth.py",
+  "test": "test_how_the_sign_in_stands_can_be_asked_while_the_connection_is_being_checked_and_saved"
+ },
+ {
+  "id": "naming-connections-waits-a-quarter-hour",
+  "source": "comic_archive/cloud.py",
+  "old": "        timeout = LOCAL_SECONDS if arguments[0] == 'listremotes' else transfer_timeout(size)",
+  "new": "        timeout = transfer_timeout(size)",
+  "test_file": "test_cloud.py",
+  "test": "test_failed_timeout_and_oversized_subprocess_output_are_sanitized"
  }
 ]

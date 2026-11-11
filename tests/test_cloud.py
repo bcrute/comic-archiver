@@ -853,6 +853,10 @@ class TransferTests(unittest.TestCase):
         for code in (3,4):
             with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],code)):
                 self.assertEqual(transfer.run('lsf','b2:test',missing_ok=True),b'')
+        # Naming the connections reads only the private file, and is given half a minute; a transfer far longer.
+        with patch('comic_archive.cloud.subprocess.run',return_value=subprocess.CompletedProcess([],0)) as run:
+            transfer.run('listremotes','--long');transfer.run('lsf','b2:test')
+        self.assertEqual([call.kwargs['timeout'] for call in run.call_args_list],[30,900])
 
     def test_a_large_file_gets_longer_than_the_usual_quarter_hour_to_transfer(self):
         from unittest.mock import MagicMock

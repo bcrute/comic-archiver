@@ -232,6 +232,9 @@ def _binary():
     return executable
 
 
+LOCAL_SECONDS = 30
+
+
 def transfer_timeout(size):
     """A quarter hour, and longer for a large file: it may go as slowly as 256 KiB a second."""
     return 900 + (size or 0) // (256 * 1024)
@@ -307,7 +310,8 @@ class Transfer:
             raise ArchiveError('Cloud connection does not match the selected provider. Sign in to it again.')
 
     def run(self, *arguments, missing_ok=False, size=0):
-        timeout = transfer_timeout(size)
+        # Naming the connections reads only the private file: nothing to wait a quarter hour for.
+        timeout = LOCAL_SECONDS if arguments[0] == 'listremotes' else transfer_timeout(size)
         command = [self.binary, '--config', str(self.config), '--ask-password=false',
                    '--log-level', 'ERROR', '--stats', '0', '--retries', '2',
                    '--low-level-retries', '2', '--contimeout', '30s', '--timeout', '60s',

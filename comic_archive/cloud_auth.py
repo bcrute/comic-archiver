@@ -139,7 +139,9 @@ class SignIn:
                 # Each attempt has a new config; failed/cancelled repairs cannot
                 # damage the previous authenticated connection or its receipts.
                 destination = folder / ('connection-' + uuid.uuid4().hex + '.conf')
-                with self._lock, LibraryLock(root):
+                # Only the library is held while the connection is checked and saved: how the sign-in stands can
+                # still be asked meanwhile.
+                with LibraryLock(root):
                     if self._cancel.is_set():
                         raise ArchiveError('Cloud sign-in stopped.')
                     os.replace(config, destination); destination.chmod(0o600)
