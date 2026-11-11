@@ -2090,6 +2090,30 @@ class ConnectedB2Tests(PagesCase):
         self.assertIsNone(self.pages.state.task)
         self.assertTrue(s.test.isEnabled())
 
+    def test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen(self):
+        self.shell.open.append('webtoon')
+        self.open('settings/b2')
+        tapas, other = self.pages.of('tapas'), self.pages.of('webtoon')
+        for start, name, kind in ((self.pages.cloud_test, 'cloud_test', 'cloud-test'),
+                                  (lambda: self.pages.cloud_cleanup('t1'), 'cloud_cleanup', 'cloud-cleanup')):
+            with self.subTest(name):
+                tapas.task = tapas.task_kind = other.task = other.cloud_message = None
+                self.shell.chosen, self.shell.held = 'tapas', []
+                start()
+                self.shell.chosen = 'webtoon'
+                self.shell.release()
+                self.assertEqual((len(self.actions.named(name)), self.sites['webtoon'].named(name)), (1, []))
+                self.assertEqual((tapas.task, tapas.task_kind, other.task, other.cloud_message), (TASK, kind, None, None))
+                self.assertEqual(tapas.cloud_message.text, storage_model.TASK_STARTED[kind])
+        tapas.task = None
+        self.shell.chosen, self.shell.held = 'tapas', []
+        self.pages.share_b2(False); self.shell.chosen = 'webtoon'; self.shell.release()
+        self.assertEqual((tapas.cloud['storage'], self.sites['webtoon'].named('cloud_storage')), ('separate', []))
+        self.shell.chosen, self.shell.held = 'tapas', []
+        self.pages.cloud_cancel(); self.shell.chosen = 'webtoon'; self.shell.release()
+        self.assertEqual((tapas.cloud_auth, self.sites['webtoon'].named('cloud_cancel')), ({'status': 'cancelled'}, []))
+        self.assertNotEqual(other.cloud_auth, {'status': 'cancelled'})
+
     def test_a_cloud_task_that_fails_says_why_on_the_tab_and_the_dashboard(self):
         self.open('settings/b2')
         s = self.settings

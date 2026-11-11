@@ -1893,13 +1893,18 @@ class Pages:
             s.cloud = value
         self.act(lambda: self.actions_for(key).cloud_confirm(target['provider'], use), kept, cloud=True, key=key)
 
+    # Each of these is for the site chosen when it was asked for: its state and library are taken then, so an
+    # answer that comes back after another site was chosen still lands on the site it belongs to.
+
     def share_b2(self, shared):
+        key, s, actions = self.chosen, self.state, self.actions
+
         def kept(value):
-            self.state.cloud = value
-        self.act(lambda: self.actions.cloud_storage('shared' if shared else 'separate'), kept)
+            s.cloud = value
+        self.act(lambda: actions.cloud_storage('shared' if shared else 'separate'), kept, key=key)
 
     def cloud_connect(self, bucket, key_id, application_key):
-        s = self.state
+        key, s, actions = self.chosen, self.state, self.actions
         problem = storage_model.key_problem(bucket, key_id, application_key)
         if problem:
             s.cloud_message = dashboard_model.Message(problem, True)
@@ -1912,28 +1917,33 @@ class Pages:
         def started(value):
             s.cloud_auth = value
             s.cloud_message = dashboard_model.Message(storage_model.CONNECTING)
-            self.poll_soon()
-        self.act(lambda: self.actions.cloud_signin('b2', credentials), started, cloud=True)
+            self.poll_soon(key)
+        self.act(lambda: actions.cloud_signin('b2', credentials), started, cloud=True, key=key)
 
     def cloud_cancel(self):
-        def cancelled(value):
-            self.state.cloud_auth = value
-        self.act(self.actions.cloud_cancel, cancelled)
+        key, s, actions = self.chosen, self.state, self.actions
 
-    def _task(self, kind):
+        def cancelled(value):
+            s.cloud_auth = value
+        self.act(actions.cloud_cancel, cancelled, key=key)
+
+    def _cloud_task(self, kind, work):
+        key, s = self.chosen, self.state
+
         def started(value):
-            self.state.task, self.state.task_kind = value.get('task_id'), kind
-            self.state.cloud_message = dashboard_model.Message(storage_model.TASK_STARTED[kind])
-        return started
+            s.task, s.task_kind = value.get('task_id'), kind
+            s.cloud_message = dashboard_model.Message(storage_model.TASK_STARTED[kind])
+        self.act(work, started, cloud=True, key=key)
 
     def cloud_test(self):
-        self.act(self.actions.cloud_test, self._task('cloud-test'), cloud=True)
+        self._cloud_task('cloud-test', self.actions.cloud_test)
 
     def cloud_upload(self):
-        self.act(self.actions.cloud_upload, self._task('cloud'), cloud=True)
+        self._cloud_task('cloud', self.actions.cloud_upload)
 
     def cloud_cleanup(self, test_id):
-        self.act(lambda: self.actions.cloud_cleanup(test_id), self._task('cloud-cleanup'), cloud=True)
+        actions = self.actions
+        self._cloud_task('cloud-cleanup', lambda: actions.cloud_cleanup(test_id))
 
     # Asked of the window itself.
 

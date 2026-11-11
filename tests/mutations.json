@@ -7966,5 +7966,45 @@
   "new": "lambda: None, 'secondary')))",
   "test_file": "test_window_pages.py",
   "test": "test_the_b2_steps_point_at_where_the_choice_of_storage_is_now"
+ },
+ {
+  "id": "cloud-task-answer-lands-on-the-site-chosen-later",
+  "source": "comic_archive/window_pages.py",
+  "old": "            s.task, s.task_kind = value.get('task_id'), kind",
+  "new": "            self.state.task, self.state.task_kind = value.get('task_id'), kind",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
+ },
+ {
+  "id": "cloud-cleanup-runs-on-the-site-chosen-later",
+  "source": "comic_archive/window_pages.py",
+  "old": "lambda: actions.cloud_cleanup(test_id))",
+  "new": "lambda: self.actions.cloud_cleanup(test_id))",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
+ },
+ {
+  "id": "cloud-sharing-answer-lands-on-the-site-chosen-later",
+  "source": "comic_archive/window_pages.py",
+  "old": "            s.cloud = value\n        self.act(lambda: actions.cloud_storage",
+  "new": "            self.state.cloud = value\n        self.act(lambda: actions.cloud_storage",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
+ },
+ {
+  "id": "cloud-sharing-runs-on-the-site-chosen-later",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.act(lambda: actions.cloud_storage(",
+  "new": "self.act(lambda: self.actions.cloud_storage(",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
+ },
+ {
+  "id": "cloud-cancel-answer-lands-on-the-site-chosen-later",
+  "source": "comic_archive/window_pages.py",
+  "old": "            s.cloud_auth = value\n        self.act(actions.cloud_cancel",
+  "new": "            self.state.cloud_auth = value\n        self.act(actions.cloud_cancel",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_action_answers_for_the_site_it_was_asked_on_after_another_is_chosen"
  }
 ]
