@@ -637,6 +637,12 @@ class DesktopAppTests(unittest.TestCase):
             desktop_app.arguments(['--port', '8765'])
         self.assertEqual(stopped.exception.code, 2)
 
+    def test_the_app_keeps_its_python_settings_out_of_the_programs_it_opens(self):
+        settings = {'PYTHONNOUSERSITE': '1', 'PYTHONSAFEPATH': '1', 'PYTHONUTF8': '1'}
+        with patch.dict(os.environ, settings), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(desktop_app.main(['--version']), 0)
+            self.assertFalse([name for name in settings if name in os.environ])
+
     def test_version_prints_without_loading_the_window_toolkit(self):
         output = io.StringIO()
         with patch('comic_archive.desktop_app.metadata.version', return_value='9.8.7') as lookup, \

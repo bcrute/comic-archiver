@@ -1,5 +1,6 @@
 import os
 from pathlib import Path, PureWindowsPath
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -112,7 +113,26 @@ class EnvironmentTests(unittest.TestCase):
     def test_a_python_the_app_starts_reads_text_as_utf8_and_takes_nothing_from_the_persons_own_python(self):
         environ = {'PYTHONPATH': 'C:\\mine', 'PYTHONHOME': 'C:\\Python39', 'PYTHONUTF8': '0', 'PATH': 'kept'}
         osdep.python_environment(environ)
-        self.assertEqual(environ, {'PYTHONUTF8': '1', 'PYTHONNOUSERSITE': '1', 'PYTHONSAFEPATH': '1', 'PATH': 'kept'})
+        self.assertEqual({name: value for name, value in environ.items() if name != 'PYTHONDONTWRITEBYTECODE'},
+                         {'PYTHONUTF8': '1', 'PYTHONNOUSERSITE': '1', 'PYTHONSAFEPATH': '1', 'PATH': 'kept'})
+        for written, expected in ((True, '1'), (False, None)):
+            with patch.object(sys, 'dont_write_bytecode', written):
+                environ = {}
+                osdep.python_environment(environ)
+            self.assertEqual(environ.get('PYTHONDONTWRITEBYTECODE'), expected)
+
+    def test_programs_the_app_opens_do_not_inherit_its_python_settings_and_its_own_pythons_are_given_them(self):
+        environ = {'PYTHONUTF8': '1', 'PYTHONNOUSERSITE': '1', 'PYTHONSAFEPATH': '1', 'PYTHONDONTWRITEBYTECODE': '1',
+                   'PATH': 'kept', 'PYTHONSTARTUP': 'theirs'}
+        osdep.shed_python_environment(environ)
+        self.assertEqual(environ, {'PATH': 'kept', 'PYTHONSTARTUP': 'theirs'})
+        with patch.dict(os.environ, environ, clear=True), patch.object(sys, 'dont_write_bytecode', False):
+            python, options = osdep.python_child()
+            self.assertEqual(dict(os.environ), environ)  # The app's own environment is left as it is.
+        self.assertTrue(python)
+        for name in ('PYTHONUTF8', 'PYTHONNOUSERSITE', 'PYTHONSAFEPATH'):
+            self.assertEqual(options['env'][name], '1')
+        self.assertEqual(options['env']['PATH'], 'kept')
 
 
 class FileTests(unittest.TestCase):

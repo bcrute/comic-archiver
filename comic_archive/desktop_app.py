@@ -1514,8 +1514,7 @@ def self_test(q):
 
 def main(argv=None):
     args = arguments(argv)
-    if osdep.WINDOWS:
-        osdep.python_environment(os.environ)
+    osdep.shed_python_environment(os.environ)
     if args.version:
         print(f'{APP_NAME} {version()}')
         return 0

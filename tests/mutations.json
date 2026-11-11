@@ -7930,7 +7930,7 @@
  {
   "id": "refused-sign-in-leaves-the-window-held",
   "source": "comic_archive/desktop_app.py",
-  "old": "            if self.signin_stage == 'admitting':\n                self.signin_leave()  # Refused before any page was shown; the dashboard says why.\n",
+  "old": "            if self.signin_stage == 'admitting':\n                self.signin_leave(shown=False)  # Refused before any page was shown; the dashboard says why.\n",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_window_stays_on_its_site_from_the_moment_a_sign_in_is_taken"
@@ -9062,5 +9062,45 @@
   "new": "",
   "test_file": "test_build_linux_app.py",
   "test": "test_packages_install_into_the_bundled_python"
+ },
+ {
+  "id": "app-sheds-its-python-settings",
+  "source": "comic_archive/osdep.py",
+  "old": "    for name in ('PYTHONUTF8', 'PYTHONNOUSERSITE', 'PYTHONSAFEPATH', 'PYTHONDONTWRITEBYTECODE'):\n        environ.pop(name, None)",
+  "new": "    for name in ():\n        environ.pop(name, None)",
+  "test_file": "test_osdep.py",
+  "test": "test_programs_the_app_opens_do_not_inherit_its_python_settings_and_its_own_pythons_are_given_them"
+ },
+ {
+  "id": "worker-is-given-the-python-settings",
+  "source": "comic_archive/osdep.py",
+  "old": "    child = os.environ.copy()\n    python_environment(child)",
+  "new": "    child = os.environ.copy()",
+  "test_file": "test_osdep.py",
+  "test": "test_programs_the_app_opens_do_not_inherit_its_python_settings_and_its_own_pythons_are_given_them"
+ },
+ {
+  "id": "worker-environment-is-passed",
+  "source": "comic_archive/osdep.py",
+  "old": "    return sys.executable, {'env': child}",
+  "new": "    return sys.executable, {}",
+  "test_file": "test_osdep.py",
+  "test": "test_programs_the_app_opens_do_not_inherit_its_python_settings_and_its_own_pythons_are_given_them"
+ },
+ {
+  "id": "signed-app-children-write-no-bytecode",
+  "source": "comic_archive/osdep.py",
+  "old": "    if sys.dont_write_bytecode:\n        environ['PYTHONDONTWRITEBYTECODE'] = '1'",
+  "new": "    if False:\n        environ['PYTHONDONTWRITEBYTECODE'] = '1'",
+  "test_file": "test_osdep.py",
+  "test": "test_a_python_the_app_starts_reads_text_as_utf8_and_takes_nothing_from_the_persons_own_python"
+ },
+ {
+  "id": "app-start-sheds-python-settings",
+  "source": "comic_archive/desktop_app.py",
+  "old": "    osdep.shed_python_environment(os.environ)\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_app_keeps_its_python_settings_out_of_the_programs_it_opens"
  }
 ]

@@ -121,7 +121,10 @@ class BackgroundTests(unittest.TestCase):
                     "browser-worker"])
                 for name, value in osdep.detached().items():  # Its own session: it outlives the app.
                     self.assertEqual(kwargs[name], value)
-                if 'env' in osdep.python_child()[1]:
+                # The worker is given the app's Python settings itself; the app's own environment holds none.
+                for name in ('PYTHONUTF8', 'PYTHONNOUSERSITE', 'PYTHONSAFEPATH'):
+                    self.assertEqual(kwargs['env'][name], '1')
+                if '__PYVENV_LAUNCHER__' in osdep.python_child()[1]['env']:
                     self.assertEqual(kwargs['env']['__PYVENV_LAUNCHER__'], sys.executable)
                 self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
                 self.assertEqual(kwargs["cwd"], Path(work))

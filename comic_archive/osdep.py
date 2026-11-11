@@ -316,6 +316,19 @@ def python_environment(environ):
     for name in ('PYTHONPATH', 'PYTHONHOME'):
         environ.pop(name, None)
     environ.update(PYTHONUTF8='1', PYTHONNOUSERSITE='1', PYTHONSAFEPATH='1')
+    if sys.dont_write_bytecode:
+        environ['PYTHONDONTWRITEBYTECODE'] = '1'  # A signed app folder stays as it was delivered.
+
+
+def shed_python_environment(environ):
+    """Take the Python settings the app was started with out of its own environment.
+
+    They have done their work for this process by the time it runs. Left in place, every program the app
+    opens (the file manager, the browser, a reader) would start with them too, and one written in Python
+    would lose the person's own packages. The Pythons the app itself starts are given them again.
+    """
+    for name in ('PYTHONUTF8', 'PYTHONNOUSERSITE', 'PYTHONSAFEPATH', 'PYTHONDONTWRITEBYTECODE'):
+        environ.pop(name, None)
 
 
 def python_child():
@@ -324,14 +337,16 @@ def python_child():
     Windows venv python.exe redirects to a second process. Use CPython's own
     multiprocessing convention so the PID returned by Popen is the worker's,
     and its imports still come from this environment. Packaged/Unix Pythons
-    already launch directly.
+    already launch directly. The child is given the app's Python settings itself:
+    the app's own environment, which every other program it opens inherits, holds none.
     """
+    child = os.environ.copy()
+    python_environment(child)
     base = getattr(sys, '_base_executable', None)
     if WINDOWS and sys.prefix != sys.base_prefix and base and base != sys.executable:
-        child = os.environ.copy()
         child['__PYVENV_LAUNCHER__'] = sys.executable
         return base, {'env': child}
-    return sys.executable, {}
+    return sys.executable, {'env': child}
 
 
 def detached():
