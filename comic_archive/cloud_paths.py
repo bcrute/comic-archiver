@@ -11,7 +11,6 @@ def relocate(library, previous, shared):
     The caller holds the library and shared-settings locks and updates the link
     last. Repeating this after an interrupted repair is safe.
     """
-    from .cloud import _config, _json, _write
     library, previous, shared = safe_root(library), Path(previous), safe_root(shared)
     mappings = {previous / 'cloud': shared / 'cloud'}
     try:
@@ -20,6 +19,19 @@ def relocate(library, previous, shared):
         pass  # A changed link without moving the library is not a library relocation.
     else:
         mappings[previous.parent / relative / '.archive-state/cloud'] = library / '.archive-state/cloud'
+    _rewrite(mappings, [shared / 'cloud/targets.json', library / '.archive-state/cloud/targets.json'], library)
+
+
+def moved(library, before):
+    """A library was renamed from 'before' with all it holds: the connections it keeps itself name their
+    private files where they are now. Nothing may be writing in the library meanwhile; repeating is safe."""
+    library = safe_root(library)
+    _rewrite({Path(before) / '.archive-state/cloud': library / '.archive-state/cloud'},
+             [library / '.archive-state/cloud/targets.json'], library)
+
+
+def _rewrite(mappings, paths, library):
+    from .cloud import _config, _json, _write
 
     def connection(value):
         if not isinstance(value, dict) or not isinstance(value.get('config'), str):
@@ -35,7 +47,6 @@ def relocate(library, previous, shared):
             return value  # A missing connection still needs sign-in; do not adopt another file.
         return value | {'config': str(_config(candidate, (destination,)))}
 
-    paths = [shared / 'cloud/targets.json', library / '.archive-state/cloud/targets.json']
     for path in paths:
         if path.is_symlink():
             raise ArchiveError('Cloud settings must not be symlinked.')

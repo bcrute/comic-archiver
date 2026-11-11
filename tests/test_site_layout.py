@@ -105,6 +105,68 @@ class LayoutTests(unittest.TestCase):
         with LibraryLock(self.root / 'Tapas/Library'):
             pass
 
+    def test_an_interrupted_move_resumes_after_a_restart_gave_the_drive_another_number(self):
+        with patch('comic_archive.site_layout.os.rename', side_effect=OSError('interrupted')), \
+                self.assertRaises(site_layout.LayoutError):
+            site_layout.prepare(self.root)
+        journal = self.root / '.comic-shared' / site_layout.PENDING
+        record = json.loads(journal.read_text())
+        restarted = {'schema_version': 1, 'target': [record['target'][0] + 7, record['target'][1]],
+                     'entries': {name: [drive + 7, folder] for name, (drive, folder) in record['entries'].items()}}
+        # Another folder standing where a recorded one was is still refused.
+        journal.write_text(json.dumps(restarted | {'target': [restarted['target'][0], restarted['target'][1] + 1]}))
+        with self.assertRaises(site_layout.LayoutError):
+            site_layout.prepare(self.root)
+        self.assertTrue((self.root / 'Library/episode.cbz').is_file())
+        journal.write_text(json.dumps(restarted))
+        site_layout.prepare(self.root)
+        self.assertTrue(site_layout.known(self.root))
+        self.assertTrue((self.root / 'Tapas/Library/episode.cbz').is_file())
+        self.assertFalse(journal.exists())
+
+    def own_connection(self, library):
+        """A library that keeps its own cloud connection, as an earlier version set it up."""
+        cloud = library / '.archive-state/cloud'; cloud.mkdir(parents=True)
+        (cloud / 'b2.conf').write_text('[b2]\ntype = b2\n'); (cloud / 'b2.conf').chmod(0o600)
+        elsewhere = self.root / 'chosen.conf'; elsewhere.write_text('[b2]\n'); elsewhere.chmod(0o600)
+        targets = {'b2': {'config': str(self.root / 'Library/.archive-state/cloud/b2.conf'), 'remote': 'b2'},
+                   'chosen': {'config': str(elsewhere), 'remote': 'b2'}}
+        (cloud / 'targets.json').write_text(json.dumps({'schema_version': 1, 'library_id': 'x', 'targets': targets}))
+        (cloud / 'tests').mkdir()
+        (cloud / 'tests/one.json').write_text(json.dumps({'state': 'uploaded', 'connection': targets['b2']}))
+        return cloud, elsewhere
+
+    def test_a_moved_librarys_own_cloud_connection_names_its_file_where_it_is_now(self):
+        _, elsewhere = self.own_connection(self.root / 'Library')
+        site_layout.prepare(self.root)
+        cloud = self.root / 'Tapas/Library/.archive-state/cloud'
+        targets = json.loads((cloud / 'targets.json').read_text())['targets']
+        self.assertEqual(targets['b2']['config'], str(cloud / 'b2.conf'))
+        self.assertEqual(targets['chosen']['config'], str(elsewhere))  # A file the person named stays as named.
+        self.assertEqual(json.loads((cloud / 'tests/one.json').read_text())['connection']['config'], str(cloud / 'b2.conf'))
+
+    def test_a_library_an_earlier_version_moved_has_its_cloud_connection_pointed_at_its_file_when_next_opened(self):
+        site_layout.prepare(self.root)
+        cloud, _ = self.own_connection(self.root / 'Tapas/Library')
+        held, done = threading.Event(), threading.Event()
+        def download():
+            with LibraryLock(self.root / 'Tapas/Library'):
+                held.set(); done.wait(30)
+        running = threading.Thread(target=download); running.start()
+        self.addCleanup(running.join); self.addCleanup(done.set)
+        self.assertTrue(held.wait(30))
+        site_layout.prepare(self.root)  # A download is running: left for the next time.
+        done.set(); running.join()
+        targets = json.loads((cloud / 'targets.json').read_text())['targets']
+        self.assertEqual(targets['b2']['config'], str(self.root / 'Library/.archive-state/cloud/b2.conf'))
+        site_layout.prepare(self.root)
+        targets = json.loads((cloud / 'targets.json').read_text())['targets']
+        self.assertEqual(targets['b2']['config'], str(cloud / 'b2.conf'))
+        # A record that cannot be read never keeps the library from opening.
+        (cloud / 'targets.json').write_text('{')
+        with self.assertLogs('comic_archive.desktop', 'WARNING'):
+            site_layout.prepare(self.root)
+
     def test_destination_conflicts_and_cross_filesystem_moves_never_copy_or_overwrite(self):
         target = self.root / 'Tapas'; target.mkdir(); kept = target / 'keep'; kept.write_bytes(b'keep')
         with self.assertRaises(site_layout.LayoutError):

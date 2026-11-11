@@ -7614,5 +7614,45 @@
   "new": "directory(self.root / \".archive-cache\")",
   "test_file": "test_archive.py",
   "test": "test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "pending-move-unverifiable-after-restart",
+  "source": "comic_archive/site_layout.py",
+  "old": "    return _identity(path)[1] == identity[1]\n",
+  "new": "    return _identity(path) == identity\n",
+  "test_file": "test_site_layout.py",
+  "test": "test_an_interrupted_move_resumes_after_a_restart_gave_the_drive_another_number"
+ },
+ {
+  "id": "pending-move-accepts-another-folder",
+  "source": "comic_archive/site_layout.py",
+  "old": "or not _same(target, record['target'])):",
+  "new": "):",
+  "test_file": "test_site_layout.py",
+  "test": "test_an_interrupted_move_resumes_after_a_restart_gave_the_drive_another_number"
+ },
+ {
+  "id": "moved-library-cloud-connection-names-old-place",
+  "source": "comic_archive/site_layout.py",
+  "old": "            _point_cloud(root, locked=True)  # The journal still keeps every writer out.\n",
+  "new": "",
+  "test_file": "test_site_layout.py",
+  "test": "test_a_moved_librarys_own_cloud_connection_names_its_file_where_it_is_now"
+ },
+ {
+  "id": "earlier-moved-library-cloud-connection-never-repaired",
+  "source": "comic_archive/site_layout.py",
+  "old": "                else:\n                    _point_cloud(root)\n",
+  "new": "",
+  "test_file": "test_site_layout.py",
+  "test": "test_a_library_an_earlier_version_moved_has_its_cloud_connection_pointed_at_its_file_when_next_opened"
+ },
+ {
+  "id": "busy-library-stops-opening-over-cloud-repair",
+  "source": "comic_archive/site_layout.py",
+  "old": "    except LibraryBusy:\n        pass\n    except (ArchiveError, OSError) as error:",
+  "new": "    except (OSError,) as error:",
+  "test_file": "test_site_layout.py",
+  "test": "test_a_library_an_earlier_version_moved_has_its_cloud_connection_pointed_at_its_file_when_next_opened"
  }
 ]

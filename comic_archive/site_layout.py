@@ -68,6 +68,34 @@ def _identity(path):
     return [info.st_dev, info.st_ino]
 
 
+def _same(path, identity):
+    """Whether path is the folder a journal recorded. Only the folder's own number is compared: the number of
+    the drive it is on changes when the computer restarts or the drive is plugged in again."""
+    return _identity(path)[1] == identity[1]
+
+
+def _point_cloud(root, locked=False):
+    """A library that keeps its own cloud connection names its private file by its full path; after the move
+    that is the file's place in the Tapas folder. Without this, uploads stop until cloud storage is set up again."""
+    from .cloud_paths import moved
+    from .errors import LibraryBusy
+    from .locking import LibraryLock
+    library = root / 'Tapas/Library'
+    try:
+        if locked:
+            moved(library, root / 'Library')
+        elif (library / '.archive-state/cloud/targets.json').is_file():
+            # A move made by an earlier version left the old path. A running download has the library; next time.
+            with LibraryLock(library):
+                moved(library, root / 'Library')
+    except LibraryBusy:
+        pass
+    except (ArchiveError, OSError) as error:
+        if locked and isinstance(error, OSError):
+            raise  # The move stays pending and is taken up again.
+        LOG.warning('library layout: a cloud connection still names its old place (%s)', type(error).__name__)
+
+
 def prepare(root):
     """Rename only known app directories; keep shared settings and other providers at the selected root.
 
@@ -94,6 +122,8 @@ def prepare(root):
                     atomic_json(marker, SCHEMA); marker.chmod(0o600)
                     sync_directory(shared)
                     sync_directory(root)
+                else:
+                    _point_cloud(root)
                 return
             target = root / 'Tapas'
             if pending.exists():
@@ -103,7 +133,7 @@ def prepare(root):
                         or not {'Library', '.comic-session'} <= set(record['entries']) <= set(ENTRIES)
                         or any(not isinstance(v, list) or len(v) != 2 or any(type(n) is not int for n in v)
                                for v in [record['target'], *record['entries'].values()])
-                        or _identity(target) != record['target']):
+                        or not _same(target, record['target'])):
                     raise LayoutError('The pending library folder move cannot be verified. Saved files are retained.')
                 sync_directory(shared)  # Reestablish durability after an earlier flush failed.
             else:
@@ -124,13 +154,14 @@ def prepare(root):
             for name, identity in record['entries'].items():
                 source, destination = root / name, target / name
                 if source.exists():
-                    if destination.exists() or destination.is_symlink() or _identity(source) != identity:
+                    if destination.exists() or destination.is_symlink() or not _same(source, identity):
                         raise LayoutError('A provider folder changed during its move. Close the app and try again.')
                     os.rename(source, destination)
-                if _identity(destination) != identity:
+                if not _same(destination, identity):
                     raise LayoutError('A moved provider folder cannot be verified. Saved files are retained.')
                 sync_directory(target)
                 sync_directory(root)
+            _point_cloud(root, locked=True)  # The journal still keeps every writer out.
             atomic_json(marker, SCHEMA); marker.chmod(0o600)
             sync_directory(shared)  # Commit the completed layout before retiring the journal.
             pending.unlink()
