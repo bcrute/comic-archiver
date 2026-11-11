@@ -7,8 +7,8 @@ the line were wrong. Each entry of the list names one change to the product
 change is applied, that one test is run, and the file is put back.
 
 Run it on a throwaway copy of the repository (the build fleet's), never on a
-working tree someone is editing: files under comic_archive/ are rewritten
-while it runs.
+working tree someone is editing: files under comic_archive/ (and the phone
+app's Python bridge) are rewritten while it runs.
 
     python scripts/mutation_check.py [LIST ...]     default: tests/mutations.json
 
@@ -59,8 +59,9 @@ def check(item, unchanged):
     if code:
         return f'BROKEN   {name}: fails before anything is changed ({why})'
     path = Path(item['source'])
-    # The app and the scripts that build and check what ships, never this checker itself.
-    if (not item['source'].startswith(('comic_archive/', 'scripts/')) or item['source'] == 'scripts/mutation_check.py'
+    # The app, its phone bridge and the scripts that build and check what ships, never this checker itself.
+    if (not item['source'].startswith(('comic_archive/', 'scripts/', 'android/app/src/main/python/'))
+            or item['source'] == 'scripts/mutation_check.py'
             or not path.is_file()):
         return f'NOSOURCE {name}: {path}'
     text = path.read_text()
