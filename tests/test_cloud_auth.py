@@ -64,7 +64,8 @@ class CloudSignInTests(unittest.TestCase):
         stale, recent, outside = folder/'signin-stale', folder/'signin-recent', self.root.parent/'outside'
         for work in (stale, recent, outside):
             work.mkdir(); (work/'rclone.conf').write_text('[b2]\nkey = PRIVATE_KEY\n')
-        (folder/'signin-link').symlink_to(outside, target_is_directory=True)
+        if os.name != 'nt':  # Windows refuses a private folder with a link in it before any sign-in starts.
+            (folder/'signin-link').symlink_to(outside, target_is_directory=True)
         old = time.time() - cloud_auth.STALE_SECONDS - 60
         os.utime(stale, (old, old)); os.utime(outside, (old, old))
         with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
