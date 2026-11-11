@@ -65,14 +65,14 @@ class BackgroundTests(unittest.TestCase):
             fcntl.flock(other, fcntl.LOCK_UN)
             self.assertFalse(background.running(folder))
 
-    @unittest.skipUnless(os.name == 'nt', 'Only Windows has this form of the check.')
-    def test_where_a_lock_cannot_be_shared_one_found_taken_is_asked_about_again(self):
-        with patch('comic_archive.osdep.lock', side_effect=[BlockingIOError(), BlockingIOError(), None]) as lock, \
-                patch('comic_archive.osdep.unlock') as unlock, patch('comic_archive.osdep.time.sleep') as sleep:
-            self.assertFalse(osdep.held(7))
-            self.assertEqual((lock.call_count, unlock.call_count, sleep.call_count), (3, 1, 2))
-            lock.side_effect = BlockingIOError()
-            self.assertTrue(osdep.held(7))
+    if os.name == 'nt':  # Only Windows has this form of the check; elsewhere it is not a test at all.
+        def test_where_a_lock_cannot_be_shared_one_found_taken_is_asked_about_again(self):
+            with patch('comic_archive.osdep.lock', side_effect=[BlockingIOError(), BlockingIOError(), None]) as lock, \
+                    patch('comic_archive.osdep.unlock') as unlock, patch('comic_archive.osdep.time.sleep') as sleep:
+                self.assertFalse(osdep.held(7))
+                self.assertEqual((lock.call_count, unlock.call_count, sleep.call_count), (3, 1, 2))
+                lock.side_effect = BlockingIOError()
+                self.assertTrue(osdep.held(7))
 
     def test_duplicate_start_does_not_launch_or_modify_an_existing_worker(self):
         with tempfile.TemporaryDirectory() as work:
