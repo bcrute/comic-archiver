@@ -944,14 +944,14 @@ class DesktopAppTests(unittest.TestCase):
         emit(shell.poll_clock.timeout)
         pages.poll.assert_called_once_with(automatic=True)
         emit(shell.tick_clock.timeout)
-        self.assertEqual(pages.render.call_count, 2)
+        pages.tick.assert_called_once_with()
         shell.load()  # Only once.
         pages.reopened.assert_called_once_with(None)
         # While another site or folder opens, or the window closes, the pages are left alone.
         for phase in ('moving', 'stopping', 'failed'):
             shell.phase = phase
             emit(shell.poll_clock.timeout); emit(shell.tick_clock.timeout)
-        self.assertEqual((pages.poll.call_count, pages.render.call_count), (1, 2))
+        self.assertEqual((pages.poll.call_count, pages.tick.call_count), (1, 1))
         shell.notice.setText.assert_not_called()
 
     def test_a_library_that_cannot_be_shown_says_so_with_the_log_location_when_there_is_one(self):

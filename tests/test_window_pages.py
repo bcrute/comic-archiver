@@ -7,6 +7,7 @@ import copy
 import os
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 # The offscreen Windows plugin does not discover the system fonts itself.
@@ -1214,6 +1215,44 @@ class DashboardTests(PagesCase):
             self.pages.render(); settle()
         self.pages.poll(automatic=True)
         self.assertEqual(self.actions.calls, [])  # Looked at once for this sign-in; the timer leaves it be again.
+
+    def test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed(self):
+        self.open('settings/downloads')
+        with mock.patch.object(self.dashboard, 'show', wraps=self.dashboard.show) as dashboard, \
+                mock.patch.object(self.settings, 'show', wraps=self.settings.show) as settings:
+            self.pages.tick(); self.pages.tick()
+            self.assertEqual((dashboard.call_count, settings.call_count), (0, 0))
+            self.pages.state.busy = True  # Something to show has changed.
+            self.pages.tick()
+            self.assertEqual((dashboard.call_count, settings.call_count), (1, 1))
+            self.pages.tick()
+            self.assertEqual(dashboard.call_count, 1)
+            self.pages.counting['tapas'] = self.pages.state
+            self.pages.tick()
+            self.assertEqual(dashboard.call_count, 2)
+            del self.pages.counting['tapas']
+            self.pages.render(); self.pages.render()  # Asked for outright, it is always drawn.
+            self.assertEqual(dashboard.call_count, 4)
+            self.pages.tick()
+            self.assertEqual(dashboard.call_count, 4)
+            self.pages.go_to('dashboard')
+            count = dashboard.call_count
+            self.pages.tick()
+            self.assertEqual(dashboard.call_count, count)
+
+    def test_buttons_that_are_replaced_leave_the_page_at_once(self):
+        self.open('settings/downloads')
+        card = self.settings.provider_cards['tapas']
+        old = list(card.option_buttons)
+        self.assertTrue(old and all(card.options_box.indexOf(button) >= 0 for button in old))
+        card._storage_options([{'key': 'device', 'label': 'Only here', 'enabled': True, 'checked': True}])
+        self.assertTrue(all(button.isHidden() and card.options_box.indexOf(button) < 0 for button in old))
+        self.assertEqual([button.text() for button in card.option_buttons], ['Only here'])
+        self.settings._cleanups([{'test_id': 't1', 'text': 'Clean up', 'enabled': True}])
+        button, = self.settings.cleanups
+        self.assertGreaterEqual(self.settings.cleanup_box.indexOf(button), 0)
+        self.settings._cleanups([])
+        self.assertTrue(button.isHidden() and self.settings.cleanup_box.indexOf(button) < 0)
 
     def test_a_pause_finishes_its_inflight_step_then_stops_local_status_reads(self):
         self.open()

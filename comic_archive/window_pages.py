@@ -985,7 +985,7 @@ class ProviderSettingsCard:
         if [(o['key'], o['label']) for o in self.options] != [(o['key'], o['label']) for o in options]:
             for button in self.option_buttons:
                 self.option_group.removeButton(button)
-                button.deleteLater()
+                discard(self.options_box, button)
             self.option_buttons = []
             for index, option in enumerate(options):
                 button = self.kit.w.QRadioButton(option['label'])
@@ -1233,8 +1233,7 @@ class Settings:
 
     def _cleanups(self, cleanup):
         if [c['test_id'] for c in cleanup] != [b.property('test') for b in self.cleanups]:
-            for button in self.cleanups:
-                button.deleteLater()
+            discard(self.cleanup_box, *self.cleanups)
             self.cleanups = []
             for record in cleanup:
                 button = self.kit.button(record['text'], lambda test=record['test_id']: self.pages.cloud_cleanup(test), 'secondary')
@@ -1318,6 +1317,7 @@ class Pages:
         self.polling = {}  # Each site's state with a refresh on its way.
         self.acts = {}  # How many changes each site has finished: a reading asked for before one is older than it.
         self.again = set()  # The sites to read once more when the reading under way is back.
+        self.drawn = None  # What the last drawing was made from.
         self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
         kit = self.kit = Kit(q, self.link)
@@ -1522,7 +1522,13 @@ class Pages:
             self.render()
         self.run(lambda: actions.saved_files(summary=True, refresh=recount), done)
 
-    def render(self):
+    def tick(self):
+        """The clocks' second. The window is drawn again only when what it would show has changed: drawn every
+        second regardless, a list under the pointer or a field being typed in was remade under the person."""
+        self.render(changed=True)
+
+    def render(self, changed=False):
+        """Draw the pages from what the window holds; with changed, only when that differs from the last drawing."""
         now, chosen = self.now(), self.chosen
         s = self.state
         for key in self.open_keys():
@@ -1546,7 +1552,13 @@ class Pages:
                       'folder_enabled': v['folder_enabled'] and all(view['folder_enabled'] for _, view in views.values()),
                       'folder_tooltip': next((view['folder_tooltip'] for _, view in views.values()
                                               if view['folder_tooltip']), v['folder_tooltip'])}
-        self.header.show(self.route, self.shell.dark())
+        dark = self.shell.dark()
+        # Everything a drawing is made from, as text: the same text is the same drawing.
+        drawing = repr((self.route, dark, chosen, s, sites, sorted(views.items()), everything, sorted(self.counting)))
+        if changed and drawing == self.drawn:
+            return
+        self.drawn = drawing
+        self.header.show(self.route, dark)
         self.dashboard.show(s, sites, views, everything)
         if self.route.startswith('settings/'):
             self.settings.show(s, v, self.route.partition('/')[2], sites, views)

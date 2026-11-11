@@ -829,7 +829,7 @@ class Shell:
 
     def tick(self):
         if self.phase == 'open':
-            self.pages.render()
+            self.pages.tick()
 
     def show_notice(self, text):
         self.notice.setText(text + (f'\n\nDetails are saved in:\n{self.log_path}' if self.log_path else ''))

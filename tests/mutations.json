@@ -4146,7 +4146,7 @@
  {
   "id": "update-close-not-acknowledged",
   "source": "comic_archive/desktop_app.py",
-  "old": "                socket.write(CLOSING)\n                socket.flush()\n",
+  "old": "                    socket.write(CLOSING)\n                    socket.flush()\n",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does"
@@ -6442,8 +6442,8 @@
  {
   "id": "dashboard-idle-sites-polled",
   "source": "comic_archive/window_pages.py",
-  "old": "if automatic and s.loaded and not dashboard_model.updating(s):",
-  "new": "if False:",
+  "old": "if (automatic and s.loaded and not dashboard_model.updating(s)\n",
+  "new": "if (False\n",
   "test_file": "test_window_pages.py",
   "test": "test_the_timer_leaves_idle_sites_untouched_and_follows_only_started_work"
  },
@@ -8166,5 +8166,69 @@
   "new": ")",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_downloader_that_has_not_reported_is_starting_for_two_minutes_after_a_sign_in"
+ },
+ {
+  "id": "window-redrawn-every-second",
+  "source": "comic_archive/window_pages.py",
+  "old": "        if changed and drawing == self.drawn:",
+  "new": "        if False:",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
+ },
+ {
+  "id": "window-never-redrawn-when-asked",
+  "source": "comic_archive/window_pages.py",
+  "old": "        if changed and drawing == self.drawn:",
+  "new": "        if drawing == self.drawn:",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
+ },
+ {
+  "id": "window-tick-forgets-what-was-drawn",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.drawn = drawing\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
+ },
+ {
+  "id": "window-tick-misses-a-count-under-way",
+  "source": "comic_archive/window_pages.py",
+  "old": ", everything, sorted(self.counting)))",
+  "new": ", everything))",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
+ },
+ {
+  "id": "window-tick-misses-a-changed-state",
+  "source": "comic_archive/window_pages.py",
+  "old": "(self.route, dark, chosen, s, sites, sorted(views.items()),",
+  "new": "(self.route, dark, chosen, sites, sorted(views),",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
+ },
+ {
+  "id": "replaced-storage-choice-stays-drawn",
+  "source": "comic_archive/window_pages.py",
+  "old": "                discard(self.options_box, button)",
+  "new": "                button.deleteLater()",
+  "test_file": "test_window_pages.py",
+  "test": "test_buttons_that_are_replaced_leave_the_page_at_once"
+ },
+ {
+  "id": "replaced-cleanup-button-stays-drawn",
+  "source": "comic_archive/window_pages.py",
+  "old": "            discard(self.cleanup_box, *self.cleanups)",
+  "new": "            [button.deleteLater() for button in self.cleanups]",
+  "test_file": "test_window_pages.py",
+  "test": "test_buttons_that_are_replaced_leave_the_page_at_once"
+ },
+ {
+  "id": "clock-second-does-not-reach-the-pages",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if self.phase == 'open':\n            self.pages.tick()",
+  "new": "        if False:\n            self.pages.tick()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks"
  }
 ]
