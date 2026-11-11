@@ -35,8 +35,15 @@ class MacTests(unittest.TestCase):
             self.assertEqual(launch.call_args.args[0], ['/usr/bin/caffeinate', '-i', '-w', str(macos.os.getpid())])
             macos.keep_awake(False)
             launch.return_value.terminate.assert_called_once()
-            launch.return_value.wait.assert_called_once_with(timeout=5)
+            launch.return_value.wait.assert_called_once_with(timeout=0.5)  # On the window's thread: never long.
             self.assertIsNone(macos._awake)
+            # One that does not end when asked is ended outright, after as short a wait.
+            launch.reset_mock()
+            launch.return_value.wait.side_effect = [subprocess.TimeoutExpired('caffeinate', 0.5), None]
+            macos.keep_awake(True)
+            macos.keep_awake(False)
+            launch.return_value.kill.assert_called_once_with()
+            self.assertEqual([call.kwargs for call in launch.return_value.wait.call_args_list], [{'timeout': 0.5}] * 2)
 
     def test_only_exact_arguments_identify_a_worker(self):
         with patch.object(macos.psutil, 'Process') as process:

@@ -28,6 +28,9 @@ def network_probe():
         return unknown
 
 
+AWAKE_END_SECONDS = 0.5
+
+
 def keep_awake(running):
     """Hold an idle-sleep assertion during downloads; it expires if this app dies."""
     global _awake
@@ -42,13 +45,14 @@ def keep_awake(running):
             pass  # Best effort, as on the other desktop platforms.
     elif not running and _awake is not None:
         process, _awake = _awake, None
+        # On the window's thread: it ends at once when asked, and is never waited on for long.
         try:
             process.terminate()
-            process.wait(timeout=5)
+            process.wait(timeout=AWAKE_END_SECONDS)
         except (OSError, subprocess.TimeoutExpired):
             try:
                 process.kill()
-                process.wait(timeout=5)
+                process.wait(timeout=AWAKE_END_SECONDS)
             except (OSError, subprocess.TimeoutExpired):
                 pass
 

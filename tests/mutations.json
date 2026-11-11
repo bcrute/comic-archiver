@@ -8086,5 +8086,29 @@
   "new": "                pass",
   "test_file": "test_desktop_app.py",
   "test": "test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard"
+ },
+ {
+  "id": "mac-awake-end-waited-for-long",
+  "source": "comic_archive/macos.py",
+  "old": "AWAKE_END_SECONDS = 0.5",
+  "new": "AWAKE_END_SECONDS = 5",
+  "test_file": "test_macos.py",
+  "test": "test_sleep_assertion_is_held_once_and_released"
+ },
+ {
+  "id": "mac-awake-kill-waited-for-long",
+  "source": "comic_archive/macos.py",
+  "old": "                process.kill()\n                process.wait(timeout=AWAKE_END_SECONDS)",
+  "new": "                process.kill()\n                process.wait(timeout=5)",
+  "test_file": "test_macos.py",
+  "test": "test_sleep_assertion_is_held_once_and_released"
+ },
+ {
+  "id": "mac-awake-stuck-never-killed",
+  "source": "comic_archive/macos.py",
+  "old": "                process.kill()\n                process.wait(",
+  "new": "                process.wait(",
+  "test_file": "test_macos.py",
+  "test": "test_sleep_assertion_is_held_once_and_released"
  }
 ]
