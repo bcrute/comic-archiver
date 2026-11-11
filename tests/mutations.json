@@ -7574,5 +7574,13 @@
   "new": "            pass  # The app ended",
   "test_file": "test_window_pages.py",
   "test": "test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again"
+ },
+ {
+  "id": "mac-qt-folders-survive-uninstall",
+  "source": "comic_archive/uninstall.py",
+  "old": "home / 'Library/Application Support' / app_runtime.FOLDER_NAME] if sys.platform == 'darwin' else []",
+  "new": "home / 'Library/Application Support' / app_runtime.FOLDER_NAME] if False else []",
+  "test_file": "test_uninstall.py",
+  "test": "test_the_apps_own_folders_go_and_nothing_beside_them"
  }
 ]

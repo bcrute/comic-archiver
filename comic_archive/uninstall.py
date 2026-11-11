@@ -188,9 +188,12 @@ def app_folders():
     def xdg(name, default):
         base = Path(os.environ.get(name) or '')
         return base if base.is_absolute() else home / default
+    # On a Mac, Qt keeps its cache and data under Library instead.
+    mac = [home / 'Library/Caches' / app_runtime.FOLDER_NAME,
+           home / 'Library/Application Support' / app_runtime.FOLDER_NAME] if sys.platform == 'darwin' else []
     return [xdg('XDG_STATE_HOME', '.local/state') / 'comic-archiver', home / '.local/share/comic-archive',
             xdg('XDG_CACHE_HOME', '.cache') / app_runtime.FOLDER_NAME,
-            xdg('XDG_DATA_HOME', '.local/share') / app_runtime.FOLDER_NAME]
+            xdg('XDG_DATA_HOME', '.local/share') / app_runtime.FOLDER_NAME, *mac]
 
 
 def forget_all():

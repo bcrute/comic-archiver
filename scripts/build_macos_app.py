@@ -207,6 +207,10 @@ cloud = library/'.comic-shared/cloud'
 cloud.mkdir(parents=True)
 (cloud/'fixture.conf').write_text('[b2]\\nkey = SYNTHETIC_MAC_SMOKE\\n')
 app_runtime.remember_library(library)
+from pathlib import Path
+for kept in ('Library/Caches', 'Library/Application Support'):
+    (Path.home()/kept/app_runtime.FOLDER_NAME/'deep').mkdir(parents=True)
+    (Path.home()/kept/'Another app').mkdir()
 '''], cwd=root, env=isolated, timeout=30)
         run([moved/'Contents/MacOS/ComicArchiver', '--uninstall', '--quiet'],
             cwd=root, env=isolated, timeout=60)
@@ -217,6 +221,10 @@ assert (library/'Library/Series/001.cbz').read_bytes() == b'synthetic saved epis
 assert not (library/'.comic-session/state.json').exists()
 assert not (library/'.comic-session/state.tmp').exists()
 assert not (library/'.comic-shared/cloud/fixture.conf').exists()
+from pathlib import Path
+for kept in ('Library/Caches', 'Library/Application Support'):
+    assert not (Path.home()/kept/app_runtime.FOLDER_NAME).exists()
+    assert (Path.home()/kept/'Another app').is_dir()
 print('Packaged uninstall removed synthetic sign-in and key; saved episode preserved.')
 '''], cwd=root, env=isolated, timeout=30)
         run(['codesign', '--verify', '--deep', '--strict', moved])
