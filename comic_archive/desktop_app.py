@@ -953,9 +953,12 @@ class Shell:
             return
         signin = self.runtime.signin
         if signin.take():
+            # From here the window stays on this site: choosing another would leave this sign-in with no one to
+            # finish it until it ran out of time.
+            self.signin_stage = 'admitting'
             # The network policy is checked off this thread, before any Tapas page is shown.
             with self.signin_safe():
-                self.background(signin.admit, self.signin_open)
+                self.background(signin.admit, lambda: self.signin_open(signin))
         elif self.signin_stage in {'page', 'offline'} and signin.status().get('status') != 'running':
             self.signin_leave()  # Out of time.
 
@@ -969,8 +972,11 @@ class Shell:
             self.runtime.signin.fail('signin_failed')
             self.signin_leave()
 
-    def signin_open(self):
-        if self.phase != 'open' or self.runtime.signin.status().get('status') != 'running':
+    def signin_open(self, signin=None):
+        signin = signin or self.runtime.signin
+        if self.phase != 'open' or signin.status().get('status') != 'running':
+            if self.signin_stage == 'admitting':
+                self.signin_leave()  # Refused before any page was shown; the dashboard says why.
             return
         with self.signin_safe():
             if self.signin_panel is None:
@@ -1236,7 +1242,7 @@ class Shell:
     def choose_folder(self):
         widgets = self.q.QtWidgets
         box, buttons = widgets.QMessageBox, widgets.QMessageBox.StandardButton
-        if self.runtime.busy():
+        if self.busy_now():  # Asked off this thread for a moment at most: a sleeping drive must not freeze the window.
             box.information(self.window, APP_NAME, LOCATION_BUSY)
             return
         current = self.runtime.root
@@ -1252,7 +1258,7 @@ class Shell:
         if box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
             return
         # The dialogs above let time pass.
-        if self.phase == 'open' and not self.runtime.busy():
+        if self.phase == 'open' and not self.busy_now():
             self.relocate(root)
 
     def choose_site(self, key, then=None):

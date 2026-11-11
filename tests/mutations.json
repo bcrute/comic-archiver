@@ -7918,5 +7918,29 @@
   "new": "            self.again.add(key)\n",
   "test_file": "test_window_pages.py",
   "test": "test_something_happening_during_a_reading_brings_one_more_reading_and_the_timer_none"
+ },
+ {
+  "id": "site-can-change-under-a-sign-in-being-admitted",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            self.signin_stage = 'admitting'\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_window_stays_on_its_site_from_the_moment_a_sign_in_is_taken"
+ },
+ {
+  "id": "refused-sign-in-leaves-the-window-held",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            if self.signin_stage == 'admitting':\n                self.signin_leave()  # Refused before any page was shown; the dashboard says why.\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_the_window_stays_on_its_site_from_the_moment_a_sign_in_is_taken"
+ },
+ {
+  "id": "folder-choice-waits-on-a-sleeping-drive",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        if self.busy_now():  # Asked off this thread",
+  "new": "        if self.runtime.busy():  # Asked off this thread",
+  "test_file": "test_desktop_app.py",
+  "test": "test_choosing_a_folder_never_waits_on_a_sleeping_drive_to_learn_whether_a_download_runs"
  }
 ]

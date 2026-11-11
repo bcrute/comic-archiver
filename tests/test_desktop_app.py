@@ -1493,6 +1493,41 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(len(shell.app.aboutToQuit.connect.call_args_list), 1)
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
 
+    def test_the_window_stays_on_its_site_from_the_moment_a_sign_in_is_taken(self):
+        shell = self.opened()
+        shell.load()
+        self.signin.take.return_value, self.signin.status.return_value = True, {'status': 'running'}
+        emit(shell.signin_clock.timeout)
+        self.signin.take.return_value = False
+        self.assertEqual(shell.signin_stage, 'admitting')
+        shell.choose_site('webtoon')  # While the network is still being checked for the sign-in.
+        self.runtime.change_site.assert_not_called()
+        # Refused before any page was shown: the window is free again, and the site is read at once.
+        self.signin.status.return_value = {'status': 'failed'}
+        shell.pages.poll_site.reset_mock()
+        emit(self.core.QTimer.made[-1].timeout)
+        self.assertIsNone(shell.signin_stage)
+        shell.pages.poll_site.assert_called_once_with(shell.runtime.site.key)
+
+    def test_choosing_a_folder_never_waits_on_a_sleeping_drive_to_learn_whether_a_download_runs(self):
+        class Asleep:
+            def __init__(self, target=None, daemon=None):
+                pass
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+        shell = self.opened()
+        shell.load()
+        self.runtime.busy.reset_mock()
+        self.threads.Thread = Asleep
+        shell.busy_seen = 'download'  # What the last look found.
+        shell.choose_location()
+        self.runtime.busy.assert_not_called()
+        self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.LOCATION_BUSY)
+
     def test_the_site_is_read_again_as_soon_as_a_sign_in_ends(self):
         shell = self.signing_in()
         shell.pages.poll_site.reset_mock()
