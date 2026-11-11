@@ -28,7 +28,7 @@ class FakeTransfer:
     fail_delete = False
     fail_upload = False
 
-    def __init__(self, provider, target):
+    def __init__(self, provider, target, root=None):
         self.provider = provider
 
     def upload(self, source, destination, expected):

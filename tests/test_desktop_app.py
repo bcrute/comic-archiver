@@ -290,14 +290,14 @@ class DesktopAppTests(unittest.TestCase):
         back.stop.assert_called_once_with()
 
     def test_a_question_is_asked_over_the_window_and_only_yes_agrees(self):
-        shell = self.opened()
+        shell = self.opened(); shell.load()
         for answer, agreed in ((1, True), (2, False), (None, False)):
             self.box.question.return_value = answer
             self.assertIs(shell.ask('Sign out of Tapas?'), agreed)
             self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', 'Sign out of Tapas?', 3, 2))
 
     def test_a_question_that_closed_because_the_app_is_ending_is_not_an_answer(self):
-        shell = self.opened()
+        shell = self.opened(); shell.load()
         self.box.question.return_value = 2
         shell.ended = True
         self.assertIsNone(shell.ask('Sign out of Tapas?'))

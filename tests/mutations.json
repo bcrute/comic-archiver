@@ -1714,8 +1714,8 @@
  {
   "id": "b2-status-bucket-unreadable",
   "source": "comic_archive/cloud.py",
-  "old": "    except (configparser.Error, KeyError, OSError):\n        return None",
-  "new": "    except (configparser.Error, OSError):\n        return None",
+  "old": "    except (ArchiveError, KeyError):\n        return None\n    return name if BUCKET",
+  "new": "    except ArchiveError:\n        return None\n    return name if BUCKET",
   "test_file": "test_b2_auth.py",
   "test": "test_signin_persists_private_credentials_without_subprocess_args_or_status"
  },
@@ -2946,8 +2946,8 @@
  {
   "id": "pages-poll-while-busy",
   "source": "comic_archive/window_pages.py",
-  "old": "if s.busy or key in self.polling:",
-  "new": "if key in self.polling:",
+  "old": "        if s.busy:\n            return\n        if key in self.polling:",
+  "new": "        if key in self.polling:",
   "test_file": "test_window_pages.py",
   "test": "test_while_an_action_runs_the_buttons_wait_and_nothing_else_starts"
  },
@@ -3442,16 +3442,16 @@
  {
   "id": "question-defaults-to-yes",
   "source": "comic_archive/desktop_app.py",
-  "old": "buttons.Yes | buttons.No, buttons.No) == buttons.Yes\n\n    # Signing in",
-  "new": "buttons.Yes | buttons.No, buttons.Yes) == buttons.Yes\n\n    # Signing in",
+  "old": "agreed = box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes",
+  "new": "agreed = box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.Yes) == buttons.Yes",
   "test_file": "test_desktop_app.py",
   "test": "test_a_question_is_asked_over_the_window_and_only_yes_agrees"
  },
  {
   "id": "question-anything-but-no-agrees",
   "source": "comic_archive/desktop_app.py",
-  "old": "buttons.Yes | buttons.No, buttons.No) == buttons.Yes\n\n    # Signing in",
-  "new": "buttons.Yes | buttons.No, buttons.No) != buttons.No\n\n    # Signing in",
+  "old": "agreed = box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes",
+  "new": "agreed = box.question(self.window, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) != buttons.No",
   "test_file": "test_desktop_app.py",
   "test": "test_a_question_is_asked_over_the_window_and_only_yes_agrees"
  },
@@ -3634,8 +3634,8 @@
  {
   "id": "uninstall-other-sites-skipped",
   "source": "comic_archive/uninstall.py",
-  "old": "    for site in sites.SITES:\n        try:",
-  "new": "    for site in sites.SITES[:1]:\n        try:",
+  "old": "for place in dict.fromkeys(place for site in sites.SITES for place in places(root, site)):",
+  "new": "for place in dict.fromkeys(place for site in sites.SITES[:1] for place in places(root, site)):",
   "test_file": "test_uninstall.py",
   "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
  },
@@ -3661,7 +3661,7 @@
   "old": "        if linked is not None:\n            forget_connections(linked)",
   "new": "        if linked is None:\n            forget_connections(linked)",
   "test_file": "test_uninstall.py",
-  "test": "test_a_library_linked_to_shared_settings_elsewhere_has_those_connections_forgotten"
+  "test": "test_every_sign_in_and_cloud_key_goes_from_every_library_folder_and_saved_episodes_stay"
  },
  {
   "id": "uninstall-connection-records-kept",
@@ -4818,7 +4818,7 @@
  {
   "id": "dc-damaged-set-aside",
   "source": "comic_archive/download_control.py",
-  "old": "                if not create or attempt:",
+  "old": "                if not create or attempt or isinstance(error, Unavailable):",
   "new": "                if True:",
   "test_file": "test_download_control.py",
   "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
@@ -5018,8 +5018,8 @@
  {
   "id": "only-the-chosen-site-is-refreshed",
   "source": "comic_archive/window_pages.py",
-  "old": "            self.poll_site(key, then if key == chosen else None)",
-  "new": "            if key == chosen:\n                self.poll_site(key, then)",
+  "old": "            self.poll_site(key, then if key == chosen else None, timed=automatic)",
+  "new": "            if key == chosen:\n                self.poll_site(key, then, timed=automatic)",
   "test_file": "test_window_pages.py",
   "test": "test_each_site_has_its_own_go_and_pause_and_every_open_site_is_refreshed"
  },
@@ -5866,24 +5866,24 @@
  {
   "id": "sign-out-elsewhere-follows-junction",
   "source": "comic_archive/uninstall.py",
-  "old": "not session.is_dir() or through_junction(session, root):\n            continue\n        try:\n            if stop",
-  "new": "not session.is_dir():\n            continue\n        try:\n            if stop",
+  "old": "not session.is_dir() or through_junction(session, root):\n                continue\n            try:",
+  "new": "not session.is_dir():\n                continue\n            try:",
   "test_file": "test_uninstall.py",
   "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
  },
  {
   "id": "sign-out-elsewhere-ignores-running-downloader",
   "source": "comic_archive/uninstall.py",
-  "old": "            if stop_downloader(session):\n                forget_session(session)",
-  "new": "            if True:\n                forget_session(session)",
+  "old": "                if stop_downloader(session):\n                    forget_session(session)",
+  "new": "                if True:\n                    forget_session(session)",
   "test_file": "test_uninstall.py",
   "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
  },
  {
   "id": "sign-out-elsewhere-hides-stuck",
   "source": "comic_archive/uninstall.py",
-  "old": "            else:\n                kept.append(root)\n        except",
-  "new": "            else:\n                pass\n        except",
+  "old": "                elif root not in kept:\n                    kept.append(root)\n            except",
+  "new": "                elif root not in kept:\n                    pass\n            except",
   "test_file": "test_uninstall.py",
   "test": "test_signing_out_of_a_site_clears_it_in_every_other_library_folder_and_names_those_out_of_reach"
  },
@@ -6938,8 +6938,8 @@
  {
   "id": "completion-continue-only-repeats-local-audit",
   "source": "comic_archive/download_control.py",
-  "old": "gaps, episodes = inventory.prepare_completion_retry()",
-  "new": "gaps, episodes = 0, 0",
+  "old": "        return inventory.prepare_completion_retry()",
+  "new": "        return 0, 0",
   "test_file": "test_download_control.py",
   "test": "test_continue_retries_an_incomplete_listing_instead_of_repeating_the_same_local_audit"
  },
