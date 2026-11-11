@@ -296,6 +296,15 @@ class DesktopAppTests(unittest.TestCase):
             self.assertIs(shell.ask('Sign out of Tapas?'), agreed)
             self.assertEqual(self.box.question.call_args.args, (shell.window, 'Comic Archiver', 'Sign out of Tapas?', 3, 2))
 
+    def test_a_question_that_closed_because_the_app_is_ending_is_not_an_answer(self):
+        shell = self.opened()
+        self.box.question.return_value = 2
+        shell.ended = True
+        self.assertIsNone(shell.ask('Sign out of Tapas?'))
+        shell.ended = False
+        self.box.question.side_effect = lambda *args: setattr(shell, 'phase', 'stopping') or 1
+        self.assertIsNone(shell.ask('Sign out of Tapas?'))
+
     def test_the_dashboard_asks_the_site_about_the_saved_sign_in_once_it_opens_and_shows_the_answer_at_once(self):
         shell = self.opened()
         self.signin.check.assert_not_called()  # Not while the downloader is starting.

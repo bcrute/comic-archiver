@@ -1865,6 +1865,9 @@ class Pages:
         bucket = target.get('bucket')
         use = self.shell.ask(CLOUD_CONFIRM.format(
             bucket=f'the Backblaze B2 bucket "{bucket}"' if bucket else 'a Backblaze B2 bucket'))
+        if use is None or self.states.get(key) is not s:
+            self.cloud_asked.discard(key)  # The app ended or another folder opened under the question: not an answer.
+            return
 
         def kept(value):
             s.cloud = value

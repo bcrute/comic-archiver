@@ -1725,6 +1725,20 @@ class DownloadSettingsTests(PagesCase):
             self.open('dashboard'); settle()
             self.assertEqual(len(self.shell.calls), 2)
 
+    def test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again(self):
+        target = self.actions.reading['cloud']['targets'][0]
+        target.update(enabled=True, confirmed=False)
+        self.shell.answer = None
+        self.open('dashboard')
+        settle()
+        self.assertEqual(len(self.shell.calls), 1)
+        self.assertEqual(self.actions.named('cloud_confirm'), [])
+        self.assertTrue(self.pages.state.cloud['targets'][0]['enabled'])
+        self.shell.answer = True
+        self.pages.poll(); settle()
+        self.assertEqual(len(self.shell.calls), 2)
+        self.assertEqual([call[1] for call in self.actions.named('cloud_confirm')], [('b2', True)])
+
     def test_sign_out_waits_for_a_download_and_a_refusal_is_said(self):
         self.actions.reading['account'] = {'status': 'running', 'configured': True, 'phase': 'archive', 'speed': 'fast'}
         self.open()

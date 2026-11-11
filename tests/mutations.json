@@ -7542,5 +7542,37 @@
   "new": "                    and True):\n",
   "test_file": "test_cloud_auth.py",
   "test": "test_a_new_sign_in_clears_the_key_an_earlier_one_left_when_it_was_ended_before_it_finished"
+ },
+ {
+  "id": "question-closed-by-ending-app-counts-as-no",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        return agreed if self.phase == 'open' and not self.ended else None\n",
+  "new": "        return agreed\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_question_that_closed_because_the_app_is_ending_is_not_an_answer"
+ },
+ {
+  "id": "question-answered-while-stopping-counts",
+  "source": "comic_archive/desktop_app.py",
+  "old": "        return agreed if self.phase == 'open' and not self.ended else None\n",
+  "new": "        return agreed if not self.ended else None\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_question_that_closed_because_the_app_is_ending_is_not_an_answer"
+ },
+ {
+  "id": "cloud-question-without-answer-records-no",
+  "source": "comic_archive/window_pages.py",
+  "old": "        if use is None or self.states.get(key) is not s:\n            self.cloud_asked.discard(key)",
+  "new": "        if self.states.get(key) is not s:\n            self.cloud_asked.discard(key)",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again"
+ },
+ {
+  "id": "cloud-question-without-answer-never-asked-again",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self.cloud_asked.discard(key)  # The app ended",
+  "new": "            pass  # The app ended",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again"
  }
 ]
