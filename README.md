@@ -38,12 +38,12 @@ You don't have to take my word for any of this: all of the app's code is here fo
 ## Getting it
 
 Download the newest version from the [Releases page](https://github.com/bcrute/comic-archiver/releases/latest).
-There's a version for Windows 10 and 11 and one for Linux. The Releases page explains how to install it, including
-the warnings Windows shows because the app isn't signed yet.
+There's a version for Windows 10 and 11, one for Linux and a first one for Macs with an Intel processor. The
+Releases page explains how to install it, including the warnings Windows and macOS show because the app isn't
+signed by a recognized publisher yet.
 
-The Intel macOS development build has passed native VM testing. It is ad-hoc signed and has not been
-notarized or published. Build and installation notes are in
-[the macOS development instructions](docs/development.md#build-the-macos-package).
+The Mac version is new: it is tested on macOS 15 on an Intel processor, and Apple has not notarized it. Build
+notes are in [the macOS development instructions](docs/development.md#build-the-macos-package).
 
 ## Using it
 
@@ -112,8 +112,8 @@ applications menu, choose **Uninstall**, then delete the folder you unpacked it 
 | Webtoon | Works |
 | Windows 10 and 11 | Works |
 | Linux | Works |
-| macOS (Intel) | Development build tested on macOS 15 |
-| macOS (Apple Silicon) | Build support implemented; native execution not tested |
+| macOS (Intel) | First version; tested on macOS 15, not notarized |
+| macOS (Apple silicon) | Not available yet |
 
 ## Other ways to save your comics
 
