@@ -6,6 +6,7 @@ Local start is an availability choice, never a substitute for durable consent.
 
 import asyncio
 
+from . import limits
 from .controller import HostController
 from .files import SourceError
 from .jsoncodec import require
@@ -106,7 +107,7 @@ class HostDriver:
         self.pause(pairing_id)
         slot = self._slots.get(pairing_id)
         if slot is not None:
-            done, _ = await asyncio.wait({slot.task}, timeout=25)
+            done, _ = await asyncio.wait({slot.task}, timeout=limits.SLOT_STOP)
             require(slot.task in done, "connection_unavailable")
             if not slot.task.cancelled():
                 slot.task.exception()
@@ -306,7 +307,7 @@ class HostDriver:
             self.pause(pair)
         tasks = {slot.task for slot in self._slots.values()}
         if tasks:
-            _, pending = await asyncio.wait(tasks, timeout=25)
+            _, pending = await asyncio.wait(tasks, timeout=limits.SLOT_STOP)
             require(not pending, "connection_unavailable")
         for slot in self._slots.values():
             if not slot.task.cancelled():

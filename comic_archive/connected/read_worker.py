@@ -9,6 +9,7 @@ import queue
 import threading
 from concurrent.futures import Future
 
+from . import limits
 from .files import SourceError, read_source
 from .jsoncodec import require
 from .rpc import Session
@@ -192,7 +193,7 @@ class FileWorker:
 
     async def close(self):
         self.stop()
-        until = asyncio.get_running_loop().time() + 8
+        until = asyncio.get_running_loop().time() + limits.WORKER_CLOSE
         while self.thread.is_alive():
             require(asyncio.get_running_loop().time() < until, "connection_unavailable")
             await asyncio.sleep(0.01)

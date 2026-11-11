@@ -7,6 +7,7 @@ combine native accepted peers and local scope with the service deadline.
 import asyncio
 import time
 
+from . import limits
 from .files import SourceError
 from .jsoncodec import dumps, loads, require
 from .pairing import ApprovalReview, PairingOwner
@@ -219,7 +220,7 @@ class _Runner:
             await self.peer.close()
         if self.receiving is not None and not self.receiving.done():
             self.receiving.cancel()
-            done, _ = await asyncio.wait({self.receiving}, timeout=3)
+            done, _ = await asyncio.wait({self.receiving}, timeout=limits.RECEIVE_CLOSE)
             require(self.receiving in done, "connection_unavailable")
         if self.receiving is not None and not self.receiving.cancelled():
             self.receiving.exception()  # Observe a real terminal receiver failure.
@@ -536,7 +537,7 @@ class HostController:
         opening = self._operations.get(pairing_id)
         if opening is not None and opening is not asyncio.current_task():
             if not opening.done():
-                done, _ = await asyncio.wait({opening}, timeout=15)
+                done, _ = await asyncio.wait({opening}, timeout=limits.OPENING)
                 require(opening in done, "connection_unavailable")
             if not opening.cancelled():
                 opening.exception()
@@ -547,7 +548,7 @@ class HostController:
         if runner is None:
             return
         runner.stop()
-        done, _ = await asyncio.wait({runner.task}, timeout=6)
+        done, _ = await asyncio.wait({runner.task}, timeout=limits.RUNNER_CLOSE)
         require(runner.task in done, "connection_unavailable")
         if not runner.task.cancelled():
             runner.task.exception()
@@ -660,7 +661,7 @@ class HostController:
             runner.task for runner in self._runners.values()
         }
         if tasks:
-            _, pending = await asyncio.wait(tasks, timeout=15)
+            _, pending = await asyncio.wait(tasks, timeout=limits.PAIRING_STOP)
             require(not pending, "connection_unavailable")
         for runner in self._runners.values():
             runner.stop()
@@ -668,7 +669,7 @@ class HostController:
             runner.task for runner in self._runners.values() if not runner.task.done()
         }
         if more:
-            _, pending = await asyncio.wait(more, timeout=6)
+            _, pending = await asyncio.wait(more, timeout=limits.RUNNER_CLOSE)
             require(not pending, "connection_unavailable")
         for pair in list(self._operations):
             await self.stop(pair)

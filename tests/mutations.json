@@ -8814,5 +8814,37 @@
   "new": "                        scan.run(self.stopped)",
   "test_file": "test_connected_discovery.py",
   "test": "test_the_watcher_waits_longer_after_each_pass_that_finds_nothing_and_starts_over_on_a_find"
+ },
+ {
+  "id": "connected-peer-cleanup-covers-worker-and-connection",
+  "source": "comic_archive/connected/limits.py",
+  "old": "PEER_CLEANUP = WORKER_CLOSE + NATIVE_CLOSE + 2",
+  "new": "PEER_CLEANUP = 12",
+  "test_file": "test_connected_console.py",
+  "test": "test_every_wait_for_a_close_covers_all_that_it_waits_on"
+ },
+ {
+  "id": "connected-runner-close-covers-its-peer",
+  "source": "comic_archive/connected/limits.py",
+  "old": "RUNNER_CLOSE = PEER_CLOSE + RECEIVE_CLOSE + 3",
+  "new": "RUNNER_CLOSE = 6",
+  "test_file": "test_connected_console.py",
+  "test": "test_every_wait_for_a_close_covers_all_that_it_waits_on"
+ },
+ {
+  "id": "connected-slot-stop-covers-the-pairing",
+  "source": "comic_archive/connected/limits.py",
+  "old": "SLOT_STOP = PAIRING_STOP + 4",
+  "new": "SLOT_STOP = 25",
+  "test_file": "test_connected_console.py",
+  "test": "test_every_wait_for_a_close_covers_all_that_it_waits_on"
+ },
+ {
+  "id": "connected-pairing-stop-covers-a-call-and-the-runner",
+  "source": "comic_archive/connected/limits.py",
+  "old": "PAIRING_STOP = OPENING + RUNNER_CLOSE",
+  "new": "PAIRING_STOP = OPENING",
+  "test_file": "test_connected_console.py",
+  "test": "test_every_wait_for_a_close_covers_all_that_it_waits_on"
  }
 ]

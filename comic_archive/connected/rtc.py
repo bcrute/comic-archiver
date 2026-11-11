@@ -29,6 +29,7 @@ from aiortc.rtcsctptransport import (
 )
 from aiortc.sdp import SessionDescription
 
+from . import limits
 from .files import SourceError
 from .ice import servers as checked_servers
 from .jsoncodec import require
@@ -600,7 +601,7 @@ class HostPeer:
                 failure = error
         if self._native_close is None:
             self._native_close = asyncio.create_task(self._pc.close())
-        done, _ = await asyncio.wait({self._native_close}, timeout=8)
+        done, _ = await asyncio.wait({self._native_close}, timeout=limits.NATIVE_CLOSE)
         require(self._native_close in done, "connection_unavailable")
         self._native_close.result()
         require(self._pc.connectionState == "closed", "connection_unavailable")
@@ -621,7 +622,7 @@ class HostPeer:
             if not self.task.done():
                 if not self._cleaning and self.task.cancelling() == 0:
                     self.task.cancel()
-                done, _ = await asyncio.wait({self.task}, timeout=12)
+                done, _ = await asyncio.wait({self.task}, timeout=limits.PEER_TASK)
                 require(self.task in done, "connection_unavailable")
             if not self.task.cancelled():
                 self.task.exception()
@@ -632,7 +633,7 @@ class HostPeer:
                 and (self._closing.cancelled() or self._closing.exception() is not None)
             ):
                 self._closing = asyncio.create_task(self._cleanup())
-            done, _ = await asyncio.wait({self._closing}, timeout=12)
+            done, _ = await asyncio.wait({self._closing}, timeout=limits.PEER_CLEANUP)
             require(self._closing in done, "connection_unavailable")
             self._closing.result()
         require(self.joined, "connection_unavailable")

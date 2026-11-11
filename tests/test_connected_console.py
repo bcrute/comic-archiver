@@ -97,3 +97,14 @@ class RendezvousBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(caught.exception.code, "connection_unavailable")
             transport.close.assert_awaited_once()
             self.assertEqual(transport._service_deadline, 0)
+
+
+class CloseBudgetTests(unittest.TestCase):
+    def test_every_wait_for_a_close_covers_all_that_it_waits_on(self):
+        from comic_archive.connected import limits
+
+        self.assertGreater(limits.PEER_CLEANUP, limits.WORKER_CLOSE + limits.NATIVE_CLOSE)
+        self.assertGreaterEqual(limits.PEER_CLOSE, limits.PEER_TASK + limits.PEER_CLEANUP)
+        self.assertGreater(limits.RUNNER_CLOSE, limits.PEER_CLOSE + limits.RECEIVE_CLOSE)
+        self.assertGreaterEqual(limits.PAIRING_STOP, limits.OPENING + limits.RUNNER_CLOSE)
+        self.assertGreater(limits.SLOT_STOP, limits.PAIRING_STOP)
