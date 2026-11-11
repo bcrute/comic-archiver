@@ -140,11 +140,48 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
         self.assertEqual(len(self.index.snapshot()[1]), 1)
         self.assertEqual(self.index.snapshot()[1][0]["sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
 
-    def test_enumeration_bound_and_root_replacement_fail_closed(self):
-        with patch("comic_archive.connected.discovery.ENTRIES_MAX", 1):
+    def test_a_library_past_a_bound_keeps_what_was_listed_and_says_so(self):
+        self.assertEqual(self.scan.run(self.stop), 1)
+        self.assertFalse(self.scan.limited)
+        listed, cached = self.index.snapshot()[1], dict(self.scan.cache)
+        self.publish()
+        for bound, most in (("ENTRIES_MAX", 1), ("BOOKS_MAX", 0)):
+            with patch("comic_archive.connected.discovery." + bound, most):
+                self.scan.run(self.stop)  # Stops at the bound; it does not end the host.
+            self.assertTrue(self.scan.limited, bound)
+            self.assertEqual(self.index.snapshot()[1], listed)
+            self.assertEqual(self.scan.cache, cached)  # A pass cut short forgets nothing.
+        self.assertEqual(self.scan.run(self.stop), 1)
+        self.assertFalse(self.scan.limited)
+        self.assertEqual(len(self.index.snapshot()[1]), 2)
+
+    def test_a_full_index_leaves_new_books_out_without_reading_them_every_pass(self):
+        self.publish()
+        with patch("comic_archive.connected.files.BOOKS_MAX", 1), \
+                patch.object(Index, "register_completed", wraps=self.index.register_completed) as register:
+            self.scan.run(self.stop)
+            self.assertTrue(self.scan.limited)
+            self.assertEqual(len(self.index.snapshot()[1]), 1)
+            asked = register.call_count
+            self.scan.run(self.stop)
+            self.assertEqual(register.call_count, asked)
+            self.assertTrue(self.scan.limited)
+
+    def test_a_book_whose_record_cannot_be_written_is_tried_again_next_pass(self):
+        with patch.object(Index, "register_completed", side_effect=sqlite3.OperationalError("database is locked")):
+            self.assertEqual(self.scan.run(self.stop), 0)
+        self.assertEqual(self.scan.cache, {})
+        self.assertEqual(self.scan.run(self.stop), 1)
+
+    def test_a_book_replaced_just_after_its_record_is_an_ordinary_refusal(self):
+        with patch.object(Index, "describe", side_effect=SourceError("version_changed")):
             with self.assertRaises(SourceError) as caught:
-                self.scan.run(self.stop)
-        self.assertEqual(caught.exception.code, "resource_limit")
+                self.index.register_completed(self.comic, "Reader fixture")
+            self.assertEqual(caught.exception.code, "version_changed")
+            self.assertEqual(self.scan.run(self.stop), 0)  # Still refused, and discovery goes on.
+        self.assertEqual(len(self.index.snapshot()[1]), 1)
+
+    def test_root_replacement_fails_closed(self):
         self.library.rename(self.base / "removed")
         self.library.mkdir()
         with self.assertRaises(SourceError) as caught:
@@ -229,6 +266,59 @@ class CatalogWatcherTests(DiscoveryFixture, unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(root.fd)
             with self.assertRaises(sqlite3.ProgrammingError):
                 index.db.execute("SELECT 1")
+
+    async def test_a_pass_the_disk_could_not_finish_is_tried_again_a_few_times(self):
+        watcher = CatalogWatcher({self.index.share_id: self.index})
+        real, passes = CompletedScan.run, []
+        def run(scan, stopped):
+            passes.append(len(passes))
+            if len(passes) <= 2:
+                raise OSError("synthetic")
+            return real(scan, stopped)
+        with patch("comic_archive.connected.discovery.POLL_SECONDS", 0.005), patch.object(CompletedScan, "run", run):
+            watcher.start()
+            try:
+                await self.wait_for(lambda: len(self.index.snapshot()[1]) == 1 or watcher.error)
+                self.assertIsNone(watcher.error)
+                self.assertTrue(watcher.thread.is_alive())
+            finally:
+                await watcher.close()
+        self.assertGreaterEqual(len(passes), 3)
+
+    async def test_a_pass_that_keeps_failing_ends_the_watcher(self):
+        watcher = CatalogWatcher({self.index.share_id: self.index})
+        passes = []
+        def run(scan, stopped):
+            passes.append(1)
+            raise sqlite3.OperationalError("synthetic")
+        with patch("comic_archive.connected.discovery.POLL_SECONDS", 0.001), \
+                patch("comic_archive.connected.discovery.PASS_RETRIES", 2), patch.object(CompletedScan, "run", run):
+            watcher.start()
+            try:
+                with self.assertRaises(SourceError) as caught:
+                    await asyncio.wait_for(watcher.monitor(), 8)
+            finally:
+                await watcher.close()
+        self.assertEqual(caught.exception.code, "integrity_failed")
+        self.assertEqual(len(passes), 3)
+
+    async def test_a_library_too_large_to_list_is_said_once_while_serving(self):
+        watcher = CatalogWatcher({self.index.share_id: self.index})
+        said = []
+        with patch("comic_archive.connected.discovery.POLL_SECONDS", 0.005), \
+                patch("comic_archive.connected.discovery.ENTRIES_MAX", 1):
+            watcher.start()
+            monitor = asyncio.create_task(watcher.monitor(lambda: said.append(1)))
+            try:
+                await self.wait_for(lambda: said or watcher.error)
+                await asyncio.sleep(0.2)
+                self.assertIsNone(watcher.error)
+                self.assertTrue(watcher.thread.is_alive())
+                self.assertEqual(said, [1])
+            finally:
+                await watcher.close()
+                with self.assertRaises(SourceError):
+                    await monitor
 
     async def test_replaced_index_is_not_adopted_or_modified(self):
         watcher = CatalogWatcher({self.index.share_id: self.index})

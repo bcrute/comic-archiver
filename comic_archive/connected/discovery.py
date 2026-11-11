@@ -6,6 +6,7 @@ its own bound private SQLite connections; hashing never blocks the host loop.
 
 import asyncio
 import os
+import sqlite3
 import threading
 
 from ..publication import validate_public_metadata
@@ -23,6 +24,9 @@ from .files import (
 ENTRIES_MAX = 50000
 POLL_SECONDS = 5
 JOIN_SECONDS = 8
+# A pass the disk or the index could not finish is tried again this many times, waiting longer each time.
+PASS_RETRIES = 5
+RETRY_SECONDS_MAX = 300
 
 
 def _stamp(root, relative):
@@ -39,6 +43,9 @@ class CompletedScan:
     def __init__(self, index):
         _require(type(index) is Index)
         self.index, self.cache = index, {}
+        # Whether the last pass met more than it may list; what it had listed stays served.
+        self.limited = False
+        self.full = set()  # Books the full index left out, until they change.
 
     def run(self, stopped):
         index, root = self.index, self.index.root
@@ -46,12 +53,15 @@ class CompletedScan:
         value = os.stat(index.path, follow_symlinks=False)
         _require((value.st_dev, value.st_ino) == index.identity and value.st_nlink == 1)
         seen, entries, books, registered = set(), 0, 0, 0
+        cut = False  # Whether the pass stopped at a bound.
         with os.scandir(root.fd) as folders:
             for folder in folders:
                 if stopped.is_set():
                     return registered
                 entries += 1
-                _require(entries <= ENTRIES_MAX, "resource_limit")
+                if entries > ENTRIES_MAX:
+                    cut = True
+                    break
                 if folder.name.startswith(".") or not folder.is_dir(follow_symlinks=False):
                     continue
                 directory = None
@@ -73,7 +83,9 @@ class CompletedScan:
                             if stopped.is_set():
                                 return registered
                             entries += 1
-                            _require(entries <= ENTRIES_MAX, "resource_limit")
+                            if entries > ENTRIES_MAX:
+                                cut = True
+                                break
                             if (
                                 child.name.startswith(".")
                                 or not child.name.lower().endswith(".cbz")
@@ -81,9 +93,12 @@ class CompletedScan:
                             ):
                                 continue
                             books += 1
-                            _require(books <= BOOKS_MAX, "resource_limit")
+                            if books > BOOKS_MAX:
+                                cut = True
+                                break
                             relative = folder.name + "/" + child.name
                             seen.add(relative)
+                            fingerprint = None
                             try:
                                 fingerprint = self._fingerprint(relative, series_stamp)
                                 if self.cache.get(relative) == fingerprint:
@@ -92,21 +107,33 @@ class CompletedScan:
                                 # acceptance. A bare CBZ never falls back to standalone.
                                 index.register_completed(relative, title)
                                 registered += 1
+                                self.full.discard(relative)
                                 if fingerprint == self._fingerprint(relative, _stamp(root, metadata)):
                                     self.cache[relative] = fingerprint
                             except SourceError as error:
                                 if error.code == "resource_limit":
-                                    raise
-                                self.cache.pop(relative, None)
-                except (OSError, ValueError, SourceError) as error:
-                    if isinstance(error, SourceError) and error.code == "resource_limit":
-                        raise
+                                    # The index is full: this book is left out until it changes.
+                                    if fingerprint is not None:
+                                        self.cache[relative] = fingerprint
+                                        self.full.add(relative)
+                                else:
+                                    self.cache.pop(relative, None)
+                            except sqlite3.Error:
+                                self.cache.pop(relative, None)  # One book's record; tried next pass.
+                except (OSError, ValueError, SourceError):
                     # Incomplete/malformed publication or a moved folder: try next
                     # pass. Original identities are never tombstoned by a scan.
+                    pass
                 finally:
                     if directory is not None:
                         os.close(directory)
-        self.cache = {name: value for name, value in self.cache.items() if name in seen}
+                if cut:
+                    break
+        if not cut:
+            # A pass cut short has not seen every book: nothing is forgotten on its word.
+            self.cache = {name: value for name, value in self.cache.items() if name in seen}
+            self.full &= seen
+        self.limited = cut or bool(self.full)
         root.current()
         return registered
 
@@ -134,7 +161,7 @@ class CatalogWatcher:
             )
         self.stopped, self.ready = threading.Event(), threading.Event()
         self.error, self.cleanup_error, self.joined = None, False, False
-        self.owned = []
+        self.owned, self.scans = [], []
         self.thread = threading.Thread(target=self._run, name="comic-reader-catalog", daemon=False)
 
     def start(self):
@@ -158,13 +185,22 @@ class CatalogWatcher:
                 self.owned[-1] = root, index
                 _require(index.identity == identity and index.share_id == share)
             scans = [CompletedScan(index) for _, index in self.owned]
+            self.scans = scans
             self.ready.set()
+            failures = 0
             while not self.stopped.is_set():
-                for scan in scans:
-                    if self.stopped.is_set():
-                        break
-                    scan.run(self.stopped)
-                self.stopped.wait(POLL_SECONDS)
+                try:
+                    for scan in scans:
+                        if self.stopped.is_set():
+                            break
+                        scan.run(self.stopped)
+                    failures = 0
+                except (OSError, sqlite3.Error):
+                    # A busy index or a disk that did not answer; a changed library is a SourceError and ends it.
+                    failures += 1
+                    if failures > PASS_RETRIES:
+                        raise
+                self.stopped.wait(min(RETRY_SECONDS_MAX, POLL_SECONDS * 2**failures))
         except BaseException as error:
             self.error = error.code if isinstance(error, SourceError) else "integrity_failed"
             self.stopped.set()
@@ -178,8 +214,16 @@ class CatalogWatcher:
                     self.cleanup_error = True
             self.ready.set()
 
-    async def monitor(self):
+    @property
+    def limited(self):
+        return any(scan.limited for scan in self.scans)
+
+    async def monitor(self, notice=None):
+        """Wait for the worker to end; notice is called once if a library holds more than can be listed."""
         while self.thread.is_alive():
+            if notice is not None and self.limited:
+                notice()
+                notice = None
             await asyncio.sleep(0.05)
         raise SourceError(self.error or "connection_unavailable")
 

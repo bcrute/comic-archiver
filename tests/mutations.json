@@ -8398,5 +8398,85 @@
   "new": "if False else []),",
   "test_file": "test_cloud_stream.py",
   "test": "test_known_size_pipe_lets_rclone_hold_the_whole_file_for_its_sha1"
+ },
+ {
+  "id": "connected-scan-entry-bound-stops-quietly",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                if entries > ENTRIES_MAX:\n                    cut = True\n                    break",
+  "new": "                if entries > ENTRIES_MAX:\n                    raise SourceError('resource_limit')",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_library_too_large_to_list_is_said_once_while_serving"
+ },
+ {
+  "id": "connected-scan-book-bound-holds",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                            if books > BOOKS_MAX:\n                                cut = True\n                                break",
+  "new": "                            if False:\n                                cut = True\n                                break",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_library_past_a_bound_keeps_what_was_listed_and_says_so"
+ },
+ {
+  "id": "connected-scan-cut-pass-forgets-nothing",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "        if not cut:\n            # A pass cut short",
+  "new": "        if True:\n            # A pass cut short",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_library_past_a_bound_keeps_what_was_listed_and_says_so"
+ },
+ {
+  "id": "connected-scan-full-index-book-not-reread",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                                        self.cache[relative] = fingerprint\n                                        self.full.add(relative)",
+  "new": "                                        self.full.add(relative)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_full_index_leaves_new_books_out_without_reading_them_every_pass"
+ },
+ {
+  "id": "connected-scan-full-index-stays-said",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "        self.limited = cut or bool(self.full)",
+  "new": "        self.limited = cut",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_full_index_leaves_new_books_out_without_reading_them_every_pass"
+ },
+ {
+  "id": "connected-scan-record-error-is-one-book",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                            except sqlite3.Error:\n                                self.cache.pop(relative, None)",
+  "new": "                            except sqlite3.Warning:\n                                self.cache.pop(relative, None)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_book_whose_record_cannot_be_written_is_tried_again_next_pass"
+ },
+ {
+  "id": "connected-register-describes-after-commit",
+  "source": "comic_archive/connected/files.py",
+  "old": "                self.db.execute(\"COMMIT\")\n            except BaseException:",
+  "new": "                self.db.execute(\"COMMIT\")\n                self.describe(book_id, version)\n            except BaseException:",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_book_replaced_just_after_its_record_is_an_ordinary_refusal"
+ },
+ {
+  "id": "connected-watcher-retries-a-failed-pass",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                    failures += 1\n                    if failures > PASS_RETRIES:",
+  "new": "                    failures += 1\n                    if failures > 0:",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_pass_the_disk_could_not_finish_is_tried_again_a_few_times"
+ },
+ {
+  "id": "connected-watcher-gives-up-after-retries",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                    if failures > PASS_RETRIES:\n                        raise",
+  "new": "                    if failures > PASS_RETRIES:\n                        pass",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_pass_that_keeps_failing_ends_the_watcher"
+ },
+ {
+  "id": "connected-watcher-limit-said-once",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                notice()\n                notice = None",
+  "new": "                notice()",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_library_too_large_to_list_is_said_once_while_serving"
  }
 ]

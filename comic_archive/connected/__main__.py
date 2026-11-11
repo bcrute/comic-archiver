@@ -315,7 +315,8 @@ async def serve(args):
                 asyncio.create_task(reviews(controller)),
             }
         if watcher is not None:
-            tasks.add(asyncio.create_task(watcher.monitor()))
+            # Said once, while what was listed goes on being served.
+            tasks.add(asyncio.create_task(watcher.monitor(lambda: emit(dict(status="catalog_limited")))))
         waiter = asyncio.create_task(stopping.wait())
         tasks.add(waiter)
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

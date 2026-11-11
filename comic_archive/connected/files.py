@@ -641,10 +641,11 @@ class Index:
                     )
                 source.current()
                 self.db.execute("COMMIT")
-                return self.describe(book_id, version)
             except BaseException:
                 self.db.execute("ROLLBACK")
                 raise
+            # After the transaction: a book replaced just now is an ordinary refusal, with nothing to roll back.
+            return self.describe(book_id, version)
         finally:
             source.close()
 
