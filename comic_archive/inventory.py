@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 import math
+import os
 import re
 import secrets
 import sqlite3
@@ -61,6 +62,19 @@ def failing(row):
 def file_signature(path):
     a, b = path.stat(), sidecar_path(path).stat()
     return json.dumps([a.st_size, a.st_mtime_ns, b.st_size, b.st_mtime_ns])
+
+
+# Whose a saved episode is, as its record says, kept while the record's files stay exactly as they were read. The
+# downloader checks the whole library before every step, and reading every record again each time, more than once,
+# was the largest fixed cost of a step in a large library. A record that could not be read is never kept.
+IDENTITY_KEYS = ('source', 'source_episode_id', 'source_series_id', 'series_id', 'format')
+IDENTITIES_KEPT = 200_000
+_identities = {}
+
+
+def _stamp(path):
+    value = os.lstat(path)  # A link put in a record's place is another file, and is read, and refused, as one.
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
 
 class Inventory:
@@ -432,6 +446,23 @@ class Inventory:
         from .publication import import_metadata
         return import_metadata(sidecar_path(path))
 
+    def archive_identity(self, path):
+        """The parts of archive_metadata that say whose a saved episode is and what kind of file it is: read again
+        only when the record, or the private file it was checked against, is not the file it was."""
+        from .publication import import_record
+        sidecar = sidecar_path(path)
+        key, stamp = str(sidecar), _stamp(sidecar)
+        kept = _identities.get(key)
+        if kept is not None and kept[0] == stamp and (kept[1] is None or _stamp(kept[1]) == kept[2]):
+            return kept[3]
+        _identities.pop(key, None)
+        metadata, private = import_record(sidecar)
+        identity = {name: metadata[name] for name in IDENTITY_KEYS if name in metadata}
+        if len(_identities) >= IDENTITIES_KEPT:
+            _identities.clear()
+        _identities[key] = (stamp, private, None if private is None else _stamp(private), identity)
+        return identity
+
     @staticmethod
     def archive_matches_row(metadata,row):
         return (metadata.get('source') in sites.KEYS and metadata.get('source_episode_id')==row['id']
@@ -452,7 +483,7 @@ class Inventory:
                 self.mark(row["id"], "queued", "archive_missing")
                 continue
             try:
-                metadata=self.archive_metadata(path)
+                metadata=self.archive_identity(path)
             except (ArchiveError,OSError,ValueError,TypeError):
                 self.mark(row['id'],'queued','archive_corrupt')
                 continue
@@ -471,7 +502,7 @@ class Inventory:
             if self.portable_archive_path(path.relative_to(self.root).as_posix()) is None:
                 continue
             try:
-                meta = self.archive_metadata(path)
+                meta = self.archive_identity(path)
                 key = meta.get("source_episode_id")
                 if not observed_id(key):
                     continue
@@ -502,7 +533,7 @@ class Inventory:
             for sidecar in folder.glob('*.json'):
                 if sidecar.name == 'series.json':continue
                 try:
-                    metadata = self.archive_metadata(sidecar)
+                    metadata = self.archive_identity(sidecar)
                     from .archive import archive_from_sidecar
                     archive = archive_from_sidecar(sidecar, metadata)
                     if archive.exists():continue
@@ -517,7 +548,7 @@ class Inventory:
     def cloud_archive_matches(self, path, row):
         from .cloud import offloaded
         try:
-            return bool(offloaded(self.root, path) and self.archive_matches_row(self.archive_metadata(path), row))
+            return bool(offloaded(self.root, path) and self.archive_matches_row(self.archive_identity(path), row))
         except (OSError, ValueError, TypeError, ArchiveError):
             return False
 

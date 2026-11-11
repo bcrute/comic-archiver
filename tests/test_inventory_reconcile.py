@@ -84,6 +84,28 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(result['archived_episode_ids'],[])
 
 
+    def test_a_saved_episodes_record_is_read_once_and_again_only_when_it_changes(self):
+        from comic_archive import inventory as kept, publication
+        kept._identities.clear()
+        sidecar=self.archive.with_suffix('.json')
+        with patch.object(publication,'import_record',wraps=publication.import_record) as read:
+            with Inventory(self.root) as inventory:
+                inventory.reconcile();inventory.reconcile()
+                self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
+            self.assertEqual(read.call_count,1)  # Not once for each pass over the library, nor once a step.
+            metadata=json.loads(sidecar.read_text());metadata['source_episode_id']='999'
+            sidecar.write_text(json.dumps(metadata))
+            with Inventory(self.root) as inventory:
+                inventory.reconcile()
+                row=inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='81'").fetchone()
+                self.assertEqual(tuple(row),('queued','archive_identity_mismatch'))
+            self.assertEqual(read.call_count,2)
+            # A record that cannot be read is never remembered: it is read again each time.
+            sidecar.write_text('[]')
+            for count in (3,4):
+                with Inventory(self.root) as inventory:inventory.reconcile()
+                self.assertEqual(read.call_count,count)
+
     def test_symlinked_archives_are_never_adopted_or_kept_as_saved(self):
         outside=self.root.parent/'outside';outside.mkdir()
         sidecar=self.archive.with_suffix('.json')

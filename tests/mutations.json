@@ -8230,5 +8230,29 @@
   "new": "        if False:\n            self.pages.tick()",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_replaces_the_starting_notice_and_reads_and_redraws_the_library_on_its_clocks"
+ },
+ {
+  "id": "saved-record-changed-but-remembered",
+  "source": "comic_archive/inventory.py",
+  "old": "if kept is not None and kept[0] == stamp and (",
+  "new": "if kept is not None and (",
+  "test_file": "test_inventory_reconcile.py",
+  "test": "test_a_saved_episodes_record_is_read_once_and_again_only_when_it_changes"
+ },
+ {
+  "id": "saved-record-read-every-time",
+  "source": "comic_archive/inventory.py",
+  "old": "        _identities[key] = (stamp, private,",
+  "new": "        _identities['-'] = (stamp, private,",
+  "test_file": "test_inventory_reconcile.py",
+  "test": "test_a_saved_episodes_record_is_read_once_and_again_only_when_it_changes"
+ },
+ {
+  "id": "saved-record-private-change-unseen",
+  "source": "comic_archive/inventory.py",
+  "old": "(kept[1] is None or _stamp(kept[1]) == kept[2]):",
+  "new": "True:",
+  "test_file": "test_publication.py",
+  "test": "test_a_record_read_before_is_read_again_when_the_private_record_it_was_checked_against_changes"
  }
 ]

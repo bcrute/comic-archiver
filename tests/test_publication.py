@@ -181,6 +181,27 @@ class PublicationTests(unittest.TestCase):
                 tar.addfile(member,io.BytesIO(png(1)) if member.size else None)
             self.assertTrue(verify_episode_contents(io.BytesIO(zstandard.ZstdCompressor().compress(raw.getvalue())),meta))
 
+    def test_a_record_read_before_is_read_again_when_the_private_record_it_was_checked_against_changes(self):
+        from comic_archive import inventory as kept
+        with Inventory(self.root) as inventory:
+            inventory.observe('42','Series',[{'id':'81','title':'E','order':1,'access_state':'tapas_free'}],'fixture')
+        with patch('builtins.print'):
+            archive_discovered(AccountAdapter(),self.root)
+        kept._identities.clear()
+        private=next(path for path in (self.root/'.archive-state/provenance').glob('*.json')
+                     if not json.loads(path.read_text())['sidecar'].endswith('series.json'))
+        held=private.with_suffix('.held')
+        with Inventory(self.root) as inventory:
+            inventory.reconcile()
+            self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
+            private.rename(held)
+            inventory.reconcile()
+            row=inventory.db.execute("SELECT status,error_code FROM episodes WHERE id='81'").fetchone()
+            self.assertEqual(tuple(row),('queued','archive_corrupt'))
+            held.rename(private)
+            inventory.reconcile()
+            self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
+
     def test_production_job_reconciles_private_identity_without_downloads_on_resume(self):
         with Inventory(self.root) as inventory:
             inventory.observe('42','Series',[{'id':'81','title':'E','order':1,'access_state':'tapas_free'}],'fixture')

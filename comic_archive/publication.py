@@ -74,12 +74,17 @@ def provenance_record(root, sidecar, value, metadata):
 
 def import_metadata(sidecar):
     """Recover source identity only from the matching private provenance record."""
+    return import_record(sidecar)[0]
+
+
+def import_record(sidecar):
+    """import_metadata's answer, and the private provenance file it was read from (None for an older record)."""
     sidecar = Path(sidecar)
     if any(p.is_symlink() for p in (sidecar, *sidecar.parents)) or sidecar.stat().st_size > 16*1024*1024:
         raise ValueError('Unsafe metadata')
     value = json.loads(sidecar.read_text())
     if not isinstance(value, dict): raise ValueError('Invalid metadata')
-    if value.get('schema_version') != 2: return value
+    if value.get('schema_version') != 2: return value, None
     validate_public_metadata(value,series=sidecar.name=='series.json')
     export_id = value.get('export_id')
     if not valid_export_id(export_id): raise ValueError('Invalid export identity')
@@ -98,7 +103,7 @@ def import_metadata(sidecar):
     metadata = record['metadata']
     if public_metadata(metadata, export_id, series=sidecar.name == 'series.json') != value:
         raise ValueError('Export metadata differs from private provenance')
-    return metadata
+    return metadata, private
 
 
 class StrictZstdReader:
