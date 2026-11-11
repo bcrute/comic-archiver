@@ -119,3 +119,62 @@ class ConnectedServiceRefusalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, "resource_limit")
         self.assertTrue(self.owner._live(self.draft))
         self.assertEqual(self.owner._record(self.draft.pairing_id)["status"], "pending")
+
+    def answer(self, status, value, date=None):
+        import json
+        from email.utils import formatdate
+
+        body = json.dumps(value).encode()
+        head = "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n" % (status, len(body))
+        if date is not None:
+            head += "Date: " + formatdate(date, usegmt=True) + "\r\n"
+        return (head + "\r\n").encode() + body
+
+    def registered(self, expires_at):
+        return dict(pairing_id=self.draft.pairing_id, host_device_id=self.owner.state.identity.device_id,
+                    session_id=self.draft.session_id, challenge=self.draft.challenge, status="pending",
+                    generation=0, expires_at=expires_at)
+
+    async def test_a_failing_service_is_unavailable_and_only_a_refusal_is_a_fault(self):
+        for status, code in (("500 Failed", "connection_unavailable"), ("502 Bad Gateway", "connection_unavailable"),
+                             ("400 Bad Request", "integrity_failed"), ("429 Busy", "busy")):
+            service = HostService(self.owner, await self.refusing_origin(lambda _raw, status=status: self.answer(status, {})))
+            self.services.append(service)
+            with self.assertRaises(SourceError) as caught:
+                await service.register(self.draft)
+            self.assertEqual(caught.exception.code, code, status)
+        self.assertTrue(self.owner._live(self.draft))
+
+    async def test_a_time_refused_because_this_clock_is_wrong_says_so(self):
+        import time
+
+        now = time.time()
+        ahead = int((now + 3600 + 300) * 1000)  # What a service an hour ahead of this clock would give.
+        for date, code in ((now + 3600, "clock_skew"), (now - 3600, "clock_skew"), (now, "integrity_failed"),
+                           (None, "integrity_failed")):
+            service = HostService(self.owner, await self.refusing_origin(
+                lambda _raw, date=date: self.answer("200 OK", self.registered(ahead), date)))
+            self.services.append(service)
+            with self.assertRaises(SourceError) as caught:
+                await service.register(self.draft)
+            self.assertEqual(caught.exception.code, code, date)
+        # A good time is accepted whatever the header says: the clock is only looked at to explain a refusal.
+        service = HostService(self.owner, await self.refusing_origin(
+            lambda _raw: self.answer("200 OK", self.registered(int((time.time() + 290) * 1000)), now + 3600)))
+        self.services.append(service)
+        self.assertEqual((await service.register(self.draft))["status"], "pending")
+
+    async def test_a_call_waits_out_a_slow_one_instead_of_being_told_busy(self):
+        from comic_archive.connected import service as module
+
+        service = HostService(self.owner, await self.refusing_origin(lambda _raw: self.answer("404 Gone", {})))
+        self.services.append(service)
+        self.assertGreater(module.LOCK_SECONDS, module.REQUEST_SECONDS)
+        await service._lock.acquire()  # A call still out.
+        waiting = asyncio.create_task(service._request("GET", module.PREFIX + "/pairings/synthetic", "proof"))
+        await asyncio.sleep(2.3)
+        self.assertFalse(waiting.done())
+        service._lock.release()
+        with self.assertRaises(SourceError) as caught:
+            await asyncio.wait_for(waiting, 5)
+        self.assertEqual(caught.exception.code, "not_found")

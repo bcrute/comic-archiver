@@ -5,6 +5,7 @@ No transport injection, automatic retry/redirect, cookie persistence or logging.
 """
 
 import asyncio
+from email.utils import parsedate_to_datetime
 import re
 
 import httpx
@@ -17,6 +18,11 @@ from .signaling import _bundle
 from .wire import _id
 
 PREFIX = "/api/connected-library/v1"
+REQUEST_SECONDS = 8
+# One call at a time; the next waits out a slow one instead of being told the host is busy.
+LOCK_SECONDS = REQUEST_SECONDS + 2
+# How far this computer's clock may be from the service's before a refused time is put down to the clock.
+CLOCK_SECONDS = 5
 
 
 def _same_status(value, pairing_id):
@@ -79,6 +85,7 @@ class HostService:
             )
         self._preview, self._closed, self._lock = preview_token, False, asyncio.Lock()
         self._closing = None
+        self._served = None  # When the service says it answered last, from its Date header.
         # A private, ordinary maintained client; no downloader/site transport,
         # environment proxy, auth jar, provider/browser worker or injected fake.
         self._client = httpx.AsyncClient(
@@ -101,7 +108,7 @@ class HostService:
             and "#" not in path
         )
         try:
-            await asyncio.wait_for(self._lock.acquire(), 2)
+            await asyncio.wait_for(self._lock.acquire(), LOCK_SECONDS)
         except TimeoutError:
             raise SourceError("busy") from None
         try:
@@ -122,6 +129,10 @@ class HostService:
                     require(
                         not response.headers.get_list("set-cookie"), "integrity_failed"
                     )
+                    try:
+                        self._served = parsedate_to_datetime(response.headers["date"]).timestamp()
+                    except (KeyError, TypeError, ValueError, OverflowError):
+                        self._served = None
                     require(
                         response.headers.get("content-encoding", "identity")
                         == "identity",
@@ -151,13 +162,18 @@ class HostService:
                             429: "busy",
                             503: "connection_unavailable",
                         }
+                        # The service failing (5xx) is not this pairing being wrong.
                         raise SourceError(
-                            codes.get(response.status_code, "integrity_failed")
+                            codes.get(
+                                response.status_code,
+                                "connection_unavailable" if response.status_code >= 500 else "integrity_failed",
+                            )
                         )
                     require(isinstance(value, dict))
                     return value
 
-            value = await asyncio.wait_for(receive(), 8)
+            self._served = None
+            value = await asyncio.wait_for(receive(), REQUEST_SECONDS)
             self.current()
             return value
         except (httpx.HTTPError, TimeoutError, UnicodeError):
@@ -165,6 +181,17 @@ class HostService:
         finally:
             self._client.cookies.clear()
             self._lock.release()
+
+    def _timely(self, expires_at, lifetime_ms):
+        """Whether a time the service gave lies within its lifetime from now; a wrong clock here is said as such."""
+        now = int(self.owner.wall() * 1000)
+        if type(expires_at) is int and not now < expires_at <= now + lifetime_ms:
+            served = self._served
+            require(
+                served is None or abs(served - self.owner.wall()) <= CLOCK_SECONDS,
+                "clock_skew",
+            )
+        return type(expires_at) is int and now < expires_at <= now + lifetime_ms
 
     async def register(self, draft):
         self.current()
@@ -189,10 +216,7 @@ class HostService:
             and value["status"] in {"pending", "claimed"}
             and type(value["generation"]) is int
             and value["generation"] == 0
-            and type(value["expires_at"]) is int
-            and int(self.owner.wall() * 1000)
-            < value["expires_at"]
-            <= int(self.owner.wall() * 1000) + 305000
+            and self._timely(value["expires_at"], 305000)
         )
         return value
 
@@ -239,10 +263,7 @@ class HostService:
             and value["shares"] == before["shares"]
             and isinstance(value["host_token"], str)
             and re.fullmatch(r"[0-9a-f]{64}", value["host_token"])
-            and type(value["token_expires_at"]) is int
-            and int(self.owner.wall() * 1000)
-            < value["token_expires_at"]
-            <= int(self.owner.wall() * 1000) + 2592005000
+            and self._timely(value["token_expires_at"], 2592005000)
         )
         # DATA over an actual authenticated HTTP exchange. Only the real WSS
         # admission factory consumes this token; it grants no web/file session.

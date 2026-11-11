@@ -8654,5 +8654,53 @@
   "new": "                os.isatty(own) and os.fstat(own).st_rdev != os.fstat(fd).st_rdev,",
   "test_file": "test_connected_terminal.py",
   "test": "test_actual_terminal_input_and_descriptor_retirement_preserve_original_mode"
+ },
+ {
+  "id": "connected-service-5xx-is-unavailable",
+  "source": "comic_archive/connected/service.py",
+  "old": "\"connection_unavailable\" if response.status_code >= 500 else \"integrity_failed\",",
+  "new": "\"integrity_failed\",",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_failing_service_is_unavailable_and_only_a_refusal_is_a_fault"
+ },
+ {
+  "id": "connected-service-4xx-still-a-fault",
+  "source": "comic_archive/connected/service.py",
+  "old": "\"connection_unavailable\" if response.status_code >= 500 else \"integrity_failed\",",
+  "new": "\"connection_unavailable\",",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_failing_service_is_unavailable_and_only_a_refusal_is_a_fault"
+ },
+ {
+  "id": "connected-service-clock-explains-refused-time",
+  "source": "comic_archive/connected/service.py",
+  "old": "                served is None or abs(served - self.owner.wall()) <= CLOCK_SECONDS,",
+  "new": "                True,",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_time_refused_because_this_clock_is_wrong_says_so"
+ },
+ {
+  "id": "connected-service-clock-only-explains",
+  "source": "comic_archive/connected/service.py",
+  "old": "        if type(expires_at) is int and not now < expires_at <= now + lifetime_ms:\n            served",
+  "new": "        if True:\n            served",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_time_refused_because_this_clock_is_wrong_says_so"
+ },
+ {
+  "id": "connected-service-date-forgotten-between-calls",
+  "source": "comic_archive/connected/service.py",
+  "old": "                    except (KeyError, TypeError, ValueError, OverflowError):\n                        self._served = None",
+  "new": "                    except (KeyError, TypeError, ValueError, OverflowError):\n                        self._served = 0",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_time_refused_because_this_clock_is_wrong_says_so"
+ },
+ {
+  "id": "connected-service-waits-out-a-slow-call",
+  "source": "comic_archive/connected/service.py",
+  "old": "            await asyncio.wait_for(self._lock.acquire(), LOCK_SECONDS)",
+  "new": "            await asyncio.wait_for(self._lock.acquire(), 2)",
+  "test_file": "test_connected_service.py",
+  "test": "test_a_call_waits_out_a_slow_one_instead_of_being_told_busy"
  }
 ]
