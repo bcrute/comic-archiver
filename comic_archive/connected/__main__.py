@@ -156,6 +156,8 @@ async def reviews(controller):
 
 
 async def console(driver, terminal, shutdown):
+    from websockets.exceptions import WebSocketException
+
     from .files import SourceError
     from .jsoncodec import require
 
@@ -181,9 +183,10 @@ async def console(driver, terminal, shutdown):
         try:
             line = await terminal.readline()
         except SourceError as error:
-            if error.code != "busy":
+            if error.code not in ("busy", "invalid_command"):
                 raise
-            emit(dict(error="busy"))  # Lines typed ahead were dropped, not run.
+            # Lines typed ahead were dropped, not run; a line that was no command was refused.
+            emit(dict(error=error.code))
             continue
         if line is None:
             shutdown.set()
@@ -240,6 +243,9 @@ async def console(driver, terminal, shutdown):
             emit(dict(error=error.code))
         except (KeyError, ValueError):
             emit(dict(error="invalid_command"))
+        except (OSError, asyncio.TimeoutError, WebSocketException):
+            # The network failed under one command; the host and its other pairings go on.
+            emit(dict(error="connection_unavailable"))
 
 
 async def serve(args):

@@ -8478,5 +8478,77 @@
   "new": "                notice()",
   "test_file": "test_connected_discovery.py",
   "test": "test_a_library_too_large_to_list_is_said_once_while_serving"
+ },
+ {
+  "id": "connected-terminal-bad-text-refused-alone",
+  "source": "comic_archive/connected/terminal.py",
+  "old": "                    except UnicodeDecodeError:\n                        line = SourceError(\"invalid_command\")",
+  "new": "                    except UnicodeDecodeError:\n                        raise",
+  "test_file": "test_connected_terminal.py",
+  "test": "test_a_line_that_is_not_text_or_is_too_long_is_refused_alone_and_input_goes_on"
+ },
+ {
+  "id": "connected-terminal-long-line-refused-whole",
+  "source": "comic_archive/connected/terminal.py",
+  "old": "                    self._buffer.clear()\n                    self._skip = True",
+  "new": "                    self._buffer.clear()",
+  "test_file": "test_connected_terminal.py",
+  "test": "test_a_line_that_is_not_text_or_is_too_long_is_refused_alone_and_input_goes_on"
+ },
+ {
+  "id": "connected-terminal-skip-ends-with-its-line",
+  "source": "comic_archive/connected/terminal.py",
+  "old": "                    self._skip = False\n                    self._buffer.clear()",
+  "new": "                    self._buffer.clear()",
+  "test_file": "test_connected_terminal.py",
+  "test": "test_a_line_that_is_not_text_or_is_too_long_is_refused_alone_and_input_goes_on"
+ },
+ {
+  "id": "connected-console-network-failure-reported",
+  "source": "comic_archive/connected/__main__.py",
+  "old": "        except (OSError, asyncio.TimeoutError, WebSocketException):",
+  "new": "        except (OSError, asyncio.TimeoutError):",
+  "test_file": "test_connected_console.py",
+  "test": "test_a_network_failure_under_one_command_is_reported_and_the_console_goes_on"
+ },
+ {
+  "id": "connected-console-refused-line-goes-on",
+  "source": "comic_archive/connected/__main__.py",
+  "old": "            if error.code not in (\"busy\", \"invalid_command\"):",
+  "new": "            if error.code not in (\"busy\",):",
+  "test_file": "test_connected_console.py",
+  "test": "test_a_refused_line_is_reported_and_the_console_goes_on"
+ },
+ {
+  "id": "connected-console-ended-input-still-ends",
+  "source": "comic_archive/connected/__main__.py",
+  "old": "            if error.code not in (\"busy\", \"invalid_command\"):\n                raise",
+  "new": "            if error.code not in (\"busy\", \"invalid_command\"):\n                return",
+  "test_file": "test_connected_console.py",
+  "test": "test_input_that_has_ended_in_an_error_still_ends_the_console"
+ },
+ {
+  "id": "connected-rendezvous-connect-failure-normalized",
+  "source": "comic_archive/connected/rendezvous.py",
+  "old": "            return await PinnedConnect(url, **options)\n        except NETWORK:\n            raise SourceError(\"connection_unavailable\") from None",
+  "new": "            return await PinnedConnect(url, **options)\n        except NETWORK:\n            raise",
+  "test_file": "test_connected_console.py",
+  "test": "test_a_connection_that_cannot_be_made_is_the_connection_being_unavailable"
+ },
+ {
+  "id": "connected-rendezvous-network-covers-handshake",
+  "source": "comic_archive/connected/rendezvous.py",
+  "old": "NETWORK = (OSError, asyncio.TimeoutError, WebSocketException)",
+  "new": "NETWORK = (OSError, asyncio.TimeoutError)",
+  "test_file": "test_connected_console.py",
+  "test": "test_a_connection_that_cannot_be_made_is_the_connection_being_unavailable"
+ },
+ {
+  "id": "connected-rendezvous-send-failure-normalized",
+  "source": "comic_archive/connected/rendezvous.py",
+  "old": "                if isinstance(error, NETWORK):\n                    raise SourceError(\"connection_unavailable\") from None",
+  "new": "                if False:\n                    raise SourceError(\"connection_unavailable\") from None",
+  "test_file": "test_connected_console.py",
+  "test": "test_a_send_the_network_fails_closes_the_connection_and_says_unavailable"
  }
 ]

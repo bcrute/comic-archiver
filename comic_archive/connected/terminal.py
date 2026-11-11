@@ -17,6 +17,7 @@ class TerminalInput:
         self._loop = asyncio.get_running_loop()
         self._lines, self._buffer = asyncio.Queue(maxsize=4), bytearray()
         self._ended = False
+        self._skip = False  # Inside a line already too long to be a command.
 
     @classmethod
     def open(cls, fd):
@@ -59,7 +60,16 @@ class TerminalInput:
                 return
             for byte in value:
                 if byte == 10:
-                    line = bytes(self._buffer).decode("utf-8")
+                    # A line that is too long or is not text is refused by itself; input keeps going.
+                    try:
+                        line = (
+                            SourceError("invalid_command")
+                            if self._skip
+                            else bytes(self._buffer).decode("utf-8")
+                        )
+                    except UnicodeDecodeError:
+                        line = SourceError("invalid_command")
+                    self._skip = False
                     self._buffer.clear()
                     if self._lines.full():
                         # Typed ahead of a busy command: drop it all rather than
@@ -69,8 +79,10 @@ class TerminalInput:
                         self._lines.put_nowait(SourceError("busy"))
                     else:
                         self._lines.put_nowait(line)
-                else:
-                    require(len(self._buffer) < 4096, "resource_limit")
+                elif len(self._buffer) >= 4096:
+                    self._buffer.clear()
+                    self._skip = True
+                elif not self._skip:
                     self._buffer.append(byte)
         except BlockingIOError:
             return

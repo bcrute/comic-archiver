@@ -13,6 +13,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import WebSocketException
 from websockets.protocol import State
 
 from .files import SourceError
@@ -30,6 +31,10 @@ class PinnedConnect(connect):
 
     def process_redirect(self, exc):
         return exc
+
+
+# What a failed or closed connection raises: reported as the connection, never as a broken host.
+NETWORK = (OSError, asyncio.TimeoutError, WebSocketException)
 
 
 class UnclosedSocket(SourceError):
@@ -84,7 +89,7 @@ class HostRendezvous:
         )
         # Explicit proxy/compression/ping policy; app heartbeats are serialized
         # with normal traffic, never an invisible extra background owner.
-        socket = await PinnedConnect(
+        socket = await cls._connect(
             url,
             additional_headers=headers,
             subprotocols=["cl1.signal.v1"],
@@ -101,7 +106,11 @@ class HostRendezvous:
         )
         try:
             require(socket.subprotocol == "cl1.signal.v1")
-            ready = loads(await asyncio.wait_for(socket.recv(), 5), 1024)
+            try:
+                first = await asyncio.wait_for(socket.recv(), 5)
+            except NETWORK:
+                raise SourceError("connection_unavailable") from None
+            ready = loads(first, 1024)
             require(
                 set(ready) == {"v", "type", "connection_id", "pending"}
                 and ready["v"] == 1
@@ -120,6 +129,13 @@ class HostRendezvous:
             except BaseException:
                 raise UnclosedSocket(_CREATE, socket) from None
             raise
+
+    @staticmethod
+    async def _connect(url, **options):
+        try:
+            return await PinnedConnect(url, **options)
+        except NETWORK:
+            raise SourceError("connection_unavailable") from None
 
     def _current(self):
         require(not self._closed and self._socket.state is State.OPEN, "cancelled")
@@ -175,9 +191,11 @@ class HostRendezvous:
             try:
                 await asyncio.wait_for(self._socket.send(dumps(value, FRAME)), 1)
                 self._current()
-            except BaseException:
+            except BaseException as error:
                 self._service_deadline = 0
                 await self.close()
+                if isinstance(error, NETWORK):
+                    raise SourceError("connection_unavailable") from None
                 raise
 
     @property

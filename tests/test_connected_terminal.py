@@ -63,3 +63,30 @@ class ConnectedTerminalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(terminal.fd)
         os.write(master, b"status\n")
         self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "status")
+
+    async def test_a_line_that_is_not_text_or_is_too_long_is_refused_alone_and_input_goes_on(self):
+        import tty
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        tty.setraw(slave)  # A terminal that hands lines over uncut and unedited.
+        terminal = TerminalInput.open(slave)
+        self.addCleanup(terminal.close)
+        os.write(master, b"\xff\xfe\n")
+        with self.assertRaises(SourceError) as caught:
+            await asyncio.wait_for(terminal.readline(), 1)
+        self.assertEqual(caught.exception.code, "invalid_command")
+        for _ in range(5):
+            os.write(master, b"a" * 1000)
+            await asyncio.sleep(0.05)
+        os.write(master, b"\n")
+        with self.assertRaises(SourceError) as caught:
+            await asyncio.wait_for(terminal.readline(), 1)
+        self.assertEqual(caught.exception.code, "invalid_command")
+        self.assertIsNotNone(terminal.fd)
+        for _ in range(4):
+            os.write(master, b"a" * 1024)
+            await asyncio.sleep(0.05)
+        os.write(master, b"\nstatus\n")
+        self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "a" * 4096)
+        self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "status")
