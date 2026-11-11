@@ -19,7 +19,7 @@ from comic_archive import cloud
 from comic_archive.cloud import Transfer as RealTransfer
 from comic_archive.archive import episode_archives, digest
 from comic_archive.cloud_errors import CloudTransferError, safe_code
-from comic_archive.cloud_stream import PipeUpload, StreamingEpisode, _stage, cleanup_stage, held_cutoff, promote_stream
+from comic_archive.cloud_stream import PipeUpload, StreamingEpisode, _stage, cleanup_stage, held_cutoff, promote_stream, whole_cutoff
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.errors import RunLimit
 from comic_archive.network import NetworkPolicyHold
@@ -221,6 +221,7 @@ class CloudStreamTests(unittest.TestCase):
             self.assertEqual(arguments[arguments.index(flag) + 1], value)
         self.assertIn('--b2-hard-delete', arguments)
         self.assertNotIn('--size', arguments)
+        self.assertNotIn('--b2-upload-cutoff', arguments)  # Only a held file is sent whole.
         self.assertTrue(transfer.guard.check.called)
 
     def test_policy_switch_stops_pipe_and_retains_source_recovery(self):
@@ -930,4 +931,8 @@ class B2DirectTests(unittest.TestCase):
         self.assertEqual((self.base/'received').read_bytes(), data)
         arguments = json.loads((self.base/'received.args').read_text())
         self.assertEqual(arguments[arguments.index('--streaming-upload-cutoff') + 1], held_cutoff(len(data)))
+        self.assertEqual(arguments[arguments.index('--b2-upload-cutoff') + 1], '200Mi')
+        # A held file above rclone's own limit for one call still goes whole, so B2 checks its SHA-1.
+        self.assertEqual([whole_cutoff(size) for size in (0, 200 * 1024**2 - 1, 200 * 1024**2, 256 * 1024**2)],
+                         ['200Mi', '200Mi', '201Mi', '257Mi'])
         self.assertEqual(arguments[-2:], ['rcat', 'b2:Comic-Archive/test/episode.cbz'])

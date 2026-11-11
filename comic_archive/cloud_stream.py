@@ -28,6 +28,15 @@ def held_cutoff(size):
     return f'{size // 1024**2 + 1}Mi'
 
 
+def whole_cutoff(size):
+    """The --b2-upload-cutoff that sends a held file of this size in one call.
+
+    rclone sends a file above its cutoff (200 MiB unless told otherwise) in parts, and B2
+    checks a SHA-1 on arrival only for a file sent whole.
+    """
+    return f'{max(200, size // 1024**2 + 1)}Mi'
+
+
 class PipeUpload:
     """A bounded pipe, a small provider buffer, and a monitored owned child.
 
@@ -49,6 +58,7 @@ class PipeUpload:
                 '--streaming-upload-cutoff', '256Ki' if size is None else held_cutoff(size),
                 *(['--b2-chunk-size', '5Mi', '--b2-upload-concurrency', '1', '--b2-hard-delete']
                   if transfer.provider == 'b2' else []),
+                *(['--b2-upload-cutoff', whole_cutoff(size)] if transfer.provider == 'b2' and size is not None else []),
                 'rcat', transfer.remote(remote_path)], stdin=subprocess.PIPE,
                 stdout=self.logs[0], stderr=self.logs[1], env=_environment(), **hidden())
             os.set_blocking(self.process.stdin.fileno(), False)

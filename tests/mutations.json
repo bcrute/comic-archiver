@@ -8382,5 +8382,21 @@
   "new": "                elif 400 <= response.status_code < 600:",
   "test_file": "test_b2_cleanup.py",
   "test": "test_a_removal_the_service_fails_stops_the_cleanup"
+ },
+ {
+  "id": "held-upload-sent-whole-above-rclone-cutoff",
+  "source": "comic_archive/cloud_stream.py",
+  "old": "    return f'{max(200, size // 1024**2 + 1)}Mi'",
+  "new": "    return '200Mi'",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_known_size_pipe_lets_rclone_hold_the_whole_file_for_its_sha1"
+ },
+ {
+  "id": "held-upload-passes-b2-cutoff",
+  "source": "comic_archive/cloud_stream.py",
+  "old": "if transfer.provider == 'b2' and size is not None else []),",
+  "new": "if False else []),",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_known_size_pipe_lets_rclone_hold_the_whole_file_for_its_sha1"
  }
 ]
