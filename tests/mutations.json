@@ -8054,5 +8054,37 @@
   "new": "else ''))",
   "test_file": "test_support_log.py",
   "test": "test_one_file_holds_it_all_named_for_when_it_was_saved_and_never_too_large"
+ },
+ {
+  "id": "launch-message-in-pieces-is-lost",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            held.extend(bytes(socket.readAll().data()))",
+  "new": "            held[:] = bytes(socket.readAll().data())",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard"
+ },
+ {
+  "id": "launch-messages-together-heard-once",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            while b'\\n' in held:",
+  "new": "            if b'\\n' in held:",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard"
+ },
+ {
+  "id": "launch-message-rest-forgotten",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                held[:] = rest\n",
+  "new": "                held[:] = b''\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard"
+ },
+ {
+  "id": "launch-noise-kept-forever",
+  "source": "comic_archive/desktop_app.py",
+  "old": "                held.clear()  # Not one of ours, and never kept growing.",
+  "new": "                pass",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard"
  }
 ]

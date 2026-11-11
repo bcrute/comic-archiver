@@ -40,6 +40,7 @@ WINDOWS_APP_ID = 'ComicArchiver.Desktop'
 RAISE = b'raise\n'
 # A new version's Windows setup asks the open window to close, and hears that it is closing.
 CLOSE, CLOSING = b'close\n', b'closing\n'
+MESSAGE_BYTES = 64  # More than any message between launches.
 ENDING_SIGNALS = tuple(getattr(signal, name) for name in ('SIGTERM', 'SIGHUP') if hasattr(signal, name))
 SELF_TEST_SECONDS = 60
 SELF_TEST_COOKIE = 'comic_archive_self_test'
@@ -631,14 +632,22 @@ class Shell:
         if socket is None:
             return
 
+        held = bytearray()  # A message can arrive in pieces: each is a line, acted on when its end comes.
+
         def read():
-            message = bytes(socket.readAll().data())
-            if raise_requested(message):
-                self.come_forward()
-            elif message == CLOSE:
-                socket.write(CLOSING)
-                socket.flush()
-                self.close_for_update()
+            held.extend(bytes(socket.readAll().data()))
+            while b'\n' in held:
+                line, _, rest = bytes(held).partition(b'\n')
+                held[:] = rest
+                message = line + b'\n'
+                if raise_requested(message):
+                    self.come_forward()
+                elif message == CLOSE:
+                    socket.write(CLOSING)
+                    socket.flush()
+                    self.close_for_update()
+            if len(held) > MESSAGE_BYTES:
+                held.clear()  # Not one of ours, and never kept growing.
         socket.readyRead.connect(read)
         socket.disconnected.connect(socket.deleteLater)
         if socket.bytesAvailable():

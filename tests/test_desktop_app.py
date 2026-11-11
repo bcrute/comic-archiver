@@ -1800,6 +1800,32 @@ class DesktopAppTests(unittest.TestCase):
         emit(self.core.QTimer.made[-1].timeout)
         shell.app.quit.assert_called_once_with()
 
+    def test_a_message_from_another_launch_that_arrives_in_pieces_is_still_heard(self):
+        shell = self.opened()
+        shell.listen('comic-archive-test')
+        shell.window.isMinimized.return_value = False
+        socket = Mock(); socket.bytesAvailable.return_value = 0
+        shell.channel.nextPendingConnection.return_value = socket
+        emit(shell.channel.newConnection)
+
+        def arrive(*pieces):
+            shell.window.raise_.reset_mock()
+            for piece in pieces:
+                socket.readAll.return_value.data.return_value = piece
+                emit(socket.readyRead)
+            return shell.window.raise_.call_count
+        self.assertEqual(arrive(b'rai'), 0)
+        self.assertEqual(arrive(b'se\n'), 1)
+        self.assertEqual(arrive(b'raise\nraise\nrai', b'se\n'), 3)
+        self.assertEqual(arrive(b'raise', b'raise\n', b'raise\n'), 1)  # Only a whole line that is the message.
+        # Anything long with no end is not from the app: it is dropped, and the next message is still heard.
+        self.assertEqual(arrive(b'x' * 65, b'raise\n'), 1)
+        self.assertEqual(arrive(b'x' * 64, b'\nraise\n'), 1)
+        shell.close_for_update = Mock()
+        arrive(b'clo', b'se\n')
+        socket.write.assert_called_once_with(b'closing\n')
+        shell.close_for_update.assert_called_once_with()
+
     def test_a_new_versions_setup_has_the_open_window_close_without_asking_as_ending_it_from_outside_does(self):
         shell = self.opened(); shell.load()
         shell.listen('comic-archive-test')
