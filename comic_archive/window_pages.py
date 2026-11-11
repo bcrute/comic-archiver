@@ -362,7 +362,7 @@ class Header:
         bar = w.QHBoxLayout(self.widget)
         bar.setContentsMargins(32, 12, 32, 12)
         bar.setSpacing(6)
-        from .window_art import brand_mark, page_corner
+        from .window_art import brand_mark
         bar.addWidget(brand_mark(kit.q))
         bar.addSpacing(6)
         # The name gives way first in a narrow window; the pages' names never do.
@@ -374,11 +374,6 @@ class Header:
         rule.setObjectName('headerRule')
         bar.addWidget(rule)
         bar.addSpacing(14)
-        # Printed paper in the corner, behind the light/dark switch.
-        self.corner = page_corner(kit.q)
-        self.corner.setParent(self.widget)
-        self.corner.lower()
-        watch_width(kit, self.widget, self._place_corner)
         self.nav = {}
         group = w.QButtonGroup(self.widget)
         group.setExclusive(True)
@@ -393,18 +388,7 @@ class Header:
         bar.addStretch(1)
         self.theme = kit.button('', pages.toggle_theme)
         self.theme.setObjectName('themeToggle')
-        # The switch is placed by hand, left of the corner's paper or at the bar's end; the bar keeps its room.
-        self.theme.setParent(self.widget)
-        bar.addSpacing(SWITCH + 8)
-
-    def _place_corner(self, width):
-        # In a narrow window the corner would lie over the pages' names, so it is left out.
-        left = width - self.corner.width()
-        self.corner.move(left, 0)
-        shown = left - SWITCH - 24 >= self.nav['settings'].geometry().right()
-        self.corner.setVisible(shown)
-        # The light/dark switch stands clear of the corner, to its left.
-        self.theme.move(left - SWITCH + 16 if shown else width - 32 - SWITCH, (self.widget.height() - SWITCH) // 2)
+        bar.addWidget(self.theme)
 
     def show(self, route, dark):
         self.nav[route.partition('/')[0]].setChecked(True)
@@ -703,11 +687,6 @@ class Dashboard:
         column = w.QVBoxLayout(content)
         column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(16)
-        # Printed paper in the page's bottom corner, under everything else and outside the layout.
-        from .window_art import page_corner
-        self.corner = page_corner(kit.q, bottom=True)
-        self.corner.setParent(content)
-        self.corner.lower()
         self.updated = kit.single_line('Checking current status…', 'muted')
         self.updated.setParent(content)
         self.updated.hide()
@@ -728,15 +707,12 @@ class Dashboard:
         estimate_note = symbol_label(kit.q, 'Estimates adjust as episodes are discovered.', 'info')
         estimate_note.setObjectName('muted')
         notes = w.QVBoxLayout()
-        self.notes = notes
         notes.setSpacing(16)
         notes.addWidget(estimate_note)
         notes.addWidget(kit.label(FOOTER, 'muted'))
         column.addLayout(notes)
         column.addStretch(1)
         self.widget = kit.scroll(content)
-        for watched in (content, self.grid_holder):
-            watch_width(kit, watched, lambda width: self._place_corner())
         self._lay_out(1)
         # The page's own width, not the cards': two cards a row can be wider than a narrowed window.
         self.margins = column.contentsMargins().left() + column.contentsMargins().right()
@@ -797,16 +773,6 @@ class Dashboard:
         self.library_summary.setVisible(False)
         box.addWidget(self.library_summary)
         return card
-
-    def _place_corner(self):
-        # In the corner when the cards leave it room; a page that has to scroll goes without.
-        page = self.corner.parentWidget()
-        top = page.height() - self.corner.height()
-        self.corner.move(page.width() - self.corner.width(), top)
-        shown = self.columns >= 2 and self.grid_holder.geometry().bottom() <= top
-        self.corner.setVisible(shown)
-        # The closing notes stop short of the paper, so they are never read over it.
-        self.notes.setContentsMargins(0, 0, self.corner.width() - 150 if shown else 0, 0)
 
     def _resized(self, width):
         available = width - self.margins

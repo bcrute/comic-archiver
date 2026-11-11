@@ -1476,47 +1476,19 @@ class NavigationTests(PagesCase):
         nav['dashboard'].click()
         self.assertEqual(self.pages.stack.currentWidget(), self.dashboard.widget)
 
-    def test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them(self):
+    def test_the_header_keeps_its_page_names_whole_in_a_narrow_window(self):
         self.open()
         header = self.pages.header
-        for width, art in ((1400, True), (640, False)):
+        for width in (1400, 640):
             self.window.resize(width, 900)
             settle()
             self.assertEqual(self.window.width(), width)
-            self.assertEqual(header.corner.isVisible(), art)
             for button in header.nav.values():
                 self.assertGreaterEqual(button.width(), button.sizeHint().width())
                 self.assertEqual(button.iconSize().width() - button.iconSize().height(), 8)
-            if art:
-                self.assertEqual(header.corner.geometry().right(), header.widget.width() - 1)
-                self.assertGreater(header.corner.x(), header.nav['settings'].geometry().right())
-                # The light/dark switch stands to the left of the art, not on it.
-                self.assertLessEqual(header.theme.geometry().right(), header.corner.x() + 20)
-            else:
-                self.assertEqual(header.theme.geometry().right(), width - 33)
+            self.assertEqual(header.theme.geometry().right(), width - 33)
             self.assertGreater(header.theme.x(), header.nav['settings'].geometry().right())
             self.assertTrue(header.theme.isVisible())
-        # The art is only looked at: a click on it reaches what is under it.
-        self.assertTrue(header.corner.testAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents))
-
-    def test_the_page_corner_art_shows_only_where_the_cards_leave_it_room(self):
-        self.shell.open = ['tapas', 'webtoon', 'tappytoon']
-        self.open()
-        d = self.dashboard
-        page = d.corner.parentWidget()
-        for size, shown in (((1100, 900), True), ((640, 900), False)):
-            self.window.resize(*size)
-            settle()
-            self.assertEqual(d.corner.isVisible(), shown, size)
-            if shown:
-                # In the page's bottom right corner, under the cards' row and beside the closing notes.
-                self.assertEqual((d.corner.geometry().right(), d.corner.geometry().bottom()),
-                                 (page.width() - 1, page.height() - 1))
-                self.assertGreaterEqual(d.corner.y(), d.grid_holder.geometry().bottom())
-                for note in page.findChildren(QtWidgets.QLabel, 'muted'):
-                    if note.isVisible() and note.y() > d.grid_holder.geometry().bottom():
-                        self.assertLessEqual(note.geometry().right(), d.corner.x() + 150)
-        self.assertTrue(d.corner.testAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents))
 
     def test_about_names_the_author_and_shows_every_license_the_app_carries(self):
         self.open()
