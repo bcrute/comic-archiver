@@ -110,13 +110,15 @@ class SiteSwitchActivityTest {
         select("Tapas"); ready()
         assertTrue(app.controller.state.value.download is DownloadState.Running)
         assertTrue(app.controller.isSaving("tapas"))
-        // Returning neither stopped the download nor started it a second time.
+        // Returning neither stopped the download nor started it a second time; only the idle
+        // site that was left is put away.
         assertEquals(1, app.wire.count("go")); assertEquals(1, app.wire.count("worker_start"))
-        assertEquals(0, app.wire.count("pause")); assertEquals(0, app.wire.count("worker_stop"))
+        fun reached(op: String, key: String) = app.wire.requests.count {
+            it.first == op && it.second.getString(key).substringBefore("/.comic-session").endsWith("/workspace") }
+        assertEquals(0, reached("pause", "root")); assertEquals(0, reached("worker_stop", "session_root"))
         // Pause still reaches the site being shown.
         compose.runOnIdle { app.controller.pause() }
-        await { app.wire.count("pause") == 1 }
-        assertTrue(app.wire.requests.single { it.first == "pause" }.second.getString("root").endsWith("/workspace"))
+        await { reached("pause", "root") == 1 }
         assertFalse(app.controller.isSaving("tapas"))
     }
 
@@ -144,8 +146,11 @@ class SiteSwitchActivityTest {
 
     @Test fun aSiteCannotBeChangedWhileItsGoIsStillBeingAnswered() {
         ready()
-        compose.runOnIdle { app.controller.go(); app.controller.selectSite("webtoon") }
-        compose.onNodeWithText("Finish sign-in, export or cloud setup before switching sites.").assertIsDisplayed()
+        compose.runOnIdle {
+            app.controller.go(); app.controller.selectSite("webtoon")
+            assertEquals("Finish sign-in, export or cloud setup before switching sites.",
+                app.controller.state.value.notice?.message)
+        }
         assertEquals("tapas", app.controller.state.value.site)
         assertEquals(1, app.wire.count("prepare_workspace"))
     }
