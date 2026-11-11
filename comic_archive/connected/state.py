@@ -5,10 +5,12 @@ and identity. JSON alone cannot construct this owner. Unknown write durability
 poisons the owner: inspect/reopen retained state, never retry approval blindly.
 """
 
+import errno
 import os
 import stat
 import threading
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from .files import SharedRoot, SourceError, _directory, _selected
@@ -133,6 +135,10 @@ def _validate(value):
                 validate_renewal(renewal, rows[pair], completed=collection == "renewed")
 
 
+# Passing shortages, not a changed file.
+BUSY = (errno.EMFILE, errno.ENFILE, errno.ENOMEM)
+
+
 class HostState:
     """Owns actual private state handles and lock; not a service/account owner."""
 
@@ -152,6 +158,7 @@ class HostState:
         _validate(value)
         self._data = value
         self.identity = _restore_identity(value["identity"])
+        self._held = None  # None outside a hold; inside one, whether custody has been checked yet.
         self.current()
         self._initializing = False
 
@@ -255,8 +262,27 @@ class HostState:
         require(len(raw) == value.st_size and _stamp(os.fstat(fd)) == _stamp(value))
         return loads(raw.decode("utf-8"), MAXIMUM)
 
+    @contextmanager
+    def held(self):
+        """One custody check for a run of questions asked without leaving this thread.
+
+        A pass of a reader's loop asks the same thing a dozen times within a moment; inside a hold the
+        files are looked at once. Every write checks afresh, and so does whatever follows it.
+        """
+        require(threading.get_ident() == self.thread, "cancelled")
+        if self._held is not None:
+            yield
+            return
+        self._held = False
+        try:
+            yield
+        finally:
+            self._held = None
+
     def current(self):
         require(threading.get_ident() == self.thread, "cancelled")
+        if self._held and not self.closed:
+            return True
         try:
             require(not self.closed, "cancelled")
             _private(self.directory, directory=True)
@@ -275,8 +301,14 @@ class HostState:
                 and _stamp(os.stat(STATE, dir_fd=self.directory, follow_symlinks=False))
                 == self.state_stamp
             )
+            if self._held is False:
+                self._held = True
             return True
-        except Exception:
+        except Exception as error:
+            if isinstance(error, OSError) and error.errno in BUSY and not self._initializing:
+                # The computer was out of file handles or memory for a moment. That says nothing about
+                # the state: it stays open, and this one question is refused.
+                raise SourceError("connection_unavailable") from None
             if not self._initializing:
                 self.close()
             raise SourceError("integrity_failed") from None
@@ -315,6 +347,7 @@ class HostState:
     def _commit(self, pairs, renewals=None, renewed=None):
         """Caller is the serialized local owner. No JSON reply is read authority."""
         temporary = old_fd = None
+        held, self._held = self._held, None  # A write never rests on an earlier look, nor does what follows it.
         try:
             self.current()
             value = dict(self._data, pairings=pairs, revision=str(uuid.uuid4()))
@@ -370,6 +403,7 @@ class HostState:
             self.close()
             raise SourceError("integrity_failed") from None
         finally:
+            self._held = None if held is None else False
             if old_fd is not None:
                 os.close(old_fd)
 

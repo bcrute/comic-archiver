@@ -90,8 +90,12 @@ class PairingOwner:
         try:
             return self.state.current()
         except Exception:
-            self.close()
+            if self.state.closed:  # Not after a passing shortage, which leaves the state as it was.
+                self.close()
             raise
+
+    def held(self):
+        return self.state.held()
 
     def _record(self, pairing_id):
         return self.state.record(pairing_id)

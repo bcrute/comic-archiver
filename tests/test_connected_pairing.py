@@ -483,6 +483,55 @@ class ConnectedPairingTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again(self):
+        from comic_archive.connected import state
+
+        pair = identifier()
+        with patch.object(state, "_directory", wraps=state._directory) as looked:
+            self.owner.current()
+            self.owner._record(pair)
+            self.assertEqual(looked.call_count, 2)  # Outside a hold every question looks.
+            with self.owner.held():
+                self.owner.current()
+                self.owner._record(pair)
+                self.state.records()
+                with self.owner.held():  # A hold within a hold is the same hold.
+                    self.owner.current()
+                self.owner.current()
+                self.assertEqual(looked.call_count, 3)
+                self.state._commit(self.state.records())
+                written = looked.call_count
+                self.assertGreater(written, 3)
+                self.owner.current()
+                self.assertEqual(looked.call_count, written + 1)  # What follows a write looks afresh.
+                self.owner.current()
+                self.assertEqual(looked.call_count, written + 1)
+            self.owner.current()
+            self.assertEqual(looked.call_count, written + 2)  # The hold is over.
+            with self.owner.held():
+                self.owner.current()
+                self.state.close()
+                with self.assertRaises(SourceError):
+                    self.state.current()  # A hold never answers for a closed state.
+
+    def test_a_passing_shortage_of_file_handles_does_not_close_the_state(self):
+        import errno
+
+        from comic_archive.connected import state
+
+        for code in (errno.EMFILE, errno.ENFILE, errno.ENOMEM):
+            with patch.object(state, "_directory", side_effect=OSError(code, "busy")):
+                with self.assertRaises(SourceError) as raised:
+                    self.owner.current()
+            self.assertEqual(raised.exception.code, "connection_unavailable")
+            self.assertFalse(self.state.closed or self.owner.closed)
+            self.assertTrue(self.owner.current())
+        with patch.object(state, "_directory", side_effect=OSError(errno.ENOENT, "gone")):
+            with self.assertRaises(SourceError) as raised:
+                self.owner.current()
+        self.assertEqual(raised.exception.code, "integrity_failed")
+        self.assertTrue(self.state.closed and self.owner.closed)
+
     def test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked(self):
         from comic_archive.connected.controller import _Runner
         from comic_archive.connected.rendezvous import HostRendezvous

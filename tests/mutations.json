@@ -8894,5 +8894,77 @@
   "new": "                value = await asyncio.wait_for(runner.signals.get(), 1)\n                require(runner.current(), \"revoked\")",
   "test_file": "test_connected_pairing.py",
   "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-held-custody-looks-once",
+  "source": "comic_archive/connected/state.py",
+  "old": "        if self._held and not self.closed:\n            return True",
+  "new": "        if False:\n            return True",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
+ },
+ {
+  "id": "connected-held-custody-never-answers-closed",
+  "source": "comic_archive/connected/state.py",
+  "old": "        if self._held and not self.closed:\n            return True",
+  "new": "        if self._held:\n            return True",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
+ },
+ {
+  "id": "connected-write-looks-afresh-in-a-hold",
+  "source": "comic_archive/connected/state.py",
+  "old": "        held, self._held = self._held, None  # A write",
+  "new": "        held = self._held  # A write",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
+ },
+ {
+  "id": "connected-hold-ends",
+  "source": "comic_archive/connected/state.py",
+  "old": "        finally:\n            self._held = None\n",
+  "new": "        finally:\n            self._held = True\n",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
+ },
+ {
+  "id": "connected-shortage-keeps-state-open",
+  "source": "comic_archive/connected/state.py",
+  "old": "error.errno in BUSY and not self._initializing",
+  "new": "error.errno in () and not self._initializing",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_passing_shortage_of_file_handles_does_not_close_the_state"
+ },
+ {
+  "id": "connected-shortage-keeps-owner-open",
+  "source": "comic_archive/connected/pairing.py",
+  "old": "            if self.state.closed:  # Not after a passing shortage",
+  "new": "            if True:  # Not after a passing shortage",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_passing_shortage_of_file_handles_does_not_close_the_state"
+ },
+ {
+  "id": "connected-missing-state-still-closes-owner",
+  "source": "comic_archive/connected/pairing.py",
+  "old": "            if self.state.closed:  # Not after a passing shortage",
+  "new": "            if False:  # Not after a passing shortage",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_passing_shortage_of_file_handles_does_not_close_the_state"
+ },
+ {
+  "id": "connected-reader-pass-holds-custody",
+  "source": "comic_archive/connected/rtc.py",
+  "old": "        with self.controller.owner.held():",
+  "new": "        if True:",
+  "test_file": "test_connected_rtc.py",
+  "test": "test_a_pass_of_a_readers_loop_looks_at_the_state_files_once"
+ },
+ {
+  "id": "connected-after-a-write-looks-afresh",
+  "source": "comic_archive/connected/state.py",
+  "old": "            self._held = None if held is None else False",
+  "new": "            self._held = None if held is None else True",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_hold_looks_at_the_state_files_once_and_a_write_looks_again"
  }
 ]

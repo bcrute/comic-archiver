@@ -96,6 +96,31 @@ class ConnectedDriverRetryTests(unittest.IsolatedAsyncioTestCase):
         self.driver._slots[pair] = slot
         return slot
 
+    async def test_a_pass_of_a_readers_loop_looks_at_the_state_files_once(self):
+        from unittest.mock import Mock
+
+        from comic_archive.connected import state
+        from comic_archive.connected.rtc import HostPeer
+
+        peer = object.__new__(HostPeer)
+        peer.controller = self.controller
+        pair = str(uuid.uuid4())
+
+        def current():
+            self.owner.current()
+            self.owner._record(pair)
+            return True
+
+        peer.current = current
+        peer._gate = Mock(refresh=lambda: self.owner._record(pair))
+        with patch.object(state, "_directory", wraps=state._directory) as looked:
+            self.assertTrue(peer._pass())
+            self.assertEqual(looked.call_count, 1)
+            self.assertTrue(peer._pass())
+            self.assertEqual(looked.call_count, 2)  # Each pass looks again.
+        peer.current = lambda: False
+        self.assertFalse(peer._pass())
+
     async def test_a_revoked_pairing_gives_up_its_place_once_its_cleanup_is_over(self):
         from unittest.mock import AsyncMock
 

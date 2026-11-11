@@ -407,6 +407,14 @@ class HostPeer:
     def current(self):
         return self._physical_current() and self._gate.authorize(None)
 
+    def _pass(self):
+        """Whether the loop goes round again: the pairing's files are looked at once for all it asks here."""
+        with self.controller.owner.held():
+            if not self.current():
+                return False
+            self._gate.refresh()
+            return True
+
     def invalidate(self):
         self._stopped = True
         self._gate.retire()
@@ -536,8 +544,7 @@ class HostPeer:
             await self.worker.wait_ready()
             require(self.current(), "revoked")
             self._ready.set_result(self)
-            while self.current():
-                self._gate.refresh()
+            while self._pass():
                 try:
                     text = self._incoming.get_nowait()
                 except queue.Empty:
