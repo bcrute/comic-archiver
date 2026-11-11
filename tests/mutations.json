@@ -8286,5 +8286,13 @@
   "new": "listed is None:",
   "test_file": "test_webtoon.py",
   "test": "test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops"
+ },
+ {
+  "id": "refused-sign-in-redraws-the-dashboard-it-never-left",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            if stage != 'admitting':  # Nothing was shown yet: the dashboard is still there.\n",
+  "new": "            if True:\n",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_sign_in_held_before_it_begins_or_overtaken_by_closing_shows_no_tapas_page"
  }
 ]

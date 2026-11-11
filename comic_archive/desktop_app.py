@@ -1104,7 +1104,8 @@ class Shell:
             except Exception as error:
                 LOG.error('the sign-in page could not be cleared: %s', app_runtime.describe(error))
         if self.phase == 'open':
-            self.stack.setCurrentWidget(self.home)
+            if stage != 'admitting':  # Nothing was shown yet: the dashboard is still there.
+                self.stack.setCurrentWidget(self.home)
             if stage:
                 # However it ended, the card says so now, not at the next timed look.
                 self.refresh_site(self.runtime.site.key)
