@@ -2024,6 +2024,7 @@ class DesktopAppTests(unittest.TestCase):
 
     def test_self_test_reads_a_real_empty_temporary_library_and_never_starts_a_downloader(self):
         self.runtime_kind.side_effect = RUNTIME
+        self.state.mkdir(parents=True)  # The settings folder is there, as after any earlier start.
         read = []
 
         def loop():
@@ -2043,7 +2044,9 @@ class DesktopAppTests(unittest.TestCase):
         root, = self.runtime_kind.call_args.args
         self.assertEqual(context['library_folder'], str(root / 'Tapas/Library'))
         self.assertFalse(root.parent.exists())
-        self.assertEqual(list(self.home.iterdir()), [])
+        # The library is gone, so it is not noted as one to clear when uninstalling: that would report it out of reach.
+        self.assertEqual(list(self.state.iterdir()), [])
+        self.assertEqual(list(self.home.iterdir()), [self.home / 'state'])
 
     def test_main_passes_self_test_and_window_modes_to_their_own_paths(self):
         with patch('comic_archive.desktop_app.self_test', return_value=0) as check, patch('comic_archive.desktop_app.run', return_value=7) as run:

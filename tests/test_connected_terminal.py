@@ -88,9 +88,11 @@ class ConnectedTerminalTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(terminal.readline(), 1)
         self.assertEqual(caught.exception.code, "invalid_command")
         self.assertIsNotNone(terminal.fd)
-        for _ in range(4):
-            os.write(master, b"a" * 1024)
-            await asyncio.sleep(0.05)
+        # In pieces smaller than a terminal's own queue: a Mac's holds 1024 bytes, and a write that does not
+        # fit waits for a reader, which is this same loop.
+        for _ in range(8):
+            os.write(master, b"a" * 512)
+            await asyncio.sleep(0.03)
         os.write(master, b"\nstatus\n")
         self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "a" * 4096)
         self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "status")

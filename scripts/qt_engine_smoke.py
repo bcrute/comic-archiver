@@ -494,10 +494,15 @@ def work(origin):
             'viewport': [context.surface.view.width(), context.surface.view.height()]})
         print(f'NOTE wheel configuration: {hints}', flush=True)
         page.mouse.move(400, 300)
-        for _ in range(3):
+        # A page just loaded may not take a wheel yet, and a slow machine moves late: turn it until the page
+        # has moved, for a few seconds at most.
+        moved = 0
+        for _ in range(15):
             page.mouse.wheel(0, 1200)
-            page.wait_for_timeout(200)
-        moved = page.evaluate('() => window.scrollY')
+            page.wait_for_timeout(300)
+            moved = page.evaluate('() => window.scrollY')
+            if moved > 0:
+                break
         check('the wheel scrolls the page', moved > 0, moved)
         check('the wheel is a real one to the page', settled(lambda: page.locator('html').get_attribute('data-wheel'), 'true') == 'true')
         if sys.platform == 'darwin' and moved == 0:

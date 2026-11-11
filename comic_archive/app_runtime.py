@@ -283,10 +283,12 @@ class Library:
     is chosen; one never used makes no folder of its own until then.
     """
 
-    def __init__(self, project_root, theme=None, site=None):
+    def __init__(self, project_root, theme=None, site=None, noted=True):
         self.project_root = project_root
         self.theme = theme or Theme()
         self.site = site or sites.DEFAULT
+        # A library made only to be checked and thrown away is not noted: uninstalling would look for it for ever.
+        self.noted = noted
         self.runtimes = {}
         self._stopped = False
 
@@ -312,7 +314,7 @@ class Library:
                     LOG.warning('a site was not opened: %s', describe(error))
 
     def _open(self, site):
-        runtime = Runtime(self.project_root, self.theme, site)
+        runtime = Runtime(self.project_root, self.theme, site, self.noted)
         try:
             runtime.start()
         except BaseException:
@@ -370,9 +372,10 @@ class Library:
 class Runtime:
     """One site's library and the downloader behind it."""
 
-    def __init__(self, project_root, theme=None, site=None):
+    def __init__(self, project_root, theme=None, site=None, noted=True):
         self.project_root = project_root
         self.site = site or sites.DEFAULT
+        self.noted = noted
         self.registry = self.session = self.state = self.signin = None
         self.root = self.folder = None
         self.theme = theme or Theme()
@@ -426,7 +429,8 @@ class Runtime:
             cloud_runtime.note_connections()
         except ArchiveError as error:
             LOG.warning('the cloud connections in use were not noted: %s', describe(error))
-        remember_library(root)
+        if self.noted:
+            remember_library(root)
         self._serve(registry, session, state)
         LOG.info('the library is open: %s', support_log.place(root))
 

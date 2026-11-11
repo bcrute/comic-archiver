@@ -9182,5 +9182,29 @@
   "new": "        line = self.library_top",
   "test_file": "test_window_pages.py",
   "test": "test_cards_use_the_compact_three_two_one_column_layout"
+ },
+ {
+  "id": "self-test-library-noted-for-uninstall",
+  "source": "comic_archive/desktop_app.py",
+  "old": "Path(temporary).resolve() / 'library', noted=False)",
+  "new": "Path(temporary).resolve() / 'library')",
+  "test_file": "test_desktop_app.py",
+  "test": "test_self_test_reads_a_real_empty_temporary_library_and_never_starts_a_downloader"
+ },
+ {
+  "id": "unnoted-library-noted-anyway",
+  "source": "comic_archive/app_runtime.py",
+  "old": "        if self.noted:\n            remember_library(root)",
+  "new": "        if True:\n            remember_library(root)",
+  "test_file": "test_desktop_app.py",
+  "test": "test_self_test_reads_a_real_empty_temporary_library_and_never_starts_a_downloader"
+ },
+ {
+  "id": "library-never-noted-for-uninstall",
+  "source": "comic_archive/app_runtime.py",
+  "old": "    def __init__(self, project_root, theme=None, site=None, noted=True):\n        self.project_root = project_root\n        self.site = site or sites.DEFAULT\n        self.noted = noted",
+  "new": "    def __init__(self, project_root, theme=None, site=None, noted=True):\n        self.project_root = project_root\n        self.site = site or sites.DEFAULT\n        self.noted = False",
+  "test_file": "test_app_runtime.py",
+  "test": "test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins"
  }
 ]

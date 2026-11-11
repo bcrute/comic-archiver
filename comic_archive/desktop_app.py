@@ -1476,7 +1476,7 @@ def self_test(q):
     watchdog.start()
     try:
         with tempfile.TemporaryDirectory(prefix='comic-archiver-self-test-', ignore_cleanup_errors=True) as temporary:
-            runtime = app_runtime.Library(Path(temporary).resolve() / 'library')
+            runtime = app_runtime.Library(Path(temporary).resolve() / 'library', noted=False)
             try:
                 app = application(q)
 
