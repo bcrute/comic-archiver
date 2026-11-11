@@ -623,6 +623,28 @@ class CloudTests(unittest.TestCase):
             self.assertEqual(FakeTransfer.files,{});self.assertTrue(archive.exists())
             self.assertEqual(json.loads(path.read_text())['state'],'failed')
 
+    def test_a_receipt_file_that_holds_no_record_is_set_aside_and_the_rest_still_go_up(self):
+        archive, path = self.failed_receipt()
+        junk = path.with_name('0-junk.json');junk.write_text('{')
+        cloud.status(self.root)  # The settings page still opens, and only looks.
+        self.assertTrue(junk.exists())
+        cloud.upload_pending(self.root)
+        self.assertEqual(json.loads(path.read_text())['state'],'verified')
+        self.assertFalse(junk.exists())
+        self.assertEqual(len(list(path.parent.glob('0-junk.damaged-*'))),1)
+
+    def test_one_episode_held_here_does_not_keep_the_others_from_being_removed(self):
+        self.publish();self.ready()
+        with patch.object(cloud,'evict_uploaded',return_value={'local_archives_deleted':0,'freed_bytes':0}):
+            self.publish('82');self.publish('83')
+        records = [json.loads(p.read_text()) for p in sorted((self.root/'.archive-state/cloud/outbox/b2').glob('*.json'))]
+        archives = [self.root/r['archive'] for r in records if r['state']=='verified']
+        self.assertGreaterEqual(len(archives),2)
+        archives[0].write_bytes(b'changed')
+        with self.assertRaises(ArchiveError):cloud.evict_uploaded(self.root)
+        self.assertEqual(archives[0].read_bytes(),b'changed')
+        self.assertFalse(any(archive.exists() for archive in archives[1:]))
+
     def test_symlinked_receipt_is_refused_instead_of_followed(self):
         archive, path = self.failed_receipt()
         elsewhere = self.base/'elsewhere.json';elsewhere.write_text(path.read_text());path.unlink();path.symlink_to(elsewhere)

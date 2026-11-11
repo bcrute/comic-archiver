@@ -7798,5 +7798,45 @@
   "new": "    with Inventory(library) as inventory:",
   "test_file": "test_download_control.py",
   "test": "test_go_waits_a_moment_for_a_library_the_downloader_is_just_finishing_with"
+ },
+ {
+  "id": "junk-receipt-stops-every-upload",
+  "source": "comic_archive/cloud.py",
+  "old": "                record = _receipt(path, aside=True)\n                if record is None:\n                    continue\n                if record.get('state') == 'verified' and record.get('target_id')",
+  "new": "                record = _json(path)\n                if record.get('state') == 'verified' and record.get('target_id')",
+  "test_file": "test_cloud.py",
+  "test": "test_a_receipt_file_that_holds_no_record_is_set_aside_and_the_rest_still_go_up"
+ },
+ {
+  "id": "junk-receipt-breaks-the-settings-page",
+  "source": "comic_archive/cloud.py",
+  "old": "                record = _receipt(path)\n                if record is None:\n                    continue\n",
+  "new": "                record = _json(path)\n",
+  "test_file": "test_cloud.py",
+  "test": "test_a_receipt_file_that_holds_no_record_is_set_aside_and_the_rest_still_go_up"
+ },
+ {
+  "id": "junk-receipt-never-set-aside",
+  "source": "comic_archive/cloud.py",
+  "old": "    if aside:\n        os.replace(actual, actual.with_suffix('.damaged-' + uuid.uuid4().hex))",
+  "new": "    if False:\n        os.replace(actual, actual.with_suffix('.damaged-' + uuid.uuid4().hex))",
+  "test_file": "test_cloud.py",
+  "test": "test_a_receipt_file_that_holds_no_record_is_set_aside_and_the_rest_still_go_up"
+ },
+ {
+  "id": "one-held-episode-stops-every-removal",
+  "source": "comic_archive/cloud.py",
+  "old": "                    held = held or error  # This episode stays here; the others are still looked at.",
+  "new": "                    raise",
+  "test_file": "test_cloud.py",
+  "test": "test_one_episode_held_here_does_not_keep_the_others_from_being_removed"
+ },
+ {
+  "id": "held-episode-not-reported",
+  "source": "comic_archive/cloud.py",
+  "old": "    if held is not None:\n        raise held\n",
+  "new": "",
+  "test_file": "test_cloud.py",
+  "test": "test_one_episode_held_here_does_not_keep_the_others_from_being_removed"
  }
 ]

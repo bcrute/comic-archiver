@@ -61,6 +61,29 @@ def _json(path, maximum=1024*1024):
         raise ArchiveError('Cloud state is unreadable; local episodes are retained.') from None
 
 
+def _receipt(path, *, aside=False):
+    """An upload receipt; None for a file that holds no record at all, so that one such file never stops the rest.
+
+    With aside, for a caller that has the library's lock, the file is set aside as cleanup_direct sets aside its
+    own. A link, or a file that cannot be read just now, raises as before: nothing says what it holds.
+    """
+    try:
+        return _json(path)
+    except ArchiveError:
+        actual = osdep.extended_path(Path(path).absolute())
+        try:
+            if actual.stat().st_size > 1024*1024 or isinstance(json.loads(actual.read_text()), dict):
+                raise
+        except OSError:
+            raise ArchiveError('Cloud state is unreadable; local episodes are retained.') from None
+        except ValueError:
+            pass
+    if aside:
+        os.replace(actual, actual.with_suffix('.damaged-' + uuid.uuid4().hex))
+        _directory_sync(Path(path).parent)
+    return None
+
+
 def _write(path, value):
     directory(path.parent).chmod(0o700)
     from .windows_privacy import folder
@@ -500,7 +523,9 @@ def status(root):
         if folder.exists():
             safe_root(folder)
             for path in folder.glob('*.json'):
-                record = _json(path)
+                record = _receipt(path)
+                if record is None:
+                    continue
                 state = record.get('state')
                 if state in counts: counts[state] += 1
                 if state == 'failed':
@@ -631,7 +656,9 @@ def upload_pending(root, *, limit=None, provider=None):
             safe_root(folder)
             for path in sorted(folder.glob('*.json')):
                 if limit is not None and report['uploaded_episodes'] >= limit:break
-                record = _json(path)
+                record = _receipt(path, aside=True)
+                if record is None:
+                    continue
                 if record.get('state') == 'verified' and record.get('target_id') == target['target_id']:
                     from . import reader_catalogue
                     if name == 'b2' and reader_catalogue.PUBLISHING:
@@ -1062,47 +1089,55 @@ This is historical evidence only, never a fresh cloud availability assertion.
 def evict_uploaded(root):
     root = safe_root(root)
     report = {'local_archives_deleted':0, 'freed_bytes':0}
+    held = None
     with LibraryLock(root):
         seen = set()
         for provider in PROVIDERS:
             folder = safe_root(root / '.archive-state/cloud/outbox' / provider)
             for path in sorted(folder.glob('*.json')):
-                record = _json(path)
-                relative = record.get('archive')
-                if record.get('state') != 'verified' or not isinstance(relative,str) or relative in seen:continue
-                archive = safe_root(root / relative)
-                providers = record.get('required_targets')
-                if not isinstance(providers,list) or not providers or set(providers)-set(PROVIDERS):
-                    raise ArchiveError('Cloud deletion receipt is invalid; local archives retained.')
-                receipts = [_receipt_for(root, archive, p) for p in providers]
-                if any(r is None or r['version'] != record['version'] for r in receipts):continue
-                current = settings(root)
-                if not current or any(saved['target_id'] != current['targets'].get(name, {}).get('target_id')
-                                      for name,saved in zip(providers,receipts,strict=True)):
+                record = _receipt(path, aside=True)
+                if record is None:
                     continue
-                if any(not taking(current['targets'][name]) for name in providers):
-                    # Turned off, or brought here and not yet agreed to: nothing is deleted on its account.
-                    continue
-                seen.add(relative)
-                if archive.exists():
-                    if verify_episode(archive):raise ArchiveError('Local archive changed; cloud deletion held.')
-                    with archive.open('rb') as stream:
-                        if hashlib.file_digest(stream,'sha256').hexdigest() != record['files'][0]['sha256']:
-                            raise ArchiveError('Local archive differs from verified cloud copy; deletion held.')
-                # Persist intent before unlink; restart can distinguish deliberate
-                # cloud-only storage from accidental loss without downloading again.
-                for name, saved in zip(providers, receipts, strict=True):
-                    from .cloud_history import retain
-                    saved = saved | {'eviction_requested':True}
-                    _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'), saved)
-                    retain(root, name, saved)
-                if archive.exists():
-                    _prepare_cache_for_offload(root, archive)
-                    size = disk_bytes(archive)
-                    archive.unlink()
-                    _directory_sync(archive.parent)
-                    report['local_archives_deleted'] += 1
-                    report['freed_bytes'] += size
+                try:
+                    relative = record.get('archive')
+                    if record.get('state') != 'verified' or not isinstance(relative,str) or relative in seen:continue
+                    archive = safe_root(root / relative)
+                    providers = record.get('required_targets')
+                    if not isinstance(providers,list) or not providers or set(providers)-set(PROVIDERS):
+                        raise ArchiveError('Cloud deletion receipt is invalid; local archives retained.')
+                    receipts = [_receipt_for(root, archive, p) for p in providers]
+                    if any(r is None or r['version'] != record['version'] for r in receipts):continue
+                    current = settings(root)
+                    if not current or any(saved['target_id'] != current['targets'].get(name, {}).get('target_id')
+                                          for name,saved in zip(providers,receipts,strict=True)):
+                        continue
+                    if any(not taking(current['targets'][name]) for name in providers):
+                        # Turned off, or brought here and not yet agreed to: nothing is deleted on its account.
+                        continue
+                    seen.add(relative)
+                    if archive.exists():
+                        if verify_episode(archive):raise ArchiveError('Local archive changed; cloud deletion held.')
+                        with archive.open('rb') as stream:
+                            if hashlib.file_digest(stream,'sha256').hexdigest() != record['files'][0]['sha256']:
+                                raise ArchiveError('Local archive differs from verified cloud copy; deletion held.')
+                    # Persist intent before unlink; restart can distinguish deliberate
+                    # cloud-only storage from accidental loss without downloading again.
+                    for name, saved in zip(providers, receipts, strict=True):
+                        from .cloud_history import retain
+                        saved = saved | {'eviction_requested':True}
+                        _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'), saved)
+                        retain(root, name, saved)
+                    if archive.exists():
+                        _prepare_cache_for_offload(root, archive)
+                        size = disk_bytes(archive)
+                        archive.unlink()
+                        _directory_sync(archive.parent)
+                        report['local_archives_deleted'] += 1
+                        report['freed_bytes'] += size
+                except ArchiveError as error:
+                    held = held or error  # This episode stays here; the others are still looked at.
+    if held is not None:
+        raise held
     return report
 
 
