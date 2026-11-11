@@ -992,7 +992,6 @@ def smoke_test(root, provider, *, episodes=2, stream=False):
                 if record['verified_episodes'] >= episodes:break
             if record['verified_episodes'] != episodes:
                 raise ArchiveError('Not enough completed episodes for this cloud test.')
-            record['state'] = 'verified'
         finally:
             record['state'] = 'cleanup_pending'
             _write(receipt, record)
