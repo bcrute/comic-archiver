@@ -172,6 +172,57 @@ class NativeSignInAttemptTests(unittest.TestCase):
             reopen.assert_not_called()
         self.assertEqual(Path.cwd(), self.before)
 
+    def test_a_site_opened_only_for_its_counts_leaves_the_shown_site_and_its_sign_in_attempt_alone(self):
+        next_root = self.root / 'Webtoon'
+        self.attempt()
+        with patch('comic_archive.account_ui.reopen', return_value=False) as reopen, \
+                patch('comic_archive.network_android.configure') as configure:
+            quiet = self.call('open_site', root=str(next_root), base_root=str(self.root), site_key='webtoon')
+            self.assertTrue(quiet['ok'], quiet)
+            self.assertEqual(reopen.call_count, 1)
+            configure.assert_not_called()
+            self.assertEqual(app_bridge._workspace['root'], self.root)
+            self.assertEqual(set(app_bridge._open), {self.root, next_root})
+            self.assertTrue(app_bridge._signin_attempts[self.session]['active'])
+            # Asked again, an opened site is left exactly as it is.
+            again = self.call('open_site', root=str(next_root), base_root=str(self.root), site_key='webtoon')
+            self.assertEqual(again['result']['site_key'], 'webtoon')
+            self.assertEqual(reopen.call_count, 1)
+            self.assertFalse(self.call('prepare_workspace', root=str(next_root), base_root=str(self.root),
+                                       site_key='webtoon', show='no')['ok'])
+            # Showing it afterwards is the usual opening.
+            self.assertTrue(self.call('prepare_workspace', root=str(next_root), base_root=str(self.root),
+                                      site_key='webtoon')['ok'])
+            self.assertEqual(app_bridge._workspace['root'], next_root)
+            self.assertFalse(app_bridge._signin_attempts[self.session]['active'])
+
+    def test_all_sites_adds_the_counts_of_every_opened_site_and_leaves_out_one_that_cannot_be_read(self):
+        from comic_archive.errors import ArchiveError
+        roots = {key: self.root / name for key, name in (('webtoon', 'Webtoon'), ('tappytoon', 'Tappytoon'))}
+        for key, root in roots.items():
+            self.assertTrue(self.call('open_site', root=str(root), base_root=str(self.root), site_key=key)['ok'])
+        counts = {self.root: (3, 6), roots['webtoon']: (4, 5)}
+
+        class Registry:
+            workspace_id = 'w'
+
+            def __init__(self, root):
+                self.root = root
+
+            def saved_files(self, owner, workspace_id, summary):
+                if self.root not in counts:
+                    raise ArchiveError('unreadable')
+                episodes, files = counts[self.root]
+                return {'episode_count': episodes, 'file_count': files, 'locations': []}
+
+        with patch.dict(app_bridge._catalog_registries, {str(root): Registry(root) for root in app_bridge._open}):
+            answer = self.call('all_sites', base_root=str(self.root))
+            self.assertEqual(answer['result'], {'sites': ['tapas', 'webtoon'], 'episodes': 7, 'files': 11})
+            self.assertFalse(self.call('all_sites', base_root=str(self.root), root=str(self.root))['ok'])
+            # Another working library's sites are not this one's.
+            other = self.call('all_sites', base_root=str(self.root / 'Webtoon'))
+            self.assertEqual(other['result'], {'sites': [], 'episodes': 0, 'files': 0})
+
     def test_every_opened_site_keeps_its_own_settings_and_connection_report(self):
         (self.root / 'net.json').write_text('{"connection":"wifi","metered":false}')
         next_root = self.root / 'Webtoon'

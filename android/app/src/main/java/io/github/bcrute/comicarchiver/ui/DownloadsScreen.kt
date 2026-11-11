@@ -51,6 +51,8 @@ fun DownloadsScreen(
     onDownloadSettings: () -> Unit = {},
     onStorageSettings: () -> Unit = {},
     onOpenCatalog: (String) -> Unit = {},
+    onGoAll: () -> Unit = {},
+    onPauseAll: () -> Unit = {},
 ) {
     val now = dashboardNowMillis()
     val statusDelayed = dashboardDelayed(state.statusReadFailed, now,
@@ -95,6 +97,23 @@ fun DownloadsScreen(
             }
         }
         state.notice?.let { NoticeCard(it, onDismiss = onDismissNotice) }
+        state.allSites?.let { all ->
+            Card(Modifier.fillMaxWidth().testTag("all-sites")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("All sites", style = MaterialTheme.typography.titleMedium)
+                    all.counts?.let { Text(it) }
+                    all.lines.forEach { Text(it) }
+                    if (all.starting) Text("Starting each signed-in site in turn…",
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = onGoAll, enabled = state.controlsEnabled,
+                            modifier = Modifier.weight(1f)) { Text("Start all") }
+                        if (all.anySaving || all.starting) OutlinedButton(onClick = onPauseAll,
+                            modifier = Modifier.weight(1f)) { Text("Pause all") }
+                    }
+                }
+            }
+        }
         DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog, details)
         TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) {
             Text(if (details) "Hide download details" else "Download details")

@@ -232,6 +232,9 @@ open class App : Application() {
         NetworkStatusWriter.start(this, target.network)
     }
 
+    /** A site opened for its counts gets its connection report too, ready for when it is started. */
+    internal fun keepConnectionReport(target: SiteWorkspace) = startNetworkWriter(target)
+
     protected open fun forgetNetworkWriters() {
         NetworkStatusWriter.forgetAll()
     }

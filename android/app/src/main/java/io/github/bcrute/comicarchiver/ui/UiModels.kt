@@ -52,7 +52,12 @@ data class DownloadsScreenUi(
     val cloud: CloudStatus? = null,
     val cloudCheckedAtMillis: Long? = null,
     val cloudReadFailed: Boolean = false,
+    /** Shown when the library has more than one site; null otherwise. */
+    val allSites: AllSitesCardUi? = null,
 )
+
+/** Every site of the library on one card, with the two actions that reach them all. */
+data class AllSitesCardUi(val counts: String?, val lines: List<String>, val anySaving: Boolean, val starting: Boolean)
 
 /** The download phase as the screen shows it: held (for any reason), running, or finished. */
 sealed interface DownloadsViewUi {

@@ -9342,5 +9342,37 @@
   "new": "        if False:",
   "test_file": "test_android_signin_attempts.py",
   "test": "test_each_site_starts_with_its_own_sign_in_store_and_only_its_own_download_guards_it"
+ },
+ {
+  "id": "bridge-quiet-open-shows-the-site",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "                if show:\n                    if previous is not None",
+  "new": "                if True:\n                    if previous is not None",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_a_site_opened_only_for_its_counts_leaves_the_shown_site_and_its_sign_in_attempt_alone"
+ },
+ {
+  "id": "bridge-quiet-open-reopens-an-open-site",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "            if not show and root in _open:",
+  "new": "            if False:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_a_site_opened_only_for_its_counts_leaves_the_shown_site_and_its_sign_in_attempt_alone"
+ },
+ {
+  "id": "bridge-all-sites-counts-other-libraries",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "for root, kept in _open.items() if kept[\"base\"] == base)",
+  "new": "for root, kept in _open.items())",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_all_sites_adds_the_counts_of_every_opened_site_and_leaves_out_one_that_cannot_be_read"
+ },
+ {
+  "id": "bridge-all-sites-drops-files",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "\"files\": storage_model.number(total.get(\"file_count\"))",
+  "new": "\"files\": storage_model.number(total.get(\"episode_count\"))",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_all_sites_adds_the_counts_of_every_opened_site_and_leaves_out_one_that_cannot_be_read"
  }
 ]

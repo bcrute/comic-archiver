@@ -172,6 +172,8 @@ fun ComicArchiverAppRoot(
                                 state = state.toDownloadsScreenUi(),
                                 onGo = controller::go,
                                 onPause = controller::pause,
+                                onGoAll = controller::goAll,
+                                onPauseAll = controller::pauseAll,
                                 notificationAccess = notificationAccess,
                                 notificationError = notificationError,
                                 onNotificationAccess = onNotificationAccess,

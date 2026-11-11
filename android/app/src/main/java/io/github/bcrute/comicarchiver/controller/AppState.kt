@@ -28,7 +28,13 @@ data class AppState(
     val admittedAtMillis: Long? = null,
     val cloudCheckedAtMillis: Long? = null,
     val cloudReadFailed: Boolean = false,
+    /** Start all is going from site to site; the screens wait for it. */
+    val startingAll: Boolean = false,
+    val allSites: AllSites? = null,
 )
+
+/** Saved-file counts over every site of the working library, and the sites they cover. */
+data class AllSites(val sites: List<String>, val episodes: Long, val files: Long)
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,
                       val signInAvailable: Boolean = enabled,

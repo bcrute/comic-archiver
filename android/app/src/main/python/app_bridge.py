@@ -288,11 +288,15 @@ def _prepare_workspace(args):
     Every site has a workspace of its own and each may be saving at once, as on the desktop:
     opening one leaves the others as they are. The core is given whole paths, so the folder
     the process runs from plays no part. A site already saving is only shown again; its
-    download is never held by looking at it.
+    download is never held by looking at it. With "show" false the site is opened for its
+    counts and left as it is if already open; the site being shown stays the one shown.
     """
     root = _path_arg(args, "root")
     base = _path_arg(args, "base_root") if "base_root" in args else root
     key = args.get("site_key", "tapas")
+    show = args.get("show", True)
+    if type(show) is not bool:
+        raise _BridgeError("bad_request", "Choose whether to show the site.")
     schema = args.get("network_schema")
     if schema is not None and (type(schema) is not int or schema != 1):
         raise _BridgeError("bad_request", "Choose a supported connection report.")
@@ -307,6 +311,9 @@ def _prepare_workspace(args):
             raise ArchiveError("Choose this site's own workspace.")
         with _workspace_lock:
             previous = _workspace["root"]
+            if not show and root in _open:
+                return {"root": str(root), "library": str(root / "Library"), "session": str(session_path(root)),
+                        "site_key": site.key, "held": False}
             saving = worker_host.status(session_path(root))["running"]
             if saving and _open.get(root) != {"base": base, "site_key": site.key}:
                 raise ArchiveError("Stop the downloader before switching workspaces.")
@@ -322,17 +329,23 @@ def _prepare_workspace(args):
                 held = account_ui.reopen(Workspace(id="default", root=root), idle=True)
                 _cloud_controller(root)  # Recover held cloud tasks before Go admission.
             with _signin_lock:
-                if previous is not None and previous != root:
-                    old_ticket = _signin_attempts.get(session_path(previous))
-                    if old_ticket is not None:
-                        old_ticket.update(active=False, verified=False)
                 _open[root] = {"base": base, "site_key": site.key}
-                _workspace.update(root=root, base=base, site_key=site.key)
-                network_android.configure(root / "net.json", require_fresh=schema == 1)
+                if show:
+                    if previous is not None and previous != root:
+                        old_ticket = _signin_attempts.get(session_path(previous))
+                        if old_ticket is not None:
+                            old_ticket.update(active=False, verified=False)
+                    _workspace.update(root=root, base=base, site_key=site.key)
+                    network_android.configure(root / "net.json", require_fresh=schema == 1)
             return {"root": str(root), "library": str(library), "session": str(session),
                     "site_key": site.key, "held": bool(held)}
 
     return _core(build)
+
+
+def _open_site(args):
+    """Open a site of the working library without showing it, so its counts can be read."""
+    return _prepare_workspace(dict(args, show=False))
 
 
 def _worker_status(args):
@@ -954,6 +967,36 @@ def _export_status(args):
     return _core(status)
 
 
+def _all_sites(args):
+    """The saved-file counts of every site opened in one working library, as one.
+
+    The desktop's All sites card adds its sites' counts the same way. A site whose counts
+    cannot be read is left out, and "sites" names the ones that were counted.
+    """
+    base = _path_arg(args, "base_root")
+    if set(args) != {"base_root"}:
+        raise _BridgeError("bad_request", "Choose a working library.")
+
+    def read(ArchiveError):
+        from comic_archive import storage_model
+        from comic_archive.local_library import LOCAL_OWNER
+        with _workspace_lock:
+            opened = sorted((kept["site_key"], root) for root, kept in _open.items() if kept["base"] == base)
+        counted, summaries = [], []
+        for key, root in opened:
+            try:
+                registry = _catalog_registries.get(str(root)) or _catalog_registry(root)
+                summaries.append(registry.saved_files(LOCAL_OWNER, registry.workspace_id, summary=True))
+                counted.append(key)
+            except ArchiveError:
+                continue
+        total = storage_model.combined(summaries) or {}
+        return {"sites": counted, "episodes": storage_model.number(total.get("episode_count")),
+                "files": storage_model.number(total.get("file_count"))}
+
+    return _core(read)
+
+
 def _in_active_workspace(handler):
     """Serialize context-sensitive policy actions before controller/account locks."""
     def call(args):
@@ -970,6 +1013,7 @@ def _in_active_workspace(handler):
 
 HANDLERS = {"ping": _ping,
             "prepare_workspace": _prepare_workspace,
+            "open_site": _open_site,
             "worker_status": _worker_status,
             "worker_start": _worker_start,
             "worker_stop": _worker_stop,
@@ -990,6 +1034,7 @@ HANDLERS = {"ping": _ping,
             "signout_record": _signout_record,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,
+            "all_sites": _all_sites,
             "export_manifest": _export_manifest,
             "export_status": _export_status}
 

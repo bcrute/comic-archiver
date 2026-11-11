@@ -120,6 +120,28 @@ class SiteSwitchActivityTest {
         assertFalse(app.controller.isSaving("tapas"))
     }
 
+    @Test fun startAllStartsEverySignedInSiteInTurnAndPauseAllReachesEachOfThem() {
+        ready()
+        compose.onNodeWithTag("all-sites").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Pause all").assertDoesNotExist()
+        compose.onNodeWithText("Start all").performScrollTo().performClick()
+        await { app.wire.count("go") == 3 && !app.controller.state.value.startingAll }
+        ready()
+        assertEquals(setOf("tapas", "webtoon", "tappytoon"),
+            app.controller.state.value.sites.filter { it.saving }.map { it.key }.toSet())
+        assertEquals(3, app.wire.requests.filter { it.first == "go" }.map { it.second.getString("root") }.toSet().size)
+        compose.onNodeWithText("Webtoon: Saving").performScrollTo().assertIsDisplayed()
+        // A second Start all has nothing left to start.
+        compose.runOnIdle { app.controller.goAll() }
+        await { !app.controller.state.value.startingAll }
+        assertEquals(3, app.wire.count("go"))
+        compose.onNodeWithText("Pause all").performScrollTo().performClick()
+        await { app.wire.count("pause") == 3 }
+        assertEquals(3, app.wire.requests.filter { it.first == "pause" }.map { it.second.getString("root") }.toSet().size)
+        assertTrue(app.controller.state.value.sites.none { it.saving })
+        assertEquals(0, app.wire.count("worker_stop"))
+    }
+
     @Test fun aSiteCannotBeChangedWhileItsGoIsStillBeingAnswered() {
         ready()
         compose.runOnIdle { app.controller.go(); app.controller.selectSite("webtoon") }

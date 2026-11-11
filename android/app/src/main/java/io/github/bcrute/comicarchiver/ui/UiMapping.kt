@@ -34,8 +34,9 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
 
 fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     signedIn = signIn is SignInState.SignedIn,
-    controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending,
+    controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && !startingAll,
     siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
+    allSites = allSitesCard(),
     observations = observations,
     statusReadFailed = statusReadFailed,
     admittedAtMillis = admittedAtMillis,
@@ -49,6 +50,22 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
             NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
         },
 )
+
+private fun AppState.allSitesCard(): AllSitesCardUi? {
+    val offered = sites.filter { it.enabled }
+    if (offered.size < 2) return null
+    val counts = allSites?.let { counted ->
+        val missing = offered.filter { it.key !in counted.sites }.map { it.name }
+        "${counted.episodes} saved ${if (counted.episodes == 1L) "episode" else "episodes"} · " +
+            "${counted.files} ${if (counted.files == 1L) "file" else "files"}" +
+            if (missing.isEmpty()) "" else " (not counted: ${missing.joinToString(", ")})"
+    }
+    // The shown site's own state is the newest word on it; the others carry their mark.
+    val shownSaving = download is DownloadState.Planning || download is DownloadState.Running
+    val saving = offered.associate { it.key to if (it.key == site) shownSaving else it.saving }
+    return AllSitesCardUi(counts, offered.map { "${it.name}: ${if (saving[it.key] == true) "Saving" else "Not saving"}" },
+        saving.values.any { it }, startingAll)
+}
 
 private fun AppState.downloadView(): DownloadsViewUi = when (val d = download) {
     DownloadState.Held -> DownloadsViewUi.Held(HoldReasonUi.NOT_STARTED)

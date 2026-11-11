@@ -16,11 +16,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -63,7 +65,7 @@ class DefaultAppController(
     @Volatile private var admitted = false
     private var admissionVersion = 0L
     /** Go was pressed and the host has not answered yet; the site stays shown until it does. */
-    @Volatile private var goPending = false
+    private val goPending = MutableStateFlow(false)
     /** Sites left saving while another is shown, as each desktop site saves beside the others. */
     private class Away(val host: DefaultDownloadHost, val download: DownloadState,
         val observations: DownloadObservations?, val admittedAtMillis: Long?, var watch: Job? = null)
@@ -100,6 +102,105 @@ class DefaultAppController(
                 }
                 return@launch
             }
+        }
+    }
+    private var allJob: Job? = null
+    @Volatile private var othersOpenedFor: String? = null
+
+    /** As the desktop's Start all: every site that is signed in and not saving is started in turn.
+     *  A site's sign-in lives with its own screen, so each is shown while it is started. */
+    override fun goAll() {
+        if (allJob?.isActive == true || _state.value.siteBusy || _state.value.libraryBusy || !workspaceReady) return
+        if (_state.value.signOutPending || screenHasActivity()) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                "Finish sign-in, export or cloud setup before starting every site."))
+            return
+        }
+        val home = location.key
+        val keys = listOf(home) + _state.value.sites.filter { it.enabled && it.signInAvailable && it.key != home }.map { it.key }
+        allJob = scope.launch {
+            _state.value = _state.value.copy(startingAll = true)
+            try {
+                for (key in keys) {
+                    if (isSaving(key)) continue
+                    if (location.key != key && !show(key)) break
+                    if (!signedInHere(key) || !mayStartHere()) continue
+                    go()
+                    withTimeoutOrNull(60_000) { goPending.first { !it } }
+                }
+                if (location.key != home) show(home)
+            } finally {
+                _state.value = _state.value.copy(startingAll = false)
+            }
+        }
+    }
+
+    private suspend fun show(key: String): Boolean {
+        if (_state.value.signOutPending || screenHasActivity() || _state.value.siteBusy || _state.value.libraryBusy) return false
+        // A switch always runs to its end, so Pause all cannot leave one half done.
+        return withContext(NonCancellable) { switchWorkspace(context.app.workspaceFor(key), false) }
+    }
+
+    /** Wait for the shown site's saved sign-in to be checked; only a standing sign-in starts. */
+    private suspend fun signedInHere(key: String): Boolean {
+        var checking = false
+        val settled = withTimeoutOrNull(15_000) {
+            engine.state.first { now ->
+                if (now is SignInState.Restoring) checking = true
+                (now as? SignInState.SignedIn)?.site == key || checking && now !is SignInState.Restoring
+            }
+        }
+        return (settled as? SignInState.SignedIn)?.site == key
+    }
+
+    /** What Go itself would refuse with a message is passed over quietly for Start all. */
+    private fun mayStartHere(): Boolean {
+        val shown = _state.value
+        val settings = shown.settings
+        return workspaceReady && !shown.signOutPending && !shown.cloudBusy && shown.cloud?.taskRunning != true &&
+            shown.cloud?.authStatus != "running" &&
+            (settings == null || settings.speeds.any { it.key == settings.speed && it.available })
+    }
+
+    override fun pauseAll() {
+        allJob?.cancel()
+        if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
+        for (kept in away.values) { kept.watch?.cancel(); kept.host.pause() }
+        away.clear()
+        _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
+        if (admitted || _state.value.download is DownloadState.Planning ||
+            _state.value.download is DownloadState.Running) pause()
+        _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
+    }
+
+    /** Open the library's other sites for their counts, as the desktop opens every site at once. */
+    private suspend fun openOthers(shown: SiteWorkspace) = withContext(Dispatchers.IO) {
+        if (othersOpenedFor == shown.libraryId) return@withContext
+        othersOpenedFor = shown.libraryId
+        for (choice in context.app.siteChoices()) {
+            if (choice.key == shown.key || !choice.enabled) continue
+            try {
+                val target = context.app.workspaceFor(choice.key, shown.libraryId)
+                if (!target.available || context.app.libraryLocations.root(target.libraryId) != target.base) continue
+                context.app.keepConnectionReport(target)
+                bridge.dispatch("open_site", JSONObject().put("root", target.root.absolutePath)
+                    .put("base_root", target.base.absolutePath).put("site_key", target.key).toString())
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { /* Its counts are left out until the site is opened by hand. */ }
+        }
+    }
+
+    private suspend fun readAllSites(target: SiteWorkspace, version: Long) {
+        val result = try {
+            JSONObject(bridge.dispatch("all_sites", JSONObject().put("base_root", target.base.absolutePath).toString()))
+                .takeIf { it.optBoolean("ok") }?.optJSONObject("result")
+        } catch (cancelled: CancellationException) { throw cancelled }
+          catch (_: Exception) { null }
+        val names = result?.optJSONArray("sites")
+        val read = if (result == null || names == null) null else AllSites(
+            (0 until names.length()).map { names.optString(it) }, result.optLong("episodes"), result.optLong("files"))
+        withContext(Dispatchers.Main) {
+            if (current(target, version) && read != null) _state.value = _state.value.copy(allSites = read)
         }
     }
     private val settingsActions = Mutex()
@@ -169,13 +270,13 @@ class DefaultAppController(
     /** Work that belongs to the screen being shown and cannot follow the user to another site. */
     private fun screenHasActivity(): Boolean {
         val auth = engine.state.value
-        return goPending || _state.value.settingsBusy || _state.value.cloudBusy ||
+        return goPending.value || _state.value.settingsBusy || _state.value.cloudBusy ||
             _state.value.cloud?.authStatus == "running" || context.app.exports.isActive ||
             auth is SignInState.Page || auth is SignInState.Settling || auth is SignInState.Restoring
     }
 
     private fun contextHasActivity(): Boolean =
-        screenHasActivity() || away.isNotEmpty() || admitted || _state.value.download is DownloadState.Planning ||
+        screenHasActivity() || allJob?.isActive == true || away.isNotEmpty() || admitted || _state.value.download is DownloadState.Planning ||
             _state.value.download is DownloadState.Running || _state.value.cloud?.taskRunning == true
 
     /** Process-owned import lease; activity recreation cannot silently release this admission guard. */
@@ -199,7 +300,8 @@ class DefaultAppController(
     }
 
     override fun selectSite(key: String) {
-        if (key == location.key && workspaceReady || _state.value.siteBusy || _state.value.libraryBusy) return
+        if (key == location.key && workspaceReady || _state.value.siteBusy || _state.value.libraryBusy ||
+            allJob?.isActive == true) return
         // A site that is saving goes on saving while another is shown.
         if (_state.value.signOutPending || screenHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
@@ -271,6 +373,8 @@ class DefaultAppController(
                                 emptyList(), null, theme = before.theme, sites = before.sites, libraryId = target.libraryId,
                                 libraryBusy = before.libraryBusy, workspaceReady = true,
                                 observations = returning?.observations, admittedAtMillis = returning?.admittedAtMillis,
+                                startingAll = before.startingAll,
+                                allSites = before.allSites.takeIf { before.libraryId == target.libraryId },
                                 signOutPending = sessionActions.getBoolean("signout_${target.key}", false))
                             _state.value = _state.value.copy(sites = withSaving(before.sites))
                             successful = true
@@ -448,12 +552,12 @@ class DefaultAppController(
         }
         val version = ++admissionVersion
         admitted = false
-        goPending = true
+        goPending.value = true
         poll?.cancel()
         _state.value = _state.value.copy(download = DownloadState.Planning, notice = null,
             admittedAtMillis = SystemClock.elapsedRealtime(), observations = null, statusReadFailed = false)
         downloads.go result@{ error ->
-            goPending = false
+            goPending.value = false
             if (version != admissionVersion) return@result
             admitted = error == null
             if (error == BetaCodes.LOGIN_REQUIRED) engine.requireSignIn()
@@ -726,6 +830,9 @@ class DefaultAppController(
         // The poll's bridge calls block on Python: keep them off the main thread.
         poll = scope.launch(Dispatchers.IO) {
             var tick = 0
+            try { openOthers(target) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { }
             while (isActive) {
                 if (admitted || tick % 5 == 0) mapWorkerStatus(target, version)
                 if (tick % 5 == 0) {
@@ -734,6 +841,7 @@ class DefaultAppController(
                     catch (_: Exception) { /* A library read failure must not stop live status/Pause updates. */ }
                     readSettings(target, version)
                     readCloud(target, version)
+                    readAllSites(target, version)
                 } else if (_state.value.cloud?.taskRunning == true || _state.value.cloud?.authStatus == "running") {
                     readCloud(target, version)
                 }

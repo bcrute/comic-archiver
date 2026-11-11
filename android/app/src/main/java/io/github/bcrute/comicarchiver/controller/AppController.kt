@@ -22,6 +22,10 @@ interface AppController {
     /** The only action that moves downloads toward Running. */
     fun go()
     fun pause()
+    /** Start or continue every site that can now; the others stay as they are. */
+    fun goAll() {}
+    /** Pause every site that is saving. */
+    fun pauseAll() {}
     fun stop()
 
     fun refreshSettings()
