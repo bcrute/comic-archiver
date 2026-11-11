@@ -8598,5 +8598,13 @@
   "new": "            await self.finish()\n            if True:\n                # Also when",
   "test_file": "test_connected_pairing.py",
   "test": "test_a_runner_whose_cleanup_fails_still_marks_its_pairing_over"
+ },
+ {
+  "id": "connected-snapshot-revision-read-first",
+  "source": "comic_archive/connected/files.py",
+  "old": "        revision = self.db.execute(\"SELECT revision FROM metadata\").fetchone()[0]\n        rows = self.db.execute(\n            \"SELECT * FROM books ORDER BY series_id, chapter_order, id LIMIT ?\",\n            (BOOKS_MAX + 1,),\n        ).fetchall()\n",
+  "new": "        rows = self.db.execute(\n            \"SELECT * FROM books ORDER BY series_id, chapter_order, id LIMIT ?\",\n            (BOOKS_MAX + 1,),\n        ).fetchall()\n        revision = self.db.execute(\"SELECT revision FROM metadata\").fetchone()[0]\n",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_book_recorded_while_the_catalog_is_read_is_never_hidden_under_the_new_revision"
  }
 ]

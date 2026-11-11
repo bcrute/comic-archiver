@@ -685,6 +685,9 @@ class Index:
 
     def snapshot(self):
         self.root.current()
+        # The revision first: a book recorded between the two reads then shows under the old revision,
+        # and the new one brings the reader back. Read after the books, it would hide that book.
+        revision = self.db.execute("SELECT revision FROM metadata").fetchone()[0]
         rows = self.db.execute(
             "SELECT * FROM books ORDER BY series_id, chapter_order, id LIMIT ?",
             (BOOKS_MAX + 1,),
@@ -695,7 +698,6 @@ class Index:
             len(json.dumps(entries, ensure_ascii=False).encode()) <= CATALOG_MAX,
             "resource_limit",
         )
-        revision = self.db.execute("SELECT revision FROM metadata").fetchone()[0]
         return revision, entries
 
     def open_original(self, book_id, version):

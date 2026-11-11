@@ -12,7 +12,7 @@ import struct
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 from comic_archive.connected.discovery import CatalogWatcher, CompletedScan
@@ -214,6 +214,36 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
         with self.assertRaises(SourceError):
             Index(missing, self.root, create=False)
         self.assertEqual(missing.read_bytes(), b"")
+
+    def test_a_book_recorded_while_the_catalog_is_read_is_never_hidden_under_the_new_revision(self):
+        self.scan.run(self.stop)
+        archive = self.publish().relative_to(self.library).as_posix()
+        database, statements = self.index.db, []
+
+        class Between:
+            """The index's own database, with another writer's commit landing after its first read."""
+
+            def execute(proxy, *args):
+                result = database.execute(*args)
+                statements.append(args[0])
+                if len(statements) == 1:
+                    rows = result.fetchall()
+                    with closing(Index(self.index.path, self.root, create=False)) as writer:
+                        writer.register_completed(archive, "Future download")
+                    return Mock(fetchone=lambda: rows[0], fetchall=lambda: rows)
+                return result
+
+        self.index.db = Between()
+        try:
+            during = self.index.snapshot()
+        finally:
+            self.index.db = database
+        after = self.index.snapshot()
+        self.assertEqual(len(statements), 2)
+        self.assertEqual(len(after[1]), 2)
+        # Either the reader is told to come back, or it already has everything.
+        self.assertTrue(during[0] != after[0] or during[1] == after[1])
+        self.assertNotEqual(during[0], after[0])
 
     def test_existing_actual_read_only_connection_sees_future_catalog_revision(self):
         self.scan.run(self.stop)
