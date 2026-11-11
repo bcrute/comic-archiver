@@ -44,7 +44,10 @@ class PythonChildTests(unittest.TestCase):
                     patch.object(osdep, 'WINDOWS', windows), patch.object(osdep.sys, 'prefix', prefix), \
                     patch.object(osdep.sys, 'base_prefix', base), patch.object(osdep.sys, 'executable', 'environment-python'), \
                     patch.object(osdep.sys, '_base_executable', executable, create=True):
-                self.assertEqual(osdep.python_child(), ('environment-python', {}))
+                interpreter, options = osdep.python_child()
+                self.assertEqual(interpreter, 'environment-python')
+                self.assertEqual(set(options), {'env'})
+                self.assertNotEqual(options['env'].get('__PYVENV_LAUNCHER__'), 'environment-python')
 
 
 class ReplaceTests(unittest.TestCase):
