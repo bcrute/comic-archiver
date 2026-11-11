@@ -791,7 +791,8 @@ class Inventory:
                                + clause(self.db) + ' LIMIT 1').fetchone() is not None
 
     def archive_selection(self, rows, limit=None):
-        """Admit one cooled CDN retry before healthy work; keep cooling rows queued."""
+        """Admit one cooled CDN retry before healthy work; keep cooling rows queued. With no healthy work left,
+        every cooled retry is admitted together, so the end of a download is not one episode a step."""
         now = observation_time(timestamp())
         if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_deferrals'").fetchone():
             waits = {key: observation_time(after) for key, after in self.db.execute('SELECT episode_id,retry_after FROM asset_deferrals')}
@@ -802,13 +803,14 @@ class Inventory:
         healthy = [row for row in rows if row['id'] not in waits]
         eligible = sorted((row for row in rows if row['id'] in waits and waits[row['id']] <= now),
                           key=lambda row: (waits[row['id']], row['id']))
-        selected = eligible[:1] + healthy
+        cooled = eligible[:1] if healthy else eligible
+        selected = cooled + healthy
         if self.queue_priority()=='expiring_first':
             from .expiry import now as expiry_now
             urgent=[row for row in healthy if row.get('access_expires_at') is not None and not failing(row)
                     and observation_time(row['access_expires_at'])>expiry_now()]
             urgent_ids={row['id'] for row in urgent}
-            selected=urgent+eligible[:1]+[row for row in healthy if row['id'] not in urgent_ids]
+            selected=urgent+cooled+[row for row in healthy if row['id'] not in urgent_ids]
         if limit is not None:
             selected = selected[:limit]
         wait = None

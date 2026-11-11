@@ -181,6 +181,20 @@ class AssetDeferralTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls[calls:],['identity'])
         self.assertEqual(self.adapter.downloads,[])
 
+    def test_cooled_retries_go_together_once_no_healthy_work_is_left(self,output):
+        with Inventory(self.root) as inventory:
+            ids=[row['id'] for row in inventory.pending()]
+            for key in ids[1:]:inventory.mark(key,'queued','asset_read_unavailable')
+        self.now += timedelta(seconds=300)
+        with Inventory(self.root) as inventory:
+            # Healthy work remains: one cooled retry goes first, to try the image servers once.
+            selected,wait=inventory.archive_selection(inventory.pending())
+            self.assertEqual(([row['id'] for row in selected],wait),([ids[1],ids[0]],None))
+            inventory.mark(ids[0],'archived')
+            selected,wait=inventory.archive_selection(inventory.pending())
+            self.assertEqual(([row['id'] for row in selected],wait),(ids[1:],None))
+            self.assertEqual([row['id'] for row in inventory.archive_selection(inventory.pending(),2)[0]],ids[1:3])
+
     def test_legacy_deferrals_upgrade_without_renewing_their_wait(self,output):
         with Inventory(self.root) as inventory:
             inventory.mark('81','queued','asset_read_unavailable')

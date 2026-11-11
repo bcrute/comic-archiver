@@ -8254,5 +8254,21 @@
   "new": "True:",
   "test_file": "test_publication.py",
   "test": "test_a_record_read_before_is_read_again_when_the_private_record_it_was_checked_against_changes"
+ },
+ {
+  "id": "cooled-retries-one-a-step-at-the-end",
+  "source": "comic_archive/inventory.py",
+  "old": "        cooled = eligible[:1] if healthy else eligible\n",
+  "new": "        cooled = eligible[:1]\n",
+  "test_file": "test_asset_deferral.py",
+  "test": "test_cooled_retries_go_together_once_no_healthy_work_is_left"
+ },
+ {
+  "id": "cooled-retries-all-ahead-of-healthy-work",
+  "source": "comic_archive/inventory.py",
+  "old": "        cooled = eligible[:1] if healthy else eligible\n",
+  "new": "        cooled = eligible\n",
+  "test_file": "test_asset_deferral.py",
+  "test": "test_cooled_retries_go_together_once_no_healthy_work_is_left"
  }
 ]
