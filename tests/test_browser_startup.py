@@ -14,8 +14,8 @@ class BrowserStartupTests(unittest.TestCase):
         driver.chromium.launch.side_effect = RuntimeError("SIGTRAP PRIVATE_TOKEN")
         browser = launch_browser(driver)
         self.assertIs(browser, driver.firefox.launch.return_value)
-        driver.chromium.launch.assert_called_once_with(headless=False, timeout=15000)
-        driver.firefox.launch.assert_called_once_with(headless=False, timeout=15000)
+        driver.chromium.launch.assert_called_once_with(headless=False, timeout=60000)
+        driver.firefox.launch.assert_called_once_with(headless=False, timeout=60000)
         self.assertNotIn("PRIVATE_TOKEN", str(output.call_args_list))
 
     def test_explicit_browser_does_not_try_another_engine(self):
@@ -62,7 +62,7 @@ class BrowserStartupTests(unittest.TestCase):
             with patch("comic_archive.adapters.tapas.browser_api", return_value=factory) as api:
                 adapter.__enter__()
             api.assert_called_once_with('qt')
-            driver.qt.launch.assert_called_once_with(headless=True, timeout=15000)
+            driver.qt.launch.assert_called_once_with(headless=True, timeout=60000)
             driver.chromium.launch.assert_not_called(); driver.firefox.launch.assert_not_called()
             context = driver.qt.launch.return_value.new_context
             self.assertEqual(context.call_args.kwargs, {"storage_state": {"cookies": [], "origins": []}, "service_workers": "block"})

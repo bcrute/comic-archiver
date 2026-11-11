@@ -66,11 +66,8 @@ class BrowserSessionTests(unittest.TestCase):
         from comic_archive import qt_engine
         with patch.dict(sys.modules, {'playwright': None, 'playwright.sync_api': None}):
             self.assertIs(self.real_api('qt'), qt_engine.Driver)
-        for platform, timeout in (('darwin', 60000), ('linux', 15000), ('win32', 15000)):
-            with self.subTest(platform=platform), patch.object(session.sys, 'platform', platform):
-                self.driver.qt.launch.reset_mock()
-                self.assertIs(session.launch_browser(self.driver, 'qt', headless=True), self.driver.qt.launch.return_value)
-                self.driver.qt.launch.assert_called_once_with(headless=True, timeout=timeout)
+        self.assertIs(session.launch_browser(self.driver, 'qt', headless=True), self.driver.qt.launch.return_value)
+        self.driver.qt.launch.assert_called_once_with(headless=True, timeout=60000)  # The same on every system.
         self.driver.chromium.launch.assert_not_called(); self.driver.firefox.launch.assert_not_called()
         with self.assertRaisesRegex(ArchiveError, 'chromium, firefox or qt'):
             session.launch_browser(self.driver, 'safari')
@@ -86,7 +83,7 @@ class BrowserSessionTests(unittest.TestCase):
     def test_the_browser_check_loads_no_account_data_and_closes_the_browser_even_when_it_fails(self):
         with redirect_stdout(io.StringIO()) as output:
             session.doctor('firefox', headless=True)
-        self.driver.firefox.launch.assert_called_once_with(headless=True, timeout=15000)
+        self.driver.firefox.launch.assert_called_once_with(headless=True, timeout=60000)
         self.browser.new_context.assert_called_once_with()  # A fresh context: no saved state is handed to it.
         self.browser.close.assert_called_once_with()
         self.assertIn('No account data was loaded', output.getvalue())

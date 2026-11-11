@@ -2,7 +2,6 @@
 import json
 import math
 import os
-import sys
 from pathlib import Path
 from . import archive_paths, sites, windows_privacy
 from .models import ArchiveError
@@ -39,6 +38,9 @@ def browser_failure_reason(error):
     return "browser startup failed; no account/session data was loaded"
 
 
+# How long a browser may take to start. A cold computer can need well over fifteen seconds to load the engine.
+LAUNCH_MS = 60000
+
 def launch_browser(driver, preferred="auto", headless=False):
     if preferred not in {"auto", "chromium", "firefox", "qt"}:
         raise ArchiveError("Browser must be auto, chromium, firefox or qt.")
@@ -46,9 +48,7 @@ def launch_browser(driver, preferred="auto", headless=False):
     failures = []
     for engine in engines:
         try:
-            # Loading QtWebEngine on a cold Mac can exceed the ordinary launch deadline.
-            timeout = 60000 if engine == 'qt' and sys.platform == 'darwin' else 15000
-            return getattr(driver, engine).launch(headless=headless, timeout=timeout)
+            return getattr(driver, engine).launch(headless=headless, timeout=LAUNCH_MS)
         except Exception as error:
             failures.append(f"{engine}: {browser_failure_reason(error)}")
             if engine != engines[-1]:

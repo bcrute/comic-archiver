@@ -761,7 +761,7 @@ class Driver:
     def qt(self):
         return self
 
-    def launch(self, headless=False, timeout=15000):
+    def launch(self, headless=False, timeout=60000):
         loop = _serving
         if loop is None:
             raise Error('The built-in engine runs only inside the downloader.')
