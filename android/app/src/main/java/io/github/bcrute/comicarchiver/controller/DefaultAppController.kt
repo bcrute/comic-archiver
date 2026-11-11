@@ -63,7 +63,7 @@ class DefaultAppController(
     @Volatile private var admitted = false
     private var admissionVersion = 0L
     /** Go was pressed and the host has not answered yet; the site stays shown until it does. */
-    private var goPending = false
+    @Volatile private var goPending = false
     /** Sites left saving while another is shown, as each desktop site saves beside the others. */
     private class Away(val host: DefaultDownloadHost, val download: DownloadState,
         val observations: DownloadObservations?, val admittedAtMillis: Long?, var watch: Job? = null)
