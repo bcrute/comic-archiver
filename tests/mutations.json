@@ -8638,5 +8638,21 @@
   "new": "        return affected",
   "test_file": "test_connected_rtc.py",
   "test": "test_withdrawing_a_share_goes_on_past_a_pairing_the_network_failed"
+ },
+ {
+  "id": "connected-terminal-own-opening-does-not-wait",
+  "source": "comic_archive/connected/terminal.py",
+  "old": "os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC",
+  "new": "os.O_RDONLY | os.O_NOCTTY | os.O_CLOEXEC",
+  "test_file": "test_connected_terminal.py",
+  "test": "test_actual_terminal_input_and_descriptor_retirement_preserve_original_mode"
+ },
+ {
+  "id": "connected-terminal-opened-anew-is-the-same-terminal",
+  "source": "comic_archive/connected/terminal.py",
+  "old": "                os.isatty(own) and os.fstat(own).st_rdev == os.fstat(fd).st_rdev,",
+  "new": "                os.isatty(own) and os.fstat(own).st_rdev != os.fstat(fd).st_rdev,",
+  "test_file": "test_connected_terminal.py",
+  "test": "test_actual_terminal_input_and_descriptor_retirement_preserve_original_mode"
  }
 ]

@@ -11,9 +11,9 @@ RETAINED = []
 
 
 class TerminalInput:
-    def __init__(self, token, fd, blocking):
+    def __init__(self, token, fd):
         require(token is _CREATE)
-        self.fd, self._blocking = fd, blocking
+        self.fd = fd
         self._loop = asyncio.get_running_loop()
         self._lines, self._buffer = asyncio.Queue(maxsize=4), bytearray()
         self._ended = False
@@ -26,13 +26,21 @@ class TerminalInput:
             "unsupported_format",
         )
         asyncio.get_running_loop()  # Refuse before acquiring an FD outside its actual owner loop.
-        duplicate = os.dup(fd)
-        blocking = os.get_blocking(duplicate)
-        result = cls(_CREATE, duplicate, blocking)
+        # The terminal opened anew, not a copy of the descriptor: a copy shares its settings with the shell
+        # and with this program's own output, which would then stop waiting too, and stay so after a kill.
         try:
-            require(os.isatty(duplicate), "unsupported_format")
-            os.set_blocking(duplicate, False)
-            result._loop.add_reader(duplicate, result._read)
+            own = os.open(
+                os.ttyname(fd), os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC
+            )
+        except OSError:
+            raise SourceError("unsupported_format") from None
+        result = cls(_CREATE, own)
+        try:
+            require(
+                os.isatty(own) and os.fstat(own).st_rdev == os.fstat(fd).st_rdev,
+                "unsupported_format",
+            )
+            result._loop.add_reader(own, result._read)
             return result
         except BaseException:
             try:
@@ -102,6 +110,5 @@ class TerminalInput:
         self._buffer.clear()
         if self.fd is not None:
             self._loop.remove_reader(self.fd)
-            os.set_blocking(self.fd, self._blocking)
             os.close(self.fd)
             self.fd = None

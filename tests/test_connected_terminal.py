@@ -22,6 +22,10 @@ class ConnectedTerminalTests(unittest.IsolatedAsyncioTestCase):
         terminal = TerminalInput.open(slave)
         self.addCleanup(terminal.close)
         owned = terminal.fd
+        # Its own opening of the terminal: the borrowed one, and whatever shares it, still waits as before.
+        self.assertEqual(os.get_blocking(slave), before)
+        self.assertFalse(os.get_blocking(owned))
+        self.assertEqual(os.fstat(owned).st_rdev, os.fstat(slave).st_rdev)
         os.write(master, b"status\n")
         self.assertEqual(await asyncio.wait_for(terminal.readline(), 1), "status")
         terminal.close()
