@@ -8310,5 +8310,45 @@
   "new": "        timeout = transfer_timeout(size)",
   "test_file": "test_cloud.py",
   "test": "test_failed_timeout_and_oversized_subprocess_output_are_sanitized"
+ },
+ {
+  "id": "direct-upload-stopped-after-the-wait",
+  "source": "comic_archive/cloud.py",
+  "old": "                self.stopped.set()\n                self.thread.join()",
+  "new": "                self.thread.join()",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here"
+ },
+ {
+  "id": "direct-upload-guard-stops-it",
+  "source": "comic_archive/cloud.py",
+  "old": "        if self._stopped.is_set():\n            raise CloudTransferError('cloud_connection')",
+  "new": "        if False:\n            raise CloudTransferError('cloud_connection')",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here"
+ },
+ {
+  "id": "direct-upload-stopped-is-not-failed",
+  "source": "comic_archive/cloud.py",
+  "old": "None if self.stopped.is_set() else code)",
+  "new": "code)",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here"
+ },
+ {
+  "id": "stopping-download-waits-briefly-for-upload",
+  "source": "comic_archive/publication.py",
+  "old": "self._finish_upload(STOPPING_UPLOAD_SECONDS)",
+  "new": "self._finish_upload()",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here"
+ },
+ {
+  "id": "direct-upload-waits-before-stopping",
+  "source": "comic_archive/cloud.py",
+  "old": "            self.thread.join(grace)\n",
+  "new": "            self.thread.join(0)\n",
+  "test_file": "test_cloud_stream.py",
+  "test": "test_an_upload_that_ends_within_the_wait_is_not_stopped"
  }
 ]

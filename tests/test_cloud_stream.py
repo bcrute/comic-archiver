@@ -688,6 +688,46 @@ class B2DirectTests(unittest.TestCase):
         self.assertEqual(self.target()['verified'], 1)
         self.assertFalse(self.intents())
 
+    def test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here(self):
+        following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')
+        stalled = threading.Event(); waited = []
+        def upload(transfer, data, destination):
+            stalled.set()
+            for _ in range(1000):  # A connection that never answers; only its guard ends it.
+                transfer.guard.check(); threading.Event().wait(0.01)
+        def retrieve(page):
+            if page.location.endswith('/next'):
+                self.assertTrue(stalled.wait(5)); raise Crash()
+            return png(page.order)
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
+        real = cloud.DirectUpload.finish
+        def finish(upload, grace=None):
+            waited.append(grace); return real(upload, grace)
+        with patch.object(StreamingTransfer, 'upload_bytes', upload), patch.object(cloud.DirectUpload, 'finish', finish), \
+                patch('comic_archive.publication.STOPPING_UPLOAD_SECONDS', 0.05), self.assertRaises(Crash):
+            self.publish((self.episode, following), adapter)
+        self.assertEqual(waited, [0.05])
+        folder = next(self.root.glob('Synthetic*'))
+        self.assertEqual(len(episode_archives(folder)), 2)  # The seed, and the episode whose upload was stopped.
+        self.assertEqual((self.target()['failed'], self.target()['pending']), (0, 1))
+
+    def test_an_upload_that_ends_within_the_wait_is_not_stopped(self):
+        following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')
+        release = threading.Event()
+        real = StreamingTransfer.upload_bytes
+        def upload(transfer, data, destination):
+            self.assertTrue(release.wait(5)); transfer.guard.check(); real(transfer, data, destination)
+        def retrieve(page):
+            if page.location.endswith('/next'):
+                threading.Timer(0.05, release.set).start(); raise Crash()
+            return png(page.order)
+        adapter = MemoryAdapter(); adapter.retrieve = Mock(side_effect=retrieve)
+        with patch.object(StreamingTransfer, 'upload_bytes', upload), self.assertRaises(Crash):
+            self.publish((self.episode, following), adapter)
+        self.assertEqual(len(episode_archives(next(self.root.glob('Synthetic*')))), 1)
+        self.assertEqual(self.target()['verified'], 2)
+        self.assertFalse(self.intents())
+
     def crash_after_the_cbz(self):
         real = StreamingTransfer.upload_bytes
         def upload(transfer, data, destination):

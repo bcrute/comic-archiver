@@ -252,6 +252,7 @@ def write_cbz(path, metadata, open_page, check=None):
 DIRECT_MEMORY = 256 * 1024**2
 # Episodes one run saves here when B2 could not confirm their upload, before it pauses instead.
 SET_ASIDE_LIMIT = 2
+STOPPING_UPLOAD_SECONDS = 20  # How long a download that is stopping waits for the episode still uploading.
 
 
 class DirectEpisode:
@@ -466,12 +467,12 @@ class PublicationStore(Store):
             self._uploading = DirectUpload(self.root, archive, data)
         return result
 
-    def _finish_upload(self):
+    def _finish_upload(self, grace=None):
         uploading, self._uploading = self._uploading, None
         if uploading is not None:
             from .cloud_errors import CloudTransferError
             try:
-                uploading.finish()
+                uploading.finish(grace)
             except CloudTransferError as error:
                 # An episode B2 could not confirm is saved here for the retry button, and the download goes on.
                 # Any other failure, or several in one run, is not about one episode: the download pauses.
@@ -594,7 +595,8 @@ class PublicationStore(Store):
             except BaseException:
                 self._keep_direct_pages()
                 try:
-                    self._finish_upload()
+                    # A download that is stopping gives the upload a short while, then stops it too.
+                    self._finish_upload(STOPPING_UPLOAD_SECONDS)
                 except (ArchiveError, OSError):
                     pass  # Recorded as failed, for the retry button; the first error is the one to report.
                 raise

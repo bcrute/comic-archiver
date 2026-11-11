@@ -819,6 +819,20 @@ def cleanup_direct(root, transfer=None):
     return transfer
 
 
+class _Interruptible:
+    """A transfer's network guard that also stops the transfer once its upload is given up on."""
+    def __init__(self, guard, stopped):
+        self._guard, self._stopped = guard, stopped
+
+    def check(self):
+        if self._stopped.is_set():
+            raise CloudTransferError('cloud_connection')
+        return self._guard.check()
+
+    def __getattr__(self, name):
+        return getattr(self._guard, name)
+
+
 class DirectUpload:
     """A finished episode held in memory, going to B2 while the next one downloads; no copy is saved here.
 
@@ -829,6 +843,9 @@ class DirectUpload:
     removed from this computer, the same as one saved here, uploaded, then
     removed. If the upload failed, finish saves the episode here, queued for the
     retry button, and raises the error an upload from this computer would raise.
+    finish(grace) waits that long and then stops the upload: the episode is saved
+    here, still waiting to upload, so stopping a download never waits out a
+    stalled connection.
     """
     def __init__(self, root, archive, data):
         self.root, self.archive, self.data = safe_root(root), safe_root(archive), data
@@ -842,6 +859,7 @@ class DirectUpload:
         self.intent = self.root / '.archive-state/cloud/direct/b2' / (self.bundle['episode_id'] + '.json')
         self.error = None
         self.thread = None
+        self.stopped = threading.Event()
         self.kept = False  # Whether a failed upload left the episode saved here.
         try:
             files = [data] + [(self.root / item['path']).read_bytes() for item in self.bundle['files'][1:]]
@@ -860,6 +878,9 @@ class DirectUpload:
                                  'target_id':self.target['target_id'], 'episode_id':self.bundle['episode_id'],
                                  'prefix':self.prefix, 'names':[name for name, _ in self.files]})
             self.transfer = transfer or transfer_for(self.root, 'b2', self.target)
+            guard = getattr(self.transfer, 'guard', None)
+            if guard is not None:
+                self.transfer.guard = _Interruptible(guard, self.stopped)
         except (ArchiveError, OSError, ValueError, KeyError, TypeError) as error:
             self.error = error
             return
@@ -882,16 +903,20 @@ class DirectUpload:
         except BaseException as error:
             self.error = error
 
-    def finish(self):
+    def finish(self, grace=None):
         if self.thread is not None:
-            self.thread.join()
+            self.thread.join(grace)
+            if self.thread.is_alive():
+                self.stopped.set()
+                self.thread.join()
         error, self.files = self.error, None
         if error is not None and not isinstance(error, (ArchiveError, OSError, ValueError, KeyError, TypeError)):
             raise error
         if error is not None:
+            # An upload stopped here did not fail: the episode waits to upload, with nothing to retry by hand.
             code = safe_code(error)
             try:
-                keep_here(self.root, self.archive, self.data, code)
+                keep_here(self.root, self.archive, self.data, None if self.stopped.is_set() else code)
                 self.kept = True
             except (ArchiveError, OSError):
                 pass  # Not saved anywhere: the episode is downloaded again next time.
