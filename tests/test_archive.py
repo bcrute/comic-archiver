@@ -395,6 +395,28 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ArchiveError):
             self.store.stored_path('linked/one.cbz')
 
+    def test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own(self):
+        from comic_archive import archive_paths
+        root, junctions = self.store.root, set()
+        series = root / 'Series'
+        series.mkdir()
+        # Only Windows has junctions; the check that finds one stands in for it here.
+        with patch('comic_archive.archive_paths.linked', side_effect=lambda path: Path(path) in junctions):
+            junctions.update({root, root.parent})
+            self.assertEqual(self.store.stored_path('Series/one.cbz'), series / 'one.cbz')
+            self.assertEqual(archive_paths.directory(series / 'New', root), series / 'New')
+            junctions.add(series)
+            with self.assertRaises(ArchiveError):
+                self.store.stored_path('Series/one.cbz')
+            for folder in (series, series / 'Deeper'):
+                with self.assertRaises(ArchiveError):
+                    archive_paths.directory(folder, root)
+            self.assertFalse((series / 'Deeper').exists())
+            other = (self.root / 'Other library').absolute()
+            junctions.add(other / '.archive-cache')
+            with self.assertRaises(ArchiveError):
+                Store(other)
+
     def test_cache_refuses_symlinked_blobs_and_low_disk_without_writing(self):
         self.store.min_free_bytes = 0
         data = png(5)

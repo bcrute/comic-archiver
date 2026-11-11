@@ -296,7 +296,7 @@ class PublicationStore(Store):
                 (source TEXT,source_series_id TEXT,series_id TEXT NOT NULL,
                  PRIMARY KEY(source,source_series_id))''')
             self.db.commit()
-            self.provenance = directory(self.root / '.archive-state/provenance')
+            self.provenance = directory(self.root / '.archive-state/provenance', self.root)
             self.provenance.chmod(0o700)
             self._published_sidecars={}
             self._recover_series_keys()
@@ -355,9 +355,9 @@ class PublicationStore(Store):
         export_id = self.export_id(series.source, key)
         row = self.db.execute('SELECT path FROM series_paths WHERE source=? AND series_id=?', (series.source, key)).fetchone()
         if row and row[0].endswith('[' + export_id[:12] + ']'):
-            return directory(self.stored_path(row[0]))
+            return directory(self.stored_path(row[0]), self.root)
         title = shortened(safe_name(series.title), self.root, 1, AFTER_TITLE + EPISODE_ROOM)
-        folder = directory(self.root / f'{title} [{export_id[:12]}]')
+        folder = directory(self.root / f'{title} [{export_id[:12]}]', self.root)
         self.db.execute('INSERT OR REPLACE INTO series_paths VALUES (?,?,?)',
                         (series.source, key, folder.relative_to(self.root).as_posix()))
         self.db.commit()
@@ -396,7 +396,7 @@ class PublicationStore(Store):
     def _retire_legacy(self, old):
         """Move a legacy tar that fails verification aside, so the CBZ saved again in its place is all that is left."""
         from .archive import sidecar_path
-        folder = directory(self.root/'.archive-state/legacy-exports'/old.parent.name); folder.chmod(0o700)
+        folder = directory(self.root/'.archive-state/legacy-exports'/old.parent.name, self.root); folder.chmod(0o700)
         retained, sidecar = folder/old.name, sidecar_path(old)
         if any(p.exists() or p.is_symlink() for p in (retained, sidecar_path(retained))):
             raise ArchiveError('Retained tar already exists; both copies held for review.')

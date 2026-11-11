@@ -7582,5 +7582,37 @@
   "new": "home / 'Library/Application Support' / app_runtime.FOLDER_NAME] if False else []",
   "test_file": "test_uninstall.py",
   "test": "test_the_apps_own_folders_go_and_nothing_beside_them"
+ },
+ {
+  "id": "junction-below-library-followed-for-new-folders",
+  "source": "comic_archive/archive_paths.py",
+  "old": " or (inside is not None and leads_out(path, inside)):",
+  "new": ":",
+  "test_file": "test_archive.py",
+  "test": "test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "junction-around-library-refused",
+  "source": "comic_archive/archive_paths.py",
+  "old": "for part in (path, *path.parents) if inside in part.parents)",
+  "new": "for part in (path, *path.parents))",
+  "test_file": "test_archive.py",
+  "test": "test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "junction-below-library-followed-for-stored-paths",
+  "source": "comic_archive/archive.py",
+  "old": "or leads_out(self.root / path, self.root)\n",
+  "new": "\n",
+  "test_file": "test_archive.py",
+  "test": "test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own"
+ },
+ {
+  "id": "junction-cache-folder-followed",
+  "source": "comic_archive/archive.py",
+  "old": "directory(self.root / \".archive-cache\", self.root)",
+  "new": "directory(self.root / \".archive-cache\")",
+  "test_file": "test_archive.py",
+  "test": "test_a_junction_below_the_library_is_refused_and_one_around_it_is_the_persons_own"
  }
 ]

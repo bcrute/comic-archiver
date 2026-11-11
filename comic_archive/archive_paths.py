@@ -6,6 +6,7 @@ import threading
 
 from .errors import LibraryMoved
 from .models import ArchiveError
+from .osdep import linked
 
 # The library folders open in this process. One that is missing was renamed, moved or deleted while open:
 # making it again would start a second, empty library where the first one was.
@@ -37,8 +38,19 @@ def kept(folder):
         release(folder)
 
 
-def directory(path):
-    if any(p.is_symlink() for p in (path, *path.parents)):
+def leads_out(path, inside):
+    """Whether path, or a folder between it and the folder it must stay inside, is a link or a Windows junction.
+
+    Path.is_symlink does not see a junction. The folder itself and those around it are the person's own to
+    arrange, and may well be junctions or drives mounted in a folder.
+    """
+    inside = Path(inside)
+    return any(linked(part) for part in (path, *path.parents) if inside in part.parents)
+
+
+def directory(path, inside=None):
+    """Make a folder the app writes in; inside names the library folder it must not be led out of."""
+    if any(p.is_symlink() for p in (path, *path.parents)) or (inside is not None and leads_out(path, inside)):
         raise ArchiveError("Refusing a symlink in archive output.")
     if not path.is_dir():
         absolute = Path(path).absolute()

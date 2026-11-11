@@ -15,8 +15,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .models import ArchiveError, canonical_url, identifier
 from .transport import ExpiredAsset
-from .archive_paths import directory
-from .osdep import anchored, hide, open_exclusive, replace_file, sync_file
+from .archive_paths import directory, leads_out
+from .osdep import anchored, hide, linked, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
 from .errors import RunLimit
 LIBRARY_REPORT_MAX_BYTES = 64 * 1024 * 1024
@@ -123,7 +123,7 @@ class Store:
         self._restore_cache_journal = None
         self._indexed_episode_folders = set()
         try:
-            self.cache = directory(self.root / ".archive-cache")
+            self.cache = directory(self.root / ".archive-cache", self.root)
             self.cache.chmod(0o700)
             hide(self.cache)
             db = self.cache / "index.sqlite3"
@@ -184,7 +184,8 @@ class Store:
 
     def stored_path(self, relative):
         path = Path(relative)
-        if anchored(path) or ".." in path.parts or any(p.is_symlink() for p in (self.root / path, *(self.root / path).parents)):
+        if (anchored(path) or ".." in path.parts or leads_out(self.root / path, self.root)
+                or any(p.is_symlink() for p in (self.root / path, *(self.root / path).parents))):
             raise ArchiveError("Stored archive path is invalid or a symlink.")
         return self.root / path
 
@@ -224,10 +225,10 @@ class Store:
     def series_folder(self, series):
         row = self.db.execute("SELECT path FROM series_paths WHERE source=? AND series_id=?", (series.source, series.id)).fetchone()
         if row:
-            return directory(self.stored_path(row[0]))
+            return directory(self.stored_path(row[0]), self.root)
         folder = self.root / f"{safe_name(series.title)} [{series.id}]"
         for candidate in self.root.iterdir():
-            if not candidate.is_dir() or candidate.name.startswith(".") or candidate.is_symlink():
+            if not candidate.is_dir() or candidate.name.startswith(".") or linked(candidate):
                 continue
             try:
                 metadata = json.loads((candidate / "series.json").read_text())
@@ -238,7 +239,7 @@ class Store:
                     break
             except (OSError, ValueError, AttributeError):
                 continue
-        directory(folder)
+        directory(folder, self.root)
         self.db.execute("INSERT INTO series_paths VALUES (?,?,?)", (series.source, series.id, folder.relative_to(self.root).as_posix()))
         self.db.commit()
         return folder
