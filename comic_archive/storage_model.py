@@ -65,7 +65,7 @@ def b2_summary(s):
         return ('Connected, not checked yet', 'warning',
                 f'Connected to {bucket}. Check the connection (step 5) before uploads can start.')
     if not target.get('enabled'):
-        return 'Set up', 'success', f'Set up and checked: {bucket}. Uploads are off; choose Backblaze B2 on the Storage tab.'
+        return 'Set up', 'success', f'Set up and checked: {bucket}. Uploads are off; choose Backblaze B2 where new episodes are saved.'
     retry = (f" {display(failed)} {'upload needs' if failed == 1 else 'uploads need'} retrying: click Retry unfinished uploads below."
              if failed else '')
     return ('Uploads need attention' if failed else 'Uploading to B2', 'warning' if failed else 'success',
@@ -95,8 +95,12 @@ def auth_text(auth):
     if auth.get('status') == 'cancelled':
         return 'Sign-in canceled. Your saved files are safe.'
     if auth.get('code') == 'signin_network_held':
-        return ('Mobile data is off. Connect to Wi-Fi or tick Also save on metered and mobile connections in Settings, '
-                'then try again.')
+        from . import cloud_runtime
+        if cloud_runtime._android:
+            return ('Mobile data is off. Connect to Wi-Fi or tick Also save on metered and mobile connections in '
+                    'Settings, then try again.')
+        return ('This connection is metered, or cannot be told apart from one. Connect to Wi-Fi or a wired '
+                'connection, or press Allow this connection on the Dashboard, then try again.')
     if auth.get('status') == 'error':
         return CLOUD_HINTS.get(auth.get('code'), 'Sign-in did not finish. Check your details and connection, then try again.')
     return ''

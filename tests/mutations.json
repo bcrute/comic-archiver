@@ -7942,5 +7942,29 @@
   "new": "        if self.runtime.busy():  # Asked off this thread",
   "test_file": "test_desktop_app.py",
   "test": "test_choosing_a_folder_never_waits_on_a_sleeping_drive_to_learn_whether_a_download_runs"
+ },
+ {
+  "id": "computer-told-to-tick-a-box-it-does-not-have",
+  "source": "comic_archive/storage_model.py",
+  "old": "        if cloud_runtime._android:\n            return ('Mobile data is off.",
+  "new": "        if True:\n            return ('Mobile data is off.",
+  "test_file": "test_storage_model.py",
+  "test": "test_the_key_check_is_described_as_it_goes"
+ },
+ {
+  "id": "phone-told-to-press-a-button-it-does-not-have",
+  "source": "comic_archive/storage_model.py",
+  "old": "        if cloud_runtime._android:\n            return ('Mobile data is off.",
+  "new": "        if False:\n            return ('Mobile data is off.",
+  "test_file": "test_storage_model.py",
+  "test": "test_the_key_check_is_described_as_it_goes"
+ },
+ {
+  "id": "storage-button-leads-nowhere-new",
+  "source": "comic_archive/window_pages.py",
+  "old": "lambda: pages.go_to('settings/downloads'), 'secondary')))",
+  "new": "lambda: None, 'secondary')))",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_b2_steps_point_at_where_the_choice_of_storage_is_now"
  }
 ]

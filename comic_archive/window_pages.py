@@ -76,8 +76,8 @@ B2_STEP4 = ('<b>4. Paste the key and connect.</b><br>Copy the two values Backbla
             'You won’t need to enter them again.')
 B2_STEP5 = ('<b>5. Check the connection.</b><br><span>The test uploads two saved episodes, verifies them and deletes its cloud '
             'copies. Your local originals stay here.</span>')
-B2_STEP6 = ('<b>6. Choose where to save.</b><br>Where new episodes go is chosen in one place: the Storage tab of these '
-            'settings. Once the check passes, Backblaze is offered there.')
+B2_STEP6 = ('<b>6. Choose where to save.</b><br>Where new episodes go is chosen in one place: “Save new episodes to” on '
+            'the Downloads &amp; storage tab of these settings. Once the check passes, Backblaze B2 is offered there.')
 B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browser, after Backblaze’s sign-in if needed.</span><ul>'
                  '<li><a href="browse">Browse Files</a>: see your saved episodes and download any of them. They are ordinary CBZ '
                  'files that any comic reader opens, with or without Comic Archiver.</li>'
@@ -1196,7 +1196,7 @@ class Settings:
         box.addLayout(self.cleanup_box)
         self.cleanups = []
         box.addWidget(kit.label(B2_STEP6, rich=True))
-        box.addWidget(kit.row(kit.button('Go to Storage', lambda: pages.go_to('settings/storage'), 'secondary')))
+        box.addWidget(kit.row(kit.button('Go to Downloads && storage', lambda: pages.go_to('settings/downloads'), 'secondary')))
         self.retry = kit.button('Retry unfinished uploads', pages.cloud_upload)
         box.addWidget(kit.row(self.retry))
         box.addWidget(kit.label(B2_YOUR_PAGES, rich=True))

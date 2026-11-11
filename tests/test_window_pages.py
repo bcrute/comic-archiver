@@ -1758,6 +1758,16 @@ class DownloadSettingsTests(PagesCase):
         self.assertEqual(len(self.actions.named('poll')), polls + 3)
         self.assertEqual(self.pages.again, set())
 
+    def test_the_b2_steps_point_at_where_the_choice_of_storage_is_now(self):
+        self.assertNotIn('Storage tab', window_pages.B2_STEP6)
+        self.assertIn('Downloads &amp; storage tab', window_pages.B2_STEP6)
+        self.open('settings/b2')
+        buttons = [b for b in self.pages.settings.widget.findChildren(QtWidgets.QPushButton)
+                   if b.text() == 'Go to Downloads && storage']
+        self.assertEqual(len(buttons), 1)
+        buttons[0].click()
+        self.assertEqual(self.pages.route, 'settings/downloads')
+
     def test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again(self):
         target = self.actions.reading['cloud']['targets'][0]
         target.update(enabled=True, confirmed=False)

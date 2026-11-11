@@ -1,5 +1,6 @@
 """What the Storage and Backblaze B2 settings and the dashboard's library card say and allow, decided without a window."""
 import unittest
+from unittest.mock import patch
 
 from comic_archive import storage_model as model
 from comic_archive.dashboard_model import CLOUD_HINTS, State
@@ -47,6 +48,8 @@ class SummaryTests(unittest.TestCase):
         for s, expected in cases:
             with self.subTest(expected[0]):
                 self.assertEqual(model.b2_summary(s)[:2], expected)
+                self.assertNotIn('Storage tab', model.b2_summary(s)[2])  # A tab the window no longer has.
+        self.assertIn('choose Backblaze B2 where new episodes are saved', model.b2_summary(state(b2(enabled=False)))[2])
         self.assertEqual(model.b2_summary(state(b2(tested=False)))[2],
                          'Connected to your bucket my-library. Check the connection (step 5) before uploads can start.')
         self.assertIn('your bucket.', model.b2_summary(state(b2(bucket=None)))[2])
@@ -71,7 +74,12 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(model.auth_text({'status': 'running'}), 'Checking your B2 key and private library bucket…')
         self.assertEqual(model.auth_text({'status': 'connected'}), 'Signed in. Next, click Test cloud connection.')
         self.assertEqual(model.auth_text({'status': 'cancelled'}), 'Sign-in canceled. Your saved files are safe.')
-        self.assertTrue(model.auth_text({'status': 'error', 'code': 'signin_network_held'}).startswith('Mobile data is off.'))
+        held = model.auth_text({'status': 'error', 'code': 'signin_network_held'})
+        self.assertIn('press Allow this connection on the Dashboard', held)  # Where the computer's window has it.
+        self.assertNotIn('tick', held)
+        with patch('comic_archive.cloud_runtime._android', True):  # The phone has a box to tick in Settings.
+            self.assertIn('tick Also save on metered and mobile connections in Settings',
+                          model.auth_text({'status': 'error', 'code': 'signin_network_held'}))
         self.assertEqual(model.auth_text({'status': 'error', 'code': 'b2_private_bucket'}), CLOUD_HINTS['b2_private_bucket'])
         self.assertTrue(model.auth_text({'status': 'error', 'code': 'x'}).startswith('Sign-in did not finish.'))
 
