@@ -258,7 +258,7 @@ class UninstallTests(unittest.TestCase):
             self.assertEqual(len(folders), 6 if sys.platform == 'darwin' else 4)
             with patch.dict(os.environ, {'XDG_CACHE_HOME': str(self.home / 'c'), 'XDG_DATA_HOME': str(self.home / 'd'),
                                          'XDG_STATE_HOME': 'relative'}):
-                self.assertEqual(uninstall.app_folders()[::2], [self.home / '.local/state/comic-archiver', self.home / 'c/Comic Archiver'])
+                self.assertEqual(uninstall.app_folders()[:4:2], [self.home / '.local/state/comic-archiver', self.home / 'c/Comic Archiver'])
                 self.assertEqual(uninstall.app_folders()[3], self.home / 'd/Comic Archiver')
             with patch.object(uninstall.sys, 'platform', 'darwin'):  # Where Qt keeps its cache and data on a Mac.
                 self.assertEqual(uninstall.app_folders()[4:], [self.home / 'Library/Caches/Comic Archiver',
