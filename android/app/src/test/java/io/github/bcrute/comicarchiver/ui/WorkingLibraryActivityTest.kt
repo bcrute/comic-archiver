@@ -182,6 +182,9 @@ class WorkingLibraryActivityTest {
         compose.onNodeWithContentDescription("Library options").performClick()
         compose.onNodeWithText("Change working library").performClick()
         compose.onNodeWithText("Working libraries").assertIsDisplayed()
+        // Opening the list reads it again, and a choice made while it is still being read is
+        // ignored: wait for the read, as a person waits for the list to appear.
+        await { !app.workingLibraries.state.value.loading }
         compose.runOnIdle { app.workingLibraries.select("default") }
         await { app.controller.state.value.libraryId == "default" && app.controller.state.value.workspaceReady && !app.controller.state.value.libraryBusy }
         assertFalse(missing.missing.exists())
