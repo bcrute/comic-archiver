@@ -147,7 +147,9 @@ class SiteSwitchActivityTest {
     @Test fun aSiteCannotBeChangedWhileItsGoIsStillBeingAnswered() {
         ready()
         compose.runOnIdle {
-            app.controller.go(); app.controller.selectSite("webtoon")
+            app.controller.go()
+            assertEquals(DownloadState.Planning to null, app.controller.state.value.let { it.download to it.notice })
+            app.controller.selectSite("webtoon")
             assertEquals("Finish sign-in, export or cloud setup before switching sites.",
                 app.controller.state.value.notice?.message)
         }
