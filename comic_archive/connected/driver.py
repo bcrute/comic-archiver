@@ -233,6 +233,10 @@ class HostDriver:
         # Waiting for driver/socket shutdown first could revive consent on crash.
         result = await self.controller.revoke(pairing_id)
         await self.stop(pairing_id)
+        slot = self._slots.get(pairing_id)
+        if slot is not None and slot.joined and slot.task.done():
+            # Its place is free for another pairing; one whose cleanup is not known to be over keeps it.
+            del self._slots[pairing_id]
         return result
 
     async def withdraw_share(self, share_id):
@@ -255,15 +259,26 @@ class HostDriver:
         )  # Durable local reduction BEFORE first await.
         for pair in affected:
             self.controller._acks.pop(pair, None)
+        failure = None
         for pair in affected:
-            await self.stop(pair)
-            if self.controller.owner._record(pair)["status"] == "revoked":
-                await self.controller.service.revoke(pair)
-            else:
-                await self.controller.reconcile_approval(pair)
-        for pair in resume:
-            if self.controller.owner._record(pair)["status"] == "approved":
-                self.enable(pair)
+            # Each by itself: one the network failed stays paused, and the rest still go on.
+            try:
+                await self.stop(pair)
+                if self.controller.owner._record(pair)["status"] == "revoked":
+                    await self.controller.service.revoke(pair)
+                else:
+                    await self.controller.reconcile_approval(pair)
+            except SourceError as error:
+                failure = failure or error
+                resume.discard(pair)
+        for pair in sorted(resume):
+            try:
+                if self.controller.owner._record(pair)["status"] == "approved":
+                    self.enable(pair)
+            except SourceError as error:
+                failure = failure or error
+        if failure is not None:
+            raise failure
         return affected
 
     def status(self):

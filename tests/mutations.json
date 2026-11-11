@@ -8606,5 +8606,37 @@
   "new": "        rows = self.db.execute(\n            \"SELECT * FROM books ORDER BY series_id, chapter_order, id LIMIT ?\",\n            (BOOKS_MAX + 1,),\n        ).fetchall()\n        revision = self.db.execute(\"SELECT revision FROM metadata\").fetchone()[0]\n",
   "test_file": "test_connected_discovery.py",
   "test": "test_a_book_recorded_while_the_catalog_is_read_is_never_hidden_under_the_new_revision"
+ },
+ {
+  "id": "connected-revoked-slot-freed",
+  "source": "comic_archive/connected/driver.py",
+  "old": "        if slot is not None and slot.joined and slot.task.done():\n",
+  "new": "        if False:\n",
+  "test_file": "test_connected_rtc.py",
+  "test": "test_a_revoked_pairing_gives_up_its_place_once_its_cleanup_is_over"
+ },
+ {
+  "id": "connected-withdraw-goes-on-past-failure",
+  "source": "comic_archive/connected/driver.py",
+  "old": "            except SourceError as error:\n                failure = failure or error\n                resume.discard(pair)",
+  "new": "            except SourceError as error:\n                raise",
+  "test_file": "test_connected_rtc.py",
+  "test": "test_withdrawing_a_share_goes_on_past_a_pairing_the_network_failed"
+ },
+ {
+  "id": "connected-withdraw-failed-pairing-stays-paused",
+  "source": "comic_archive/connected/driver.py",
+  "old": "                failure = failure or error\n                resume.discard(pair)",
+  "new": "                failure = failure or error",
+  "test_file": "test_connected_rtc.py",
+  "test": "test_withdrawing_a_share_goes_on_past_a_pairing_the_network_failed"
+ },
+ {
+  "id": "connected-withdraw-failure-still-reported",
+  "source": "comic_archive/connected/driver.py",
+  "old": "        if failure is not None:\n            raise failure\n        return affected",
+  "new": "        return affected",
+  "test_file": "test_connected_rtc.py",
+  "test": "test_withdrawing_a_share_goes_on_past_a_pairing_the_network_failed"
  }
 ]

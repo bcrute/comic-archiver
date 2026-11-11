@@ -87,6 +87,58 @@ class ConnectedDriverRetryTests(unittest.IsolatedAsyncioTestCase):
         await self.driver.close()
         self.owner.close()
 
+    def slot(self, pair):
+        """A pairing being served, whose task has already ended."""
+        slot = _Slot(pair)
+        slot.task = asyncio.get_running_loop().create_future()
+        slot.task.set_result(None)
+        slot.joined = True
+        self.driver._slots[pair] = slot
+        return slot
+
+    async def test_a_revoked_pairing_gives_up_its_place_once_its_cleanup_is_over(self):
+        from unittest.mock import AsyncMock
+
+        gone, kept = str(uuid.uuid4()), str(uuid.uuid4())
+        self.slot(gone), self.slot(kept)
+        with patch.object(self.controller, "revoke", AsyncMock(return_value=None)):
+            await self.driver.revoke(gone)
+            self.assertEqual(list(self.driver._slots), [kept])
+            with patch.object(self.controller, "stop", AsyncMock(side_effect=SourceError("connection_unavailable"))):
+                with self.assertRaises(SourceError):
+                    await self.driver.revoke(kept)
+            self.assertEqual(list(self.driver._slots), [kept])  # Its cleanup is not known to be over.
+
+    async def test_withdrawing_a_share_goes_on_past_a_pairing_the_network_failed(self):
+        from unittest.mock import AsyncMock, Mock
+
+        share = self.index.share_id
+        failed, fine, idle = sorted(str(uuid.uuid4()) for _ in range(3))
+        rows = [dict(pairing_id=pair, status="approved", shares=[share]) for pair in (failed, fine, idle)]
+        self.slot(failed), self.slot(fine)
+        self.slot(idle).enabled = False  # Stopped by the owner before: not started again.
+        reconciled = []
+
+        async def reconcile(pair):
+            reconciled.append(pair)
+            if pair == failed:
+                raise SourceError("connection_unavailable")
+
+        with (
+            patch.object(self.owner.state, "records", return_value=rows),
+            patch.object(self.owner, "remove_share") as removed,
+            patch.object(self.owner, "_record", return_value=dict(status="approved")),
+            patch.object(self.controller, "reconcile_approval", reconcile),
+            patch.object(self.driver, "stop", AsyncMock()),
+            patch.object(self.driver, "enable", Mock()) as enable,
+        ):
+            with self.assertRaises(SourceError) as caught:
+                await self.driver.withdraw_share(share)
+        self.assertEqual(caught.exception.code, "connection_unavailable")
+        removed.assert_called_once_with(share)
+        self.assertEqual(reconciled, [failed, fine, idle])
+        enable.assert_called_once_with(fine)
+
     async def test_failed_peer_setup_backs_off_but_account_refusal_needs_attention(
         self,
     ):
