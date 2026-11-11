@@ -8742,5 +8742,37 @@
   "new": "                os.fsync(directory)",
   "test_file": "test_connected_pairing.py",
   "test": "test_an_init_that_was_interrupted_can_be_run_again"
+ },
+ {
+  "id": "connected-scan-skips-book-recorded-as-it-is",
+  "source": "comic_archive/connected/discovery.py",
+  "old": "                                if not index.unchanged(relative, title):",
+  "new": "                                if True:",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are"
+ },
+ {
+  "id": "connected-unchanged-compares-the-stamp",
+  "source": "comic_archive/connected/files.py",
+  "old": "            if source.stamp.encode() != row[\"stamp\"]:\n                return False\n            metadata",
+  "new": "            metadata",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are"
+ },
+ {
+  "id": "connected-unchanged-compares-the-titles",
+  "source": "comic_archive/connected/files.py",
+  "old": "                == (_label(metadata.get(\"title\")), _label(series_title), chapter)",
+  "new": "                == (row[\"title\"], _label(series_title), chapter)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are"
+ },
+ {
+  "id": "connected-unchanged-compares-the-series-title",
+  "source": "comic_archive/connected/files.py",
+  "old": "                == (_label(metadata.get(\"title\")), _label(series_title), chapter)",
+  "new": "                == (_label(metadata.get(\"title\")), row[\"series_title\"], chapter)",
+  "test_file": "test_connected_discovery.py",
+  "test": "test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are"
  }
 ]

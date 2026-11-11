@@ -548,6 +548,34 @@ class Index:
     def register_standalone(self, relative, series_title):
         return self._register(relative, series_title, standalone=True)
 
+    def unchanged(self, relative, series_title):
+        """Whether a finished book is recorded exactly as it is now: the same file under the same titles.
+
+        The file is known by its stamp (device, number, size and times), so nothing is inflated or
+        hashed: a host that starts again does not read its whole library over.
+        """
+        row = self.db.execute("SELECT * FROM books WHERE relative=?", (relative,)).fetchone()
+        if row is None:
+            return False
+        source = self.root.open(relative)
+        try:
+            if source.stamp.encode() != row["stamp"]:
+                return False
+            metadata = _object(self.root, str(PurePosixPath(relative).with_suffix(".json")))
+            chapter = metadata.get("episode_number")
+            if type(chapter) is not int or not 0 <= chapter < 2**31:
+                chapter = None
+            source.current()
+            return (
+                metadata.get("schema_version") == 2
+                and metadata.get("format") == "cbz"
+                and metadata.get("content_type") == "comic"
+                and (row["title"], row["series_title"], row["chapter_order"])
+                == (_label(metadata.get("title")), _label(series_title), chapter)
+            )
+        finally:
+            source.close()
+
     def _register(self, relative, series_title, *, standalone):
         _require(
             isinstance(relative, str) and relative.lower().endswith(".cbz"),

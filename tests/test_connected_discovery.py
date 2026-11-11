@@ -181,6 +181,31 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
             self.assertEqual(self.scan.run(self.stop), 0)  # Still refused, and discovery goes on.
         self.assertEqual(len(self.index.snapshot()[1]), 1)
 
+    def test_a_host_started_again_does_not_read_over_books_recorded_as_they_still_are(self):
+        self.assertEqual(self.scan.run(self.stop), 1)
+        listed = self.index.snapshot()
+        archive = self.library / self.comic
+        with patch.object(Index, "register_completed", wraps=self.index.register_completed) as register:
+            again = CompletedScan(self.index)  # What a host that starts again begins with.
+            self.assertEqual(again.run(self.stop), 0)
+            register.assert_not_called()
+            self.assertEqual(len(again.cache), 1)
+            self.assertEqual(self.index.snapshot(), listed)
+            # The same bytes with another time are another file by its stamp: read once more.
+            os.utime(archive, ns=(1, 1))
+            self.assertEqual(CompletedScan(self.index).run(self.stop), 1)
+            self.assertEqual(register.call_count, 1)
+            series = self.index.snapshot()[1][0]["series_title"]
+            self.assertTrue(self.index.unchanged(self.comic, series))
+            self.assertFalse(self.index.unchanged(self.comic, "Another series"))
+            self.assertFalse(self.index.unchanged("missing/book.cbz", series))
+            # A title changed while the host was off is seen without the book's stamp changing.
+            sidecar = archive.with_suffix(".json")
+            record = json.loads(sidecar.read_text())
+            record["title"] = "Another title"
+            sidecar.write_text(json.dumps(record))
+            self.assertFalse(self.index.unchanged(self.comic, series))
+
     def test_root_replacement_fails_closed(self):
         self.library.rename(self.base / "removed")
         self.library.mkdir()

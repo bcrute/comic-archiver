@@ -105,8 +105,10 @@ class CompletedScan:
                                     continue
                                 # The existing completion verifier owns ZIP/hash/version
                                 # acceptance. A bare CBZ never falls back to standalone.
-                                index.register_completed(relative, title)
-                                registered += 1
+                                # One recorded as it still is (a host started again) is not read over.
+                                if not index.unchanged(relative, title):
+                                    index.register_completed(relative, title)
+                                    registered += 1
                                 self.full.discard(relative)
                                 if fingerprint == self._fingerprint(relative, _stamp(root, metadata)):
                                     self.cache[relative] = fingerprint
