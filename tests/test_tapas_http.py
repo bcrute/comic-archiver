@@ -508,11 +508,45 @@ class TapasHTTPTests(unittest.TestCase):
             {"pagination": {"page": 3, "has_next": False, "total": 2}, "episodes": [self.info]},
             {"pagination": {"page": 3, "has_next": False, "total": 2}, "episodes": []},
             {"pagination": {"page": 3, "has_next": False, "total": 3}, "episodes": [self.info | {"id": 82, "scene": 2}]},
-            {"pagination": {"page": 2, "has_next": True, "total": 2}, "episodes": [self.info | {"id": 82, "scene": 2}]},
         ):
             self.transport.get.side_effect = [envelope(first), envelope(second)]
             with self.assertRaises(ArchiveError):
                 self.adapter.enumerate_episodes(42)
+
+    def test_a_list_with_no_usable_next_page_ends_there_for_that_series_alone(self):
+        from comic_archive.adapters.pagination import EpisodeCountMismatch
+        second = self.info | {"id": 82, "scene": 2}
+        # More is promised, but the page is empty, its number does not advance, or more is not stated at all.
+        for pagination, items, reason in (
+                ({"page": 2, "has_next": True, "total": 3}, [], 'empty_page'),
+                ({"page": 1, "has_next": True, "total": 3}, [self.info, second], 'page_number_not_advancing'),
+                ({"page": 'PRIVATE', "has_next": True, "total": 3}, [self.info, second], 'page_number_not_advancing'),
+                ({"page": 2, "total": 3}, [self.info, second], 'more_pages_unstated')):
+            pages = [envelope({"pagination": {"page": 2, "has_next": True, "total": 3}, "episodes": [self.info, second]}),
+                     envelope({"pagination": pagination, "episodes": items})] if not items else [
+                     envelope({"pagination": pagination, "episodes": items})]
+            self.transport.get.side_effect = [envelope({'user': {'id': 123}}), envelope({'id': 42, 'title': 'S'}), *pages]
+            with self.assertLogs('comic_archive.download', 'INFO') as logged, \
+                    self.assertRaises(EpisodeCountMismatch) as caught:
+                self.adapter.inspect_series('42', strict_order=False)
+            self.assertEqual((caught.exception.series_id, caught.exception.observed_count, caught.exception.reported_count),
+                             ('42', 2, 3))
+            partial = caught.exception.partial_inspection
+            self.assertEqual((partial['complete'], [row['id'] for row in partial['episodes']]), (False, ['81', '82']))
+            self.assertEqual(logged.output, [
+                'INFO:comic_archive.download:series list ended early: series=42 listed_episodes=2 '
+                f'reported_episodes=3 reason={reason} page={len(pages)}'])
+            self.assertNotIn('PRIVATE', ''.join(logged.output) + json.dumps(caught.exception.__dict__))
+
+    def test_a_list_that_reaches_its_count_is_whole_even_when_more_is_promised(self):
+        self.transport.get.side_effect = [
+            envelope({"pagination": {"page": 2, "has_next": True, "total": 2}, "episodes": [self.info]}),
+            envelope({"pagination": {"page": 2, "has_next": True, "total": 2},
+                      "episodes": [self.info | {"id": 82, "scene": 2}]})]
+        with self.assertLogs('comic_archive.download', 'INFO'):
+            result = self.adapter.enumerate_episodes(42)
+        self.assertEqual([item["id"] for item in result], [81, 82])
+        self.assertEqual(self.transport.get.call_count, 2)
 
     def test_discovery_retains_access_without_inventing_ambiguous_episode_orders(self):
         for scene in (0, 1, None):

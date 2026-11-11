@@ -669,6 +669,8 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 inspected = adapter.inspect_series(series["id"], strict_order=False,**extra)
             except EpisodeCountMismatch as error:
                 if error.series_id!=series['id']:
+                    logging.getLogger('comic_archive.download').info(
+                        'series check stopped: series=%s error=%s', series['id'], type(error).__name__)
                     raise MetadataError('The pagination gap does not match the requested series.') from None
                 retain_partial_series(inventory,error)
                 settled=inventory.record_scan_gap(series['id'],error.observed_count,error.reported_count)
@@ -681,10 +683,17 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 if (type(status) is not int or status not in {404,410}
                         or getattr(error,'source_series_id',None)!=series['id']
                         or getattr(error,'source_route',None) not in {f"/series/{series['id']}", f"/series/{series['id']}/episodes"}):
+                    logging.getLogger('comic_archive.download').info(
+                        'series check stopped: series=%s error=%s', series['id'], type(error).__name__)
                     raise
                 inventory.record_series_unavailable(series['id'],status)
                 series_checkpoint(series['id'],held=True)
                 continue
+            except ArchiveError as error:
+                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.
+                logging.getLogger('comic_archive.download').info(
+                    'series check stopped: series=%s error=%s', series['id'], type(error).__name__)
+                raise
             if inspected.get('episode_enumeration_skipped') is True:
                 flags=inspected.get('series_content_flags')
                 if (inspected.get('authenticated') is not True or inspected.get('complete') is not False

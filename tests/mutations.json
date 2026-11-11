@@ -9190,5 +9190,37 @@
   "new": "    def __init__(self, project_root, theme=None, site=None, noted=True):\n        self.project_root = project_root\n        self.site = site or sites.DEFAULT\n        self.noted = False",
   "test_file": "test_app_runtime.py",
   "test": "test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins"
+ },
+ {
+  "id": "tapas-list-without-a-way-on-fails-the-step",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "            stuck = more is not False and (more is not True or not items or type(next_page) is not int or next_page <= page)",
+  "new": "            stuck = False",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_list_with_no_usable_next_page_ends_there_for_that_series_alone"
+ },
+ {
+  "id": "tapas-list-without-a-way-on-reads-on",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "            if more is False or stuck:",
+  "new": "            if more is False:",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_list_that_reaches_its_count_is_whole_even_when_more_is_promised"
+ },
+ {
+  "id": "tapas-list-ending-early-not-logged",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "            if stuck:\n                logging.getLogger('comic_archive.download').info(",
+  "new": "            if stuck:\n                (lambda *values: None)(",
+  "test_file": "test_tapas_http.py",
+  "test": "test_a_list_with_no_usable_next_page_ends_there_for_that_series_alone"
+ },
+ {
+  "id": "stopped-series-check-not-named-in-the-log",
+  "source": "comic_archive/jobs.py",
+  "old": "                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.\n                logging.getLogger('comic_archive.download').info(",
+  "new": "                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.\n                (lambda *values: None)(",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_wrong_series_gap_or_general_schema_error_stops_the_run"
  }
 ]

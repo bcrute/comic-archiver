@@ -209,7 +209,10 @@ class ScanGapTests(unittest.TestCase):
         for error in (EpisodeCountMismatch('999',2,3),ArchiveError('Unsupported response')):
             def fail(key,strict_order=False):raise error
             self.adapter.inspect_series=fail
-            with self.assertRaises(ArchiveError):sync(self.adapter,self.root,refresh_lists=False,limit=1)
+            with self.assertLogs('comic_archive.download','INFO') as logged, self.assertRaises(ArchiveError):
+                sync(self.adapter,self.root,refresh_lists=False,limit=1)
+            # The log names the series the step stopped on.
+            self.assertIn('INFO:comic_archive.download:series check stopped: series=42 error='+type(error).__name__,logged.output)
             with Inventory(self.root,read_only=True) as inventory:self.assertEqual(inventory.scan_gaps(),[])
         self.assertEqual(self.adapter.downloads,[])
 

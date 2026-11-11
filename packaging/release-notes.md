@@ -3,26 +3,17 @@
 | Windows 10 or 11 (64-bit) | [`ComicArchiver-{version}-windows-x86_64-setup.exe`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64-setup.exe) |
 | Windows, without installing | [`ComicArchiver-{version}-windows-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip) |
 | Linux (x86_64) | [`ComicArchiver-{version}-linux-x86_64.tar.gz`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-linux-x86_64.tar.gz) |
-| Mac with an Intel processor (macOS 13 or newer) | [`ComicArchiver-{version}-macos-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip) — first Mac version: not notarized by Apple, and tested only on macOS 15 |
+| Mac with an Intel processor (macOS 13 or newer) | [`ComicArchiver-{version}-macos-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip) — early Mac version: not notarized by Apple, and tested only on macOS 15 |
 
 ## Changes in {version}
 
-- **A first version for Mac.** Comic Archiver now runs on Macs with an Intel processor. Apple has not
-  notarized it, so macOS asks you to allow it the first time; the Mac section below shows how. Macs with Apple
-  silicon are not supported yet.
-- **Fewer downloads that stop partway.** A download no longer pauses because a site's own episode count
-  disagrees with its episode list. An episode the site has removed or left empty is set aside so the rest can
-  finish, and **Continue** tries the set-aside episodes again. When a site is down, the download waits and
-  carries on without giving up on its episodes.
-- **A clearer dashboard.** Provider cards are larger, with their status, estimates and transfer rate easier to
-  read, and the window shows a change as soon as it has happened.
-- **Libraries on more Windows drives.** A library can be kept on a drive that stores no access permissions,
-  such as an exFAT or FAT32 external drive.
-- **More novel chapters saved.** Chapters with tables whose cells span rows or columns are saved as EPUB.
-- **Moving a library is safer.** A move that was interrupted carries on after a restart, and no sign-in or
-  cloud key is left behind in a half-moved folder.
-- **Lighter on your disk.** The app reads the library less often while it works, which matters most on hard
-  disks and large libraries.
+- **One odd series no longer stops a Tapas download.** When Tapas promised more of a series' episode list but
+  gave no way to read on, the download stopped with "task failed" and pressing **Start** only repeated it. The
+  app now saves the episodes that were listed, sets that series aside as incomplete and carries on with the rest.
+- **The support log names the series a step stopped on**, so one odd series can be told from a wider problem.
+
+Version 0.4.1, a day earlier, added the first Mac version, a clearer dashboard, libraries on Windows drives
+that keep no access permissions, and fewer downloads that stop partway.
 
 Each is self-contained: nothing else needs installing.
 
@@ -84,7 +75,7 @@ uninstall, right-click Comic Archiver in the applications menu, choose **Uninsta
 <details>
 <summary>Mac install and update</summary>
 
-This first Mac version is for Macs with an Intel processor running macOS 13 or newer. It has been tested on
+The Mac version is for Macs with an Intel processor running macOS 13 or newer. It has been tested on
 macOS 15 only. Apple has not notarized the app, so macOS will not open it until you allow it once.
 
 1. Open the downloaded ZIP file, then drag `Comic Archiver` into your Applications folder.

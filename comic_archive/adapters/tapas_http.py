@@ -287,7 +287,17 @@ class TapasHTTPAdapter:
                 if item["id"] in episodes:
                     raise ArchiveError("Tapas pagination repeated an episode; completeness is unverified.")
                 episodes[item["id"]] = item
-            if pagination.get("has_next") is False:
+            more, next_page = pagination.get("has_next"), pagination.get("page")
+            # Tapas says there is more but gives no usable way on: an empty page, or a page number that does not
+            # advance. The list ends here for this series, as when it ends short; other series are not held up.
+            stuck = more is not False and (more is not True or not items or type(next_page) is not int or next_page <= page)
+            if stuck:
+                logging.getLogger('comic_archive.download').info(
+                    'series list ended early: series=%s listed_episodes=%s reported_episodes=%s reason=%s page=%s',
+                    platform_id, len(episodes), total,
+                    'more_pages_unstated' if more is not True else 'empty_page' if not items else 'page_number_not_advancing',
+                    page)
+            if more is False or stuck:
                 if len(episodes) != total:
                     error=EpisodeCountMismatch(platform_id,len(episodes),total)
                     error.partial_episode_summaries=self._episode_summaries(list(episodes.values()))
@@ -298,9 +308,6 @@ class TapasHTTPAdapter:
                         raise ArchiveError("Episode orders are invalid or ambiguous.")
                     return result
                 return sorted(result, key=lambda item: item["scene"])
-            next_page = pagination.get("page")
-            if pagination.get("has_next") is not True or not items or type(next_page) is not int or next_page <= page:
-                raise ArchiveError("Tapas returned an invalid next-page cursor.")
             page = next_page
         raise ArchiveError("Series pagination exceeds the conservative 500-page limit.")
 
