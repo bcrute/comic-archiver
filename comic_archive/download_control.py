@@ -861,6 +861,13 @@ def _transaction(session, library, action, *, create=False, require_queue=True):
                 _set_aside(root)
 
 
+def _completion_retry(library):
+    """Make ready what a held completion check found missing. The downloader can have the library for a moment
+    just then, finishing a step; that is waited for, briefly, since the record's own change is open meanwhile."""
+    with wait_for_library(library, 3), Inventory(library) as inventory:
+        return inventory.prepare_completion_retry()
+
+
 def start(session, library=Path('Library')):
     """Go: continue from wherever the download stopped, start a new round after a finished one, or begin."""
     def go(db, value, root):
@@ -882,8 +889,7 @@ def start(session, library=Path('Library')):
         elif value['code'] == 'archive_incomplete':
             value['audit'] = None  # Audited again from where it stopped; the last counts no longer stand.
             if _outstanding(db) is None:
-                with Inventory(library) as inventory:
-                    gaps, episodes = inventory.prepare_completion_retry()
+                gaps, episodes = _completion_retry(library)
                 if gaps:
                     value['stage'] = 'series'
                 elif episodes:
@@ -986,8 +992,7 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
                 if previous['code'] == 'archive_incomplete':
                     # Saving choices must not erase the recovery that Continue
                     # would have prepared for the held completion check.
-                    with Inventory(library) as inventory:
-                        gaps, _ = inventory.prepare_completion_retry()
+                    gaps, _ = _completion_retry(library)
                     if gaps:
                         value['stage'] = 'series'
             _save(db, value, 'download choices changed' if selection else 'speed changed')

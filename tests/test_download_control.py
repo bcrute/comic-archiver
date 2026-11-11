@@ -511,6 +511,27 @@ class ControllerTests(Controller):
         self.tick()
         self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
 
+    def test_go_waits_a_moment_for_a_library_the_downloader_is_just_finishing_with(self):
+        import threading
+        from comic_archive.locking import LibraryLock
+        self.go()
+        self.read_lists()
+        self.published()
+        self.ok({'completion_check_passed': False, 'archive_integrity_passed': True,
+                 'missing_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0,
+                 'unindexed_archive_count': 0})
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        held, done = threading.Event(), threading.Event()
+        def finishing():
+            with LibraryLock(self.library):
+                held.set(); done.wait(.4)
+        worker = threading.Thread(target=finishing); worker.start()
+        self.addCleanup(worker.join); self.addCleanup(done.set)
+        self.assertTrue(held.wait(30))
+        self.go()
+        self.assertEqual(self.state()['status'], 'running')
+
     def test_download_activity_is_shown_while_series_discovery_is_waiting(self):
         self.downloading()
         self.change("UPDATE state SET stage='series'")

@@ -7790,5 +7790,13 @@
   "new": "time.sleep(min(1,deadline-time.monotonic()))",
   "test_file": "test_locking.py",
   "test": "test_a_wait_that_ran_out_between_two_looks_at_the_clock_never_sleeps_a_negative_time"
+ },
+ {
+  "id": "go-fails-while-the-downloader-finishes-a-step",
+  "source": "comic_archive/download_control.py",
+  "old": "    with wait_for_library(library, 3), Inventory(library) as inventory:",
+  "new": "    with Inventory(library) as inventory:",
+  "test_file": "test_download_control.py",
+  "test": "test_go_waits_a_moment_for_a_library_the_downloader_is_just_finishing_with"
  }
 ]
