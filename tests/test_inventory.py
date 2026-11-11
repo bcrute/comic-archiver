@@ -47,13 +47,40 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
         with Inventory(self.root) as inventory:
             self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
-            inventory.record_scan_gap('42', 2, 3)
+            self.assertFalse(inventory.record_scan_gap('42', 2, 4))  # Other numbers: still a gap.
             self.assertEqual(inventory.scan_candidates(), [])
             self.assertTrue(inventory.finish_scan_cycle())
             self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
             self.assertEqual([tuple(row) for row in inventory.db.execute('SELECT * FROM series_scans')], before)
             self.assertEqual(len(inventory.scan_gaps()), 1)
             self.assertIsNone(inventory.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone())
+
+    def test_a_list_that_ends_at_the_same_short_count_on_a_later_check_is_taken_as_checked(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Series', [], 'fixture')
+            with self.assertLogs('comic_archive.download', 'WARNING'):
+                self.assertFalse(inventory.record_scan_gap('42', 2, 3))
+            self.assertEqual(len(inventory.scan_gaps()), 1)
+            self.assertIsNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
+            self.assertEqual(inventory.prepare_completion_retry(), (1, 0))
+            with self.assertLogs('comic_archive.download', 'INFO') as logged:
+                self.assertTrue(inventory.record_scan_gap('42', 2, 3))
+            self.assertIn('series list accepted: series=42 listed_episodes=2 reported_episodes=3', logged.output[0])
+            self.assertEqual(inventory.scan_gaps(), [])
+            self.assertEqual(inventory.scan_candidates(), [])
+            self.assertEqual(inventory.status()['series_scan_gap_count'], 0)
+            self.assertIsNotNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
+            # The numbers stay recorded, so the next round's same answer is not a new gap; other numbers are.
+            self.assertTrue(inventory.record_scan_gap('42', 2, 3))
+            self.assertEqual(inventory.scan_gaps(), [])
+            for seen, total in ((2, 4), (1, 3)):
+                self.assertTrue(inventory.record_scan_gap('42', 2, 3))
+                self.assertFalse(inventory.record_scan_gap('42', seen, total))
+                self.assertEqual(len(inventory.scan_gaps()), 1)
+                self.assertFalse(inventory.record_scan_gap('42', 2, 3))
+            # A whole list forgets the numbers.
+            inventory.record_series_scan('42')
+            self.assertFalse(inventory.record_scan_gap('42', 2, 3))
 
     def test_completion_retry_requeues_only_incomplete_readers_and_never_saved_files(self):
         with Inventory(self.root) as inventory:

@@ -9094,5 +9094,45 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_app_keeps_its_python_settings_out_of_the_programs_it_opens"
+ },
+ {
+  "id": "same-short-list-twice-stays-a-gap",
+  "source": "comic_archive/inventory.py",
+  "old": "(key,now,COUNT_DIFFERS if settled else 'pagination_count_mismatch',observed_count,reported_count))",
+  "new": "(key,now,'pagination_count_mismatch',observed_count,reported_count))",
+  "test_file": "test_inventory.py",
+  "test": "test_a_list_that_ends_at_the_same_short_count_on_a_later_check_is_taken_as_checked"
+ },
+ {
+  "id": "short-list-accepted-on-first-sight",
+  "source": "comic_archive/inventory.py",
+  "old": "settled=(before is not None and before['code']",
+  "new": "settled=(before is None or before['code']",
+  "test_file": "test_inventory.py",
+  "test": "test_a_list_that_ends_at_the_same_short_count_on_a_later_check_is_taken_as_checked"
+ },
+ {
+  "id": "short-list-accepted-with-other-numbers",
+  "source": "comic_archive/inventory.py",
+  "old": "                 and (before['observed_count'],before['reported_count'])==(observed_count,reported_count))",
+  "new": "                 and before['observed_count']==observed_count)",
+  "test_file": "test_inventory.py",
+  "test": "test_a_list_that_ends_at_the_same_short_count_on_a_later_check_is_taken_as_checked"
+ },
+ {
+  "id": "accepted-short-list-not-marked-checked",
+  "source": "comic_archive/inventory.py",
+  "old": "        if settled:\n            self.db.execute('INSERT INTO series_scans",
+  "new": "        if False:\n            self.db.execute('INSERT INTO series_scans",
+  "test_file": "test_inventory.py",
+  "test": "test_a_list_that_ends_at_the_same_short_count_on_a_later_check_is_taken_as_checked"
+ },
+ {
+  "id": "accepted-short-list-counted-as-held",
+  "source": "comic_archive/jobs.py",
+  "old": "series_checkpoint(series['id'],held=not settled)",
+  "new": "series_checkpoint(series['id'],held=True)",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_a_second_check_with_the_same_short_list_finishes_the_series"
  }
 ]

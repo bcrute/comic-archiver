@@ -77,6 +77,9 @@ def _stamp(path):
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
 
+# A list that twice ended at the same count below the site's own: recorded, and no longer a gap.
+COUNT_DIFFERS = 'reported_count_differs'
+
 class Inventory:
     def __init__(self, root, read_only=False):
         self.root = Path(root).absolute()
@@ -678,17 +681,35 @@ class Inventory:
         self.db.commit()
 
     def record_scan_gap(self,key,observed_count,reported_count):
+        """Record a list that ended short of the count the site reports; whether that is now taken as the site's own.
+
+        The first time, the series is held as incomplete. When a later check ends at the very same two numbers,
+        the list is all the site serves and its count is only a number: everything listed can be saved, so the
+        series counts as checked. The numbers stay recorded, and any other pair is a new gap.
+        """
         if (not observed_id(key) or type(observed_count) is not int or observed_count<0
                 or type(reported_count) is not int or reported_count<0
                 or self.db.execute('SELECT 1 FROM series WHERE id=?',(key,)).fetchone() is None):
             raise MetadataError('Cannot record an unverified series scan gap.')
+        before=self.db.execute('SELECT code,observed_count,reported_count FROM series_scan_gaps WHERE series_id=?',(key,)).fetchone()
+        settled=(before is not None and before['code'] in ('pagination_count_mismatch',COUNT_DIFFERS)
+                 and (before['observed_count'],before['reported_count'])==(observed_count,reported_count))
+        now=timestamp()
         self.db.execute('INSERT INTO series_scan_gaps VALUES (?,?,?,?,?) ON CONFLICT(series_id) DO UPDATE SET '
             'observed_at=excluded.observed_at,code=excluded.code,observed_count=excluded.observed_count,reported_count=excluded.reported_count',
-            (key,timestamp(),'pagination_count_mismatch',observed_count,reported_count))
+            (key,now,COUNT_DIFFERS if settled else 'pagination_count_mismatch',observed_count,reported_count))
+        if settled:
+            self.db.execute('INSERT INTO series_scans VALUES (?,?) ON CONFLICT(series_id) DO UPDATE SET observed_at=excluded.observed_at',(key,now))
         self.db.commit()
-        logging.getLogger('comic_archive.download').warning(
-            'series list incomplete: series=%s observed_episodes=%s reported_episodes=%s reason=pagination_count_mismatch',
-            key, observed_count, reported_count)
+        log=logging.getLogger('comic_archive.download')
+        if settled:
+            log.info('series list accepted: series=%s listed_episodes=%s reported_episodes=%s reason=same_counts_on_a_later_check',
+                     key, observed_count, reported_count)
+        else:
+            log.warning(
+                'series list incomplete: series=%s observed_episodes=%s reported_episodes=%s reason=pagination_count_mismatch',
+                key, observed_count, reported_count)
+        return settled
 
     def record_series_scan(self,key):
         if not observed_id(key):

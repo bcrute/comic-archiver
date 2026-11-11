@@ -671,8 +671,8 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 if error.series_id!=series['id']:
                     raise MetadataError('The pagination gap does not match the requested series.') from None
                 retain_partial_series(inventory,error)
-                inventory.record_scan_gap(series['id'],error.observed_count,error.reported_count)
-                series_checkpoint(series['id'],held=True)
+                settled=inventory.record_scan_gap(series['id'],error.observed_count,error.reported_count)
+                series_checkpoint(series['id'],held=not settled)
                 if download_ready():
                     break
                 continue

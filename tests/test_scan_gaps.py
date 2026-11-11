@@ -131,6 +131,20 @@ class ScanGapTests(unittest.TestCase):
             self.assertIsNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
             self.assertEqual(inventory.status()['series_scan_gap_count'],1)
 
+    @patch('builtins.print')
+    def test_a_second_check_with_the_same_short_list_finishes_the_series(self,output):
+        self.adapter.inspect_series=self.partial_inspection
+        first=sync(self.adapter,self.root,refresh_lists=False,scan_limit=1,limit=2)
+        self.assertEqual(first['refresh']['held_series_checks'],1)
+        with Inventory(self.root) as inventory:
+            self.assertEqual(inventory.prepare_completion_retry()[0],1)
+        second=sync(self.adapter,self.root,refresh_lists=False,scan_limit=1,limit=2)
+        self.assertEqual((second['refresh']['held_series_checks'],second['refresh']['successful_series_checks']),(0,1))
+        self.assertEqual(second['refresh']['series_scan_gaps'],[])
+        with Inventory(self.root,read_only=True) as inventory:
+            self.assertEqual(inventory.status()['series_scan_gap_count'],0)
+            self.assertIsNotNone(inventory.db.execute("SELECT 1 FROM series_scans WHERE series_id='42'").fetchone())
+
     def setUp(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name)/'Library'
