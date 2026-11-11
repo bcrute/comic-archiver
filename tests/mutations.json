@@ -8846,5 +8846,53 @@
   "new": "PAIRING_STOP = OPENING",
   "test_file": "test_connected_console.py",
   "test": "test_every_wait_for_a_close_covers_all_that_it_waits_on"
+ },
+ {
+  "id": "connected-closed-socket-is-not-revoked",
+  "source": "comic_archive/connected/controller.py",
+  "old": "            return \"connection_unavailable\" if error.code == \"cancelled\" else error.code",
+  "new": "            return \"revoked\"",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-revoked-record-still-says-revoked",
+  "source": "comic_archive/connected/controller.py",
+  "old": "            return \"connection_unavailable\" if error.code == \"cancelled\" else error.code",
+  "new": "            return \"connection_unavailable\"",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-runner-loop-reports-why-it-ended",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                    await self._event(value)\n                self._standing()",
+  "new": "                    await self._event(value)\n                require(self.current(), \"revoked\")",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-stopped-runner-is-not-revoked",
+  "source": "comic_archive/connected/controller.py",
+  "old": "        if self.stopping or self.controller.closed:\n            return \"connection_unavailable\"",
+  "new": "        if self.stopping or self.controller.closed:\n            return \"revoked\"",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-signal-wait-start-reports-why",
+  "source": "comic_archive/connected/controller.py",
+  "old": "        require(runner is not None and runner.pending is None, \"revoked\")\n        runner._standing()",
+  "new": "        require(runner is not None and runner.pending is None and runner.current(), \"revoked\")",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
+ },
+ {
+  "id": "connected-signal-arrival-reports-why",
+  "source": "comic_archive/connected/controller.py",
+  "old": "                value = await asyncio.wait_for(runner.signals.get(), 1)\n                runner._standing()",
+  "new": "                value = await asyncio.wait_for(runner.signals.get(), 1)\n                require(runner.current(), \"revoked\")",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked"
  }
 ]

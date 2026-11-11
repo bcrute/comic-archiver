@@ -483,6 +483,69 @@ class ConnectedPairingTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_a_reader_leaving_is_the_connection_ending_and_only_the_record_says_revoked(self):
+        from comic_archive.connected.controller import _Runner
+        from comic_archive.connected.rendezvous import HostRendezvous
+        from unittest.mock import AsyncMock, Mock
+
+        def runner(code=None):
+            transport = object.__new__(HostRendezvous)
+            transport.pairing_id, transport.invalidate = identifier(), Mock()
+            transport._current = Mock(side_effect=None if code is None else SourceError(code))
+            transport.renewal_deadline = None
+            made = _Runner(Mock(closed=False), transport)
+            made.finish = AsyncMock()
+            return made
+
+        self.assertIsNone(runner().lost())
+        self.assertEqual(runner("cancelled").lost(), "connection_unavailable")  # Its socket closed or dropped.
+        self.assertEqual(runner("revoked").lost(), "revoked")
+        self.assertEqual(runner("integrity_failed").lost(), "integrity_failed")
+        stopped = runner()
+        stopped.stopping = True
+        self.assertEqual(stopped.lost(), "connection_unavailable")
+        self.assertFalse(stopped.current())
+
+        async def run(code):
+            made = runner()
+            made.transport.receive = AsyncMock(return_value=dict(type="peer"))
+
+            async def event(value):
+                made.transport._current.side_effect = SourceError(code)  # While the message was handled.
+
+            made._event = event
+            await asyncio.wait_for(made.run(), 5)
+            return made.failure
+
+        self.assertEqual(asyncio.run(run("cancelled")), "connection_unavailable")
+        self.assertEqual(asyncio.run(run("revoked")), "revoked")
+
+        async def signal(code, late):
+            from comic_archive.connected.controller import HostController
+
+            made = runner()
+            made.signals.put_nowait(dict(type="offer"))
+            if late:
+                wait, real = made.signals.get, made.transport._current
+
+                async def get():
+                    value = await wait()
+                    real.side_effect = SourceError(code)  # The reader left as its signal arrived.
+                    return value
+
+                made.signals.get = get
+            else:
+                made.transport._current.side_effect = SourceError(code)
+            controller = object.__new__(HostController)
+            controller.current, controller._runners = Mock(), {made.pairing_id: made}
+            with self.assertRaises(SourceError) as raised:
+                await asyncio.wait_for(controller.receive_signal(made.pairing_id), 5)
+            return raised.exception.code
+
+        for late in (False, True):
+            self.assertEqual(asyncio.run(signal("cancelled", late)), "connection_unavailable")
+            self.assertEqual(asyncio.run(signal("revoked", late)), "revoked")
+
     def test_claim_expiring_during_review_is_reported_gone_without_ending_serve(self):
         from comic_archive.connected import __main__ as cli
         from comic_archive.connected.controller import (

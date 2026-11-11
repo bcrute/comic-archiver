@@ -67,20 +67,33 @@ class _Runner:
             self.crypto.close()
 
     def current(self):
+        return self.lost() is None
+
+    def lost(self):
+        """Why this connection is over, or None while it stands.
+
+        Stopped here, or its socket closed or dropped (a reader leaving does that), it is the connection
+        that is unavailable: it may be listened for again. Only the pairing's own record says revoked.
+        """
         if self.stopping or self.controller.closed:
-            return False
+            return "connection_unavailable"
         try:
             self.transport._current()
-            return True
-        except SourceError:
-            return False
+            return None
+        except SourceError as error:
+            return "connection_unavailable" if error.code == "cancelled" else error.code
+
+    def _standing(self):
+        lost = self.lost()
+        if lost is not None:
+            raise SourceError(lost)
 
     async def _event(self, value):
         kind = value["type"]
         if kind == "peer":
             bound = self.transport.binding
             status = await self.controller.service.status(self.pairing_id)
-            require(self.current(), "revoked")
+            self._standing()
             require(
                 status["status"] in {"claimed", "approved"}
                 and status["account_binding"] == bound["account_binding"]
@@ -175,7 +188,7 @@ class _Runner:
                     value = self.receiving.result()
                     self.receiving = None
                     await self._event(value)
-                require(self.current(), "revoked")
+                self._standing()
                 now = time.monotonic()
                 if now - heartbeat >= 15:
                     heartbeat = now
@@ -636,14 +649,12 @@ class HostController:
     async def receive_signal(self, pairing_id):
         self.current()
         runner = self._runners.get(pairing_id)
-        require(
-            runner is not None and runner.pending is None and runner.current(),
-            "revoked",
-        )
+        require(runner is not None and runner.pending is None, "revoked")
+        runner._standing()
         while runner.current():
             try:
                 value = await asyncio.wait_for(runner.signals.get(), 1)
-                require(runner.current(), "revoked")
+                runner._standing()
                 return loads(dumps(value, 196608), 196608)
             except TimeoutError:
                 continue
