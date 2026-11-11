@@ -74,16 +74,17 @@ def _command(*args):
     return result.stdout.decode('utf-8', errors='strict').strip()
 
 
-def probe():
+def probe(root=None):
     """Require every default-route interface to be unmetered.
 
     Unknown platforms, VPN routes, absent metering and conflicting routes hold.
     Do not report addresses, SSIDs, connection names or interface identifiers.
+    A computer has one answer for every library; the phone reads the report kept beside the library asked about.
     """
     unknown = {'connection': 'unknown', 'metered': None}
     from .network_android import configured as android_configured, probe as android_probe
     if android_configured():  # The app's own metering facts replace the desktop route probe.
-        return android_probe()
+        return android_probe(root)
     if sys.platform == 'darwin':
         from .macos import network_probe
         return network_probe()
@@ -127,7 +128,7 @@ def probe():
 
 def status(root):
     value = policy(root)
-    observed = probe()
+    observed = probe(root)
     allowed = not value['wifi_only'] or (observed['connection'] in {'wifi', 'wired'} and observed['metered'] is False)
     reason = ('allowed' if allowed else 'metered_connection' if observed['metered'] is True
               else 'connection_unverified')
@@ -150,7 +151,7 @@ class NetworkGuard:
         with self._lock:
             now = time.monotonic()
             if self._observed is None or now - self._checked >= 1:
-                self._observed = probe()
+                self._observed = probe(self.root)
                 self._checked = time.monotonic()
             allowed = self._observed['connection'] in {'wifi', 'wired'} and self._observed['metered'] is False
             if allowed != self._allowed:

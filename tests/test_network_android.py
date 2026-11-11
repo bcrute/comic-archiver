@@ -64,3 +64,43 @@ class FreshNetworkFactsTests(unittest.TestCase):
         self.path.unlink()
         self.path.write_text('partial write')
         self.assertEqual(network_android.probe(), network_android.UNKNOWN)
+
+    @patch('comic_archive.network_android.time.time', return_value=100.0)
+    def test_a_library_is_answered_from_the_report_beside_it(self, clock):
+        self.write()
+        site = self.path.parent / 'Webtoon'
+        (site / 'Library').mkdir(parents=True)
+        (site / 'net.json').write_text(json.dumps({'schema_version': 1, 'observed_at_ms': 100_000,
+                                                   'connection': 'cellular', 'metered': True}))
+        self.assertEqual(network_android.probe(site / 'Library'), {'connection': 'cellular', 'metered': True})
+        self.assertEqual(network_android.probe(), {'connection': 'wifi', 'metered': False})
+        # A stale report of its own holds that site, even while the registered one is fresh.
+        (site / 'net.json').write_text(json.dumps({'schema_version': 1, 'observed_at_ms': 60_000,
+                                                   'connection': 'wifi', 'metered': False}))
+        self.assertEqual(network_android.probe(site / 'Library'), network_android.UNKNOWN)
+
+    @patch('comic_archive.network_android.time.time', return_value=100.0)
+    def test_a_library_with_no_report_beside_it_is_answered_from_the_registered_one(self, clock):
+        self.write(connection='wired')
+        library = self.path.parent / 'Tappytoon/Library'
+        library.mkdir(parents=True)
+        self.assertEqual(network_android.probe(library), {'connection': 'wired', 'metered': False})
+
+    def test_no_library_is_answered_before_a_report_is_registered(self):
+        self.write()
+        network_android.configure(None)
+        self.assertEqual(network_android.probe(self.path.parent / 'Library'), network_android.UNKNOWN)
+
+    @patch('comic_archive.network_android.time.time', return_value=100.0)
+    def test_the_connection_rule_and_a_running_download_ask_about_their_own_library(self, clock):
+        from comic_archive import network
+        self.write()
+        site = self.path.parent / 'Webtoon'
+        (site / 'Library').mkdir(parents=True)
+        (site / 'net.json').write_text(json.dumps({'schema_version': 1, 'observed_at_ms': 100_000,
+                                                   'connection': 'cellular', 'metered': True}))
+        answer = network.status(site / 'Library')
+        self.assertEqual((answer['connection'], answer['allowed'], answer['reason']),
+                         ('cellular', False, 'metered_connection'))
+        with self.assertRaises(network.NetworkPolicyHold):
+            network.NetworkGuard(site / 'Library').check()

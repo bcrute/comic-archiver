@@ -39,12 +39,17 @@ def _status_file(path: Path):
         return None
 
 
-def probe():
-    """The connection facts for this moment; never guesses beyond what the file states."""
+def probe(root=None):
+    """The connection facts for this moment; never guesses beyond what the file states.
+
+    Each site's folder has a report of its own beside its library, so several sites save at once without
+    one start pointing the others at its file. A library with no report beside it is answered from the
+    last one registered: the phone has one connection, whichever site's file states it."""
     value = _path.get("value")
     if value is None:
         return dict(UNKNOWN)
-    observed = _status_file(Path(value))
+    own = Path(root).absolute().parent / 'net.json' if root is not None else None
+    observed = _status_file(own if own is not None and (own.is_file() or own.is_symlink()) else Path(value))
     if not isinstance(observed, dict) or observed.get("connection") not in _ALLOWED \
             or type(observed.get("metered")) is not bool:
         return dict(UNKNOWN)

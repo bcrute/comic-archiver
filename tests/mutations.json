@@ -9222,5 +9222,53 @@
   "new": "                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.\n                (lambda *values: None)(",
   "test_file": "test_scan_gaps.py",
   "test": "test_wrong_series_gap_or_general_schema_error_stops_the_run"
+ },
+ {
+  "id": "worker-library-beside-session",
+  "source": "comic_archive/worker.py",
+  "old": "    library = place / 'Library'\n",
+  "new": "    library = Path('Library')\n",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_saves_to_the_library_beside_its_session_wherever_the_process_runs_from"
+ },
+ {
+  "id": "worker-tick-names-library",
+  "source": "comic_archive/worker.py",
+  "old": "                        tick(session, library)",
+  "new": "                        tick(session)",
+  "test_file": "test_worker.py",
+  "test": "test_a_worker_saves_to_the_library_beside_its_session_wherever_the_process_runs_from"
+ },
+ {
+  "id": "android-probe-own-report",
+  "source": "comic_archive/network_android.py",
+  "old": "    own = Path(root).absolute().parent / 'net.json' if root is not None else None\n",
+  "new": "    own = None\n",
+  "test_file": "test_network_android.py",
+  "test": "test_a_library_is_answered_from_the_report_beside_it"
+ },
+ {
+  "id": "network-status-asks-own-library",
+  "source": "comic_archive/network.py",
+  "old": "    observed = probe(root)\n",
+  "new": "    observed = probe()\n",
+  "test_file": "test_network_android.py",
+  "test": "test_the_connection_rule_and_a_running_download_ask_about_their_own_library"
+ },
+ {
+  "id": "network-guard-asks-own-library",
+  "source": "comic_archive/network.py",
+  "old": "                self._observed = probe(self.root)",
+  "new": "                self._observed = probe()",
+  "test_file": "test_network_android.py",
+  "test": "test_the_connection_rule_and_a_running_download_ask_about_their_own_library"
+ },
+ {
+  "id": "worker-host-second-site-refused",
+  "source": "comic_archive/worker_host.py",
+  "old": "        for other in [key for key, worker in _workers.items() if not worker['thread'].is_alive()]:\n",
+  "new": "        if any(worker['thread'].is_alive() for key, worker in _workers.items() if key != session): raise ArchiveError('one')\n        for other in [key for key, worker in _workers.items() if not worker['thread'].is_alive()]:\n",
+  "test_file": "test_worker_host.py",
+  "test": "test_two_sites_run_at_once_and_stopping_one_leaves_the_other_running"
  }
 ]

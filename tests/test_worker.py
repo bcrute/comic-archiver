@@ -276,7 +276,7 @@ class WorkerTests(unittest.TestCase):
                     patch("comic_archive.worker.time.sleep", side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     run_worker(session, "firefox")
-                upload.assert_called_once_with(Path("Library"), limit=3)
+                upload.assert_called_once_with(session.absolute().parent / "Library", limit=3)
             response = session / "worker/responses/test-task.json"
             self.assertEqual(json.loads(response.read_text())["status"], "ok")
             self.assertEqual(response.stat().st_mode & 0o777, PRIVATE_FILE)
@@ -426,6 +426,22 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(status['state'],'stopped');self.assertNotIn('last_error_code',status)
             self.assertFalse(background.running(session/'worker'))
 
+    def test_a_worker_saves_to_the_library_beside_its_session_wherever_the_process_runs_from(self):
+        # Several workers share one process on a phone, so none may find its library through the current folder.
+        with tempfile.TemporaryDirectory() as work, tempfile.TemporaryDirectory() as elsewhere:
+            session=Path(work)/'site/session';requests=session/'worker/requests';requests.mkdir(parents=True)
+            private_json(requests/'test-task.json',{'operation':'cloud_upload','args':{}})
+            previous=os.getcwd();os.chdir(elsewhere);self.addCleanup(os.chdir,previous)
+            with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
+                    patch('comic_archive.cloud.upload_pending',return_value={'uploaded':0}) as upload, \
+                    patch('comic_archive.download_control.worker_tick') as tick, \
+                    patch('comic_archive.worker.time.sleep',side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):run_worker(session,'firefox')
+            library=(Path(work)/'site/Library').absolute()
+            upload.assert_called_once_with(library,limit=3)
+            tick.assert_called_once_with(session,library)
+            self.assertEqual(list(Path(elsewhere).iterdir()),[])
+
     def test_a_failing_controller_tick_never_stops_the_worker_serving_its_queue(self):
         import sqlite3
         with tempfile.TemporaryDirectory() as work:
@@ -498,7 +514,7 @@ class WorkerTests(unittest.TestCase):
     def test_an_idle_worker_whose_library_folder_was_renamed_stops_at_its_next_look(self):
         with tempfile.TemporaryDirectory() as work:
             library=Path(work)/'Comic Archiver';session=library/'session';(session/'worker/requests').mkdir(parents=True)
-            def renamed(_session):
+            def renamed(*_):
                 if library.exists():library.rename(Path(work)/'Renamed')
             with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
                     patch('comic_archive.download_control.worker_tick',side_effect=renamed), \

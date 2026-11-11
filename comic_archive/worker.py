@@ -44,9 +44,12 @@ def discard_request(path):
         print(f"Could not remove worker request {path.name}; it is retried after the next restart.", flush=True)
 
 
-def execute(adapter, request, *, fast_session=None, audit_progress=None):
+def execute(adapter, request, *, fast_session=None, audit_progress=None, library=None):
+    """Run one task. The worker names its library folder; a caller that names none means the one in the
+    folder it runs from."""
     try:
-        return _execute(adapter, request, fast_session=fast_session, audit_progress=audit_progress)
+        return _execute(adapter, request, fast_session=fast_session, audit_progress=audit_progress,
+                        library=Path('Library') if library is None else library)
     except ArchiveError:
         raise
     except Exception as error:
@@ -59,7 +62,7 @@ def execute(adapter, request, *, fast_session=None, audit_progress=None):
         raise failure from None
 
 
-def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_progress=None):
+def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_progress=None, library=Path('Library')):
     adapter.deadline = None
     operation = request.get("operation")
     args = request.get("args", {})
@@ -73,36 +76,36 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
             from .cloud import STREAM_PROVIDERS
             if args['provider'] in STREAM_PROVIDERS:
                 options['stream'] = True
-            return smoke_test(Path('Library'), args['provider'], **options)
-        return cleanup_test(Path('Library'), args['test_id'])
+            return smoke_test(library, args['provider'], **options)
+        return cleanup_test(library, args['test_id'])
     if operation == 'cloud_upload':
         if args:
             raise ArchiveError('Cloud upload accepts no paths or authentication options.')
         from .cloud import upload_pending
-        return upload_pending(Path('Library'), limit=3)
+        return upload_pending(library, limit=3)
     if operation == 'audit_account':
         if args:
             raise ArchiveError('Account audits accept no paths or source options.')
         # Keep the queue operation compatible with existing controller records;
         # automatic completion no longer runs the explicit full-file audit.
         from .audit import check_completion
-        return check_completion(Path('Library'))
+        return check_completion(library)
     if operation in {"archive_discovered", "sync"}:
         if upload_first:
             from .cloud import upload_pending
             from .network import NetworkPolicyHold
             from .cloud_errors import safe_code
             try:
-                upload_pending(Path('Library'), limit=10)
+                upload_pending(library, limit=10)
                 held = None
             except NetworkPolicyHold:
                 # The job meets the same connection rule and pauses for it with a receipt of its own.
-                return _execute(adapter, request, fast_session=fast_session, upload_first=False)
+                return _execute(adapter, request, fast_session=fast_session, upload_first=False, library=library)
             except (ArchiveError, OSError) as error:
                 held = safe_code(error)
             if held:
                 # A stuck upload, an expired sign-in or a full cloud must not stop saving here; the result says why.
-                result = _execute(adapter, request, fast_session=fast_session, upload_first=False)
+                result = _execute(adapter, request, fast_session=fast_session, upload_first=False, library=library)
                 return result | {'cloud_upload_error_code': held} if isinstance(result, dict) else result
         allowed = {"limit", "max_pages", "max_bytes", "max_seconds", "free_only",'request_interval', 'download_workers'}
         if operation == 'archive_discovered':
@@ -142,15 +145,15 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
         if speed == 'fast' and not other_site:
             if fast_session is not None:
                 with fast_session.batch() as fast:
-                    return archive_discovered(fast, Path('Library'), _discovery_report(), **fast_options(options))
+                    return archive_discovered(fast, library, _discovery_report(library), **fast_options(options))
             session = getattr(adapter, 'session', None)
             with FastImportAdapter(session, getattr(adapter, 'preferred_browser', 'auto'),
                                    headless=getattr(adapter, 'headless', False)) as fast:
-                return archive_discovered(fast, Path('Library'), _discovery_report(), **fast_options(options))
+                return archive_discovered(fast, library, _discovery_report(library), **fast_options(options))
         with paced_adapter(adapter, speed, interval, other_site, options):
             if operation == "sync":
-                return sync(adapter, Path("Library"), _discovery_report(), args.get("categories"), **options)
-            return archive_discovered(adapter, Path("Library"), _discovery_report(), **options)
+                return sync(adapter, library, _discovery_report(library), args.get("categories"), **options)
+            return archive_discovered(adapter, library, _discovery_report(library), **options)
 
     raise ArchiveError("Worker accepts only fixed archive, account audit and cloud tasks.")
 
@@ -197,8 +200,8 @@ def paced_adapter(adapter, speed, interval, other_site, options):
             transport.image_interval = old_image_interval
 
 
-def _discovery_report():
-    path = Path('Library/discovery.json')
+def _discovery_report(library=Path('Library')):
+    path = library / 'discovery.json'
     # A new user's inventory does not require a legacy discovery report.
     # Existing and unsafe paths still go through the importer validation.
     return path if path.exists() or path.is_symlink() else None
@@ -308,6 +311,8 @@ def controller_ticks():
 def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
                 fast_session_factory=None):
     place = Path(session).absolute().parent
+    # Named whole, not found through the folder the process runs from: several workers may share one process.
+    library = place / 'Library'
     root = directory(session / "worker")
     root.chmod(0o700)
     requests = directory(root / "requests")
@@ -364,7 +369,7 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                 for name, tick in controller_ticks():
                     # Each controller holds itself on a failure it expects; anything else must not stop the queue.
                     try:
-                        tick(session)
+                        tick(session, library)
                         failing.discard(name)
                     except Exception as error:
                         if name not in failing:
@@ -406,8 +411,8 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                             if not stopped and callable(getattr(adapter, 'begin_task', None)):
                                 adapter.begin_task()
                             publish({"state": "busy", "task_id": task_id})
-                        result = (cancelled_result(Path('Library'),request.get('operation'))
-                                  if stopped else execute(adapter, request, fast_session=fast_session,
+                        result = (cancelled_result(library,request.get('operation'))
+                                  if stopped else execute(adapter, request, fast_session=fast_session, library=library,
                                       audit_progress=lambda fields, task_id=task_id: private_json(root / 'progress.json',
                                                                                 fields | {'task_id': task_id})))
                         value = {"task_id": task_id, "status": "ok", "result": result}

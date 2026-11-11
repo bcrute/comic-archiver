@@ -108,7 +108,7 @@ class WorkerLifecycleTests(unittest.TestCase):
         self.library = self.root / "Library"
         self.library.mkdir()
         android_session.mark_signed_in(self.session)
-        # The one workspace rule: the worker's queue paths are workspace-relative.
+        # Run from the workspace as the phone once did; the worker itself no longer needs it.
         os.chdir(self.root)
         (self.root / "net.json").write_text(json.dumps({"connection": "wifi", "metered": False}))
         network_android.configure(None)
@@ -171,7 +171,7 @@ class WorkerLifecycleTests(unittest.TestCase):
                 stopped = worker_host.request_stop(self.session, wait_seconds=15)
                 self.assertFalse(stopped['running'], stopped)
 
-    def test_a_refused_cross_workspace_start_cannot_retarget_the_live_network_probe(self):
+    def test_two_sites_run_at_once_and_stopping_one_leaves_the_other_running(self):
         started = worker_host.start_in_process(self.session, self.library,
             _cookie_header, _set_cookies, self.root / 'net.json')
         self.assertTrue(started['running'], started)
@@ -181,8 +181,21 @@ class WorkerLifecycleTests(unittest.TestCase):
         other_session = other / '.comic-session'
         android_session.mark_signed_in(other_session, site=sites.named('webtoon'))
         (other / 'net.json').write_text('{"connection":"cellular","metered":true}')
-        with self.assertRaises(ArchiveError):
-            worker_host.start_in_process(other_session, other_library,
-                _cookie_header, _set_cookies, other / 'net.json')
-        self.assertEqual(network_android.probe(), {'connection': 'wifi', 'metered': False})
+        self.addCleanup(worker_host.request_stop, other_session, wait_seconds=15)
+        second = worker_host.start_in_process(other_session, other_library,
+            _cookie_header, _set_cookies, other / 'net.json')
+        self.assertTrue(second['started'], second)
+        self.assertEqual(second['state'], 'ready')
+        self.assertTrue(worker_host.status(self.session)['running'])
+        # Each library is answered from the report beside it, whichever site started last.
+        self.assertEqual(network_android.probe(self.library), {'connection': 'wifi', 'metered': False})
+        self.assertEqual(network_android.probe(other_library), {'connection': 'cellular', 'metered': True})
+        stopped = worker_host.request_stop(other_session, wait_seconds=15)
+        self.assertFalse(stopped['running'], stopped)
+        self.assertTrue(worker_host.status(self.session)['running'])
+        self.assertFalse(worker_host.status(other_session)['running'])
+        # The stopped site starts again beside the one that kept running.
+        again = worker_host.start_in_process(other_session, other_library,
+            _cookie_header, _set_cookies, other / 'net.json')
+        self.assertTrue(again['started'], again)
         self.assertTrue(worker_host.status(self.session)['running'])

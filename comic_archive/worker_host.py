@@ -5,9 +5,9 @@ which embedded Python must not rely on. The host runs the same worker behaviour 
 with an explicit session root, so Go-only admission (account_ui.reopen), the
 status.json/drain.json protocol and network holds behave exactly as on the desktop.
 
-Workspace rule (reviewed roadmap): explicit roots are preferred over process-global cwd
-changes. One workspace is active, whose root the bridge sets as the process cwd only
-after the former worker has fully stopped; queue paths stay inside their own session.
+Workspace rule (reviewed roadmap): explicit roots, never the folder the process runs from.
+Each site's workspace has a worker of its own, so every site can save at once as on the
+desktop; queue paths stay inside their own session.
 """
 import time
 import threading
@@ -17,7 +17,8 @@ from . import background
 from .models import ArchiveError
 from .state_paths import SESSION_NAME
 
-_thread = {"value": None, "session": None, "browser_factory": None}
+# One worker thread for each session folder, with the browser factory it must interrupt to stop.
+_workers = {}
 _launch_lock = threading.RLock()
 
 
@@ -68,9 +69,8 @@ def status(session_root) -> dict:
     """Worker status through the existing status.json/.runtime protocol."""
     session = Path(session_root).absolute()
     observed = background.status(session)
-    thread = _thread['value']
-    if (_thread['session'] == session and thread is not None and thread.is_alive()
-            and not observed['running']):
+    thread = _workers.get(session, {}).get('thread')
+    if thread is not None and thread.is_alive() and not observed['running']:
         return observed | {'running': True, 'state': 'stopping' if observed.get('stop_requested')
                            or observed.get('state') in {'stopped', 'startup_failed'} else 'starting'}
     return observed
@@ -81,17 +81,19 @@ def request_stop(session_root, *, wait_seconds: float = 0) -> dict:
     session = Path(session_root).absolute()
     deadline = time.monotonic() + wait_seconds
     with _launch_lock:
-        thread = _thread['value'] if _thread['session'] == session else None
+        worker = _workers.get(session, {})
+        thread = worker.get('thread')
         if thread is None or not thread.is_alive():
             return background.stop(session, wait_seconds=wait_seconds)
         background.stop(session, wait_seconds=0)  # Durable drain precedes renderer interruption.
-        factory = _thread.get('browser_factory')
+        factory = worker.get('browser_factory')
         if factory is not None:
             from .android_browser import interrupt_contexts
             interrupt_contexts(factory)
-        if thread is not None and thread is not threading.current_thread() and thread.is_alive():
-            thread.join(timeout=max(0, deadline - time.monotonic()))
-        return status(session)
+    # Waited for outside the lock: one site stopping does not keep another from starting.
+    if thread is not threading.current_thread() and thread.is_alive():
+        thread.join(timeout=max(0, deadline - time.monotonic()))
+    return status(session)
 
 
 def start_in_process(session_root, library_root, cookie_source, cookie_sink, network_status_path,
@@ -119,9 +121,6 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
         raise ArchiveError("The connection report belongs to this workspace.")
     background.root(session, create=True)  # Name and symlink validation, as the desktop path does.
     with _launch_lock, LibraryLock(library / '.launcher'):
-        previous = _thread['value']
-        if previous is not None and previous.is_alive() and _thread['session'] != session:
-            raise ArchiveError("Stop the previous site's downloader before starting another.")
         current = status(session)
         if current['running']:
             return current | {'started': False}
@@ -135,9 +134,9 @@ def start_in_process(session_root, library_root, cookie_source, cookie_sink, net
         network_android.configure(network_status_path)
         thread = threading.Thread(target=_worker_main, args=(session, factory, fast_factory),
                                   name='comic-archiver-worker', daemon=True)
-        _thread['value'] = thread
-        _thread['session'] = session
-        _thread['browser_factory'] = browser_factory if site == sites.DEFAULT else None
+        for other in [key for key, worker in _workers.items() if not worker['thread'].is_alive()]:
+            del _workers[other]
+        _workers[session] = {'thread': thread, 'browser_factory': browser_factory if site == sites.DEFAULT else None}
         # The embedded worker shares the app's pid, so only its fresh worker_id tells its
         # status apart from an interrupted run's leftover "busy" once it holds the lock.
         status_file = background.root(session) / 'status.json'
