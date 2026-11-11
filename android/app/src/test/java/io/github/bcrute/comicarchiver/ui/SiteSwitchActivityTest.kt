@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
@@ -93,17 +94,36 @@ class SiteSwitchActivityTest {
         assertEquals("Tapas book", app.controller.state.value.library.single().title)
     }
 
-    @Test fun theSiteCannotBeChangedWhileSavingAndALateRequestIsRefused() {
+    @Test fun aSiteKeepsSavingWhileAnotherIsShownAndIsStillSavingOnReturn() {
         ready()
         select("Go")
         await { app.controller.state.value.download is DownloadState.Running }
         select("Library")
-        // As on desktop, the site list is grayed out until saving is paused.
-        compose.onNodeWithTag("source-picker").assertIsNotEnabled()
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Pause saving to change the site."))
-        compose.runOnIdle { app.controller.selectSite("webtoon") }
-        compose.onNodeWithText("Finish sign-in, saving, export or cloud activity before switching sites.")
-            .assertIsDisplayed()
+        // As on desktop, every site saves by itself: the site list stays usable.
+        compose.onNodeWithTag("source-picker").assertIsEnabled()
+        select("Webtoon"); ready("webtoon")
+        assertEquals(DownloadState.Held, app.controller.state.value.download)
+        assertTrue(app.controller.isSaving("tapas"))
+        assertFalse(app.controller.isSaving("webtoon"))
+        assertEquals(listOf("tapas"), app.controller.state.value.sites.filter { it.saving }.map { it.key })
+        assertEquals(0, app.wire.count("pause")); assertEquals(0, app.wire.count("worker_stop"))
+        select("Tapas"); ready()
+        assertTrue(app.controller.state.value.download is DownloadState.Running)
+        assertTrue(app.controller.isSaving("tapas"))
+        // Returning neither stopped the download nor started it a second time.
+        assertEquals(1, app.wire.count("go")); assertEquals(1, app.wire.count("worker_start"))
+        assertEquals(0, app.wire.count("pause")); assertEquals(0, app.wire.count("worker_stop"))
+        // Pause still reaches the site being shown.
+        compose.runOnIdle { app.controller.pause() }
+        await { app.wire.count("pause") == 1 }
+        assertTrue(app.wire.requests.single { it.first == "pause" }.second.getString("root").endsWith("/workspace"))
+        assertFalse(app.controller.isSaving("tapas"))
+    }
+
+    @Test fun aSiteCannotBeChangedWhileItsGoIsStillBeingAnswered() {
+        ready()
+        compose.runOnIdle { app.controller.go(); app.controller.selectSite("webtoon") }
+        compose.onNodeWithText("Finish sign-in, export or cloud setup before switching sites.").assertIsDisplayed()
         assertEquals("tapas", app.controller.state.value.site)
         assertEquals(1, app.wire.count("prepare_workspace"))
     }

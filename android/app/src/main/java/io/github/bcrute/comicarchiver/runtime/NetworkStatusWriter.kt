@@ -8,8 +8,9 @@ import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/** One platform callback and one serialized writer for the selected workspace.
- * Selecting a site invalidates its old facts before new facts can permit work.
+/** One platform callback and one serialized writer for every opened site's workspace:
+ * each site may be saving at once, and each reads the report beside its own library.
+ * Opening a site invalidates its old facts before new facts can permit work.
  * No network name, address or device identity enters the private status file. */
 object NetworkStatusWriter {
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -18,7 +19,7 @@ object NetworkStatusWriter {
     private val gate = Any()
     private var manager: ConnectivityManager? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
-    @Volatile private var target: File? = null
+    @Volatile private var targets: Set<File> = emptySet()
 
     init {
         executor.scheduleWithFixedDelay({
@@ -29,8 +30,8 @@ object NetworkStatusWriter {
 
     fun start(context: Context, statusFile: File) {
         synchronized(gate) {
-            if (target != statusFile) {
-                target = statusFile
+            if (statusFile !in targets) {
+                targets = targets + statusFile
                 invalidate(statusFile)
             }
             val current = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -54,10 +55,15 @@ object NetworkStatusWriter {
         }
     }
 
+    /** Another working library is in use: its sites' reports are no longer kept fresh. */
+    fun forgetAll() {
+        synchronized(gate) { targets.forEach(::invalidate); targets = emptySet() }
+    }
+
     private fun invalidate(file: File) { try { file.delete() } catch (_: Exception) {} }
 
     private fun write(current: ConnectivityManager, lost: Network? = null) {
-        val selected = target ?: return
+        if (targets.isEmpty()) return
         executor.execute {
             try {
                 val network = current.activeNetwork
@@ -72,14 +78,18 @@ object NetworkStatusWriter {
                 val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) != true
                 val text = """{"schema_version":1,"observed_at_ms":${System.currentTimeMillis()},"connection":"$connection","metered":$metered}"""
                 synchronized(gate) {
-                    if (target != selected || manager !== current) return@execute
-                    selected.parentFile?.mkdirs()
-                    val scratch = File(selected.parentFile, selected.name + ".tmp")
-                    scratch.writeText(text)
-                    if (!scratch.renameTo(selected)) { scratch.delete(); invalidate(selected) }
+                    if (manager !== current) return@execute
+                    for (selected in targets) {
+                        try {
+                            selected.parentFile?.mkdirs()
+                            val scratch = File(selected.parentFile, selected.name + ".tmp")
+                            scratch.writeText(text)
+                            if (!scratch.renameTo(selected)) { scratch.delete(); invalidate(selected) }
+                        } catch (_: Exception) { invalidate(selected) }
+                    }
                 }
             } catch (_: Exception) {
-                synchronized(gate) { if (target == selected) invalidate(selected) }
+                synchronized(gate) { targets.forEach(::invalidate) }
             }
         }
     }

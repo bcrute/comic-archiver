@@ -9334,5 +9334,13 @@
   "new": "    if False:",
   "test_file": "test_android_signin_attempts.py",
   "test": "test_every_opened_site_keeps_its_own_settings_and_connection_report"
+ },
+ {
+  "id": "bridge-same-store-again-while-saving",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        if key is not None and _site_seams.get(key) == value:",
+  "new": "        if False:",
+  "test_file": "test_android_signin_attempts.py",
+  "test": "test_each_site_starts_with_its_own_sign_in_store_and_only_its_own_download_guards_it"
  }
 ]

@@ -19,14 +19,13 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * dataSync foreground service (native line). Owns the in-process Python worker's lifetime:
- * a progress notification whose Stop action is the same checkpoint-and-stop as the app's
- * Stop, and an onTimeout that checkpoints through the existing drain protocol before the
- * system stops it. Resuming is a fresh Go; nothing starts from BOOT_COMPLETED, and a killed
+ * dataSync foreground service (native line). Owns the lifetime of the in-process Python
+ * workers, one for each site that is saving: a progress notification whose Stop action is
+ * the same checkpoint-and-stop as the app's Stop, for every site at once, and an onTimeout
+ * that checkpoints through the existing drain protocol before the system stops it. Resuming is a fresh Go; nothing starts from BOOT_COMPLETED, and a killed
  * service is never sticky.
  */
 class DownloadHostService : Service() {
-    private var workspaceRoot: String? = null
     private var notificationIdentity: String? = null
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -45,18 +44,23 @@ class DownloadHostService : Service() {
         // action must still promote the service within its window before it stops itself.
         val requested = intent?.getStringExtra(EXTRA_WORKSPACE)
         if (intent?.action == ACTION_START) {
-            val target = app.workspace
-            val current = target.root.absolutePath
-            if (!target.available || requested != null && requested != current) {
+            // Only a site's workspace in the working library now in use can be kept alive.
+            val target = app.siteChoices().map { app.workspaceFor(it.key) }.firstOrNull {
+                it.available && it.root.absolutePath == (requested ?: app.workspace.root.absolutePath)
+            }
+            if (target == null) {
                 startInForeground()
-                if (workspaceRoot == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
+                if (ActiveDownloads.all().isEmpty()) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
                 return START_NOT_STICKY
             }
-            workspaceRoot = current
-            notificationIdentity = target.identity
+            if (notificationIdentity != target.libraryId) ActiveDownloads.clear()
+            ActiveDownloads.add(target.root.absolutePath)
+            notificationIdentity = target.libraryId
         }
         startInForeground()
-        if (intent?.action == ACTION_STOP && (requested == null || requested == workspaceRoot))
+        // A notification from another working library names one that is no longer saving here.
+        val library = intent?.getStringExtra(EXTRA_LIBRARY)
+        if (intent?.action == ACTION_STOP && (library == null || library == notificationIdentity))
             checkpointAndStop(startId)
         return START_NOT_STICKY
     }
@@ -66,7 +70,7 @@ class DownloadHostService : Service() {
             this, 1,
             Intent(this, DownloadHostService::class.java).setAction(ACTION_STOP)
                 .setData(Uri.parse("comicarchiver://downloads/${notificationIdentity ?: "inactive"}"))
-                .putExtra(EXTRA_WORKSPACE, workspaceRoot),
+                .putExtra(EXTRA_LIBRARY, notificationIdentity),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(
             this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -85,21 +89,30 @@ class DownloadHostService : Service() {
     }
 
     private fun checkpointAndStop(startId: Int, waitSeconds: Int = 15) {
-        val root = workspaceRoot
-        if (root == null) {
+        val roots = ActiveDownloads.all()
+        if (roots.isEmpty()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
             return
         }
-        // Off the main thread: the drain waits until the worker's task checkpoint lands.
+        // Off the main thread: the drain waits until each worker's task checkpoint lands.
         CoroutineScope(Dispatchers.IO).launch {
-            val session = java.io.File(root, ".comic-session").absolutePath
             try {
-                app.bridge.dispatch("pause", JSONObject().put("root", root).toString())
-                app.bridge.dispatch("worker_stop", JSONObject().put("session_root", session)
-                    .put("wait_seconds", waitSeconds).toString())
-            } catch (_: Exception) {
-                // This scope has no handler: a bridge failure here would crash the process.
+                // Every site is asked to pause before any is waited for, so the wait is shared.
+                for (root in roots) {
+                    try { app.bridge.dispatch("pause", JSONObject().put("root", root).toString()) }
+                    catch (_: Exception) { }
+                }
+                for (root in roots) {
+                    val session = java.io.File(root, ".comic-session").absolutePath
+                    try {
+                        app.bridge.dispatch("worker_stop", JSONObject().put("session_root", session)
+                            .put("wait_seconds", waitSeconds).toString())
+                    } catch (_: Exception) {
+                        // This scope has no handler: a bridge failure here would crash the process.
+                    }
+                    ActiveDownloads.remove(root)
+                }
             } finally {
                 // A delayed old Stop must not tear down a subsequent Start's notification.
                 if (stopSelfResult(startId)) stopForeground(STOP_FOREGROUND_REMOVE)
@@ -116,6 +129,7 @@ class DownloadHostService : Service() {
         const val ACTION_START = "io.github.bcrute.comicarchiver.worker.START"
         const val ACTION_STOP = "io.github.bcrute.comicarchiver.worker.STOP"
         const val EXTRA_WORKSPACE = "workspace_root"
+        const val EXTRA_LIBRARY = "working_library"
         private const val CHANNEL_ID = DownloadNotifications.CHANNEL_ID
         private const val NOTIFICATION_ID = 1
     }

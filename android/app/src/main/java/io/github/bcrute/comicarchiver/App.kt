@@ -59,10 +59,10 @@ open class App : Application() {
     val currentLibraryId: String get() = selectedLibraryId ?: initialLibraryId
     val readingBrowser by lazy {
         NativeBrowserFactory(this, { browserProfile("tapas") },
-            { (selectedKey ?: initialSiteKey) == "tapas" &&
-                (signInEngine.state.value as? SignInState.SignedIn)?.site == "tapas" &&
-                (controller.state.value.download is DownloadState.Planning ||
-                    controller.state.value.download is DownloadState.Running) },
+            // The first site reads while it is saving, whichever site is being shown; while
+            // it is the one shown, its sign-in must still stand.
+            { controller.isSaving("tapas") && ((selectedKey ?: initialSiteKey) != "tapas" ||
+                (signInEngine.state.value as? SignInState.SignedIn)?.site == "tapas") },
             { owner, selected -> createReadingSurface(owner, selected.key) })
     }
     @Volatile private var selectedKey: String? = null
@@ -110,6 +110,7 @@ open class App : Application() {
     fun selectWorkspace(key: String, libraryId: String = currentLibraryId) {
         val target = workspaceFor(key, libraryId)
         check(target.available) { "The working library is unavailable." }
+        if (libraryId != currentLibraryId) forgetNetworkWriters()
         startNetworkWriter(target)
         selectedKey = key
         selectedLibraryId = libraryId
@@ -117,6 +118,7 @@ open class App : Application() {
     }
 
     internal fun restoreWorkspaceSelection(previous: SiteWorkspace) {
+        if (previous.libraryId != currentLibraryId) forgetNetworkWriters()
         if (previous.available) startNetworkWriter(previous)
         selectedKey = previous.key
         selectedLibraryId = previous.libraryId
@@ -225,8 +227,13 @@ open class App : Application() {
         PythonRuntime.deactivateCookieStore()
     }
 
+    /** Each opened site gets a connection report of its own, kept fresh while the app runs. */
     protected open fun startNetworkWriter(target: SiteWorkspace) {
         NetworkStatusWriter.start(this, target.network)
+    }
+
+    protected open fun forgetNetworkWriters() {
+        NetworkStatusWriter.forgetAll()
     }
 
     override fun onTerminate() {

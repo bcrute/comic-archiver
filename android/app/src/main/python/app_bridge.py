@@ -160,6 +160,8 @@ def _replace_cookie_seams(value):
     while the others run. An unnamed store replaces every registration."""
     with _workspace_lock:
         key = value["site_key"]
+        if key is not None and _site_seams.get(key) == value:
+            return  # The same store again, as when a site that is saving is shown once more.
         if _running_roots(key):
             raise _BridgeError("refused", "Stop the downloader before changing site sign-in.")
         _close_browser()

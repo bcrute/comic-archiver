@@ -207,6 +207,8 @@ class NativeSignInAttemptTests(unittest.TestCase):
         with patch('comic_archive.worker_host.status',
                    side_effect=lambda session: {'running': session == self.session}):
             app_bridge.set_cookie_seams(later, None, 'webtoon')
+            # Showing the saving site again registers its own store once more, which changes nothing.
+            app_bridge.set_cookie_seams(first, None, 'tapas')
             with self.assertRaises(app_bridge._BridgeError):
                 app_bridge.set_cookie_seams(later, None, 'tapas')
             with self.assertRaises(app_bridge._BridgeError):

@@ -40,10 +40,10 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 @Composable
 internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
-    // As on desktop, the site stays put while saving, signing in or another task runs.
-    val saving = state.download is DownloadState.Running || state.download is DownloadState.Planning ||
-        state.cloud?.taskRunning == true || exporting
-    val working = saving || state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
+    // As on desktop, every site saves by itself: another can be shown while this one saves.
+    // Only signing in, an export or a setting being changed keeps the site in place.
+    val saving = state.download is DownloadState.Running || state.download is DownloadState.Planning
+    val working = exporting || state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.settingsBusy || state.cloudBusy || state.cloud?.authStatus == "running"
     val enabled = !working && !state.siteBusy && !state.libraryBusy && !state.signOutPending
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
@@ -53,7 +53,7 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
             val current = state.sites.firstOrNull { it.key == state.site }
             TextButton(onClick = { expanded = true }, enabled = enabled,
                 modifier = Modifier.testTag("source-picker").semantics {
-                    if (saving) stateDescription = "Pause saving to change the site."
+                    if (working) stateDescription = "Finish this before changing the site."
                 }) {
                 Text(current?.name ?: state.site)
                 Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose source")
@@ -63,7 +63,10 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
                     DropdownMenuItem(enabled = site.enabled,
                         text = { Column { Text(site.name); site.reason?.let {
                             Text(it, style = MaterialTheme.typography.bodySmall)
-                        } } },
+                        }
+                            if (site.saving || site.key == state.site && saving)
+                                Text("Saving", style = MaterialTheme.typography.bodySmall)
+                        } },
                         onClick = { expanded = false; onSelect(site.key) })
                 }
             }

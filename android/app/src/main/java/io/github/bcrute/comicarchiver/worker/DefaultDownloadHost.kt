@@ -86,7 +86,9 @@ class DefaultDownloadHost(
             val stopped = JSONObject(bridge.dispatch("worker_stop",
                 JSONObject().put("session_root", sessionRoot).put("wait_seconds", 15).toString()))
             val done = stopped.optBoolean("ok") && stopped.optJSONObject("result")?.opt("running") == false
-            if (done) context.stopService(Intent(context, DownloadHostService::class.java))
+            // The service goes on for any other site that is still saving.
+            if (done && ActiveDownloads.remove(workspaceRoot()))
+                context.stopService(Intent(context, DownloadHostService::class.java))
             done
         }
     }

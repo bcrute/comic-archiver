@@ -31,7 +31,9 @@ data class AppState(
 )
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,
-                      val signInAvailable: Boolean = enabled)
+                      val signInAvailable: Boolean = enabled,
+                      /** This site is saving now, whichever site is being shown. */
+                      val saving: Boolean = false)
 
 enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 

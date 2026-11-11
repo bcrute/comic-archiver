@@ -62,6 +62,46 @@ class DefaultAppController(
     /** The last user admission: downloads never report Running without it. */
     @Volatile private var admitted = false
     private var admissionVersion = 0L
+    /** Go was pressed and the host has not answered yet; the site stays shown until it does. */
+    private var goPending = false
+    /** Sites left saving while another is shown, as each desktop site saves beside the others. */
+    private class Away(val host: DefaultDownloadHost, val download: DownloadState,
+        val observations: DownloadObservations?, val admittedAtMillis: Long?, var watch: Job? = null)
+    private val away = java.util.concurrent.ConcurrentHashMap<String, Away>()
+
+    /** Whether a site is saving now, shown or not. The reading browser asks this off the main thread. */
+    fun isSaving(key: String): Boolean {
+        if (away.keys.any { it == context.app.workspaceFor(key).identity }) return true
+        val shown = _state.value
+        return shown.site == key && (admitted || shown.download is DownloadState.Planning ||
+            shown.download is DownloadState.Running)
+    }
+
+    private fun withSaving(sites: List<SiteChoice>): List<SiteChoice> =
+        sites.map { it.copy(saving = isSaving(it.key)) }
+
+    /** Keep watch on a site left saving, so its mark goes when its download ends by itself. */
+    private fun watch(target: SiteWorkspace): Job = scope.launch(Dispatchers.IO) {
+        while (isActive) {
+            delay(5000)
+            val envelope = try {
+                JSONObject(bridge.dispatch("download_status",
+                    JSONObject().put("root", target.root.absolutePath).toString()))
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            // A failed read cannot prove that a live task stopped, and a wait for the
+            // connection ends by itself: only an ended download loses its mark.
+            val download = envelope?.takeIf { it.optBoolean("ok") }?.let(DownloadStatus::fromEnvelope)
+            if (download is DownloadState.Failed || download is DownloadState.Finished ||
+                download == DownloadState.Paused("user")) {
+                withContext(Dispatchers.Main) {
+                    away.remove(target.identity)
+                    _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
+                }
+                return@launch
+            }
+        }
+    }
     private val settingsActions = Mutex()
     private val cloudActions = Mutex()
     private var catalogVersion = 0L
@@ -126,14 +166,17 @@ class DefaultAppController(
         signInWebView = null
     }
 
-    private fun contextHasActivity(): Boolean {
+    /** Work that belongs to the screen being shown and cannot follow the user to another site. */
+    private fun screenHasActivity(): Boolean {
         val auth = engine.state.value
-        return admitted || _state.value.download is DownloadState.Planning ||
-            _state.value.download is DownloadState.Running || _state.value.settingsBusy ||
-            _state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
+        return goPending || _state.value.settingsBusy || _state.value.cloudBusy ||
             _state.value.cloud?.authStatus == "running" || context.app.exports.isActive ||
             auth is SignInState.Page || auth is SignInState.Settling || auth is SignInState.Restoring
     }
+
+    private fun contextHasActivity(): Boolean =
+        screenHasActivity() || away.isNotEmpty() || admitted || _state.value.download is DownloadState.Planning ||
+            _state.value.download is DownloadState.Running || _state.value.cloud?.taskRunning == true
 
     /** Process-owned import lease; activity recreation cannot silently release this admission guard. */
     internal fun reserveLibraryChange(): Boolean {
@@ -157,9 +200,10 @@ class DefaultAppController(
 
     override fun selectSite(key: String) {
         if (key == location.key && workspaceReady || _state.value.siteBusy || _state.value.libraryBusy) return
-        if (_state.value.signOutPending || contextHasActivity()) {
+        // A site that is saving goes on saving while another is shown.
+        if (_state.value.signOutPending || screenHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish sign-in, saving, export or cloud activity before switching sites."))
+                "Finish sign-in, export or cloud setup before switching sites."))
             return
         }
         val choice = _state.value.sites.firstOrNull { it.key == key }
@@ -183,6 +227,11 @@ class DefaultAppController(
         val previous = location
         val before = _state.value
         val previousReady = workspaceReady
+        val previousHost = downloads
+        // Within one working library the site left behind keeps saving; another library is
+        // opened only with nothing saving at all.
+        val leftSaving = !commitLibrary && previous.libraryId == target.libraryId &&
+            (admitted || before.download is DownloadState.Planning || before.download is DownloadState.Running)
         val version = ++siteVersion
         admissionVersion++; catalogVersion++
         admitted = false
@@ -198,7 +247,7 @@ class DefaultAppController(
                     var runtimeChanged = false
                     var failure: Notice? = null
                     try {
-                        if (previousReady && !downloads.drain()) throw IllegalStateException("worker did not drain")
+                        if (previousReady && !leftSaving && !downloads.drain()) throw IllegalStateException("worker did not drain")
                         val opened = withContext(Dispatchers.IO) { prepareWorkspace(target) }
                         if (!opened.optBoolean("ok")) failure = workspaceNotice(opened)
                         else {
@@ -207,16 +256,23 @@ class DefaultAppController(
                             context.app.selectWorkspace(target.key, target.libraryId)
                             runtimeChanged = true
                             if (commitLibrary) withContext(Dispatchers.IO) { context.app.libraryLocations.select(target.libraryId) }
+                            if (leftSaving) away[previous.identity] = Away(previousHost, before.download,
+                                before.observations, before.admittedAtMillis).also { it.watch = watch(previous) }
+                            val returning = away.remove(target.identity)
+                            returning?.watch?.cancel()
                             location = target
-                            downloads = downloadHost(target)
+                            downloads = returning?.host ?: downloadHost(target)
+                            admitted = returning != null
                             siteLoaded = target.key
                             workspaceReady = true
                             try { surfaceRelease?.invoke() } catch (_: Exception) { }
                             signInWebView = null
-                            _state.value = AppState(target.key, engine.state.value, DownloadState.Held, emptyList(), null,
-                                theme = before.theme, sites = before.sites, libraryId = target.libraryId,
+                            _state.value = AppState(target.key, engine.state.value, returning?.download ?: DownloadState.Held,
+                                emptyList(), null, theme = before.theme, sites = before.sites, libraryId = target.libraryId,
                                 libraryBusy = before.libraryBusy, workspaceReady = true,
+                                observations = returning?.observations, admittedAtMillis = returning?.admittedAtMillis,
                                 signOutPending = sessionActions.getBoolean("signout_${target.key}", false))
+                            _state.value = _state.value.copy(sites = withSaving(before.sites))
                             successful = true
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
@@ -240,8 +296,11 @@ class DefaultAppController(
                             }
                         }
                         location = previous
-                        downloads = downloadHost(previous)
-                        _state.value = before.copy(download = DownloadState.Held, siteBusy = false,
+                        // A site that was saving and was never drained is still saving.
+                        downloads = if (leftSaving) previousHost else downloadHost(previous)
+                        admitted = leftSaving
+                        _state.value = before.copy(download = if (leftSaving) before.download else DownloadState.Held,
+                            siteBusy = false,
                             workspaceReady = workspaceReady, signIn = engine.state.value, notice = failure,
                             catalog = before.catalog.copy(loading = false, openingId = null))
                         if (workspaceReady && coreChanged) signInWebView?.let(engine::restoreSignIn)
@@ -389,10 +448,12 @@ class DefaultAppController(
         }
         val version = ++admissionVersion
         admitted = false
+        goPending = true
         poll?.cancel()
         _state.value = _state.value.copy(download = DownloadState.Planning, notice = null,
             admittedAtMillis = SystemClock.elapsedRealtime(), observations = null, statusReadFailed = false)
         downloads.go result@{ error ->
+            goPending = false
             if (version != admissionVersion) return@result
             admitted = error == null
             if (error == BetaCodes.LOGIN_REQUIRED) engine.requireSignIn()
