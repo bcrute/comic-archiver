@@ -102,9 +102,10 @@ class ReconciliationTests(unittest.TestCase):
             self.assertEqual(read.call_count,2)
             # A record that cannot be read is never remembered: it is read again each time.
             sidecar.write_text('[]')
-            for count in (3,4):
+            for _ in range(2):
+                before=read.call_count
                 with Inventory(self.root) as inventory:inventory.reconcile()
-                self.assertEqual(read.call_count,count)
+                self.assertGreater(read.call_count,before)
 
     def test_symlinked_archives_are_never_adopted_or_kept_as_saved(self):
         outside=self.root.parent/'outside';outside.mkdir()

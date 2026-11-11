@@ -1317,7 +1317,7 @@ class Pages:
         self.polling = {}  # Each site's state with a refresh on its way.
         self.acts = {}  # How many changes each site has finished: a reading asked for before one is older than it.
         self.again = set()  # The sites to read once more when the reading under way is back.
-        self.drawn = None  # What the last drawing was made from.
+        self.drawn_from = None  # What the last drawing was made from.
         self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
         kit = self.kit = Kit(q, self.link)
@@ -1555,9 +1555,9 @@ class Pages:
         dark = self.shell.dark()
         # Everything a drawing is made from, as text: the same text is the same drawing.
         drawing = repr((self.route, dark, chosen, s, sites, sorted(views.items()), everything, sorted(self.counting)))
-        if changed and drawing == self.drawn:
+        if changed and drawing == self.drawn_from:
             return
-        self.drawn = drawing
+        self.drawn_from = drawing
         self.header.show(self.route, dark)
         self.dashboard.show(s, sites, views, everything)
         if self.route.startswith('settings/'):

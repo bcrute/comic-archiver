@@ -985,7 +985,7 @@ class Shell:
         signin = signin or self.runtime.signin
         if self.phase != 'open' or signin.status().get('status') != 'running':
             if self.signin_stage == 'admitting':
-                self.signin_leave()  # Refused before any page was shown; the dashboard says why.
+                self.signin_leave(shown=False)  # Refused before any page was shown; the dashboard says why.
             return
         with self.signin_safe():
             if self.signin_panel is None:
@@ -1095,8 +1095,11 @@ class Shell:
         if self.signin_stage == 'finishing':
             self.signin_leave()
 
-    def signin_leave(self):
-        """Back to the dashboard, which says in its own words how the sign-in ended."""
+    def signin_leave(self, shown=True):
+        """Back to the dashboard, which says in its own words how the sign-in ended.
+
+        shown: whether anything but the dashboard may be on screen; a sign-in refused before its page is not.
+        """
         stage, self.signin_stage = self.signin_stage, None
         if stage in {'page', 'offline'}:
             try:
@@ -1104,7 +1107,7 @@ class Shell:
             except Exception as error:
                 LOG.error('the sign-in page could not be cleared: %s', app_runtime.describe(error))
         if self.phase == 'open':
-            if stage != 'admitting':  # Nothing was shown yet: the dashboard is still there.
+            if shown:
                 self.stack.setCurrentWidget(self.home)
             if stage:
                 # However it ended, the card says so now, not at the next timed look.

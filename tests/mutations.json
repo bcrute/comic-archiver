@@ -8170,7 +8170,7 @@
  {
   "id": "window-redrawn-every-second",
   "source": "comic_archive/window_pages.py",
-  "old": "        if changed and drawing == self.drawn:",
+  "old": "        if changed and drawing == self.drawn_from:",
   "new": "        if False:",
   "test_file": "test_window_pages.py",
   "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
@@ -8178,15 +8178,15 @@
  {
   "id": "window-never-redrawn-when-asked",
   "source": "comic_archive/window_pages.py",
-  "old": "        if changed and drawing == self.drawn:",
-  "new": "        if drawing == self.drawn:",
+  "old": "        if changed and drawing == self.drawn_from:",
+  "new": "        if drawing == self.drawn_from:",
   "test_file": "test_window_pages.py",
   "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
  },
  {
   "id": "window-tick-forgets-what-was-drawn",
   "source": "comic_archive/window_pages.py",
-  "old": "        self.drawn = drawing\n",
+  "old": "        self.drawn_from = drawing\n",
   "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_the_clocks_second_draws_the_window_again_only_when_what_it_shows_has_changed"
@@ -8290,8 +8290,8 @@
  {
   "id": "refused-sign-in-redraws-the-dashboard-it-never-left",
   "source": "comic_archive/desktop_app.py",
-  "old": "            if stage != 'admitting':  # Nothing was shown yet: the dashboard is still there.\n",
-  "new": "            if True:\n",
+  "old": "            if shown:\n                self.stack.setCurrentWidget(self.home)",
+  "new": "            if True:\n                self.stack.setCurrentWidget(self.home)",
   "test_file": "test_desktop_app.py",
   "test": "test_a_sign_in_held_before_it_begins_or_overtaken_by_closing_shows_no_tapas_page"
  },
