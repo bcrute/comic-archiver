@@ -57,12 +57,7 @@ def running(folder, runtime='.runtime'):
     except FileNotFoundError:
         return False
     try:
-        try:
-            osdep.lock(descriptor)
-        except BlockingIOError:
-            return True
-        osdep.unlock(descriptor)
-        return False
+        return osdep.held(descriptor)
     finally:
         os.close(descriptor)
 

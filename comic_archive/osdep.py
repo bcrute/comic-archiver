@@ -47,6 +47,20 @@ if WINDOWS:
     def unlock(descriptor):
         os.lseek(descriptor, 0, os.SEEK_SET)
         msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+
+    def held(descriptor):
+        """Whether another holder keeps the lock on this open file. Windows has no lock that two who only ask
+        can share, so one found taken is asked about again: another asker has it for an instant, a holder
+        for as long as it runs."""
+        for _ in range(5):
+            try:
+                lock(descriptor)
+            except BlockingIOError:
+                time.sleep(.02)
+                continue
+            unlock(descriptor)
+            return False
+        return True
 else:
     import fcntl
 
@@ -56,6 +70,16 @@ else:
 
     def unlock(descriptor):
         fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+    def held(descriptor):
+        """Whether another holder keeps the lock on this open file. Asked with a shared lock, so two who ask
+        at once never see each other as a holder."""
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        return False
 
 
 def private_file(descriptor):

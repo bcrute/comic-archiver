@@ -47,6 +47,33 @@ class BackgroundTests(unittest.TestCase):
             background.stop(session)
             self.assertFalse((root / "drain.json").exists())
 
+    @unittest.skipIf(os.name == 'nt', 'Windows asks again instead of sharing the lock; see the next test')
+    def test_two_checks_at_once_never_take_each_other_for_a_worker(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as work:
+            folder = Path(work) / 'worker'
+            self.assertFalse(background.running(folder))  # Nothing has ever run here.
+            with LibraryLock(folder / '.runtime'):
+                pass
+            other = os.open(folder / '.runtime/.archive-state/writer.lock', os.O_RDONLY)
+            self.addCleanup(os.close, other)
+            fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)  # Another check, in the middle of asking.
+            self.assertFalse(background.running(folder))
+            fcntl.flock(other, fcntl.LOCK_UN)
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # A worker.
+            self.assertTrue(background.running(folder))
+            fcntl.flock(other, fcntl.LOCK_UN)
+            self.assertFalse(background.running(folder))
+
+    @unittest.skipUnless(os.name == 'nt', 'Only Windows has this form of the check.')
+    def test_where_a_lock_cannot_be_shared_one_found_taken_is_asked_about_again(self):
+        with patch('comic_archive.osdep.lock', side_effect=[BlockingIOError(), BlockingIOError(), None]) as lock, \
+                patch('comic_archive.osdep.unlock') as unlock, patch('comic_archive.osdep.time.sleep') as sleep:
+            self.assertFalse(osdep.held(7))
+            self.assertEqual((lock.call_count, unlock.call_count, sleep.call_count), (3, 1, 2))
+            lock.side_effect = BlockingIOError()
+            self.assertTrue(osdep.held(7))
+
     def test_duplicate_start_does_not_launch_or_modify_an_existing_worker(self):
         with tempfile.TemporaryDirectory() as work:
             session = Path(work) / ".comic-session"

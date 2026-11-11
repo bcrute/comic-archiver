@@ -7742,5 +7742,21 @@
   "new": "            path.replace(root / f'{STATE_FILE}.damaged-{stamp}{suffix}')",
   "test_file": "test_download_control.py",
   "test": "test_a_damaged_record_is_set_aside_through_the_rename_that_waits_for_a_reader"
+ },
+ {
+  "id": "worker-check-takes-another-check-for-a-worker",
+  "source": "comic_archive/osdep.py",
+  "old": "            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)\n",
+  "new": "            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
+  "test_file": "test_background.py",
+  "test": "test_two_checks_at_once_never_take_each_other_for_a_worker"
+ },
+ {
+  "id": "worker-check-never-sees-a-worker",
+  "source": "comic_archive/osdep.py",
+  "old": "        except BlockingIOError:\n            return True\n        fcntl.flock(descriptor, fcntl.LOCK_UN)\n        return False\n",
+  "new": "        except BlockingIOError:\n            return False\n        fcntl.flock(descriptor, fcntl.LOCK_UN)\n        return False\n",
+  "test_file": "test_background.py",
+  "test": "test_two_checks_at_once_never_take_each_other_for_a_worker"
  }
 ]
