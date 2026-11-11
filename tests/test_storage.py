@@ -6,7 +6,7 @@ import tempfile
 import random
 from dataclasses import replace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -105,6 +105,17 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(store.cached_page('local', second, second.pages[0]), png(1))
         finally:
             store.close()
+
+    def test_the_saved_episodes_folders_reach_the_disk_before_its_cached_pages_are_removed(self):
+        set_policy(self.root, purge_completed_cache=False)
+        archive = self.publish()
+        blob = self.root / '.archive-cache' / digest(png(1))
+        seen = []
+        with closing(PublicationStore(self.root)) as store, \
+                patch('comic_archive.purge.sync_directory', side_effect=lambda folder: seen.append((folder, blob.exists()))):
+            evict_episode(store, archive, import_metadata(sidecar_path(archive)))
+        self.assertEqual(seen, [(archive.parent, True), (self.root / '.archive-state/provenance', True)])
+        self.assertFalse(blob.exists())
 
     def test_damaged_recovery_archive_cannot_return_corrupt_cached_bytes(self):
         archive = self.publish()

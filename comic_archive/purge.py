@@ -7,7 +7,7 @@ import zstandard
 
 from .archive import digest, sidecar_path, verify_episode
 from .models import ArchiveError
-from .osdep import anchored, disk_bytes
+from .osdep import anchored, disk_bytes, sync_directory
 from .publication import import_metadata, StrictZstdReader, comic_pages
 
 HASH = re.compile(r'[a-f0-9]{64}')
@@ -60,6 +60,11 @@ def evict_episode(store, path, metadata):
     if verify_episode(path):
         raise ArchiveError('Archive verification failed; cached originals are retained.')
     register_archive(store, path, metadata)
+    # The archive and its records were renamed into place. Until their folders reach the disk a power loss can
+    # undo that, and the originals removed below would then be the only copy; for an expired rental, the last.
+    for folder in dict.fromkeys((path.parent, getattr(store, 'provenance', None))):
+        if folder is not None:
+            sync_directory(folder)
     hashes = {p['sha256'] for p in metadata['content_hashes']}
     raw = metadata.get('original_content_hashes', [])
     hashes.update(p['sha256'] for p in raw)

@@ -7838,5 +7838,21 @@
   "new": "",
   "test_file": "test_cloud.py",
   "test": "test_one_episode_held_here_does_not_keep_the_others_from_being_removed"
+ },
+ {
+  "id": "cached-pages-removed-before-the-archive-is-durable",
+  "source": "comic_archive/purge.py",
+  "old": "        if folder is not None:\n            sync_directory(folder)\n",
+  "new": "        pass\n",
+  "test_file": "test_storage.py",
+  "test": "test_the_saved_episodes_folders_reach_the_disk_before_its_cached_pages_are_removed"
+ },
+ {
+  "id": "provenance-folder-not-durable-before-eviction",
+  "source": "comic_archive/purge.py",
+  "old": "dict.fromkeys((path.parent, getattr(store, 'provenance', None))):",
+  "new": "dict.fromkeys((path.parent,)):",
+  "test_file": "test_storage.py",
+  "test": "test_the_saved_episodes_folders_reach_the_disk_before_its_cached_pages_are_removed"
  }
 ]
