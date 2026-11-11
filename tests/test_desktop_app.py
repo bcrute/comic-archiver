@@ -1493,6 +1493,19 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(len(shell.app.aboutToQuit.connect.call_args_list), 1)
         shell.stack.setCurrentWidget.assert_called_with(shell.signin_panel)
 
+    def test_the_site_is_read_again_as_soon_as_a_sign_in_ends(self):
+        shell = self.signing_in()
+        shell.pages.poll_site.reset_mock()
+        shell.signin_back()
+        self.assertIsNone(shell.signin_stage)
+        shell.pages.poll_site.assert_called_once_with(shell.runtime.site.key)
+        shell.signin_leave()  # No sign-in to leave: nothing to read again.
+        shell.pages.poll_site.assert_called_once()
+        # Not while the app is ending.
+        shell.signin_stage, shell.phase = 'finishing', 'stopping'
+        shell.signin_leave()
+        shell.pages.poll_site.assert_called_once()
+
     def test_a_failure_while_opening_the_page_or_handing_over_the_answer_does_not_strand_the_dashboard(self):
         shell = self.signing_in()
         shell.signin_view.load.side_effect = RuntimeError('PRIVATE text')
@@ -1840,8 +1853,11 @@ class DesktopAppTests(unittest.TestCase):
         with self.assertLogs('comic_archive.desktop', 'ERROR') as logs:
             shell.background(Mock(side_effect=RuntimeError('PRIVATE_COOKIE')), done)
         done.assert_not_called()
-        emit(self.core.QTimer.made[-1].timeout)
+        timer = self.core.QTimer.made[-1]
+        timer.deleteLater.assert_not_called()
+        emit(timer.timeout)
         done.assert_called_once_with()
+        timer.deleteLater.assert_called_once_with()  # Each step's timer goes with it.
         self.assertIn('RuntimeError', logs.output[0]); self.assertNotIn('PRIVATE', logs.output[0])
 
     # --self-test.
