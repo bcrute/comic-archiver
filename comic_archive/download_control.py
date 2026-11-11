@@ -117,6 +117,24 @@ class Damaged(ArchiveError):
         super().__init__('The download record is damaged; Continue starts the download again from the saved library.')
 
 
+class Unavailable(Damaged):
+    """The record could not be read just now: it is in use, or the drive failed a read. Nothing says it is
+    damaged, so it is never set aside; whatever shows a damaged record shows this until the next look."""
+
+    def __init__(self):
+        ArchiveError.__init__(self, 'The download record could not be read just now. Try again in a moment.')
+
+
+def _unreadable(error):
+    """Damaged for what SQLite says is not a database or is malformed, Unavailable for anything else it raises."""
+    code = getattr(error, 'sqlite_errorcode', None)
+    if code is not None:
+        damaged = code & 0xff in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
+    else:
+        damaged = any(sign in str(error).lower() for sign in ('malformed', 'not a database'))
+    return Damaged() if damaged else Unavailable()
+
+
 def _now():
     return datetime.now(timezone.utc)
 
@@ -165,8 +183,8 @@ def _connect(root, *, create=False):
         os.chmod(path, 0o600)
     try:
         db = sqlite3.connect(path, timeout=5, isolation_level=None)
-    except sqlite3.DatabaseError:
-        raise Damaged() from None
+    except sqlite3.DatabaseError as error:
+        raise _unreadable(error) from None
     try:
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA journal_mode=WAL')
@@ -176,9 +194,12 @@ def _connect(root, *, create=False):
         elif version != SCHEMA_VERSION or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise Damaged()
         return db
-    except (Damaged, sqlite3.DatabaseError):
+    except Damaged:
         db.close()
-        raise Damaged() from None
+        raise
+    except sqlite3.DatabaseError as error:
+        db.close()
+        raise _unreadable(error) from None
 
 
 def _state(db):
@@ -651,7 +672,8 @@ def _set_aside(root):
     for suffix in ('', '-wal', '-shm'):
         path = root / (STATE_FILE + suffix)
         if path.exists():
-            path.replace(root / f'{STATE_FILE}.damaged-{stamp}{suffix}')
+            # On Windows a file something else is reading cannot be renamed at once.
+            osdep.replace_file(path, root / f'{STATE_FILE}.damaged-{stamp}{suffix}')
     kept = sorted(root.glob(f'{STATE_FILE}.damaged-*'), reverse=True)
     stamps = sorted({p.name.split('.damaged-', 1)[1][:16] for p in kept}, reverse=True)
     for path in kept:
@@ -826,13 +848,16 @@ def _transaction(session, library, action, *, create=False, require_queue=True):
                         db.execute('COMMIT')
                         return result
                     except BaseException:
-                        db.execute('ROLLBACK')
+                        if db.in_transaction:  # SQLite has already undone it after some errors.
+                            db.execute('ROLLBACK')
                         raise
                 finally:
                     db.close()
-            except (Damaged, sqlite3.DatabaseError):
-                if not create or attempt:
-                    raise
+            except (Damaged, sqlite3.DatabaseError) as error:
+                if isinstance(error, sqlite3.DatabaseError):
+                    error = _unreadable(error)
+                if not create or attempt or isinstance(error, Unavailable):
+                    raise error from None
                 _set_aside(root)
 
 

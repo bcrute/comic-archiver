@@ -7702,5 +7702,45 @@
   "new": "        meta=json.loads(sidecar_path(cbz).read_text())\n        if not cbz.name",
   "test_file": "test_archive.py",
   "test": "test_an_oversized_episode_record_is_reported_and_never_read"
+ },
+ {
+  "id": "busy-download-record-set-aside-as-damaged",
+  "source": "comic_archive/download_control.py",
+  "old": "                if not create or attempt or isinstance(error, Unavailable):",
+  "new": "                if not create or attempt:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_that_is_busy_or_on_a_failing_drive_is_never_set_aside_as_damaged"
+ },
+ {
+  "id": "every-database-error-is-damage",
+  "source": "comic_archive/download_control.py",
+  "old": "    return Damaged() if damaged else Unavailable()",
+  "new": "    return Damaged()",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_that_is_busy_or_on_a_failing_drive_is_never_set_aside_as_damaged"
+ },
+ {
+  "id": "malformed-database-is-not-damage",
+  "source": "comic_archive/download_control.py",
+  "old": "for sign in ('malformed', 'not a database'))",
+  "new": "for sign in ())",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_that_is_busy_or_on_a_failing_drive_is_never_set_aside_as_damaged"
+ },
+ {
+  "id": "rollback-hides-the-real-error",
+  "source": "comic_archive/download_control.py",
+  "old": "                        if db.in_transaction:  # SQLite has already undone it after some errors.\n                            db.execute('ROLLBACK')",
+  "new": "                        db.execute('ROLLBACK')",
+  "test_file": "test_download_control.py",
+  "test": "test_an_error_after_the_change_was_already_undone_is_the_one_reported"
+ },
+ {
+  "id": "set-aside-rename-does-not-wait-for-a-reader",
+  "source": "comic_archive/download_control.py",
+  "old": "            osdep.replace_file(path, root / f'{STATE_FILE}.damaged-{stamp}{suffix}')",
+  "new": "            path.replace(root / f'{STATE_FILE}.damaged-{stamp}{suffix}')",
+  "test_file": "test_download_control.py",
+  "test": "test_a_damaged_record_is_set_aside_through_the_rename_that_waits_for_a_reader"
  }
 ]

@@ -361,6 +361,42 @@ class ControllerTests(Controller):
         with patch('comic_archive.download_control.sqlite3.connect', side_effect=sqlite3.OperationalError('PRIVATE')):
             self.assertEqual(self.status()['code'], 'controller_failed')
 
+    def test_a_record_that_is_busy_or_on_a_failing_drive_is_never_set_aside_as_damaged(self):
+        self.go()
+        self.published()
+        path = self.queue / dc.STATE_FILE
+        before = self.state()
+        with patch('comic_archive.download_control.sqlite3.connect',
+                   side_effect=sqlite3.OperationalError('database is locked')):
+            with self.assertRaises(dc.Unavailable) as raised:
+                dc.start(self.session, self.library)
+        self.assertIn('Try again', str(raised.exception))
+        with patch('comic_archive.download_control._outstanding', side_effect=sqlite3.OperationalError('disk I/O error')):
+            with self.assertRaises(dc.Unavailable):
+                dc.start(self.session, self.library)
+        self.assertEqual(list(self.queue.glob(dc.STATE_FILE + '.damaged-*')), [])
+        self.assertTrue(path.is_file())
+        self.assertEqual(self.state(), before)
+        # What SQLite itself calls damage still is.
+        self.assertIs(type(dc._unreadable(sqlite3.DatabaseError('database disk image is malformed'))), dc.Damaged)
+        self.assertIs(type(dc._unreadable(sqlite3.DatabaseError('file is not a database'))), dc.Damaged)
+
+    def test_an_error_after_the_change_was_already_undone_is_the_one_reported(self):
+        self.go()
+        def undone(db, value, root):
+            db.execute('ROLLBACK')
+            raise KeyError('the real error')
+        with self.assertRaises(KeyError):
+            dc._transaction(self.session, self.library, undone)
+
+    def test_a_damaged_record_is_set_aside_through_the_rename_that_waits_for_a_reader(self):
+        self.go()
+        self.change('PRAGMA user_version = 7')
+        with patch('comic_archive.download_control.osdep.replace_file', side_effect=os.replace) as renamed:
+            self.go()
+        self.assertTrue(renamed.called)
+        self.assertEqual(self.state()['status'], 'running')
+
     def test_a_record_with_no_download_in_it_is_not_configured_and_does_nothing(self):
         dc._connect(self.queue, create=True).close()
         self.tick()
