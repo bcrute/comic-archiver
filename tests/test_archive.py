@@ -529,6 +529,32 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text())['cover_file'], 'cover.png')
         self.assertEqual(verify(self.store.root), [])
 
+    def test_a_cover_that_comes_in_another_format_replaces_the_old_file_and_touches_nothing_else(self):
+        folder = self.archive()
+        self.store.write_series_metadata(self.series, cover=png(0))
+        outside = self.root / 'outside.gif'
+        outside.write_bytes(b'keep')
+        (folder / 'cover.gif').symlink_to(outside)
+        (folder / 'cover.txt').write_text('a note')
+        self.store.write_series_metadata(self.series, cover=jpeg())
+        self.assertEqual(json.loads((folder / 'series.json').read_text())['cover_file'], 'cover.jpg')
+        self.assertFalse((folder / 'cover.png').exists())
+        self.assertTrue((folder / 'cover.gif').is_symlink())
+        self.assertEqual((outside.read_bytes(), (folder / 'cover.txt').read_text()), (b'keep', 'a note'))
+        self.assertEqual(verify(self.store.root), [])
+        self.store.write_series_metadata(self.series, cover=jpeg())
+        self.assertTrue((folder / 'cover.jpg').is_file())
+
+    def test_an_oversized_episode_record_is_reported_and_never_read(self):
+        folder = self.archive()
+        archive = next(folder.glob('*.cbz'))
+        self.assertEqual(verify_episode(archive), [])
+        with sidecar_path(archive).open('r+b') as record:
+            record.truncate(16 * 1024 * 1024 + 1)
+        with patch('comic_archive.archive.json.loads') as read:
+            self.assertEqual(verify_episode(archive), ['Unreadable, incomplete or corrupt archive/metadata'])
+        read.assert_not_called()
+
     def test_reader_authorization_is_refreshed_once_per_episode(self):
         retrieve = self.adapter.retrieve
         def get(page):

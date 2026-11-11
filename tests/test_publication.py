@@ -202,6 +202,22 @@ class PublicationTests(unittest.TestCase):
         private.unlink()
         with self.assertRaises(OSError): import_metadata(sidecar)
 
+    def test_an_episode_whose_private_record_is_lost_or_unreadable_is_saved_again_and_not_an_error(self):
+        folder=self.publish();archive=next(folder.glob('*.cbz'));sidecar=sidecar_path(archive)
+        private=self.root/'.archive-state/provenance'/(json.loads(sidecar.read_text())['export_id']+'.json')
+        for lost in (private.unlink, lambda: private.write_text('{')):
+            lost()
+            self.assertEqual(self.publish(),folder)
+            self.assertEqual(import_metadata(sidecar)['source_episode_id'],'818181')
+            self.assertEqual(verify(self.root),[])
+        # One that was uploaded and removed here cannot be told to be this episode: it is not skipped.
+        store=PublicationStore(self.root)
+        try:
+            private.unlink();archive.unlink()
+            with patch('comic_archive.cloud.offloaded',return_value=True):
+                self.assertFalse(store.episode_is_offloaded(self.series,self.episode,archive))
+        finally: store.close()
+
     def test_novel_uuid_replaces_platform_identifier_inside_epub(self):
         novel=Episode('818181',self.series.id,'Chapter',1,(),'tapas_unlocked',content_type='novel',text_html='<p>Original text</p>')
         store=PublicationStore(self.root)

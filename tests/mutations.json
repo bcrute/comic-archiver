@@ -7654,5 +7654,53 @@
   "new": "    except (OSError,) as error:",
   "test_file": "test_site_layout.py",
   "test": "test_a_library_an_earlier_version_moved_has_its_cloud_connection_pointed_at_its_file_when_next_opened"
+ },
+ {
+  "id": "lost-provenance-stops-the-episode",
+  "source": "comic_archive/publication.py",
+  "old": "                except (OSError, ValueError, TypeError):\n                    previous = {}",
+  "new": "                except (TypeError,):\n                    previous = {}",
+  "test_file": "test_publication.py",
+  "test": "test_an_episode_whose_private_record_is_lost_or_unreadable_is_saved_again_and_not_an_error"
+ },
+ {
+  "id": "lost-provenance-counts-as-uploaded",
+  "source": "comic_archive/publication.py",
+  "old": "            return False  # Nothing says it is this episode that was uploaded: it is saved again.",
+  "new": "            return True",
+  "test_file": "test_publication.py",
+  "test": "test_an_episode_whose_private_record_is_lost_or_unreadable_is_saved_again_and_not_an_error"
+ },
+ {
+  "id": "old-format-cover-left-behind",
+  "source": "comic_archive/archive.py",
+  "old": "                    other.unlink()\n        return folder\n",
+  "new": "                    pass\n        return folder\n",
+  "test_file": "test_archive.py",
+  "test": "test_a_cover_that_comes_in_another_format_replaces_the_old_file_and_touches_nothing_else"
+ },
+ {
+  "id": "cover-cleanup-removes-the-new-cover",
+  "source": "comic_archive/archive.py",
+  "old": "if (other.name != name and other.suffix in",
+  "new": "if (other.suffix in",
+  "test_file": "test_archive.py",
+  "test": "test_a_cover_that_comes_in_another_format_replaces_the_old_file_and_touches_nothing_else"
+ },
+ {
+  "id": "cover-cleanup-follows-a-link",
+  "source": "comic_archive/archive.py",
+  "old": "                        and other.is_file() and not linked(other)):\n                    other.unlink()",
+  "new": "                        and other.is_file()):\n                    other.unlink()",
+  "test_file": "test_archive.py",
+  "test": "test_a_cover_that_comes_in_another_format_replaces_the_old_file_and_touches_nothing_else"
+ },
+ {
+  "id": "oversized-episode-record-read",
+  "source": "comic_archive/archive.py",
+  "old": "        if sidecar_path(cbz).stat().st_size > 16*1024*1024:\n            raise ValueError('Oversized metadata')\n        meta=json.loads(sidecar_path(cbz).read_text())\n        if not cbz.name",
+  "new": "        meta=json.loads(sidecar_path(cbz).read_text())\n        if not cbz.name",
+  "test_file": "test_archive.py",
+  "test": "test_an_oversized_episode_record_is_reported_and_never_read"
  }
 ]

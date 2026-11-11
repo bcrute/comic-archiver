@@ -381,7 +381,10 @@ class PublicationStore(Store):
             path = self.stored_path(row[0])
             from .archive import sidecar_path, verify_episode
             if sidecar_path(path).is_file() and ((path.is_file() and not verify_episode(path)) or legacy):
-                previous = self.read_metadata(sidecar_path(path))
+                try:
+                    previous = self.read_metadata(sidecar_path(path))
+                except (OSError, ValueError, TypeError):
+                    previous = {}  # Its private record is lost or unreadable: saved again as a new episode would be.
                 self._episode_profiles[(series.source, episode.series_id, episode.id)] = previous.get('image_profile', 'original')
                 self._episode_formats[(series.source, episode.series_id, episode.id)] = previous.get('format', 'cbz')
             return path
@@ -610,7 +613,10 @@ class PublicationStore(Store):
         from .cloud import offloaded
         if path.is_file() or not offloaded(self.root, path):return False
         from .archive import sidecar_path
-        metadata = self.read_metadata(sidecar_path(path))
+        try:
+            metadata = self.read_metadata(sidecar_path(path))
+        except (OSError, ValueError, TypeError):
+            return False  # Nothing says it is this episode that was uploaded: it is saved again.
         return (metadata.get('source') == series.source and metadata.get('source_episode_id') == episode.id
                 and metadata.get('series_id') == self.series_export_key(series.source,series.id,series.platform_id)
                 and metadata.get('title') == episode.title and metadata.get('episode_number') == episode.order)

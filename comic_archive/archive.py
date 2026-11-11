@@ -570,6 +570,12 @@ class Store:
         if enriched:
             metadata.update(metadata_source='authenticated_series_page',metadata_imported_at=datetime.now(timezone.utc).isoformat())
         self.publish_metadata(path,metadata)
+        if cover is not None:
+            # A cover that came in another format left its file; once the record names the new one it goes.
+            for other in folder.glob('cover.*'):
+                if (other.name != name and other.suffix in {'.jpg', '.png', '.gif', '.webp'}
+                        and other.is_file() and not linked(other)):
+                    other.unlink()
         return folder
 
     def archive(self, manifest, adapter, refresh=False, progress=print, download_workers=1):
@@ -824,6 +830,8 @@ def verify_episode(cbz, *, image_decoder=None):
     try:
         if cbz.is_symlink() or sidecar_path(cbz).is_symlink():
             return ['Archive or sidecar is a symlink']
+        if sidecar_path(cbz).stat().st_size > 16*1024*1024:
+            raise ValueError('Oversized metadata')
         meta=json.loads(sidecar_path(cbz).read_text())
         if not cbz.name.endswith(archive_extension(meta)):
             return ['Archive extension differs from metadata format']
