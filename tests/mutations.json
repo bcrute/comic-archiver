@@ -8702,5 +8702,45 @@
   "new": "            await asyncio.wait_for(self._lock.acquire(), 2)",
   "test_file": "test_connected_service.py",
   "test": "test_a_call_waits_out_a_slow_one_instead_of_being_told_busy"
+ },
+ {
+  "id": "connected-init-resumes-only-its-own-leftovers",
+  "source": "comic_archive/connected/state.py",
+  "old": "            if resumed:\n                require(cls._unfinished(directory))",
+  "new": "            if False:\n                require(cls._unfinished(directory))",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_an_init_that_was_interrupted_can_be_run_again"
+ },
+ {
+  "id": "connected-init-never-beside-foreign-files",
+  "source": "comic_archive/connected/state.py",
+  "old": "        return all(name == LOCK or name.startswith(PENDING) for name in os.listdir(directory))",
+  "new": "        return True",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_an_init_that_was_interrupted_can_be_run_again"
+ },
+ {
+  "id": "connected-init-can-be-run-again",
+  "source": "comic_archive/connected/state.py",
+  "old": "                    except FileExistsError:\n                        resumed = True",
+  "new": "                    except FileExistsError:\n                        raise",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_an_init_that_was_interrupted_can_be_run_again"
+ },
+ {
+  "id": "connected-state-leftover-removed",
+  "source": "comic_archive/connected/state.py",
+  "old": "                if name.startswith(PENDING):\n                    os.unlink(name, dir_fd=directory)",
+  "new": "                if False:\n                    os.unlink(name, dir_fd=directory)",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_a_state_file_never_installed_is_removed_at_the_next_start"
+ },
+ {
+  "id": "connected-init-state-installed-whole",
+  "source": "comic_archive/connected/state.py",
+  "old": "                os.unlink(unfinished, dir_fd=directory)\n                os.fsync(directory)",
+  "new": "                os.fsync(directory)",
+  "test_file": "test_connected_pairing.py",
+  "test": "test_an_init_that_was_interrupted_can_be_run_again"
  }
 ]

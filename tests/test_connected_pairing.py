@@ -139,6 +139,48 @@ class ConnectedPairingTests(unittest.TestCase):
             HostState.open(self.path)
         self.assertFalse((self.path / STATE).exists())
 
+    def test_an_init_that_was_interrupted_can_be_run_again(self):
+        from comic_archive.connected.state import LOCK
+
+        def left(name, *files):
+            folder = self.base / name
+            folder.mkdir(mode=0o700)
+            for file in files:
+                (folder / file).write_bytes(b"" if file == LOCK else b'{"half":')
+                (folder / file).chmod(0o600)
+            return folder
+
+        for folder in (left("made"), left("locked", LOCK), left("written", LOCK, ".pending-" + identifier())):
+            state = HostState.open(folder, create=True)
+            try:
+                identity = state.identity.public_bundle()
+            finally:
+                state.close()
+            self.assertEqual(sorted(path.name for path in folder.iterdir()), sorted([LOCK, STATE]), folder.name)
+            self.assertEqual((folder / STATE).stat().st_nlink, 1)
+            state = HostState.open(folder)  # A normal start accepts it.
+            try:
+                self.assertEqual(state.identity.public_bundle(), identity)
+            finally:
+                state.close()
+            with self.assertRaises(SourceError):
+                HostState.open(folder, create=True)  # Never a second identity in a finished folder.
+        # A folder holding anything else is not an interrupted init: refused, and nothing in it is touched.
+        unfinished = ".pending-" + identifier()
+        other = left("other", LOCK, "notes.txt", unfinished)
+        with self.assertRaises(SourceError):
+            HostState.open(other, create=True)
+        self.assertEqual(sorted(path.name for path in other.iterdir()), sorted([LOCK, "notes.txt", unfinished]))
+
+    def test_a_state_file_never_installed_is_removed_at_the_next_start(self):
+        leftover = self.path / (".pending-" + identifier())
+        leftover.write_bytes((self.path / STATE).read_bytes())  # A copy of the private identity.
+        leftover.chmod(0o600)
+        before = (self.path / STATE).read_bytes()
+        self.reopen()
+        self.assertFalse(leftover.exists())
+        self.assertEqual((self.path / STATE).read_bytes(), before)
+
     def test_wrong_permissions_hardlink_foreign_format_and_shared_state_refuse_without_rewrite(
         self,
     ):

@@ -23,6 +23,7 @@ MAXIMUM = 1024**2
 PAIRINGS_MAX = 1024
 STATE = "host-state.json"
 LOCK = "host-state.lock"
+PENDING = ".pending-"  # A state file not yet installed; one left behind holds the private identity.
 CREATE = object()
 
 
@@ -157,6 +158,7 @@ class HostState:
     @classmethod
     def open(cls, path, roots=(), create=False):
         directory = lock_fd = state_fd = None
+        resumed = False
         try:
             require(os.name == "posix", "unsupported_format")
             import fcntl
@@ -173,16 +175,21 @@ class HostState:
                 # missing identity inside an existing/recovered state directory.
                 parent = _directory(path.parent)
                 try:
-                    os.mkdir(path.name, 0o700, dir_fd=parent)
+                    try:
+                        os.mkdir(path.name, 0o700, dir_fd=parent)
+                    except FileExistsError:
+                        resumed = True  # Accepted below only as what an interrupted init left.
                     os.fsync(parent)
                 finally:
                     os.close(parent)
             directory = _directory(path)
             _private(directory, directory=True)
+            if resumed:
+                require(cls._unfinished(directory))
             flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
             lock_fd = os.open(
                 LOCK,
-                flags | (os.O_CREAT | os.O_EXCL if create else 0),
+                flags | ((os.O_CREAT if resumed else os.O_CREAT | os.O_EXCL) if create else 0),
                 0o600,
                 dir_fd=directory,
             )
@@ -191,7 +198,12 @@ class HostState:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise SourceError("busy") from None
+            # With the lock held nothing else is writing here: a state file never installed is a leftover.
+            for name in os.listdir(directory):
+                if name.startswith(PENDING):
+                    os.unlink(name, dir_fd=directory)
             if create:
+                require(os.listdir(directory) == [LOCK])
                 value = dict(
                     format=FORMAT,
                     revision=str(uuid.uuid4()),
@@ -199,11 +211,16 @@ class HostState:
                     pairings=[],
                 )
                 encoded = dumps(value, MAXIMUM).encode("utf-8")
+                # Written whole under another name and only then given its own: an init that is
+                # interrupted leaves no half-written state, and can simply be run again.
+                unfinished = PENDING + str(uuid.uuid4())
                 state_fd = os.open(
-                    STATE, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory
+                    unfinished, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory
                 )
                 cls._write(state_fd, encoded)
                 os.fsync(state_fd)
+                os.link(unfinished, STATE, src_dir_fd=directory, dst_dir_fd=directory)
+                os.unlink(unfinished, dir_fd=directory)
                 os.fsync(directory)
             else:
                 state_fd = os.open(STATE, flags, dir_fd=directory)
@@ -216,6 +233,11 @@ class HostState:
             raise SourceError(
                 error.code if isinstance(error, SourceError) else "integrity_failed"
             ) from None
+
+    @staticmethod
+    def _unfinished(directory):
+        """Whether a state folder holds only what an interrupted init leaves: its lock and unfinished files."""
+        return all(name == LOCK or name.startswith(PENDING) for name in os.listdir(directory))
 
     @staticmethod
     def _write(fd, data):
@@ -309,7 +331,7 @@ class HostState:
                 value["renewed"] = renewed
             _validate(value)
             encoded = dumps(value, MAXIMUM).encode("utf-8")
-            temporary_name = ".pending-" + str(uuid.uuid4())
+            temporary_name = PENDING + str(uuid.uuid4())
             temporary = os.open(
                 temporary_name,
                 os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
