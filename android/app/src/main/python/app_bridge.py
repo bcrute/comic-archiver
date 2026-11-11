@@ -31,7 +31,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
-                 "signin_attempt", "signin_commit", "portable_catalog"})
+                 "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
