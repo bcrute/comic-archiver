@@ -7894,5 +7894,29 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_background_failures_are_logged_without_their_text_and_still_report_back"
+ },
+ {
+  "id": "older-reading-shown-over-a-finished-change",
+  "source": "comic_archive/window_pages.py",
+  "old": "            if again or self.acts.get(key, 0) != acts:",
+  "new": "            if again:",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_reading_asked_for_before_a_change_finished_is_not_shown_and_the_site_is_read_again"
+ },
+ {
+  "id": "event-during-a-reading-dropped",
+  "source": "comic_archive/window_pages.py",
+  "old": "            if not timed:\n                self.again.add(key)\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_something_happening_during_a_reading_brings_one_more_reading_and_the_timer_none"
+ },
+ {
+  "id": "timer-adds-a-reading-of-its-own",
+  "source": "comic_archive/window_pages.py",
+  "old": "            if not timed:\n                self.again.add(key)\n",
+  "new": "            self.again.add(key)\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_something_happening_during_a_reading_brings_one_more_reading_and_the_timer_none"
  }
 ]

@@ -1316,6 +1316,8 @@ class Pages:
         self.route = 'dashboard'
         self.counting = {}  # Saved-file counts must never hold up downloader progress.
         self.polling = {}  # Each site's state with a refresh on its way.
+        self.acts = {}  # How many changes each site has finished: a reading asked for before one is older than it.
+        self.again = set()  # The sites to read once more when the reading under way is back.
         self.cloud_asked = set()  # The sites asked about a connection their library folder brought.
         self.polled_task = None
         kit = self.kit = Kit(q, self.link)
@@ -1426,6 +1428,8 @@ class Pages:
         self.states = {}
         self.counting = {}
         self.polling = {}
+        self.acts = {}
+        self.again = set()
         self.cloud_asked = set()
         self.settings.forget_keys()
         self.library.reset()
@@ -1452,22 +1456,34 @@ class Pages:
             s = self.of(key)
             if automatic and s.loaded and not dashboard_model.updating(s):
                 continue
-            self.poll_site(key, then if key == chosen else None)
+            self.poll_site(key, then if key == chosen else None, timed=automatic)
 
-    def poll_site(self, key, then=None):
+    def poll_site(self, key, then=None, *, timed=False):
+        """Read one site. Asked for because something happened (not timed) while a reading is under way, one more
+        follows that reading, and only one: the timer never adds a read of its own."""
         s = self.of(key)
-        if s.busy or key in self.polling:
+        if s.busy:
+            return
+        if key in self.polling:
+            if not timed:
+                self.again.add(key)
             return
         self.polling[key] = s
         now = self.now()
         network, library, recount = app_actions.due(s, now)
-        task = s.task
+        task, acts = s.task, self.acts.get(key, 0)
 
         def done(value, error):
             if self.polling.get(key) is s:
                 del self.polling[key]
             if self.states.get(key) is not s:
                 return  # Another folder opened meanwhile; its own refresh follows.
+            again = key in self.again
+            self.again.discard(key)
+            if again or self.acts.get(key, 0) != acts:
+                # A change finished since this was asked for, and what it left is newer: read again, show nothing old.
+                self.poll_site(key, then)
+                return
             if error is not None:
                 s.refresh_failed()
             elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
@@ -1536,7 +1552,8 @@ class Pages:
     def act(self, work, done=None, cloud=False, after=None, key=None):
         """One change at a time on a site: its buttons wait while it runs, and a refusal is said on its card and in
         Settings. key is the site's; the chosen site's when None."""
-        s = self.of(key or self.chosen)
+        key = key or self.chosen
+        s = self.of(key)
         if s.busy:
             return
         s.busy = True
@@ -1544,6 +1561,8 @@ class Pages:
 
         def finished(value, error):
             s.busy = False
+            if self.states.get(key) is s:
+                self.acts[key] = self.acts.get(key, 0) + 1
             if after is not None:
                 after()
             if error is not None:
@@ -1842,6 +1861,7 @@ class Pages:
             if self.states.get(key) is not s:
                 return
             s.busy = False
+            self.acts[key] = self.acts.get(key, 0) + 1
             if error is None:
                 kept(value)
             else:

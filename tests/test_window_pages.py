@@ -1725,6 +1725,39 @@ class DownloadSettingsTests(PagesCase):
             self.open('dashboard'); settle()
             self.assertEqual(len(self.shell.calls), 2)
 
+    def test_a_reading_asked_for_before_a_change_finished_is_not_shown_and_the_site_is_read_again(self):
+        self.open()
+        settle()
+        polls = len(self.actions.named('poll'))
+        self.shell.held = []
+        self.pages.poll_site('tapas')  # Asked for first...
+        self.pages.go('tapas')
+        self.shell.release([1, 0])  # ...and back after Go has finished: older than what Go left.
+        settle()
+        self.assertEqual(len(self.actions.named('poll')), polls + 2)
+        self.assertNotIn('tapas', self.pages.polling)
+
+    def test_something_happening_during_a_reading_brings_one_more_reading_and_the_timer_none(self):
+        self.open()
+        settle()
+        polls = len(self.actions.named('poll'))
+        self.shell.held = []
+        self.pages.poll_site('tapas')
+        self.pages.poll_site('tapas', timed=True)
+        self.shell.release()
+        settle()
+        self.assertEqual(len(self.actions.named('poll')), polls + 1)
+        self.shell.held = []
+        self.pages.poll_site('tapas')
+        for _ in range(2):
+            self.pages.poll_soon('tapas')
+            settle()
+        self.assertEqual(len(self.shell.held), 1)
+        self.shell.release()
+        settle()
+        self.assertEqual(len(self.actions.named('poll')), polls + 3)
+        self.assertEqual(self.pages.again, set())
+
     def test_a_cloud_question_that_closed_with_the_app_records_nothing_and_is_asked_again(self):
         target = self.actions.reading['cloud']['targets'][0]
         target.update(enabled=True, confirmed=False)
