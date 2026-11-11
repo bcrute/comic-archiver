@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -251,8 +252,10 @@ class UninstallTests(unittest.TestCase):
         if os.name == 'nt':
             self.assertEqual(folders, [self.state / 'comic-archiver', self.state / 'Comic Archiver'])
         else:
-            self.assertEqual(folders, [self.state / 'comic-archiver', self.home / '.local/share/comic-archive',
-                                       self.home / '.cache/Comic Archiver', self.home / '.local/share/Comic Archiver'])
+            # A Mac has two more, checked below on every system.
+            self.assertEqual(folders[:4], [self.state / 'comic-archiver', self.home / '.local/share/comic-archive',
+                                           self.home / '.cache/Comic Archiver', self.home / '.local/share/Comic Archiver'])
+            self.assertEqual(len(folders), 6 if sys.platform == 'darwin' else 4)
             with patch.dict(os.environ, {'XDG_CACHE_HOME': str(self.home / 'c'), 'XDG_DATA_HOME': str(self.home / 'd'),
                                          'XDG_STATE_HOME': 'relative'}):
                 self.assertEqual(uninstall.app_folders()[::2], [self.home / '.local/state/comic-archiver', self.home / 'c/Comic Archiver'])

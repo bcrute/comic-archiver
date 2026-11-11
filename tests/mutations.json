@@ -9154,8 +9154,8 @@
  {
   "id": "header-corner-art-over-page-names",
   "source": "comic_archive/window_pages.py",
-  "old": "        self.corner.setVisible(left >= self.nav['settings'].geometry().right() + 24)",
-  "new": "        self.corner.setVisible(True)",
+  "old": "        shown = left - SWITCH - 24 >= self.nav['settings'].geometry().right()",
+  "new": "        shown = True",
   "test_file": "test_window_pages.py",
   "test": "test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them"
  },
@@ -9206,5 +9206,37 @@
   "new": "    def __init__(self, project_root, theme=None, site=None, noted=True):\n        self.project_root = project_root\n        self.site = site or sites.DEFAULT\n        self.noted = False",
   "test_file": "test_app_runtime.py",
   "test": "test_opening_a_library_folder_notes_it_so_uninstalling_finds_its_sign_ins"
+ },
+ {
+  "id": "page-corner-art-under-the-cards",
+  "source": "comic_archive/window_pages.py",
+  "old": "        shown = self.columns >= 2 and self.grid_holder.geometry().bottom() <= top",
+  "new": "        shown = True",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_page_corner_art_shows_only_where_the_cards_leave_it_room"
+ },
+ {
+  "id": "page-corner-art-not-in-the-corner",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.corner.move(page.width() - self.corner.width(), top)",
+  "new": "        self.corner.move(0, top)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_page_corner_art_shows_only_where_the_cards_leave_it_room"
+ },
+ {
+  "id": "closing-notes-run-over-the-corner-art",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.notes.setContentsMargins(0, 0, self.corner.width() - 150 if shown else 0, 0)",
+  "new": "        self.notes.setContentsMargins(0, 0, 0, 0)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_page_corner_art_shows_only_where_the_cards_leave_it_room"
+ },
+ {
+  "id": "theme-switch-on-the-header-art",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.theme.move(left - SWITCH + 16 if shown else width - 32 - SWITCH, (self.widget.height() - SWITCH) // 2)",
+  "new": "        self.theme.move(width - 32 - SWITCH, (self.widget.height() - SWITCH) // 2)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them"
  }
 ]

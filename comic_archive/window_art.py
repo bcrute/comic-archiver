@@ -225,7 +225,7 @@ def paper_mark(q):
                 painter.drawPolygon(polygon)
             painter.end()
     mark = PaperMark()
-    mark.setFixedSize(36, 46)
+    mark.setFixedSize(30, 38)
     mark.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     return mark
 
@@ -261,17 +261,18 @@ def page_corner(q, bottom=False):
             painter = q.QtGui.QPainter(self)
             painter.setRenderHint(q.QtGui.QPainter.RenderHint.Antialiasing)
             width, height = self.width(), self.height()
+            # Each piece: its outline as parts of the width and height, its colour, whether it is printed with
+            # dots, and whether it has a cream edge.
             if bottom:
-                shapes = (((width * .18, height), (width * .62, height * .42), (width * .70, height)), cream, False), \
-                         (((width * .52, height), (width, height * .30), (width, height)), coral, True), \
-                         (((width * .66, height), (width * .70, height * .52), (width, height * .08), (width, height * .30)),
-                          cream, False)
+                pieces = ((((0, 1), (.45, .43), (.41, 1)), cream, False, False),
+                          (((.40, 1), (.76, .29), (.82, 1)), coral, True, False),
+                          (((.74, 1), (.79, .24), (1, .03), (1, 1)), coral, True, True))
             else:
-                shapes = (((width * .10, height * .78), (width * .30, 0), (width * .72, 0)), cream, False), \
-                         (((width * .40, height), (width * .55, height * .30), (width, 0), (width, height * .62)), coral, True)
-            for points, colour, printed in shapes:
+                pieces = ((((0, .78), (.12, 0), (.64, 0)), cream, False, False),
+                          (((.29, .96), (.35, .38), (1, 0), (1, .53)), coral, True, False))
+            for points, colour, printed, edged in pieces:
                 path = q.QtGui.QPainterPath()
-                path.addPolygon(q.QtGui.QPolygonF([q.QtCore.QPointF(x, y) for x, y in points]))
+                path.addPolygon(q.QtGui.QPolygonF([q.QtCore.QPointF(x * width, y * height) for x, y in points]))
                 path.closeSubpath()
                 painter.fillPath(path, q.QtGui.QColor(colour))
                 if printed:
@@ -286,8 +287,13 @@ def page_corner(q, bottom=False):
                             radius = .6 + 1.5 * x / max(width, 1)
                             painter.drawEllipse(q.QtCore.QPointF(x + 3.5 * (row % 2), y), radius, radius)
                     painter.restore()
+                if edged:
+                    pen = q.QtGui.QPen(q.QtGui.QColor(cream), 5)
+                    pen.setJoinStyle(q.QtCore.Qt.PenJoinStyle.MiterJoin)
+                    painter.setPen(pen)
+                    painter.drawPath(path)
             painter.end()
     corner = PageCorner()
     corner.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    corner.setFixedSize(*((420, 110) if bottom else (260, 62)))
+    corner.setFixedSize(*((460, 86) if bottom else (236, 66)))
     return corner

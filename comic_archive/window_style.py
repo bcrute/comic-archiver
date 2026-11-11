@@ -63,14 +63,14 @@ QLabel#footnote { border-top: 1px solid %(border)s; padding-top: 14px; }
 QLabel#strong { font-weight: 600; }
 QLabel#fieldName { color: %(muted)s; }
 QLabel#fieldValue[tone="warning"] { color: %(warning)s; }
-QLabel#providerTitle { font-family: Georgia, "DejaVu Serif", serif; font-size: 28px; font-weight: 700; }
-QLabel#episodeTotal { font-family: Georgia, "DejaVu Serif", serif; font-size: 62px; font-weight: 700; max-height: 58px; }
+QLabel#providerTitle { font-family: Georgia, "DejaVu Serif", serif; font-size: 24px; font-weight: 700; }
+QLabel#episodeTotal { font-family: Georgia, "DejaVu Serif", serif; font-size: 50px; font-weight: 700; max-height: 50px; }
 QLabel#episodeCaption { font-size: 18px; }
 QLabel#estimateLabel { color: %(muted)s; font-size: 13px; }
-QLabel#estimateValue { font-size: 21px; font-weight: 700; }
+QLabel#estimateValue { font-size: 18px; font-weight: 700; }
 QLabel#transferName, QLabel#transferValue { font-size: 16px; }
 QLabel#transferValue { font-weight: 600; }
-QLabel#cardStatus { font-size: 16px; }
+QLabel#cardStatus { font-size: 14px; }
 QLabel#cardStatus[tone="warning"] { color: %(warning)s; }
 QLabel#statusSymbol { font-size: 18px; color: %(accent)s; }
 QFrame#cardRule { background: %(border)s; border: none; min-height: 1px; max-height: 1px; }

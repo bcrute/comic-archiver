@@ -98,6 +98,7 @@ LOG_FAILED = 'The log could not be saved. Check that your Downloads folder can b
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 660
 CARD_THREE_COLUMNS_FROM = 1000
+SWITCH = 36  # The light/dark switch's width and height.
 
 
 def route_of(name, cloud_offered):
@@ -392,13 +393,18 @@ class Header:
         bar.addStretch(1)
         self.theme = kit.button('', pages.toggle_theme)
         self.theme.setObjectName('themeToggle')
-        bar.addWidget(self.theme)
+        # The switch is placed by hand, left of the corner's paper or at the bar's end; the bar keeps its room.
+        self.theme.setParent(self.widget)
+        bar.addSpacing(SWITCH + 8)
 
     def _place_corner(self, width):
         # In a narrow window the corner would lie over the pages' names, so it is left out.
         left = width - self.corner.width()
         self.corner.move(left, 0)
-        self.corner.setVisible(left >= self.nav['settings'].geometry().right() + 24)
+        shown = left - SWITCH - 24 >= self.nav['settings'].geometry().right()
+        self.corner.setVisible(shown)
+        # The light/dark switch stands clear of the corner, to its left.
+        self.theme.move(left - SWITCH + 16 if shown else width - 32 - SWITCH, (self.widget.height() - SWITCH) // 2)
 
     def show(self, route, dark):
         self.nav[route.partition('/')[0]].setChecked(True)
@@ -439,8 +445,8 @@ class SiteCard:
         self.widget.setAccessibleName(name)
         self.widget.setProperty('site', True)
         top = w.QHBoxLayout()
-        top.setContentsMargins(0, 0, 30, 0)
-        top.setSpacing(10)
+        top.setContentsMargins(0, 0, 12, 0)
+        top.setSpacing(8)
         top.addWidget(paper_mark(kit.q))
         top.addWidget(kit.single_line(name, 'providerTitle'), 1)
         self.pill = kit.label('Loading', 'pill', wrap=False)
@@ -556,7 +562,7 @@ class SiteCard:
                 parts[key] = (name, holder)
                 if paper:
                     if key == 'Status':
-                        name.setFixedWidth(28)
+                        name.setFixedWidth(26)
                         holder.layout().insertWidget(0, name)
                         self.fields.addWidget(holder, 7, 0, 1, 3)
                     elif key not in ('Speed', 'Download speed'):
@@ -694,17 +700,14 @@ class Dashboard:
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
         content = w.QWidget()
-        # The page's parts keep their margins; the printed corner below them reaches the page's own edge.
-        outer = w.QVBoxLayout(content)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        column = w.QVBoxLayout()
-        column.setContentsMargins(32, 24, 32, 0)
+        column = w.QVBoxLayout(content)
+        column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(16)
-        outer.addLayout(column, 1)
+        # Printed paper in the page's bottom corner, under everything else and outside the layout.
         from .window_art import page_corner
-        outer.addWidget(page_corner(kit.q, bottom=True), 0,
-                        kit.q.QtCore.Qt.AlignmentFlag.AlignRight | kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
+        self.corner = page_corner(kit.q, bottom=True)
+        self.corner.setParent(content)
+        self.corner.lower()
         self.updated = kit.single_line('Checking current status…', 'muted')
         self.updated.setParent(content)
         self.updated.hide()
@@ -724,10 +727,16 @@ class Dashboard:
         from .window_art import symbol_label
         estimate_note = symbol_label(kit.q, 'Estimates adjust as episodes are discovered.', 'info')
         estimate_note.setObjectName('muted')
-        column.addWidget(estimate_note)
-        column.addWidget(kit.label(FOOTER, 'muted'))
+        notes = w.QVBoxLayout()
+        self.notes = notes
+        notes.setSpacing(16)
+        notes.addWidget(estimate_note)
+        notes.addWidget(kit.label(FOOTER, 'muted'))
+        column.addLayout(notes)
         column.addStretch(1)
         self.widget = kit.scroll(content)
+        for watched in (content, self.grid_holder):
+            watch_width(kit, watched, lambda width: self._place_corner())
         self._lay_out(1)
         # The page's own width, not the cards': two cards a row can be wider than a narrowed window.
         self.margins = column.contentsMargins().left() + column.contentsMargins().right()
@@ -788,6 +797,16 @@ class Dashboard:
         self.library_summary.setVisible(False)
         box.addWidget(self.library_summary)
         return card
+
+    def _place_corner(self):
+        # In the corner when the cards leave it room; a page that has to scroll goes without.
+        page = self.corner.parentWidget()
+        top = page.height() - self.corner.height()
+        self.corner.move(page.width() - self.corner.width(), top)
+        shown = self.columns >= 2 and self.grid_holder.geometry().bottom() <= top
+        self.corner.setVisible(shown)
+        # The closing notes stop short of the paper, so they are never read over it.
+        self.notes.setContentsMargins(0, 0, self.corner.width() - 150 if shown else 0, 0)
 
     def _resized(self, width):
         available = width - self.margins
