@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from test_archive import jpeg, png
 from comic_archive import sites, worker
-from comic_archive.adapters.webtoon import CANVAS, WebtoonAdapter, account, split_episode, split_series
+from comic_archive.adapters.webtoon import CANVAS, LIST_KEPT_SECONDS, WebtoonAdapter, account, split_episode, split_series
 from comic_archive.account_ui import SPEEDS
 from comic_archive.archive import verify
 from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
@@ -363,6 +363,19 @@ class WebtoonTests(unittest.TestCase):
         with self.assertRaises(AccessDenied):
             adapter.episode_url('7000003')
         self.assertTrue(adapter.episode_url('7000002').endswith('episode_no=2'))
+        # The list is read once for the episodes it does not show, not once for each, and again after a while.
+        adapter, client = reader(series_pages(), SignedIn)
+        lists = lambda: sum(url.startswith(LIST_API.format(kind='webtoon', title=7)) for url, _ in client.calls)  # noqa: E731
+        for key in ('7000003', '7000005'):
+            with self.assertRaises(AccessDenied):
+                adapter.episode_url(key)
+        self.assertEqual(lists(), 2)  # The list's two pages, once.
+        series, = adapter._listed
+        for earlier, read in ((LIST_KEPT_SECONDS - 5, 2), (5, 4)):
+            adapter._listed[series] -= earlier
+            with self.assertRaises(AccessDenied):
+                adapter.episode_url('7000003')
+            self.assertEqual(lists(), read)
 
     def test_the_downloader_reads_webtoon_with_its_reader_and_on_fast_saves_more_images_at_once(self, sleep):
         self.assertIs(worker.reader(sites.named('webtoon')), WebtoonAdapter)

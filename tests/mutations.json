@@ -8270,5 +8270,21 @@
   "new": "        cooled = eligible\n",
   "test_file": "test_asset_deferral.py",
   "test": "test_cooled_retries_go_together_once_no_healthy_work_is_left"
+ },
+ {
+  "id": "webtoon-list-read-for-every-missing-episode",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "                self._listed[series] = time.monotonic()\n",
+  "new": "                pass\n",
+  "test_file": "test_webtoon.py",
+  "test": "test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops"
+ },
+ {
+  "id": "webtoon-list-never-read-again",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "(listed is None or time.monotonic() - listed >= LIST_KEPT_SECONDS):",
+  "new": "listed is None:",
+  "test_file": "test_webtoon.py",
+  "test": "test_an_episode_with_nothing_to_read_or_taken_down_is_set_aside_and_a_wrong_page_still_stops"
  }
 ]

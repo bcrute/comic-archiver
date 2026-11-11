@@ -37,6 +37,8 @@ EPISODES = 10 ** 6
 PAGE_SIZE = 100
 # A series of 1000 pages of 100 episodes is far beyond any on the site; a list that long has gone wrong.
 MAX_LIST_PAGES = 1000
+# How long a series' list, read to find one episode's page, stands for the next episode it does not show.
+LIST_KEPT_SECONDS = 600
 MAX_DOCUMENT = 4 * 1024 * 1024
 # Webtoon's own reader path: /<language>/<genre or canvas>/<series>/<episode>/viewer, and the series list beside it.
 VIEWER = re.compile(r'/[a-z]{2}(?:-[A-Za-z]{2,4})?/([a-z0-9-]{1,60})/([A-Za-z0-9_-]{1,100})/[A-Za-z0-9_%-]{1,200}/viewer')
@@ -196,6 +198,7 @@ class WebtoonAdapter(SiteReader):
         self.transport = transport
         # Where each episode's page is, as Webtoon names it, learnt from the series' episode list.
         self.viewers = {}
+        self._listed = {}  # When each series' list was last read to find an episode's page.
         self._account = None
         self._mobile = MobileAPI(self.transport, self.account_identity)
         self._mobile_titles_snapshot = None
@@ -582,9 +585,12 @@ class WebtoonAdapter(SiteReader):
 
     def episode_url(self, key):
         series, _ = split_episode(key)
-        if key not in self.viewers:
+        listed = self._listed.get(series)
+        if key not in self.viewers and (listed is None or time.monotonic() - listed >= LIST_KEPT_SECONDS):
+            # Read once for the episodes of a series that are not in its list, not once for each of them.
             try:
                 self.episode_list(series)
+                self._listed[series] = time.monotonic()
             except ExpiredAsset as error:
                 if (split_series(series)[1] or not self.mobile_available()
                         or getattr(error, 'source_http_status', None) not in {404, 410}):
