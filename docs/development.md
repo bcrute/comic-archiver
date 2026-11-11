@@ -117,7 +117,8 @@ Prepare a build environment with the pinned runtime and the test/build tools:
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -r packaging/macos-requirements.txt
-.venv/bin/python -m pip install -e ".[test]" setuptools wheel
+.venv/bin/python -m pip install --require-hashes -r packaging/build-constraints.txt
+.venv/bin/python -m pip install -e ".[test]" wheel
 .venv/bin/python scripts/build_macos_app.py --smoke
 ```
 

@@ -518,7 +518,8 @@ class CommandLineTests(WorkspaceCase):
         self.wheels(1)
         wheel = build.build_wheel(work)
         args, kwargs = self.calls[0]
-        self.assertEqual(args, ['uv', 'build', '--wheel', '--out-dir', str(work / 'wheel'), str(work / 'src')])
+        self.assertEqual(args, ['uv', 'build', '--wheel', '--build-constraints', str(build.PACKAGING / 'build-constraints.txt'),
+                                '--require-hashes', '--out-dir', str(work / 'wheel'), str(work / 'src')])
         self.assertEqual(wheel, work / 'wheel/comic_archive-0-py3-none-any.whl')
         self.assertTrue(kwargs['check'])
         self.assertNotIn('PYTHONPATH', kwargs['env'])
@@ -533,7 +534,8 @@ class CommandLineTests(WorkspaceCase):
         command = ['uv', 'pip', 'install', '--python', '/app/python/bin/python3', '--break-system-packages', '--no-compile']
         self.assertEqual([args for args, _ in self.calls],
                          [[*command, '--require-hashes', '--requirement', str(build.PACKAGING / 'linux-requirements.txt')],
-                          [*command, '--no-deps', '/w/x.whl[desktop,validation]']])
+                          [*command, '--no-deps', '/w/x.whl[desktop,validation]'],
+                          ['uv', 'pip', 'check', '--python', '/app/python/bin/python3']])
         for _, kwargs in self.calls:
             self.assertEqual(kwargs['env']['UV_PYTHON_DOWNLOADS'], 'never')
             self.assertTrue(all(name not in kwargs['env'] for name in ('VIRTUAL_ENV', 'PYTHONPATH')))
@@ -578,6 +580,15 @@ class CommandLineTests(WorkspaceCase):
                          f'cpython-{build.PYTHON_RELEASE}+{build.PBS_TAG}-aarch64-apple-darwin-install_only_stripped.tar.gz')
         for name in ('build_macos_app.py', 'build_windows_app.py'):
             self.assertNotIn(build.PYTHON_RELEASE, (PROJECT / 'scripts' / name).read_text('utf-8'), name)
+
+    def test_what_builds_the_wheel_is_pinned_with_its_hashes_and_is_what_the_project_asks_for(self):
+        text = (build.PACKAGING / 'build-constraints.txt').read_text()
+        pins = re.findall(r'^([a-z0-9-]+)==(\S+) \\\n((?:    --hash=sha256:[0-9a-f]{64}(?: \\)?\n)+)', text, re.M)
+        self.assertEqual([name for name, _, _ in pins], ['setuptools'])
+        self.assertEqual(len(pins), len(re.findall(r'^[a-z0-9-]+==', text, re.M)))
+        asked = tomllib.loads((PROJECT / 'pyproject.toml').read_text('utf-8'))['build-system']['requires']
+        self.assertEqual(asked, ['setuptools>=77'])
+        self.assertGreaterEqual(int(pins[0][1].split('.')[0]), 77)
 
     def test_every_bundled_package_is_pinned_with_its_hashes(self):
         for name in ('linux', 'windows'):

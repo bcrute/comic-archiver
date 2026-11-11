@@ -134,6 +134,8 @@ def build():
     # Nothing is compiled here: a module compiled where it was installed names the build folder.
     run([python, '-m', 'pip', 'install', '--no-compile', '--require-hashes', '-r', shared.PACKAGING/'macos-requirements.txt'])
     run([python, '-m', 'pip', 'install', '--no-compile', '--no-deps', wheel])
+    # The wheel went in without its dependencies: the pinned packages must be all it asks for.
+    run([python, '-m', 'pip', 'check'])
     build_network_probe(shared.site_packages(resources)/'comic_archive/native')
     # Omit development-only Qt resources without altering framework/helper layout or signatures.
     qt = shared.site_packages(resources)/'PySide6'

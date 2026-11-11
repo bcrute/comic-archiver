@@ -211,7 +211,9 @@ def build_wheel(work):
     for path in (source, out):
         shutil.rmtree(path, ignore_errors=True)
     copy_sources(source)
-    run(['uv', 'build', '--wheel', '--out-dir', out, source])
+    # The build backend is the one thing fetched to build the wheel: it is pinned, with its hashes.
+    run(['uv', 'build', '--wheel', '--build-constraints', PACKAGING / 'build-constraints.txt', '--require-hashes',
+         '--out-dir', out, source])
     wheels = list(out.glob('*.whl'))
     if len(wheels) != 1:
         raise RuntimeError('Expected exactly one newly built wheel')
@@ -225,6 +227,8 @@ def uv_install(python, requirements):
     command = ['uv', 'pip', 'install', '--python', python, '--break-system-packages', '--no-compile']
     run([*command, '--require-hashes', '--requirement', PACKAGING / 'linux-requirements.txt'])
     run([*command, '--no-deps', *requirements])
+    # The wheel went in without its dependencies: the pinned packages must be all it asks for.
+    run(['uv', 'pip', 'check', '--python', python])
 
 
 def compile_bytecode(python, app, folder):

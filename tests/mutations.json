@@ -9046,5 +9046,21 @@
   "new": "    if False:",
   "test_file": "test_build_linux_app.py",
   "test": "test_a_python_without_the_audit_tool_is_refused_before_anything_is_built"
+ },
+ {
+  "id": "build-backend-pinned-by-hash",
+  "source": "scripts/build_linux_app.py",
+  "old": "'--build-constraints', PACKAGING / 'build-constraints.txt', '--require-hashes',\n",
+  "new": "\n",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_wheel_is_built_with_uv_from_a_clean_copy_and_exactly_one_result_is_accepted"
+ },
+ {
+  "id": "build-dependencies-checked-after-install",
+  "source": "scripts/build_linux_app.py",
+  "old": "    run(['uv', 'pip', 'check', '--python', python])\n",
+  "new": "",
+  "test_file": "test_build_linux_app.py",
+  "test": "test_packages_install_into_the_bundled_python"
  }
 ]
