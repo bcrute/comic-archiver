@@ -405,7 +405,7 @@ class CardSummaryTests(unittest.TestCase):
                     summary = model.card_summary(s, model.view(s, NOW))
                     shown = fields(summary)
                     self.assertEqual(tuple(shown), ('Status', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed'))
-                    self.assertEqual(shown['Status'][0], 'Finishing' if phase == 'verify' else 'Working')
+                    self.assertEqual(shown['Status'][0], 'Finishing' if phase == 'verify' else 'Checking and saving your episodes')
                     self.assertEqual(shown['Saved'][0], '3 episodes')
                     self.assertEqual(shown['Download speed'][0], '100 KB/s')
                     self.assertNotIn('688', str(summary))
@@ -418,7 +418,7 @@ class CardSummaryTests(unittest.TestCase):
             (state(account=account(retry={'reason': 'source', 'seconds': 300})), 'Waiting to retry automatically'),
             (state(account=account(status='finished', purchase_history={'status': 'partial',
                          'code': 'history_rows_unverified'})), 'Finished; some episodes could not be checked'),
-            (state(account=account(status='finished', purchase_history={'status': 'checked'})), 'Done'),
+            (state(account=account(status='finished', purchase_history={'status': 'checked'})), 'This run is complete'),
         ]
         for s, expected in cases:
             with self.subTest(expected=expected):

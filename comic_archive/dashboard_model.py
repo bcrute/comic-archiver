@@ -491,7 +491,7 @@ def card_summary(s=None, v=None):
         elif account.get('phase') == 'verify':
             text = label = 'Finishing'
         else:
-            text = label = 'Working'
+            text, label = 'Checking and saving your episodes', 'Working'
         facts['Status'].update(value=text, warning=tone == 'warning')
     elif account.get('status') == 'stopped' and not v['allow_visible'] and v['state'] == 'Paused':
         facts['Status'].update(value='Paused')
@@ -505,6 +505,8 @@ def card_summary(s=None, v=None):
         elif number((account.get('audit') or {}).get('unsupported_recorded_accessible_episode_count')):
             facts['Status'].update(value='Finished; some episodes could not be saved', warning=True)
             label, tone = 'Needs attention', 'warning'
+        elif facts['Status']['value'] == 'Done':
+            facts['Status'].update(value='This run is complete')
     estimate = (s.status or {}).get('estimate') or {}
     if account.get('status') == 'finished' or (account.get('status') == 'held' and account.get('code') == 'archive_incomplete'):
         facts['Time left'].update(value=NONE, tip='')

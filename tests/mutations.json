@@ -6858,7 +6858,7 @@
  {
   "id": "basic-card-phase-label-leaks",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            text = label = 'Working'",
+  "old": "            text, label = 'Checking and saving your episodes', 'Working'",
   "new": "            text = label = account.get('phase')",
   "test_file": "test_dashboard_model.py",
   "test": "test_all_provider_cards_keep_only_basic_fields_across_internal_steps"
@@ -9134,5 +9134,53 @@
   "new": "series_checkpoint(series['id'],held=True)",
   "test_file": "test_scan_gaps.py",
   "test": "test_a_second_check_with_the_same_short_list_finishes_the_series"
+ },
+ {
+  "id": "finished-card-pill-not-done",
+  "source": "comic_archive/window_pages.py",
+  "old": "'Sign-in needed': 'Sign in', 'Finished': 'Done',",
+  "new": "'Sign-in needed': 'Sign in',",
+  "test_file": "test_window_pages.py",
+  "test": "test_each_site_has_its_own_go_and_pause_and_every_open_site_is_refreshed"
+ },
+ {
+  "id": "finished-card-status-not-spelled-out",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            facts['Status'].update(value='This run is complete')",
+  "new": "            pass",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_simple_cards_keep_real_errors_and_incomplete_completion_visible"
+ },
+ {
+  "id": "header-corner-art-over-page-names",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.corner.setVisible(left >= self.nav['settings'].geometry().right() + 24)",
+  "new": "        self.corner.setVisible(True)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them"
+ },
+ {
+  "id": "header-corner-art-not-at-the-edge",
+  "source": "comic_archive/window_pages.py",
+  "old": "        self.corner.move(left, 0)",
+  "new": "        self.corner.move(0, 0)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them"
+ },
+ {
+  "id": "header-name-keeps-window-wide",
+  "source": "comic_archive/window_pages.py",
+  "old": "        brand = kit.single_line('Comic Archiver', 'brand')",
+  "new": "        brand = kit.label('Comic Archiver', 'brand', wrap=False)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them"
+ },
+ {
+  "id": "all-site-buttons-widen-a-narrow-page",
+  "source": "comic_archive/window_pages.py",
+  "old": "        line = self.library_actions if narrow else self.library_top",
+  "new": "        line = self.library_top",
+  "test_file": "test_window_pages.py",
+  "test": "test_cards_use_the_compact_three_two_one_column_layout"
  }
 ]

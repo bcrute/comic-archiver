@@ -359,16 +359,32 @@ class Header:
         self.widget.setObjectName('header')
         self.widget.setAttribute(kit.q.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         bar = w.QHBoxLayout(self.widget)
-        bar.setContentsMargins(32, 10, 32, 10)
-        bar.setSpacing(4)
-        bar.addWidget(kit.label('Comic Archiver', 'brand', wrap=False))
-        bar.addSpacing(16)
+        bar.setContentsMargins(32, 12, 32, 12)
+        bar.setSpacing(6)
+        from .window_art import brand_mark, page_corner
+        bar.addWidget(brand_mark(kit.q))
+        bar.addSpacing(6)
+        # The name gives way first in a narrow window; the pages' names never do.
+        brand = kit.single_line('Comic Archiver', 'brand')
+        brand.setSizePolicy(w.QSizePolicy.Policy.Preferred, w.QSizePolicy.Policy.Fixed)
+        bar.addWidget(brand)
+        bar.addSpacing(18)
+        rule = w.QFrame()
+        rule.setObjectName('headerRule')
+        bar.addWidget(rule)
+        bar.addSpacing(14)
+        # Printed paper in the corner, behind the light/dark switch.
+        self.corner = page_corner(kit.q)
+        self.corner.setParent(self.widget)
+        self.corner.lower()
+        watch_width(kit, self.widget, self._place_corner)
         self.nav = {}
         group = w.QButtonGroup(self.widget)
         group.setExclusive(True)
         for key, text in (('dashboard', 'Dashboard'), ('library', 'Library'), ('settings', 'Settings')):
             button = kit.button(text, lambda key=key: pages.go_to(key))
             button.setObjectName('nav')
+            button.setIconSize(kit.q.QtCore.QSize(28, 20))
             button.setCheckable(True)
             group.addButton(button)
             bar.addWidget(button)
@@ -378,12 +394,18 @@ class Header:
         self.theme.setObjectName('themeToggle')
         bar.addWidget(self.theme)
 
+    def _place_corner(self, width):
+        # In a narrow window the corner would lie over the pages' names, so it is left out.
+        left = width - self.corner.width()
+        self.corner.move(left, 0)
+        self.corner.setVisible(left >= self.nav['settings'].geometry().right() + 24)
+
     def show(self, route, dark):
         self.nav[route.partition('/')[0]].setChecked(True)
         from .window_art import icon
         from .window_style import colours
         for key, button in self.nav.items():
-            button.setIcon(icon(self.kit.q, key, colours(dark)['accent' if button.isChecked() else 'text']))
+            button.setIcon(icon(self.kit.q, key, colours(dark)['nav-on-text' if button.isChecked() else 'text'], 20, 8))
         # The switch shows where it leads: the sun to light, the moon to dark.
         self.theme.setText('☀' if dark else '☾')
         tip = 'Switch to light mode' if dark else 'Switch to dark mode'
@@ -412,21 +434,21 @@ class SiteCard:
         self.widget = paper_card(kit.q)
         self.widget.setProperty('provider', key)
         box = w.QVBoxLayout(self.widget)
-        box.setContentsMargins(18, 18, 18, 18)
-        box.setSpacing(10)
+        box.setContentsMargins(18, 22, 18, 22)
+        box.setSpacing(12)
         self.widget.setAccessibleName(name)
         self.widget.setProperty('site', True)
         top = w.QHBoxLayout()
-        top.setContentsMargins(0, 0, 8, 0)
-        top.setSpacing(6)
+        top.setContentsMargins(0, 0, 30, 0)
+        top.setSpacing(10)
         top.addWidget(paper_mark(kit.q))
         top.addWidget(kit.single_line(name, 'providerTitle'), 1)
         self.pill = kit.label('Loading', 'pill', wrap=False)
-        top.addWidget(self.pill)
+        top.addWidget(self.pill, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
         box.addLayout(top)
         self.fields = w.QGridLayout()
         self.fields.setHorizontalSpacing(10)
-        self.fields.setVerticalSpacing(8)
+        self.fields.setVerticalSpacing(10)
         self.fields.setColumnStretch(1, 1)
         box.addLayout(self.fields)
         self.cells, self.hints, self.rules = [], [], []
@@ -455,7 +477,7 @@ class SiteCard:
         self.primary_layout.setContentsMargins(0, 0, 0, 0)
         self.primary_layout.addWidget(self.action)
         self.primary_layout.addWidget(self.allow)
-        actions = kit.row(self.primary, self.signout, spacing=8, stretch=False)
+        actions = kit.row(self.primary, self.signout, spacing=10, stretch=False)
         actions.layout().setStretchFactor(self.primary, 1)
         actions.layout().setStretchFactor(self.signout, 1)
         box.addWidget(actions)
@@ -489,16 +511,17 @@ class SiteCard:
                 discard(self.fields, rule)
             self.cells, self.hints, self.rules = [], [], []
             for column in range(4):
-                self.fields.setColumnStretch(column, 1 if column in ((0, 1) if paper else (1,)) else 0)
+                self.fields.setColumnStretch(column, 1 if column in ((0, 2) if paper else (1,)) else 0)
             parts = {}
             for index, row in enumerate(rows):
                 key = row['name']
-                captions = {'Saved': 'Episodes saved', 'Time left': 'Time left',
-                            'Space': 'Space needed', 'Download speed': 'Transfer rate', 'Status': '●'}
+                captions = {'Saved': 'Episodes saved', 'Time left': 'Est. time left',
+                            'Space': 'Est. space needed', 'Download speed': 'Transfer rate:', 'Status': '●'}
                 if paper and key in ('Time left', 'Space', 'Status'):
                     from .window_art import symbol_label
                     name = symbol_label(self.kit.q, '' if key == 'Status' else captions[key],
-                                        {'Time left': 'clock', 'Space': 'storage', 'Status': 'info'}[key])
+                                        {'Time left': 'clock', 'Space': 'storage', 'Status': 'info'}[key],
+                                        22 if key == 'Status' else 16)
                     name.setObjectName('fieldName')
                 else:
                     name = self.kit.label(captions.get(key, key) if paper else key, 'fieldName', wrap=False)
@@ -508,8 +531,11 @@ class SiteCard:
                     name.setObjectName('estimateLabel')
                 elif paper and key == 'Saved':
                     name.setObjectName('episodeCaption')
+                    name.setContentsMargins(0, 0, 0, 10)  # The total and its caption read as one; the estimates stand apart.
                 elif paper and key == 'Status':
                     name.setObjectName('statusSymbol')
+                elif paper and key == 'Download speed':
+                    name.setObjectName('transferName')
                 if row['name'] == 'Speed':
                     self.speed = value = self.kit.combo([(key, SPEED_NAMES[key]) for key in SPEEDS],
                                                        lambda speed: self.pages.speed(speed, self.key), wheel_changes=False)
@@ -530,13 +556,13 @@ class SiteCard:
                 parts[key] = (name, holder)
                 if paper:
                     if key == 'Status':
-                        name.setFixedWidth(22)
+                        name.setFixedWidth(28)
                         holder.layout().insertWidget(0, name)
-                        self.fields.addWidget(holder, 7, 0, 1, 2)
+                        self.fields.addWidget(holder, 7, 0, 1, 3)
                     elif key not in ('Speed', 'Download speed'):
-                        positions = {'Saved': ((1, 0, 1, 2), (0, 0, 1, 2)),
+                        positions = {'Saved': ((1, 0, 1, 3), (0, 0, 1, 3)),
                                      'Time left': ((2, 0, 1, 1), (3, 0, 1, 1)),
-                                     'Space': ((2, 1, 1, 1), (3, 1, 1, 1))}
+                                     'Space': ((2, 2, 1, 1), (3, 2, 1, 1))}
                         caption_at, value_at = positions[key]
                         self.fields.addWidget(name, *caption_at)
                         self.fields.addWidget(holder, *value_at)
@@ -551,15 +577,23 @@ class SiteCard:
             if paper:
                 rate_name, rate_value = parts['Download speed']
                 speed_name, speed_value = parts['Speed']
-                transfer = self.kit.row(rate_name, rate_value, speed_name, speed_value, spacing=8, stretch=False)
+                divider = self.kit.w.QFrame()
+                divider.setObjectName('cardDivider')
+                divider.setFixedHeight(26)
+                transfer = self.kit.row(rate_name, rate_value, divider, speed_name, speed_value, spacing=10, stretch=False)
                 transfer.layout().setStretchFactor(rate_value, 1)
-                self.fields.addWidget(transfer, 5, 0, 1, 2)
+                self.fields.addWidget(transfer, 5, 0, 1, 3)
                 self.rules.append(transfer)
                 for index in (4, 6):
                     rule = self.kit.w.QFrame()
                     rule.setObjectName('cardRule')
-                    self.fields.addWidget(rule, index, 0, 1, 2)
+                    self.fields.addWidget(rule, index, 0, 1, 3)
                     self.rules.append(rule)
+                between = self.kit.w.QFrame()
+                between.setObjectName('cardDivider')
+                self.fields.addWidget(between, 2, 1, 2, 1)
+                self.rules.append(between)
+                placed(between)
         for (name, value), hint, row in zip(self.cells, self.hints, rows, strict=True):
             if row['name'] != 'Speed':
                 text = row['value']
@@ -620,7 +654,7 @@ class SiteCard:
             return
         summary = dashboard_model.card_summary(s, v)
         self._appearance(summary['appearance'])
-        self.pill.setText({'Needs attention': 'Attention', 'Sign-in needed': 'Sign in',
+        self.pill.setText({'Needs attention': 'Attention', 'Sign-in needed': 'Sign in', 'Finished': 'Done',
                           'Status unavailable': 'Offline'}.get(summary['state'], summary['state']))
         tone(self.pill, 'tone', summary['tone'])
         tone(self.widget, 'tone', 'warning' if summary['tone'] == 'warning' else 'status')
@@ -642,7 +676,8 @@ class SiteCard:
         self.action.setText(v['action_text'])
         colours = card_colours(summary['appearance'], bool(self.widget.window().property('comicDark')))
         self.action.setIcon(icon(self.kit.q, 'pause' if self.doing == 'pause' else 'play' if self.doing == 'go' else 'info',
-                                 colours['button-text']))
+                                 colours['button-text'], 18, 8))
+        self.action.setIconSize(self.kit.q.QtCore.QSize(26, 18))
         self.selection.setIcon(icon(self.kit.q, 'filter', colours['text'], 16))
         set_visible(self.signout, v['signout_visible'])
         set_enabled(self.signout, v['signout_enabled'])
@@ -659,9 +694,17 @@ class Dashboard:
     def __init__(self, kit, pages):
         w, self.kit, self.pages = kit.w, kit, pages
         content = w.QWidget()
-        column = w.QVBoxLayout(content)
-        column.setContentsMargins(32, 24, 32, 24)
+        # The page's parts keep their margins; the printed corner below them reaches the page's own edge.
+        outer = w.QVBoxLayout(content)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        column = w.QVBoxLayout()
+        column.setContentsMargins(32, 24, 32, 0)
         column.setSpacing(16)
+        outer.addLayout(column, 1)
+        from .window_art import page_corner
+        outer.addWidget(page_corner(kit.q, bottom=True), 0,
+                        kit.q.QtCore.Qt.AlignmentFlag.AlignRight | kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         self.updated = kit.single_line('Checking current status…', 'muted')
         self.updated.setParent(content)
         self.updated.hide()
@@ -673,7 +716,7 @@ class Dashboard:
         self.grid_holder = w.QWidget()
         self.grid = w.QGridLayout(self.grid_holder)
         self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setSpacing(16)
+        self.grid.setSpacing(18)
         self.columns = 0
         self.library_card = self._library(kit, pages)
         self.cards = {}
@@ -710,10 +753,16 @@ class Dashboard:
         self.metric_cells = []
         self.files = kit.button('Open library folder', pages.open_folder, 'secondary')
         self.files.setObjectName('toolbarAction')
-        library_top = kit.row(metric_holder, self.files, spacing=12)
-        library_top.layout().addWidget(self.go_all)
-        library_top.layout().addWidget(self.pause_all)
-        box.addWidget(library_top)
+        from .window_art import symbol_label
+        folder = symbol_label(kit.q, '', 'folder', 26)
+        folder.setFixedSize(30, 30)
+        rule = w.QFrame()
+        rule.setObjectName('libraryRule')
+        self.library_top = kit.row(folder, metric_holder, rule, self.files, spacing=14)
+        box.addWidget(self.library_top)
+        # Start all and Pause all end the top line; in a window too narrow for three cards they take their own.
+        self.library_actions = kit.row(spacing=14)
+        box.addWidget(self.library_actions)
         self.save = kit.single_line('')
         self.save.setSizePolicy(w.QSizePolicy.Policy.Preferred, w.QSizePolicy.Policy.Fixed)
         reserved(self.save)
@@ -749,6 +798,13 @@ class Dashboard:
         if columns == self.columns and not force:
             return
         self.columns = columns
+        narrow = columns < 3
+        line = self.library_actions if narrow else self.library_top
+        for index, button in enumerate((self.go_all, self.pause_all)):
+            if button.parentWidget() is not None:
+                button.parentWidget().layout().removeWidget(button)
+            line.layout().insertWidget(index if narrow else line.layout().count(), button)
+        self.library_actions.setVisible(narrow)
         cards = [card.widget for card in self.cards.values()]
         for card in (self.library_card, *cards):
             self.grid.removeWidget(card)
@@ -783,9 +839,10 @@ class Dashboard:
         for index, (value, name) in enumerate(metrics):
             cell, box = self.kit.frame('metric', vertical=False, margins=(0, 0, 0, 0), spacing=8)
             cell.setParent(self.library_card)
-            number = self.kit.single_line(value, 'metricNumber')
+            # The total is never cut short: in a narrow window the page scrolls sideways instead.
+            number = self.kit.label(value, 'metricNumber', wrap=False)
             number.setSizePolicy(self.kit.w.QSizePolicy.Policy.Preferred, self.kit.w.QSizePolicy.Policy.Fixed)
-            caption = self.kit.label('saved episodes' if index == 0 else name, 'muted', wrap=False)
+            caption = self.kit.label('saved episodes' if index == 0 else name, 'metricCaption', wrap=False)
             for label in (number, caption):
                 box.addWidget(label)
             if index == 0:
@@ -816,7 +873,8 @@ class Dashboard:
         from .window_style import colours
         ink = colours(bool(self.widget.window().property('comicDark')))['text']
         for button, symbol in ((self.files, 'folder'), (self.go_all, 'play'), (self.pause_all, 'pause')):
-            button.setIcon(icon(self.kit.q, symbol, ink))
+            button.setIcon(icon(self.kit.q, symbol, ink, 18, 6))
+            button.setIconSize(self.kit.q.QtCore.QSize(24, 18))
         self.updated.setText(everything['updated'])
         set_enabled(self.go_all, everything['go_all'])
         set_visible(self.pause_all, everything['pause_all'])

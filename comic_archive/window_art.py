@@ -154,8 +154,10 @@ def draw_symbol(q, painter, name, colour, rect, step=0):
     painter.restore()
 
 
-def icon(q, name, colour, size=20):
-    pixmap = q.QtGui.QPixmap(size * 2, size * 2)
+def icon(q, name, colour, size=20, gap=0):
+    """A symbol as a button's picture. gap is clear room after it, to part it from the button's words: the
+    button's icon size is then (size + gap, size)."""
+    pixmap = q.QtGui.QPixmap((size + gap) * 2, size * 2)
     pixmap.fill(q.QtCore.Qt.GlobalColor.transparent)
     painter = q.QtGui.QPainter(pixmap)
     draw_symbol(q, painter, name, colour, q.QtCore.QRectF(0, 0, size * 2, size * 2))
@@ -164,12 +166,12 @@ def icon(q, name, colour, size=20):
     return q.QtGui.QIcon(pixmap)
 
 
-def symbol_label(q, text, name):
+def symbol_label(q, text, name, size=18):
     class SymbolLabel(q.QtWidgets.QLabel):
         def __init__(self):
             super().__init__(text)
             self.symbol, self.step = name, 0
-            self.setContentsMargins(24, 0, 0, 0)
+            self.setContentsMargins(size + 6, 0, 0, 0)
             self.timer = q.QtCore.QTimer(self)
             self.timer.setInterval(100)
             self.timer.timeout.connect(self.advance)
@@ -195,7 +197,7 @@ def symbol_label(q, text, name):
             super().paintEvent(event)
             painter = q.QtGui.QPainter(self)
             colour = self.palette().color(q.QtGui.QPalette.ColorRole.WindowText)
-            draw_symbol(q, painter, self.symbol, colour, q.QtCore.QRectF(0, (self.height() - 18) / 2, 18, 18), self.step)
+            draw_symbol(q, painter, self.symbol, colour, q.QtCore.QRectF(0, (self.height() - size) / 2, size, size), self.step)
             painter.end()
 
     return SymbolLabel()
@@ -223,6 +225,69 @@ def paper_mark(q):
                 painter.drawPolygon(polygon)
             painter.end()
     mark = PaperMark()
-    mark.setFixedSize(28, 36)
+    mark.setFixedSize(36, 46)
     mark.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     return mark
+
+
+def brand_mark(q):
+    """The app's own mark beside its name: an open box of pages."""
+    class BrandMark(q.QtWidgets.QWidget):
+        def paintEvent(self, event):
+            painter = q.QtGui.QPainter(self)
+            painter.setRenderHint(q.QtGui.QPainter.RenderHint.Antialiasing)
+            painter.scale(self.width() / 40, self.height() / 40)
+            painter.setPen(q.QtCore.Qt.PenStyle.NoPen)
+            for points, colour in ((((3, 14), (20, 20), (20, 38), (3, 31)), '#f26a55'),
+                                   (((20, 20), (37, 14), (37, 31), (20, 38)), '#c9483a'),
+                                   (((3, 14), (20, 8), (37, 14), (20, 20)), '#8f2f29'),
+                                   (((8, 10), (26, 2), (34, 7), (16, 15)), '#fbe3cf'),
+                                   (((16, 15), (34, 7), (35, 10), (17, 18)), '#e9b99f')):
+                painter.setBrush(q.QtGui.QColor(colour))
+                painter.drawPolygon(q.QtGui.QPolygonF([q.QtCore.QPointF(x, y) for x, y in points]))
+            painter.end()
+    mark = BrandMark()
+    mark.setFixedSize(34, 34)
+    mark.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    return mark
+
+
+def page_corner(q, bottom=False):
+    """Torn printed paper in a corner of the page: decoration only, and never in the way of a click."""
+    class PageCorner(q.QtWidgets.QWidget):
+        def paintEvent(self, event):
+            dark = bool(self.window().property('comicDark'))
+            cream, coral = ('#f6dcc0', '#e9705f') if dark else ('#efd2b4', '#e58573')
+            painter = q.QtGui.QPainter(self)
+            painter.setRenderHint(q.QtGui.QPainter.RenderHint.Antialiasing)
+            width, height = self.width(), self.height()
+            if bottom:
+                shapes = (((width * .18, height), (width * .62, height * .42), (width * .70, height)), cream, False), \
+                         (((width * .52, height), (width, height * .30), (width, height)), coral, True), \
+                         (((width * .66, height), (width * .70, height * .52), (width, height * .08), (width, height * .30)),
+                          cream, False)
+            else:
+                shapes = (((width * .10, height * .78), (width * .30, 0), (width * .72, 0)), cream, False), \
+                         (((width * .40, height), (width * .55, height * .30), (width, 0), (width, height * .62)), coral, True)
+            for points, colour, printed in shapes:
+                path = q.QtGui.QPainterPath()
+                path.addPolygon(q.QtGui.QPolygonF([q.QtCore.QPointF(x, y) for x, y in points]))
+                path.closeSubpath()
+                painter.fillPath(path, q.QtGui.QColor(colour))
+                if printed:
+                    painter.save()
+                    painter.setClipPath(path)
+                    painter.setPen(q.QtCore.Qt.PenStyle.NoPen)
+                    ink = q.QtGui.QColor('#8f2f29')
+                    ink.setAlpha(120)
+                    painter.setBrush(ink)
+                    for row, y in enumerate(range(0, height + 7, 7)):
+                        for x in range(0, width + 7, 7):
+                            radius = .6 + 1.5 * x / max(width, 1)
+                            painter.drawEllipse(q.QtCore.QPointF(x + 3.5 * (row % 2), y), radius, radius)
+                    painter.restore()
+            painter.end()
+    corner = PageCorner()
+    corner.setAttribute(q.QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    corner.setFixedSize(*((420, 110) if bottom else (260, 62)))
+    return corner

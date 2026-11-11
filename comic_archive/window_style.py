@@ -14,6 +14,7 @@ COLOURS = {
     'button-text': ('#ffffff', '#2f1e1a'), 'disabled-text': ('#5d706a', '#b1a3a0'), 'disabled-bg': ('#e2e9e4', '#3d3334'),
     'error': ('#914416', '#ffbc8d'),
     'destructive': ('#b4232c', '#ff9fa3'), 'destructive-hover': ('#fff0f1', '#3d2428'),
+    'nav-on': ('#f3d9cf', '#6f3a38'), 'nav-on-text': ('#7a3524', '#fff3ea'),
 }
 # The pages fill the window. Text that is read, not glanced at, stays within this width, about 90 characters: longer
 # lines are hard to follow back to their start. Its lines are spaced this much (percent of the font's height).
@@ -27,17 +28,18 @@ QToolTip { color: %(text)s; background: %(surface)s; border: 1px solid %(border)
 
 QWidget#header, QWidget#signinHeader { background: %(surface)s; border-bottom: 1px solid %(border)s; }
 QWidget#header QLabel#brand, QWidget#signinHeader QLabel#signinTitle { font-size: 18px; font-weight: 600; }
-QWidget#header QLabel#brand { font-family: Georgia, "DejaVu Serif", serif; font-size: 24px; }
+QWidget#header QLabel#brand { font-family: Georgia, "DejaVu Serif", serif; font-size: 26px; font-weight: 700; }
+QFrame#headerRule { background: %(border)s; border: none; min-width: 1px; max-width: 1px; min-height: 30px; max-height: 30px; }
 QWidget#signinHeader QLabel { color: %(muted)s; font-size: 14px; }
-QPushButton#nav { min-height: 28px; padding: 8px 12px; border: none; border-radius: 18px; background: transparent;
-                  color: %(muted)s; font-size: 14px; font-weight: 500; }
+QPushButton#nav { min-height: 28px; padding: 8px 18px; border: none; border-radius: 22px; background: transparent;
+                  color: %(text)s; font-size: 16px; font-weight: 500; }
 QPushButton#nav:hover { color: %(text)s; background: %(surface-soft)s; }
-QPushButton#nav:checked { color: %(accent)s; background: %(notice)s; font-weight: 600; }
+QPushButton#nav:checked { color: %(nav-on-text)s; background: %(nav-on)s; }
 QWidget#signinHeader QPushButton { min-height: 28px; padding: 8px 12px; border: none; border-radius: 6px;
                                    background: transparent; color: %(muted)s; font-size: 14px; font-weight: 500; }
 QWidget#signinHeader QPushButton:hover { color: %(text)s; background: %(surface-soft)s; }
 QPushButton#themeToggle { min-width: 36px; max-width: 36px; min-height: 36px; max-height: 36px; padding: 0;
-                          border: none; border-radius: 6px; background: transparent; color: %(muted)s; font-size: 18px; }
+                          border: none; border-radius: 18px; background: %(surface)s; color: %(text)s; font-size: 18px; }
 QPushButton#themeToggle:hover { color: %(accent)s; background: %(notice)s; }
 
 QFrame#card { background: %(surface)s; border: 1px solid %(border)s; border-radius: 14px; }
@@ -48,8 +50,9 @@ QFrame#inner { background: %(surface)s; border: 1px solid %(border)s; border-rad
 QFrame#card QLabel, QFrame#inner QLabel, QFrame#metric QLabel, QFrame#state QLabel, QFrame#costs QLabel { background: transparent; }
 QFrame#metric { background: %(surface-soft)s; border-radius: 8px; }
 QFrame#libraryOverview, QFrame#libraryOverview QFrame#metric { background: transparent; border: none; }
-QFrame#libraryOverview QLabel#metricNumber { font-family: Georgia, "DejaVu Serif", serif; font-size: 24px; }
+QFrame#libraryOverview QLabel#metricNumber, QFrame#libraryOverview QLabel#metricCaption { font-size: 20px; font-weight: 700; }
 QFrame#libraryOverview QLabel#muted { font-size: 14px; }
+QFrame#libraryRule { background: %(border)s; border: none; min-width: 1px; max-width: 1px; min-height: 30px; max-height: 30px; }
 QLabel#metricNumber { font-size: 28px; font-weight: 600; }
 QLabel#eyebrow { color: %(muted)s; font-size: 12px; font-weight: 600; letter-spacing: 1px; }
 QLabel#pageTitle { font-size: 28px; font-weight: 600; }
@@ -60,16 +63,18 @@ QLabel#footnote { border-top: 1px solid %(border)s; padding-top: 14px; }
 QLabel#strong { font-weight: 600; }
 QLabel#fieldName { color: %(muted)s; }
 QLabel#fieldValue[tone="warning"] { color: %(warning)s; }
-QLabel#providerTitle { font-family: Georgia, "DejaVu Serif", serif; font-size: 22px; font-weight: 700; }
-QLabel#episodeTotal { font-family: Georgia, "DejaVu Serif", serif; font-size: 48px; font-weight: 700; }
-QLabel#episodeCaption { font-size: 16px; }
+QLabel#providerTitle { font-family: Georgia, "DejaVu Serif", serif; font-size: 28px; font-weight: 700; }
+QLabel#episodeTotal { font-family: Georgia, "DejaVu Serif", serif; font-size: 62px; font-weight: 700; max-height: 58px; }
+QLabel#episodeCaption { font-size: 18px; }
 QLabel#estimateLabel { color: %(muted)s; font-size: 13px; }
-QLabel#estimateValue { font-size: 18px; font-weight: 600; }
-QLabel#transferValue { font-size: 13px; }
-QLabel#cardStatus { font-size: 13px; }
+QLabel#estimateValue { font-size: 21px; font-weight: 700; }
+QLabel#transferName, QLabel#transferValue { font-size: 16px; }
+QLabel#transferValue { font-weight: 600; }
+QLabel#cardStatus { font-size: 16px; }
 QLabel#cardStatus[tone="warning"] { color: %(warning)s; }
 QLabel#statusSymbol { font-size: 18px; color: %(accent)s; }
 QFrame#cardRule { background: %(border)s; border: none; min-height: 1px; max-height: 1px; }
+QFrame#cardDivider { background: %(border)s; border: none; min-width: 1px; max-width: 1px; }
 QToolButton#hint { min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px; padding: 0; border: 1px solid %(muted)s;
                    border-radius: 9px; color: %(muted)s; background: transparent; font-size: 11px; font-weight: 600; }
 QToolButton#hint:hover, QToolButton#hint:focus { color: %(accent)s; border-color: %(accent)s; }
@@ -106,7 +111,7 @@ QPushButton[kind="go"] { min-width: 96px; }
 QPushButton[kind="downloadChoice"] { color: %(text)s; background: transparent; border: none; text-align: left;
                                     min-height: 22px; padding: 2px 0; font-size: 12px; }
 QPushButton[kind="downloadChoice"]:hover { color: %(accent)s; }
-QPushButton#toolbarAction { min-height: 28px; padding: 4px 10px; font-size: 14px;
+QPushButton#toolbarAction { min-height: 30px; padding: 5px 16px; font-size: 15px; font-weight: 500; border-radius: 8px;
                            background: transparent; color: %(text)s; border-color: %(muted)s; }
 QPushButton#toolbarAction:hover { background: %(notice)s; border-color: %(accent)s; }
 QPushButton#toolbarAction:disabled { color: %(disabled-text)s; border-color: %(border)s; }
@@ -130,7 +135,8 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 2px solid %(focus)s; 
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled { color: %(disabled-text)s; background: %(disabled-bg)s; }
 QComboBox::drop-down { width: 24px; border: none; background: transparent; }
 QComboBox::down-arrow { image: url("%(arrow)s"); width: 16px; height: 16px; }
-QComboBox#dashboardSpeed { min-height: 0; border: 1px solid transparent; background: transparent; padding: 0 24px 0 0; }
+QComboBox#dashboardSpeed { min-height: 28px; border: 1px solid %(input-border)s; border-radius: 7px; background: transparent;
+                           padding: 1px 6px 1px 12px; font-size: 15px; }
 QComboBox#dashboardSpeed:disabled { background: transparent; }
 QComboBox#dashboardSpeed:focus { border-color: %(focus)s; }
 QComboBox QAbstractItemView { background: %(surface)s; color: %(text)s; selection-background-color: %(notice)s;
@@ -204,18 +210,29 @@ def card_stylesheet(dark):
         highlight = '#' + ''.join(f'{round(int(c["accent"][index:index + 2], 16) * .92 + 255 * .08):02x}'
                                   for index in (1, 3, 5))
         scope = f'QFrame#card[appearance="{appearance}"]'
+        # The card's own ink, thinned: for the rules between its parts and its quieter captions.
+        red, green, blue = (int(c['text'][index:index + 2], 16) for index in (1, 3, 5))
+        rule, soft = f'rgba({red}, {green}, {blue}, 70)', f'rgba({red}, {green}, {blue}, 205)'
         sheet.extend((
             f'{scope} QLabel {{ color: {c["text"]}; background: transparent; }}',
-            f'{scope} QLabel#pill {{ color: {c["button-text"]}; background: {c["accent"]}; }}',
+            f'{scope} QLabel#pill {{ color: {c["button-text"]}; background: {c["accent"]}; padding: 5px 12px; '
+            f'border-radius: 8px; font-size: 14px; }}',
             f'{scope} QLabel#pill[tone="working"], {scope} QLabel#pill[tone="success"] '
             f'{{ color: {c["button-text"]}; background: {c["accent"]}; }}',
             f'{scope} QPushButton[kind="go"] {{ color: {c["button-text"]}; '
             f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {highlight},stop:1 {c["accent"]}); '
-            f'border-color: {c["accent"]}; border-radius: 10px; }}',
+            f'border-color: {c["accent"]}; border-radius: 10px; min-height: 44px; font-size: 17px; }}',
+            f'{scope} QPushButton[kind="destructive"] {{ background: transparent; border-radius: 10px; '
+            f'min-height: 44px; }}',
+            f'{scope} QPushButton[kind="destructive"]:hover {{ background: {colours(dark)["destructive-hover"]}; }}',
+            f'{scope} QPushButton[kind="destructive"]:disabled {{ background: transparent; '
+            f'color: {colours(dark)["disabled-text"]}; border-color: {rule}; }}',
+            f'{scope} QFrame#cardRule, {scope} QFrame#cardDivider {{ background: {rule}; }}',
             f'{scope} QPushButton[kind="go"]:hover {{ background: {c["text"]}; color: {c["shade"]}; }}',
             f'{scope} QPushButton[kind="go"]:disabled {{ background: {c["shade"]}; '
             f'color: {colours(dark)["disabled-text"]}; border-color: {colours(dark)["border"]}; }}',
-            f'{scope} QComboBox#dashboardSpeed {{ color: {c["text"]}; }}',
+            f'{scope} QComboBox#dashboardSpeed {{ color: {c["text"]}; border-color: {rule}; }}',
+            f'{scope} QLabel#estimateLabel {{ color: {soft}; }}',
             f'{scope} QPushButton[kind="downloadChoice"] {{ color: {c["text"]}; }}',
             f'{scope} QPushButton[kind="downloadChoice"]:hover {{ color: {c["accent"]}; }}',
             f'{scope} QLabel#statusSymbol {{ color: {c["accent"]}; }}',

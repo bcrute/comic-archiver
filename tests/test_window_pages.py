@@ -710,7 +710,7 @@ class DashboardTests(PagesCase):
             for key in self.shell.open:
                 card = self.dashboard.cards[key]
                 self.assertEqual(tuple(self.fields(key)), dashboard_model.DASHBOARD_FIELDS)
-                self.assertEqual(self.fields(key)['Status'], 'Finishing' if phase == 'verify' else 'Working')
+                self.assertEqual(self.fields(key)['Status'], 'Finishing' if phase == 'verify' else 'Checking and saving your episodes')
                 self.assertNotIn('688', str(self.fields(key)))
                 self.assertEqual([(id(name), id(value)) for name, value in card.cells], original[key])
         self.assertEqual({key: len(actions.calls) for key, actions in self.sites.items()}, calls)
@@ -795,7 +795,7 @@ class DashboardTests(PagesCase):
             'left_bytes':4_800_000_000,'free_bytes':1_400_000_000_000,'seconds':3600}
         self.open()
         settle()
-        self.assertEqual(self.fields()['Status'], 'Working')
+        self.assertEqual(self.fields()['Status'], 'Checking and saving your episodes')
         self.assertEqual(self.fields()['Space'], 'Estimating…')
         self.assertEqual(self.fields()['Time left'], 'Estimating…')
         self.assertEqual(tuple((name.property('fieldKey') or name.text()) for name, _ in self.card.cells), dashboard_model.DASHBOARD_FIELDS)
@@ -924,8 +924,8 @@ class DashboardTests(PagesCase):
         webtoon.reading['account']['status'] = 'finished'
         self.open()
         self.assertEqual([call[0] for call in webtoon.calls], ['context', 'saved_files', 'poll'])
-        self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Finished')
-        self.assertEqual(self.fields('webtoon')['Status'], 'Done')
+        self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Done')
+        self.assertEqual(self.fields('webtoon')['Status'], 'This run is complete')
         self.dashboard.cards['webtoon'].action.click()
         self.assertEqual((len(webtoon.named('go')), len(self.actions.named('go'))), (1, 0))
         self.assertEqual(self.dashboard.cards['webtoon'].pill.text(), 'Working')
@@ -990,6 +990,15 @@ class DashboardTests(PagesCase):
             settle()
             self.assertEqual(d.columns, columns)
             self.assertEqual(d.grid.getItemPosition(d.grid.indexOf(d.library_card)), (0, 0, 1, columns))
+            # The saved total is whole at every width: a narrow page scrolls sideways before it cuts the number.
+            number = d.metric_cells[0][1]
+            self.assertGreaterEqual(number.width(), number.fontMetrics().horizontalAdvance(number.text()))
+            # Start all and Pause all end the top line, or take their own under it when three cards do not fit.
+            self.assertEqual(d.go_all.parentWidget(), d.library_actions if columns < 3 else d.library_top)
+            self.assertEqual(d.pause_all.parentWidget(), d.go_all.parentWidget())
+            self.assertGreater(d.pause_all.x(), d.go_all.x())
+            self.assertTrue(d.go_all.isVisible())
+            self.assertEqual(d.widget.horizontalScrollBar().maximum(), 0)
             for index, card in enumerate(d.cards.values()):
                 self.assertEqual(d.grid.getItemPosition(d.grid.indexOf(card.widget)),
                                  (1 + index // columns, index % columns, 1, 1))
@@ -1032,7 +1041,7 @@ class DashboardTests(PagesCase):
         c.action.click()
         self.assertEqual(len(self.actions.named('go')), 1)
         self.assertEqual((c.action.text(), c.action.isEnabled()), ('Pause', True))
-        self.assertEqual((c.pill.text(), self.fields()['Status']), ('Working', 'Working'))
+        self.assertEqual((c.pill.text(), self.fields()['Status']), ('Working', 'Checking and saving your episodes'))
         polls = len(self.actions.named('poll'))
         c.action.click()
         self.assertEqual((len(self.actions.named('pause')), len(self.actions.named('go'))), (1, 1))
@@ -1466,6 +1475,23 @@ class NavigationTests(PagesCase):
         self.assertTrue(self.settings.panels['b2'].isVisible() and not self.settings.panels['downloads'].isVisible())
         nav['dashboard'].click()
         self.assertEqual(self.pages.stack.currentWidget(), self.dashboard.widget)
+
+    def test_the_header_keeps_its_page_names_whole_and_its_corner_art_clear_of_them(self):
+        self.open()
+        header = self.pages.header
+        for width, art in ((1400, True), (640, False)):
+            self.window.resize(width, 900)
+            settle()
+            self.assertEqual(self.window.width(), width)
+            self.assertEqual(header.corner.isVisible(), art)
+            for button in header.nav.values():
+                self.assertGreaterEqual(button.width(), button.sizeHint().width())
+                self.assertEqual(button.iconSize().width() - button.iconSize().height(), 8)
+            if art:
+                self.assertEqual(header.corner.geometry().right(), header.widget.width() - 1)
+                self.assertGreater(header.corner.x(), header.nav['settings'].geometry().right())
+        # The art is only looked at: a click on it reaches what is under it.
+        self.assertTrue(header.corner.testAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents))
 
     def test_about_names_the_author_and_shows_every_license_the_app_carries(self):
         self.open()
