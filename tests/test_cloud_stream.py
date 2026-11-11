@@ -691,11 +691,14 @@ class B2DirectTests(unittest.TestCase):
 
     def test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here(self):
         following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')
-        stalled = threading.Event(); waited = []
+        stalled = threading.Event(); ended = threading.Event(); waited = []
         def upload(transfer, data, destination):
             stalled.set()
-            for _ in range(1000):  # A connection that never answers; only its guard ends it.
-                transfer.guard.check(); threading.Event().wait(0.01)
+            try:
+                for _ in range(1000):  # A connection that never answers; only its guard ends it.
+                    transfer.guard.check(); threading.Event().wait(0.01)
+            except cloud.CloudTransferError:
+                ended.set(); raise
         def retrieve(page):
             if page.location.endswith('/next'):
                 self.assertTrue(stalled.wait(5)); raise Crash()
@@ -708,6 +711,7 @@ class B2DirectTests(unittest.TestCase):
                 patch('comic_archive.publication.STOPPING_UPLOAD_SECONDS', 0.05), patch('comic_archive.network.probe', return_value={'connection':'wired', 'metered':False}), self.assertRaises(Crash):
             self.publish((self.episode, following), adapter)
         self.assertEqual(waited, [0.05])
+        self.assertTrue(ended.wait(5))  # The upload itself was ended, not only left behind.
         folder = next(self.root.glob('Synthetic*'))
         self.assertEqual(len(episode_archives(folder)), 2)  # The seed, and the episode whose upload was stopped.
         self.assertEqual((self.target()['failed'], self.target()['pending']), (0, 1))

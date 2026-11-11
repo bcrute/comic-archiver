@@ -8152,14 +8152,6 @@
   "test": "test_a_downloader_that_has_not_reported_is_starting_for_two_minutes_after_a_sign_in"
  },
  {
-  "id": "start-overdue-with-no-sign-in-kept",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "== 'connected' and s.connected_at\n                and now",
-  "new": "== 'connected'\n                and now",
-  "test_file": "test_dashboard_model.py",
-  "test": "test_a_downloader_that_has_not_reported_is_starting_for_two_minutes_after_a_sign_in"
- },
- {
   "id": "start-overdue-again-and-again",
   "source": "comic_archive/dashboard_model.py",
   "old": " and s.start_read != s.connected_at)",
@@ -8405,7 +8397,7 @@
   "old": "                if entries > ENTRIES_MAX:\n                    cut = True\n                    break",
   "new": "                if entries > ENTRIES_MAX:\n                    raise SourceError('resource_limit')",
   "test_file": "test_connected_discovery.py",
-  "test": "test_a_library_too_large_to_list_is_said_once_while_serving"
+  "test": "test_a_library_with_more_folders_than_a_pass_may_look_at_is_limited_not_ended"
  },
  {
   "id": "connected-scan-book-bound-holds",

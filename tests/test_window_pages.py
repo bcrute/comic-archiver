@@ -1227,14 +1227,17 @@ class DashboardTests(PagesCase):
             self.assertEqual((dashboard.call_count, settings.call_count), (1, 1))
             self.pages.tick()
             self.assertEqual(dashboard.call_count, 1)
+            self.pages.state.choice_message = 'That folder is not there'  # Said only on the one site's own card.
+            self.pages.tick(); self.pages.tick()
+            self.assertEqual(dashboard.call_count, 2)
             self.pages.counting['tapas'] = self.pages.state
             self.pages.tick()
-            self.assertEqual(dashboard.call_count, 2)
+            self.assertEqual(dashboard.call_count, 3)
             del self.pages.counting['tapas']
             self.pages.render(); self.pages.render()  # Asked for outright, it is always drawn.
-            self.assertEqual(dashboard.call_count, 4)
+            self.assertEqual(dashboard.call_count, 5)
             self.pages.tick()
-            self.assertEqual(dashboard.call_count, 4)
+            self.assertEqual(dashboard.call_count, 5)
             self.pages.go_to('dashboard')
             count = dashboard.call_count
             self.pages.tick()

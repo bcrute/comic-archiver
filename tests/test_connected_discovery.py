@@ -167,6 +167,22 @@ class CompletedScanTests(DiscoveryFixture, unittest.TestCase):
             self.assertEqual(register.call_count, asked)
             self.assertTrue(self.scan.limited)
 
+    def test_a_library_with_more_folders_than_a_pass_may_look_at_is_limited_not_ended(self):
+        library = self.base / "Wide"
+        library.mkdir()
+        for name in ("one.txt", "two.txt"):
+            (library / name).write_text("x")
+        root = SharedRoot(library)
+        self.addCleanup(root.close)
+        index = Index(self.base / "private/wide.sqlite", root)
+        self.addCleanup(index.close)
+        scan = CompletedScan(index)
+        with patch("comic_archive.connected.discovery.ENTRIES_MAX", 1):
+            self.assertEqual(scan.run(self.stop), 0)  # Stops at the second entry of the library's top.
+        self.assertTrue(scan.limited)
+        self.assertEqual(scan.run(self.stop), 0)
+        self.assertFalse(scan.limited)
+
     def test_a_book_whose_record_cannot_be_written_is_tried_again_next_pass(self):
         with patch.object(Index, "register_completed", side_effect=sqlite3.OperationalError("database is locked")):
             self.assertEqual(self.scan.run(self.stop), 0)
