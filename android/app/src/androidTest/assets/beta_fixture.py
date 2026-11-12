@@ -135,6 +135,10 @@ def serve(request):
             return httpx.Response(401)
         if path == '/' and host == 'tapas.io':
             return httpx.Response(200, html='<html><body><a href="/reading-list">Library</a></body></html>')
+        if path == '/profile/transactions' and host == 'tapas.io':
+            # The stand-in account bought nothing: the first page of its purchase history is empty and the last.
+            return httpx.Response(200, json={'code': 200, 'data': {'pagination': {'index': 0, 'has_next': False},
+                                                                   'body': ''}})
         if path == '/reading-list':
             category = request.url.params.get('category', 'UPDATED')
             page = request.url.params.get('pageNumber', '1')
