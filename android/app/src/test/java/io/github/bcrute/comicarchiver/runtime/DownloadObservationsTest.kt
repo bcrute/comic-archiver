@@ -114,6 +114,21 @@ class DownloadObservationsTest {
         assertTrue(value.spaceEstimate.contains("not be enough space"))
     }
 
+    @Test fun copiesUnderAnEarlierConnectionAreAPlaceOfTheirOwn() {
+        val envelope = overviewEnvelope()
+        val places = envelope.getJSONObject("result").getJSONObject("overview").getJSONArray("locations")
+        places.put(JSONObject("""{"id":"b2-0123456789abcdef","label":"Backblaze B2 (previous connection 1)",
+            "counts":"1 episodes · 2 files · Not connected"}"""))
+        val value = CloudStatus.parse(envelope.toString())
+        assertEquals(listOf("device", "b2", "b2-0123456789abcdef"), value.overview!!.locations.map { it.id })
+        assertEquals("Backblaze B2 (previous connection 1)", value.overview!!.locations.last().label)
+        // Only the opaque form is a place: nothing else that starts the same way is taken.
+        for (id in listOf("b2-0123456789ABCDEF", "b2-0123456789abcde", "b2-0123456789abcdef0", "b2-")) {
+            places.getJSONObject(2).put("id", id)
+            assertThrows(Exception::class.java) { CloudStatus.parse(envelope.toString()) }
+        }
+    }
+
     @Test fun oldCloudEnvelopeKeepsUnknownCountsAndMalformedUpdatesAreRefused() {
         val old = CloudStatus.parse(cloudEnvelope())
         assertNull(old.overview); assertEquals("", old.timeEstimate); assertEquals("", old.spaceEstimate)

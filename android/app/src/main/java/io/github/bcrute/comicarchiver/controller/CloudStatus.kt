@@ -33,6 +33,9 @@ fun CloudRequest.json(): JSONObject = JSONObject().also { request ->
 data class CloudDestination(val key: String, val label: String, val enabled: Boolean, val checked: Boolean)
 data class CloudCleanup(val id: String, val label: String, val enabled: Boolean)
 data class LibraryMetric(val value: String, val label: String)
+/** Copies under an earlier B2 connection are listed as their own place, named by an opaque id. */
+private val PREVIOUS_CONNECTION = Regex("b2-[a-f0-9]{16}")
+
 data class LibraryPlace(val id: String, val label: String, val counts: String)
 data class LibraryOverview(val available: Boolean, val metrics: List<LibraryMetric>,
                            val locations: List<LibraryPlace>, val summary: String)
@@ -101,7 +104,8 @@ data class CloudStatus(
                 overviewSource?.let { overview ->
                     val metrics = overview.getJSONArray("metrics")
                     val locations = overview.getJSONArray("locations")
-                    require(metrics.length() <= 4 && locations.length() <= 2)
+                    // This device, the connected bucket, and one place for each earlier connection that still holds copies.
+                    require(metrics.length() <= 4 && locations.length() <= 32)
                     val metricRows = (0 until metrics.length()).map { index ->
                         val metric = metrics.getJSONArray(index)
                         require(metric.length() == 2)
@@ -114,7 +118,7 @@ data class CloudStatus(
                     val places = (0 until locations.length()).map { index ->
                         val place = locations.getJSONObject(index)
                         val id = text(place, "id")
-                        require(id in setOf("device", "b2"))
+                        require(id == "device" || id == "b2" || PREVIOUS_CONNECTION.matches(id))
                         LibraryPlace(id, text(place, "label"), text(place, "counts"))
                     }
                     require(places.map { it.id }.distinct().size == places.size)
