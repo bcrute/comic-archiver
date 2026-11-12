@@ -13,6 +13,10 @@ from .local_library import LOCAL_OWNER
 from .models import ArchiveError
 
 
+def _word(value):
+    return value if isinstance(value, str) and value.isidentifier() else ''
+
+
 class Cards:
     """What each opened site's card last read, kept while the app runs: the speed and the
     waits on a card are measured from one reading to the next."""
@@ -53,6 +57,9 @@ class Cards:
         summary = card_summary(s, v)
         return {'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
                 'appearance': summary['appearance'], 'message': s.message.text if s.message else '',
+                # The download's own word for where it is, so the phone can tell a card read before a press of
+                # Start or Pause from one read after it.
+                'download': _word((s.account or {}).get('status')) if s.loaded else '',
                 'rows': [{'name': row['name'], 'value': row['value'], 'warning': bool(row['warning'])}
                          for row in summary['rows']],
                 # What Settings lists for the site: its download issues, and saved and pending by episode type.

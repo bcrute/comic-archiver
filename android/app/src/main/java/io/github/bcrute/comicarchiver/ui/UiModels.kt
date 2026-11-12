@@ -57,6 +57,8 @@ data class DownloadsScreenUi(
     val allSites: AllSitesCardUi? = null,
     /** A card for each opened site, in the desktop's words; the shown site's first. */
     val siteCards: List<SiteCard> = emptyList(),
+    /** The top card's title in the desktop's words, from the shown site's card; null to use the phone's own. */
+    val headline: String? = null,
 )
 
 /** Every site of the library on one card, with the two actions that reach them all. */

@@ -224,7 +224,7 @@ class NativeReaderTests(unittest.TestCase):
 
     def test_a_site_account_the_library_is_not_for_is_refused_by_the_probe(self):
         from comic_archive.adapters.tappytoon import KEY_PAGE
-        from comic_archive.models import AuthenticationError
+        from comic_archive.errors import AuthenticationError
         seen = []
 
         def another(identity):

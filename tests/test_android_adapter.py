@@ -449,7 +449,7 @@ class SignedInProbeTests(unittest.TestCase):
         self.assertEqual(result, {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'})
 
     def test_an_account_the_library_is_not_for_is_refused_by_the_probe(self):
-        from comic_archive.models import AuthenticationError
+        from comic_archive.errors import AuthenticationError
         seen = []
 
         def another(identity):

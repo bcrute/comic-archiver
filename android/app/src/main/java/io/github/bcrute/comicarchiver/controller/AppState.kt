@@ -58,7 +58,9 @@ data class AllSites(val sites: List<String>, val episodes: Long, val files: Long
 data class SiteCard(val site: String, val name: String, val title: String, val state: String,
                     val appearance: String, val message: String, val rows: List<CardRow>,
                     /** What Settings lists for the site: its download issues, and saved and pending by episode type. */
-                    val issues: List<IssueCount> = emptyList(), val types: List<TypeCount> = emptyList()) {
+                    val issues: List<IssueCount> = emptyList(), val types: List<TypeCount> = emptyList(),
+                    /** The download's own word for where it was when the card was read: running, stopped, finished. */
+                    val download: String = "") {
     companion object {
         /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
         fun parse(envelope: org.json.JSONObject): List<SiteCard>? {
@@ -88,7 +90,8 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                                 type.opt("saved") as? String ?: return@mapNotNull null,
                                 type.opt("waiting") as? String ?: return@mapNotNull null)
                         }
-                    })
+                    },
+                    card.opt("download") as? String ?: "")
             }
         }
     }

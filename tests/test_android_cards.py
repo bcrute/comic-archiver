@@ -66,6 +66,7 @@ class AndroidCardTests(unittest.TestCase):
         self.assertEqual(said(first), ('Sign in to get started', 'Sign-in needed', ('Sign in to get started', False)))
         self.assertEqual((first['site'], first['name'], first['appearance'], first['message']),
                          ('tapas', 'Tapas', 'neutral', ''))
+        self.assertEqual(first['download'], '')
         self.assertEqual([row['name'] for row in first['rows']],
                          ['Status', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed'])
         self.assertEqual(first['rows'][1], {'name': 'Saved', 'value': '3 episodes', 'warning': False})
@@ -87,6 +88,18 @@ class AndroidCardTests(unittest.TestCase):
         self.registry.account, self.registry.progress = {'configured': False, 'speed': 'medium'}, None
         self.worker = {'running': True, 'state': 'stopping'}
         self.assertEqual(self.card()['title'], 'Finishing the current step')
+
+    def test_a_card_carries_the_downloads_own_word_for_the_phones_top_card(self):
+        self.sign_in()
+        self.assertEqual(self.card()['download'], '')
+        self.registry.account = {'configured': True, 'status': 'running', 'phase': 'archive', 'speed': 'medium'}
+        # A download whose downloader is not running waits for Start: the card reads it as stopped.
+        self.assertEqual(self.card()['download'], 'stopped')
+        self.worker = {'running': True, 'state': 'busy'}
+        self.assertEqual(self.card()['download'], 'running')
+        for status, word in (('finished', 'finished'), ('stopped', 'stopped'), ('not a word', ''), (7, '')):
+            self.registry.account = {'configured': True, 'status': status, 'speed': 'medium'}
+            self.assertEqual(self.card()['download'], word, status)
 
     def test_a_card_carries_the_download_issues_and_episode_types_settings_lists(self):
         self.sign_in()
@@ -255,8 +268,8 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
             dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row)), id=row['id'])
             for row in page(library, series_id='42')['items']])
         self.assertEqual([(row['title'], row['status'], row['access']) for row in episodes['items']],
-                         [('1 · Episode 1', 'Saved', 'Free'), ('2 · Episode 2', 'Pending', 'Unknown type'),
-                          ('3 · Episode 3', 'Pending', 'Unknown type')])
+                         [('1 · Episode 1', 'Saved', 'Free'), ('2 · Episode 2', 'Not saved', 'Unknown type'),
+                          ('3 · Episode 3', 'Not saved', 'Unknown type')])
         self.assertEqual(self.call('episode_inventory', base_root=str(self.root), site='tapas',
                                    series_id='43')['result'],
                          {'items': [], 'next_offset': None, 'empty': 'No episodes recorded'})

@@ -9653,7 +9653,7 @@
   "old": "    records, libraries = [], [str(folder) for folder in folders]",
   "new": "    records, libraries = [], []",
   "test_file": "test_android_support.py",
-  "test": "test_save_writes_one_file_in_the_folder_named_and_answers_its_name_only"
+  "test": "test_a_saved_log_holds_the_details_each_open_sites_records_and_the_phones_log_without_its_folders"
  },
  {
   "id": "phone-saved-log-keeps-the-apps-own-folder",
@@ -9718,5 +9718,21 @@
   "new": "f\"{''}.\"",
   "test_file": "test_storage_model.py",
   "test": "test_storage_that_failed_its_check_cannot_be_chosen_and_the_chosen_one_is_named"
+ },
+ {
+  "id": "phone-card-drops-the-downloads-own-word",
+  "source": "comic_archive/android_cards.py",
+  "old": "                'download': _word((s.account or {}).get('status')) if s.loaded else '',",
+  "new": "                'download': '',",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_downloads_own_word_for_the_phones_top_card"
+ },
+ {
+  "id": "phone-card-passes-on-any-text-as-the-downloads-word",
+  "source": "comic_archive/android_cards.py",
+  "old": "    return value if isinstance(value, str) and value.isidentifier() else ''",
+  "new": "    return value if isinstance(value, str) else ''",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_downloads_own_word_for_the_phones_top_card"
  }
 ]

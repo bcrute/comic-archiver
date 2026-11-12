@@ -53,6 +53,27 @@ class UiMappingTest {
     }
 
     @Test
+    fun theTopCardTakesTheShownSitesDesktopWordsOnlyFromACardReadInTheSameState() {
+        fun card(site: String, title: String, download: String) =
+            SiteCard(site, site, title, "Waiting", "active", "", emptyList(), download = download)
+        val waiting = card("tapas", "Waiting for Wi-Fi", "running")
+        val running = DownloadState.Running(0, 0, "Downloading episodes\u2026", null)
+        fun headline(download: DownloadState, vararg cards: SiteCard) =
+            UiFixtures.coldStart.copy(download = download, siteCards = cards.toList()).toDownloadsScreenUi().headline
+        assertEquals("Waiting for Wi-Fi", headline(running, waiting))
+        assertEquals("Waiting for Wi-Fi", headline(DownloadState.Planning, card("webtoon", "Other", "running"), waiting))
+        assertEquals("Your download is paused", headline(DownloadState.Paused("user"), card("tapas", "Your download is paused", "stopped")))
+        assertEquals("All done", headline(DownloadState.Finished("x"), card("tapas", "All done", "finished")))
+        // A card read before Start or Pause was pressed, another site's card, or none: the phone's own words.
+        assertEquals(null, headline(running, card("tapas", "Your download is paused", "stopped")))
+        assertEquals(null, headline(DownloadState.Paused("user"), waiting))
+        assertEquals(null, headline(running, card("webtoon", "Waiting for Wi-Fi", "running")))
+        assertEquals(null, headline(running))
+        assertEquals(null, headline(DownloadState.Held, card("tapas", "Ready to save", "")))
+        assertEquals(null, headline(running, card("tapas", "", "running")))
+    }
+
+    @Test
     fun restoring_session_shows_status_without_mounting_a_blank_signin_page() {
         val ui = UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toSignInScreenUi()
         assertTrue(ui.restoring)

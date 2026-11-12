@@ -76,7 +76,7 @@ class PhoneLogTests(unittest.TestCase):
         logs, out, base = self.root / 'files' / 'log', self.root / 'files' / 'out', self.root / 'files' / 'library'
         logs.mkdir(parents=True)
         (logs / 'phone.log.1').write_text('older line\n')
-        (logs / 'phone.log').write_text(f'a message naming {base}/Webtoon/Library/x and {self.root}/files/other\n')
+        (logs / 'phone.log').write_text(f'a message naming {base}/Webtoon/Library/x, {base}/top and {self.root}/files/other\n')
         (logs / 'desktop.log').write_text('not the phone log\n')
         now = datetime(2026, 11, 11, 9, 30, 5)
         asked = []
@@ -93,7 +93,7 @@ class PhoneLogTests(unittest.TestCase):
         self.assertEqual(path.read_text().split('\n\n'), [
             'Saved 2026-11-11T09:30:05; the times below are this phone’s own.', 'the details',
             '=== Webtoon: records in <library>/Library',
-            '=== The app’s log\nolder line\na message naming <library>/Library/x and ~/other\n'])
+            '=== The app’s log\nolder line\na message naming <library>/Library/x, <library>/top and ~/other\n'])
 
 
 class SupportBridgeTests(OpenedLibrary):
@@ -126,7 +126,7 @@ class SupportBridgeTests(OpenedLibrary):
         self.assertEqual(before[:4], ['Comic Archiver 0.9.0-beta1 on Android 15 (API 35)', '', '== Tapas', 'Not opened yet'])
         self.assertTrue(self.call('site_cards', base_root=str(self.root))['ok'])
         text = self.call('support_details', **asked)['result']['text']
-        self.assertIn('== Tapas\nSign-in: not signed in\nDownload: ', text)
+        self.assertIn('== Tapas\nSign-in: not signed in (sign-in idle)\nDownload: not started\n', text)
         self.assertIn('== Webtoon\nNot opened yet', text)
         self.assertNotIn(str(self.root), text)
         for wrong in ({'version': 'a version\nwith a line'}, {'system': 'x' * 61}, {'system': '/data/user'}, {'more': 1}):

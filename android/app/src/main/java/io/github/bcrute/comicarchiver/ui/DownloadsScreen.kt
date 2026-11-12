@@ -68,6 +68,7 @@ fun DownloadsScreen(
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(when {
                     running && statusDelayed -> "Status unknown"
+                    state.headline != null -> state.headline
                     running -> "Saving your episodes"
                     state.download is DownloadsViewUi.Finished -> "Saving finished"
                     (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.PAUSED_BY_USER -> "Saving paused"

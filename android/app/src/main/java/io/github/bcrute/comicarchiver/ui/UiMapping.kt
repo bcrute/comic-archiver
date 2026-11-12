@@ -44,6 +44,7 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
     allSites = allSitesCard(),
     siteCards = siteCards.sortedByDescending { it.site == site },
+    headline = shownCardTitle(),
     observations = observations,
     statusReadFailed = statusReadFailed,
     admittedAtMillis = admittedAtMillis,
@@ -57,6 +58,23 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
             NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
         },
 )
+
+/**
+ * The shown site's card title, which is the desktop's own headline for the download: a wait
+ * for the connection, a retry, a check of saved files. Only a card read in the same state
+ * as the phone shows is used, so a press of Start or Pause is never contradicted by a card
+ * read just before it.
+ */
+private fun AppState.shownCardTitle(): String? {
+    val card = siteCards.firstOrNull { it.site == site } ?: return null
+    val agrees = when (download) {
+        is DownloadState.Planning, is DownloadState.Running -> card.download == "running"
+        is DownloadState.Paused -> card.download == "stopped"
+        is DownloadState.Finished -> card.download == "finished"
+        else -> false
+    }
+    return card.title.takeIf { agrees && it.isNotBlank() }
+}
 
 private fun AppState.allSitesCard(): AllSitesCardUi? {
     val offered = sites.filter { it.enabled }
