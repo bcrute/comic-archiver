@@ -114,6 +114,18 @@ fun DownloadsScreen(
                 }
             }
         }
+        state.siteCards.forEach { card ->
+            Card(Modifier.fillMaxWidth().testTag("site-card-${card.site}")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${card.name} · ${card.state}", style = MaterialTheme.typography.titleMedium)
+                    if (card.message.isNotBlank()) Text(card.message, color = MaterialTheme.colorScheme.error)
+                    card.rows.forEach { row ->
+                        Text("${row.name}: ${row.value}",
+                            color = if (row.warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
         DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog, details)
         TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) {
             Text(if (details) "Hide download details" else "Download details")

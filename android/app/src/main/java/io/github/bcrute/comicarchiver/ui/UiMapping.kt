@@ -37,6 +37,7 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && !startingAll,
     siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
     allSites = allSitesCard(),
+    siteCards = siteCards.sortedByDescending { it.site == site },
     observations = observations,
     statusReadFailed = statusReadFailed,
     admittedAtMillis = admittedAtMillis,

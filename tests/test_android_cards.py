@@ -81,6 +81,10 @@ class AndroidCardTests(unittest.TestCase):
             self.assertEqual(saving['appearance'], 'active')
         self.worker = {'running': True, 'state': 'starting'}
         self.assertEqual(self.card()['title'], 'Saving your episodes')
+        # A downloader finishing its last step after the download ended is working, not offline.
+        self.registry.account = {'configured': False, 'speed': 'medium'}
+        self.worker = {'running': True, 'state': 'stopping'}
+        self.assertEqual(self.card()['title'], 'Finishing the current step')
 
     def test_a_download_whose_downloader_is_gone_waits_for_start_as_a_paused_one_does(self):
         self.sign_in()

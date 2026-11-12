@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver.ui
 import io.github.bcrute.comicarchiver.export.ExportSummary
 import io.github.bcrute.comicarchiver.controller.CloudStatus
 import io.github.bcrute.comicarchiver.controller.DownloadObservations
+import io.github.bcrute.comicarchiver.controller.SiteCard
 
 /**
  * The beta's public issue codes, exactly the frozen contract's set — wire-identical to
@@ -54,6 +55,8 @@ data class DownloadsScreenUi(
     val cloudReadFailed: Boolean = false,
     /** Shown when the library has more than one site; null otherwise. */
     val allSites: AllSitesCardUi? = null,
+    /** A card for each opened site, in the desktop's words; the shown site's first. */
+    val siteCards: List<SiteCard> = emptyList(),
 )
 
 /** Every site of the library on one card, with the two actions that reach them all. */

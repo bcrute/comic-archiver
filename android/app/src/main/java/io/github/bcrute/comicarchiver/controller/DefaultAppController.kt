@@ -203,6 +203,24 @@ class DefaultAppController(
             if (current(target, version) && read != null) _state.value = _state.value.copy(allSites = read)
         }
     }
+
+    /** Every opened site's card in the desktop's words. A failed read keeps the cards last shown. */
+    private suspend fun readSiteCards(target: SiteWorkspace, version: Long) {
+        val signedIn = when (engine.state.value) {
+            is SignInState.SignedIn -> true
+            is SignInState.SignedOut, is SignInState.Failed -> false
+            else -> null
+        }
+        val cards = try {
+            val args = JSONObject().put("base_root", target.base.absolutePath).put("shown", target.key)
+            if (signedIn != null) args.put("signed_in", signedIn)
+            SiteCard.parse(JSONObject(bridge.dispatch("site_cards", args.toString())))
+        } catch (cancelled: CancellationException) { throw cancelled }
+          catch (_: Exception) { null }
+        withContext(Dispatchers.Main) {
+            if (current(target, version) && cards != null) _state.value = _state.value.copy(siteCards = cards)
+        }
+    }
     private val settingsActions = Mutex()
     private val cloudActions = Mutex()
     private var catalogVersion = 0L
@@ -375,6 +393,7 @@ class DefaultAppController(
                                 observations = returning?.observations, admittedAtMillis = returning?.admittedAtMillis,
                                 startingAll = before.startingAll,
                                 allSites = before.allSites.takeIf { before.libraryId == target.libraryId },
+                                siteCards = before.siteCards.takeIf { before.libraryId == target.libraryId }.orEmpty(),
                                 signOutPending = sessionActions.getBoolean("signout_${target.key}", false))
                             _state.value = _state.value.copy(sites = withSaving(before.sites))
                             successful = true
@@ -835,6 +854,8 @@ class DefaultAppController(
             catch (_: Exception) { }
             while (isActive) {
                 if (admitted || tick % 5 == 0) mapWorkerStatus(target, version)
+                // Right after a change, and while any site saves, the cards are read as often as the status.
+                if (tick < 3 || tick % 5 == 0 || admitted || away.isNotEmpty()) readSiteCards(target, version)
                 if (tick % 5 == 0) {
                     try { refreshLibrary(target, version) }
                     catch (cancelled: CancellationException) { throw cancelled }

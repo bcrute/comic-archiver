@@ -69,6 +69,8 @@ import io.github.bcrute.comicarchiver.controller.SavedFilePage
 import io.github.bcrute.comicarchiver.controller.SavedFileItem
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.CloudRequest
+import io.github.bcrute.comicarchiver.controller.CardRow
+import io.github.bcrute.comicarchiver.controller.SiteCard
 import io.github.bcrute.comicarchiver.controller.DownloadObservations
 import io.github.bcrute.comicarchiver.controller.ObservedWorker
 import io.github.bcrute.comicarchiver.controller.LibraryOverview
@@ -251,6 +253,24 @@ class RenderedScreensTest {
         assertEquals("all", controller.catalogRequests.last().first.location)
         assertEquals(0, controller.goCalls)
         assertTrue(controller.cloudRequests.isEmpty())
+    }
+
+    @Test fun everyOpenedSiteHasACardInTheDesktopsWordsWithTheShownSiteFirst() {
+        val rows = listOf(CardRow("Status", "Webtoon asked the app to slow down", true), CardRow("Saved", "12 episodes", false))
+        controller.state.value = controller.state.value.copy(siteCards = listOf(
+            SiteCard("webtoon", "Webtoon", "Your download is paused", "Paused", "attention", "", rows),
+            SiteCard("tapas", "Tapas", "Ready to save", "Ready", "neutral",
+                "Could not refresh progress.", listOf(CardRow("Status", "Ready to save", false)))))
+        show()
+        compose.onNodeWithTag("site-card-webtoon").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Webtoon · Paused").assertIsDisplayed()
+        compose.onNodeWithText("Status: Webtoon asked the app to slow down").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Saved: 12 episodes").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Tapas · Ready").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Could not refresh progress.").performScrollTo().assertIsDisplayed()
+        val tops = listOf("tapas", "webtoon").map { compose.onNodeWithTag("site-card-$it").getUnclippedBoundsInRoot().top }
+        assertTrue(tops[0] < tops[1])
+        assertEquals(0, controller.goCalls)
     }
 
     @Test fun delayedDashboardKeepsPauseAndDoesNotInventZeroCounts() {

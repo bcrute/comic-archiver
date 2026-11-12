@@ -2,6 +2,9 @@ package io.github.bcrute.comicarchiver.ui
 
 import io.github.bcrute.comicarchiver.controller.AppState
 import io.github.bcrute.comicarchiver.controller.BetaCodes
+import io.github.bcrute.comicarchiver.controller.CardRow
+import io.github.bcrute.comicarchiver.controller.SiteCard
+import org.json.JSONObject
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
@@ -233,6 +236,29 @@ class UiMappingTest {
             .toDownloadsScreenUi().download as DownloadsViewUi.Running
         assertEquals("Downloading episodes…", ui.description)
         assertEquals("22 episodes saved\n316 image pages", ui.detail)
+    }
+
+    @Test
+    fun `site cards are read whole or left out, and a refusal gives none`() {
+        val card = """{"site":"webtoon","name":"Webtoon","title":"Ready to save","state":"Ready","appearance":"neutral",
+            "message":"","rows":[{"name":"Status","value":"Ready to save","warning":false},
+            {"name":"Speed","value":"Medium (a slower speed may help)","warning":true}]}"""
+        val cards = SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[$card,
+            {"site":"tapas","name":"Tapas","title":"Ready to save","state":"Ready","rows":[]},
+            {"site":"tappytoon","name":"Tappytoon","title":3,"state":"Ready","appearance":"neutral","rows":[]},
+            {"site":"tapas","name":"Tapas","title":"t","state":"Ready","appearance":"neutral","rows":[{"name":"Status"}]}]}}"""))
+        assertEquals(listOf(SiteCard("webtoon", "Webtoon", "Ready to save", "Ready", "neutral", "", listOf(
+            CardRow("Status", "Ready to save", false), CardRow("Speed", "Medium (a slower speed may help)", true)))), cards)
+        assertNull(SiteCard.parse(JSONObject("""{"ok":false,"result":{"cards":[$card]}}""")))
+        assertNull(SiteCard.parse(JSONObject("""{"ok":true,"result":{}}""")))
+        assertEquals(emptyList<SiteCard>(), SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[]}}""")))
+    }
+
+    @Test
+    fun `the shown site's card comes first on the downloads screen`() {
+        val cards = listOf("webtoon", "tapas", "tappytoon").map { SiteCard(it, it, "t", "Ready", "neutral", "", emptyList()) }
+        assertEquals(listOf("tapas", "webtoon", "tappytoon"),
+            state().copy(siteCards = cards).toDownloadsScreenUi().siteCards.map { it.site })
     }
 
 }

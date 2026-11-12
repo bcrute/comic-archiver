@@ -31,10 +31,37 @@ data class AppState(
     /** Start all is going from site to site; the screens wait for it. */
     val startingAll: Boolean = false,
     val allSites: AllSites? = null,
+    /** Each opened site's card, worded by the same model as the desktop's. */
+    val siteCards: List<SiteCard> = emptyList(),
 )
 
 /** Saved-file counts over every site of the working library, and the sites they cover. */
 data class AllSites(val sites: List<String>, val episodes: Long, val files: Long)
+
+/** One site's card as the desktop would show it: its state in a word, its title and its rows. */
+data class SiteCard(val site: String, val name: String, val title: String, val state: String,
+                    val appearance: String, val message: String, val rows: List<CardRow>) {
+    companion object {
+        /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
+        fun parse(envelope: org.json.JSONObject): List<SiteCard>? {
+            if (envelope.opt("ok") != true) return null
+            val cards = envelope.optJSONObject("result")?.optJSONArray("cards") ?: return null
+            return (0 until cards.length()).mapNotNull { index ->
+                val card = cards.optJSONObject(index) ?: return@mapNotNull null
+                val rows = card.optJSONArray("rows") ?: return@mapNotNull null
+                val words = listOf("site", "name", "title", "state", "appearance").map { card.opt(it) as? String ?: return@mapNotNull null }
+                SiteCard(words[0], words[1], words[2], words[3], words[4], card.opt("message") as? String ?: "",
+                    (0 until rows.length()).map { at ->
+                        val row = rows.optJSONObject(at) ?: return@mapNotNull null
+                        CardRow(row.opt("name") as? String ?: return@mapNotNull null,
+                            row.opt("value") as? String ?: return@mapNotNull null, row.opt("warning") == true)
+                    })
+            }
+        }
+    }
+}
+
+data class CardRow(val name: String, val value: String, val warning: Boolean)
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,
                       val signInAvailable: Boolean = enabled,
