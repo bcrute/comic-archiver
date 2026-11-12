@@ -215,6 +215,38 @@ class ActivitySessionTest {
         assertEquals(2, app.fake.count("configure_settings"))
     }
 
+    @Test fun aSettingChangedWhileSavingLeavesTheDownloadRunningAsOnTheDesktop() {
+        ready()
+        val running = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
+        val stopped = """{"worker":{"running":true,"state":"ready"},"account":{"status":"stopped"}}"""
+        app.fake.statusPayload = running
+        val controller = app.controller
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        try {
+            compose.onNodeWithTag("saving-action").performClick()
+            awaitState { controller.state.value.download is DownloadState.Running }
+            // The change pauses the download while it is applied; the phone reads that pause.
+            app.fake.settingsGate = entered to release
+            compose.runOnIdle { controller.setDownloadTypes(mapOf("bought" to true, "free" to false)) }
+            awaitState { entered.count == 0L }
+            app.fake.statusPayload = stopped
+            val read = app.fake.count("download_status")
+            awaitState { app.fake.count("download_status") >= read + 2 }
+            assertTrue(controller.state.value.download is DownloadState.Running)
+            app.fake.statusPayload = running
+            release.countDown()
+            awaitState { !controller.state.value.settingsBusy }
+            assertEquals(listOf(true, false), controller.state.value.settings?.downloadTypes?.map { it.chosen })
+            val after = app.fake.count("download_status")
+            awaitState { app.fake.count("download_status") >= after + 2 }
+            assertTrue(controller.state.value.download is DownloadState.Running)
+            assertEquals(1, app.fake.count("go"))
+            // A pause that is not a change's still ends it.
+            app.fake.statusPayload = stopped
+            awaitState { controller.state.value.download == DownloadState.Paused("user") }
+        } finally { release.countDown(); compose.runOnIdle { controller.pause() } }
+    }
+
     @Test fun failedPolicyRefreshHidesStaleMobileConsentInsteadOfReusingIt() {
         ready()
         compose.onNodeWithTag("nav-settings").performClick()
@@ -400,6 +432,8 @@ class LifecycleBridge : PythonBridge {
     val releasedStatus = AtomicInteger()
     @Volatile private var wifiOnly = true
     @Volatile var speed = "medium"
+    @Volatile var types = mapOf("bought" to true, "free" to true)
+    @Volatile var settingsGate: Pair<CountDownLatch, CountDownLatch>? = null
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {
@@ -427,6 +461,14 @@ class LifecycleBridge : PythonBridge {
             val args = JSONObject(argsJson)
             if (args.has("wifi_only")) wifiOnly = args.getBoolean("wifi_only")
             if (args.has("speed")) speed = args.getString("speed")
+            args.optJSONObject("download_types")?.let { chosen ->
+                types = chosen.keys().asSequence().associateWith { chosen.getBoolean(it) }
+            }
+            val held = synchronized(this) { settingsGate.also { settingsGate = null } }
+            held?.let {
+                it.first.countDown()
+                check(it.second.await(20, TimeUnit.SECONDS)) { "Fixture setting change was not released" }
+            }
         }
         val result = when (op) {
             "cloud_status", "cloud_action" -> return cloudEnvelope()
@@ -437,6 +479,8 @@ class LifecycleBridge : PythonBridge {
                 "locations":[{"id":"all","label":"All storage"}],"kinds":[{"key":"episodes","label":"Comics and novels"}],
                 "sorts":[{"key":"saved_desc","label":"Newest saved first"}],"page_sizes":[50,100,200]}"""
             "settings", "configure_settings" -> """{"wifi_only":$wifiOnly,"speed":"$speed",
+                "download_types":[{"key":"bought","label":"Paid / unlocked","help":"Bought ones.","chosen":${types["bought"]}},
+                {"key":"free","label":"Free","help":"Free ones.","chosen":${types["free"]}}],
                 "connection":"wifi","metered":false,"allowed":true,"speeds":[
                 {"key":"fast","label":"Fast","available":false},
                 {"key":"medium","label":"Medium","available":true},

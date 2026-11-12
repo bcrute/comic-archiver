@@ -31,6 +31,7 @@ interface AppController {
     fun refreshSettings()
     fun setWifiOnly(value: Boolean)
     fun setDownloadSpeed(value: String)
+    fun setDownloadTypes(value: Map<String, Boolean>) {}
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
     fun setTheme(value: AppTheme)

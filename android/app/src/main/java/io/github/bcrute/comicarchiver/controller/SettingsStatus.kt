@@ -23,7 +23,20 @@ object SettingsStatus {
             (connection !in setOf("wifi", "wired") || metered != false)) return null
         if (speeds.map { it.key }.distinct().size != speeds.size ||
             speeds.none { it.key == speed }) return null
-        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed)
+        val types = typeChoices(value.optJSONArray("download_types") ?: return null) ?: return null
+        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed, types)
+    }
+
+    /** Null when a row cannot be read: a choice that is not known is never shown as made. */
+    private fun typeChoices(rows: JSONArray): List<DownloadTypeChoice>? {
+        return (0 until rows.length()).map { index ->
+            val row = rows.optJSONObject(index) ?: return null
+            val key = row.optString("key")
+            val label = row.optString("label")
+            val chosen = row.opt("chosen") as? Boolean ?: return null
+            if (key.isBlank() || label.isBlank()) return null
+            DownloadTypeChoice(key, label, row.optString("help"), chosen)
+        }.takeIf { choices -> choices.isNotEmpty() && choices.map { it.key }.distinct().size == choices.size }
     }
 
     private fun speedChoices(rows: JSONArray): List<SpeedChoice>? {

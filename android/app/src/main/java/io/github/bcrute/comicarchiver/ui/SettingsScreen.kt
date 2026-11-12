@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -19,12 +20,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
+import io.github.bcrute.comicarchiver.controller.DownloadTypeChoice
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SiteCard
 import io.github.bcrute.comicarchiver.controller.AppTheme
@@ -43,6 +49,7 @@ fun SettingsScreen(
     onTheme: (AppTheme) -> Unit = {},
     card: SiteCard? = null,
     siteName: String = "Tapas",
+    onDownloadTypes: (Map<String, Boolean>) -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -111,19 +118,52 @@ fun SettingsScreen(
                     settings.speeds.forEach { speed ->
                         FilterChip(
                             selected = speed.key == settings.speed,
-                            enabled = speed.available && !busy && !saving,
+                            enabled = speed.available && !busy,
                             onClick = { onSpeed(speed.key) },
                             label = { Text(speed.label, maxLines = 1, softWrap = false) },
                         )
                     }
                 }
-                Text(if (saving) "Pause saving to change the speed."
+                Text(if (saving) "A running download pauses to apply the change, then continues."
                      else "The stored choice applies when you start saving. It never starts saving on its own.")
                 if (settings.speeds.none { it.key == settings.speed && it.available })
                     Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before starting saving.")
                 if (settings.speeds.any { it.key == "fast" && !it.available })
                     Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
             }
+        }
+        if (settings.downloadTypes.isNotEmpty())
+            DownloadTypesCard(settings.downloadTypes, siteName, busy, onDownloadTypes)
+    }
+}
+
+/** As the desktop's episode-type choices: nothing is saved until Save, and one type always stays chosen. */
+@Composable
+private fun DownloadTypesCard(types: List<DownloadTypeChoice>, siteName: String, busy: Boolean,
+                              onSave: (Map<String, Boolean>) -> Unit) {
+    val stored = types.associate { it.key to it.chosen }
+    var draft by remember(stored) { mutableStateOf(stored) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Episode types on $siteName", style = MaterialTheme.typography.titleMedium)
+            types.forEach { type ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Checkbox(
+                        checked = draft[type.key] == true,
+                        enabled = !busy,
+                        onCheckedChange = { draft = draft + (type.key to it) },
+                        modifier = Modifier.semantics { contentDescription = type.label },
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(type.label)
+                        if (type.help.isNotBlank()) Text(type.help, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Text("Already saved files are kept. Choices also apply on future runs. " +
+                 "A running download pauses to apply changes, then continues.")
+            OutlinedButton(onClick = { onSave(draft) },
+                enabled = !busy && draft != stored && draft.values.any { it }) { Text("Save episode types") }
         }
     }
 }

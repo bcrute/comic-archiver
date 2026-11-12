@@ -414,6 +414,7 @@ class SwitchBridge : PythonBridge {
             "settings", "configure_settings" -> {
                 if (args.has("speed")) speeds[root] = args.getString("speed")
                 """{"wifi_only":true,"speed":"${speeds[root] ?: "medium"}","connection":"wifi","metered":false,"allowed":true,
+                  "download_types":[{"key":"free","label":"Free","help":"","chosen":true}],
                   "speeds":[{"key":"medium","label":"Medium","available":true},{"key":"slow","label":"Slow","available":true}]}"""
             }
             else -> return fallback.dispatch(op, argsJson)

@@ -1,5 +1,6 @@
 package io.github.bcrute.comicarchiver.runtime
 
+import io.github.bcrute.comicarchiver.controller.DownloadTypeChoice
 import io.github.bcrute.comicarchiver.controller.SettingsStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -9,6 +10,8 @@ import org.junit.Test
 class SettingsStatusTest {
     private fun envelope() = JSONObject("""{"ok":true,"result":{
         "wifi_only":true,"speed":"medium","connection":"unknown","metered":null,"allowed":false,
+        "download_types":[{"key":"bought","label":"Paid / unlocked","help":"Bought ones.","chosen":true},
+        {"key":"free","label":"Free","help":"Free ones.","chosen":false}],
         "speeds":[{"key":"fast","label":"Fast","available":false},
         {"key":"medium","label":"Medium","available":true},
         {"key":"slow","label":"Slow","available":true}]}}""")
@@ -27,6 +30,20 @@ class SettingsStatusTest {
             bad.getJSONObject("result").remove(key)
             assertNull(SettingsStatus.fromEnvelope(bad))
             bad.getJSONObject("result").put(key, "false")
+            assertNull(SettingsStatus.fromEnvelope(bad))
+        }
+    }
+
+    @Test fun episodeTypesAreReadInTheDesktopsWordsAndAnUnreadableChoiceIsNotShownAsMade() {
+        assertEquals(listOf(DownloadTypeChoice("bought", "Paid / unlocked", "Bought ones.", true),
+            DownloadTypeChoice("free", "Free", "Free ones.", false)),
+            SettingsStatus.fromEnvelope(envelope())!!.downloadTypes)
+        val missing = envelope()
+        missing.getJSONObject("result").remove("download_types")
+        assertNull(SettingsStatus.fromEnvelope(missing))
+        for ((key, value) in listOf("chosen" to "true", "label" to "", "key" to "bought")) {
+            val bad = envelope()
+            bad.getJSONObject("result").getJSONArray("download_types").getJSONObject(1).put(key, value)
             assertNull(SettingsStatus.fromEnvelope(bad))
         }
     }

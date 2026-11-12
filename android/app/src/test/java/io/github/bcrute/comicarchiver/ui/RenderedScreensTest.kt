@@ -80,6 +80,7 @@ import io.github.bcrute.comicarchiver.controller.LibraryMetric
 import io.github.bcrute.comicarchiver.controller.LibraryPlace
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
+import io.github.bcrute.comicarchiver.controller.DownloadTypeChoice
 import io.github.bcrute.comicarchiver.controller.SpeedChoice
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
@@ -587,13 +588,35 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun speedCannotBeChangedWhileSavingButNetworkChoiceStaysAvailable() {
+    @Test fun speedCanBeChangedWhileSavingAsOnTheDesktop() {
         controller.state.value = controller.state.value.copy(download = DownloadState.Planning)
         show()
         preferences()
-        compose.onNodeWithText("Slow").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("Pause saving to change the speed.").assertIsDisplayed()
+        compose.onNodeWithText("A running download pauses to apply the change, then continues.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Slow").performScrollTo().assertIsEnabled().performClick()
+        assertEquals("slow", controller.state.value.settings?.speed)
         compose.onNodeWithContentDescription("Also save on metered and mobile connections").assertIsEnabled()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun episodeTypesAreChosenInTheDesktopsWordsAndSavedOnlyWithOneLeftChosen() {
+        show()
+        preferences()
+        compose.onNodeWithText("Episode types on Tapas").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Free ones.").assertExists()
+        compose.onNodeWithContentDescription("Paid / unlocked").performScrollTo().assertIsOn()
+        compose.onNodeWithContentDescription("Free").assertIsOff()
+        // Nothing to save until a choice differs, and never with every type cleared.
+        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Paid / unlocked").performScrollTo().performClick()
+        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Free").performScrollTo().performClick()
+        compose.onNodeWithText("Save episode types").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(listOf(mapOf("bought" to false, "free" to true)), controller.typeChanges)
+        compose.onNodeWithContentDescription("Free").performScrollTo().assertIsOn()
+        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        assertEquals(0, controller.goCalls)
     }
 
     @Test fun unreadableSettingsDoNotOfferAnUnverifiedMobileDataToggle() {
@@ -1231,7 +1254,9 @@ private class ScreenController : AppController {
         signIn = SignInState.SignedIn("tapas"),
         settings = DownloadSettings(true, "medium", listOf(
             SpeedChoice("fast", "Fast", false), SpeedChoice("medium", "Medium", true),
-            SpeedChoice("slow", "Slow", true)), "wifi", false, true),
+            SpeedChoice("slow", "Slow", true)), "wifi", false, true, listOf(
+            DownloadTypeChoice("bought", "Paid / unlocked", "Bought ones.", true),
+            DownloadTypeChoice("free", "Free", "Free ones.", false))),
         library = listOf(
             LibraryEntry("z", "Zulu Comic", LibraryKind.COMIC, 8, 2),
             LibraryEntry("b", "Beta Novel", LibraryKind.NOVELS, 5, 3),
@@ -1269,6 +1294,13 @@ private class ScreenController : AppController {
     }
     override fun setDownloadSpeed(value: String) {
         state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
+    }
+    val typeChanges = mutableListOf<Map<String, Boolean>>()
+    override fun setDownloadTypes(value: Map<String, Boolean>) {
+        typeChanges.add(value)
+        state.value = state.value.copy(settings = state.value.settings?.let { kept ->
+            kept.copy(downloadTypes = kept.downloadTypes.map { it.copy(chosen = value[it.key] == true) })
+        })
     }
     override fun requestExport(folderUri: String) {}
     override fun cancelExport() {}

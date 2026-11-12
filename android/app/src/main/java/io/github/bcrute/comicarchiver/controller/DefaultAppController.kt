@@ -623,6 +623,10 @@ class DefaultAppController(
         changeSettings(JSONObject().put("speed", value))
     }
 
+    override fun setDownloadTypes(value: Map<String, Boolean>) {
+        changeSettings(JSONObject().put("download_types", JSONObject(value)))
+    }
+
     override fun refreshCloud() {
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
         val target = location; val version = siteVersion
@@ -741,10 +745,14 @@ class DefaultAppController(
         }
     }
 
+    /** Counts each setting change as it starts and as it ends, so a reading taken across one can be told. */
+    @Volatile private var settingsChanges = 0L
+
     private fun changeSettings(args: JSONObject) {
         if (_state.value.libraryBusy || _state.value.siteBusy || _state.value.signOutPending ||
             _state.value.settingsBusy || !workspaceReady) return
         val target = location; val version = siteVersion
+        settingsChanges += 1
         _state.value = _state.value.copy(settingsBusy = true, settingsNotice = null)
         scope.launch(Dispatchers.IO) {
             settingsActions.withLock {
@@ -757,6 +765,7 @@ class DefaultAppController(
                         JSONObject().put("root", target.root.absolutePath).toString())))
                 } catch (_: Exception) { null }
                 withContext(Dispatchers.Main) {
+                    settingsChanges += 1
                     if (!current(target, version)) return@withContext
                     _state.value = _state.value.copy(
                         settings = actual,
@@ -769,8 +778,11 @@ class DefaultAppController(
         }
     }
 
-    private suspend fun readSettings(target: SiteWorkspace, version: Long) {
-        settingsActions.withLock {
+    /** The poll does not wait behind a change being made, which can take as long as a step takes to stop:
+     *  the change shows its own result, and the download's status goes on being read meanwhile. */
+    private suspend fun readSettings(target: SiteWorkspace, version: Long, wait: Boolean = true) {
+        if (wait) settingsActions.lock() else if (!settingsActions.tryLock()) return
+        try {
             val settings = try {
                 SettingsStatus.fromEnvelope(JSONObject(bridge.dispatch("settings",
                     JSONObject().put("root", target.root.absolutePath).toString())))
@@ -783,7 +795,7 @@ class DefaultAppController(
                         "Download settings could not be read. Try again.") else null,
                 )
             }
-        }
+        } finally { settingsActions.unlock() }
     }
 
     override fun requestExport(folderUri: String) {
@@ -860,7 +872,7 @@ class DefaultAppController(
                     try { refreshLibrary(target, version) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { /* A library read failure must not stop live status/Pause updates. */ }
-                    readSettings(target, version)
+                    readSettings(target, version, wait = false)
                     readCloud(target, version)
                     readAllSites(target, version)
                 } else if (_state.value.cloud?.taskRunning == true || _state.value.cloud?.authStatus == "running") {
@@ -874,6 +886,8 @@ class DefaultAppController(
 
     private suspend fun mapWorkerStatus(target: SiteWorkspace, version: Long) {
         val admission = admissionVersion
+        val changes = settingsChanges
+        val changing = _state.value.settingsBusy
         val envelope = try {
             JSONObject(bridge.dispatch("download_status", JSONObject().put("root", target.root.absolutePath).toString()))
         } catch (cancelled: CancellationException) {
@@ -895,6 +909,13 @@ class DefaultAppController(
                 return@withContext
             }
             val download = DownloadStatus.fromEnvelope(envelope)
+            // A speed or episode-type change pauses the download to apply it, then carries on: a
+            // pause read while one was being made is the change's, not the end of the download.
+            if (download == DownloadState.Paused("user") &&
+                (changing || _state.value.settingsBusy || changes != settingsChanges)) {
+                _state.value = observed
+                return@withContext
+            }
             if (download is DownloadState.Failed && download.code == BetaCodes.LOGIN_REQUIRED)
                 engine.requireSignIn()
             if (download is DownloadState.Failed || download is DownloadState.Finished ||

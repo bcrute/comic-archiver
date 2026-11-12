@@ -95,6 +95,9 @@ enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK(
 
 data class SpeedChoice(val key: String, val label: String, val available: Boolean)
 
+/** One of the site's episode types, in the desktop's words, and whether it is downloaded. */
+data class DownloadTypeChoice(val key: String, val label: String, val help: String, val chosen: Boolean)
+
 data class DownloadSettings(
     val wifiOnly: Boolean,
     val speed: String,
@@ -102,6 +105,7 @@ data class DownloadSettings(
     val connection: String,
     val metered: Boolean?,
     val allowed: Boolean,
+    val downloadTypes: List<DownloadTypeChoice> = emptyList(),
 )
 
 sealed interface SignInState {

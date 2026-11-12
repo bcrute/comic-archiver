@@ -455,8 +455,12 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
         workspace = Workspace(id="default", root=self.root)
         self.assertNotEqual(account_ui.speed(workspace), "slow")
-        result = self.call("configure_settings", {"root": str(self.root), "speed": "slow", "wifi_only": False})
+        # The running step is stopped for the change: only saving the choice would leave it at the old pace.
+        from unittest.mock import patch
+        with patch.object(account_ui, "change_speed", wraps=account_ui.change_speed) as change:
+            result = self.call("configure_settings", {"root": str(self.root), "speed": "slow", "wifi_only": False})
         self.assertTrue(result["ok"], result)
+        self.assertEqual(change.call_count, 1)
         self.assertEqual((result["result"]["speed"], result["result"]["wifi_only"]), ("slow", False))
         self.assertEqual(account_ui.speed(workspace), "slow")
         self.assertEqual(account_ui.status(workspace)["status"], "running")

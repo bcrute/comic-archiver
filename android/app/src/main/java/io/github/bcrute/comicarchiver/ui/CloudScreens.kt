@@ -60,6 +60,7 @@ internal enum class B2Page(val label: String, val url: String) {
 @Composable
 fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boolean) -> Unit,
                   onSpeed: (String) -> Unit, onRefresh: () -> Unit,
+                  onDownloadTypes: (Map<String, Boolean>) -> Unit = {},
                   onCloudRefresh: () -> Unit, onCloudAction: (CloudRequest) -> Unit,
                   workingLibraries: WorkingLibrariesState = WorkingLibrariesState(),
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
@@ -102,7 +103,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                 state.download is DownloadState.Running || state.download is DownloadState.Planning,
                 state.settingsNotice, onWifiOnly, onSpeed, onRefresh, state.theme, onTheme,
                 state.siteCards.firstOrNull { it.site == state.site },
-                state.sites.firstOrNull { it.key == state.site }?.name ?: if (state.site == "tapas") "Tapas" else state.site)
+                state.sites.firstOrNull { it.key == state.site }?.name ?: if (state.site == "tapas") "Tapas" else state.site,
+                onDownloadTypes)
             else -> {
                 val cloud = state.cloud
                 if (cloud == null) {
