@@ -1264,7 +1264,11 @@ class RenderedScreensTest {
         compose.onNodeWithText("Cancel").performClick()
         compose.runOnIdle { controller.state.value = controller.state.value.copy(signOutPending = true,
             download = DownloadState.Planning) }
-        compose.onNodeWithText("Retry sign-out").performScrollTo().assertIsEnabled()
+        // Offered at the top of the page and beside the account, and both can be pressed.
+        compose.onAllNodes(hasText("Retry sign-out") and hasClickAction()).fetchSemanticsNodes().let { offered ->
+            assertEquals(2, offered.size)
+            assertTrue(offered.none { it.config.contains(SemanticsProperties.Disabled) })
+        }
         assertEquals(0, controller.signOutCalls)
     }
 
