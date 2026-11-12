@@ -20,7 +20,13 @@ def speed_available(site_key, speed, browser_factory=None):
 
 def start(workspace, *, browser_factory=None):
     from . import sites
+    from .worker_host import browser_available
     speed = selected_speed(workspace)
+    if (sites.of_session(workspace.session).key == 'tapas' and browser_factory is not None
+            and not browser_available(browser_factory)):
+        # The phone's own browser is there but too old for the reader the desktop uses. One reader is supported,
+        # so the download says what to update instead of saving less with another.
+        raise ArchiveError('Update Android System WebView to save from Tapas.')
     if not speed_available(sites.of_session(workspace.session).key, speed, browser_factory):
         raise ArchiveError('Fast mode needs an updated Android System WebView. Choose Medium or Slow in Settings.')
     if not (workspace.session / account_ui.SPEED_FILE).exists():

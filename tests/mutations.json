@@ -9742,5 +9742,21 @@
   "new": "                                         '',",
   "test_file": "test_dashboard_model.py",
   "test": "test_sign_in_messages_say_what_went_wrong_or_what_to_do_next"
+ },
+ {
+  "id": "phone-old-browser-saves-less-from-tapas-without-saying",
+  "source": "comic_archive/android_download.py",
+  "old": "            and not browser_available(browser_factory)):",
+  "new": "            and False):",
+  "test_file": "test_android_download.py",
+  "test": "test_a_browser_too_old_for_the_desktops_reader_is_told_to_update_instead_of_saving_less"
+ },
+ {
+  "id": "phone-old-browser-refuses-every-site",
+  "source": "comic_archive/android_download.py",
+  "old": "    if (sites.of_session(workspace.session).key == 'tapas' and browser_factory is not None",
+  "new": "    if (browser_factory is not None",
+  "test_file": "test_android_download.py",
+  "test": "test_a_browser_too_old_for_the_desktops_reader_is_told_to_update_instead_of_saving_less"
  }
 ]

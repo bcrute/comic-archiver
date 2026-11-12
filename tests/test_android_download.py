@@ -63,6 +63,22 @@ class AndroidGoTests(unittest.TestCase):
         self.assertEqual((self.workspace.session / account_ui.SPEED_FILE).read_bytes(), before)
         self.assertFalse((self.root / download_control.STATE_FILE).exists())
 
+    def test_a_browser_too_old_for_the_desktops_reader_is_told_to_update_instead_of_saving_less(self):
+        from test_android_browser import Factory
+        factory = Factory()
+        factory.enabled = False
+        for speed in ('medium', 'fast'):
+            account_ui.choose_speed(self.workspace, speed)
+            with self.assertRaisesRegex(ArchiveError, '^Update Android System WebView to save from Tapas\\.$'):
+                android_download.start(self.workspace, browser_factory=factory)
+        self.assertFalse((self.root / download_control.STATE_FILE).exists())
+        self.assertEqual(factory.opens, [])
+        # Another site never needed that browser.
+        (self.workspace.session / 'site').write_text('webtoon')
+        account_ui.choose_speed(self.workspace, 'medium')
+        android_download.start(self.workspace, browser_factory=factory)
+        self.assertEqual(account_ui.status(self.workspace)['status'], 'running')
+
     def test_fast_admission_uses_the_real_fixed_policy_without_opening_a_browser_while_held(self):
         from test_android_browser import Factory
         factory = Factory()

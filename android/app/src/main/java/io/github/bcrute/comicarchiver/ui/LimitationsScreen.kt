@@ -97,6 +97,7 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
                     "continues them.",
             )
             Limitation("B2 storage uses your own private bucket. Connect and pass the upload/readback test before choosing it as a destination.")
+            Limitation("Saving from Tapas needs an up-to-date Android System WebView. If Tapas will not start, update it in the Play Store.")
             Limitation("Other cloud providers, image-quality options and listing services are not supported yet.")
             Limitation("Tapas closes at the end of March 2027; save what you bought before then.")
         }

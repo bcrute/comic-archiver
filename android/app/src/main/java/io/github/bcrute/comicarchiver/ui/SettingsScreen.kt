@@ -129,7 +129,7 @@ fun SettingsScreen(
                 if (settings.speeds.none { it.key == settings.speed && it.available })
                     Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before starting saving.")
                 if (settings.speeds.any { it.key == "fast" && !it.available })
-                    Text("Update Android System WebView to use Tapas Fast mode and Recent/Free Episodes discovery.")
+                    Text("Update Android System WebView to save from Tapas.")
             }
         }
         if (settings.downloadTypes.isNotEmpty())
