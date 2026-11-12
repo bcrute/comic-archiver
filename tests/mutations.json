@@ -9734,5 +9734,13 @@
   "new": "    return value if isinstance(value, str) else ''",
   "test_file": "test_android_cards.py",
   "test": "test_a_card_carries_the_downloads_own_word_for_the_phones_top_card"
+ },
+ {
+  "id": "second-account-is-not-told-it-can-have-its-own-folder",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "                                         'or choose a different library folder to save this account separately.',",
+  "new": "                                         '',",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_sign_in_messages_say_what_went_wrong_or_what_to_do_next"
  }
 ]

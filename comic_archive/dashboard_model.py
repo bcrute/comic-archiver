@@ -643,7 +643,8 @@ def view(s, now):
         else 'This computer cannot tell whether its connection is metered (a VPN can cause this), so saving waits. '
              'Tick this to save on it anyway.')
     auth_messages = {'network_held': 'Connect to Wi-Fi or a wired connection, or press Allow this connection, then sign in again.',
-                     'account_mismatch': f'That {site} account does not match this saved library. Sign in to the original account.',
+                     'account_mismatch': f'That {site} account does not match this saved library. Sign in to the original account, '
+                                         'or choose a different library folder to save this account separately.',
                      'signin_failed': f'Sign-in did not finish. Try Sign in to {site} again.',
                      'signin_incomplete': f'Sign-in was not completed. Click Sign in to {site} to try again.'}
     site_auth = s.site_auth or {}

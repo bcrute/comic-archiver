@@ -23,7 +23,8 @@ fun Notice.toNoticeUi(): NoticeUi = NoticeUi(
 
 /** The desktop's words for a sign-in to an account the library was not saved from. */
 fun accountMismatchText(site: String) =
-    "That $site account does not match this saved library. Sign in to the original account."
+    "That $site account does not match this saved library. Sign in to the original account, " +
+        "or choose a different library folder to save this account separately."
 
 fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     busy = signIn is SignInState.Page || signIn is SignInState.Settling,

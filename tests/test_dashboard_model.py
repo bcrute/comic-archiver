@@ -747,6 +747,10 @@ class StatusTests(unittest.TestCase):
             v = view(site_auth={'status': 'error', 'code': code})
             self.assertIn(part, v['signin_status'])
             self.assertTrue(v['signin_status_error'])
+        # A second account is not turned away with nowhere to go: it can have a library folder of its own.
+        self.assertEqual(view(site_auth={'status': 'error', 'code': 'account_mismatch'})['signin_status'],
+                         'That Tapas account does not match this saved library. Sign in to the original account, '
+                         'or choose a different library folder to save this account separately.')
         failure = view(message=Message('Refused.', True))
         self.assertEqual((failure['signin_status'], failure['settings_status']), ('Refused.', 'Refused.'))
         self.assertTrue(failure['signin_status_error'] and failure['settings_status_error'])
