@@ -274,10 +274,10 @@ def site_records(name, session, library):
                       _end(_quiet(_tail(logs, 4 * DOWNLOADER_BYTES, (session, worker.parent))), DOWNLOADER_BYTES)])
 
 
-def app_log(folder):
-    """The window's log, oldest first, and what Python wrote when the app last crashed, if it has."""
+def app_log(folder, name='desktop.log'):
+    """The app's log, oldest first, and what Python wrote when the app last crashed, if it has."""
     folder = Path(folder)
-    text = _tail([folder / 'desktop.log.2', folder / 'desktop.log.1', folder / 'desktop.log'], APP_LOG_BYTES)
+    text = _tail([folder / f'{name}.2', folder / f'{name}.1', folder / name], APP_LOG_BYTES)
     crash = _tail([folder / CRASH_NAME], CRASH_BYTES)
     return text + (f'\n=== Where the app was when it last stopped suddenly\n{crash}' if crash.strip() else '')
 
@@ -333,12 +333,12 @@ def _fit(parts, limit):
     return fitted
 
 
-def bundle(details, sites, app_text, libraries, now=None):
+def bundle(details, sites, app_text, libraries, now=None, device='computer', home=None):
     """The whole file: the details for support, each site's records, then the app's log."""
     stamp = (now or datetime.now().astimezone()).isoformat(timespec='seconds')
-    parts = [f'Saved {stamp}; the times below are this computer’s own.', details, *sites,
+    parts = [f'Saved {stamp}; the times below are this {device}’s own.', details, *sites,
              f'=== The app’s log\n{app_text}']
-    parts = [scrub(part, libraries) for part in parts]
+    parts = [scrub(part, libraries, home) for part in parts]
     return '\n\n'.join(_fit(parts, LIMIT - 2 * (len(parts) - 1)))
 
 

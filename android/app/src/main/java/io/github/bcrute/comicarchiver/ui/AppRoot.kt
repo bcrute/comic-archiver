@@ -228,7 +228,9 @@ fun ComicArchiverAppRoot(
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text("All settings") }
-                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES })
+                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES },
+                                supportNote = state.supportNote, supportBusy = state.supportBusy,
+                                onCopyDetails = controller::copySupportDetails, onSaveLog = controller::saveSupportLog)
                             if (signOutHeld) Text(SIGN_OUT_HELD, Modifier.padding(horizontal = 16.dp))
                             OutlinedButton(
                                 onClick = accountAction,

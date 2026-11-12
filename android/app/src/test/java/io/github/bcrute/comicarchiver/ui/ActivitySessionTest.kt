@@ -1,5 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
+import io.github.bcrute.comicarchiver.runtime.SupportLog
+import io.github.bcrute.comicarchiver.controller.SupportNote
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
@@ -264,6 +266,54 @@ class ActivitySessionTest {
         } finally { compose.runOnIdle { controller.pause() } }
     }
 
+    @Test fun supportDetailsAreCopiedAndTheLogIsHandedToDownloadsWithNothingLeftBehind() {
+        ready()
+        val controller = app.controller
+        val copied = mutableListOf<String>()
+        val handed = mutableListOf<String>()
+        controller.copyText = { copied.add(it) }
+        controller.saveToDownloads = { file -> handed.add(file.readText()); file.name }
+        compose.runOnIdle { controller.copySupportDetails() }
+        awaitState { controller.state.value.supportNote != null && !controller.state.value.supportBusy }
+        assertEquals(listOf("Comic Archiver details"), copied)
+        assertEquals(SupportNote("Copied. Paste it into your message or email."), controller.state.value.supportNote)
+        val asked = JSONObject(app.fake.lastArgs.getValue("support_details"))
+        assertEquals(setOf("base_root", "version", "system"), asked.keys().asSequence().toSet())
+        assertTrue(Regex("Android [0-9A-Za-z ._-]*\\(API \\d+\\)").matches(asked.getString("system")))
+
+        compose.runOnIdle { controller.saveSupportLog() }
+        awaitState { controller.state.value.supportNote?.text?.startsWith("Saved") == true }
+        assertEquals(listOf("the whole log"), handed)
+        assertEquals(SupportNote("Saved in your Downloads folder as \u201cComic Archiver log fixture.txt\u201d."),
+            controller.state.value.supportNote)
+        val outbox = SupportLog.outbox(app)
+        assertEquals(outbox.absolutePath, JSONObject(app.fake.lastArgs.getValue("support_save")).getString("out_root"))
+        assertEquals(SupportLog.folder(app).absolutePath,
+            JSONObject(app.fake.lastArgs.getValue("support_save")).getString("log_root"))
+        assertTrue(outbox.listFiles().orEmpty().isEmpty())
+
+        // Downloads refuses the file, the core cannot write it, or the clipboard is unavailable.
+        controller.saveToDownloads = { null }
+        compose.runOnIdle { controller.saveSupportLog() }
+        awaitState { controller.state.value.supportNote?.failed == true }
+        assertEquals("The log could not be saved. Check that your Downloads folder can be written to.",
+            controller.state.value.supportNote?.text)
+        assertTrue(outbox.listFiles().orEmpty().isEmpty())
+        app.fake.supportReadable = false
+        controller.saveToDownloads = { file -> handed.add("never"); file.name }
+        compose.runOnIdle { controller.saveSupportLog() }
+        awaitState { !controller.state.value.supportBusy && controller.state.value.supportNote?.failed == true }
+        compose.runOnIdle { controller.copySupportDetails() }
+        awaitState { controller.state.value.supportNote?.text == "The details could not be copied. Try again." }
+        app.fake.supportReadable = true
+        controller.copyText = { throw IllegalStateException("PRIVATE clipboard failure") }
+        compose.runOnIdle { controller.copySupportDetails() }
+        awaitState { !controller.state.value.supportBusy && controller.state.value.supportNote?.failed == true }
+        assertEquals(listOf("Comic Archiver details"), copied)
+        assertEquals(listOf("the whole log"), handed)
+        assertEquals(0, app.fake.count("go"))
+    }
+
     @Test fun failedPolicyRefreshHidesStaleMobileConsentInsteadOfReusingIt() {
         ready()
         compose.onNodeWithTag("nav-settings").performClick()
@@ -451,10 +501,20 @@ class LifecycleBridge : PythonBridge {
     @Volatile var speed = "medium"
     @Volatile var types = mapOf("bought" to true, "free" to true)
     @Volatile var settingsGate: Pair<CountDownLatch, CountDownLatch>? = null
+    @Volatile var supportReadable = true
+    val lastArgs = ConcurrentHashMap<String, String>()
     private val calls = ConcurrentHashMap<String, AtomicInteger>()
     fun count(op: String) = calls[op]?.get() ?: 0
     override fun dispatch(op: String, argsJson: String): String {
         calls.computeIfAbsent(op) { AtomicInteger() }.incrementAndGet()
+        lastArgs[op] = argsJson
+        if (op in setOf("support_details", "support_save") && !supportReadable)
+            return """{"ok":false,"code":"refused"}"""
+        if (op == "support_save") {
+            // The core writes the file where it was told to and answers its name only.
+            val out = java.io.File(JSONObject(argsJson).getString("out_root")).apply { mkdirs() }
+            java.io.File(out, "Comic Archiver log fixture.txt").writeText("the whole log")
+        }
         if (op == "worker_start") {
             val startGate = synchronized(this) { workerStartGate.also { workerStartGate = null } }
             startGate?.let {
@@ -504,6 +564,8 @@ class LifecycleBridge : PythonBridge {
                 {"key":"slow","label":"Slow","available":true}]}"""
             "signin_restore", "signin_commit" -> """{"signed_in":true,"verified":true}"""
             "worker_start" -> """{"running":true,"stop_requested":false}"""
+            "support_details" -> """{"text":"Comic Archiver details"}"""
+            "support_save" -> """{"name":"Comic Archiver log fixture.txt"}"""
             "download_status" -> statusSnapshot!!
             "library_listing" -> """[{"seriesId":"test","title":"Test Comic","kind":"comics","episodeCount":4,"savedCount":4}]"""
             else -> "{}"

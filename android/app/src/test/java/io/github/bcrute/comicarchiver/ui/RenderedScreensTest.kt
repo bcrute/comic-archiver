@@ -1,5 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
+import io.github.bcrute.comicarchiver.controller.SupportWords
+import io.github.bcrute.comicarchiver.controller.SupportNote
 import android.app.Application
 import android.view.View
 import android.os.SystemClock
@@ -164,6 +166,32 @@ class RenderedScreensTest {
         compose.onNodeWithText("About & help").performScrollTo().performClick()
         compose.onNodeWithTag("nav-settings").assertIsSelected()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun aboutOffersTheDesktopsTwoSupportButtonsInItsWordsAndShowsWhatTheyAnswer() {
+        show()
+        about()
+        compose.onNodeWithText(SUPPORT_DETAILS).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(SUPPORT_LOG).performScrollTo().assertIsDisplayed()
+        assertTrue(SUPPORT_DETAILS.startsWith("Asking for help? This copies a short summary of each site\u2019s download"))
+        assertTrue(SUPPORT_LOG.endsWith("but no titles, folder names or sign-in details."))
+        compose.onNodeWithTag("support-note").assertDoesNotExist()
+        compose.onNode(hasTestTag("support-copy") and hasText("Copy details for support")).performScrollTo().performClick()
+        compose.onNode(hasTestTag("support-save-log") and hasText("Save log for support")).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1 to 1, controller.supportCopies to controller.supportSaves) }
+        controller.state.value = controller.state.value.copy(supportNote = SupportNote(SupportWords.COPIED))
+        compose.onNode(hasTestTag("support-note") and hasText("Copied. Paste it into your message or email."))
+            .performScrollTo().assertIsDisplayed()
+        // While one is being made neither can be asked for again.
+        controller.state.value = controller.state.value.copy(supportBusy = true,
+            supportNote = SupportNote(SupportWords.logSaved("Comic Archiver log 2026-11-11 09.30.05.txt")))
+        compose.onNodeWithTag("support-copy").assertIsNotEnabled()
+        compose.onNodeWithTag("support-save-log").assertIsNotEnabled()
+        compose.onNodeWithText("Saved in your Downloads folder as \u201cComic Archiver log 2026-11-11 09.30.05.txt\u201d.")
+            .performScrollTo().assertIsDisplayed()
+        assertEquals("The log could not be saved. Check that your Downloads folder can be written to.",
+            SupportWords.LOG_FAILED)
         assertEquals(0, controller.goCalls)
     }
 
@@ -1392,6 +1420,10 @@ private class ScreenController : AppController {
     }
     val episodeLoads = mutableListOf<Pair<String, String?>>()
     var episodeRefreshes = 0
+    var supportCopies = 0
+    var supportSaves = 0
+    override fun copySupportDetails() { supportCopies++ }
+    override fun saveSupportLog() { supportSaves++ }
     override fun loadEpisodes(site: String, seriesId: String?) {
         episodeLoads.add(site to seriesId)
         val key = EpisodeList.key(site, seriesId)

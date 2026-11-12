@@ -19,6 +19,9 @@ data class AppState(
     val sites: List<SiteChoice> = emptyList(),
     /** The Library's recorded episodes, by [EpisodeList.key]; read only as each site or series is opened. */
     val episodes: Map<String, EpisodeList> = emptyMap(),
+    /** What Copy details or Save log for support last answered, and whether one is being made. */
+    val supportNote: SupportNote? = null,
+    val supportBusy: Boolean = false,
     val siteBusy: Boolean = false,
     val signInOrigin: String? = null,
     val signOutPending: Boolean = false,
@@ -36,6 +39,17 @@ data class AppState(
     /** Each opened site's card, worded by the same model as the desktop's. */
     val siteCards: List<SiteCard> = emptyList(),
 )
+
+/** The line under the support buttons: the desktop's own words, and whether it reports a failure. */
+data class SupportNote(val text: String, val failed: Boolean = false)
+
+/** The desktop's words for its two support buttons, and the phone's for a copy that failed. */
+object SupportWords {
+    const val COPIED = "Copied. Paste it into your message or email."
+    const val NOT_COPIED = "The details could not be copied. Try again."
+    const val LOG_FAILED = "The log could not be saved. Check that your Downloads folder can be written to."
+    fun logSaved(name: String) = "Saved in your Downloads folder as \u201c$name\u201d."
+}
 
 /** Saved-file counts over every site of the working library, and the sites they cover. */
 data class AllSites(val sites: List<String>, val episodes: Long, val files: Long)

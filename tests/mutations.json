@@ -9614,5 +9614,85 @@
   "new": "        return\n        try:",
   "test_file": "test_app_bridge.py",
   "test": "test_sign_in_to_an_account_the_library_was_not_saved_from_is_refused"
+ },
+ {
+  "id": "phone-log-leaves-out-the-downloads-messages",
+  "source": "comic_archive/android_support.py",
+  "old": "    return logging.getLogger(APP_LOG), logging.getLogger(support_log.DOWNLOAD_LOG)",
+  "new": "    return (logging.getLogger(APP_LOG),)",
+  "test_file": "test_android_support.py",
+  "test": "test_the_apps_and_the_downloads_messages_go_to_one_private_log"
+ },
+ {
+  "id": "phone-log-written-through-a-linked-folder",
+  "source": "comic_archive/android_support.py",
+  "old": "        if osdep.linked(folder) or path.is_symlink():",
+  "new": "        if False:",
+  "test_file": "test_android_support.py",
+  "test": "test_a_log_that_cannot_be_kept_or_is_reached_through_a_link_is_not_written"
+ },
+ {
+  "id": "phone-log-started-twice-writes-each-line-twice",
+  "source": "comic_archive/android_support.py",
+  "old": "        for log in _logs():\n            log.removeHandler(_kept['handler'])\n",
+  "new": "",
+  "test_file": "test_android_support.py",
+  "test": "test_the_apps_and_the_downloads_messages_go_to_one_private_log"
+ },
+ {
+  "id": "phone-saved-log-reads-the-desktops-log-name",
+  "source": "comic_archive/android_support.py",
+  "old": "support_log.app_log(log_folder, LOG_NAME)",
+  "new": "support_log.app_log(log_folder)",
+  "test_file": "test_android_support.py",
+  "test": "test_a_saved_log_holds_the_details_each_open_sites_records_and_the_phones_log_without_its_folders"
+ },
+ {
+  "id": "phone-saved-log-keeps-the-library-folder",
+  "source": "comic_archive/android_support.py",
+  "old": "    records, libraries = [], [str(folder) for folder in folders]",
+  "new": "    records, libraries = [], []",
+  "test_file": "test_android_support.py",
+  "test": "test_save_writes_one_file_in_the_folder_named_and_answers_its_name_only"
+ },
+ {
+  "id": "phone-saved-log-keeps-the-apps-own-folder",
+  "source": "comic_archive/android_support.py",
+  "old": "now=now, device='phone', home=home)",
+  "new": "now=now, device='phone')",
+  "test_file": "test_android_support.py",
+  "test": "test_a_saved_log_holds_the_details_each_open_sites_records_and_the_phones_log_without_its_folders"
+ },
+ {
+  "id": "phone-details-name-the-computers-system",
+  "source": "comic_archive/support_details.py",
+  "old": "lines = [f'Comic Archiver {version} on {on or system()}']",
+  "new": "lines = [f'Comic Archiver {version} on {system()}']",
+  "test_file": "test_android_support.py",
+  "test": "test_the_details_name_the_phones_system_and_say_which_sites_are_not_open"
+ },
+ {
+  "id": "phone-details-forget-what-the-open-sites-read",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "state = cards.state(workspace.session) if cards is not None else None",
+  "new": "state = None",
+  "test_file": "test_android_support.py",
+  "test": "test_details_list_every_site_with_what_the_open_ones_cards_last_read"
+ },
+ {
+  "id": "phone-details-take-any-text-as-the-system",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "or not isinstance(system, str) or not _SUPPORT_SYSTEM.fullmatch(system)):",
+  "new": "or not isinstance(system, str)):",
+  "test_file": "test_android_support.py",
+  "test": "test_details_list_every_site_with_what_the_open_ones_cards_last_read"
+ },
+ {
+  "id": "phone-unexpected-failure-is-not-noted",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        _note_failure(envelope[\"op\"], error)\n",
+  "new": "",
+  "test_file": "test_android_support.py",
+  "test": "test_a_failure_nothing_expected_is_noted_in_the_log_without_its_own_text"
  }
 ]

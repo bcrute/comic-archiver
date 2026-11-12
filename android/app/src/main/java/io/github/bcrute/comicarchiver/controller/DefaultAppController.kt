@@ -1,5 +1,7 @@
 package io.github.bcrute.comicarchiver.controller
 
+import io.github.bcrute.comicarchiver.runtime.SupportLog
+import java.io.File
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -254,6 +256,54 @@ class DefaultAppController(
     override fun refreshEpisodes() {
         episodesVersion += 1
         _state.value = _state.value.copy(episodes = emptyMap())
+    }
+
+    /** Test seams: where copied details and a saved log are handed to the phone. */
+    internal var copyText: (String) -> Unit = { SupportLog.copy(context, it) }
+    internal var saveToDownloads: (File) -> String? = { SupportLog.toDownloads(context, it) }
+
+    private fun supportArgs(target: SiteWorkspace) = JSONObject().put("base_root", target.base.absolutePath)
+        .put("version", SupportLog.version(context)).put("system", SupportLog.system())
+
+    private fun support(work: (SiteWorkspace) -> SupportNote) {
+        if (_state.value.supportBusy) return
+        val target = location
+        _state.value = _state.value.copy(supportBusy = true, supportNote = null)
+        scope.launch(Dispatchers.IO) {
+            val note = try { work(target) } catch (cancelled: CancellationException) { throw cancelled }
+                       catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(supportBusy = false, supportNote = note)
+            }
+        }
+    }
+
+    override fun copySupportDetails() = support { target ->
+        val failed = SupportNote(SupportWords.NOT_COPIED, failed = true)
+        val answer = try { JSONObject(bridge.dispatch("support_details", supportArgs(target).toString())) }
+                     catch (_: Exception) { null }
+        val text = answer?.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optString("text").orEmpty()
+        if (text.isEmpty()) failed
+        else try { copyText(text); SupportNote(SupportWords.COPIED) } catch (_: Exception) { failed }
+    }
+
+    override fun saveSupportLog() = support { target ->
+        val failed = SupportNote(SupportWords.LOG_FAILED, failed = true)
+        val outbox = SupportLog.outbox(context)
+        try {
+            val answer = JSONObject(bridge.dispatch("support_save", supportArgs(target)
+                .put("log_root", SupportLog.folder(context).absolutePath)
+                .put("out_root", outbox.absolutePath).toString()))
+            val name = answer.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optString("name").orEmpty()
+            // Only a plain file name of the core's own making is looked for in the outbox.
+            if (name.isEmpty() || name.contains('/') || name.startsWith(".")) failed
+            else saveToDownloads(File(outbox, name))?.let { SupportNote(SupportWords.logSaved(it)) } ?: failed
+        } catch (_: Exception) {
+            failed
+        } finally {
+            // The copy in Downloads is the person's; nothing of it stays behind in the app.
+            try { outbox.listFiles()?.forEach { it.delete() } } catch (_: Exception) {}
+        }
     }
 
     private val settingsActions = Mutex()

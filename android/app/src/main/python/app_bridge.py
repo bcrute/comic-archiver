@@ -32,7 +32,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
                  "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites",
-                 "site_cards", "episode_inventory"})
+                 "site_cards", "episode_inventory", "support_start", "support_details", "support_save"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -1067,6 +1067,76 @@ def _site_cards(args):
     return _core(read)
 
 
+_SUPPORT_VERSION = re.compile(r"[0-9A-Za-z.+-]{1,40}")
+_SUPPORT_SYSTEM = re.compile(r"[0-9A-Za-z .()_-]{1,60}")
+
+
+def _support_start(args):
+    """Begin the phone's own log in the app's private "log_root": what Save log for support
+    later gathers. A log that cannot be kept never stops the app."""
+    folder = _path_arg(args, "log_root")
+    if set(args) != {"log_root"}:
+        raise _BridgeError("bad_request", "Choose the app's log folder.")
+    from comic_archive import android_support
+    return {"logging": android_support.configure(folder)}
+
+
+def _support_sites(args):
+    """(the details text, [(name, session, library)] of the open sites) for one working library."""
+    base = _path_arg(args, "base_root")
+    version, system = args.get("version"), args.get("system")
+    if (not isinstance(version, str) or not _SUPPORT_VERSION.fullmatch(version)
+            or not isinstance(system, str) or not _SUPPORT_SYSTEM.fullmatch(system)):
+        raise _BridgeError("bad_request", "Name the app's version and the phone's system.")
+    from comic_archive import android_support, sites
+    from comic_archive.local_library import LOCAL_OWNER
+    from comic_archive.models import ArchiveError
+    with _workspace_lock:
+        roots = {kept["site_key"]: root for root, kept in _open.items() if kept["base"] == base}
+    listed, opened = [], []
+    with _cards_lock:
+        cards = _cards["kept"]
+        for site in sites.SITES:
+            if not site.available:
+                continue
+            state, root = None, roots.get(site.key)
+            if root is not None:
+                try:
+                    registry = _catalog_registries.get(str(root)) or _catalog_registry(root)
+                    workspace = registry.resolve(LOCAL_OWNER, registry.workspace_id)
+                except ArchiveError:
+                    workspace = None
+                if workspace is not None:
+                    opened.append((site.name, workspace.session, workspace.library))
+                    state = cards.state(workspace.session) if cards is not None else None
+            listed.append((site.name, state))
+    return android_support.details(version, system, listed), opened
+
+
+def _support_details(args):
+    """What the desktop's Copy details for support copies, for the sites of one working
+    library: the app's version, counts and codes, and nothing that names a series, a folder
+    or a sign-in."""
+    if set(args) != {"base_root", "version", "system"}:
+        raise _BridgeError("bad_request", "Choose a working library.")
+    return {"text": _support_sites(args)[0]}
+
+
+def _support_save(args):
+    """The desktop's Save log for support: one new file in the app's private "out_root",
+    which the app then hands to the phone's Downloads. Answers the file's name only."""
+    if set(args) != {"base_root", "version", "system", "log_root", "out_root"}:
+        raise _BridgeError("bad_request", "Choose a working library.")
+    base, logs, out = _path_arg(args, "base_root"), _path_arg(args, "log_root"), _path_arg(args, "out_root")
+    details, opened = _support_sites(args)
+    from comic_archive import android_support
+    try:
+        path = android_support.save(out, logs, details, opened, folders=[base], home=logs.parent)
+    except OSError:
+        raise _BridgeError("refused", "The log could not be saved.") from None
+    return {"name": path.name}
+
+
 def _episode_inventory(args):
     """One page of a site's recorded episodes, as the desktop's Library page lists them.
 
@@ -1143,8 +1213,24 @@ HANDLERS = {"ping": _ping,
             "all_sites": _all_sites,
             "site_cards": _site_cards,
             "episode_inventory": _episode_inventory,
+            "support_start": _support_start,
+            "support_details": _support_details,
+            "support_save": _support_save,
             "export_manifest": _export_manifest,
             "export_status": _export_status}
+
+
+def _note_failure(op, error):
+    """One line in the phone's log for a failure nothing expected: the operation, the kind of
+    error and where in the app's code it was raised. Never the error's own text."""
+    try:
+        import logging
+
+        from comic_archive.android_support import APP_LOG
+        from comic_archive.support_log import describe
+        logging.getLogger(APP_LOG).warning("%s did not finish: %s", op, describe(error))
+    except Exception:
+        pass
 
 
 def dispatch(request):
@@ -1163,9 +1249,10 @@ def dispatch(request):
         return _response(ok=True, result=HANDLERS[envelope["op"]](envelope["args"]))
     except _BridgeError as error:
         return _response(ok=False, code=error.code, message=error.message)
-    except Exception:
+    except Exception as error:
         # Filesystem races, Java exceptions from native seams and other unexpected
         # failures stay private: an uncaught throw crashes several native callers.
+        _note_failure(envelope["op"], error)
         return _response(ok=False, code="job_failed",
                          message="The app could not finish that action. Try again.")
 

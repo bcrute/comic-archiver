@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.platform.testTag
+import io.github.bcrute.comicarchiver.controller.SupportNote
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,7 +38,9 @@ import kotlinx.coroutines.withContext
  * public roadmap; never soften a limitation to make a date.
  */
 @Composable
-fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}) {
+fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {},
+                      supportNote: SupportNote? = null, supportBusy: Boolean = false,
+                      onCopyDetails: () -> Unit = {}, onSaveLog: () -> Unit = {}) {
     val context = LocalContext.current.applicationContext
     val identity by produceState<InstalledIdentity?>(null, context) {
         value = withContext(Dispatchers.IO) { installedIdentity(context) }
@@ -53,6 +58,16 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
             style = MaterialTheme.typography.bodySmall)
         Text(LICENSE_SUMMARY, style = MaterialTheme.typography.bodyMedium)
         TextButton(onClick = onLicenses) { Text("Licenses") }
+        Text(SUPPORT_DETAILS, style = MaterialTheme.typography.bodySmall)
+        Text(SUPPORT_LOG, style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onCopyDetails, enabled = !supportBusy,
+            modifier = Modifier.testTag("support-copy")) { Text("Copy details for support") }
+        OutlinedButton(onClick = onSaveLog, enabled = !supportBusy,
+            modifier = Modifier.testTag("support-save-log")) { Text("Save log for support") }
+        supportNote?.let {
+            Text(it.text, modifier = Modifier.testTag("support-note"),
+                color = if (it.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        }
         Text("What this beta does not do", style = MaterialTheme.typography.headlineSmall)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Limitation("Choose a source site above. Each site keeps its sign-in and library separate.")
@@ -96,6 +111,14 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
         if (helpUnavailable) Text("Could not open the FAQ. Check that a browser is available and try again.")
     }
 }
+
+/** The desktop's own words above its two support buttons. */
+internal const val SUPPORT_DETAILS = "Asking for help? This copies a short summary of each site\u2019s download to " +
+    "paste into your message: the app\u2019s version, counts and the app\u2019s own codes. It has no series titles, " +
+    "folder names or sign-in details."
+internal const val SUPPORT_LOG = "Asked for the app\u2019s log? Save log for support puts it in one file in your " +
+    "Downloads folder, to attach to an email. It has the app\u2019s own messages and each site\u2019s series and " +
+    "episode numbers, but no titles, folder names or sign-in details."
 
 private data class InstalledIdentity(val version: String, val fingerprint: String)
 

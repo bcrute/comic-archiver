@@ -3,6 +3,7 @@ package io.github.bcrute.comicarchiver
 import android.app.Application
 import android.content.Context
 import android.webkit.WebView
+import io.github.bcrute.comicarchiver.runtime.SupportLog
 import io.github.bcrute.comicarchiver.runtime.ChaquopyBridge
 import io.github.bcrute.comicarchiver.runtime.FolderGrants
 import io.github.bcrute.comicarchiver.runtime.NetworkStatusWriter
@@ -219,6 +220,11 @@ open class App : Application() {
     /** The host bootstrap seam: screen/lifecycle tests supply a synthetic bridge. */
     protected open fun startRuntime() {
         PythonRuntime.ensureStarted(this, cookieStore, readingBrowser)
+        // The app's own log, for Save log for support; the app runs the same without it.
+        try {
+            bridge.dispatch("support_start", JSONObject()
+                .put("log_root", SupportLog.folder(this).absolutePath).toString())
+        } catch (_: Exception) {}
         // The core holds every download until its status file speaks; start writing it now.
         workspace.takeIf { it.available }?.let(::startNetworkWriter)
     }

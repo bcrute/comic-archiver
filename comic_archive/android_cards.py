@@ -26,6 +26,10 @@ class Cards:
         for kept in (self._states, self._records):
             kept.clear() if session is None else kept.pop(str(session), None)
 
+    def state(self, session):
+        """What one site's card last read, for the details given to support; None before its first card."""
+        return self._states.get(str(session))
+
     def card(self, registry, *, signed_in=None, now=None):
         """One site's card. signed_in is what the sign-in screen knows of the site being shown:
         False when its saved sign-in no longer works, None when it has not said."""

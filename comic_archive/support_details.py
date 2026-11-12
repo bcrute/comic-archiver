@@ -78,9 +78,10 @@ def site_lines(name, s):
     return lines
 
 
-def text(version, sites):
-    """Every site's details under the app's own. sites is [(name, state)], in the window's order."""
-    lines = [f'Comic Archiver {version} on {system()}']
+def text(version, sites, on=None):
+    """Every site's details under the app's own. sites is [(name, state)], in the window's order; on is the
+    system as the phone names its own, where this is not a computer."""
+    lines = [f'Comic Archiver {version} on {on or system()}']
     for name, s in sites:
         lines += ['', *site_lines(name, s)]
     result = '\n'.join(lines)
