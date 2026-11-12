@@ -146,12 +146,15 @@ class SiteSwitchActivityTest {
 
     @Test fun aSiteCannotBeChangedWhileItsGoIsStillBeingAnswered() {
         ready()
+        // Asking the rule for the activity lets waiting main-thread work run, and a quick answer to Go
+        // with it: the controller is taken once, so nothing runs between Go and the change of site.
+        val controller = app.controller
         compose.runOnIdle {
-            app.controller.go()
-            assertEquals(DownloadState.Planning to null, app.controller.state.value.let { it.download to it.notice })
-            app.controller.selectSite("webtoon")
+            controller.go()
+            assertEquals(DownloadState.Planning to null, controller.state.value.let { it.download to it.notice })
+            controller.selectSite("webtoon")
             assertEquals("Finish sign-in, export or cloud setup before switching sites.",
-                app.controller.state.value.notice?.message)
+                controller.state.value.notice?.message)
         }
         assertEquals("tapas", app.controller.state.value.site)
         assertEquals(1, app.wire.count("prepare_workspace"))
