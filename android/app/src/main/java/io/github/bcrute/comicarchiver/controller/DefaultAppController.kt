@@ -32,6 +32,10 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import kotlin.coroutines.resume
 
+/** The desktop's words for a sign-in held by the connection rule, with the phone's switch in place of its button. */
+const val SIGN_IN_CONNECTION_HELD =
+    "Connect to Wi-Fi or a wired connection, or allow metered and mobile connections in Settings, then sign in again."
+
 /**
  * Runtime AppController (native line) against the frozen contract. Every download action
  * crosses the Python bridge, so Go-only admission, holds and the drain protocol behave
@@ -481,6 +485,12 @@ class DefaultAppController(
             _state.value.download is DownloadState.Running) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
                 "Pause saving before starting sign-in again."))
+            return
+        }
+        // As on the desktop, the connection rule is checked before the sign-in page opens: a connection
+        // the rule is known not to allow is not used for it. The rule is read as soon as a site is shown.
+        if (_state.value.settings?.allowed == false) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.METERED_HOLD, SIGN_IN_CONNECTION_HELD))
             return
         }
         try { surfaceFactory?.invoke(location.key) } catch (_: Exception) {

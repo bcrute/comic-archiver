@@ -224,6 +224,28 @@ class SiteSwitchActivityTest {
 
     @Test
     @Config(application = SurfaceFailureTestApp::class)
+    fun aConnectionTheRuleDoesNotAllowHoldsSignInBeforeItsPageOpens() {
+        await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
+        compose.runOnIdle {
+            (app as SurfaceFailureTestApp).failSurface = false
+            app.wire.metered = true; app.controller.refreshSettings()
+        }
+        await { app.controller.state.value.settings?.allowed == false }
+        compose.onNodeWithText("Sign in to Tapas").performClick()
+        await { app.controller.state.value.notice?.code == "metered_hold" }
+        compose.onNodeWithText("Connect to Wi-Fi or a wired connection, or allow metered and mobile connections " +
+            "in Settings, then sign in again.").assertIsDisplayed()
+        assertFalse(app.controller.state.value.signIn is SignInState.Page)
+        // Once the connection is one the rule allows, the same button opens the page.
+        compose.runOnIdle { app.wire.metered = false; app.controller.refreshSettings() }
+        await { app.controller.state.value.settings?.allowed == true }
+        compose.onNodeWithText("Sign in to Tapas").performClick()
+        await { app.controller.state.value.signIn is SignInState.Page }
+        assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
+    }
+
+    @Test
+    @Config(application = SurfaceFailureTestApp::class)
     fun repeatedSurfaceFailureKeepsItsNoticeAndANewSignInCanRecover() {
         await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
         compose.onNodeWithText("The sign-in page could not be opened. Update Android System WebView and try sign-in again.")
@@ -386,6 +408,7 @@ class SwitchBridge : PythonBridge {
     private val fallback = LifecycleBridge()
     private val speeds = java.util.concurrent.ConcurrentHashMap<String, String>()
     @Volatile var refuseWebtoon = false
+    @Volatile var metered = false
     @Volatile var loginRequired = false
     @Volatile var refuseForget = false
     @Volatile var holdWebtoonRestore: CountDownLatch? = null
@@ -413,7 +436,9 @@ class SwitchBridge : PythonBridge {
             "library_listing" -> """[{"seriesId":"fixture","title":"$site book","kind":"comics","episodeCount":1,"savedCount":1}]"""
             "settings", "configure_settings" -> {
                 if (args.has("speed")) speeds[root] = args.getString("speed")
-                """{"wifi_only":true,"speed":"${speeds[root] ?: "medium"}","connection":"wifi","metered":false,"allowed":true,
+                val connection = if (metered) """"connection":"cellular","metered":true,"allowed":false"""
+                    else """"connection":"wifi","metered":false,"allowed":true"""
+                """{"wifi_only":true,"speed":"${speeds[root] ?: "medium"}",$connection,
                   "download_types":[{"key":"free","label":"Free","help":"","chosen":true}],
                   "speeds":[{"key":"medium","label":"Medium","available":true},{"key":"slow","label":"Slow","available":true}]}"""
             }
