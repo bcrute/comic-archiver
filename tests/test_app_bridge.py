@@ -283,6 +283,21 @@ class BridgeLifecycleTests(unittest.TestCase):
             value = self.call("signin_restore", {"session_root": str(session)})
         self.assertTrue(value["ok"], value)
         self.assertFalse(value["result"]["signed_in"])
+        self.assertNotIn("saved", value["result"])
+
+    def test_restore_that_could_not_reach_the_site_says_the_sign_in_is_still_saved(self):
+        from unittest.mock import patch
+        from comic_archive import android_session
+        session = self.root / ".comic-session"
+        android_session.mark_signed_in(session)
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        (self.root / "net.json").write_text('{"connection":"wifi","metered":false}')
+        unreached = {"signed_in": False, "verified": False, "reason": "unavailable"}
+        with patch("comic_archive.android_adapter.signed_in_probe", return_value=unreached):
+            value = self.call("signin_restore", {"session_root": str(session)})
+        self.assertTrue(value["ok"], value)
+        self.assertEqual(value["result"], unreached | {"saved": True})
+        self.assertTrue(android_session.is_signed_in(session))
 
     def test_provider_restore_uses_its_recorded_identity_and_never_starts_work(self):
         from unittest.mock import patch
@@ -334,6 +349,7 @@ class BridgeLifecycleTests(unittest.TestCase):
             self.assertTrue(held["ok"], held)
             self.assertFalse(held["result"]["signed_in"])
             self.assertEqual(held["result"]["reason"], "network_held")
+            self.assertIs(held["result"]["saved"], True)
             probe.assert_not_called()
             self.assertTrue(self.call("configure_settings", {"root": str(self.root), "wifi_only": False})["ok"])
             restored = self.call("signin_restore", {"session_root": str(session)})

@@ -20,9 +20,41 @@ class SessionRestoreTest {
     private fun surface() = WebView(RuntimeEnvironment.getApplication()).apply {
         settings.userAgentString = "test-browser-agent"
     }
-    private fun engine(onRestore: () -> Unit = {}) = WebViewSignInEngine(
-        WebViewCookieStore(setOf("m.tapas.io")), onRestore = onRestore,
+    private fun engine(saved: Boolean = false, onRestore: () -> Unit = {}) = WebViewSignInEngine(
+        WebViewCookieStore(setOf("m.tapas.io")), onRestore = onRestore, savedSignIn = { saved },
     ).also { it.load("tapas") }
+
+    @Test fun aSavedSignInThatCouldNotBeCheckedStaysAndCommitsNothing() {
+        var commits = 0
+        val engine = WebViewSignInEngine(WebViewCookieStore(setOf("m.tapas.io")),
+            onVerified = { _, _ -> commits++; true }).also { it.load("tapas") }
+        val view = surface()
+        engine.restoreSignIn(view)
+        val session = engine.currentSession()
+        engine.restoreUnconfirmed(session)
+        assertEquals(SignInState.SignedIn("tapas"), engine.state.value)
+        assertEquals(0, commits)
+        // Outside a restore the answer means nothing: a sign-in page is not passed by it.
+        val asking = engine()
+        asking.startSignIn(view)
+        asking.restoreUnconfirmed(asking.currentSession())
+        assertTrue(asking.state.value is SignInState.Page)
+        asking.cancelSignIn()
+        view.destroy()
+    }
+
+    @Test fun aCheckThatRunsOutOfTimeKeepsASignInStillSavedOnThePhone() {
+        val engine = engine(saved = true)
+        val view = surface()
+        engine.restoreSignIn(view)
+        val old = engine.currentSession()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(16))
+        assertEquals(SignInState.SignedIn("tapas"), engine.state.value)
+        // The late answers of that check change nothing.
+        engine.restoreNotVerified(old)
+        assertEquals(SignInState.SignedIn("tapas"), engine.state.value)
+        view.destroy()
+    }
 
     @Test fun restoreNeedsVerifiedAnswerAndRunsOnlyOnce() {
         var restores = 0

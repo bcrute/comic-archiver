@@ -9558,5 +9558,29 @@
   "new": "label = row['title']",
   "test_file": "test_android_cards.py",
   "test": "test_a_sites_series_and_a_series_episodes_are_listed_as_on_the_desktop"
+ },
+ {
+  "id": "phone-restore-held-connection-forgets-the-saved-sign-in",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "\"reason\": \"network_held\", \"saved\": True}",
+  "new": "\"reason\": \"network_held\"}",
+  "test_file": "test_app_bridge.py",
+  "test": "test_automatic_restore_honors_metered_choice_before_any_account_request"
+ },
+ {
+  "id": "phone-restore-unreached-site-forgets-the-saved-sign-in",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "return answer | {\"saved\": True} if answer.get(\"reason\") == \"unavailable\" else answer",
+  "new": "return answer",
+  "test_file": "test_app_bridge.py",
+  "test": "test_restore_that_could_not_reach_the_site_says_the_sign_in_is_still_saved"
+ },
+ {
+  "id": "phone-restore-keeps-a-sign-in-the-site-refused",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "return answer | {\"saved\": True} if answer.get(\"reason\") == \"unavailable\" else answer",
+  "new": "return answer | {\"saved\": True} if not answer.get(\"signed_in\") else answer",
+  "test_file": "test_app_bridge.py",
+  "test": "test_restore_expired_saved_session_does_not_authenticate"
  }
 ]

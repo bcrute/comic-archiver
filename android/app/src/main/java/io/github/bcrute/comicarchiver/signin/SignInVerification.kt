@@ -24,4 +24,8 @@ interface SignInVerification {
 
     /** A one-shot restore found no verified session; interactive sign-in stays available. */
     fun restoreNotVerified(session: Long) { verificationFailed("login_required", session) }
+
+    /** A one-shot restore could not ask the site (no allowed connection, or the site was
+     *  not reached) and the saved sign-in is still recorded: it stays, as on the desktop. */
+    fun restoreUnconfirmed(session: Long) { restoreNotVerified(session) }
 }

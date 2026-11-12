@@ -89,7 +89,13 @@ class SignInProbe(
                 }
                 answer != null && answer.optBoolean("ok") -> {
                     if (state is SignInState.Restoring) {
-                        withContext(engineContext) { engine.restoreNotVerified(session) }
+                        // Only the site's own "not signed in" asks for a new sign-in; a
+                        // check that could not be made leaves the saved sign-in in place.
+                        val saved = result?.optBoolean("saved") == true
+                        withContext(engineContext) {
+                            if (saved) engine.restoreUnconfirmed(session)
+                            else engine.restoreNotVerified(session)
+                        }
                         return
                     }
                     // "Not yet signed in" (the person is still typing) or the site's own

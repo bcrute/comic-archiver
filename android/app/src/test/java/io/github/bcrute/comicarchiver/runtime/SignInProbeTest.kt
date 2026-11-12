@@ -73,6 +73,9 @@ class SignInProbeTest {
         val verifiedSessions = CopyOnWriteArrayList<Long>()
         val failures = CopyOnWriteArrayList<Pair<String, Long>>()
         val notRestored = CopyOnWriteArrayList<Long>()
+        val unconfirmed = CopyOnWriteArrayList<Long>()
+
+        override fun restoreUnconfirmed(session: Long) { unconfirmed.add(session) }
 
         override fun restoreNotVerified(session: Long) { notRestored.add(session) }
         override fun currentSession(): Long = session
@@ -103,6 +106,25 @@ class SignInProbeTest {
         assertEquals(1, bridge.dispatches.get())
         assertTrue(engine.verifiedSessions.isEmpty())
         assertTrue(engine.failures.isEmpty())
+    }
+
+    @Test
+    fun a_saved_sign_in_that_could_not_be_checked_is_kept_as_on_the_desktop() {
+        for (reason in listOf("network_held", "unavailable")) {
+            val bridge = FakeBridge(
+                """{"ok":true,"result":{"signed_in":false,"verified":false,"reason":"$reason","saved":true}}""")
+            val engine = FakeEngine(state = SignInState.Restoring)
+            probe(bridge).settled(engine)
+            await({ engine.unconfirmed == listOf(1L) }, "restore kept for $reason")
+            assertEquals(1, bridge.dispatches.get())
+            assertTrue(engine.notRestored.isEmpty())
+            assertTrue(engine.verifiedSessions.isEmpty())
+        }
+        // The site's own refusal, and an answer that names no saved record, still sign out.
+        val refused = FakeEngine(state = SignInState.Restoring)
+        probe(FakeBridge(unavailable)).settled(refused)
+        await({ refused.notRestored == listOf(1L) }, "restore ended signed out")
+        assertTrue(refused.unconfirmed.isEmpty())
     }
 
     @Test

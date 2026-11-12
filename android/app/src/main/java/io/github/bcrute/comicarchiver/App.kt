@@ -155,6 +155,11 @@ open class App : Application() {
                     .put("attempt", token).toString()))
                 answer.optBoolean("ok") && answer.optJSONObject("result")?.optBoolean("signed_in") == true
             },
+            savedSignIn = { key ->
+                val target = workspaceFor(key)
+                target.available && target.session.resolve("android.json").isFile &&
+                    target.session.resolve("site").isFile
+            },
         )
         engine
     }

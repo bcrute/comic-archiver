@@ -74,6 +74,8 @@ object SignInLanding {
  * within the session's bound until a verified answer or the bound itself ends it.
  * @param timeoutMs the sign-in wait's bound, as the desktop sign-in window's 900 seconds.
  * @param sites the sites this app can load, by site key.
+ * @param savedSignIn whether a site's sign-in record is still on the phone; asked only
+ * when the check of a saved sign-in ran out of time.
  */
 class WebViewSignInEngine(
     private var store: WebViewCookieStore,
@@ -86,6 +88,7 @@ class WebViewSignInEngine(
     private val onStoreUnavailable: () -> Unit = {},
     private val onAttempt: (String, Long, Long, Boolean) -> Unit = { _, _, _, _ -> },
     private val onVerified: (String, Long) -> Boolean = { _, _ -> true },
+    private val savedSignIn: (String) -> Boolean = { false },
 ) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
@@ -104,7 +107,7 @@ class WebViewSignInEngine(
     @Volatile private var visibleOrigin: String? = null
     private var hasAuthority = true
     private val timeout = Runnable {
-        finish(if (_state.value is SignInState.Restoring) SignInState.SignedOut
+        finish(if (_state.value is SignInState.Restoring) unansweredRestore()
                else SignInState.Failed("signin_incomplete"))
     }
 
@@ -203,6 +206,23 @@ class WebViewSignInEngine(
             finish(SignInState.SignedOut)
     }
 
+    /** The saved sign-in could not be checked (no allowed connection, or the site was not
+     *  reached). As on the desktop it stays: only the site's own refusal — here, or when
+     *  a download next asks — brings the sign-in screen back. Nothing is committed. */
+    override fun restoreUnconfirmed(session: Long) {
+        if (_state.value !is SignInState.Restoring || !sessionInProgress(session)) return
+        val key = synchronized(this) { siteKey }
+        finish(if (key != null) SignInState.SignedIn(key) else SignInState.SignedOut)
+    }
+
+    /** Where a check of a saved sign-in that ran out of time ends: a record still on the
+     *  phone stays signed in, like any other check that could not be made. */
+    private fun unansweredRestore(): SignInState {
+        val key = synchronized(this) { siteKey }
+        val saved = key != null && try { savedSignIn(key) } catch (_: Exception) { false }
+        return if (saved) SignInState.SignedIn(checkNotNull(key)) else SignInState.SignedOut
+    }
+
     /** The person went back, or the app is closing; an unfinished sign-in is stopped. */
     override fun cancelSignIn() {
         finish(SignInState.Failed("signin_incomplete"))
@@ -245,9 +265,10 @@ class WebViewSignInEngine(
     /** The engine's live state for the settle-time probe's loop. */
     override fun signInState(): SignInState = state.value
 
-    /** Only the embedded core's verified who-am-i success may produce SignedIn, and only
-     * while this engine's own sign-in session [session] is open inside its bound — a
-     * stale answer from an earlier session authenticates nothing. */
+    /** Only the embedded core's verified who-am-i success may produce a new SignedIn, and
+     * only while this engine's own sign-in session [session] is open inside its bound — a
+     * stale answer from an earlier session authenticates nothing. (A sign-in already saved
+     * on the phone also stays SignedIn when its check could not be made.) */
     override fun verified(session: Long) {
         if (!sessionInProgress(session)) return
         val key = synchronized(this) { siteKey } ?: return
@@ -315,7 +336,7 @@ class WebViewSignInEngine(
             synchronized(this) { Triple(sessionOpen, sessionId, startedAtMillis) }
         if (!open || current != session) return false
         if (SystemClock.elapsedRealtime() - started >= boundMs) {
-            finish(if (_state.value is SignInState.Restoring) SignInState.SignedOut
+            finish(if (_state.value is SignInState.Restoring) unansweredRestore()
                    else SignInState.Failed("signin_incomplete"))
             return false
         }

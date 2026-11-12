@@ -563,7 +563,9 @@ def _signin_restore(args):
     """A saved record permits a fresh verification, never an authentication claim.
 
     A first install or signed-out session does not issue background source requests.
-    No worker is started and no saved plan is admitted by this operation.
+    No worker is started and no saved plan is admitted by this operation. An answer that
+    could not be had (no allowed connection, the site not reached) says the record is
+    still "saved": as on the desktop, only the site's own refusal asks for a new sign-in.
     """
     session = _path_arg(args, "session_root")
 
@@ -578,9 +580,10 @@ def _signin_restore(args):
     # Restore is automatic, unlike opening the site's sign-in page explicitly. Honor
     # the same stored connection choice before making its account request.
     if not _core(lambda error: _settings_value(session.parent))["allowed"]:
-        return {"signed_in": False, "verified": False, "reason": "network_held"}
+        return {"signed_in": False, "verified": False, "reason": "network_held", "saved": True}
     from comic_archive.network import NetworkGuard
-    return _signin_probe(args | {"site_key": site_key}, network_guard=NetworkGuard(session.parent / "Library"))
+    answer = _signin_probe(args | {"site_key": site_key}, network_guard=NetworkGuard(session.parent / "Library"))
+    return answer | {"saved": True} if answer.get("reason") == "unavailable" else answer
 
 
 def _settings_value(root):
