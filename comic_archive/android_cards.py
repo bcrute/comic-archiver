@@ -50,7 +50,11 @@ class Cards:
         return {'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
                 'appearance': summary['appearance'], 'message': s.message.text if s.message else '',
                 'rows': [{'name': row['name'], 'value': row['value'], 'warning': bool(row['warning'])}
-                         for row in summary['rows']]}
+                         for row in summary['rows']],
+                # What Settings lists for the site: its download issues, and saved and pending by episode type.
+                'issues': [{'reason': row['reason'], 'count': row['count']} for row in v['not_downloaded']],
+                'types': [{'label': row['label'], 'saved': row['saved'], 'waiting': row['waiting']}
+                          for row in v['episode_types']]}
 
     def _read(self, registry, workspace, s, key, signed_in, now):
         identity = registry.workspace_id

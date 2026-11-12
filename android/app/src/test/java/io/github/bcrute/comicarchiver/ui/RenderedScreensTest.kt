@@ -70,6 +70,8 @@ import io.github.bcrute.comicarchiver.controller.SavedFileItem
 import io.github.bcrute.comicarchiver.controller.AppController
 import io.github.bcrute.comicarchiver.controller.CloudRequest
 import io.github.bcrute.comicarchiver.controller.CardRow
+import io.github.bcrute.comicarchiver.controller.IssueCount
+import io.github.bcrute.comicarchiver.controller.TypeCount
 import io.github.bcrute.comicarchiver.controller.SiteCard
 import io.github.bcrute.comicarchiver.controller.DownloadObservations
 import io.github.bcrute.comicarchiver.controller.ObservedWorker
@@ -559,24 +561,29 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun downloadPreferencesOpenWithWhyCheckedEpisodesWereNotDownloaded() {
-        val counts = DownloadObservations.NOT_DOWNLOADED.associateWith { 0L } + mapOf("locked" to 1204L, "failed" to 2L)
-        controller.state.value = controller.state.value.copy(observations = DownloadObservations(
-            SystemClock.elapsedRealtime(), ObservedWorker.READY, notDownloaded = counts))
+    @Test fun downloadPreferencesOpenWithTheShownSitesEpisodeTypesAndDownloadIssues() {
         show()
         preferences()
-        compose.onNodeWithText("Not downloaded").performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("Locked on your Tapas account. Buy or unlock them on Tapas, then start saving again")
-            and hasText("1,204")).performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("Stopped by download errors") and hasText("2")).assertExists()
-        compose.onNode(hasText("Not released yet") and hasText("0")).assertExists()
-        // Signed out, a table of zeros says nothing; anything held back is still shown.
-        controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut,
-            observations = controller.state.value.observations!!.copy(notDownloaded = counts.mapValues { 0L }))
-        compose.onNodeWithText("Not downloaded").assertDoesNotExist()
-        controller.state.value = controller.state.value.copy(observations =
-            controller.state.value.observations!!.copy(notDownloaded = counts))
-        compose.onNodeWithText("Not downloaded").performScrollTo().assertIsDisplayed()
+        // Before the site's card is read, nothing is claimed.
+        compose.onNodeWithText("Download issues").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Not checked").assertIsDisplayed()
+        compose.onNodeWithText("Tapas episodes").assertDoesNotExist()
+        val card = SiteCard("tapas", "Tapas", "Ready to save", "Ready", "neutral", "", emptyList(),
+            types = listOf(TypeCount("Free", "1,200", "7"), TypeCount("Bought / unlocked", "4", "—")))
+        controller.state.value = controller.state.value.copy(siteCards = listOf(
+            SiteCard("webtoon", "Webtoon", "t", "Ready", "neutral", "", emptyList(),
+                issues = listOf(IssueCount("Incomplete content", "9"))), card))
+        compose.onNodeWithText("Tapas episodes").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Free") and hasText("1,200") and hasText("7")).assertExists()
+        compose.onNode(hasText("Bought / unlocked") and hasText("4") and hasText("—")).assertExists()
+        compose.onNodeWithText("No recorded issues").assertExists()
+        // Another site's issues are not this one's.
+        compose.onNodeWithText("Incomplete content").assertDoesNotExist()
+        controller.state.value = controller.state.value.copy(siteCards = listOf(card.copy(issues = listOf(
+            IssueCount("Download errors", "2"), IssueCount("Unsupported format", "1,204")))))
+        compose.onNodeWithText("No recorded issues").assertDoesNotExist()
+        compose.onNode(hasText("Download errors") and hasText("2")).assertExists()
+        compose.onNode(hasText("Unsupported format") and hasText("1,204")).assertExists()
         assertEquals(0, controller.goCalls)
     }
 

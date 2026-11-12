@@ -9446,5 +9446,21 @@
   "new": "",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes"
+ },
+ {
+  "id": "phone-card-drops-download-issues",
+  "source": "comic_archive/android_cards.py",
+  "old": "for row in v['not_downloaded']]",
+  "new": "for row in []]",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_download_issues_and_episode_types_settings_lists"
+ },
+ {
+  "id": "phone-card-drops-episode-types",
+  "source": "comic_archive/android_cards.py",
+  "old": "for row in v['episode_types']]",
+  "new": "for row in []]",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_download_issues_and_episode_types_settings_lists"
  }
 ]

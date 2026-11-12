@@ -40,7 +40,9 @@ data class AllSites(val sites: List<String>, val episodes: Long, val files: Long
 
 /** One site's card as the desktop would show it: its state in a word, its title and its rows. */
 data class SiteCard(val site: String, val name: String, val title: String, val state: String,
-                    val appearance: String, val message: String, val rows: List<CardRow>) {
+                    val appearance: String, val message: String, val rows: List<CardRow>,
+                    /** What Settings lists for the site: its download issues, and saved and pending by episode type. */
+                    val issues: List<IssueCount> = emptyList(), val types: List<TypeCount> = emptyList()) {
     companion object {
         /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
         fun parse(envelope: org.json.JSONObject): List<SiteCard>? {
@@ -55,6 +57,21 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                         val row = rows.optJSONObject(at) ?: return@mapNotNull null
                         CardRow(row.opt("name") as? String ?: return@mapNotNull null,
                             row.opt("value") as? String ?: return@mapNotNull null, row.opt("warning") == true)
+                    },
+                    (card.optJSONArray("issues") ?: org.json.JSONArray()).let { issues ->
+                        (0 until issues.length()).map { at ->
+                            val issue = issues.optJSONObject(at) ?: return@mapNotNull null
+                            IssueCount(issue.opt("reason") as? String ?: return@mapNotNull null,
+                                issue.opt("count") as? String ?: return@mapNotNull null)
+                        }
+                    },
+                    (card.optJSONArray("types") ?: org.json.JSONArray()).let { types ->
+                        (0 until types.length()).map { at ->
+                            val type = types.optJSONObject(at) ?: return@mapNotNull null
+                            TypeCount(type.opt("label") as? String ?: return@mapNotNull null,
+                                type.opt("saved") as? String ?: return@mapNotNull null,
+                                type.opt("waiting") as? String ?: return@mapNotNull null)
+                        }
                     })
             }
         }
@@ -62,6 +79,12 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
 }
 
 data class CardRow(val name: String, val value: String, val warning: Boolean)
+
+/** A download issue and how many episodes have it, as the desktop's Settings lists them. */
+data class IssueCount(val reason: String, val count: String)
+
+/** An episode type with its saved and pending counts, already worded. */
+data class TypeCount(val label: String, val saved: String, val waiting: String)
 
 data class SiteChoice(val key: String, val name: String, val enabled: Boolean, val reason: String? = null,
                       val signInAvailable: Boolean = enabled,

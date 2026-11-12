@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.Notice
+import io.github.bcrute.comicarchiver.controller.SiteCard
 import io.github.bcrute.comicarchiver.controller.AppTheme
 
 /** Stored core policy, not local toggle state. No settings action admits a transfer. */
@@ -40,7 +41,7 @@ fun SettingsScreen(
     onRefresh: () -> Unit,
     theme: AppTheme = AppTheme.SYSTEM,
     onTheme: (AppTheme) -> Unit = {},
-    notDownloaded: Map<String, Long>? = null,
+    card: SiteCard? = null,
     siteName: String = "Tapas",
 ) {
     Column(
@@ -48,8 +49,8 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
-        // First on the page: which checked episodes were not downloaded, and why.
-        notDownloaded?.let { NotDownloadedCard(it, siteName) }
+        // First on the page: what the shown site saved and what it could not.
+        SiteCountsCard(card)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Appearance", style = MaterialTheme.typography.titleMedium)
@@ -127,42 +128,38 @@ fun SettingsScreen(
     }
 }
 
-/** Why a checked episode was not downloaded, as Settings words each reason. */
-fun notDownloadedReason(key: String, site: String): String = when (key) {
-    "locked" -> "Locked on your $site account. Buy or unlock them on $site, then start saving again"
-    "scheduled" -> "Not released yet"
-    "temporary_access" -> "Time-limited, with access the app couldn’t confirm is still current"
-    "novel" -> "Novels this site’s download doesn’t support"
-    "unsupported" -> "In a form the app can’t save yet"
-    "failed" -> "Stopped by download errors"
-    else -> error("Unknown reason $key")
+/** As the desktop's Settings: saved and pending by episode type, then the site's download issues. */
+@Composable
+private fun SiteCountsCard(card: SiteCard?) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (card != null && card.types.isNotEmpty()) {
+                Text("${card.name} episodes", style = MaterialTheme.typography.titleMedium)
+                Column {
+                    CountLine(0, listOf("Episode type", "Saved", "Pending"), heading = true)
+                    card.types.forEachIndexed { index, type -> CountLine(index, listOf(type.label, type.saved, type.waiting)) }
+                }
+            }
+            Text("Download issues", style = MaterialTheme.typography.titleMedium)
+            if (card == null) Text("Not checked")
+            else if (card.issues.isEmpty()) Text("No recorded issues")
+            else Column {
+                CountLine(0, listOf("Issue", "Episodes"), heading = true)
+                card.issues.forEachIndexed { index, issue -> CountLine(index, listOf(issue.reason, issue.count)) }
+            }
+        }
+    }
 }
 
 @Composable
-private fun NotDownloadedCard(counts: Map<String, Long>, site: String) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Not downloaded", style = MaterialTheme.typography.titleMedium)
-            Column {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Reason", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    Text("Episodes", style = MaterialTheme.typography.labelLarge)
-                }
-                // Alternate rows are shaded, so a reason that wraps stays matched to its count.
-                val shade = MaterialTheme.colorScheme.surfaceContainer
-                counts.entries.forEachIndexed { index, (key, count) ->
-                    val reason = notDownloadedReason(key, site)
-                    val episodes = "%,d".format(count)
-                    val band = if (index % 2 == 0) Modifier.background(shade, RoundedCornerShape(6.dp)) else Modifier
-                    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 8.dp, vertical = 8.dp)
-                        .semantics(mergeDescendants = true) {},
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(reason, Modifier.weight(1f))
-                        Text(episodes, textAlign = TextAlign.End)
-                    }
-                }
-            }
-        }
+private fun CountLine(index: Int, cells: List<String>, heading: Boolean = false) {
+    // Alternate rows are shaded, so a name that wraps stays matched to its counts.
+    val band = if (!heading && index % 2 == 0)
+        Modifier.background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(6.dp)) else Modifier
+    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 8.dp, vertical = if (heading) 4.dp else 8.dp)
+        .semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        val style = if (heading) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyLarge
+        Text(cells[0], Modifier.weight(1f), style = style)
+        cells.drop(1).forEach { Text(it, textAlign = TextAlign.End, style = style) }
     }
 }

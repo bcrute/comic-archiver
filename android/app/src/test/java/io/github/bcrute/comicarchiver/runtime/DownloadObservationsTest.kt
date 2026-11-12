@@ -34,6 +34,14 @@ class DownloadObservationsTest {
         assertFalse(value.toString().contains("SECRET"))
     }
 
+    @Test fun theWaitUntilFreeListAndAWaitAfterNothingNewAreNamed() {
+        val value = observation("""{"worker":{"running":true,"state":"busy"},
+            "account":{"status":"running","phase":"lists","lists":{"checked":1,"total":5,"current":"wait_until_free"},
+                "retry":{"seconds":60,"reason":"idle"}}}""")!!
+        assertEquals("Wait until free", value.currentList)
+        assertEquals("idle", value.retryReason)
+    }
+
     @Test fun malformedAndUnknownStatusCannotSupplyAnObservation() {
         for (body in listOf("{}", """{"ok":false}""", """{"ok":true,"result":{}}""",
             """{"ok":true,"result":{"worker":{"running":"true"},"account":{"status":"running"}}}""",

@@ -3,6 +3,8 @@ package io.github.bcrute.comicarchiver.ui
 import io.github.bcrute.comicarchiver.controller.AppState
 import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.controller.CardRow
+import io.github.bcrute.comicarchiver.controller.IssueCount
+import io.github.bcrute.comicarchiver.controller.TypeCount
 import io.github.bcrute.comicarchiver.controller.SiteCard
 import org.json.JSONObject
 import io.github.bcrute.comicarchiver.controller.DownloadState
@@ -242,13 +244,17 @@ class UiMappingTest {
     fun `site cards are read whole or left out, and a refusal gives none`() {
         val card = """{"site":"webtoon","name":"Webtoon","title":"Ready to save","state":"Ready","appearance":"neutral",
             "message":"","rows":[{"name":"Status","value":"Ready to save","warning":false},
-            {"name":"Speed","value":"Medium (a slower speed may help)","warning":true}]}"""
+            {"name":"Speed","value":"Medium (a slower speed may help)","warning":true}],
+            "issues":[{"reason":"Download errors","count":"2"}],"types":[{"label":"Free","saved":"1,200","waiting":"—"}]}"""
         val cards = SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[$card,
             {"site":"tapas","name":"Tapas","title":"Ready to save","state":"Ready","rows":[]},
             {"site":"tappytoon","name":"Tappytoon","title":3,"state":"Ready","appearance":"neutral","rows":[]},
-            {"site":"tapas","name":"Tapas","title":"t","state":"Ready","appearance":"neutral","rows":[{"name":"Status"}]}]}}"""))
+            {"site":"tapas","name":"Tapas","title":"t","state":"Ready","appearance":"neutral","rows":[{"name":"Status"}]},
+            {"site":"tapas","name":"Tapas","title":"t","state":"Ready","appearance":"neutral","rows":[],"issues":[{"reason":"x","count":2}]},
+            {"site":"tapas","name":"Tapas","title":"t","state":"Ready","appearance":"neutral","rows":[],"types":[{"label":"Free","saved":"1"}]}]}}"""))
         assertEquals(listOf(SiteCard("webtoon", "Webtoon", "Ready to save", "Ready", "neutral", "", listOf(
-            CardRow("Status", "Ready to save", false), CardRow("Speed", "Medium (a slower speed may help)", true)))), cards)
+            CardRow("Status", "Ready to save", false), CardRow("Speed", "Medium (a slower speed may help)", true)),
+            listOf(IssueCount("Download errors", "2")), listOf(TypeCount("Free", "1,200", "—")))), cards)
         assertNull(SiteCard.parse(JSONObject("""{"ok":false,"result":{"cards":[$card]}}""")))
         assertNull(SiteCard.parse(JSONObject("""{"ok":true,"result":{}}""")))
         assertEquals(emptyList<SiteCard>(), SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[]}}""")))

@@ -21,6 +21,7 @@ class Registry:
         self.session, self.library = root / '.comic-session', root / 'Library'
         self.account = {'configured': False, 'speed': 'medium'}
         self.counts = {'archived': 3}
+        self.types, self.unsupported, self.progress = {}, {}, {'status': 'running'}
         self.unreadable = False
 
     def resolve(self, owner, workspace_id):
@@ -29,8 +30,9 @@ class Registry:
     def status(self, owner, workspace_id):
         if self.unreadable:
             raise ArchiveError('unreadable')
-        return {'episodes_by_status': dict(self.counts), 'estimate': None,
-                'progress': {'status': 'running'}, 'worker': {'reported_state': 'stale'}}
+        return {'episodes_by_status': dict(self.counts), 'estimate': None, 'episode_types': dict(self.types),
+                'unsupported_by_reason': dict(self.unsupported),
+                'progress': self.progress, 'worker': {'reported_state': 'stale'}}
 
     def account_status(self, owner, workspace_id):
         return dict(self.account)
@@ -82,9 +84,25 @@ class AndroidCardTests(unittest.TestCase):
         self.worker = {'running': True, 'state': 'starting'}
         self.assertEqual(self.card()['title'], 'Saving your episodes')
         # A downloader finishing its last step after the download ended is working, not offline.
-        self.registry.account = {'configured': False, 'speed': 'medium'}
+        self.registry.account, self.registry.progress = {'configured': False, 'speed': 'medium'}, None
         self.worker = {'running': True, 'state': 'stopping'}
         self.assertEqual(self.card()['title'], 'Finishing the current step')
+
+    def test_a_card_carries_the_download_issues_and_episode_types_settings_lists(self):
+        self.sign_in()
+        empty = self.card()
+        self.assertEqual(empty['issues'], [])
+        self.assertEqual(empty['types'], [{'label': label, 'saved': '—', 'waiting': '—'} for label in (
+            'Free', 'Bought / unlocked', 'Limited', 'Unknown type')])
+        self.registry.counts = {'archived': 1204, 'failed': 2, 'unsupported': 5, 'unavailable': 40}
+        self.registry.unsupported = {'order_unverified': 3}
+        self.registry.types = {'free': {'saved': 1200, 'waiting': 7}, 'bought': {'saved': 4, 'waiting': 0}}
+        card = self.card()
+        self.assertEqual(card['issues'], [{'reason': 'Download errors', 'count': '2'},
+                                          {'reason': 'Page order unknown', 'count': '3'},
+                                          {'reason': 'Unsupported format', 'count': '2'}])
+        self.assertEqual(card['types'][:2], [{'label': 'Free', 'saved': '1,200', 'waiting': '7'},
+                                             {'label': 'Bought / unlocked', 'saved': '4', 'waiting': '0'}])
 
     def test_a_download_whose_downloader_is_gone_waits_for_start_as_a_paused_one_does(self):
         self.sign_in()

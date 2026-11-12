@@ -44,13 +44,14 @@ data class DownloadObservations(
                 "updated" -> "Updated"
                 "recent" -> "Recent"
                 "free_episodes" -> "Free episodes"
+                "wait_until_free" -> "Wait until free"
                 else -> null
             }
             val retry = account.optJSONObject("retry")?.takeIf { account.optString("status") == "running" }
             return DownloadObservations(receivedAtMillis, state, count(counts, "saved_episodes"),
                 count(counts, "observed_series"), count(progress, "age_seconds"), checked,
                 total.takeIf { checked != null }, current, count(retry, "seconds"),
-                retry?.optString("reason")?.takeIf { it in setOf("source", "images", "connection") },
+                retry?.optString("reason")?.takeIf { it in setOf("source", "images", "connection", "idle") },
                 notDownloaded(counts?.optJSONObject("not_downloaded")))
         }
 

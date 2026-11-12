@@ -81,6 +81,7 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
                                 "source" -> "The site asked the app to wait."
                                 "images" -> "Some images did not arrive."
                                 "connection" -> "The connection was interrupted."
+                                "idle" -> "The last step saved nothing new."
                                 else -> "The download is waiting before retrying."
                             }
                             "$why Next retry in ${dashboardDuration(left)}."
