@@ -142,7 +142,7 @@ class AndroidCardTests(unittest.TestCase):
         # The same sign-in read again changes nothing.
         self.assertEqual(said(self.card(signed_in=True)), said(refused))
         self.sign_in()
-        self.assertEqual(said(self.card()), ('Your download is paused', 'Paused', ('Your download is paused', False)))
+        self.assertEqual(said(self.card()), ('Your download is paused', 'Paused', ('The sign-in had expired', True)))
 
     def test_the_shown_site_whose_saved_sign_in_stopped_working_says_sign_in_again(self):
         self.sign_in()

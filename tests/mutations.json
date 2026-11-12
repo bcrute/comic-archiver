@@ -9442,7 +9442,7 @@
  {
   "id": "card-signed-in-again-blames-the-disk",
   "source": "comic_archive/dashboard_model.py",
-  "old": "               'login_required': '',\n",
+  "old": "               'login_required': 'The sign-in had expired',\n",
   "new": "",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes"

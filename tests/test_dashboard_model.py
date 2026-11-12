@@ -133,7 +133,7 @@ class WordingTests(unittest.TestCase):
                  ('no_progress', 0): 'The last few tries saved nothing new',
                  ('scan_no_progress', 0): 'The last few tries saved nothing new',
                  ('cancelled', 0): '',
-                 ('login_required', 0): '',
+                 ('login_required', 0): 'The sign-in had expired',
                  ('cloud_space', 0): 'An upload to cloud storage stopped. ' + model.CLOUD_HINTS['cloud_space'],
                  ('mystery', 0): 'It stopped unexpectedly; check that this disk has free space'}
         for (code, missing), said in cases.items():
@@ -284,7 +284,7 @@ class ButtonTests(unittest.TestCase):
                 s.received_site_auth({'status': 'running'}, NOW + 3)
                 s.received_site_auth({'status': 'connected'}, NOW + 4)
                 self.assertTrue(model.view(s, NOW + 4)['go_enabled'])
-                self.assertEqual(fields(model.view(s, NOW + 4))['Status'], ('Your download is paused', False))
+                self.assertEqual(fields(model.view(s, NOW + 4))['Status'], ('The sign-in had expired', True))
 
     def test_a_late_startup_check_cannot_hide_a_failure_after_go_and_pause_keeps_a_valid_signin(self):
         s = state()
