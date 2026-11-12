@@ -184,7 +184,7 @@ class AndroidBrowserPage(dom.Page):
             raise dom.Error('The reading page gave no text answer.')
         if value == _CONTROLLED:
             self.context.close()
-            raise ArchiveError('The reading page is controlled by a cached worker. Pause and try Go again.')
+            raise ArchiveError('The reading page is controlled by a cached worker. Pause, then press Start again.')
         return value
 
     def expect_navigation(self, wait_until='load', timeout=dom.DEFAULT_TIMEOUT):
@@ -434,7 +434,7 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
                 or type(value['registered']) is not int or not 0 <= value['registered'] <= 128
                 or type(value['controlled']) is not bool or type(value['cleared']) is not bool
                 or not value['cleared']):
-            raise ArchiveError('The browser could not clear its cached reading worker. Pause and try Go again.')
+            raise ArchiveError('The browser could not clear its cached reading worker. Pause, then press Start again.')
         return value
 
     def _prepare_document(self):
@@ -448,7 +448,7 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
             self.page.goto(sites.DEFAULT.home, wait_until='domcontentloaded', timeout=self.remaining_timeout())
             fresh = self._worker_status(False)
             if fresh['registered'] or fresh['controlled']:
-                raise ArchiveError('A cached reading worker is still active. Pause and try Go again.')
+                raise ArchiveError('A cached reading worker is still active. Pause, then press Start again.')
         self.context.workers_ready = True
 
     def inspect_library(self, *args, **kwargs):

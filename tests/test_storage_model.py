@@ -129,6 +129,23 @@ class StorageTests(unittest.TestCase):
                 self.assertFalse(any(option['enabled'] for option in choice['options']))
                 self.assertTrue(choice['lock'].endswith(why))
 
+    def test_the_phone_is_not_sent_to_a_dashboard_a_tab_or_a_numbered_step_it_does_not_have(self):
+        from comic_archive import cloud_runtime
+        for phone, words in ((True, ('Press Test cloud connection before uploads can start.', 'Pause the download first.',
+                                     'can be chosen once its connection check passes.',
+                                     'tick Also save on metered and mobile connections in Settings')),
+                             (False, ('Check the connection (step 5) before uploads can start.',
+                                      'Press Pause on the dashboard first.',
+                                      'can be chosen once its connection check passes, on its own tab.',
+                                      'press Allow this connection on the Dashboard'))):
+            with self.subTest(phone=phone), patch.object(cloud_runtime, '_android', phone):
+                unchecked = state(b2(enabled=False, tested=False))
+                self.assertTrue(model.b2_summary(unchecked)[2].endswith(words[0]), model.b2_summary(unchecked))
+                self.assertTrue(model.storage_choice(unchecked)['help'].endswith(words[2]))
+                running = model.storage_choice(state(b2(), account={'status': 'running'}))
+                self.assertTrue(running['lock'].endswith(words[1]), running['lock'])
+                self.assertIn(words[3], model.auth_text({'status': 'error', 'code': 'signin_network_held'}))
+
     def test_each_storage_place_says_what_it_holds(self):
         empty = model.storage(state())
         self.assertEqual(empty, {'device_stored': 'Counting…', 'b2_pill': 'Not set up', 'b2_tone': 'neutral',

@@ -411,7 +411,7 @@ def _account_ui_op(name):
                     with LibraryLock(workspace.session / ".account-ui"):
                         cloud = _cloud_controllers.get(str(root))
                         if cloud is not None and cloud.busy:
-                            raise ArchiveError("Finish the cloud activity before pressing Go.")
+                            raise ArchiveError("Finish the cloud activity before pressing Start.")
                         options = {'browser_factory': _browser['factory']} if _browser['factory'] is not None else {}
                         android_download.start(workspace, **options)
                 return {}

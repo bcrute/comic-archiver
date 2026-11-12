@@ -642,7 +642,7 @@ class DefaultAppController(
             _state.value.download is DownloadState.Running) return
         if (_state.value.libraryBusy) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish or stop the working-library change before pressing Go."))
+                "Finish or stop the working-library change before pressing Start."))
             return
         }
         if (_state.value.signOutPending) {
@@ -652,13 +652,13 @@ class DefaultAppController(
         }
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady || engine.state.value !is SignInState.SignedIn) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
-                "Open the site and finish sign-in before pressing Go."))
+                "Open the site and finish sign-in before pressing Start."))
             return
         }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
             _state.value.cloud?.authStatus == "running") {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish the cloud activity before pressing Go."))
+                "Finish the cloud activity before pressing Start."))
             return
         }
         val settings = _state.value.settings

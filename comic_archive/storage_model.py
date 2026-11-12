@@ -63,7 +63,8 @@ def b2_summary(s):
         return 'Not set up', 'neutral', 'Follow the steps below to connect your own Backblaze account.'
     if not target.get('tested'):
         return ('Connected, not checked yet', 'warning',
-                f'Connected to {bucket}. Check the connection (step 5) before uploads can start.')
+                f'Connected to {bucket}. ' + ('Press Test cloud connection before uploads can start.' if _phone()
+                                              else 'Check the connection (step 5) before uploads can start.'))
     if not target.get('enabled'):
         return 'Set up', 'success', f'Set up and checked: {bucket}. Uploads are off; choose Backblaze B2 where new episodes are saved.'
     retry = (f" {display(failed)} {'upload needs' if failed == 1 else 'uploads need'} retrying: click Retry unfinished uploads below."
@@ -84,6 +85,12 @@ def can_import(s, *, can_start_worker=False):
                 and (s.cloud_auth or {}).get('status') != 'running')
 
 
+def _phone():
+    """Whether these words are for the phone, which has no dashboard, tabs or numbered steps to name."""
+    from . import cloud_runtime
+    return cloud_runtime._android
+
+
 def auth_text(auth):
     """What the B2 settings say about the key being checked."""
     auth = auth or {}
@@ -95,8 +102,7 @@ def auth_text(auth):
     if auth.get('status') == 'cancelled':
         return 'Sign-in canceled. Your saved files are safe.'
     if auth.get('code') == 'signin_network_held':
-        from . import cloud_runtime
-        if cloud_runtime._android:
+        if _phone():
             return ('Mobile data is off. Connect to Wi-Fi or tick Also save on metered and mobile connections in '
                     'Settings, then try again.')
         return ('This connection is metered, or cannot be told apart from one. Connect to Wi-Fi or a wired '
@@ -141,12 +147,14 @@ def storage_choice(s):
         option['enabled'] = not locked and option['ready']
         option['checked'] = option['key'] == chosen
     # Said beside the choice, so a locked choice does not look broken.
-    why = ('This can’t be changed while episodes are downloading. Press Pause on the dashboard first.' if running
+    why = ('This can’t be changed while episodes are downloading. '
+           + ('Pause the download first.' if _phone() else 'Press Pause on the dashboard first.') if running
            else 'This can’t be changed while you sign in to cloud storage.' if signing_in
            else 'This can’t be changed until the cloud task finishes.' if s.task else '')
     return {'visible': bool(configured), 'options': options, 'chosen': chosen, 'lock': why,
             'help': (f'Each new episode is uploaded to {label(chosen)} as it downloads. None is kept on this device once its upload is checked.'
-                     if chosen != 'device' else f"{' and '.join(unchecked)} can be chosen once its connection check passes, on its own tab."
+                     if chosen != 'device' else f"{' and '.join(unchecked)} can be chosen once its connection check passes"
+                     f"{'' if _phone() else ', on its own tab'}."
                      if unchecked else 'New episodes stay in the save folder.'),
             'entry_visible': not configured and s.cloud_offered and s.cloud is not None}
 

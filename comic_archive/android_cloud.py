@@ -133,7 +133,7 @@ class AndroidCloud:
                         or state.account.get('status') == 'running' or (state.cloud_auth or {}).get('status') == 'running'):
                     raise ArchiveError('Sign in and pause saving before continuing cloud tasks.')
                 start_worker()
-                self._message = 'Continuing the unfinished cloud task. Saving still waits for Go.'
+                self._message = 'Continuing the unfinished cloud task. Saving still waits for Start.'
             elif action == 'connect':
                 if not view['connect_enabled']:
                     raise ArchiveError('Finish the current activity before changing the B2 connection.')
@@ -156,7 +156,7 @@ class AndroidCloud:
                     app_actions.Actions(lambda: runtime).choose_storage(value, state.cloud_targets())
                 except app_actions.Refused as error:
                     raise ArchiveError(str(error)) from None
-                self._message = 'Storage choice saved. Saving still waits for Go.'
+                self._message = 'Storage choice saved. Saving still waits for Start.'
             elif action in TASKS:
                 permitted = (view['test_enabled'] if action == 'test' else view['retry_enabled'] if action == 'retry'
                              else any(row['test_id'] == value and row['enabled'] for row in view['cleanup']))
