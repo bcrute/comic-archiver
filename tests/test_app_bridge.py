@@ -445,7 +445,7 @@ class BridgeLifecycleTests(unittest.TestCase):
                 self.assertTrue(network.policy(workspace.library)["wifi_only"])
                 self.assertEqual(account_ui.speed(workspace), account_ui.DEFAULT_SPEED)
 
-    def test_running_plan_refuses_speed_change_but_allows_explicit_network_choice(self):
+    def test_a_running_plan_takes_a_new_speed_and_carries_on_as_on_the_desktop(self):
         from comic_archive import account_ui
         from comic_archive.workspace import Workspace
         self.call("prepare_workspace", {"root": str(self.root)})
@@ -453,13 +453,39 @@ class BridgeLifecycleTests(unittest.TestCase):
         (queue / "requests").mkdir(parents=True)
         (queue / "responses").mkdir()
         self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
-        before = account_ui.speed(Workspace(id="default", root=self.root))
+        workspace = Workspace(id="default", root=self.root)
+        self.assertNotEqual(account_ui.speed(workspace), "slow")
         result = self.call("configure_settings", {"root": str(self.root), "speed": "slow", "wifi_only": False})
-        self.assertFalse(result["ok"])
-        self.assertEqual(account_ui.speed(Workspace(id="default", root=self.root)), before)
-        result = self.call("configure_settings", {"root": str(self.root), "wifi_only": False})
         self.assertTrue(result["ok"], result)
+        self.assertEqual((result["result"]["speed"], result["result"]["wifi_only"]), ("slow", False))
+        self.assertEqual(account_ui.speed(workspace), "slow")
+        self.assertEqual(account_ui.status(workspace)["status"], "running")
+        # A speed this phone cannot run is still refused before anything is written.
+        self.assertFalse(self.call("configure_settings", {"root": str(self.root), "speed": "fast"})["ok"])
+        self.assertEqual(account_ui.speed(workspace), "slow")
         self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
+
+    def test_episode_types_are_listed_as_on_the_desktop_and_a_choice_is_kept(self):
+        from comic_archive import account_ui, download_selection
+        from comic_archive.workspace import Workspace
+        self.call("prepare_workspace", {"root": str(self.root)})
+        listed = self.call("settings", {"root": str(self.root)})["result"]["download_types"]
+        self.assertEqual(listed, [{"key": key, "label": download_selection.LABELS[key],
+                                   "help": download_selection.HELP[key], "chosen": True}
+                                  for key in download_selection.TYPES])
+        chosen = {"bought": True, "free": False, "limited": True, "unclassified": False}
+        changed = self.call("configure_settings", {"root": str(self.root), "download_types": chosen})
+        self.assertTrue(changed["ok"], changed)
+        self.assertEqual({item["key"]: item["chosen"] for item in changed["result"]["download_types"]}, chosen)
+        workspace = Workspace(id="default", root=self.root)
+        self.assertEqual(account_ui.download_types(workspace), chosen)
+        # Nothing at all, a missing type or a word in place of yes or no is refused, and nothing is written.
+        for bad in (dict.fromkeys(chosen, False), {"bought": True}, chosen | {"free": "no"}, "all"):
+            with self.subTest(bad=bad):
+                self.assertFalse(self.call("configure_settings", {"root": str(self.root), "download_types": bad,
+                                                                  "speed": "slow"})["ok"])
+                self.assertEqual(account_ui.download_types(workspace), chosen)
+                self.assertNotEqual(account_ui.speed(workspace), "slow")
 
     def test_signout_record_forgets_the_written_sign_in(self):
         from comic_archive import android_session

@@ -9462,5 +9462,45 @@
   "new": "for row in []]",
   "test_file": "test_android_cards.py",
   "test": "test_a_card_carries_the_download_issues_and_episode_types_settings_lists"
+ },
+ {
+  "id": "change-never-tells-the-caller",
+  "source": "comic_archive/account_ui.py",
+  "old": "if on_stop_requested is not None and not asked:",
+  "new": "if False:",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_change_tells_its_caller_once_that_the_running_step_was_asked_to_stop"
+ },
+ {
+  "id": "change-tells-the-caller-every-time",
+  "source": "comic_archive/account_ui.py",
+  "old": "if on_stop_requested is not None and not asked:",
+  "new": "if on_stop_requested is not None:",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_change_tells_its_caller_once_that_the_running_step_was_asked_to_stop"
+ },
+ {
+  "id": "bridge-running-speed-saved-without-the-change",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "if \"speed\" in args and account_ui.status(workspace).get(\"status\") == \"running\":",
+  "new": "if False:",
+  "test_file": "test_app_bridge.py",
+  "test": "test_a_running_plan_takes_a_new_speed_and_carries_on_as_on_the_desktop"
+ },
+ {
+  "id": "bridge-types-not-saved",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "            if types is not None:\n",
+  "new": "            if False:\n",
+  "test_file": "test_app_bridge.py",
+  "test": "test_episode_types_are_listed_as_on_the_desktop_and_a_choice_is_kept"
+ },
+ {
+  "id": "bridge-types-unchecked",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "types = download_selection.validate(args[\"download_types\"]) if \"download_types\" in args else None",
+  "new": "types = args.get(\"download_types\")",
+  "test_file": "test_app_bridge.py",
+  "test": "test_episode_types_are_listed_as_on_the_desktop_and_a_choice_is_kept"
  }
 ]

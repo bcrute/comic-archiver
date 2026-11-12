@@ -34,6 +34,33 @@ class AccountUITests(unittest.TestCase):
         self.assertFalse(fixed['configured'])
         self.assertFalse(list((self.queue / 'requests').iterdir()))
 
+    def test_a_change_tells_its_caller_once_that_the_running_step_was_asked_to_stop(self):
+        from contextlib import nullcontext
+        told, saved = [], []
+
+        def change(session, library, save, wait, can_resume, **options):
+            wait('job-' + 'a' * 24)
+            wait('job-' + 'a' * 24)
+            save()
+
+        self.workspace.library.mkdir(parents=True, exist_ok=True)
+        with patch.object(download_control, 'change_speed', side_effect=change), \
+                patch('comic_archive.task_cancellation.request_running_stop') as asked, \
+                patch('comic_archive.task_cancellation.admission_lock', return_value=nullcontext()), \
+                patch.object(account_ui, '_interrupted'), \
+                patch.object(account_ui, 'task_status', return_value={'status': 'ok'}), \
+                patch.object(account_ui, '_read', return_value={'state': 'ready'}), \
+                patch.object(account_ui, 'choose_speed', side_effect=lambda workspace, value: saved.append(value)):
+            asked.side_effect = lambda *args, **options: told.append('asked')
+            account_ui.change_speed(self.workspace, 'slow', closing=threading.Event(),
+                                    on_stop_requested=lambda: told.append('told'))
+            # The step is asked first; the caller hears once, however long the wait goes on.
+            self.assertEqual(told, ['asked', 'told', 'asked'])
+            self.assertEqual(saved, ['slow'])
+            # Without a caller to tell, the change is as before.
+            account_ui.change_speed(self.workspace, 'medium', closing=threading.Event())
+            self.assertEqual(saved, ['slow', 'medium'])
+
     def test_download_types_are_saved_without_starting_an_idle_account(self):
         choices = dict(bought=True, free=False, limited=False, unclassified=False)
         changed = self.registry.choose_download_types(LOCAL_OWNER, self.workspace.id, choices)

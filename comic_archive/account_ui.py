@@ -76,12 +76,13 @@ def choose_speed(workspace, value):
 
 
 
-def change_speed(workspace, value, *, closing):
+def change_speed(workspace, value, *, closing, on_stop_requested=None):
     """Change this site's pace, gracefully replacing only a task that captured its old pace."""
     _check_speed(value)
     if value == speed(workspace) and not closing.is_set():
         return
-    _change_setting(workspace, lambda: choose_speed(workspace, value), closing=closing)
+    _change_setting(workspace, lambda: choose_speed(workspace, value), closing=closing,
+                    on_stop_requested=on_stop_requested)
 
 
 def download_types(workspace):
@@ -93,7 +94,7 @@ def download_types(workspace):
         return read(inventory.db)
 
 
-def change_download_types(workspace, value, *, closing):
+def change_download_types(workspace, value, *, closing, on_stop_requested=None):
     from .download_selection import save, validate
     from .inventory import Inventory
     value = validate(value)
@@ -102,14 +103,17 @@ def change_download_types(workspace, value, *, closing):
         with Inventory(workspace.library) as inventory:
             save(inventory.db, value)
 
-    _change_setting(workspace, save_choices, closing=closing, selection=True)
+    _change_setting(workspace, save_choices, closing=closing, selection=True, on_stop_requested=on_stop_requested)
 
 
-def _change_setting(workspace, save_choice, *, closing, selection=False):
+def _change_setting(workspace, save_choice, *, closing, selection=False, on_stop_requested=None):
+    """on_stop_requested is called once the running step has been asked to stop, as for pause: the phone ends
+    the page read its browser is in the middle of, which would otherwise outlast the wait."""
     from .errors import LibraryBusy, SpeedChangeError, DownloadSelectionChangeError
     error_type = DownloadSelectionChangeError if selection else SpeedChangeError
     if closing.is_set():
         raise error_type('closing')
+    asked = []
 
     def wait(task):
         from .task_cancellation import admission_lock, request_running_stop
@@ -118,6 +122,9 @@ def _change_setting(workspace, save_choice, *, closing, selection=False):
             try:
                 # Stop queued work under the same lock the worker takes before starting it.
                 request_running_stop(workspace.session, task, include_queued=True)
+                if on_stop_requested is not None and not asked:
+                    asked.append(True)
+                    on_stop_requested()
                 _interrupted(workspace.session, workspace.library, task)
                 with admission_lock(workspace.session):
                     response = task_status(workspace.session, task)

@@ -598,13 +598,18 @@ def _speed_choices(site_key):
 
 
 def _settings_unlocked(root):
-    from comic_archive import android_download, network, network_android
+    from comic_archive import account_ui, android_download, download_selection, network, network_android
     from comic_archive.workspace import Workspace
     network_android.configure(root / "net.json")
     workspace = Workspace(id="default", root=root)
     saved = android_download.selected_speed(workspace)
+    chosen = account_ui.download_types(workspace)
     return network.status(workspace.library) | {
-        "speed": saved, "speeds": _speed_choices(_site_of(root))}
+        "speed": saved, "speeds": _speed_choices(_site_of(root)),
+        # Which episode types this site downloads, named and explained as on the desktop.
+        "download_types": [{"key": key, "label": download_selection.LABELS[key],
+                            "help": download_selection.HELP[key], "chosen": chosen[key]}
+                           for key in download_selection.TYPES]}
 
 
 def _settings(args):
@@ -612,34 +617,44 @@ def _settings(args):
     return _core(lambda error: _settings_value(root))
 
 
+_never_closing = threading.Event()  # The phone has no closing window to stop a change for.
+
+
 def _configure_settings(args):
     root = _path_arg(args, "root")
-    if set(args) - {"root", "wifi_only", "speed"} or not ({"wifi_only", "speed"} & set(args)):
+    choices = {"wifi_only", "speed", "download_types"}
+    if set(args) - {"root"} - choices or not (choices & set(args)):
         raise _BridgeError("bad_request", "Choose a download setting to change.")
     if "wifi_only" in args and type(args["wifi_only"]) is not bool:
         raise _BridgeError("bad_request", "The mobile data choice must be explicit.")
 
     def configure(ArchiveError):
-        from comic_archive import account_ui, android_download, network
+        from comic_archive import account_ui, android_download, download_selection, network
         from comic_archive.workspace import Workspace
         workspace = Workspace(id="default", root=root)
         from comic_archive.locking import LibraryLock
         with _workspace_lock:
             _active_root(root, ArchiveError)
-            with LibraryLock(workspace.session / ".account-ui"):
-                # Validate the entire request before writing either setting.
-                if "speed" in args:
-                    value = args["speed"]
-                    if (not isinstance(value, str) or value not in account_ui.SPEEDS
-                            or not android_download.speed_available(_site_of(root), value, _browser['factory'])):
-                        raise ArchiveError("That speed is not available in this Android build.")
-                    if account_ui.status(workspace).get("status") == "running":
-                        raise ArchiveError("Pause saving to change the speed.")
-                if "wifi_only" in args:
-                    network.configure(workspace.library, args["wifi_only"])
-                if "speed" in args:
-                    account_ui.choose_speed(workspace, args["speed"])
-            return _settings_unlocked(root)
+            # Validate the entire request before writing any setting.
+            if "speed" in args:
+                value = args["speed"]
+                if (not isinstance(value, str) or value not in account_ui.SPEEDS
+                        or not android_download.speed_available(_site_of(root), value, _browser['factory'])):
+                    raise ArchiveError("That speed is not available in this Android build.")
+            types = download_selection.validate(args["download_types"]) if "download_types" in args else None
+            interrupt = _interrupt_browser if _uses_browser(root) else None
+        # As on the desktop, a download that is saving is paused for the change and carries on after it. That
+        # can take a while, so only this site's own lock is held: the other sites go on answering.
+        with LibraryLock(workspace.session / ".account-ui"):
+            if "wifi_only" in args:
+                network.configure(workspace.library, args["wifi_only"])
+            if "speed" in args and account_ui.status(workspace).get("status") == "running":
+                account_ui.change_speed(workspace, args["speed"], closing=_never_closing, on_stop_requested=interrupt)
+            elif "speed" in args:
+                account_ui.choose_speed(workspace, args["speed"])
+            if types is not None:
+                account_ui.change_download_types(workspace, types, closing=_never_closing, on_stop_requested=interrupt)
+        return _settings_value(root)
 
     return _core(configure)
 
