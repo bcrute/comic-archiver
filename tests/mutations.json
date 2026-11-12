@@ -4250,8 +4250,8 @@
  {
   "id": "signin-probe-closes-on-refusal",
   "source": "comic_archive/android_adapter.py",
-  "old": "        try:\n            adapter.__enter__()\n        finally:\n",
-  "new": "        adapter.__enter__()\n        if True:\n",
+  "old": "        try:\n            identity = adapter.account_identity()\n        finally:\n",
+  "new": "        identity = adapter.account_identity()\n        if True:\n",
   "test_file": "test_android_adapter.py",
   "test": "test_every_probe_closes_its_connection_whatever_the_answer"
  },
@@ -7946,7 +7946,7 @@
  {
   "id": "computer-told-to-tick-a-box-it-does-not-have",
   "source": "comic_archive/storage_model.py",
-  "old": "        if cloud_runtime._android:\n            return ('Mobile data is off.",
+  "old": "        if _phone():\n            return ('Mobile data is off.",
   "new": "        if True:\n            return ('Mobile data is off.",
   "test_file": "test_storage_model.py",
   "test": "test_the_key_check_is_described_as_it_goes"
@@ -7954,7 +7954,7 @@
  {
   "id": "phone-told-to-press-a-button-it-does-not-have",
   "source": "comic_archive/storage_model.py",
-  "old": "        if cloud_runtime._android:\n            return ('Mobile data is off.",
+  "old": "        if _phone():\n            return ('Mobile data is off.",
   "new": "        if False:\n            return ('Mobile data is off.",
   "test_file": "test_storage_model.py",
   "test": "test_the_key_check_is_described_as_it_goes"
