@@ -9374,5 +9374,77 @@
   "new": "\"files\": storage_model.number(total.get(\"episode_count\"))",
   "test_file": "test_android_signin_attempts.py",
   "test": "test_all_sites_adds_the_counts_of_every_opened_site_and_leaves_out_one_that_cannot_be_read"
+ },
+ {
+  "id": "phone-card-idle-downloader-offline",
+  "source": "comic_archive/android_cards.py",
+  "old": "status['worker'] = {'reported_state': 'ready'}",
+  "new": "status['worker'] = None",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_says_what_the_desktop_would_from_sign_in_to_saving"
+ },
+ {
+  "id": "phone-card-stopping-downloader-offline",
+  "source": "comic_archive/android_cards.py",
+  "old": "state if state in ('ready', 'starting') else 'busy'",
+  "new": "state",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_says_what_the_desktop_would_from_sign_in_to_saving"
+ },
+ {
+  "id": "phone-card-dead-download-still-saving",
+  "source": "comic_archive/android_cards.py",
+  "old": "account = account | {'status': 'stopped'}",
+  "new": "pass",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_download_whose_downloader_is_gone_waits_for_start_as_a_paused_one_does"
+ },
+ {
+  "id": "phone-card-ignores-failed-sign-in",
+  "source": "comic_archive/android_cards.py",
+  "old": "auth = {'status': 'expired' if signed_in is False else 'connected'}",
+  "new": "auth = {'status': 'connected'}",
+  "test_file": "test_android_cards.py",
+  "test": "test_the_shown_site_whose_saved_sign_in_stopped_working_says_sign_in_again"
+ },
+ {
+  "id": "phone-card-new-sign-in-keeps-refusal",
+  "source": "comic_archive/android_cards.py",
+  "old": "s.received_site_auth({'status': 'idle'}, now)",
+  "new": "pass",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_refused_sign_in_asks_for_one_until_the_site_is_signed_in_again"
+ },
+ {
+  "id": "phone-card-unread-says-nothing",
+  "source": "comic_archive/android_cards.py",
+  "old": "s.refresh_failed()",
+  "new": "pass",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_that_cannot_be_read_says_so_and_keeps_what_it_last_read"
+ },
+ {
+  "id": "bridge-cards-tell-every-site-the-shown-sign-in",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "signed_in=signed_in if key == shown else None",
+  "new": "signed_in=signed_in",
+  "test_file": "test_android_cards.py",
+  "test": "test_site_cards_gives_a_card_for_each_opened_site_and_tells_only_the_shown_one_its_sign_in"
+ },
+ {
+  "id": "bridge-cards-of-other-libraries",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "for root, kept in _open.items() if base == kept[\"base\"])",
+  "new": "for root, kept in _open.items())",
+  "test_file": "test_android_cards.py",
+  "test": "test_site_cards_gives_a_card_for_each_opened_site_and_tells_only_the_shown_one_its_sign_in"
+ },
+ {
+  "id": "card-signed-in-again-blames-the-disk",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "               'login_required': '',\n",
+  "new": "",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes"
  }
 ]

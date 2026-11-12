@@ -246,6 +246,8 @@ def held_reason(code, site, missing, audit=None):
                'network_recovery_limit': f'{site} could not be reached several times in a row',
                'no_progress': 'The last few tries saved nothing new',
                'scan_no_progress': 'The last few tries saved nothing new',
+               # Signed in again since: the card's button carries on, and nothing else needs saying.
+               'login_required': '',
                'cancelled': ''}
     if code in CLOUD_HINTS:
         return f'An upload to cloud storage stopped. {CLOUD_HINTS[code]}'

@@ -31,7 +31,8 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "go", "pause", "download_status", "enqueue_sync", "library_listing", "export_manifest",
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
-                 "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites"})
+                 "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites",
+                 "site_cards"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -58,6 +59,8 @@ _catalog_lock = threading.Lock()
 _cloud_cache = {"root": None, "controller": None}  # The one asked about last.
 _cloud_controllers = {}
 _cloud_lock = threading.Lock()
+_cards = {"kept": None}  # Each opened site's card, as last read.
+_cards_lock = threading.Lock()
 
 
 def enable_android_cloud():
@@ -997,6 +1000,37 @@ def _all_sites(args):
     return _core(read)
 
 
+def _site_cards(args):
+    """The card of every site opened in one working library, worded as the desktop words it.
+
+    "shown" names the site on screen and "signed_in" is what its sign-in screen knows: false
+    when the saved sign-in no longer works. The other sites are read from their own records.
+    """
+    base = _path_arg(args, "base_root")
+    shown, signed_in = args.get("shown"), args.get("signed_in")
+    if (not set(args) <= {"base_root", "shown", "signed_in"} or not (shown is None or isinstance(shown, str))
+            or not (signed_in is None or isinstance(signed_in, bool))):
+        raise _BridgeError("bad_request", "Choose a working library.")
+
+    def read(ArchiveError):
+        from comic_archive.android_cards import Cards
+        with _workspace_lock:
+            opened = sorted((kept["site_key"], root) for root, kept in _open.items() if base == kept["base"])
+        cards = []
+        with _cards_lock:
+            if _cards["kept"] is None:
+                _cards["kept"] = Cards()
+            for key, root in opened:
+                try:
+                    registry = _catalog_registries.get(str(root)) or _catalog_registry(root)
+                    cards.append(_cards["kept"].card(registry, signed_in=signed_in if key == shown else None))
+                except ArchiveError:
+                    continue
+        return {"cards": cards}
+
+    return _core(read)
+
+
 def _in_active_workspace(handler):
     """Serialize context-sensitive policy actions before controller/account locks."""
     def call(args):
@@ -1035,6 +1069,7 @@ HANDLERS = {"ping": _ping,
             "enqueue_sync": _enqueue_sync,
             "library_listing": _library_listing,
             "all_sites": _all_sites,
+            "site_cards": _site_cards,
             "export_manifest": _export_manifest,
             "export_status": _export_status}
 
