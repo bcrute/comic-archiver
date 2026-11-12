@@ -22,6 +22,7 @@ _requests = set()
 _asset_requests = 0
 _asset_cookie_leaks = 0
 _unexpected = 0
+_unexpected_seen = []
 _browser_agent_seen = False
 _fast_asset_clients = 0
 _transfer_gate = {}
@@ -112,6 +113,7 @@ def serve(request):
     if request.method != 'GET':
         with _lock:
             _unexpected += 1
+            _unexpected_seen.append(f'{request.method} {host}{path}'[:120])
         return httpx.Response(405)
     if host == 'us-a.tapas.io' and path in {'/pc/integration/1.png', '/pc/integration/2.png'}:
         with _lock:
@@ -164,6 +166,7 @@ def serve(request):
                                   '<p><em>Comics and novels use the real writers.</em></p></div></div>')
     with _lock:
         _unexpected += 1
+        _unexpected_seen.append(f'{request.method} {host}{path}?{str(request.url.query, "ascii")}'[:120])
     return httpx.Response(404, text='Unmapped stand-in request; external networking is disabled.')
 
 
@@ -309,6 +312,7 @@ def observation():
                            'native_failures': list(_native_failures), 'blocked_transfer': _blocked.is_set(),
                            'transfer_gate': dict(_transfer_gate), 'asset_requests': _asset_requests,
                            'asset_cookie_leaks': _asset_cookie_leaks, 'unexpected_requests': _unexpected,
+                           'unexpected_seen': _unexpected_seen[:20],
                            'browser_agent_seen': _browser_agent_seen,
                            'fast_asset_clients': _fast_asset_clients,
                            'locked_reader_requested': any(path == '/episode/9003' for host, path, query in _requests),
