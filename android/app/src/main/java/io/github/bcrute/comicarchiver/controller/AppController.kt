@@ -32,6 +32,10 @@ interface AppController {
     fun setWifiOnly(value: Boolean)
     fun setDownloadSpeed(value: String)
     fun setDownloadTypes(value: Map<String, Boolean>) {}
+    /** Read a site's recorded series, or a series' episodes: the first page, then the next on each call. */
+    fun loadEpisodes(site: String, seriesId: String? = null) {}
+    /** Forget every list read for the Library, so each is read again when opened. */
+    fun refreshEpisodes() {}
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
     fun setTheme(value: AppTheme)

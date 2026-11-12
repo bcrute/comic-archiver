@@ -1,5 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
+import io.github.bcrute.comicarchiver.controller.EpisodeRow
+import io.github.bcrute.comicarchiver.controller.EpisodeList
 import io.github.bcrute.comicarchiver.controller.AppState
 import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.controller.CardRow
@@ -267,4 +269,25 @@ class UiMappingTest {
             state().copy(siteCards = cards).toDownloadsScreenUi().siteCards.map { it.site })
     }
 
+
+    @Test fun anEpisodeListPageIsAddedToWhatWasReadAndAnUnreadableOneIsRefused() {
+        fun answer(items: String, next: String = "null", empty: String = "") = org.json.JSONObject(
+            """{"ok":true,"result":{"items":$items,"next_offset":$next,"empty":"$empty"}}""")
+        val row = """{"id":"42","title":"Alpha","status":"1 / 3 saved","format":"CBZ","access":"Free"}"""
+        val first = EpisodeList.parse(answer("[$row]", "200"), EpisodeList(loading = true))!!
+        assertEquals(EpisodeList(listOf(EpisodeRow("42", "Alpha", "1 / 3 saved", "CBZ", "Free")), 200, loaded = true), first)
+        // The next page follows the first, and a row already listed is not listed twice.
+        val second = EpisodeList.parse(answer(
+            """[$row,{"id":"43","title":"Beta","status":"0 / 0 saved","format":"Unknown","access":"Unknown"}]"""), first)!!
+        assertEquals(listOf("42", "43"), second.rows.map { it.id })
+        assertNull(second.nextOffset)
+        assertEquals("Not indexed yet", EpisodeList.parse(answer("[]", empty = "Not indexed yet"), EpisodeList())!!.empty)
+        assertEquals("tapas", EpisodeList.key("tapas")); assertEquals("tapas/42", EpisodeList.key("tapas", "42"))
+        for (bad in listOf(org.json.JSONObject("""{"ok":false,"code":"refused"}"""),
+            org.json.JSONObject("""{"ok":true,"result":{"next_offset":null}}"""),
+            answer("[$row]", "\"200\""), answer("[$row]", "0"), answer("[7]"),
+            answer("""[{"id":"","title":"A","status":"S","format":"F","access":"A"}]"""),
+            answer("""[{"id":"42","title":"A","status":"S","format":"F"}]""")))
+            assertNull(EpisodeList.parse(bad, EpisodeList()))
+    }
 }

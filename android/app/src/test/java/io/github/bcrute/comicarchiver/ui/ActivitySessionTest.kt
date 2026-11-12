@@ -247,6 +247,23 @@ class ActivitySessionTest {
         } finally { release.countDown(); compose.runOnIdle { controller.pause() } }
     }
 
+    @Test fun aSiteThatIsSavingIsNotSignedOutUntilItIsPaused() {
+        ready()
+        app.fake.statusPayload = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
+        val controller = app.controller
+        try {
+            compose.onNodeWithTag("saving-action").performClick()
+            awaitState { controller.state.value.download is DownloadState.Running }
+            // A late tap or a restored dialog: the controller itself keeps the sign-in.
+            compose.runOnIdle { controller.signOut() }
+            awaitState { controller.state.value.notice?.message == "Pause the download to sign out." }
+            assertTrue(controller.state.value.signIn is SignInState.SignedIn)
+            assertTrue(controller.state.value.download is DownloadState.Running)
+            assertEquals(false, controller.state.value.signOutPending)
+            assertEquals(0, app.fake.count("signout_record"))
+        } finally { compose.runOnIdle { controller.pause() } }
+    }
+
     @Test fun failedPolicyRefreshHidesStaleMobileConsentInsteadOfReusingIt() {
         ready()
         compose.onNodeWithTag("nav-settings").performClick()

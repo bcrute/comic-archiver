@@ -221,6 +221,37 @@ class DefaultAppController(
             if (current(target, version) && cards != null) _state.value = _state.value.copy(siteCards = cards)
         }
     }
+    /** Raised when the lists are forgotten, so an answer still on its way is dropped. */
+    private var episodesVersion = 0L
+
+    override fun loadEpisodes(site: String, seriesId: String?) {
+        val key = EpisodeList.key(site, seriesId)
+        val before = _state.value.episodes[key] ?: EpisodeList()
+        if (before.loading || (before.loaded && before.nextOffset == null) || !workspaceReady) return
+        val target = location; val version = episodesVersion
+        _state.value = _state.value.copy(episodes = _state.value.episodes + (key to before.copy(loading = true, failed = false)))
+        scope.launch(Dispatchers.IO) {
+            val read = try {
+                val args = JSONObject().put("base_root", target.base.absolutePath).put("site", site)
+                    .put("offset", before.nextOffset ?: 0)
+                if (seriesId != null) args.put("series_id", seriesId)
+                EpisodeList.parse(JSONObject(bridge.dispatch("episode_inventory", args.toString())), before)
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                // The lists belong to the working library, whichever of its sites is shown.
+                if (version != episodesVersion || _state.value.libraryId != target.libraryId) return@withContext
+                _state.value = _state.value.copy(episodes = _state.value.episodes +
+                    (key to (read ?: before.copy(loading = false, failed = true))))
+            }
+        }
+    }
+
+    override fun refreshEpisodes() {
+        episodesVersion += 1
+        _state.value = _state.value.copy(episodes = emptyMap())
+    }
+
     private val settingsActions = Mutex()
     private val cloudActions = Mutex()
     private var catalogVersion = 0L
@@ -394,6 +425,7 @@ class DefaultAppController(
                                 startingAll = before.startingAll,
                                 allSites = before.allSites.takeIf { before.libraryId == target.libraryId },
                                 siteCards = before.siteCards.takeIf { before.libraryId == target.libraryId }.orEmpty(),
+                                episodes = before.episodes.takeIf { before.libraryId == target.libraryId }.orEmpty(),
                                 signOutPending = sessionActions.getBoolean("signout_${target.key}", false))
                             _state.value = _state.value.copy(sites = withSaving(before.sites))
                             successful = true
@@ -486,6 +518,12 @@ class DefaultAppController(
 
     override fun signOut() {
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
+        // As on the desktop, a download is paused before its site is signed out. A sign-out
+        // that did not finish has already stopped it and may always be retried.
+        if (!_state.value.signOutPending && isSaving(location.key)) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED, "Pause the download to sign out."))
+            return
+        }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
             _state.value.cloud?.authStatus == "running" || context.app.exports.isActive) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,

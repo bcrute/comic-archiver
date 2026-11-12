@@ -24,6 +24,25 @@ def episode_type(mark):
     return ACCESS_LABELS[access_kind(mark)]
 
 
+def series_columns(row):
+    """A recorded series as the Library lists it: title, saved of recorded, format, access."""
+    return [' '.join(row['title'].splitlines()), f"{row['saved']:,} / {row['episodes']:,} saved",
+            format_summary(row.get('formats', [])), access_summary(row.get('access_kinds', []))]
+
+
+def episode_columns(row):
+    """A recorded episode as the Library lists it: numbered title, status, format, access."""
+    number = row['episode_number']
+    label = f"{number} · {row['title']}" if type(number) is int else row['title']
+    return [' '.join(label.splitlines()), STATUS.get(row['status'], 'Unknown'), format_summary([row.get('format')]),
+            ACCESS_LABELS.get(row.get('access_kind'), episode_type(row['access_state']))]
+
+
+def empty_text(value):
+    """What a site or series with nothing listed under it says."""
+    return 'No episodes recorded' if value['initialized'] else 'Not indexed yet'
+
+
 class EpisodeLibrary:
     def __init__(self, kit, pages):
         self.kit, self.pages = kit, pages
@@ -111,10 +130,9 @@ class EpisodeLibrary:
                 for row in value['items']:
                     if row['id'] in identifiers:
                         continue
-                    summary = f"{row['saved']:,} / {row['episodes']:,} saved"
-                    formats, kinds = row.get('formats', []), row.get('access_kinds', [])
-                    series_item = self.item(parent, [' '.join(row['title'].splitlines()), summary,
-                                       format_summary(formats), access_summary(kinds)],
+                    columns = series_columns(row)
+                    summary, kinds = columns[1], row.get('access_kinds', [])
+                    series_item = self.item(parent, columns,
                               {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle', 'summary': summary},
                               expandable=True)
                     series_item.setToolTip(2, 'Recorded format; no saved files are opened or checked.')
@@ -125,10 +143,7 @@ class EpisodeLibrary:
                 for row in value['items']:
                     if row['id'] in identifiers:
                         continue
-                    number = row['episode_number']
-                    label = f"{number} · {row['title']}" if type(number) is int else row['title']
-                    self.item(parent, [' '.join(label.splitlines()), STATUS.get(row['status'], 'Unknown'), format_summary([row.get('format')]),
-                                       ACCESS_LABELS.get(row.get('access_kind'), episode_type(row['access_state']))],
+                    self.item(parent, episode_columns(row),
                               {'provider': data['provider'], 'series_id': data['series_id'],
                                'episode_id': row['id'], 'state': 'leaf'})
             following = value['next_offset']
@@ -138,8 +153,7 @@ class EpisodeLibrary:
             if more:
                 parent.takeChild(parent.indexOfChild(item))
             else:
-                item.setText(1, data.get('summary', 'Recorded list') if value['items'] else
-                             'No episodes recorded' if value['initialized'] else 'Not indexed yet')
+                item.setText(1, data.get('summary', 'Recorded list') if value['items'] else empty_text(value))
                 if not value['items']:
                     item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)
 

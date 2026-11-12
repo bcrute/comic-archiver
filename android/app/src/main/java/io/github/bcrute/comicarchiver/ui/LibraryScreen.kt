@@ -30,6 +30,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import io.github.bcrute.comicarchiver.controller.CatalogState
+import io.github.bcrute.comicarchiver.controller.EpisodeList
+import io.github.bcrute.comicarchiver.controller.SiteChoice
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,6 +67,10 @@ fun LibraryScreen(
     onWorkingLibrary: (() -> Unit)? = null,
     showFilesRequested: Boolean = false,
     onFilesRequestConsumed: () -> Unit = {},
+    sites: List<SiteChoice> = emptyList(),
+    episodes: Map<String, EpisodeList> = emptyMap(),
+    onLoadEpisodes: (String, String?) -> Unit = { _, _ -> },
+    onRefreshEpisodes: () -> Unit = {},
 ) {
     var view by rememberSaveable { mutableStateOf("Files") }
     var options by remember { mutableStateOf(false) }
@@ -84,8 +90,9 @@ fun LibraryScreen(
     }
     Column(Modifier.fillMaxSize()) {
         if (!compactEditing) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-            LazyRow(Modifier.weight(1f), state = viewScroll, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(listOf("Files", "Series", "Folder")) { choice ->
+            LazyRow(Modifier.weight(1f).testTag("library-views"), state = viewScroll,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("Files", "Series", "Folder", "Episodes")) { choice ->
                     FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
                 }
             }
@@ -112,6 +119,7 @@ fun LibraryScreen(
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
             else if (view == "Series") SeriesLibraryScreen(series)
+            else if (view == "Episodes") EpisodeLibraryScreen(sites, episodes, onLoadEpisodes, onRefreshEpisodes)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {}

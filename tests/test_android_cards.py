@@ -158,7 +158,9 @@ class AndroidCardTests(unittest.TestCase):
         self.assertEqual((self.cards._states, self.cards._records), ({}, {}))
 
 
-class SiteCardsBridgeTests(unittest.TestCase):
+class OpenedLibrary(unittest.TestCase):
+    """A working library opened through the bridge, as the phone opens one."""
+
     def setUp(self):
         self.before = Path.cwd()
         self.tmp = tempfile.TemporaryDirectory()
@@ -186,6 +188,8 @@ class SiteCardsBridgeTests(unittest.TestCase):
     def call(self, operation, **args):
         return json.loads(app_bridge.dispatch(json.dumps({'v': 1, 'op': operation, 'args': args})))
 
+
+class SiteCardsBridgeTests(OpenedLibrary):
     def test_site_cards_gives_a_card_for_each_opened_site_and_tells_only_the_shown_one_its_sign_in(self):
         other = self.root / 'Webtoon'
         with patch('comic_archive.account_ui.reopen', return_value=False):
@@ -218,6 +222,73 @@ class SiteCardsBridgeTests(unittest.TestCase):
             real = self.call('site_cards', base_root=str(self.root))
         self.assertEqual([(card['site'], card['title']) for card in real['result']['cards']],
                          [('tapas', 'Sign in to get started'), ('webtoon', 'Sign in to get started')])
+
+
+class EpisodeInventoryBridgeTests(OpenedLibrary):
+    """The phone's Library lists what the desktop's does, in the same words."""
+
+    def seed(self, library):
+        from comic_archive.inventory import Inventory
+        with Inventory(library) as inventory:
+            inventory.observe('42', 'Series\nname', [
+                {'id': str(80 + number), 'title': f'Episode {number}', 'order': number,
+                 'access_state': 'tapas_free' if number == 1 else 'unavailable_or_unverified'}
+                for number in range(1, 4)], 'fixture')
+            inventory.mark('81', 'archived')
+            inventory.observe('43', 'Unenumerated series', [], 'fixture')
+
+    def test_a_sites_series_and_a_series_episodes_are_listed_as_on_the_desktop(self):
+        from comic_archive import window_library
+        from comic_archive.episode_index import page
+        library = self.root / 'Library'
+        self.seed(library)
+        listed = self.call('episode_inventory', base_root=str(self.root), site='tapas')
+        self.assertTrue(listed['ok'], listed)
+        recorded = page(library)['items']
+        self.assertEqual(listed['result'], {'next_offset': None, 'empty': '', 'items': [
+            dict(zip(('title', 'status', 'format', 'access'), window_library.series_columns(row)), id=row['id'])
+            for row in recorded]})
+        self.assertEqual([(row['title'], row['status']) for row in listed['result']['items']],
+                         [('Series name', '1 / 3 saved'), ('Unenumerated series', '0 / 0 saved')])
+        episodes = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')['result']
+        self.assertEqual(episodes['items'], [
+            dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row)), id=row['id'])
+            for row in page(library, series_id='42')['items']])
+        self.assertEqual([(row['title'], row['status'], row['access']) for row in episodes['items']],
+                         [('1 · Episode 1', 'Saved', 'Free'), ('2 · Episode 2', 'Pending', 'Unknown type'),
+                          ('3 · Episode 3', 'Pending', 'Unknown type')])
+        self.assertEqual(self.call('episode_inventory', base_root=str(self.root), site='tapas',
+                                   series_id='43')['result'],
+                         {'items': [], 'next_offset': None, 'empty': 'No episodes recorded'})
+
+    def test_a_long_list_is_read_a_page_at_a_time_and_only_its_first_page_says_it_is_empty(self):
+        with patch('comic_archive.episode_index.page', return_value={
+                'initialized': True, 'next_offset': 200, 'items': [
+                    {'id': '7', 'title': 'One', 'episodes': 2, 'saved': 2, 'formats': ['CBZ'], 'access_kinds': ['free']}]}) as read:
+            first = self.call('episode_inventory', base_root=str(self.root), site='tapas', offset=0)['result']
+        self.assertEqual(first['next_offset'], 200)
+        self.assertEqual(first['items'], [{'id': '7', 'title': 'One', 'status': '2 / 2 saved', 'format': 'CBZ', 'access': 'Free'}])
+        self.assertEqual(read.call_args.kwargs, {'series_id': None, 'offset': 0})
+        with patch('comic_archive.episode_index.page',
+                   return_value={'initialized': True, 'next_offset': None, 'items': []}) as read:
+            later = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42', offset=200)
+        self.assertEqual(later['result'], {'items': [], 'next_offset': None, 'empty': ''})
+        self.assertEqual(read.call_args.kwargs, {'series_id': '42', 'offset': 200})
+
+    def test_a_site_with_no_record_yet_says_so_and_one_that_is_not_open_is_refused(self):
+        import shutil
+        shutil.rmtree(self.root / 'Library' / '.archive-state', ignore_errors=True)
+        fresh = self.call('episode_inventory', base_root=str(self.root), site='tapas')
+        self.assertEqual(fresh['result'], {'items': [], 'next_offset': None, 'empty': 'Not indexed yet'})
+        self.assertFalse((self.root / 'Library' / '.archive-state' / 'inventory.sqlite3').exists())
+        for args in ({'site': 'webtoon'}, {'site': 'tapas', 'series_id': 'x'}, {'site': 'tapas', 'offset': -1},
+                     {'site': 'tapas', 'offset': '0'}, {'site': 7}, {'site': 'tapas', 'extra': 1}):
+            refused = self.call('episode_inventory', base_root=str(self.root), **args)
+            self.assertFalse(refused['ok'], args)
+        with patch('comic_archive.episode_index.page', side_effect=OSError('PRIVATE path')):
+            failed = self.call('episode_inventory', base_root=str(self.root), site='tapas')
+        self.assertFalse(failed['ok'])
+        self.assertNotIn('PRIVATE', json.dumps(failed))
 
 
 if __name__ == '__main__':

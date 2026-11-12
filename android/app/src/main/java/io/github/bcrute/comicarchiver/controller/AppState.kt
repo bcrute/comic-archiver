@@ -17,6 +17,8 @@ data class AppState(
     val cloudBusy: Boolean = false,
     val cloudNotice: Notice? = null,
     val sites: List<SiteChoice> = emptyList(),
+    /** The Library's recorded episodes, by [EpisodeList.key]; read only as each site or series is opened. */
+    val episodes: Map<String, EpisodeList> = emptyMap(),
     val siteBusy: Boolean = false,
     val signInOrigin: String? = null,
     val signOutPending: Boolean = false,
@@ -79,6 +81,47 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
 }
 
 data class CardRow(val name: String, val value: String, val warning: Boolean)
+
+/** One line of the Library's recorded episodes, in the desktop's words: a series under its site, or an episode under its series. */
+data class EpisodeRow(val id: String, val title: String, val status: String, val format: String, val access: String)
+
+/** What has been read under one site, or under one of its series. */
+data class EpisodeList(
+    val rows: List<EpisodeRow> = emptyList(),
+    /** Where the next page starts; null when everything is listed. */
+    val nextOffset: Int? = null,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+    val loaded: Boolean = false,
+    /** What to say when nothing is listed. */
+    val empty: String = "",
+) {
+    companion object {
+        /** The place of a site's series list, or of one series' episode list. */
+        fun key(site: String, seriesId: String? = null): String = if (seriesId == null) site else "$site/$seriesId"
+
+        /** One page of an episode_inventory answer added to what was read before, or null when it is not one. */
+        fun parse(envelope: org.json.JSONObject, before: EpisodeList): EpisodeList? {
+            if (envelope.opt("ok") != true) return null
+            val result = envelope.optJSONObject("result") ?: return null
+            val items = result.optJSONArray("items") ?: return null
+            val next = when (val value = result.opt("next_offset")) {
+                null, org.json.JSONObject.NULL -> null
+                is Int -> value.takeIf { it > 0 } ?: return null
+                else -> return null
+            }
+            val rows = (0 until items.length()).map { index ->
+                val item = items.optJSONObject(index) ?: return null
+                val words = listOf("id", "title", "status", "format", "access").map { item.opt(it) as? String ?: return null }
+                if (words[0].isBlank()) return null
+                EpisodeRow(words[0], words[1], words[2], words[3], words[4])
+            }
+            val known = before.rows.map { it.id }.toSet()
+            return EpisodeList(before.rows + rows.filter { it.id !in known }, next, loaded = true,
+                empty = result.opt("empty") as? String ?: "")
+        }
+    }
+}
 
 /** A download issue and how many episodes have it, as the desktop's Settings lists them. */
 data class IssueCount(val reason: String, val count: String)

@@ -23,6 +23,7 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyChild
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -81,6 +82,9 @@ import io.github.bcrute.comicarchiver.controller.LibraryPlace
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.DownloadSettings
 import io.github.bcrute.comicarchiver.controller.DownloadTypeChoice
+import io.github.bcrute.comicarchiver.controller.EpisodeList
+import io.github.bcrute.comicarchiver.controller.EpisodeRow
+import io.github.bcrute.comicarchiver.controller.SiteChoice
 import io.github.bcrute.comicarchiver.controller.SpeedChoice
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
@@ -586,6 +590,75 @@ class RenderedScreensTest {
         compose.onNode(hasText("Download errors") and hasText("2")).assertExists()
         compose.onNode(hasText("Unsupported format") and hasText("1,204")).assertExists()
         assertEquals(0, controller.goCalls)
+    }
+
+    private fun episodes() {
+        compose.onNodeWithTag("nav-library").performClick()
+        compose.onNodeWithTag("library-views").performScrollToNode(hasText("Episodes"))
+        compose.onNodeWithText("Episodes").performClick()
+    }
+
+    @Test fun recordedEpisodesOpenBySiteThenSeriesInTheDesktopsWords() {
+        controller.state.value = controller.state.value.copy(sites = listOf(
+            SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true),
+            SiteChoice("tappytoon", "Tappytoon", false, "Not in this build")))
+        show()
+        episodes()
+        compose.onNodeWithText("Recorded episodes · expand a provider and series").assertIsDisplayed()
+        compose.onNodeWithText("Saved can include cloud storage. This list does not check files on this device.")
+            .assertIsDisplayed()
+        // Nothing is read until a site is opened, and a site this build cannot open is not listed.
+        assertEquals(emptyList<Pair<String, String?>>(), controller.episodeLoads)
+        compose.onNodeWithText("Tappytoon").assertDoesNotExist()
+        compose.onNode(hasTestTag("episodes-webtoon") and hasText("Expand to view")).assertExists()
+        compose.onNodeWithTag("episodes-tapas").performClick()
+        assertEquals(listOf<Pair<String, String?>>("tapas" to null), controller.episodeLoads)
+        compose.onNode(hasTestTag("episodes-tapas") and hasText("Loading…")).assertExists()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(episodes = mapOf(
+            "tapas" to EpisodeList(listOf(EpisodeRow("42", "Alpha Series", "1 / 3 saved", "CBZ", "Mixed")),
+                nextOffset = 200, loaded = true))) }
+        compose.onNode(hasTestTag("episodes-tapas") and hasText("Recorded list")).assertExists()
+        compose.onNode(hasTestTag("episodes-tapas/42") and hasText("1 / 3 saved") and
+            hasText("CBZ · Mixed")).assertExists()
+        compose.onNodeWithText("More series…").performClick()
+        compose.onNodeWithTag("episodes-tapas/42").performClick()
+        assertEquals(listOf("tapas" to null, "tapas" to null, "tapas" to "42"), controller.episodeLoads)
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(episodes = controller.state.value.episodes +
+            ("tapas/42" to EpisodeList(listOf(EpisodeRow("81", "1 · Episode 1", "Saved", "CBZ", "Free"),
+                EpisodeRow("82", "2 · Episode 2", "Pending", "Unknown", "Unknown type")), loaded = true))) }
+        compose.onNode(hasTestTag("episode-tapas/42/81") and hasAnyDescendant(hasText("1 · Episode 1")) and
+            hasAnyDescendant(hasText("Saved")) and hasAnyDescendant(hasText("CBZ · Free"))).assertExists()
+        compose.onNode(hasTestTag("episode-tapas/42/82") and hasAnyDescendant(hasText("Pending")) and
+            hasAnyDescendant(hasText("Unknown · Unknown type"))).assertExists()
+        compose.onNodeWithText("More episodes…").assertDoesNotExist()
+        // Closing a series hides its episodes without reading anything again; opening it again shows them.
+        compose.onNodeWithTag("episodes-tapas/42").performClick()
+        compose.onNodeWithTag("episode-tapas/42/81").assertDoesNotExist()
+        compose.onNodeWithTag("episodes-tapas/42").performClick()
+        compose.onNodeWithTag("episode-tapas/42/81").assertExists()
+        assertEquals(3, controller.episodeLoads.size)
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun anEmptyOrUnreadableEpisodeListSaysSoAndRefreshStartsAgain() {
+        controller.state.value = controller.state.value.copy(
+            sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true)),
+            episodes = mapOf("tapas" to EpisodeList(loaded = true, empty = "Not indexed yet"),
+                "webtoon" to EpisodeList(failed = true)))
+        show()
+        episodes()
+        compose.onNode(hasTestTag("episodes-tapas") and hasText("Not indexed yet")).assertExists()
+        compose.onNode(hasTestTag("episodes-webtoon") and hasText("Could not read · retry")).assertExists()
+        // What was read is not read again by opening it; what failed is.
+        compose.onNodeWithTag("episodes-tapas").performClick()
+        assertEquals(emptyList<Pair<String, String?>>(), controller.episodeLoads)
+        compose.onNodeWithTag("episodes-webtoon").performClick()
+        assertEquals(listOf<Pair<String, String?>>("webtoon" to null), controller.episodeLoads)
+        compose.onNodeWithText("Refresh").performClick()
+        assertEquals(1, controller.episodeRefreshes)
+        compose.onNode(hasTestTag("episodes-tapas") and hasText("Expand to view")).assertExists()
+        compose.onNodeWithTag("episodes-tapas").performClick()
+        assertEquals(listOf<Pair<String, String?>>("webtoon" to null, "tapas" to null), controller.episodeLoads)
     }
 
     @Test fun speedCanBeChangedWhileSavingAsOnTheDesktop() {
@@ -1146,6 +1219,28 @@ class RenderedScreensTest {
     }
 
     @Test
+    fun signOutWaitsForADownloadToBePausedAsOnTheDesktop() {
+        controller.state.value = controller.state.value.copy(
+            download = DownloadState.Running(0, 0, "Downloading episodes…", null))
+        show()
+        about()
+        compose.onNodeWithText("Pause the download to sign out.").assertIsDisplayed()
+        compose.onNodeWithText("Sign out of Tapas").assertIsNotEnabled()
+        overview()
+        compose.onNodeWithText("Sign out of Tapas").performScrollTo().assertIsNotEnabled()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(download = DownloadState.Paused("user")) }
+        compose.onNodeWithText("Pause the download to sign out.").assertDoesNotExist()
+        compose.onNodeWithText("Sign out of Tapas").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Sign out of Tapas?").assertIsDisplayed()
+        // A sign-out that did not finish stays retryable whatever the download says.
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(signOutPending = true,
+            download = DownloadState.Planning) }
+        compose.onNodeWithText("Retry sign-out").performScrollTo().assertIsEnabled()
+        assertEquals(0, controller.signOutCalls)
+    }
+
+    @Test
     fun aConfirmationForThePreviousWorkingLibraryCannotSignOutTheNewOne() {
         show()
         about()
@@ -1295,6 +1390,15 @@ private class ScreenController : AppController {
     override fun setDownloadSpeed(value: String) {
         state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
     }
+    val episodeLoads = mutableListOf<Pair<String, String?>>()
+    var episodeRefreshes = 0
+    override fun loadEpisodes(site: String, seriesId: String?) {
+        episodeLoads.add(site to seriesId)
+        val key = EpisodeList.key(site, seriesId)
+        val before = state.value.episodes[key] ?: EpisodeList()
+        state.value = state.value.copy(episodes = state.value.episodes + (key to before.copy(loading = true, failed = false)))
+    }
+    override fun refreshEpisodes() { episodeRefreshes++; state.value = state.value.copy(episodes = emptyMap()) }
     val typeChanges = mutableListOf<Map<String, Boolean>>()
     override fun setDownloadTypes(value: Map<String, Boolean>) {
         typeChanges.add(value)

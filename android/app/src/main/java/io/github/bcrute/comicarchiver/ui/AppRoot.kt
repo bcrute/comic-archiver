@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppController
+import io.github.bcrute.comicarchiver.controller.AppState
+import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
@@ -76,8 +78,10 @@ fun ComicArchiverAppRoot(
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
     var signOutSite by rememberSaveable { mutableStateOf<String?>(null) }
     var signOutLibrary by rememberSaveable { mutableStateOf<String?>(null) }
+    // As on the desktop: a site that is downloading is paused first, then signed out.
+    val signOutHeld = signOutHeldBySaving(state)
     val signOutAvailable = state.signIn is SignInState.SignedIn && !state.signOutPending &&
-        !state.siteBusy && !state.libraryBusy && state.workspaceReady
+        !state.siteBusy && !state.libraryBusy && state.workspaceReady && !signOutHeld
     LaunchedEffect(state.site, state.libraryId, signOutAvailable) {
         if (signOutSite != state.site || signOutLibrary != state.libraryId || !signOutAvailable) {
             signOutSite = null
@@ -116,7 +120,7 @@ fun ComicArchiverAppRoot(
             title = { Text("Sign out of $name?") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("This signs out of $name in Comic Archiver on this phone and stops saving. " +
+                    Text("This signs out of $name in Comic Archiver on this phone. " +
                         "Your $name account, other sites and sign-ins in other apps stay unchanged.\n\n" +
                         "Your saved episodes, export copies and B2 setup stay where they are. " +
                         "Sign in again to download more from $name.")
@@ -202,6 +206,8 @@ fun ComicArchiverAppRoot(
                                 onWorkingLibrary = if (workingLibraries.enabled) ({ settingsPage = "Libraries"; tab = AppTab.SETTINGS }) else null,
                                 showFilesRequested = showFilesRequested,
                                 onFilesRequestConsumed = { showFilesRequested = false },
+                                sites = state.sites, episodes = state.episodes,
+                                onLoadEpisodes = controller::loadEpisodes, onRefreshEpisodes = controller::refreshEpisodes,
                             )
                         }
                         AppTab.SETTINGS -> SettingsPages(
@@ -223,10 +229,11 @@ fun ComicArchiverAppRoot(
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text("All settings") }
                             LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES })
+                            if (signOutHeld) Text(SIGN_OUT_HELD, Modifier.padding(horizontal = 16.dp))
                             OutlinedButton(
                                 onClick = accountAction,
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady,
+                                enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady && !signOutHeld,
                             ) {
                                 val name = state.sites.firstOrNull { it.key == state.site }?.name
                                     ?: if (state.site == "tapas") "Tapas" else state.site
@@ -270,3 +277,11 @@ internal fun DownloadsViewUi.goEnabled(): Boolean =
 
 /** Pause is offered only while something is actually in flight (planning or running). */
 internal fun DownloadsViewUi.pauseEnabled(): Boolean = this is DownloadsViewUi.Running
+
+/** The desktop's words for a Sign out that waits for the download to be paused. */
+const val SIGN_OUT_HELD = "Pause the download to sign out."
+
+/** A sign-out that did not finish may always be retried; otherwise a signed-in site that is saving keeps its sign-in. */
+fun signOutHeldBySaving(state: AppState): Boolean =
+    state.signIn is SignInState.SignedIn && !state.signOutPending &&
+        (state.download is DownloadState.Running || state.download is DownloadState.Planning)

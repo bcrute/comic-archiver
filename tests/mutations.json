@@ -9502,5 +9502,61 @@
   "new": "types = args.get(\"download_types\")",
   "test_file": "test_app_bridge.py",
   "test": "test_episode_types_are_listed_as_on_the_desktop_and_a_choice_is_kept"
+ },
+ {
+  "id": "phone-episode-list-later-page-says-empty",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "\"empty\": \"\" if items or offset else words.empty_text(value)}",
+  "new": "\"empty\": \"\" if items else words.empty_text(value)}",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_long_list_is_read_a_page_at_a_time_and_only_its_first_page_says_it_is_empty"
+ },
+ {
+  "id": "phone-episode-list-drops-the-next-page",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "return {\"items\": items, \"next_offset\": value[\"next_offset\"],",
+  "new": "return {\"items\": items, \"next_offset\": None,",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_long_list_is_read_a_page_at_a_time_and_only_its_first_page_says_it_is_empty"
+ },
+ {
+  "id": "phone-episode-list-ignores-the-page-asked-for",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": ".library, series_id=series, offset=offset)",
+  "new": ".library, series_id=series, offset=0)",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_long_list_is_read_a_page_at_a_time_and_only_its_first_page_says_it_is_empty"
+ },
+ {
+  "id": "phone-episode-list-reads-a-site-that-is-not-open",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "roots = [root for root, kept in _open.items() if kept == {\"base\": base, \"site_key\": site}]",
+  "new": "roots = [root for root, kept in _open.items() if kept[\"base\"] == base]",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_site_with_no_record_yet_says_so_and_one_that_is_not_open_is_refused"
+ },
+ {
+  "id": "library-empty-text-swapped",
+  "source": "comic_archive/window_library.py",
+  "old": "return 'No episodes recorded' if value['initialized'] else 'Not indexed yet'",
+  "new": "return 'Not indexed yet' if value['initialized'] else 'No episodes recorded'",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_site_with_no_record_yet_says_so_and_one_that_is_not_open_is_refused"
+ },
+ {
+  "id": "library-series-saved-count-swapped",
+  "source": "comic_archive/window_library.py",
+  "old": "f\"{row['saved']:,} / {row['episodes']:,} saved\"",
+  "new": "f\"{row['episodes']:,} / {row['saved']:,} saved\"",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_sites_series_and_a_series_episodes_are_listed_as_on_the_desktop"
+ },
+ {
+  "id": "library-episode-number-dropped",
+  "source": "comic_archive/window_library.py",
+  "old": "label = f\"{number} · {row['title']}\" if type(number) is int else row['title']",
+  "new": "label = row['title']",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_sites_series_and_a_series_episodes_are_listed_as_on_the_desktop"
  }
 ]

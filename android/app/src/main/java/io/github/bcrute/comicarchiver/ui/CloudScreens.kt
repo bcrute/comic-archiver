@@ -89,7 +89,10 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     ?: if (state.site == "tapas") "Tapas" else state.site
                 Text("$siteName account", style = MaterialTheme.typography.titleMedium)
                 Text(if (state.signIn is SignInState.SignedIn) "Signed in on this phone" else "Sign-in needed")
-                TextButton(onClick = onAccount, enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady) {
+                val held = signOutHeldBySaving(state)
+                if (held) Text(SIGN_OUT_HELD)
+                TextButton(onClick = onAccount,
+                    enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady && !held) {
                     Text(if (state.signOutPending) "Retry sign-out"
                         else if (state.signIn is SignInState.SignedIn) "Sign out of $siteName" else "Sign in to $siteName")
                 }

@@ -32,7 +32,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
                  "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites",
-                 "site_cards"})
+                 "site_cards", "episode_inventory"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -1046,6 +1046,42 @@ def _site_cards(args):
     return _core(read)
 
 
+def _episode_inventory(args):
+    """One page of a site's recorded episodes, as the desktop's Library page lists them.
+
+    Without "series_id" the site's series are listed; with it, that series' episodes. Only the
+    library's own record is read: no file is opened and nothing is asked of the site.
+    """
+    base = _path_arg(args, "base_root")
+    site, series, offset = args.get("site"), args.get("series_id"), args.get("offset", 0)
+    if not set(args) <= {"base_root", "site", "series_id", "offset"} or not isinstance(site, str):
+        raise _BridgeError("bad_request", "Choose a recorded series and a supported episode-list page.")
+
+    def read(ArchiveError):
+        import sqlite3
+
+        from comic_archive import window_library as words
+        from comic_archive.episode_index import page
+        from comic_archive.workspace import Workspace
+        with _workspace_lock:
+            roots = [root for root, kept in _open.items() if kept == {"base": base, "site_key": site}]
+        if not roots:
+            raise ArchiveError("The episode list could not be read. Retry when the library is available.")
+        try:
+            value = page(Workspace(id="default", root=roots[0]).library, series_id=series, offset=offset)
+        except (OSError, sqlite3.Error):
+            raise ArchiveError("The episode list could not be read. Retry when the library is available.") from None
+        columns = words.series_columns if series is None else words.episode_columns
+        items = []
+        for row in value["items"]:
+            title, status, form, access = columns(row)
+            items.append({"id": str(row["id"]), "title": title, "status": status, "format": form, "access": access})
+        return {"items": items, "next_offset": value["next_offset"],
+                "empty": "" if items or offset else words.empty_text(value)}
+
+    return _core(read)
+
+
 def _in_active_workspace(handler):
     """Serialize context-sensitive policy actions before controller/account locks."""
     def call(args):
@@ -1085,6 +1121,7 @@ HANDLERS = {"ping": _ping,
             "library_listing": _library_listing,
             "all_sites": _all_sites,
             "site_cards": _site_cards,
+            "episode_inventory": _episode_inventory,
             "export_manifest": _export_manifest,
             "export_status": _export_status}
 
