@@ -12,12 +12,15 @@ import android.net.http.SslError
 import android.graphics.Bitmap
 import android.net.Uri
 import android.view.ViewGroup
+import java.io.ByteArrayInputStream
 
 /**
  * Reports the sign-in pages' progress to [WebViewSignInEngine].
  *
  * The site's own pages and the sign-in providers it sends the person to load in the WebView;
- * only other schemes (mailto:, tel:, intent:) are refused. This client installs no
+ * other schemes (mailto:, tel:, intent:) are refused, and so, as in the desktop's sign-in
+ * window, is every page or request for this phone, the local network or a special-purpose
+ * address ([PrivateDestination]). This client installs no
  * JavaScript interface and evaluates no script: nothing in the page can call the app, the
  * downloader or Python. Nothing is logged.
  */
@@ -27,19 +30,28 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val refused = !request.url.scheme.equals("https", ignoreCase = true)
         if (refused && request.isForMainFrame) fail()
-        return refused
+        // A private address is not opened; the page the person is on stays, as on the desktop.
+        return refused || PrivateDestination.matches(request.url.host)
     }
 
     @Suppress("DEPRECATION")
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-        val refused = !Uri.parse(url).scheme.equals("https", ignoreCase = true)
+        val address = Uri.parse(url)
+        val refused = !address.scheme.equals("https", ignoreCase = true)
         if (refused) fail()
-        return refused
+        return refused || PrivateDestination.matches(address.host)
     }
+
+    /** Every request the page makes, not only its navigations: one for a private address is
+     *  answered here with an empty refusal and never leaves the phone. Runs off the main
+     *  thread and looks at the request only. */
+    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+        if (PrivateDestination.matches(request.url.host)) refusal() else null
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         if (engine.currentSession() != session) return
-        if (!Uri.parse(url).scheme.equals("https", ignoreCase = true)) {
+        val address = Uri.parse(url)
+        if (!address.scheme.equals("https", ignoreCase = true) || PrivateDestination.matches(address.host)) {
             view.stopLoading()
             fail()
         } else engine.pageStarted(url, session)
@@ -79,4 +91,7 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
     }
 
     private fun fail() { engine.verificationFailed("signin_unavailable", session) }
+
+    private fun refusal() = WebResourceResponse("text/plain", "utf-8", 403, "Refused", emptyMap(),
+        ByteArrayInputStream(ByteArray(0)))
 }
