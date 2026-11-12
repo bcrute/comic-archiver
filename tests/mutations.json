@@ -9582,5 +9582,37 @@
   "new": "return answer | {\"saved\": True} if not answer.get(\"signed_in\") else answer",
   "test_file": "test_app_bridge.py",
   "test": "test_restore_expired_saved_session_does_not_authenticate"
+ },
+ {
+  "id": "phone-sign-in-takes-an-account-the-library-is-not-for",
+  "source": "comic_archive/android_adapter.py",
+  "old": "    except AuthenticationError:\n        return False\n    return True",
+  "new": "    except AuthenticationError:\n        return True\n    return True",
+  "test_file": "test_android_adapter.py",
+  "test": "test_an_account_the_library_is_not_for_is_refused_by_the_probe"
+ },
+ {
+  "id": "phone-site-sign-in-skips-the-library-account-check",
+  "source": "comic_archive/android_readers.py",
+  "old": "if not account_matches(account_check, identity):",
+  "new": "if False:",
+  "test_file": "test_android_site_readers.py",
+  "test": "test_a_site_account_the_library_is_not_for_is_refused_by_the_probe"
+ },
+ {
+  "id": "phone-sign-in-never-asks-the-library-about-the-account",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        kwargs[\"account_check\"] = _library_account(session.parent / \"Library\")\n",
+  "new": "",
+  "test_file": "test_app_bridge.py",
+  "test": "test_sign_in_to_an_account_the_library_was_not_saved_from_is_refused"
+ },
+ {
+  "id": "phone-sign-in-account-check-reads-no-library",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "        if not (library / \".archive-state\" / \"inventory.sqlite3\").is_file():\n            return\n        try:",
+  "new": "        return\n        try:",
+  "test_file": "test_app_bridge.py",
+  "test": "test_sign_in_to_an_account_the_library_was_not_saved_from_is_refused"
  }
 ]

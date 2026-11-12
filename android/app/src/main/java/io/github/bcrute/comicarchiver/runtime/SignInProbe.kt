@@ -37,6 +37,9 @@ import kotlin.coroutines.CoroutineContext
  * exactly as they are. [settled] is called from the main thread only, so replacement
  * ordering is serial by construction.
  */
+/** The sign-in answer for an account the library was not saved from. */
+const val ACCOUNT_MISMATCH = "account_mismatch"
+
 class SignInProbe(
     private val bridge: PythonBridge,
     private val sessionRoot: String,
@@ -85,6 +88,13 @@ class SignInProbe(
                 answer != null && answer.optBoolean("ok") &&
                     result?.optBoolean("signed_in") == true -> {
                     withContext(engineContext) { engine.verified(session) }
+                    return
+                }
+                answer != null && answer.optBoolean("ok") &&
+                    result?.optString("reason") == ACCOUNT_MISMATCH -> {
+                    // Signed in, but not to the account this library was saved from: the
+                    // desktop's refusal, said at once and not asked again.
+                    withContext(engineContext) { engine.verificationFailed(ACCOUNT_MISMATCH, session) }
                     return
                 }
                 answer != null && answer.optBoolean("ok") -> {

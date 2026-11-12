@@ -293,7 +293,11 @@ class WebViewSignInEngine(
     /** The core's verification failed for [session]; its fixed code is the honest report. */
     override fun verificationFailed(code: String, session: Long) {
         if (!sessionInProgress(session)) return
+        val typed = _state.value is SignInState.Page || _state.value is SignInState.Settling
         finish(SignInState.Failed(code))
+        // A sign-in just made to an account this library is not for is not kept in the
+        // browser either: the next attempt has to start at the site's sign-in form.
+        if (code == "account_mismatch" && typed && hasAuthority) store.clearAllAsync {}
     }
 
     /** Called by [SignInWebViewClient] on the main thread for every page that finished. */

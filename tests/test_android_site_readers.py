@@ -222,6 +222,27 @@ class NativeReaderTests(unittest.TestCase):
         self.assertEqual(calls, [KEY_PAGE])
         self.assertNotIn('321', str(answer))
 
+    def test_a_site_account_the_library_is_not_for_is_refused_by_the_probe(self):
+        from comic_archive.adapters.tappytoon import KEY_PAGE
+        from comic_archive.models import AuthenticationError
+        seen = []
+
+        def another(identity):
+            seen.append(identity)
+            raise AuthenticationError('This library belongs to another account.')
+
+        def request(value):
+            return httpx.Response(200, content=page_data(account=321))
+
+        for check, reason in ((another, 'account_mismatch'), (seen.append, None)):
+            with httpx.Client(transport=httpx.MockTransport(request)) as client:
+                answer = signed_in_probe('tappytoon', NativeStore(sites.named('tappytoon')), client=client,
+                                         account_check=check)
+            self.assertEqual(answer, {'signed_in': reason is None, 'verified': reason is None, 'reason': reason})
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0], seen[1])
+        self.assertTrue(isinstance(seen[0], str) and seen[0])
+
     def webtoon_wire(self):
         listing = HOME + '/en/fantasy/sample-series/list?title_no=7'
         pages = series_pages() | {USER_INFO: who('fixture-account'),

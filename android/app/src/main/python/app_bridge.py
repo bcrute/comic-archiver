@@ -454,6 +454,7 @@ def _signin_probe(args, network_guard=None):
                 # A registered native session cannot be downgraded to an untagged write.
                 return {"signed_in": False, "verified": False, "reason": "attempt_ended"}
         kwargs = {"network_guard": network_guard} if network_guard is not None else {}
+        kwargs["account_check"] = _library_account(session.parent / "Library")
         answer = (android_adapter.signed_in_probe(cookie_source=source, cookie_sink=sink, **kwargs)
                   if site == sites.DEFAULT else
                   android_readers.signed_in_probe(site.key, source, sink, **kwargs))
@@ -471,6 +472,23 @@ def _signin_probe(args, network_guard=None):
         return answer
 
     return _core(probe)
+
+
+def _library_account(library):
+    """The desktop's rule at sign-in: a library saved from one account takes no other. A
+    library nothing has been saved to yet takes any account."""
+    def check(identity):
+        import sqlite3
+        from comic_archive.inventory import Inventory
+        from comic_archive.models import ArchiveError
+        if not (library / ".archive-state" / "inventory.sqlite3").is_file():
+            return
+        try:
+            with Inventory(library, read_only=True) as inventory:
+                inventory.account_binding_state(identity)
+        except (OSError, sqlite3.Error):
+            raise ArchiveError("The library could not be read to check the account.") from None
+    return check
 
 
 def _active_root(root, ArchiveError):

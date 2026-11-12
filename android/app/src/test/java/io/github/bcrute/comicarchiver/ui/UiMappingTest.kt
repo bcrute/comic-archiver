@@ -44,6 +44,15 @@ class UiMappingTest {
     ) = AppState("tapas", signIn, download, library, notice)
 
     @Test
+    fun aSignInToAnotherAccountIsRefusedInTheDesktopsWords() {
+        val ui = UiFixtures.coldStart.copy(signIn = SignInState.Failed("account_mismatch")).toSignInScreenUi()
+        assertEquals(NoticeUi(PublicIssue.LOGIN_REQUIRED,
+            "That Tapas account does not match this saved library. Sign in to the original account."), ui.notice)
+        assertEquals(NoticeUi(PublicIssue.LOGIN_REQUIRED),
+            UiFixtures.coldStart.copy(signIn = SignInState.Failed("login_required")).toSignInScreenUi().notice)
+    }
+
+    @Test
     fun restoring_session_shows_status_without_mounting_a_blank_signin_page() {
         val ui = UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toSignInScreenUi()
         assertTrue(ui.restoring)

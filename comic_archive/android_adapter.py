@@ -470,24 +470,38 @@ class AndroidTapasAdapter:
         return result
 
 
+def account_matches(account_check, identity):
+    """Whether the library takes this verified account; no check takes any account."""
+    if account_check is None:
+        return True
+    try:
+        account_check(identity)
+    except AuthenticationError:
+        return False
+    return True
+
+
 def signed_in_probe(cookie_source=None, cookie_sink=None, transport=None, expected_account_id=None,
-                    network_guard=None):
+                    network_guard=None, account_check=None):
     """A public-safe signed-in answer for the app's dispatch: the verified who-am-i decides.
 
     Cookie presence is never sufficient; only the core's authenticated who-am-i through the
     live transport reports True. The result carries fixed words only — no account ID, name,
-    URL or cookie ever leaves this call or is written anywhere.
+    URL or cookie ever leaves this call or is written anywhere. account_check is given the
+    verified identity and refuses, with AuthenticationError, an account the library is not for.
     """
     try:
         adapter = AndroidTapasAdapter(cookie_source=cookie_source, cookie_sink=cookie_sink,
                                       transport=transport, expected_account_id=expected_account_id,
                                       network_guard=network_guard)
         try:
-            adapter.__enter__()
+            identity = adapter.account_identity()
         finally:
-            # A refused who-am-i raises out of __enter__, where a with block would never
-            # close the connection; the probe repeats until sign-in, so each one would stay open.
+            # A refused who-am-i raises here, where a with block would never close the
+            # connection; the probe repeats until sign-in, so each one would stay open.
             adapter.transport.close()
+        if not account_matches(account_check, identity):
+            return {'signed_in': False, 'verified': False, 'reason': 'account_mismatch'}
         return {'signed_in': True, 'verified': True, 'reason': None}
     except AuthenticationError:
         return {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'}

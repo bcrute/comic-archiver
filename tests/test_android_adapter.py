@@ -448,6 +448,25 @@ class SignedInProbeTests(unittest.TestCase):
         result = signed_in_probe(transport=library_transport(), expected_account_id='999')
         self.assertEqual(result, {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'})
 
+    def test_an_account_the_library_is_not_for_is_refused_by_the_probe(self):
+        from comic_archive.models import AuthenticationError
+        seen = []
+
+        def another(identity):
+            seen.append(identity)
+            raise AuthenticationError('This library belongs to another account.')
+        transport = library_transport()
+        self.assertEqual(signed_in_probe(transport=transport, account_check=another),
+                         {'signed_in': False, 'verified': False, 'reason': 'account_mismatch'})
+        self.assertEqual(seen, ['4242'])
+        self.assertTrue(transport.client_fake.closed)
+        self.assertEqual(signed_in_probe(transport=library_transport(), account_check=seen.append),
+                         {'signed_in': True, 'verified': True, 'reason': None})
+        # An account that is not signed in is never put to the library's check.
+        denying = SyntheticTransport({WHO_AM_I: body({'data': {}})})
+        self.assertEqual(signed_in_probe(transport=denying, account_check=another)['reason'], 'not_signed_in')
+        self.assertEqual(seen, ['4242', '4242'])
+
     def test_the_probe_result_is_public_safe(self):
         for result in (signed_in_probe(transport=library_transport()),
                        signed_in_probe(transport=SyntheticTransport({WHO_AM_I: body({'data': {}})}))):

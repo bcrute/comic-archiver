@@ -128,6 +128,21 @@ class SignInProbeTest {
     }
 
     @Test
+    fun an_account_the_library_is_not_for_is_refused_at_once_as_on_the_desktop() {
+        val other = """{"ok":true,"result":{"signed_in":false,"verified":false,"reason":"account_mismatch"}}"""
+        for (state in listOf(SignInState.Settling, SignInState.Restoring)) {
+            val bridge = FakeBridge(other, verified)
+            val engine = FakeEngine(state = state)
+            probe(bridge).settled(engine)
+            await({ engine.failures == listOf("account_mismatch" to 1L) }, "refused in $state")
+            Thread.sleep(40)
+            assertEquals(1, bridge.dispatches.get())
+            assertTrue(engine.verifiedSessions.isEmpty())
+            assertTrue(engine.notRestored.isEmpty())
+        }
+    }
+
+    @Test
     fun restoration_verifies_once_and_tags_answers_with_the_original_session() {
         val engine = FakeEngine(state = SignInState.Restoring)
         val bridge = FakeBridge(verified)

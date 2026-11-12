@@ -299,6 +299,38 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(value["result"], unreached | {"saved": True})
         self.assertTrue(android_session.is_signed_in(session))
 
+    def test_sign_in_to_an_account_the_library_was_not_saved_from_is_refused(self):
+        from unittest.mock import patch
+        from comic_archive import android_session
+        from comic_archive.inventory import Inventory
+        session = self.root / ".comic-session"
+        app_bridge.set_cookie_seams(lambda url: "", lambda url, values: True)
+        (self.root / "net.json").write_text('{"connection":"wifi","metered":false}')
+
+        def who(identity):
+            def probe(*args, account_check=None, **kwargs):
+                from comic_archive.android_adapter import account_matches
+                matched = account_matches(account_check, identity)
+                return {"signed_in": matched, "verified": matched, "reason": None if matched else "account_mismatch"}
+            return probe
+        # A library nothing has been saved to takes any account.
+        with patch("comic_archive.android_adapter.signed_in_probe", side_effect=who("first")):
+            fresh = self.call("signin_probe", {"session_root": str(session)})
+        self.assertTrue(fresh["result"]["signed_in"], fresh)
+        (self.root / "Library").mkdir(exist_ok=True)
+        with Inventory(self.root / "Library") as inventory:
+            inventory.bind_account("first")
+        with patch("comic_archive.android_adapter.signed_in_probe", side_effect=who("second")):
+            other = self.call("signin_probe", {"session_root": str(session)})
+            restored = self.call("signin_restore", {"session_root": str(session)})
+        self.assertTrue(other["ok"], other)
+        self.assertEqual(other["result"], {"signed_in": False, "verified": False, "reason": "account_mismatch"})
+        self.assertEqual(restored["result"], other["result"])
+        with patch("comic_archive.android_adapter.signed_in_probe", side_effect=who("first")):
+            same = self.call("signin_probe", {"session_root": str(session)})
+        self.assertTrue(same["result"]["signed_in"], same)
+        self.assertTrue(android_session.is_signed_in(session))
+
     def test_provider_restore_uses_its_recorded_identity_and_never_starts_work(self):
         from unittest.mock import patch
         from comic_archive import android_session, sites, worker_host

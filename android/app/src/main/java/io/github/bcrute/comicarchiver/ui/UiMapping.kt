@@ -21,6 +21,10 @@ fun Notice.toNoticeUi(): NoticeUi = NoticeUi(
     detail = message.takeIf { it.isNotBlank() },
 )
 
+/** The desktop's words for a sign-in to an account the library was not saved from. */
+fun accountMismatchText(site: String) =
+    "That $site account does not match this saved library. Sign in to the original account."
+
 fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     busy = signIn is SignInState.Page || signIn is SignInState.Settling,
     restoring = signIn is SignInState.Restoring,
@@ -28,7 +32,9 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     origin = signInOrigin,
     controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && sites.firstOrNull { it.key == site }?.signInAvailable != false,
     notice = (signIn as? SignInState.Failed)?.let {
-        NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
+        if (it.code == "account_mismatch") NoticeUi(PublicIssue.LOGIN_REQUIRED, accountMismatchText(
+            sites.firstOrNull { choice -> choice.key == site }?.name ?: if (site == "tapas") "Tapas" else site))
+        else NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
     } ?: notice?.toNoticeUi(),
 )
 

@@ -36,7 +36,8 @@ def reader(site_key, cookie_source, cookie_sink=None, *, client=None, interval=1
     return TappytoonAdapter(transport=transport)
 
 
-def signed_in_probe(site_key, cookie_source, cookie_sink=None, *, client=None, network_guard=None):
+def signed_in_probe(site_key, cookie_source, cookie_sink=None, *, client=None, network_guard=None,
+                    account_check=None):
     """Verify the site's own identity without returning or persisting that identity.
 
     Native profile/workspace admission still belongs to the caller. A cookie,
@@ -46,9 +47,13 @@ def signed_in_probe(site_key, cookie_source, cookie_sink=None, *, client=None, n
         adapter = reader(site_key, cookie_source, cookie_sink, client=client,
                          network_guard=network_guard)
         try:
-            adapter.account_identity()
+            identity = adapter.account_identity()
         finally:
             adapter.transport.close()
+        from .android_adapter import account_matches
+        if not account_matches(account_check, identity):
+            # Verified, but not the account this library was saved from.
+            return {'signed_in': False, 'verified': False, 'reason': 'account_mismatch'}
         return {'signed_in': True, 'verified': True, 'reason': None}
     except AuthenticationError:
         return {'signed_in': False, 'verified': False, 'reason': 'not_signed_in'}

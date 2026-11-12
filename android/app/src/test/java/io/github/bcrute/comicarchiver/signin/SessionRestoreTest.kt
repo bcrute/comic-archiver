@@ -43,6 +43,30 @@ class SessionRestoreTest {
         view.destroy()
     }
 
+    @Test fun aSignInToAnotherAccountIsRefusedAndNotKeptInTheBrowser() {
+        var clears = 0
+        val engine = WebViewSignInEngine(WebViewCookieStore(setOf("m.tapas.io"),
+            clearProfile = { clears++; it(true) })).also { it.load("tapas") }
+        val view = surface()
+        // A saved sign-in found to be another account's is refused; the browser is left alone.
+        engine.restoreSignIn(view)
+        engine.verificationFailed("account_mismatch", engine.currentSession())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(SignInState.Failed("account_mismatch"), engine.state.value)
+        assertEquals(0, clears)
+        // One just typed is dropped, so the next attempt starts at the site's form.
+        engine.startSignIn(view)
+        engine.verificationFailed("signin_unavailable", engine.currentSession())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, clears)
+        engine.startSignIn(view)
+        engine.verificationFailed("account_mismatch", engine.currentSession())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(SignInState.Failed("account_mismatch"), engine.state.value)
+        assertEquals(1, clears)
+        view.destroy()
+    }
+
     @Test fun aCheckThatRunsOutOfTimeKeepsASignInStillSavedOnThePhone() {
         val engine = engine(saved = true)
         val view = surface()
