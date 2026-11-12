@@ -193,6 +193,28 @@ class WorkingLibraryCaptureTest {
         assertTrue(rawCapture.capture(rawPlan, root()).workspace.resolve("Tappytoon/Library/Series/a.cbz").isFile)
     }
 
+    @Test fun aDesktopLibraryPickedAtItsTopKeepsEverySiteWithTheFirstOneWhereThePhoneHasIt() {
+        val documents = Documents()
+        val first = documents.folder(documents.folder(documents.rootId, "Tapas"), "Library")
+        documents.file(documents.folder(first, "Series"), "b.cbz")
+        documents.file(documents.folder(first, ".archive-state"), "inventory.sqlite3")
+        val other = documents.folder(documents.folder(documents.rootId, "Webtoon"), "Library")
+        documents.file(documents.folder(other, "Other series"), "book.epub")
+        documents.folder(documents.rootId, ".comic-shared")
+        val capture = capturer(documents)
+        val plan = capture.scan(tree, "tapas")
+        assertEquals(setOf("Library/Series/b.cbz", "Library/.archive-state/inventory.sqlite3",
+            "Webtoon/Library/Other series/book.epub"), plan.files.map { it.path }.toSet())
+        val result = capture.capture(plan, root())
+        assertTrue(result.workspace.resolve("Library/Series/b.cbz").isFile)
+        assertTrue(result.workspace.resolve("Webtoon/Library/Other series/book.epub").isFile)
+        assertFalse(result.workspace.resolve("Tapas").exists())
+        // The first site alone is a library too, not an incomplete pick.
+        val alone = Documents()
+        alone.file(alone.folder(alone.folder(alone.folder(alone.rootId, "Tapas"), "Library"), "Series"), "a.cbz")
+        assertEquals(listOf("Library/Series/a.cbz"), capturer(alone).scan(tree, "tapas").files.map { it.path })
+    }
+
     @Test fun anExplicitEmptyLocationHasACapturedEmptyLibraryAndNoWorkerOrSignInState() {
         val documents = Documents(); val capture = capturer(documents)
         val plan = capture.scan(tree, "tapas")

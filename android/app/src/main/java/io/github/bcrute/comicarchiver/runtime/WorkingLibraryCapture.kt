@@ -165,6 +165,9 @@ internal class CapturedWorkingLibrary(val plan: WorkingCapturePlan, val workspac
 }
 
 /** Complete read-only SAF capture, before shared-core verification and explicit root selection. */
+/** The folder a desktop library gives the site that has none of its own on the phone. */
+private const val FIRST_SITE_FOLDER = "Tapas"
+
 internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocuments,
     private val workspaceFolders: Map<String, String>,
     private val freeBytes: (File) -> Long = { it.usableSpace },
@@ -288,7 +291,11 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                 }
             }
             val top = children(root)
+            // A desktop library keeps its first site in a folder of its own beside the others; here that
+            // site's Library stays at the top, where a library made before sites had folders has it.
             val defaultLibrary = top.singleOrNull { it.name == "Library" && it.directory }
+                ?: top.singleOrNull { it.name == FIRST_SITE_FOLDER && it.directory }
+                    ?.let { container -> optional(container, "Library")?.takeIf { it.directory } }
             val providerLibraries = workspaceFolders.filterValues { it.isNotEmpty() }.mapNotNull { (_, mapping) ->
                 val container = top.singleOrNull { it.name == mapping && it.directory } ?: return@mapNotNull null
                 val library = optional(container, "Library")?.takeIf { it.directory } ?: return@mapNotNull null

@@ -67,6 +67,26 @@ class PortableFolderTest {
         assertFalse(result.manifest.toString().contains("content://"))
     }
 
+    @Test fun aDesktopLibraryPickedAtItsTopShowsEverySitesSeries() {
+        val docs = FakePortableDocuments()
+        docs.entries["root"] = listOf(docs.directory("tapas", "Tapas"), docs.directory("webtoon", "Webtoon"),
+            docs.directory("shared", ".comic-shared"))
+        docs.entries["tapas"] = listOf(docs.directory("tapas-library", "Library"), docs.directory("session", ".comic-session"))
+        docs.entries["webtoon"] = listOf(docs.directory("webtoon-library", "Library"))
+        docs.entries["tapas-library"] = listOf(docs.directory("one", "First series"))
+        docs.entries["webtoon-library"] = listOf(docs.directory("two", "Second series"))
+        docs.entries["one"] = listOf(docs.file("comic", "One.cbz"))
+        docs.entries["two"] = listOf(docs.file("novel", "Two.epub"))
+        val result = PortableFolderScanner(docs).scan(tree)
+        val folders = result.manifest.getJSONArray("folders")
+        assertEquals(listOf("First series", "Second series"),
+            (0 until folders.length()).map { folders.getJSONObject(it).getString("name") })
+        assertEquals(2, result.documents.size)
+        // Each folder is listed once, and nothing private is entered.
+        assertEquals(docs.queried.distinct(), docs.queried)
+        assertFalse(docs.queried.any { it in setOf("shared", "session") })
+    }
+
     @Test fun exportedSeriesRequiresNoSidecarAndKeysStayStableUntilTheSelectedTreeChanges() {
         val docs = FakePortableDocuments().apply { simple() }
         val scanner = PortableFolderScanner(docs)

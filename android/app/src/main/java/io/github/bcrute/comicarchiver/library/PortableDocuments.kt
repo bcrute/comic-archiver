@@ -160,19 +160,21 @@ internal class PortableFolderScanner(private val documents: PortableDocuments) {
         val identities = HashSet<String>()
         identities.add(picked.id)
         val selected = linkedMapOf<String, PortableDocument>()
-        fun children(parent: PortableDocument): List<PortableDocument> {
+        val listed = HashMap<String, List<PortableDocument>>()
+        fun children(parent: PortableDocument): List<PortableDocument> = listed.getOrPut(parent.id) {
             checkActive()
-            return documents.children(tree, parent).also { rows ->
+            documents.children(tree, parent).also { rows ->
                 count += rows.size; check(count <= MAX_FILES)
                 check(rows.all { identities.add(it.id) }) { "Repeated document identity" }
                 check(rows.map { it.name }.distinct().size == rows.size)
             }.filter { safe(it.name) && !it.partial }
         }
-        var root = picked; var entries = children(root)
-        if (entries.none { !it.directory && archive(it.name) != null }) {
-            entries.singleOrNull { it.directory && it.name == "Library" }?.let {
-                root = it; entries = children(it)
-            }
+        fun libraryOf(parent: PortableDocument) = children(parent).singleOrNull { it.directory && it.name == "Library" }
+        var libraries = listOf(picked)
+        if (children(picked).none { !it.directory && archive(it.name) != null }) {
+            // A project folder holds one Library; a desktop library picked at its top holds one in each site's folder.
+            libraries = libraryOf(picked)?.let(::listOf)
+                ?: children(picked).filter { it.directory }.mapNotNull(::libraryOf).ifEmpty { libraries }
         }
         val folders = JSONArray()
         fun folder(directory: PortableDocument, files: List<PortableDocument>) {
@@ -201,8 +203,10 @@ internal class PortableFolderScanner(private val documents: PortableDocuments) {
             check(folders.length() < MAX_FOLDERS)
             folders.put(JSONObject().put("name", directory.name.takeIf(::safe) ?: "Selected folder").put("files", facts))
         }
-        folder(root, entries)
-        for (directory in entries.filter { it.directory }) folder(directory, children(directory))
+        for (library in libraries) {
+            folder(library, children(library))
+            for (directory in children(library).filter { it.directory }) folder(directory, children(directory))
+        }
         return PortableSnapshot(JSONObject().put("v", 1).put("folders", folders),
             picked.name.takeIf(::safe) ?: "Selected folder", selected)
     }
