@@ -459,7 +459,7 @@ class AndroidSDKReaderTests(unittest.TestCase):
 
     def test_actual_source_identity_is_read_without_executing_gradle(self):
         identity = android_release.identity_from_source(Path(__file__).parents[1])
-        self.assertEqual(identity, {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': '0.3.0-beta1',
+        self.assertEqual(identity, {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': '0.5.0-beta1',
                                     'version_code': 1, 'min_sdk': 29, 'target_sdk': 36,
                                     'abis': ['arm64-v8a', 'x86_64']})
 
