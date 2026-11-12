@@ -223,7 +223,6 @@ class NativeReaderTests(unittest.TestCase):
         self.assertNotIn('321', str(answer))
 
     def test_a_site_account_the_library_is_not_for_is_refused_by_the_probe(self):
-        from comic_archive.adapters.tappytoon import KEY_PAGE
         from comic_archive.errors import AuthenticationError
         seen = []
 

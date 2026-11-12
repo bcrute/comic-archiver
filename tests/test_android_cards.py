@@ -259,13 +259,13 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertTrue(listed['ok'], listed)
         recorded = page(library)['items']
         self.assertEqual(listed['result'], {'next_offset': None, 'empty': '', 'items': [
-            dict(zip(('title', 'status', 'format', 'access'), window_library.series_columns(row)), id=row['id'])
+            dict(zip(('title', 'status', 'format', 'access'), window_library.series_columns(row), strict=True), id=row['id'])
             for row in recorded]})
         self.assertEqual([(row['title'], row['status']) for row in listed['result']['items']],
                          [('Series name', '1 / 3 saved'), ('Unenumerated series', '0 / 0 saved')])
         episodes = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')['result']
         self.assertEqual(episodes['items'], [
-            dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row)), id=row['id'])
+            dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row), strict=True), id=row['id'])
             for row in page(library, series_id='42')['items']])
         self.assertEqual([(row['title'], row['status'], row['access']) for row in episodes['items']],
                          [('1 · Episode 1', 'Saved', 'Free'), ('2 · Episode 2', 'Not saved', 'Unknown type'),
