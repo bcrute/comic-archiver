@@ -17,6 +17,7 @@ from .library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
 from .local_library import LOCAL_OWNER
 from .models import ArchiveError
 from .storage_model import task_text
+from .messages import say
 
 LOG = logging.getLogger('comic_archive.desktop')
 STORAGE_MODES = ('shared', 'separate')
@@ -141,7 +142,7 @@ class Actions:
         try:
             value = validate(value)
         except ArchiveError:
-            raise Refused('request_unavailable', 'Select at least one episode type.') from None
+            raise Refused('request_unavailable', say('action.select_at_least_one_episode_type')) from None
         return self._call('choose_download_types', value)
 
     def wifi_only(self, value):
@@ -211,7 +212,7 @@ class Actions:
         if (provider is not None and site is None
                 or series_id is not None and not observed_id(series_id)
                 or type(offset) is not int or not 0 <= offset <= 1_000_000):
-            raise Refused('request_unavailable', 'Choose a recorded series and a supported episode-list page.')
+            raise Refused('request_unavailable', say('action.choose_a_recorded_series_and_a'))
         if site is not None:
             # The selected all-sites root belongs to this local user. Read an
             # unopened provider there without initializing its runtime/session.
@@ -223,9 +224,9 @@ class Actions:
                 return page(sites.folder(Path(runtime.root), site) / 'Library', series_id=series_id, offset=offset)
             except Exception as error:
                 LOG.warning('Episode index unavailable site=%s reason=%s', site.key, described(error))
-                raise Refused('request_unavailable', 'The episode list could not be read. Retry when the library is available.') from None
+                raise Refused('request_unavailable', say('action.the_episode_list_could_not_be')) from None
         return self._call('episode_inventory', locked=False, series_id=series_id, offset=offset,
-                          failed='The episode list could not be read. Retry when the library is available.')
+                          failed=say('action.the_episode_list_could_not_be'))
 
     def saved_files(self, **options):
         """A page of the saved-file catalog. Read behind the catalog's own lock: a slow scan does not hold up Pause or Go."""

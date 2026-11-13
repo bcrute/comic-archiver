@@ -11,6 +11,7 @@ from .dashboard_model import State, space_needed, time_left
 from .local_library import LOCAL_OWNER
 from .locking import LibraryLock
 from .models import ArchiveError
+from .messages import say
 
 TASKS = {'test': 'cloud-test', 'retry': 'cloud', 'cleanup': 'cloud-cleanup'}
 
@@ -43,7 +44,7 @@ class AndroidCloud:
             operation = record.get('operation')
             if isinstance(operation, str) and operation in kinds:
                 self._task, self._kind = path.stem, kinds[operation]
-                self._message = 'A cloud task is unfinished. Continue it when ready; local originals are retained.'
+                self._message = say('android_cloud.a_cloud_task_is_unfinished_continue')
                 return
 
     def _read(self):
@@ -98,7 +99,7 @@ class AndroidCloud:
             except ArchiveError:
                 state.locations = []
             place = storage_model.storage(state)
-            overview = storage_model.library_overview(summary, state.cloud_offered, device_name='this device')
+            overview = storage_model.library_overview(summary, state.cloud_offered, device_name=say('android_cloud.this_device'))
             overview['available'] = summary is not None
             if summary is None:
                 overview['summary'] = storage_model.LIBRARY_UNAVAILABLE
@@ -126,56 +127,56 @@ class AndroidCloud:
             registry, identity = self.registry, self.registry.workspace_id
             if action == 'cancel':
                 if not view['cancel_visible'] or not view['cancel_enabled']:
-                    raise ArchiveError('There is no cloud sign-in to cancel.')
+                    raise ArchiveError(say('android_cloud.there_is_no_cloud_sign_in'))
                 registry.cancel_cloud_signin(LOCAL_OWNER, identity)
             elif action == 'resume':
                 if (state.busy or not self._task or not state.status['session_configured'] or not callable(start_worker)
                         or state.account.get('status') == 'running' or (state.cloud_auth or {}).get('status') == 'running'):
-                    raise ArchiveError('Sign in and pause saving before continuing cloud tasks.')
+                    raise ArchiveError(say('android_cloud.sign_in_and_pause_saving_before'))
                 start_worker()
-                self._message = 'Continuing the unfinished cloud task. Saving still waits for Start.'
+                self._message = say('android_cloud.continuing_the_unfinished_cloud_task_saving')
             elif action == 'connect':
                 if not view['connect_enabled']:
-                    raise ArchiveError('Finish the current activity before changing the B2 connection.')
+                    raise ArchiveError(say('android_cloud.finish_the_current_activity_before_changing'))
                 registry.start_cloud_signin(LOCAL_OWNER, identity, 'b2', credentials)
                 self._message = storage_model.CONNECTING
             elif action == 'sharing':
                 if not view['sharing_enabled'] or self._task or state.account.get('status') == 'running':
-                    raise ArchiveError('Finish the current activity before changing cloud sharing.')
+                    raise ArchiveError(say('android_cloud.finish_the_current_activity_before_changing_2'))
                 if value not in {'shared', 'separate'}:
-                    raise ArchiveError('Choose shared or separate cloud storage.')
+                    raise ArchiveError(say('android_cloud.choose_shared_or_separate_cloud_storage'))
                 registry.choose_cloud_storage(LOCAL_OWNER, identity, value)
             elif action == 'destination':
                 choice = storage_model.storage_choice(state)
                 selected = next((option for option in choice['options'] if option['key'] == value), None)
                 if not selected or not selected['enabled']:
-                    raise ArchiveError('Check the connection and finish the current activity before changing storage.')
+                    raise ArchiveError(say('android_cloud.check_the_connection_and_finish_the'))
                 # Reuse the exact desktop switching order and enabling checks.
                 runtime = type('CloudRuntime', (), {'registry': registry, 'site': self.site})()
                 try:
                     app_actions.Actions(lambda: runtime).choose_storage(value, state.cloud_targets())
                 except app_actions.Refused as error:
                     raise ArchiveError(str(error)) from None
-                self._message = 'Storage choice saved. Saving still waits for Start.'
+                self._message = say('android_cloud.storage_choice_saved_saving_still_waits')
             elif action in TASKS:
                 permitted = (view['test_enabled'] if action == 'test' else view['retry_enabled'] if action == 'retry'
                              else any(row['test_id'] == value and row['enabled'] for row in view['cleanup']))
                 if not permitted or not callable(start_worker):
-                    raise ArchiveError('Sign in and pause saving before starting this cloud task.')
+                    raise ArchiveError(say('android_cloud.sign_in_and_pause_saving_before_2'))
                 start_worker()  # Explicit task admission, never account Go.
                 fresh = self._read()
                 if not storage_model.can_import(fresh):
-                    raise ArchiveError('The downloader is not ready for a cloud task. Try again.')
+                    raise ArchiveError(say('android_cloud.the_downloader_is_not_ready_for'))
                 if action == 'test':
                     task = registry.test_cloud(LOCAL_OWNER, identity, 'b2')
                 elif action == 'retry':
                     task = registry.upload_cloud(LOCAL_OWNER, identity)
                 else:
                     if not isinstance(value, str) or not re.fullmatch(r'[a-f0-9-]{36}', value):
-                        raise ArchiveError('Choose a recorded cloud test to clean up.')
+                        raise ArchiveError(say('android_cloud.choose_a_recorded_cloud_test_to'))
                     task = registry.cleanup_cloud_test(LOCAL_OWNER, identity, value)
                 self._task, self._kind = task['task_id'], TASKS[action]
                 self._message = storage_model.TASK_STARTED[self._kind]
             else:
-                raise ArchiveError('Choose a supported cloud action.')
+                raise ArchiveError(say('android_cloud.choose_a_supported_cloud_action'))
         return self.snapshot()

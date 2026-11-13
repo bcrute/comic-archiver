@@ -2313,8 +2313,8 @@
  },
  {
   "id": "the sign-in bar does not ask for an email and password",
-  "source": "comic_archive/desktop_app.py",
-  "old": "               'Use your email and password: Google and Facebook buttons may not work here. '\n",
+  "source": "comic_archive/messages.json",
+  "old": "Use your email and password: Google and Facebook buttons may not work here. ",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_sign_in_bar_names_the_site_signed_in_to_now_and_asks_for_an_email_and_password"
@@ -2353,31 +2353,31 @@
  },
  {
   "id": "the starting notice does not say a first start is slow",
-  "source": "comic_archive/desktop_app.py",
-  "old": "\\n\\nThe first start can take up to a minute.'",
-  "new": "'",
+  "source": "comic_archive/messages.json",
+  "old": "\\n\\nThe first start can take up to a minute.\"",
+  "new": "\"",
   "test_file": "test_desktop_app.py",
   "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
  },
  {
   "id": "a second double-click while starting says only that the app is open",
-  "source": "comic_archive/desktop_app.py",
-  "old": "'Comic Archiver is already open or still starting. The first start can take up to a minute; '\n                   'its window then appears by itself.'",
-  "new": "'Comic Archiver is already open. Look for its window, or wait a moment and try again.'",
+  "source": "comic_archive/messages.json",
+  "old": "Comic Archiver is already open or still starting. The first start can take up to a minute; its window then appears by itself.",
+  "new": "Comic Archiver is already open. Look for its window, or wait a moment and try again.",
   "test_file": "test_desktop_app.py",
   "test": "test_a_slow_first_start_says_that_it_can_take_a_minute"
  },
  {
   "id": "a new save folder does not say the download saves everything again",
-  "source": "comic_archive/desktop_app.py",
-  "old": "                    'The download then saves everything again in the new folder, and the dashboard counts only what is there. '\n",
+  "source": "comic_archive/messages.json",
+  "old": "The download then saves everything again in the new folder, and the dashboard counts only what is there. ",
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen"
  },
  {
   "id": "the sign-in bar does not say which account gets the password",
-  "source": "comic_archive/desktop_app.py",
+  "source": "comic_archive/messages.json",
   "old": "first add a password to your {site} account: sign in to {site} in your ",
   "new": "first add a password: sign in in your ",
   "test_file": "test_desktop_app.py",
@@ -2666,7 +2666,7 @@
  {
   "id": "speed-unknown-accepted",
   "source": "comic_archive/account_ui.py",
-  "old": "    if value not in SPEEDS:\n        raise ArchiveError('Comic Archiver does not know that speed.')\n",
+  "old": "    if value not in SPEEDS:\n        raise ArchiveError(say('account.comic_archiver_does_not_know_that'))\n",
   "new": "",
   "test_file": "test_account_ui.py",
   "test": "test_an_unknown_speed_is_refused_without_stopping_a_running_download"
@@ -3282,16 +3282,16 @@
  {
   "id": "signout-ignores-open-signin",
   "source": "comic_archive/window_signin.py",
-  "old": "if self._waiting() or self._finishing:\n                raise LibraryBusy('Finish",
-  "new": "if self._finishing:\n                raise LibraryBusy('Finish",
+  "old": "if self._waiting() or self._finishing:\n                raise LibraryBusy(say('signin.finish",
+  "new": "if self._finishing:\n                raise LibraryBusy(say('signin.finish",
   "test_file": "test_window_signin.py",
   "test": "test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop"
  },
  {
   "id": "signout-downloader-still-running",
   "source": "comic_archive/window_signin.py",
-  "old": ".get('running') is not False:\n                raise ArchiveError('The downloader is still stopping.')",
-  "new": ".get('running') is None:\n                raise ArchiveError('The downloader is still stopping.')",
+  "old": ".get('running') is not False:\n                raise ArchiveError(say('signin.the_downloader_is_still_stopping'))",
+  "new": ".get('running') is None:\n                raise ArchiveError(say('signin.the_downloader_is_still_stopping'))",
   "test_file": "test_window_signin.py",
   "test": "test_sign_out_waits_for_an_open_or_saving_sign_in_and_for_the_downloader_to_stop"
  },
@@ -3386,8 +3386,8 @@
  {
   "id": "signout-help-ignores-batch",
   "source": "comic_archive/dashboard_model.py",
-  "old": "('Pause the download to sign out.' if running or batch_running else",
-  "new": "('Pause the download to sign out.' if running else",
+  "old": "(say('app.pause_the_download_to_sign_out') if running or batch_running else",
+  "new": "(say('app.pause_the_download_to_sign_out') if running else",
   "test_file": "test_dashboard_model.py",
   "test": "test_sign_out_is_offered_once_signed_in_and_waits_for_a_download_or_sign_in"
  },
@@ -5058,7 +5058,7 @@
  {
   "id": "space-row-hides-free-room",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    if type(free) is int:\n        text += f' | {room(free)} free'\n        if short:\n            text += ', may not fit' if unchecked else ', not enough'\n    return text, short\n",
+  "old": "    if type(free) is int:\n        text += f' | {room(free)} free'\n        if short:\n            text += say('dashboard.may_not_fit') if unchecked else say('dashboard.not_enough')\n    return text, short\n",
   "new": "    return text, short\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_the_saved_count_time_left_and_space_follow_what_was_read"
@@ -5090,16 +5090,16 @@
  {
   "id": "card-pause-pressable-while-busy",
   "source": "comic_archive/dashboard_model.py",
-  "old": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', v['pause_enabled']\n",
-  "new": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', True\n",
+  "old": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', say('downloads.pause'), v['pause_enabled']\n",
+  "new": "        v['action'], v['action_text'], v['action_enabled'] = 'pause', say('downloads.pause'), True\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs"
  },
  {
   "id": "card-button-always-says-start",
   "source": "comic_archive/dashboard_model.py",
-  "old": "        v['action_text'] = 'Continue' if account_status in ('stopped', 'held') else 'Start'\n",
-  "new": "        v['action_text'] = 'Start'\n",
+  "old": "        v['action_text'] = say('dashboard.continue') if account_status in ('stopped', 'held') else say('dashboard.start')\n",
+  "new": "        v['action_text'] = say('dashboard.start')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_go_is_offered_only_when_the_downloader_is_ready_and_nothing_else_runs"
  },
@@ -5162,24 +5162,24 @@
  {
   "id": "time-left-tip-while-still-estimating",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
-  "new": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time else '')\n",
+  "old": "    row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
+  "new": "    row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time else '')\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "time-left-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
-  "new": "    row('Time left', time or NONE)\n",
+  "old": "    row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')\n",
+  "new": "    row(say('dashboard.time_left'), time or NONE)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
  {
   "id": "space-says-nothing-of-its-estimate",
   "source": "comic_archive/dashboard_model.py",
-  "old": "    row('Space', space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')\n",
-  "new": "    row('Space', space or NONE, short)\n",
+  "old": "    row(say('dashboard.space'), space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')\n",
+  "new": "    row(say('dashboard.space'), space or NONE, short)\n",
   "test_file": "test_dashboard_model.py",
   "test": "test_an_estimated_time_or_space_says_it_is_a_rough_guess"
  },
@@ -5298,7 +5298,7 @@
  {
   "id": "support-details-hide-missing-updates",
   "source": "comic_archive/support_details.py",
-  "old": "        lines.append('Status updates: not arriving')\n",
+  "old": "        lines.append(say('support.status_updates_not_arriving'))\n",
   "new": "        pass\n",
   "test_file": "test_support_details.py",
   "test": "test_only_the_apps_own_codes_and_counts_go_in"
@@ -5306,16 +5306,16 @@
  {
   "id": "support-details-skip-the-problems",
   "source": "comic_archive/support_details.py",
-  "old": "            ('Problems', status.get('unsaved_by_code')), ('Last check', account.get('audit')))\n",
-  "new": "            ('Last check', account.get('audit')),)\n",
+  "old": "            (say('support.problems'), status.get('unsaved_by_code')), (say('support.last_check'), account.get('audit')))\n",
+  "new": "            (say('support.last_check'), account.get('audit')),)\n",
   "test_file": "test_support_details.py",
   "test": "test_a_site_says_why_its_download_stopped_and_how_many_episodes_are_in_each_state"
  },
  {
   "id": "support-details-windows-without-build",
   "source": "comic_archive/support_details.py",
-  "old": "        return f\"Windows {platform.release()} (build {platform.version().rpartition('.')[2]})\"\n",
-  "new": "        return f\"Windows {platform.release()}\"\n",
+  "old": "return say('support.windows_build', value=platform.release(), value2=platform.version().rpartition('.')[2])",
+  "new": "return f\"Windows {platform.release()}\"",
   "test_file": "test_support_details.py",
   "test": "test_windows_says_its_build_so_windows_11_is_told_from_10"
  },
@@ -6474,8 +6474,8 @@
  {
   "id": "dashboard-folder-button-opens-settings",
   "source": "comic_archive/window_pages.py",
-  "old": "self.files = kit.button('Open library folder', pages.open_folder, 'secondary')",
-  "new": "self.files = kit.button('Open library folder', lambda: pages.go_to('settings/storage'), 'secondary')",
+  "old": "self.files = kit.button(say('library.open_library_folder'), pages.open_folder, 'secondary')",
+  "new": "self.files = kit.button(say('library.open_library_folder'), lambda: pages.go_to('settings/storage'), 'secondary')",
   "test_file": "test_window_pages.py",
   "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
@@ -6858,7 +6858,7 @@
  {
   "id": "basic-card-phase-label-leaks",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            text, label = 'Checking and saving your episodes', 'Working'",
+  "old": "            text, label = say('dashboard.checking_and_saving_your_episodes'), say('downloads.working')",
   "new": "            text = label = account.get('phase')",
   "test_file": "test_dashboard_model.py",
   "test": "test_all_provider_cards_keep_only_basic_fields_across_internal_steps"
@@ -6954,8 +6954,8 @@
  {
   "id": "completion-held-shows-finished",
   "source": "comic_archive/dashboard_model.py",
-  "old": "title, label, tone = 'Completion needs attention', 'Needs attention', 'warning'",
-  "new": "title, label, tone = 'Finished, with episodes missing', 'Finished', 'warning'",
+  "old": "title, label, tone = say('dashboard.completion_needs_attention'), say('dashboard.needs_attention'), 'warning'",
+  "new": "title, label, tone = 'Finished, with episodes missing', say('dashboard.finished'), 'warning'",
   "test_file": "test_dashboard_model.py",
   "test": "test_incomplete_listing_is_attention_without_a_damage_claim_or_estimate"
  },
@@ -7946,16 +7946,16 @@
  {
   "id": "computer-told-to-tick-a-box-it-does-not-have",
   "source": "comic_archive/storage_model.py",
-  "old": "        if _phone():\n            return ('Mobile data is off.",
-  "new": "        if True:\n            return ('Mobile data is off.",
+  "old": "        if _phone():\n            return (say('storage.mobile_data_is_off_connect_to'))",
+  "new": "        if True:\n            return (say('storage.mobile_data_is_off_connect_to'))",
   "test_file": "test_storage_model.py",
   "test": "test_the_key_check_is_described_as_it_goes"
  },
  {
   "id": "phone-told-to-press-a-button-it-does-not-have",
   "source": "comic_archive/storage_model.py",
-  "old": "        if _phone():\n            return ('Mobile data is off.",
-  "new": "        if False:\n            return ('Mobile data is off.",
+  "old": "        if _phone():\n            return (say('storage.mobile_data_is_off_connect_to'))",
+  "new": "        if False:\n            return (say('storage.mobile_data_is_off_connect_to'))",
   "test_file": "test_storage_model.py",
   "test": "test_the_key_check_is_described_as_it_goes"
  },
@@ -9138,15 +9138,15 @@
  {
   "id": "finished-card-pill-not-done",
   "source": "comic_archive/window_pages.py",
-  "old": "'Sign-in needed': 'Sign in', 'Finished': 'Done',",
-  "new": "'Sign-in needed': 'Sign in',",
+  "old": "say('cloud.sign_in_needed'): say('dashboard.sign_in'), say('dashboard.finished'): say('dashboard.done'),",
+  "new": "say('cloud.sign_in_needed'): say('dashboard.sign_in'),",
   "test_file": "test_window_pages.py",
   "test": "test_each_site_has_its_own_go_and_pause_and_every_open_site_is_refreshed"
  },
  {
   "id": "finished-card-status-not-spelled-out",
   "source": "comic_archive/dashboard_model.py",
-  "old": "            facts['Status'].update(value='This run is complete')",
+  "old": "            facts[say('dashboard.status')].update(value=say('dashboard.this_run_is_complete'))",
   "new": "            pass",
   "test_file": "test_dashboard_model.py",
   "test": "test_simple_cards_keep_real_errors_and_incomplete_completion_visible"
@@ -9442,7 +9442,7 @@
  {
   "id": "card-signed-in-again-blames-the-disk",
   "source": "comic_archive/dashboard_model.py",
-  "old": "               'login_required': 'The sign-in had expired',\n",
+  "old": "               'login_required': say('dashboard.the_sign_in_had_expired'),\n",
   "new": "",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_later_login_failure_outweighs_the_check_before_go_even_after_refreshes"
@@ -9538,8 +9538,8 @@
  {
   "id": "library-empty-text-swapped",
   "source": "comic_archive/window_library.py",
-  "old": "return 'No episodes recorded' if value['initialized'] else 'Not indexed yet'",
-  "new": "return 'Not indexed yet' if value['initialized'] else 'No episodes recorded'",
+  "old": "return say('library.no_episodes_recorded') if value['initialized'] else say('library.not_indexed_yet')",
+  "new": "return say('library.not_indexed_yet') if value['initialized'] else say('library.no_episodes_recorded')",
   "test_file": "test_android_cards.py",
   "test": "test_a_site_with_no_record_yet_says_so_and_one_that_is_not_open_is_refused"
  },
@@ -9666,8 +9666,8 @@
  {
   "id": "phone-details-name-the-computers-system",
   "source": "comic_archive/support_details.py",
-  "old": "lines = [f'Comic Archiver {version} on {on or system()}']",
-  "new": "lines = [f'Comic Archiver {version} on {system()}']",
+  "old": "value=on or system())",
+  "new": "value=system())",
   "test_file": "test_android_support.py",
   "test": "test_the_details_name_the_phones_system_and_say_which_sites_are_not_open"
  },
@@ -9698,24 +9698,24 @@
  {
   "id": "phone-storage-words-name-the-desktops-step",
   "source": "comic_archive/storage_model.py",
-  "old": "('Press Test cloud connection before uploads can start.' if _phone()",
-  "new": "('Press Test cloud connection before uploads can start.' if False",
+  "old": "(say('storage.press_test_cloud_connection_before_uploads') if _phone()",
+  "new": "(say('storage.press_test_cloud_connection_before_uploads') if False",
   "test_file": "test_storage_model.py",
   "test": "test_the_phone_is_not_sent_to_a_dashboard_a_tab_or_a_numbered_step_it_does_not_have"
  },
  {
   "id": "phone-storage-words-name-the-desktops-dashboard",
   "source": "comic_archive/storage_model.py",
-  "old": "('Pause the download first.' if _phone() else",
-  "new": "('Pause the download first.' if False else",
+  "old": "(say('storage.pause_the_download_first') if _phone() else",
+  "new": "(say('storage.pause_the_download_first') if False else",
   "test_file": "test_storage_model.py",
   "test": "test_the_phone_is_not_sent_to_a_dashboard_a_tab_or_a_numbered_step_it_does_not_have"
  },
  {
   "id": "desktop-storage-words-lose-their-tab",
   "source": "comic_archive/storage_model.py",
-  "old": "f\"{'' if _phone() else ', on its own tab'}.\"",
-  "new": "f\"{''}.\"",
+  "old": "value2='' if _phone() else say('storage.on_its_own_tab'))",
+  "new": "value2='')",
   "test_file": "test_storage_model.py",
   "test": "test_storage_that_failed_its_check_cannot_be_chosen_and_the_chosen_one_is_named"
  },

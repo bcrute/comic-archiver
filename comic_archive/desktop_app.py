@@ -32,6 +32,7 @@ from .tapas_auth import identity
 from .adapters.tappytoon import account as tappytoon_account
 from .adapters.webtoon import USER_INFO, account as webtoon_account
 from .window_signin import storage_state
+from .messages import say
 
 APP_NAME = 'Comic Archiver'
 DESKTOP_ID = 'comic-archiver'
@@ -57,17 +58,13 @@ CLOSE_WAIT_SECONDS = 120  # How long the setup waits for the open window to stop
 END_CHECK_MS = 500
 SIGNIN_PROBE_MS = 500
 SIGNIN_OPEN_SECONDS = 20
-SIGNIN_BACK = 'Cancel sign-in'
+SIGNIN_BACK = say('desktop.cancel_sign_in')
 # {site} is filled in by site_text, so the window learns the site's name from sites.py alone.
-SIGNIN_HINT = ('Sign in to {site} below. Comic Archiver carries on by itself once you are signed in.\n'
-               'Use your email and password: Google and Facebook buttons may not work here. '
-               'If that is how you sign in, first add a password to your {site} account: sign in to {site} in your '
-               'usual web browser the way you always do, and set a password in its account settings.')
-SIGNIN_RETRY = 'Try again'
-SIGNIN_OPENING = 'Opening the {site} sign-in page…'
-SIGNIN_OFFLINE = ('The {site} sign-in page could not be opened.\n\n'
-                  'Check your internet connection, then choose "Try again".')
-SIGNIN_FINISHING = 'Finishing sign-in…\n\nThis can take a minute. Comic Archiver comes back by itself.'
+SIGNIN_HINT = (say('desktop.sign_in_to_below_comic_archiver'))
+SIGNIN_RETRY = say('downloads.try_again')
+SIGNIN_OPENING = say('desktop.opening_the_sign_in_page')
+SIGNIN_OFFLINE = (say('desktop.the_sign_in_page_could_not'))
+SIGNIN_FINISHING = say('desktop.finishing_sign_in_this_can_take')
 # The page is asked who is signed in, as the downloader asks: a same-origin request by the page itself.
 # runJavaScript does not wait for promises, so one script starts the request and a later one reads what it left.
 # Both run in an isolated world, where the page's own scripts can neither see nor replace the answer.
@@ -119,73 +116,44 @@ WEBTOON_ASK = SIGNIN_ASK.replace("fetch('/who-am-i'", f"fetch('{USER_INFO}'")
 IDENTITIES = {'tapas': identity, 'tappytoon': tappytoon_account, 'webtoon': webtoon_account}
 ASKS = {'tapas': SIGNIN_ASK, 'tappytoon': TAPPYTOON_ASK, 'webtoon': WEBTOON_ASK}
 SIGNIN_FORGET = "(() => { try { window.localStorage.clear(); window.sessionStorage.clear(); } catch (error) {} })()"
-STARTING = 'Starting Comic Archiver…\n\nThe first start can take up to a minute.'
-FINISHING = 'Finishing up. Everything saved so far is kept.\n\nThis window closes by itself in a moment.'
-MOVING = 'Switching to the other folder…'
-LOCATION_TITLE = 'Choose where Comic Archiver saves'
-LOCATION_BUSY = 'Comic Archiver is busy saving or signing in. Pause it or let it finish, then change the folder.'
-LOCATION_CONFIRM = ('Save to this folder from now on?\n\n{new}\n\n'
-                    'Nothing is moved: episodes already saved stay where they are, in\n{old}\n\n'
-                    'The download then saves everything again in the new folder, and the dashboard counts only what is there. '
-                    'To keep what is saved instead, choose No, close Comic Archiver, move the whole folder\n{root}\n'
-                    'to the new place, then open Comic Archiver and choose the folder you moved.')
-LOCATION_EXISTING = ('This folder already holds a Comic Archiver library. Use it from now on?\n\n{new}\n\n'
-                     'Nothing is moved: episodes saved in the folder used until now stay there, in\n{old}\n\n'
-                     'The dashboard then counts only what is saved in this folder.')
-LOCATION_FAILED = 'The folder was not changed.\n\n{reason}'
-SITE_OPENING = 'Opening {site}…'
-SITE_FAILED = '{site} could not be opened, so Settings stays on {open}.\n\n{reason}'
-LOCATION_MISSING = ('Comic Archiver cannot open the folder it saves to:\n{folder}\n\n'
-                    'If it is on a drive that is not connected, choose No, connect the drive and open Comic Archiver again.\n\n'
-                    'Save to the standard folder instead?\n{standard}')
-LOAD_FAILED = 'Comic Archiver could not show your library. Close this window and open Comic Archiver again.'
-LIBRARY_GONE = ('Comic Archiver cannot find its library folder any more:\n{folder}\n\n'
-                'It was renamed, moved or deleted, so saving stopped. Everything saved so far is in that folder, '
-                'wherever it is now.\n\nChoose the folder where it is now?')
-LIBRARY_GONE_START = ('Comic Archiver cannot find its library folder:\n{folder}\n\n'
-                      'If you renamed or moved it, choose Yes and pick it where it is now: your saved episodes and '
-                      'sign-in are in it.\n\nTo start a new, empty library instead, choose No, make that folder '
-                      'again, and open Comic Archiver.')
-LIBRARY_GONE_NOTICE = ('Comic Archiver cannot find its library folder any more:\n{folder}\n\n'
-                       'Close Comic Archiver, put the folder back where it was, and open Comic Archiver again.')
-NOT_A_LIBRARY = 'That folder holds no Comic Archiver library. Choose the folder that was renamed or moved.'
-CLOSE_DOWNLOAD = ('Comic Archiver is still saving your library. Close it and stop saving?\n\n'
-                  'Saving stops right away. Everything saved so far is kept. The next time you open '
-                  'Comic Archiver, press Continue.')
-CLOSE_SIGNIN = 'Signing in to {site} is not finished. Close anyway?\n\nYou will need to sign in again.'
-ALREADY_RUNNING = ('Comic Archiver is already open or still starting. The first start can take up to a minute; '
-                   'its window then appears by itself.')
-NEWER_WAITING = ('Comic Archiver {old} is still open, so the new version {new} cannot start yet.\n\n'
-                 'Close the open window, then open Comic Archiver again to switch to {new}. You stay signed in, '
-                 'and a download that was running continues when you press Continue.')
-UNINSTALL_ASK = ('Uninstall Comic Archiver?\n\nThis signs Comic Archiver out of every comic site and removes your '
-                 'Backblaze B2 key from this computer. Your accounts aren\'t changed, and your saved episodes stay where '
-                 'they are.')
-UNINSTALL_OPEN = 'Comic Archiver is open. Close it, then uninstall again.'
-UNINSTALL_FAILED = ('Comic Archiver could not remove everything it keeps for signing in. Restart your computer, '
-                    'then uninstall again.')
-UNINSTALL_DONE = ('Comic Archiver is signed out of every site and removed from your applications menu.\n\n'
-                  'Your saved episodes are still in\n{library}')
-UNINSTALL_FOLDER = '\n\nTo finish, delete this folder:\n{folder}'
+STARTING = say('desktop.starting_comic_archiver_the_first_start')
+FINISHING = say('desktop.finishing_up_everything_saved_so_far')
+MOVING = say('desktop.switching_to_the_other_folder')
+LOCATION_TITLE = say('desktop.choose_where_comic_archiver_saves')
+LOCATION_BUSY = say('desktop.comic_archiver_is_busy_saving_or')
+LOCATION_CONFIRM = (say('desktop.save_to_this_folder_from_now'))
+LOCATION_EXISTING = (say('desktop.this_folder_already_holds_a_comic'))
+LOCATION_FAILED = say('desktop.the_folder_was_not_changed')
+SITE_OPENING = say('desktop.opening')
+SITE_FAILED = say('desktop.could_not_be_opened_so_settings')
+LOCATION_MISSING = (say('desktop.comic_archiver_cannot_open_the_folder'))
+LOAD_FAILED = say('desktop.comic_archiver_could_not_show_your')
+LIBRARY_GONE = (say('desktop.comic_archiver_cannot_find_its_library'))
+LIBRARY_GONE_START = (say('desktop.comic_archiver_cannot_find_its_library_2'))
+LIBRARY_GONE_NOTICE = (say('desktop.comic_archiver_cannot_find_its_library_3'))
+NOT_A_LIBRARY = say('desktop.that_folder_holds_no_comic_archiver')
+CLOSE_DOWNLOAD = (say('desktop.comic_archiver_is_still_saving_your'))
+CLOSE_SIGNIN = say('desktop.signing_in_to_is_not_finished')
+ALREADY_RUNNING = (say('desktop.comic_archiver_is_already_open_or'))
+NEWER_WAITING = (say('desktop.comic_archiver_is_still_open_so'))
+UNINSTALL_ASK = (say('desktop.uninstall_comic_archiver_this_signs_comic'))
+UNINSTALL_OPEN = say('desktop.comic_archiver_is_open_close_it')
+UNINSTALL_FAILED = (say('desktop.comic_archiver_could_not_remove_everything'))
+UNINSTALL_DONE = (say('desktop.comic_archiver_is_signed_out_of'))
+UNINSTALL_FOLDER = say('desktop.to_finish_delete_this_folder')
 # A library folder the app opened that it cannot reach now, on a drive that is not connected, say.
-UNINSTALL_AWAY = {1: ('Comic Archiver can\'t reach this library folder, so it can\'t sign out there:\n{folders}\n\n'
-                      'Connect the drive it\'s on, then uninstall again.'),
-                  2: ('Comic Archiver can\'t reach these library folders, so it can\'t sign out there:\n{folders}\n\n'
-                      'Connect the drives they\'re on, then uninstall again.')}
-UNINSTALL_ANYWAY = '\n\nUninstall anyway?'
-UNINSTALL_DONE_AWAY = ('Comic Archiver is removed from your applications menu. It is signed out of every site, except in:\n'
-                       '{folders}\n\nYour saved episodes are still in\n{library}')
-OLD_COPY = ('An older copy of Comic Archiver is still on this computer, in\n{folder}\n\nRemove it? Your sign-in and '
-            'saved episodes stay.')
-OLD_COPY_LEFT = 'Some of the older copy could not be removed. You can delete this folder yourself:\n{folder}'
+UNINSTALL_AWAY = {1: (say('desktop.comic_archiver_cant_reach_this_library')),
+                  2: (say('desktop.comic_archiver_cant_reach_these_library'))}
+UNINSTALL_ANYWAY = say('desktop.uninstall_anyway')
+UNINSTALL_DONE_AWAY = (say('desktop.comic_archiver_is_removed_from_your'))
+OLD_COPY = (say('desktop.an_older_copy_of_comic_archiver'))
+OLD_COPY_LEFT = say('desktop.some_of_the_older_copy_could')
 # The uninstaller's exit status: done, not done, not done because the window is open, and done except in library
 # folders it could not reach (the Windows uninstaller then asks, naming them from the report file).
 UNINSTALLED, UNINSTALL_INCOMPLETE, UNINSTALL_BLOCKED, UNINSTALL_UNREACHED = 0, 1, 3, 4
 # The raw import error is for the terminal and the log only; people get TOOLKIT_BROKEN.
-MISSING_QT = ('Comic Archiver needs the PySide6 window toolkit, which is missing or cannot load.\n'
-              'When installed with pip: pip install "comic-archive[desktop]"')
-TOOLKIT_BROKEN = ('Comic Archiver is missing a part of your system that its window needs.\n'
-                  'Please reinstall Comic Archiver, or ask someone to help you.')
+MISSING_QT = (say('desktop.comic_archiver_needs_the_pyside6_window'))
+TOOLKIT_BROKEN = (say('desktop.comic_archiver_is_missing_a_part'))
 _application = None
 
 
@@ -194,20 +162,19 @@ def site_text(text, site=sites.DEFAULT):
 
 
 def arguments(argv=None):
-    parser = argparse.ArgumentParser(prog='comic-archiver', description='Save your own comics library from a desktop window.')
+    parser = argparse.ArgumentParser(prog='comic-archiver', description=say('desktop.save_your_own_comics_library_from'))
     parser.add_argument('--project-root', metavar='PATH',
-                        help='use this existing library folder instead of "Comic Archiver" in your home folder')
+                        help=say('desktop.use_this_existing_library_folder_instead'))
     parser.add_argument('--self-test', action='store_true',
-                        help='load the window off-screen with an empty temporary library, report JSON and exit')
-    parser.add_argument('--version', action='store_true', help='print the version and exit')
+                        help=say('desktop.load_the_window_off_screen_with'))
+    parser.add_argument('--version', action='store_true', help=say('desktop.print_the_version_and_exit'))
     parser.add_argument('--uninstall', action='store_true',
                         help='forget every sign-in and cloud key and remove the app\'s settings; saved episodes stay')
-    parser.add_argument('--quiet', action='store_true', help='with --uninstall: ask nothing and show nothing')
+    parser.add_argument('--quiet', action='store_true', help=say('desktop.with_uninstall_ask_nothing_and_show'))
     parser.add_argument('--report', metavar='FILE',
-                        help='with --uninstall --quiet: write here what to tell the person when a library folder '
-                             'could not be reached')
+                        help=say('desktop.with_uninstall_quiet_write_here_what'))
     parser.add_argument('--anyway', action='store_true',
-                        help='with --uninstall --quiet: finish even when a library folder could not be reached')
+                        help=say('desktop.with_uninstall_quiet_finish_even_when'))
     parser.add_argument('--close-for-update', action='store_true',
                         help='close the open window without asking, as the system ending it does, and wait until it '
                              'has; the Windows setup runs this before it replaces the app')
@@ -443,9 +410,9 @@ def remove_older_copies(q):
 
 def failure_text(error, log_path):
     # Only ArchiveError carries wording written for the user.
-    reason = str(error) if isinstance(error, ArchiveError) else 'Something unexpected went wrong.'
-    details = f'\n\nDetails are saved in:\n{log_path}' if log_path else ''
-    return f'{APP_NAME} could not start.\n\n{reason}{details}'
+    reason = str(error) if isinstance(error, ArchiveError) else say('desktop.something_unexpected_went_wrong')
+    details = say('desktop.details_are_saved_in', log_path=log_path) if log_path else ''
+    return say('desktop.could_not_start', APP_NAME=APP_NAME, reason=reason, details=details)
 
 
 def qt():
@@ -580,7 +547,7 @@ def claim(q, lock, name):
     if lock.tryLock(0):
         return True
     if lock.error() != q.QtCore.QLockFile.LockError.LockFailedError:
-        raise ArchiveError('Comic Archiver cannot write to its settings folder.')
+        raise ArchiveError(say('desktop.comic_archiver_cannot_write_to_its'))
     if notify(q, name):
         newer = newer_than_open()
         if newer:
@@ -832,7 +799,7 @@ class Shell:
             self.pages.tick()
 
     def show_notice(self, text):
-        self.notice.setText(text + (f'\n\nDetails are saved in:\n{self.log_path}' if self.log_path else ''))
+        self.notice.setText(text + (say('desktop.details_are_saved_in', log_path=self.log_path) if self.log_path else ''))
 
     def open_url(self, url):
         """One of Backblaze's pages, in the computer's own browser."""
@@ -1067,7 +1034,7 @@ class Shell:
             return  # Qt also delivers this while a page is being torn down.
         found = signed_in(text, self.runtime.site)
         spoke = page_spoke(text, self.runtime.site)
-        heard = 'an account' if found else 'no account yet' if spoke else self.signin_heard
+        heard = say('desktop.an_account') if found else say('desktop.no_account_yet') if spoke else self.signin_heard
         if heard != self.signin_heard:
             self.signin_heard = heard
             LOG.info('the %s page answered: %s', self.runtime.site.name, heard)

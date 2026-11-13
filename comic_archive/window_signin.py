@@ -15,12 +15,13 @@ from .models import ArchiveError
 from .network import NetworkGuard, NetworkPolicyHold
 from .session import cookie_expiry_seconds, forget_session, load_session, store_session
 from .transport import Transport
+from .messages import say
 
 SIGNIN_SECONDS = 900
 CODES = {'network_held', 'account_mismatch', 'signin_failed', 'signin_incomplete'}
 # Qt names an unset attribute Default and spells None with an underscore; browsers treat unset as Lax.
 SAME_SITE = {'Strict': 'Strict', 'Lax': 'Lax', 'None': 'None', 'None_': 'None'}
-UNSUPPORTED = 'The sign-in cookies have an unsupported shape; credential details are suppressed.'
+UNSUPPORTED = say('signin.the_sign_in_cookies_have_an')
 
 
 def storage_state(cookies, local_storage=(), site=sites.DEFAULT):
@@ -46,7 +47,7 @@ def storage_state(cookies, local_storage=(), site=sites.DEFAULT):
             'httpOnly': cookie.get('httpOnly') is True, 'secure': cookie.get('secure') is True,
             'sameSite': SAME_SITE.get(cookie.get('sameSite'), 'Lax')}
     if not kept:
-        raise ArchiveError(f'The sign-in left no {site.name} cookies; nothing was saved.')
+        raise ArchiveError(say('signin.the_sign_in_left_no_cookies', name=site.name))
     entries = {}
     for pair in local_storage:
         if isinstance(pair, (list, tuple)) and len(pair) == 2 and all(isinstance(text, str) for text in pair):
@@ -159,11 +160,11 @@ class WindowSignIn:
         from .uninstall import sign_out_elsewhere
         with self._lock:
             if self._waiting() or self._finishing:
-                raise LibraryBusy('Finish signing in before signing out.')
+                raise LibraryBusy(say('signin.finish_signing_in_before_signing_out'))
         # The runtime's start-up launch and a finishing sign-in hold the same lock: neither starts in between.
         with self._launch:
             if background.stop(self.workspace.session, wait_seconds=35).get('running') is not False:
-                raise ArchiveError('The downloader is still stopping.')
+                raise ArchiveError(say('signin.the_downloader_is_still_stopping'))
             forget_session(self.workspace.session)
         with self._lock:
             self._state = {'status': 'idle'}
@@ -195,7 +196,7 @@ class WindowSignIn:
 
     def fail(self, code):
         if code not in CODES:
-            raise ArchiveError('Unsupported sign-in result.')
+            raise ArchiveError(say('signin.unsupported_sign_in_result'))
         with self._lock:
             if self._waiting():
                 self._end(status='error', code=code)

@@ -2,21 +2,22 @@
 import re
 
 from .models import ArchiveError
+from .messages import say
 
 MESSAGES = {
-    'b2_key_permissions': 'Create a Read and Write application key restricted to your library bucket, with the file prefix and duration left blank. Copy its keyID and applicationKey again.',
-    'b2_bucket_mismatch': 'This key is for a different bucket than the bucket name in step 2. Type the name exactly as Backblaze’s Buckets page shows it, or create the key again for that bucket.',
-    'b2_private_bucket': 'Your B2 library bucket must be Private. Change its privacy setting in Backblaze, then connect again.',
-    'cloud_login_required': 'Cloud sign-in needs repair. Sign in to this provider again, then retry. Local episodes are retained.',
-    'cloud_space': 'The provider reported insufficient cloud storage. Free space through your provider or choose another destination, then retry. Local episodes are retained.',
-    'cloud_cap': 'Backblaze stopped the upload: your account has used its free 10 GB, or reached a spending limit set on its Caps & Alerts page. Add a card on Backblaze’s Billing page or raise the limit, then retry. Local episodes are retained.',
-    'cloud_rate_limited': 'The provider limited requests. Wait before retrying. Your saved sign-in and local episodes are retained.',
-    'cloud_connection': 'The cloud transfer was unavailable or timed out. Check the connection and cloud setup, then retry. Local episodes are retained.',
-    'cloud_permission': 'The provider refused write access. Check the selected account and connection permissions, then retry. Local episodes are retained.',
-    'cloud_verification': 'The cloud copy could not be verified. Local episodes are retained; retry the upload before removing any files.',
-    'cloud_transfer_limit': 'A cloud transfer limit was reached. Check the connection settings before retrying. Local episodes are retained.',
-    'cloud_network_held': 'The network policy held the cloud transfer. Reconnect to an allowed network, then retry. Local episodes are retained.',
-    'cloud_unknown': 'The cloud transfer failed for an unrecognized reason. Check sign-in, connection and cloud space, then retry. Local episodes are retained.',
+    'b2_key_permissions': say('cloud.create_a_read_and_write_application'),
+    'b2_bucket_mismatch': say('dashboard.this_key_is_for_a_different'),
+    'b2_private_bucket': say('cloud.your_b2_library_bucket_must_be'),
+    'cloud_login_required': say('cloud.cloud_sign_in_needs_repair_sign'),
+    'cloud_space': say('cloud.the_provider_reported_insufficient_cloud_storage'),
+    'cloud_cap': say('cloud.backblaze_stopped_the_upload_your_account'),
+    'cloud_rate_limited': say('cloud.the_provider_limited_requests_wait_before'),
+    'cloud_connection': say('cloud.the_cloud_transfer_was_unavailable_or'),
+    'cloud_permission': say('cloud.the_provider_refused_write_access_check'),
+    'cloud_verification': say('cloud.the_cloud_copy_could_not_be'),
+    'cloud_transfer_limit': say('cloud.a_cloud_transfer_limit_was_reached'),
+    'cloud_network_held': say('cloud.the_network_policy_held_the_cloud'),
+    'cloud_unknown': say('cloud.the_cloud_transfer_failed_for_an'),
 }
 
 
@@ -29,7 +30,7 @@ class CloudTransferError(ArchiveError):
 class CloudCleanupError(CloudTransferError):
     def __init__(self, code='cloud_unknown'):
         super().__init__(code)
-        self.args = ('Cloud test cleanup is pending. '+MESSAGES[self.cloud_code],)
+        self.args = (say('cloud.cloud_test_cleanup_is_pending')+MESSAGES[self.cloud_code],)
 
 
 def safe_code(error):

@@ -22,6 +22,7 @@ from .state_paths import leads_elsewhere, private_folder
 from .storage import safe_root
 from .support_log import describe
 from .worker import WORKER_VERSION
+from .messages import say
 
 LOG = logging.getLogger('comic_archive.desktop')
 LOG.addHandler(logging.NullHandler())
@@ -31,12 +32,9 @@ RETRY_SECONDS = 2
 # How long closing waits for a downloader that had to be ended.
 END_WAIT_SECONDS = 5
 THEMES = ('system', 'light', 'dark')
-UNWRITABLE = ('The library folder cannot be opened or created. Check that it is a folder you can write to '
-              'and that the disk is not full.')
-REDIRECTED = ('Comic Archiver cannot use "{root}" because this folder in it leads somewhere else (a junction):\n'
-              '{folder}\n\nComic Archiver never makes one there. Delete that junction, or choose another folder.')
-GONE = ('Comic Archiver cannot find its library folder:\n{folder}\n\nIt was renamed, moved or deleted. '
-        'Choose the folder where it is now.')
+UNWRITABLE = (say('desktop.the_library_folder_cannot_be_opened'))
+REDIRECTED = (say('desktop.comic_archiver_cannot_use_because_this'))
+GONE = (say('desktop.comic_archiver_cannot_find_its_library_4'))
 
 
 def default_root():
@@ -53,7 +51,7 @@ def state_dir():
     try:
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     except OSError:
-        raise ArchiveError('Comic Archiver cannot create its settings folder in your home folder.') from None
+        raise ArchiveError(say('desktop.comic_archiver_cannot_create_its_settings')) from None
     return folder
 
 
@@ -206,7 +204,7 @@ class Theme:
 
     def set(self, value):
         if value not in THEMES:
-            raise ArchiveError('Comic Archiver does not know that theme.')
+            raise ArchiveError(say('desktop.comic_archiver_does_not_know_that'))
         with self._guard:
             self.value = value
             try:
@@ -409,8 +407,7 @@ class Runtime:
         except (LibraryBusy, site_layout.LayoutError, PrivateStorageError):
             raise
         except ArchiveError:
-            raise ArchiveError(f'Comic Archiver cannot use "{self.project_root}" because it, or a folder around it, '
-                               'is a shortcut (symlink) to somewhere else. Choose a normal folder.') from None
+            raise ArchiveError(say('desktop.comic_archiver_cannot_use_because_it', project_root=self.project_root)) from None
         except OSError:
             raise ArchiveError(UNWRITABLE) from None
         raise ArchiveError(REDIRECTED.format(root=self.project_root, folder=junction))

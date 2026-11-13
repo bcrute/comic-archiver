@@ -1,6 +1,7 @@
 """Android Go admission and the one-time repair of the prototype's empty list scans."""
 from . import account_ui
 from .models import ArchiveError
+from .messages import say
 
 
 def selected_speed(workspace):
@@ -26,9 +27,9 @@ def start(workspace, *, browser_factory=None):
             and not browser_available(browser_factory)):
         # The phone's own browser is there but too old for the reader the desktop uses. One reader is supported,
         # so the download says what to update instead of saving less with another.
-        raise ArchiveError('Update Android System WebView to save from Tapas.')
+        raise ArchiveError(say('settings.update_android_system_webview_to_save'))
     if not speed_available(sites.of_session(workspace.session).key, speed, browser_factory):
-        raise ArchiveError('Fast mode needs an updated Android System WebView. Choose Medium or Slow in Settings.')
+        raise ArchiveError(say('downloads.fast_mode_needs_an_updated_android'))
     if not (workspace.session / account_ui.SPEED_FILE).exists():
         account_ui.choose_speed(workspace, speed)
     account_ui.repair_android_list_reads(workspace)

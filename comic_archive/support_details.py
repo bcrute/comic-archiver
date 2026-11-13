@@ -6,6 +6,7 @@ sign-in but whether there is one. Shared by the desktop and phone apps, so both 
 """
 import platform
 import re
+from .messages import say
 
 LIMIT = 9000  # Under the 10,000 characters a Reddit message holds, with room for a few words of the person's own.
 CODE = re.compile(r'[a-z][a-z0-9_:]{0,63}')
@@ -18,8 +19,8 @@ def system():
         return ('macOS ' + platform.mac_ver()[0]).strip()
     if name == 'Windows':
         # Windows 11 still calls itself release 10; its build number tells the two apart.
-        return f"Windows {platform.release()} (build {platform.version().rpartition('.')[2]})"
-    return f'{name} {platform.release()}'.strip() or 'Unknown system'
+        return say('support.windows_build', value=platform.release(), value2=platform.version().rpartition('.')[2])
+    return f'{name} {platform.release()}'.strip() or say('support.unknown_system')
 
 
 def _count(value):
@@ -43,45 +44,45 @@ def site_lines(name, s):
     """One site's lines. s is the site's state as the window keeps it."""
     lines = [f'== {name}']
     if s is None or s.status is None:
-        return lines + ['Not opened yet']
+        return lines + [say('support.not_opened_yet')]
     status, account = s.status or {}, s.account or {}
-    signin = 'signed in' if status.get('session_configured') else 'not signed in'
+    signin = say('support.signed_in') if status.get('session_configured') else say('support.not_signed_in')
     if _word((s.site_auth or {}).get('status')):
-        signin += f" (sign-in {s.site_auth['status']})"
-    lines.append(f'Sign-in: {signin}')
+        signin += say('support.sign_in_2', status=s.site_auth['status'])
+    lines.append(say('support.sign_in', signin=signin))
     download = [_word(account.get(key)) for key in ('status', 'phase', 'code')]
-    lines.append('Download: ' + (' / '.join(word for word in download if word) or 'not started'))
+    lines.append('Download: ' + (' / '.join(word for word in download if word) or say('support.not_started')))
     worker = _word((status.get('worker') or {}).get('reported_state'))
     if worker:
-        lines.append(f'Downloader: {worker}')
+        lines.append(say('support.downloader', worker=worker))
     if _word(account.get('speed')):
-        lines.append(f"Speed: {account['speed']}")
-    rows = (('Episodes', status.get('episodes_by_status')), ('Not downloaded', status.get('unsupported_by_reason')),
-            ('Problems', status.get('unsaved_by_code')), ('Last check', account.get('audit')))
+        lines.append(say('support.speed', speed=account['speed']))
+    rows = ((say('settings.episodes_2'), status.get('episodes_by_status')), (say('support.not_downloaded'), status.get('unsupported_by_reason')),
+            (say('support.problems'), status.get('unsaved_by_code')), (say('support.last_check'), account.get('audit')))
     lines += [f'{label}: {_counts(value)}' for label, value in rows if _counts(value)]
     purchase = account.get('purchase_history')
     if isinstance(purchase, dict):
         words = [_word(purchase.get(key)) for key in ('status', 'code')]
         counts = _counts({key: purchase[key] for key in ('pages', 'discovered', 'unresolved') if key in purchase})
-        lines.append('Purchase history: ' + ' / '.join(word for word in words if word) + (f'; {counts}' if counts else ''))
+        lines.append(say('support.purchase_history') + ' / '.join(word for word in words if word) + (f'; {counts}' if counts else ''))
     series = [f'{label} {_count(status.get(key))}' for label, key in (
-        ('known', 'series_count'), ('to check', 'scan_remaining_series_count'),
-        ('with gaps', 'series_scan_gap_count'), ('never checked', 'series_without_scan_checkpoint_count'))
+        ('known', 'series_count'), (say('support.to_check'), 'scan_remaining_series_count'),
+        (say('support.with_gaps'), 'series_scan_gap_count'), (say('support.never_checked'), 'series_without_scan_checkpoint_count'))
         if _count(status.get(key)) is not None]
     if series:
         lines.append('Series: ' + ', '.join(series))
     last = _word((status.get('last_run') or {}).get('status'))
     if last:
-        lines.append(f'Last step: {last}')
+        lines.append(say('support.last_step', last=last))
     if s.offline:
-        lines.append('Status updates: not arriving')
+        lines.append(say('support.status_updates_not_arriving'))
     return lines
 
 
 def text(version, sites, on=None):
     """Every site's details under the app's own. sites is [(name, state)], in the window's order; on is the
     system as the phone names its own, where this is not a computer."""
-    lines = [f'Comic Archiver {version} on {on or system()}']
+    lines = [say('support.comic_archiver_on', version=version, value=on or system())]
     for name, s in sites:
         lines += ['', *site_lines(name, s)]
     result = '\n'.join(lines)

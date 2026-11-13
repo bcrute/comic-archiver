@@ -6,8 +6,9 @@ text in its licenses folder, beside its Python: one folder per package, and the 
 from importlib import metadata
 from pathlib import Path
 import sys
+from .messages import say
 
-OWN = (('LICENSE', 'Comic Archiver (MIT license)'), ('THIRD-PARTY-NOTICES.md', 'Third-party notices'))
+OWN = (('LICENSE', say('licenses.comic_archiver_mit_license')), ('THIRD-PARTY-NOTICES.md', say('licenses.third_party_notices')))
 SOURCE = Path(__file__).resolve().parents[1]
 
 

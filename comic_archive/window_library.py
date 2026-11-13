@@ -1,22 +1,23 @@
 """Expandable acquisition indicators; no file browsing or reader controls."""
 from . import sites
+from .messages import say
 
-STATUS = {'archived': 'Saved', 'queued': 'Pending', 'downloading': 'Downloading',
-          'failed': 'Download failed', 'unavailable': 'Not saved', 'unsupported': 'Unsupported'}
+STATUS = {'archived': say('settings.saved'), 'queued': say('settings.pending'), 'downloading': say('dashboard.downloading'),
+          'failed': say('library.download_failed'), 'unavailable': say('library.not_saved'), 'unsupported': say('library.unsupported')}
 
 
-ACCESS_LABELS = {'free': 'Free', 'bought': 'Bought / unlocked', 'limited': 'Limited',
-                 'unclassified': 'Unknown type'}
+ACCESS_LABELS = {'free': say('dashboard.free'), 'bought': 'Bought / unlocked', 'limited': say('dashboard.limited'),
+                 'unclassified': say('dashboard.unknown_type')}
 
 
 def access_summary(kinds):
     labels = [label for key, label in ACCESS_LABELS.items() if key in kinds]
-    return labels[0] if len(labels) == 1 else 'Mixed' if labels else 'Unknown'
+    return labels[0] if len(labels) == 1 else say('library.mixed') if labels else say('library.unknown')
 
 
 def format_summary(formats):
     known = [value for value in formats if value in {'CBZ', 'EPUB', 'TAR.ZST'}]
-    return known[0] if len(known) == 1 else 'Mixed' if known else 'Unknown'
+    return known[0] if len(known) == 1 else say('library.mixed') if known else say('library.unknown')
 
 
 def episode_type(mark):
@@ -34,13 +35,13 @@ def episode_columns(row):
     """A recorded episode as the Library lists it: numbered title, status, format, access."""
     number = row['episode_number']
     label = f"{number} · {row['title']}" if type(number) is int else row['title']
-    return [' '.join(label.splitlines()), STATUS.get(row['status'], 'Unknown'), format_summary([row.get('format')]),
+    return [' '.join(label.splitlines()), STATUS.get(row['status'], say('library.unknown')), format_summary([row.get('format')]),
             ACCESS_LABELS.get(row.get('access_kind'), episode_type(row['access_state']))]
 
 
 def empty_text(value):
     """What a site or series with nothing listed under it says."""
-    return 'No episodes recorded' if value['initialized'] else 'Not indexed yet'
+    return say('library.no_episodes_recorded') if value['initialized'] else say('library.not_indexed_yet')
 
 
 class EpisodeLibrary:
@@ -53,14 +54,14 @@ class EpisodeLibrary:
         self.widget.setObjectName('page')
         box = w.QVBoxLayout(self.widget)
         box.setContentsMargins(32, 24, 32, 24)
-        self.refresh = kit.button('Refresh', self.reset, 'secondary')
+        self.refresh = kit.button(say('library.refresh'), self.reset, 'secondary')
         box.addWidget(kit.row(kit.label('Library', 'pageTitle'), self.refresh))
-        box.addWidget(kit.label('Recorded episodes · expand a provider and series', 'muted', wrap=False))
-        box.addWidget(kit.label('Saved can include cloud storage. This list does not check files on this device.', 'muted'))
+        box.addWidget(kit.label(say('library.recorded_episodes_expand_a_provider_and'), 'muted', wrap=False))
+        box.addWidget(kit.label(say('library.saved_can_include_cloud_storage_this'), 'muted'))
         self.tree = w.QTreeWidget()
-        self.tree.setAccessibleName('Library episode status')
+        self.tree.setAccessibleName(say('library.library_episode_status'))
         self.tree.setColumnCount(4)
-        self.tree.setHeaderLabels(['Provider / series / episode', 'Status', 'Format', 'Access'])
+        self.tree.setHeaderLabels(['Provider / series / episode', say('dashboard.status'), say('library.format'), say('library.access')])
         self.tree.setUniformRowHeights(True)
         self.tree.setWordWrap(False)
         self.tree.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -99,7 +100,7 @@ class EpisodeLibrary:
             if not site.available:
                 continue
             data = {'provider': site.key, 'series_id': None, 'offset': 0, 'state': 'idle'}
-            self.item(self.tree, [site.name, 'Expand to view', '—', '—'], data, expandable=True)
+            self.item(self.tree, [site.name, say('library.expand_to_view'), '—', '—'], data, expandable=True)
 
     def expanded(self, item):
         data = item.data(0, self.role)
@@ -107,7 +108,7 @@ class EpisodeLibrary:
             return
         data['state'] = 'loading'
         item.setData(0, self.role, data)
-        item.setText(1, 'Loading…')
+        item.setText(1, say('library.loading'))
         generation = self.generation
         actions = self.pages.actions
 
@@ -117,8 +118,8 @@ class EpisodeLibrary:
             if error is not None:
                 data['state'] = 'error'
                 item.setData(0, self.role, data)
-                item.setText(1, 'Could not read · retry')
-                item.setToolTip(1, 'Collapse and expand to retry when the library is available.')
+                item.setText(1, say('library.could_not_read_retry'))
+                item.setToolTip(1, say('library.collapse_and_expand_to_retry_when'))
                 return
             data['state'] = 'loaded'
             item.setData(0, self.role, data)
@@ -135,9 +136,9 @@ class EpisodeLibrary:
                     series_item = self.item(parent, columns,
                               {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle', 'summary': summary},
                               expandable=True)
-                    series_item.setToolTip(2, 'Recorded format; no saved files are opened or checked.')
+                    series_item.setToolTip(2, say('library.recorded_format_no_saved_files_are'))
                     series_item.setToolTip(3, ', '.join(label for key, label in ACCESS_LABELS.items() if key in kinds)
-                                           or 'No access classification is recorded yet.')
+                                           or say('library.no_access_classification_is_recorded_yet'))
             else:
                 identifiers = {entry.get('episode_id') for entry in existing if isinstance(entry, dict)}
                 for row in value['items']:
@@ -148,12 +149,12 @@ class EpisodeLibrary:
                                'episode_id': row['id'], 'state': 'leaf'})
             following = value['next_offset']
             if following is not None:
-                self.item(parent, ['More series…' if data['series_id'] is None else 'More episodes…', 'Expand to load', '—', '—'],
+                self.item(parent, [say('library.more_series') if data['series_id'] is None else say('library.more_episodes'), say('library.expand_to_load'), '—', '—'],
                           dict(data, offset=following, state='idle'), expandable=True)
             if more:
                 parent.takeChild(parent.indexOfChild(item))
             else:
-                item.setText(1, data.get('summary', 'Recorded list') if value['items'] else empty_text(value))
+                item.setText(1, data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value))
                 if not value['items']:
                     item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)
 

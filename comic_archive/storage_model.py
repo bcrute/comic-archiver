@@ -5,26 +5,27 @@ Like dashboard_model: plain data in and out, no Qt, so every sentence is decided
 import re
 
 from .dashboard_model import CLOUD_HINTS, display, error_text, number, room
+from .messages import say
 
 # What Backblaze would charge for this library, at its price as written on the setup page. Its own pages count by the
 # day (its price is for 30 days); people speak of a month.
 B2_FREE_BYTES = 10e9
 B2_DOLLARS_PER_GB_MONTH = 6.95 / 1000
-LABELS = {'b2': 'Backblaze B2'}
+LABELS = {'b2': say('cloud.backblaze_b2')}
 BUCKET_PATTERN = r'[A-Za-z0-9-]{6,63}'
 KEY_ID_PATTERN = r'[A-Za-z0-9]{8,256}'
 
 
 def label(provider):
-    return LABELS.get(provider, 'Cloud storage')
+    return LABELS.get(provider, say('dashboard.cloud_storage'))
 
 
 def dollars(value):
     if value < 0.005:
-        return 'less than 1 cent'
+        return say('storage.less_than_1_cent')
     if value < 0.995:
         cents = round(value * 100)
-        return f"about {cents} {'cent' if cents == 1 else 'cents'}"
+        return say('storage.about', cents=cents, value='cent' if cents == 1 else 'cents')
     return f'about ${value:.2f}'
 
 
@@ -32,21 +33,20 @@ def b2_cost(estimate):
     total = number((estimate or {}).get('saved_bytes')) + number((estimate or {}).get('left_bytes'))
     if not total:
         return ''
-    rough = ' This is a rough guess until every series has been checked.' if number(estimate.get('unchecked_series')) else ''
+    rough = say('dashboard.this_is_a_rough_guess_until') if number(estimate.get('unchecked_series')) else ''
     if total <= B2_FREE_BYTES:
-        return f'Your library should take about {room(total)}, which fits in Backblaze’s free 10 GB.{rough}'
+        return say('storage.your_library_should_take_about_which', value=room(total), rough=rough)
     month = (total - B2_FREE_BYTES) / 1e9 * B2_DOLLARS_PER_GB_MONTH
-    return (f'Your library should take about {room(total)}. Once all of it is stored, Backblaze would charge '
-            f'{dollars(month / 30)} a day, {dollars(month)} a month.{rough}')
+    return (say('storage.your_library_should_take_about_once', value=room(total), value2=dollars(month / 30), value3=dollars(month), rough=rough))
 
 
 def b2_cost_short(estimate):
     """The same, short, for the heading of the cost details; before the library's size is known, the price of 100 GB."""
     total = number((estimate or {}).get('saved_bytes')) + number((estimate or {}).get('left_bytes'))
     if not total:
-        return 'free up to 10 GB, then about 2 cents a day, about 70 cents a month, for each 100 GB more'
+        return say('storage.free_up_to_10_gb_then')
     if total <= B2_FREE_BYTES:
-        return 'free, your library fits in the free 10 GB'
+        return say('storage.free_your_library_fits_in_the')
     month = (total - B2_FREE_BYTES) / 1e9 * B2_DOLLARS_PER_GB_MONTH
     return f'{dollars(month / 30)} a day, {dollars(month)} a month'
 
@@ -54,23 +54,23 @@ def b2_cost_short(estimate):
 def b2_summary(s):
     """The top of the B2 settings says at a glance whether B2 is set up, and what is left to do: (label, tone, text)."""
     target = s.target()
-    bucket = f"your bucket {target['bucket']}" if target and target.get('bucket') else 'your bucket'
+    bucket = say('storage.your_bucket', bucket=target['bucket']) if target and target.get('bucket') else say('storage.your_bucket_2')
     failed = number((target or {}).get('failed'))
     auth = s.cloud_auth or {}
     if auth.get('status') == 'running' and auth.get('provider') == 'b2':
-        return 'Checking your key', 'working', 'Checking your key and bucket with Backblaze. Nothing is uploaded yet.'
+        return say('storage.checking_your_key'), 'working', say('storage.checking_your_key_and_bucket_with')
     if not (target or {}).get('connected'):
-        return 'Not set up', 'neutral', 'Follow the steps below to connect your own Backblaze account.'
+        return say('storage.not_set_up'), 'neutral', say('storage.follow_the_steps_below_to_connect')
     if not target.get('tested'):
-        return ('Connected, not checked yet', 'warning',
-                f'Connected to {bucket}. ' + ('Press Test cloud connection before uploads can start.' if _phone()
-                                              else 'Check the connection (step 5) before uploads can start.'))
+        return (say('storage.connected_not_checked_yet'), 'warning',
+                say('storage.connected_to', bucket=bucket) + (say('storage.press_test_cloud_connection_before_uploads') if _phone()
+                                              else say('storage.check_the_connection_step_5_before')))
     if not target.get('enabled'):
-        return 'Set up', 'success', f'Set up and checked: {bucket}. Uploads are off; choose Backblaze B2 where new episodes are saved.'
-    retry = (f" {display(failed)} {'upload needs' if failed == 1 else 'uploads need'} retrying: click Retry unfinished uploads below."
+        return say('storage.set_up'), 'success', say('storage.set_up_and_checked_uploads_are', bucket=bucket)
+    retry = (say('storage.retrying_click_retry_unfinished_uploads_below', n=display(failed), value=say('storage.upload_needs') if failed == 1 else say('storage.uploads_need'))
              if failed else '')
-    return ('Uploads need attention' if failed else 'Uploading to B2', 'warning' if failed else 'success',
-            f'Set up and checked: {bucket}. New episodes are uploaded to it as they are saved.{retry}')
+    return (say('storage.uploads_need_attention') if failed else say('storage.uploading_to_b2'), 'warning' if failed else 'success',
+            say('storage.set_up_and_checked_new_episodes', bucket=bucket, retry=retry))
 
 
 def can_import(s, *, can_start_worker=False):
@@ -95,20 +95,18 @@ def auth_text(auth):
     """What the B2 settings say about the key being checked."""
     auth = auth or {}
     if auth.get('status') == 'running':
-        return ('Preparing cloud sign-in. This may take a moment the first time.' if auth.get('stage') == 'preparing'
-                else 'Checking your B2 key and private library bucket…')
+        return (say('storage.preparing_cloud_sign_in_this_may') if auth.get('stage') == 'preparing'
+                else say('storage.checking_your_b2_key_and_private'))
     if auth.get('status') == 'connected':
-        return 'Signed in. Next, click Test cloud connection.'
+        return say('storage.signed_in_next_click_test_cloud')
     if auth.get('status') == 'cancelled':
-        return 'Sign-in canceled. Your saved files are safe.'
+        return say('storage.sign_in_canceled_your_saved_files')
     if auth.get('code') == 'signin_network_held':
         if _phone():
-            return ('Mobile data is off. Connect to Wi-Fi or tick Also save on metered and mobile connections in '
-                    'Settings, then try again.')
-        return ('This connection is metered, or cannot be told apart from one. Connect to Wi-Fi or a wired '
-                'connection, or press Allow this connection on the Dashboard, then try again.')
+            return (say('storage.mobile_data_is_off_connect_to'))
+        return (say('storage.this_connection_is_metered_or_cannot'))
     if auth.get('status') == 'error':
-        return CLOUD_HINTS.get(auth.get('code'), 'Sign-in did not finish. Check your details and connection, then try again.')
+        return CLOUD_HINTS.get(auth.get('code'), say('storage.sign_in_did_not_finish_check'))
     return ''
 
 
@@ -122,22 +120,22 @@ def task_text(kind, result, site='Tapas'):
                 f"{display(values.get('local_archives_deleted'))} local archives removed."), False
     if kind == 'cloud-test':
         return f"{display(values.get('verified_episodes'))} episodes verified; test copies deleted. Local originals retained.", False
-    return 'Recorded test copies deleted. Local originals retained.', False
+    return say('storage.recorded_test_copies_deleted_local_originals'), False
 
 
 TASK_STARTED = {
-    'cloud': 'Retrying up to three pending episode uploads.',
-    'cloud-test': 'Testing two completed episodes: upload, read back and verify, then delete test copies. Local originals are retained.',
-    'cloud-cleanup': 'Retrying deletion of the exact recorded test files. Local originals are retained.',
+    'cloud': say('storage.retrying_up_to_three_pending_episode'),
+    'cloud-test': say('storage.testing_two_completed_episodes_upload_read'),
+    'cloud-cleanup': say('storage.retrying_deletion_of_the_exact_recorded'),
 }
-CONNECTING = 'Connecting B2. Your key is being checked; no episodes are uploaded during setup.'
+CONNECTING = say('storage.connecting_b2_your_key_is_being')
 
 
 def storage_choice(s):
     """Where new episodes go: this device, or one storage that is set up, each named and nothing more."""
     configured = [t for t in s.cloud_targets() if t.get('connected')] if s.cloud_offered and s.cloud else []
     chosen = next((t['provider'] for t in configured if t.get('enabled')), 'device')
-    options = [] if not configured else [{'key': 'device', 'label': 'This device', 'ready': True}] + [
+    options = [] if not configured else [{'key': 'device', 'label': say('libraries.this_device'), 'ready': True}] + [
         {'key': t['provider'], 'label': label(t['provider']), 'ready': t.get('tested') is True} for t in configured]
     unchecked = [label(t['provider']) for t in configured if not t.get('tested')]
     signing_in = (s.cloud_auth or {}).get('status') == 'running'
@@ -147,15 +145,14 @@ def storage_choice(s):
         option['enabled'] = not locked and option['ready']
         option['checked'] = option['key'] == chosen
     # Said beside the choice, so a locked choice does not look broken.
-    why = ('This can’t be changed while episodes are downloading. '
-           + ('Pause the download first.' if _phone() else 'Press Pause on the dashboard first.') if running
-           else 'This can’t be changed while you sign in to cloud storage.' if signing_in
-           else 'This can’t be changed until the cloud task finishes.' if s.task else '')
+    why = (say('storage.this_cant_be_changed_while_episodes')
+           + (say('storage.pause_the_download_first') if _phone() else say('storage.press_pause_on_the_dashboard_first')) if running
+           else say('storage.this_cant_be_changed_while_you') if signing_in
+           else say('storage.this_cant_be_changed_until_the') if s.task else '')
     return {'visible': bool(configured), 'options': options, 'chosen': chosen, 'lock': why,
-            'help': (f'Each new episode is uploaded to {label(chosen)} as it downloads. None is kept on this device once its upload is checked.'
-                     if chosen != 'device' else f"{' and '.join(unchecked)} can be chosen once its connection check passes"
-                     f"{'' if _phone() else ', on its own tab'}."
-                     if unchecked else 'New episodes stay in the save folder.'),
+            'help': (say('storage.each_new_episode_is_uploaded_to', value=label(chosen))
+                     if chosen != 'device' else say('storage.can_be_chosen_once_its_connection', value=' and '.join(unchecked), value2='' if _phone() else say('storage.on_its_own_tab'))
+                     if unchecked else say('storage.new_episodes_stay_in_the_save')),
             'entry_visible': not configured and s.cloud_offered and s.cloud is not None}
 
 
@@ -168,22 +165,22 @@ def storage(s):
         return f"{display(episodes)} {'episode' if episodes == 1 else 'episodes'} stored · {room(number(group.get('bytes')))}"
     target = s.target() or {}
     pill, tone, _ = b2_summary(s)
-    return {'device_stored': stored(held['device']) if 'device' in held else 'Counting…',
+    return {'device_stored': stored(held['device']) if 'device' in held else say('storage.counting'),
             'b2_pill': pill, 'b2_tone': tone,
-            'b2_text': (f"Your own Backblaze account{', bucket ' + target['bucket'] if target.get('bucket') else ''}."
+            'b2_text': (say('storage.your_own_backblaze_account', value=', bucket ' + target['bucket'] if target.get('bucket') else '')
                         if target.get('connected') else
-                        'Your own Backblaze account. Backblaze bills you itself; the first 10 GB is free.'),
+                        say('storage.your_own_backblaze_account_backblaze_bills')),
             'b2_stored': stored(held['b2']) if 'b2' in held else '',
             'b2_links_visible': bool(target.get('connected')),
-            'b2_setup': 'B2 settings' if target.get('connected') else 'Set up'}
+            'b2_setup': 'B2 settings' if target.get('connected') else say('storage.set_up')}
 
 
 def key_problem(bucket, key_id, application_key):
     """What is wrong with a B2 key as typed, before it is sent to be checked; '' when nothing is."""
     if not re.fullmatch(BUCKET_PATTERN, bucket):
-        return 'Type a bucket name of 6 to 63 letters, numbers or hyphens, as in step 2.'
+        return say('storage.type_a_bucket_name_of_6')
     if not re.fullmatch(KEY_ID_PATTERN, key_id) or not 8 <= len(application_key) <= 256:
-        return 'Paste the keyID and applicationKey exactly as Backblaze shows them.'
+        return say('storage.paste_the_keyid_and_applicationkey_exactly')
     return ''
 
 
@@ -201,40 +198,40 @@ def b2(s, steps_open=False, *, can_start_worker=False):
     running = (s.account or {}).get('status') == 'running'
     worker_busy = ((s.status or {}).get('worker') or {}).get('reported_state') == 'busy'
     estimate = (s.status or {}).get('estimate')
-    hints = [f'{display(target["failure_reasons"][code])} failed uploads: {message}' for code, message in CLOUD_HINTS.items()
+    hints = [say('storage.failed_uploads', n=display(target["failure_reasons"][code]), message=message) for code, message in CLOUD_HINTS.items()
              if number((target.get('failure_reasons') or {}).get(code)) > 0]
-    repair = (' '.join(hints) + ' Local episodes are retained. These are recorded repair hints; cloud availability has not been rechecked.'
+    repair = (' '.join(hints) + say('storage.local_episodes_are_retained_these_are')
               if hints else '')
     cleanup = []
     for record in value.get('pending_test_cleanup') or []:
         code = record.get('error_code')
         if isinstance(code, str) and code in CLOUD_HINTS:
-            repair += f' Test cleanup pending: {CLOUD_HINTS[code]} Local originals are retained.'
-        cleanup.append({'test_id': record.get('test_id'), 'text': f"Retry {label(record.get('provider'))} test cleanup",
+            repair += say('storage.test_cleanup_pending_local_originals_are', value=CLOUD_HINTS[code])
+        cleanup.append({'test_id': record.get('test_id'), 'text': say('storage.retry_test_cleanup', value=label(record.get('provider'))),
                         'enabled': can_import(s, can_start_worker=can_start_worker)})
     connected = target.get('connected') is True
     # A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
     folded = connected and not steps_open
     return {
         'pill': pill, 'tone': tone, 'text': text,
-        'status': ('Checking cloud connections…' if s.cloud is None else
-                   f"{'Automatic uploads enabled' if target.get('enabled') else 'Uploads disabled'}. "
+        'status': (say('storage.checking_cloud_connections') if s.cloud is None else
+                   f"{say('storage.automatic_uploads_enabled') if target.get('enabled') else say('storage.uploads_disabled')}. "
                    f"{display(target.get('verified'))} verified upload receipts; {display(target.get('pending'))} pending; "
                    f"{display(target.get('failed'))} need retry. Cloud availability has not been rechecked."
-                   if target.get('tested') else 'Connection configured. Complete the small upload-and-delete test before enabling uploads.'
-                   if connected else 'No connection configured for this provider.'),
+                   if target.get('tested') else say('storage.connection_configured_complete_the_small_upload')
+                   if connected else say('storage.no_connection_configured_for_this_provider')),
         'cost_short': b2_cost_short(estimate), 'cost': b2_cost(estimate),
         'bucket': target.get('bucket'),
         # One Backblaze setup serves every site, unless this site keeps its own.
         'sharing_visible': value.get('storage') in ('shared', 'separate'),
         'shared': value.get('storage') == 'shared',
         'sharing_enabled': not (s.busy or signing_in),
-        'sharing_help': ('Every site you save from uses it, each in a folder of its own in your bucket.'
+        'sharing_help': (say('storage.every_site_you_save_from_uses')
                          if value.get('storage') == 'shared'
-                         else f'{s.site()} has a Backblaze setup of its own. Your other sites keep the shared one.'),
+                         else say('storage.has_a_backblaze_setup_of_its', value=s.site())),
         'folded': folded, 'fold_visible': connected,
-        'fold_text': 'Hide the setup steps' if steps_open else 'Show the setup steps',
-        'connect_text': 'Replace B2 connection' if connected else 'Connect B2',
+        'fold_text': say('storage.hide_the_setup_steps') if steps_open else say('storage.show_the_setup_steps'),
+        'connect_text': say('storage.replace_b2_connection') if connected else say('storage.connect_b2'),
         'connect_enabled': not (s.busy or s.task or signing_in or running or worker_busy or s.cloud is None),
         'cancel_visible': signing_in, 'cancel_enabled': not s.busy,
         'auth': auth_text(s.cloud_auth),
@@ -264,31 +261,34 @@ def combined(summaries):
             'file_count': sum(number(summary.get('file_count')) for summary in read), 'locations': list(places.values())}
 
 
-def library_overview(summary, cloud_offered, *, device_name='this computer'):
+THIS_COMPUTER = say('storage.this_computer')
+
+
+def library_overview(summary, cloud_offered, *, device_name=THIS_COMPUTER):
     """The dashboard's saved-library card: its counts, its storage places and a sentence about them."""
     if summary is None:
-        names = ['Saved episodes', 'Saved files']
+        names = [say('storage.saved_episodes'), say('library.saved_files')]
         if cloud_offered:
-            names += ['Episodes on this device', 'Cloud episode copies']
+            names += [say('storage.episodes_on_this_device'), say('storage.cloud_episode_copies')]
         return {'metrics': [('—', name) for name in names], 'locations': [],
-                'summary': 'Counting your saved files…'}
+                'summary': say('storage.counting_your_saved_files')}
     locations = summary.get('locations') or []
     device = next((g for g in locations if g.get('id') == 'device'), {})
     copies = sum(number(g.get('episodes')) for g in locations if g.get('id') != 'device')
 
     def shown(value):
         return display(value) if type(value) is int and value >= 0 else '—'
-    metrics = ([('Saved episodes', device.get('episodes')), ('Saved files', device.get('files'))] if not cloud_offered else
-               [('Saved episodes', summary.get('episode_count')), ('Saved files', summary.get('file_count')),
-                ('Episodes on this device', device.get('episodes')), ('Cloud episode copies', copies)])
+    metrics = ([(say('storage.saved_episodes'), device.get('episodes')), (say('library.saved_files'), device.get('files'))] if not cloud_offered else
+               [(say('storage.saved_episodes'), summary.get('episode_count')), (say('library.saved_files'), summary.get('file_count')),
+                (say('storage.episodes_on_this_device'), device.get('episodes')), (say('storage.cloud_episode_copies'), copies)])
     places = [{'id': g.get('id'), 'label': g.get('label'),
                'counts': f"{display(g.get('episodes'))} episodes · {display(g.get('files'))} files"
-                         + (' · Not connected' if g.get('id') != 'device' and not g.get('connected') else '')}
+                         + (say('library.not_connected') if g.get('id') != 'device' and not g.get('connected') else '')}
               for g in locations if cloud_offered or g.get('id') == 'device']
     return {'metrics': [(shown(count), name) for name, count in metrics], 'locations': places,
-            'summary': (f"{display(device.get('episodes'))} saved episodes on {device_name}."
+            'summary': (say('storage.saved_episodes_on', n=display(device.get('episodes')), device_name=device_name)
                         if not cloud_offered else
-                        f"{display(summary.get('episode_count'))} saved episodes. View all files, or choose a storage location below.")}
+                        say('storage.saved_episodes_view_all_files_or', n=display(summary.get('episode_count'))))}
 
 
-LIBRARY_UNAVAILABLE = 'Saved file counts are unavailable.'
+LIBRARY_UNAVAILABLE = say('storage.saved_file_counts_are_unavailable')

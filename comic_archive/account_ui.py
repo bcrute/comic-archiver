@@ -15,6 +15,7 @@ from .monitoring import _read, _progress
 from .models import ArchiveError
 from .osdep import NOFOLLOW, NONBLOCK, open_exclusive, replace_file
 from .queue_client import task_status
+from .messages import say
 
 # The downloader's own pace, for reading the lists; what a download adds to it is the chosen speed below.
 DESKTOP_REQUEST_INTERVAL = 1.0
@@ -58,7 +59,7 @@ def speed(workspace):
 def _check_speed(value):
     """Refuse unsupported choices before touching a saved download."""
     if value not in SPEEDS:
-        raise ArchiveError('Comic Archiver does not know that speed.')
+        raise ArchiveError(say('account.comic_archiver_does_not_know_that'))
 
 
 def choose_speed(workspace, value):
@@ -72,7 +73,7 @@ def choose_speed(workspace, value):
             stream.write(value + '\n')
         replace_file(temporary, path)
     except OSError:
-        raise ArchiveError('Comic Archiver could not save that speed. Check that the library folder can be written to.') from None
+        raise ArchiveError(say('account.comic_archiver_could_not_save_that')) from None
 
 
 

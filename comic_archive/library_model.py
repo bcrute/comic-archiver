@@ -7,21 +7,21 @@ import math
 import re
 
 from .dashboard_model import display
+from .messages import say
 
-KINDS = (('episodes', 'Comics and novels'), ('all', 'All files'), ('metadata', 'Data files'), ('covers', 'Covers'))
-SORTS = (('saved_desc', 'Newest saved first'), ('saved_asc', 'Oldest saved first'), ('series', 'Series and title'))
+KINDS = (('episodes', say('library.comics_and_novels')), ('all', say('library.all_files')), ('metadata', say('library.data_files')), ('covers', say('library.covers')))
+SORTS = (('saved_desc', say('library.newest_saved_first')), ('saved_asc', say('library.oldest_saved_first')), ('series', say('library.series_and_title')))
 PAGE_SIZES = (50, 100, 200)
-TYPES = {'cbz': 'Comic', 'epub': 'Novel', 'tar.zst': 'Compressed comic', 'episode_metadata': 'Data file',
-         'series_metadata': 'Data file', 'cover': 'Cover'}
-COLUMNS = ('Series', 'Title', 'Filename', 'Type', 'Size', 'Date/time saved', 'Storage', 'File')
-NOTE = ('Times are in your computer’s time zone. “File time” means the day the file was saved is not known, '
-        'so the day it last changed is shown.')
-LOADING = 'Loading saved files…'
-UNAVAILABLE = 'Saved files could not be loaded. Try Refresh files.'
-OPEN_FAILED = 'This file could not be opened. Refresh files and try again.'
-NO_OPENER = 'No app could open this file. Choose a default app for this file type on your device, then try again.'
-OPENING = 'Opening in your device’s default app…'
-OPENED = 'Sent to your device’s default app.'
+TYPES = {'cbz': say('library.comic'), 'epub': say('library.novel'), 'tar.zst': say('library.compressed_comic'), 'episode_metadata': say('library.data_file'),
+         'series_metadata': say('library.data_file'), 'cover': say('library.cover')}
+COLUMNS = (say('library.view.series'), say('library.title'), say('library.filename'), say('library.type'), say('library.size'), say('library.date_time_saved'), say('cloud.storage'), say('library.file'))
+NOTE = (say('library.times_are_in_your_computers_time'))
+LOADING = say('library.loading_saved_files')
+UNAVAILABLE = say('app.saved_files_could_not_be_loaded')
+OPEN_FAILED = say('app.this_file_could_not_be_opened')
+NO_OPENER = say('library.no_app_could_open_this_file')
+OPENING = say('library.opening_in_your_devices_default_app')
+OPENED = say('library.sent_to_your_devices_default_app')
 MAX_QUERY = 200
 
 
@@ -52,11 +52,11 @@ def places(value, desktop_only, current):
     """The storage places to choose between, each with its counts; 'All storage' first where there is cloud storage."""
     locations = value.get('locations') or []
     groups = ([g for g in locations if g.get('id') == 'device'] if desktop_only else
-              [{'id': 'all', 'label': 'All storage', 'files': value.get('file_count'), 'episodes': value.get('episode_count'),
+              [{'id': 'all', 'label': say('library.all_storage'), 'files': value.get('file_count'), 'episodes': value.get('episode_count'),
                 'connected': True}, *locations])
     return [{'id': g.get('id'), 'label': g.get('label'), 'current': g.get('id') == current,
              'counts': f"{display(g.get('files'))} files · {display(g.get('episodes'))} episodes"
-                       + (' · Not connected' if g.get('id') != 'all' and not g.get('connected') and not g.get('files') else '')}
+                       + (say('library.not_connected') if g.get('id') != 'all' and not g.get('connected') and not g.get('files') else '')}
             for g in groups]
 
 
@@ -68,9 +68,9 @@ def has_cloud(value, desktop_only):
 def summary(value, desktop_only):
     device = next((g for g in value.get('locations') or [] if g.get('id') == 'device'), {})
     if desktop_only:
-        return f"{display(device.get('episodes'))} saved episodes across {display(device.get('files'))} files on this computer."
-    return (f"{display(value.get('episode_count'))} saved episodes across {display(value.get('file_count'))} files"
-            + (' and cloud copies' if has_cloud(value, desktop_only) else '') + '.')
+        return say('library.saved_episodes_across_files_on_this', n=display(device.get('episodes')), n2=display(device.get('files')))
+    return (say('library.saved_episodes_across_files', n=display(value.get('episode_count')), n2=display(value.get('file_count')))
+            + (say('library.and_cloud_copies') if has_cloud(value, desktop_only) else '') + '.')
 
 
 def rows(value, desktop_only):
@@ -88,8 +88,8 @@ def rows(value, desktop_only):
                        'type': TYPES.get(item.get('kind'), '—'), 'size': size(item.get('size')),
                        'saved': when[0] if when else '—', 'exact': when[1] if when else '',
                        'file_time': bool(when) and item.get('date_source') == 'file_modified',
-                       'storage': labels.get(item.get('location')) or 'Unknown storage',
-                       'open': item['id'] if opens else None, 'action': '' if local else 'Cloud copy'})
+                       'storage': labels.get(item.get('location')) or say('library.unknown_storage'),
+                       'open': item['id'] if opens else None, 'action': '' if local else say('library.cloud_copy')})
     return result
 
 
@@ -102,21 +102,21 @@ def pages(value):
 def range_text(value):
     total, offset = value.get('total') or 0, value.get('offset') or 0
     if total:
-        return f"Showing {display(offset + 1)}–{display(offset + len(value.get('files') or []))} of {display(total)} files."
+        return say('library.showing_of_files', n=display(offset + 1), n2=display(offset + len(value.get('files') or [])), n3=display(total))
     # With nothing saved yet the notice says so; that no file matches would say it twice.
-    return 'No saved files match these filters.' if value.get('file_count') else ''
+    return say('library.no_saved_files_match_these_filters') if value.get('file_count') else ''
 
 
 def notice(value):
     if value.get('total'):
-        return 'Saved files loaded.'
-    return ('Try another location or clear the search.' if value.get('file_count')
-            else 'No files have been saved yet. Use Dashboard to start.')
+        return say('library.saved_files_loaded')
+    return (say('library.try_another_location_or_clear_the') if value.get('file_count')
+            else say('library.no_files_have_been_saved_yet'))
 
 
 def title(site):
     """The page's title: one site's library, or None for every site's."""
-    return f'Your saved {site} library' if site else 'Your saved library, all sites'
+    return say('library.your_saved_library', site=site) if site else say('library.your_saved_library_all_sites')
 
 
 def offset_for(page, limit):

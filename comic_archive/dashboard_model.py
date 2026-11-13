@@ -27,42 +27,41 @@ SPEED_MIN_SECONDS = 4  # Immediate user actions can request a refresh between sc
 SPEED_SECONDS = 60 + 1
 WORKING = ('starting', 'ready', 'busy')
 SPEEDS = ('fast', 'medium', 'slow')
-SPEED_NAMES = {'fast': 'Fast', 'medium': 'Medium', 'slow': 'Slow'}
+SPEED_NAMES = {'fast': say('dashboard.fast'), 'medium': say('dashboard.medium'), 'slow': say('dashboard.slow')}
 NONE = '—'  # A card's field with nothing to show yet.
-ESTIMATING = 'Estimating; known after about five minutes of downloading'
-ESTIMATE_TIP = 'A rough guess, based on the download so far.'  # Shown from the ? after a time or space left.
+ESTIMATING = say('dashboard.estimating_known_after_about_five_minutes')
+ESTIMATE_TIP = say('dashboard.a_rough_guess_based_on_the')  # Shown from the ? after a time or space left.
 
 # Recovery hints for cloud uploads, as the window words them.
 CLOUD_HINTS = {
-    'b2_key_permissions': 'Create a Read and Write key restricted to your library bucket. Leave the file prefix and duration blank, then copy keyID and applicationKey again.',
-    'b2_bucket_mismatch': 'This key is for a different bucket than the bucket name in step 2. Type the name exactly as Backblaze’s Buckets page shows it, or create the key again for that bucket.',
-    'b2_private_bucket': 'Choose Private for your B2 library bucket in Backblaze, then connect again.',
-    'cloud_login_required': 'Cloud sign-in needs repair. Click Sign in again for this provider, then retry.',
-    'cloud_space': 'The provider reported insufficient cloud storage. Free space through your provider or choose another destination, then retry.',
-    'cloud_cap': 'Backblaze stopped the upload: your account has used its free 10 GB, or reached a spending limit set on its Caps & Alerts page. Add a card on Backblaze’s Billing page or raise the limit, then retry.',
-    'cloud_rate_limited': 'The provider limited requests. Wait before retrying.',
-    'cloud_connection': 'The cloud transfer was unavailable or timed out. Check your internet connection, then retry.',
-    'cloud_permission': 'The provider refused write access. Check the selected account and connection permissions, then retry.',
-    'cloud_verification': 'The cloud copy could not be verified. Retry the upload before removing any files.',
-    'cloud_transfer_limit': 'A cloud transfer limit was reached. Check the connection settings before retrying.',
-    'cloud_network_held': 'The network policy held the cloud transfer. Reconnect to an allowed network, then retry.',
-    'cloud_unknown': 'The cloud transfer failed for an unrecognized reason. Check sign-in, connection and cloud space, then retry.',
+    'b2_key_permissions': say('dashboard.create_a_read_and_write_key'),
+    'b2_bucket_mismatch': say('dashboard.this_key_is_for_a_different'),
+    'b2_private_bucket': say('dashboard.choose_private_for_your_b2_library'),
+    'cloud_login_required': say('dashboard.cloud_sign_in_needs_repair_click'),
+    'cloud_space': say('dashboard.the_provider_reported_insufficient_cloud_storage'),
+    'cloud_cap': say('dashboard.backblaze_stopped_the_upload_your_account'),
+    'cloud_rate_limited': say('dashboard.the_provider_limited_requests_wait_before'),
+    'cloud_connection': say('dashboard.the_cloud_transfer_was_unavailable_or'),
+    'cloud_permission': say('dashboard.the_provider_refused_write_access_check'),
+    'cloud_verification': say('dashboard.the_cloud_copy_could_not_be'),
+    'cloud_transfer_limit': say('dashboard.a_cloud_transfer_limit_was_reached'),
+    'cloud_network_held': say('dashboard.the_network_policy_held_the_cloud'),
+    'cloud_unknown': say('dashboard.the_cloud_transfer_failed_for_an'),
 }
-SAFE = 'Saved files are safe.'
+SAFE = say('dashboard.saved_files_are_safe')
 
 
 def error_text(code, site='Tapas'):
     """What a refused action says, for the code the app gave it."""
-    fixed = {'library_busy': 'An import is active. Try again after this batch finishes.',
-             'service_unavailable': 'The service is temporarily unavailable. Try again shortly.',
-             'request_unavailable': 'This action is unavailable. Check the connection and selected library.',
-             'login_required': f'Your {site} session needs a fresh login.',
-             'source_refused': f'{site} refused a request. Check {site} in your usual browser before resuming. '
-                               'Completed archives and cached images are retained.',
-             'task_failed': 'The task stopped. Completed archives and cached images are retained.'}
+    fixed = {'library_busy': say('dashboard.an_import_is_active_try_again'),
+             'service_unavailable': say('dashboard.the_service_is_temporarily_unavailable_try'),
+             'request_unavailable': say('dashboard.this_action_is_unavailable_check_the'),
+             'login_required': say('dashboard.your_session_needs_a_fresh_login', site=site),
+             'source_refused': say('dashboard.refused_a_request_check_in_your', site=site, site2=site),
+             'task_failed': say('dashboard.the_task_stopped_completed_archives_and')}
     if code in CLOUD_HINTS:
-        return CLOUD_HINTS[code] + ' Local episodes are retained.'
-    return fixed.get(code, 'The action could not be completed.')
+        return CLOUD_HINTS[code] + say('dashboard.local_episodes_are_retained')
+    return fixed.get(code, say('dashboard.the_action_could_not_be_completed'))
 
 
 def number(value):
@@ -78,7 +77,7 @@ def duration(value):
     if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
         return None
     if value >= 3600:
-        return f'{math.floor(value / 3600)}h {math.floor(value % 3600 / 60)}m'
+        return say('dashboard.h_m', value=math.floor(value / 3600), value2=math.floor(value % 3600 / 60))
     return f'{math.floor(value / 60)}m {math.floor(value % 60)}s'
 
 
@@ -89,7 +88,7 @@ def span(seconds):
     if hours < 0.85:
         return f'{max(5, round(seconds / 300) * 5)} minutes'
     if hours < 1.5:
-        return 'an hour'
+        return say('dashboard.an_hour')
     if hours < 36:
         return f'{round(hours)} hours'
     if days < 14:
@@ -117,7 +116,7 @@ def rate(value):
 
 
 def wait_text(seconds):
-    return f'about {round(seconds / 60)} minutes' if seconds >= 90 else 'about a minute' if seconds > 45 else 'a few seconds'
+    return say('dashboard.about_minutes', value=round(seconds / 60)) if seconds >= 90 else say('dashboard.about_a_minute') if seconds > 45 else say('dashboard.a_few_seconds')
 
 
 def unconfirmed_downloads(estimate):
@@ -131,9 +130,9 @@ def estimate_tip(estimate):
     if unconfirmed_downloads(estimate):
         unchecked = max(number(estimate.get('unchecked_series')), number(estimate.get('checking_series')))
         if not unchecked:
-            return 'Your account lists are still being checked. No episodes are currently queued.'
-        return (f"No episodes are currently queued. {display(unchecked)} "
-                + ('series has' if unchecked == 1 else 'series have')
+            return say('dashboard.your_account_lists_are_still_being')
+        return (say('dashboard.no_episodes_are_currently_queued', n=display(unchecked))
+                + (say('dashboard.series_has') if unchecked == 1 else say('dashboard.series_have'))
                 + ' no completed check; they may have nothing new to download.')
     return ESTIMATE_TIP
 
@@ -145,19 +144,19 @@ def time_left(estimate, *, background=False):
     if unconfirmed_downloads(estimate):
         unchecked = max(unchecked, number(estimate.get('checking_series')))
         if not unchecked:
-            return 'Your account lists are still being checked; download time is unknown until new episodes are found.'
+            return say('dashboard.your_account_lists_are_still_being_2')
         return (f"{display(unchecked)} series {'has' if unchecked == 1 else 'have'} not been checked yet. "
                 'No episodes are currently queued; download time is unknown until new episodes are found.')
     if not (waiting or unchecked):
         return ''
     if type(estimate.get('seconds')) is not int:
-        return 'Working out how long this will take. An estimate appears after about five minutes of downloading.'
-    left = (f"{display(waiting)} {'episode is' if waiting == 1 else 'episodes are'} waiting"
-            + (f" and {display(unchecked)} series {'has' if unchecked == 1 else 'have'} not been checked yet, so this is a rough guess."
+        return say('dashboard.working_out_how_long_this_will')
+    left = (f"{display(waiting)} {say('dashboard.episode_is') if waiting == 1 else say('dashboard.episodes_are')} waiting"
+            + (say('dashboard.and_series_not_been_checked_yet', n=display(unchecked), value='has' if unchecked == 1 else 'have')
                if unchecked else '.'))
-    continuation = ('Android may limit background saving. Reopen the app and press Go if saving stops.'
-                    if background else 'It only continues while this app is open.')
-    return f"About {span(estimate['seconds'])} of downloading left at the pace of the last five minutes. {left} {continuation}"
+    continuation = (say('dashboard.android_may_limit_background_saving_reopen')
+                    if background else say('dashboard.it_only_continues_while_this_app'))
+    return say('dashboard.about_of_downloading_left_at_the', value=span(estimate['seconds']), left=left, continuation=continuation)
 
 
 def space_needed(estimate):
@@ -166,25 +165,25 @@ def space_needed(estimate):
         return ''
     if unconfirmed_downloads(estimate):
         free = estimate.get('free_bytes')
-        return ('No episodes are currently queued. Download size is unknown until new episodes are found.'
-                + (f' This disk has {room(free)} free.' if type(free) is int else ''))
+        return (say('dashboard.no_episodes_are_currently_queued_download')
+                + (say('dashboard.this_disk_has_free_2', value=room(free)) if type(free) is int else ''))
     if not (number(estimate.get('waiting_episodes')) or unchecked):
         free = estimate.get('free_bytes')
-        return f'This disk has {room(free)} free.' if type(free) is int else ''
+        return say('dashboard.this_disk_has_free', value=room(free)) if type(free) is int else ''
     if type(estimate.get('left_bytes')) is not int:
         return ''
     saved, left, free = number(estimate.get('saved_bytes')), estimate['left_bytes'], estimate.get('free_bytes')
-    parts = f': {room(saved)} is saved and about {room(left)} is still to come' if saved else ''
-    rough = ' This is a rough guess until every series has been checked.' if unchecked else ''
-    disk = ('' if type(free) is not int else f' This disk has only {room(free)} free, which is not enough for the rest.'
-            if free < left else f' This disk has {room(free)} free.')
-    return f'Your whole library should take about {room(saved + left)} of space{parts}.{rough}{disk}'
+    parts = say('dashboard.is_saved_and_about_is_still', value=room(saved), value2=room(left)) if saved else ''
+    rough = say('dashboard.this_is_a_rough_guess_until') if unchecked else ''
+    disk = ('' if type(free) is not int else say('dashboard.this_disk_has_only_free_which', value=room(free))
+            if free < left else say('dashboard.this_disk_has_free_2', value=room(free)))
+    return say('dashboard.your_whole_library_should_take_about', value=room(saved + left), parts=parts, rough=rough, disk=disk)
 
 
 # Stable diagnostic categories, also used by Android's count API. Pending downloads are excluded.
-NOT_DOWNLOADED = {'scheduled': 'Not released yet',
-                  'temporary_access': 'Time-limited, with access the app couldn’t confirm is still current',
-                  'novel': 'Novels this site’s download doesn’t support'}
+NOT_DOWNLOADED = {'scheduled': say('dashboard.not_released_yet'),
+                  'temporary_access': say('dashboard.time_limited_with_access_the_app'),
+                  'novel': say('dashboard.novels_this_sites_download_doesnt_support')}
 
 
 def not_downloaded_counts(status):
@@ -204,9 +203,9 @@ def not_downloaded(status, site):
     reasons = reasons if isinstance(reasons, dict) else {}
     incomplete = sum(number(reasons.get(key)) for key in ('reader_manifest_incomplete', 'novel_manifest_incomplete'))
     ordering = sum(number(reasons.get(key)) for key in ('order_unverified', 'ordering_unverified'))
-    rows = [('Download errors', counts['failed']), ('Incomplete content', incomplete),
-            ('Page order unknown', ordering), ('Access not confirmed', counts['temporary_access']),
-            ('Unsupported format', counts['novel'] + max(0, counts['unsupported'] - incomplete - ordering))]
+    rows = [(say('dashboard.download_errors'), counts['failed']), (say('dashboard.incomplete_content'), incomplete),
+            (say('dashboard.page_order_unknown'), ordering), (say('dashboard.access_not_confirmed'), counts['temporary_access']),
+            (say('dashboard.unsupported_format'), counts['novel'] + max(0, counts['unsupported'] - incomplete - ordering))]
     return [{'reason': reason, 'count': display(count)} for reason, count in rows if count]
 
 
@@ -215,8 +214,8 @@ def episode_types(status):
     counts = status.get('episode_types')
     counts = counts if isinstance(counts, dict) else {}
     rows = []
-    for key, label in (('free', 'Free'), ('bought', 'Bought / unlocked'),
-                       ('limited', 'Limited'), ('unclassified', 'Unknown type')):
+    for key, label in (('free', say('dashboard.free')), ('bought', 'Bought / unlocked'),
+                       ('limited', say('dashboard.limited')), ('unclassified', say('dashboard.unknown_type'))):
         item = counts.get(key)
         item = item if isinstance(item, dict) else {}
         rows.append({'key': key, 'label': label} | {
@@ -231,29 +230,29 @@ def held_reason(code, site, missing, audit=None):
         audit = audit or {}
         gaps = number(audit.get('series_scan_gap_count'))
         if gaps:
-            return f"{display(gaps)} {'series list is' if gaps == 1 else 'series lists are'} incomplete"
+            return f"{display(gaps)} {say('dashboard.series_list_is') if gaps == 1 else say('dashboard.series_lists_are')} incomplete"
         if number(audit.get('inventory_index_problem_count')):
-            return 'The saved-file index needs another check'
+            return say('dashboard.the_saved_file_index_needs_another')
         cannot = number(audit.get('unsupported_recorded_accessible_episode_count'))
         if not missing and cannot:
-            return f"{display(cannot)} {'episode' if cannot == 1 else 'episodes'} could not be saved"
-        return (f"{display(missing)} {'episode' if missing == 1 else 'episodes'} could not be saved" if missing
-                else 'Completion needs another check')
-    reasons = {'source_refused': f'{site} asked the app to slow down',
-               'source_recovery_limit': f'{site} asked the app to slow down',
-               'source_access_changed': f'{site} still would not send an episode after waiting',
+            return say('dashboard.could_not_be_saved', n=display(cannot), value='episode' if cannot == 1 else 'episodes')
+        return (say('dashboard.could_not_be_saved', n=display(missing), value='episode' if missing == 1 else 'episodes') if missing
+                else say('dashboard.completion_needs_another_check'))
+    reasons = {'source_refused': say('dashboard.asked_the_app_to_slow_down', site=site),
+               'source_recovery_limit': say('dashboard.asked_the_app_to_slow_down', site=site),
+               'source_access_changed': say('dashboard.still_would_not_send_an_episode', site=site),
                # While the connection is still held, the card's Connection row says so; this is for after it changed.
-               'network_policy': 'The connection was not Wi-Fi or wired',
-               'network_unavailable': f'{site} could not be reached several times in a row',
-               'network_recovery_limit': f'{site} could not be reached several times in a row',
-               'no_progress': 'The last few tries saved nothing new',
-               'scan_no_progress': 'The last few tries saved nothing new',
+               'network_policy': say('dashboard.the_connection_was_not_wi_fi'),
+               'network_unavailable': say('dashboard.could_not_be_reached_several_times', site=site),
+               'network_recovery_limit': say('dashboard.could_not_be_reached_several_times', site=site),
+               'no_progress': say('dashboard.the_last_few_tries_saved_nothing'),
+               'scan_no_progress': say('dashboard.the_last_few_tries_saved_nothing'),
                # Shown once signed in again; until then the card says the site signed you out.
-               'login_required': 'The sign-in had expired',
+               'login_required': say('dashboard.the_sign_in_had_expired'),
                'cancelled': ''}
     if code in CLOUD_HINTS:
-        return f'An upload to cloud storage stopped. {CLOUD_HINTS[code]}'
-    return reasons.get(code, 'It stopped unexpectedly; check that this disk has free space')
+        return say('dashboard.an_upload_to_cloud_storage_stopped', value=CLOUD_HINTS[code])
+    return reasons.get(code, say('dashboard.it_stopped_unexpectedly_check_that_this'))
 
 
 def time_row(estimate):
@@ -262,7 +261,7 @@ def time_row(estimate):
     if not estimate:
         return ''
     if unconfirmed_downloads(estimate):
-        return 'Unknown until checked'
+        return say('dashboard.unknown_until_checked')
     if not (waiting or unchecked):
         return ''
     if type(estimate.get('seconds')) is not int:
@@ -278,18 +277,18 @@ def space_row(estimate):
         return '', False
     free = estimate.get('free_bytes')
     if unconfirmed_downloads(estimate):
-        return 'No downloads queued' + (f' | {room(free)} free' if type(free) is int else ''), False
+        return say('dashboard.no_downloads_queued') + (f' | {room(free)} free' if type(free) is int else ''), False
     if not (waiting or unchecked):
         return (f'{room(free)} free' if type(free) is int else ''), False
     if type(estimate.get('left_bytes')) is not int:
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
     short = type(free) is int and free < left
-    text = f'~{room(left)} estimated' if unchecked else f'{room(left)} to go'
+    text = f'~{room(left)} estimated' if unchecked else say('dashboard.to_go', value=room(left))
     if type(free) is int:
         text += f' | {room(free)} free'
         if short:
-            text += ', may not fit' if unchecked else ', not enough'
+            text += say('dashboard.may_not_fit') if unchecked else say('dashboard.not_enough')
     return text, short
 
 
@@ -298,22 +297,22 @@ def step_progress(p):
     if not isinstance(p, dict) or p.get('status') != 'running' or p.get('cancellation_requested'):
         return ''
     if p.get('phase') == 'scan' and type(p.get('series_check_target_count')) is int:
-        return f"Checked {display(p.get('series_checks_completed'))} of {display(p['series_check_target_count'])} series in this step."
+        return say('dashboard.checked_of_series_in_this_step', n=display(p.get('series_checks_completed')), n2=display(p['series_check_target_count']))
     if p.get('phase') == 'verify':
         stage = p.get('audit_stage')
         if stage == 'discovering':
-            return 'Finding saved archives on this device'
+            return say('dashboard.finding_saved_archives_on_this_device')
         checked = f"{display(p.get('archives_checked'))} / {display(p.get('archives_total'))} archives"
         size = room(p['archive_bytes_checked']) if number(p.get('archive_bytes_checked')) else '0 B'
         return checked + f" | {size}" + (
             f" | {duration(p['audit_elapsed_seconds'])}" if type(p.get('audit_elapsed_seconds')) is int else '') + (
-            ' | reconciling saved records' if stage == 'reconciling' else '')
+            say('dashboard.reconciling_saved_records') if stage == 'reconciling' else '')
     if p.get('phase') != 'archive':
         return ''
     chapters = number(p.get('downloaded_chapters'))
     images = number(p.get('downloaded_pages')) - chapters
-    novels = f" | {display(chapters)} novel {'chapter' if chapters == 1 else 'chapters'}" if chapters else ''
-    return f"{display(p.get('completed'))} saved in this step | {display(images)} {'image' if images == 1 else 'images'}{novels}."
+    novels = say('dashboard.novel', n=display(chapters), value='chapter' if chapters == 1 else 'chapters') if chapters else ''
+    return say('dashboard.saved_in_this_step', n=display(p.get('completed')), n2=display(images), value='image' if images == 1 else 'images', novels=novels)
 
 
 @dataclass
@@ -431,8 +430,8 @@ class State:
     def refresh_failed(self):
         # A failed refresh says it will retry, rather than showing the raw error; the next good refresh clears it.
         self.offline = True
-        retry = 'We’ll retry automatically' if updating(self) else 'Start or resume this site to refresh it'
-        self.message = Message(f'Could not refresh progress. {retry}; your saved work is retained.',
+        retry = say('dashboard.well_retry_automatically') if updating(self) else say('dashboard.start_or_resume_this_site_to')
+        self.message = Message(say('dashboard.could_not_refresh_progress_your_saved', retry=retry),
                                error=True, polling=True)
 
     def failed(self, text, now):
@@ -467,79 +466,79 @@ def start_overdue(s, now):
 def save_place(s):
     """Where new episodes go, in a word: the cloud storage chosen, else the folder chosen for every site."""
     chosen = next((t for t in s.cloud_targets() if t.get('connected') and t.get('enabled')), None) if s.cloud_offered else None
-    return 'Backblaze B2' if chosen and chosen.get('provider') == 'b2' else 'Cloud storage' if chosen else s.library_root or s.library_folder or ''
+    return say('cloud.backblaze_b2') if chosen and chosen.get('provider') == 'b2' else say('dashboard.cloud_storage') if chosen else s.library_root or s.library_folder or ''
 
 
-CARD_FIELDS = ('Account', 'Downloader', 'Status', 'Step', 'Progress', 'Saved', 'Time left', 'Space',
-               'Running for', 'Speed', 'Download speed', 'Note')
-DASHBOARD_FIELDS = ('Status', 'Saved', 'Time left', 'Space', 'Speed', 'Download speed')
+CARD_FIELDS = (say('dashboard.account'), say('dashboard.downloader'), say('dashboard.status'), say('dashboard.step'), say('dashboard.progress'), say('settings.saved'), say('dashboard.time_left'), say('dashboard.space'),
+               say('dashboard.running_for'), say('dashboard.speed'), say('dashboard.download_speed'), say('dashboard.note'))
+DASHBOARD_FIELDS = (say('dashboard.status'), say('settings.saved'), say('dashboard.time_left'), say('dashboard.space'), say('dashboard.speed'), say('dashboard.download_speed'))
 
 
 def card_summary(s=None, v=None):
     """Stable dashboard facts, including estimates; internal step counters stay in diagnostics."""
     if s is None or v is None:
-        return {'state': 'Not signed in', 'tone': 'neutral', 'appearance': 'neutral', 'rows': [
-            dict(name=name, value='Sign in to get started' if name == 'Status' else NONE, warning=False, tip='')
+        return {'state': say('dashboard.not_signed_in'), 'tone': 'neutral', 'appearance': 'neutral', 'rows': [
+            dict(name=name, value=say('dashboard.sign_in_to_get_started') if name == say('dashboard.status') else NONE, warning=False, tip='')
             for name in DASHBOARD_FIELDS]}
     facts = {row['name']: dict(row) for row in v['rows']}
     label, tone = v['state'], v['tone']
     account = s.account or {}
     running = s.loaded and s.status is not None and account.get('status') == 'running'
-    if running and v['state'] not in ('Reconnecting', 'Sign-in needed', 'Signing in'):
+    if running and v['state'] not in (say('dashboard.reconnecting'), say('cloud.sign_in_needed'), say('dashboard.signing_in')):
         retry = account.get('retry')
         if isinstance(retry, dict):
-            text = 'Waiting for Wi-Fi' if v['allow_visible'] else 'Waiting to retry automatically'
-            label, tone = 'Waiting', 'working'
+            text = say('dashboard.waiting_for_wi_fi') if v['allow_visible'] else say('dashboard.waiting_to_retry_automatically')
+            label, tone = say('dashboard.waiting'), 'working'
         elif v['live_waiting']:
-            text, label = 'Waiting for an update', 'Waiting'
+            text, label = say('dashboard.waiting_for_an_update'), say('dashboard.waiting')
         elif account.get('phase') == 'verify':
-            text = label = 'Finishing'
+            text = label = say('dashboard.finishing')
         else:
-            text, label = 'Checking and saving your episodes', 'Working'
-        facts['Status'].update(value=text, warning=tone == 'warning')
-    elif account.get('status') == 'stopped' and not v['allow_visible'] and v['state'] == 'Paused':
-        facts['Status'].update(value='Paused')
-    elif account.get('status') == 'finished' and v['state'] == 'Finished':
+            text, label = say('dashboard.checking_and_saving_your_episodes'), say('downloads.working')
+        facts[say('dashboard.status')].update(value=text, warning=tone == 'warning')
+    elif account.get('status') == 'stopped' and not v['allow_visible'] and v['state'] == say('dashboard.paused'):
+        facts[say('dashboard.status')].update(value=say('dashboard.paused'))
+    elif account.get('status') == 'finished' and v['state'] == say('dashboard.finished'):
         purchase = account.get('purchase_history')
         incomplete_history = (s.site() == 'Tapas' and (
             not isinstance(purchase, dict) or purchase.get('status') != 'checked'))
         if incomplete_history:
-            facts['Status'].update(value='Finished; some episodes could not be checked', warning=True)
-            label, tone = 'Needs attention', 'warning'
+            facts[say('dashboard.status')].update(value=say('dashboard.finished_some_episodes_could_not_be'), warning=True)
+            label, tone = say('dashboard.needs_attention'), 'warning'
         elif number((account.get('audit') or {}).get('unsupported_recorded_accessible_episode_count')):
-            facts['Status'].update(value='Finished; some episodes could not be saved', warning=True)
-            label, tone = 'Needs attention', 'warning'
-        elif facts['Status']['value'] == 'Done':
-            facts['Status'].update(value='This run is complete')
+            facts[say('dashboard.status')].update(value=say('dashboard.finished_some_episodes_could_not_be_2'), warning=True)
+            label, tone = say('dashboard.needs_attention'), 'warning'
+        elif facts[say('dashboard.status')]['value'] == say('dashboard.done'):
+            facts[say('dashboard.status')].update(value=say('dashboard.this_run_is_complete'))
     estimate = (s.status or {}).get('estimate') or {}
     if account.get('status') == 'finished' or (account.get('status') == 'held' and account.get('code') == 'archive_incomplete'):
-        facts['Time left'].update(value=NONE, tip='')
-        facts['Space'].update(value=NONE, tip='', warning=False)
+        facts[say('dashboard.time_left')].update(value=NONE, tip='')
+        facts[say('dashboard.space')].update(value=NONE, tip='', warning=False)
     elif unconfirmed_downloads(estimate):
-        for name in ('Time left', 'Space'):
-            facts[name].update(value='Estimating…', tip='Estimates become available as episodes are found.', warning=False)
+        for name in (say('dashboard.time_left'), say('dashboard.space')):
+            facts[name].update(value=say('dashboard.estimating'), tip=say('dashboard.estimates_become_available_as_episodes_are'), warning=False)
     else:
-        time = facts['Time left']['value']
+        time = facts[say('dashboard.time_left')]['value']
         if time == ESTIMATING:
-            facts['Time left']['value'] = 'Estimating…'
+            facts[say('dashboard.time_left')]['value'] = say('dashboard.estimating')
         elif time != NONE:
-            facts['Time left']['value'] = '~' + time.replace(' minutes', ' min')
+            facts[say('dashboard.time_left')]['value'] = '~' + time.replace(' minutes', ' min')
         left = estimate.get('left_bytes')
         if type(left) is int and left >= 0 and number(estimate.get('waiting_episodes')):
             tip = ESTIMATE_TIP
             if type(estimate.get('free_bytes')) is int:
-                tip += f" {room(estimate['free_bytes'])} free on this disk."
-            facts['Space'].update(value='~' + room(left), tip=tip)
+                tip += say('dashboard.free_on_this_disk', value=room(estimate['free_bytes']))
+            facts[say('dashboard.space')].update(value='~' + room(left), tip=tip)
         else:
-            facts['Space'].update(value=NONE, tip='', warning=False)
-    if (label == 'Needs attention' or account.get('status') == 'held'
+            facts[say('dashboard.space')].update(value=NONE, tip='', warning=False)
+    if (label == say('dashboard.needs_attention') or account.get('status') == 'held'
             or (s.message is not None and s.message.error)):
         appearance = 'attention'
-    elif label in ('Waiting', 'Reconnecting', 'Status unavailable', 'Offline'):
+    elif label in (say('dashboard.waiting'), say('dashboard.reconnecting'), say('dashboard.status_unavailable'), say('dashboard.offline')):
         appearance = 'waiting'
-    elif label == 'Paused':
+    elif label == say('dashboard.paused'):
         appearance = 'paused'
-    elif account.get('status') == 'finished' and label == 'Finished':
+    elif account.get('status') == 'finished' and label == say('dashboard.finished'):
         appearance = 'complete'
     elif running:
         appearance = 'active'
@@ -556,8 +555,8 @@ def card_rows(values=None):
 
 def unopened_rows():
     """The same permanent fields, including before a site has been opened."""
-    return card_rows({'Account': 'Not signed in', 'Downloader': 'Starts after sign-in',
-                      'Status': 'Sign in to get started'})
+    return card_rows({say('dashboard.account'): say('dashboard.not_signed_in'), say('dashboard.downloader'): say('dashboard.starts_after_sign_in'),
+                      say('dashboard.status'): say('dashboard.sign_in_to_get_started')})
 
 
 def updating(s):
@@ -587,8 +586,8 @@ def view(s, now):
     go_wait = 0 if running else max(0, number(account.get('go_after_seconds')) - since)
     net = s.network
     network_held = bool(net and net.get('wifi_only') and not net.get('allowed'))
-    connection_held = ('this connection is metered' if (net or {}).get('reason') == 'metered_connection'
-                       else 'this computer cannot tell whether its connection is metered (a VPN can cause this)')
+    connection_held = (say('dashboard.this_connection_is_metered') if (net or {}).get('reason') == 'metered_connection'
+                       else say('dashboard.this_computer_cannot_tell_whether_its_2'))
     v = {'site': site}
     v['go_enabled'] = not (s.busy or s.task or (s.cloud_auth or {}).get('status') == 'running' or s.account is None
                            or needs_login or signing_in or running or worker != 'ready' or go_wait > 0)
@@ -597,58 +596,54 @@ def view(s, now):
     # One button for what can be done now: signing in and saving never both need doing. A downloader that is still
     # starting is not offline: signing in again would not help it.
     if signing_in or (s.status is not None and not running and (needs_login or worker not in WORKING)):
-        v['action'], v['action_text'] = 'signin', 'Signing in…' if signing_in else 'Sign in'
+        v['action'], v['action_text'] = 'signin', say('dashboard.signing_in_2') if signing_in else say('dashboard.sign_in')
         v['action_enabled'] = not (s.busy or batch_running or signing_in)
     elif running:
-        v['action'], v['action_text'], v['action_enabled'] = 'pause', 'Pause', v['pause_enabled']
+        v['action'], v['action_text'], v['action_enabled'] = 'pause', say('downloads.pause'), v['pause_enabled']
     else:
         v['action'], v['action_enabled'] = 'go', v['go_enabled']
-        v['action_text'] = 'Continue' if account_status in ('stopped', 'held') else 'Start'
+        v['action_text'] = say('dashboard.continue') if account_status in ('stopped', 'held') else say('dashboard.start')
     v['allow_visible'] = network_held
     v['allow_enabled'] = not s.busy
     locked = running or batch_running
     # Choosing another site in Settings stops nothing; only a sign-in in progress keeps the window on its site.
     v['site_enabled'] = not (s.busy or signing_in)
     v['folder_enabled'] = not (s.busy or locked or signing_in)
-    v['folder_tooltip'] = 'Pause saving before you change the folder.' if locked else ''
-    v['folder_lock'] = ('The folder can’t be changed while episodes are downloading. Press Pause on the dashboard first.'
+    v['folder_tooltip'] = say('dashboard.pause_saving_before_you_change_the') if locked else ''
+    v['folder_lock'] = (say('dashboard.the_folder_cant_be_changed_while')
                         if locked else '')
     # Each site's dashboard dropdown changes only that site's pace.
-    speeds = {'fast': f'The quickest. If {site} keeps pausing the download, choose a slower speed.',
-              'medium': 'About half the Fast speed.',
-              'slow': 'About one quarter of the Fast speed.'}
+    speeds = {'fast': say('dashboard.the_quickest_if_keeps_pausing_the', site=site),
+              'medium': say('dashboard.about_half_the_fast_speed'),
+              'slow': say('dashboard.about_one_quarter_of_the_fast')}
     speed = account.get('speed') if account.get('speed') in speeds else 'fast'
     signed_in = bool(status.get('session_configured'))
     v['speed_visible'] = signed_in
-    v['speed_label'] = f'Speed on {site}'
+    v['speed_label'] = say('dashboard.speed_on', site=site)
     v['speed'] = speed
     v['speed_enabled'] = not (s.busy or signing_in or s.account is None)
-    v['speed_help'] = speeds[speed] + (' Changing speed briefly pauses and resumes this download.' if running else '')
-    v['signin_note'] = f'Sign in to {site} to choose how fast it saves.'
+    v['speed_help'] = speeds[speed] + (say('dashboard.changing_speed_briefly_pauses_and_resumes') if running else '')
+    v['signin_note'] = say('dashboard.sign_in_to_to_choose_how', site=site)
     v['signin_note_visible'] = not signed_in
     v['signout_visible'] = signed_in
-    v['signout_text'] = f'Sign out of {site}'
+    v['signout_text'] = say('dashboard.sign_out_of', site=site)
     v['signout_enabled'] = not (s.busy or running or batch_running or signing_in)
-    v['signout_help'] = ('Pause the download to sign out.' if running or batch_running else
-                         f'Comic Archiver keeps your {site} sign-in on this computer so it can download. '
-                         f'Signing out removes it from Comic Archiver only. Your {site} account, and anywhere else '
-                         'you use it, aren\'t affected. Your saved episodes stay.')
+    v['signout_help'] = (say('app.pause_the_download_to_sign_out') if running or batch_running else
+                         say('dashboard.comic_archiver_keeps_your_sign_in', site=site, site2=site))
     v['network_visible'] = net is not None
     v['network_checked'] = (net or {}).get('wifi_only') is False
     v['network_enabled'] = not s.busy and net is not None
     v['network_help'] = (
-        'Saving uses any connection, including metered and mobile ones. This may use your data allowance.'
+        say('dashboard.saving_uses_any_connection_including_metered')
         if (net or {}).get('wifi_only') is False
-        else 'Off: saving uses Wi-Fi or a wired connection, and waits on a metered or mobile one.' if (net or {}).get('allowed')
-        else 'This connection is metered, so saving waits for Wi-Fi or a wired connection. Tick this to save on it anyway; '
-             'this may use your data allowance.' if (net or {}).get('reason') == 'metered_connection'
-        else 'This computer cannot tell whether its connection is metered (a VPN can cause this), so saving waits. '
-             'Tick this to save on it anyway.')
+        else say('dashboard.off_saving_uses_wi_fi_or') if (net or {}).get('allowed')
+        else say('dashboard.this_connection_is_metered_so_saving') if (net or {}).get('reason') == 'metered_connection'
+        else say('dashboard.this_computer_cannot_tell_whether_its'))
     auth_messages = {code: say(f'signin.{code}', site=site)
                      for code in ('network_held', 'account_mismatch', 'failed', 'incomplete')}
     site_auth = s.site_auth or {}
     v['signin_status'] = (s.message.text if s.message else
-                          f'Finish signing in to {site}. We’ll detect it automatically; then return here to start saving.' if signing_in
+                          say('dashboard.finish_signing_in_to_well_detect', site=site) if signing_in
                           else auth_messages.get(str(site_auth.get('code')).removeprefix('signin_'), auth_messages['failed'])
                           if site_auth.get('status') == 'error' else '')
     v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
@@ -660,8 +655,8 @@ def view(s, now):
     cannot_save = number(audit.get('unsupported_recorded_accessible_episode_count'))
     missing = max(0, number(audit.get('missing_recorded_accessible_episode_count')) - cannot_save)
     lists = account.get('lists') if isinstance(account.get('lists'), dict) else {}
-    list_names = {'unlocked': 'Bought', 'subscribed': 'Subscribed', 'updated': 'Updated', 'recent': 'Recent',
-                  'free_episodes': 'Free episodes', 'wait_until_free': 'Wait until free'}
+    list_names = {'unlocked': say('downloads.bought'), 'subscribed': say('downloads.subscribed'), 'updated': say('downloads.updated'), 'recent': say('downloads.recent'),
+                  'free_episodes': say('downloads.free_episodes'), 'wait_until_free': say('downloads.wait_until_free')}
     list_phase = running and account.get('phase') == 'lists'
     active = list_names.get(lists.get('current'))
     counts = status.get('episodes_by_status') or {}
@@ -687,118 +682,117 @@ def view(s, now):
     v['live_waiting'] = waiting or disconnected
     v.update(heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh))
     # The card's facts, a field and its value each. The buttons say what can be done, so the rows only say what is.
-    rows = {item['name']: item for item in card_rows({'Status': v['title']})}
+    rows = {item['name']: item for item in card_rows({say('dashboard.status'): v['title']})}
     filled = set()
 
     def row(name, value, warning=False, tip=''):
         if not value:
             return
-        if name == 'Continue in':
-            value = 'Continue in ' + value
-        if name in ('Updates', 'Waiting', 'Stopped', 'Finished', 'Continue in', 'Connection'):
-            name = 'Status'
-        elif name in ('Lists', 'Series left'):
-            value = value.replace(' to check', ' series to check') if name == 'Series left' else value
-            name = 'Progress'
-        elif name == 'Step' and ' | ' in value:
+        if name == say('dashboard.continue_in'):
+            value = say('dashboard.continue_in_2') + value
+        if name in (say('dashboard.updates'), say('dashboard.waiting'), say('dashboard.stopped'), say('dashboard.finished'), say('dashboard.continue_in'), say('dashboard.connection')):
+            name = say('dashboard.status')
+        elif name in (say('dashboard.lists'), say('dashboard.series_left')):
+            value = value.replace(' to check', ' series to check') if name == say('dashboard.series_left') else value
+            name = say('dashboard.progress')
+        elif name == say('dashboard.step') and ' | ' in value:
             value, _, details = value.partition(' | ')
-            row('Progress', details)
+            row(say('dashboard.progress'), details)
         value = ' '.join(value.split())
         item = rows[name]
-        if name in filled and name in ('Status', 'Progress'):
+        if name in filled and name in (say('dashboard.status'), say('dashboard.progress')):
             value = item['value'] + ' | ' + value
             warning = warning or item['warning']
         item.update(value=value, warning=bool(warning), tip=tip)
         filled.add(name)
     if not s.loaded:
-        v['rows'] = card_rows({'Account': 'Checking…', 'Downloader': 'Checking…', 'Status': 'Opening…'})
+        v['rows'] = card_rows({say('dashboard.account'): say('dashboard.checking'), say('dashboard.downloader'): say('dashboard.checking'), say('dashboard.status'): say('library.opening_2')})
         v['save_place'] = save_place(s)
         return v
-    row('Account', v['session_word'], v['session_tone'] == 'warning')
-    row('Downloader', v['worker_word'], v['worker_tone'] == 'warning')
+    row(say('dashboard.account'), v['session_word'], v['session_tone'] == 'warning')
+    row(say('dashboard.downloader'), v['worker_word'], v['worker_tone'] == 'warning')
     if running and not disconnected:
-        phases = {'existing_backlog': 'Finishing saved downloads', 'lists': 'Finding your series',
-                  'series': 'Checking series and downloading', 'archive': 'Downloading episodes',
-                  'verify': 'Finishing download'}
+        phases = {'existing_backlog': say('dashboard.finishing_saved_downloads'), 'lists': say('dashboard.finding_your_series'),
+                  'series': say('dashboard.checking_series_and_downloading'), 'archive': say('dashboard.downloading_episodes'),
+                  'verify': say('dashboard.finishing_download')}
         step = '' if list_phase else step_progress(progress).rstrip('.')
-        row('Step', ' | '.join(part for part in (phases.get(account.get('phase'), 'Downloading'), step) if part))
+        row(say('dashboard.step'), ' | '.join(part for part in (phases.get(account.get('phase'), say('dashboard.downloading')), step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
                         and progress.get('category') == lists.get('current'))
-            row('Lists', f"{display(lists.get('checked'))} of {display(lists.get('total') or 4)} read" + (
-                f" | {display(progress['reading_list_page_count'])} pages of {active} | "
-                f"{display(progress.get('observed_library_series_count'))} series"
-                if matching and type(progress.get('reading_list_page_count')) is int else f' | now {active}' if active else ''))
+            row(say('dashboard.lists'), say('dashboard.of_read', n=display(lists.get('checked')), n2=display(lists.get('total') or 4)) + (
+                say('dashboard.pages_of_series', n=display(progress['reading_list_page_count']), active=active, n2=display(progress.get('observed_library_series_count')))
+                if matching and type(progress.get('reading_list_page_count')) is int else say('dashboard.now', active=active) if active else ''))
         elif account.get('phase') == 'series':
-            row('Series left', f"{display(status.get('scan_remaining_series_count'))} to check")
+            row(say('dashboard.series_left'), say('dashboard.to_check', n=display(status.get('scan_remaining_series_count'))))
         elif account.get('phase') == 'archive' and number(status.get('scan_remaining_series_count')):
-            row('Progress', f"{display(status['scan_remaining_series_count'])} series waiting")
+            row(say('dashboard.progress'), say('dashboard.series_waiting', n=display(status['scan_remaining_series_count'])))
     if disconnected and running:
-        row('Updates', 'Delayed: reaching the downloader again', True)
+        row(say('dashboard.updates'), say('dashboard.delayed_reaching_the_downloader_again'), True)
     elif retry:
-        row('Waiting', (f'{site} asked the app to wait' if retry.get('reason') == 'source'
-                        else 'Some images did not arrive' if retry.get('reason') == 'images'
-                        else 'The last step saved nothing new' if retry.get('reason') == 'idle'
-                        else 'For Wi-Fi or a wired connection' if network_held
-                        else f'The connection to {site} was interrupted')
+        row(say('dashboard.waiting'), (say('dashboard.asked_the_app_to_wait', site=site) if retry.get('reason') == 'source'
+                        else say('dashboard.some_images_did_not_arrive') if retry.get('reason') == 'images'
+                        else say('dashboard.the_last_step_saved_nothing_new') if retry.get('reason') == 'idle'
+                        else say('dashboard.for_wi_fi_or_a_wired') if network_held
+                        else say('dashboard.the_connection_to_was_interrupted', site=site))
             + ('' if network_held else f'; carries on in {retry_in}'), True)
     elif running and waiting:
-        row('Waiting', f'No new progress reported for {duration(activity_age)}', True)
+        row(say('dashboard.waiting'), say('dashboard.no_new_progress_reported_for', value=duration(activity_age)), True)
     elif batch_running and not running:
-        row('Step', 'Pausing after the image being saved' if progress.get('cancellation_requested')
-            else 'Finishing the current step')
+        row(say('dashboard.step'), say('dashboard.pausing_after_the_image_being_saved') if progress.get('cancellation_requested')
+            else say('dashboard.finishing_the_current_step'))
     if account_status == 'held' and not needs_login and not running:
         detail = {'series_scan_gap_count': status.get('series_scan_gap_count', 0)} | audit
         reason = held_reason(account.get('code'), site, missing, detail)
-        row('Finished' if finished else 'Stopped', reason, True)
+        row(say('dashboard.finished') if finished else say('dashboard.stopped'), reason, True)
     elif account.get('code') == 'login_required' and needs_login:
-        row('Stopped', f'{site} signed you out', True)
+        row(say('dashboard.stopped'), say('dashboard.signed_you_out', site=site), True)
     if not running and go_wait:
-        row('Continue in', wait_text(go_wait))
+        row(say('dashboard.continue_in'), wait_text(go_wait))
     if network_held and not running:
-        row('Connection', f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
+        row(say('dashboard.connection'), f'{connection_held[0].upper()}{connection_held[1:]}; saving waits for Wi-Fi or a wired connection', True)
     if account_status == 'finished':
-        row('Finished', 'Done')
+        row(say('dashboard.finished'), say('dashboard.done'))
     # Saved, Time left, Space, Speed and Download speed are on every card, so cards side by side read alike; NONE where nothing is known.
-    row('Saved', NONE if s.status is None else
+    row(say('settings.saved'), NONE if s.status is None else
         f"{display(counts.get('archived'))} {'episode' if number(counts.get('archived')) == 1 else 'episodes'}")
     estimate = status.get('estimate') if account.get('configured') else None
     if estimate is not None:
         estimate = dict(estimate, checking_lists=list_phase)
     time = time_row(estimate) if not finished else ''
-    row('Time left', time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
+    row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
     space, short = space_row({'free_bytes': estimate.get('free_bytes')} if finished and estimate else estimate)
     estimated_space = estimate and (number(estimate.get('waiting_episodes')) or unconfirmed_downloads(estimate))
-    row('Space', space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')
+    row(say('dashboard.space'), space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')
     if running and elapsed is not None:
-        row('Running for', duration(elapsed) + ('' if age is None else
-            f" | last {'check update' if verifying else 'saved'} {duration(age)} ago"))
+        row(say('dashboard.running_for'), duration(elapsed) + ('' if age is None else
+            say('dashboard.last_ago', value=say('dashboard.check_update') if verifying else 'saved', value2=duration(age))))
     refused = signed_in and account_status == 'held' and account.get('code') in ('source_refused', 'source_recovery_limit')
-    row('Speed', NONE if not signed_in else
-        SPEED_NAMES[speed] + (' (a slower speed may help)' if refused and speed != 'slow' else ''), refused)
+    row(say('dashboard.speed'), NONE if not signed_in else
+        SPEED_NAMES[speed] + (say('dashboard.a_slower_speed_may_help') if refused and speed != 'slow' else ''), refused)
     # What arrives, apart from Speed, which paces the requests.
     measured = s.speed() if running and s.saved_at else None
-    row('Download speed', NONE if measured is None else rate(measured))
+    row(say('dashboard.download_speed'), NONE if measured is None else rate(measured))
     notes = []
     if account_status == 'finished' and cannot_save:
-        notes.append(f'{display(cannot_save)} episodes use a format the app can’t save yet')
+        notes.append(say('dashboard.episodes_use_a_format_the_app', n=display(cannot_save)))
     purchase = account.get('purchase_history')
     if finished and site == 'Tapas' and not isinstance(purchase, dict):
-        notes.append('Purchase history not checked')
+        notes.append(say('dashboard.purchase_history_not_checked'))
     if site == 'Tapas' and isinstance(purchase, dict):
         if purchase.get('status') == 'pending':
-            notes.append('Checking purchase history')
+            notes.append(say('dashboard.checking_purchase_history'))
         elif purchase.get('status') == 'partial':
-            reasons = {'history_view_unverified': 'Purchase-history view could not be verified',
-                       'history_rows_unverified': 'Purchase-history entries need another check',
-                       'history_page_repeated': 'Purchase-history paging repeated a page',
-                       'history_continuation_unverified': 'Purchase-history paging could not be verified',
-                       'history_association_unresolved': 'Some purchase-history entries could not be matched to series',
-                       'history_checkpoint_unreadable': 'Purchase-history progress could not be read',
-                       'history_reader_unavailable': 'Purchase-history checking is unavailable in this reader'}
-            notes.append(reasons.get(purchase.get('code'), 'Purchase-history check incomplete'))
+            reasons = {'history_view_unverified': say('dashboard.purchase_history_view_could_not_be'),
+                       'history_rows_unverified': say('dashboard.purchase_history_entries_need_another_check'),
+                       'history_page_repeated': say('dashboard.purchase_history_paging_repeated_a_page'),
+                       'history_continuation_unverified': say('dashboard.purchase_history_paging_could_not_be'),
+                       'history_association_unresolved': say('dashboard.some_purchase_history_entries_could_not'),
+                       'history_checkpoint_unreadable': say('dashboard.purchase_history_progress_could_not_be'),
+                       'history_reader_unavailable': say('dashboard.purchase_history_checking_is_unavailable_in')}
+            notes.append(reasons.get(purchase.get('code'), say('dashboard.purchase_history_check_incomplete')))
     if notes:
-        row('Note', ' | '.join(notes))
+        row(say('dashboard.note'), ' | '.join(notes))
     v['rows'] = list(rows.values())
     v['save_place'] = save_place(s)
     return v
@@ -806,50 +800,50 @@ def view(s, now):
 
 def heading(s, worker, running, signing_in, batch_running, needs_login, disconnected, waiting, since_refresh):
     """The dashboard's title, its one-word state and the two lines about the account and the downloader."""
-    title, label, tone = 'Loading your status…', 'Loading', 'neutral'
+    title, label, tone = say('dashboard.loading_your_status'), say('dashboard.loading'), 'neutral'
     account = s.account or {}
     if s.loaded and s.status is not None and s.account is not None:
         if disconnected:
-            title, label, tone = ('Status updates unavailable', 'Reconnecting', 'warning') if updating(s) else (
-                'Status unavailable', 'Status unavailable', 'warning')
+            title, label, tone = (say('dashboard.status_updates_unavailable'), say('dashboard.reconnecting'), 'warning') if updating(s) else (
+                say('dashboard.status_unavailable'), say('dashboard.status_unavailable'), 'warning')
         elif signing_in:
-            title, label, tone = 'Finish signing in', 'Signing in', 'working'
+            title, label, tone = say('dashboard.finish_signing_in'), say('dashboard.signing_in'), 'working'
         elif needs_login:
-            title = 'Sign in again' if (s.site_auth or {}).get('status') == 'expired' else 'Sign in to get started'
-            label, tone = 'Sign-in needed', 'warning'
+            title = say('dashboard.sign_in_again') if (s.site_auth or {}).get('status') == 'expired' else say('dashboard.sign_in_to_get_started')
+            label, tone = say('cloud.sign_in_needed'), 'warning'
         elif running:
-            phases = {'lists': ('Finding your series', 'Finding series'), 'series': ('Checking your library', 'Checking series'),
-                      'archive': ('Saving your episodes', 'Downloading'), 'verify': ('Finishing download', 'Finishing'),
-                      'existing_backlog': ('Finishing saved downloads', 'Downloading')}
-            (title, label), tone = phases.get(account.get('phase'), ('Saving your library', 'Working')), 'working'
+            phases = {'lists': (say('dashboard.finding_your_series'), say('dashboard.finding_series')), 'series': (say('dashboard.checking_your_library'), say('dashboard.checking_series')),
+                      'archive': (say('downloads.saving_your_episodes'), say('dashboard.downloading')), 'verify': (say('dashboard.finishing_download'), say('dashboard.finishing')),
+                      'existing_backlog': (say('dashboard.finishing_saved_downloads'), say('dashboard.downloading'))}
+            (title, label), tone = phases.get(account.get('phase'), (say('notification.title'), say('downloads.working'))), 'working'
             if waiting:
-                title, label, tone = 'Waiting for a progress update', 'Waiting', 'warning'
+                title, label, tone = say('dashboard.waiting_for_a_progress_update'), say('dashboard.waiting'), 'warning'
         elif account.get('status') == 'held' and account.get('code') == 'archive_incomplete':
-            title, label, tone = 'Completion needs attention', 'Needs attention', 'warning'
+            title, label, tone = say('dashboard.completion_needs_attention'), say('dashboard.needs_attention'), 'warning'
         elif account.get('status') in ('held', 'stopped'):
-            title, label, tone = 'Your download is paused', 'Paused', 'warning'
+            title, label, tone = say('dashboard.your_download_is_paused'), say('dashboard.paused'), 'warning'
         elif batch_running:
-            title, label, tone = 'Finishing the current step', 'Working', 'working'
+            title, label, tone = say('dashboard.finishing_the_current_step'), say('downloads.working'), 'working'
         elif worker == 'starting':
-            title, label, tone = 'Starting the downloader', 'Starting', 'working'
+            title, label, tone = say('dashboard.starting_the_downloader'), say('dashboard.starting'), 'working'
         elif worker != 'ready':
-            title, label, tone = 'The downloader is offline', 'Offline', 'warning'
+            title, label, tone = say('dashboard.the_downloader_is_offline'), say('dashboard.offline'), 'warning'
         elif account.get('status') == 'finished':
-            title, label, tone = 'This run is finished', 'Finished', 'success'
+            title, label, tone = say('dashboard.this_run_is_finished'), say('dashboard.finished'), 'success'
         else:
-            title, label, tone = 'Ready to save', 'Ready', 'success'
+            title, label, tone = say('downloads.ready_to_save'), say('downloads.ready'), 'success'
     site = s.site()
-    session = ('Checking…' if s.status is None else 'Signing in' if signing_in else 'Sign-in needed' if needs_login
-               else 'Connected' if (s.site_auth or {}).get('status') in ('connected', 'verified') else 'Session saved')
+    session = (say('dashboard.checking') if s.status is None else say('dashboard.signing_in') if signing_in else say('cloud.sign_in_needed') if needs_login
+               else say('dashboard.connected') if (s.site_auth or {}).get('status') in ('connected', 'verified') else say('dashboard.session_saved'))
     # Before the first sign-in the downloader has nothing to start with: that is not a fault to warn about.
     not_yet = needs_login and worker not in WORKING
-    downloader = ('Checking…' if s.status is None else 'Status unknown' if disconnected else 'Working' if worker == 'busy'
-                  else 'Ready' if worker == 'ready' else 'Starting' if worker == 'starting'
-                  else 'Starts after sign-in' if not_yet else 'Offline')
+    downloader = (say('dashboard.checking') if s.status is None else say('downloads.status_unknown') if disconnected else say('downloads.working') if worker == 'busy'
+                  else say('downloads.ready') if worker == 'ready' else say('dashboard.starting') if worker == 'starting'
+                  else say('dashboard.starts_after_sign_in') if not_yet else say('dashboard.offline'))
     return {'title': title, 'state': label, 'tone': tone, 'session_word': session, 'worker_word': downloader,
             'session': f'{site} · {session}', 'session_tone': 'warning' if needs_login and s.status is not None else 'neutral',
             'worker': f'Downloader · {downloader}',
             'worker_tone': 'warning' if disconnected or (s.status is not None and not not_yet and worker not in WORKING) else 'neutral',
-            'updated': ('Status unavailable · start to refresh' if disconnected and not updating(s) else
-                        'Updates delayed · trying to reconnect' if disconnected else 'Checking current status…'
-                        if since_refresh is None else 'Updated just now' if since_refresh < 2 else f'Updated {since_refresh}s ago')}
+            'updated': (say('dashboard.status_unavailable_start_to_refresh') if disconnected and not updating(s) else
+                        say('dashboard.updates_delayed_trying_to_reconnect') if disconnected else say('dashboard.checking_current_status')
+                        if since_refresh is None else say('dashboard.updated_just_now') if since_refresh < 2 else say('dashboard.updated_s_ago', since_refresh=since_refresh))}

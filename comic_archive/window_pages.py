@@ -11,25 +11,17 @@ from . import app_actions, dashboard_model, license_texts, storage_model, suppor
 from .window_library import EpisodeLibrary
 from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
+from .messages import say
 
 ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
-TABS = (('downloads', 'Downloads && storage'), ('b2', 'Backblaze B2'), ('about', 'About'))
-SIGN_OUT = ('Sign out of {site} in Comic Archiver?\n\nThis signs out only Comic Archiver, on this computer. Your '
-            '{site} account isn\'t changed, and anywhere else you use {site}, like your web browser, stays signed in.'
-            '\n\nYour saved episodes stay where they are. To download again, sign in again.')
+TABS = (('downloads', 'Downloads && storage'), ('b2', say('cloud.backblaze_b2')), ('about', say('app.about')))
+SIGN_OUT = (say('window.sign_out_of_in_comic_archiver'))
 # After signing out: the library folders the app opened before that it could not sign out in.
-SIGNED_OUT_AWAY = {1: ('Signed out of {site}, except in this library folder, which Comic Archiver can\'t reach:\n{folders}\n'
-                       'Connect the drive it\'s on, choose the folder using the edit icon beside the library folder '
-                       'on the dashboard, and sign out there.'),
-                   2: ('Signed out of {site}, except in these library folders, which Comic Archiver can\'t reach:\n'
-                       '{folders}\nConnect the drives they\'re on, choose each folder using the edit icon beside the '
-                       'library folder on the dashboard, and sign out there.')}
+SIGNED_OUT_AWAY = {1: (say('window.signed_out_of_except_in_this')),
+                   2: (say('window.signed_out_of_except_in_these'))}
 # Asked once for a cloud connection that came with the library folder, before any new episode goes to it.
-CLOUD_CONFIRM = ('This library folder saves new episodes to {bucket}. That connection came with the folder: it '
-                 'wasn\'t set up in Comic Archiver on this computer.\n\nKeep saving new episodes there?\n\n'
-                 'If you choose No, they\'re saved on this computer instead.')
-FOOTER = ('Saving runs only while this window is open. Only episodes your account can already read, free or bought, '
-          'are saved. Nothing is bought for you.')
+CLOUD_CONFIRM = (say('window.this_library_folder_saves_new_episodes'))
+FOOTER = (say('window.saving_runs_only_while_this_window'))
 # Each Backblaze page, as its own setup steps name it. Only these leave the window, in the computer's own browser.
 B2_PAGES = {
     'signup': 'https://www.backblaze.com/sign-up/s3', 'signin': 'https://secure.backblaze.com/user_signin.htm',
@@ -38,8 +30,7 @@ B2_PAGES = {
     'browse': 'https://secure.backblaze.com/b2_browse_files2.htm', 'reports': 'https://secure.backblaze.com/b2_reports.htm',
     'pricing': 'https://www.backblaze.com/cloud-storage/pricing',
 }
-B2_INTRO = ('Each new episode goes straight to your own Backblaze account as it downloads, with no copy kept on this '
-            'computer, and is checked against Backblaze’s own record of it. An upload that fails keeps the episode here, to retry.')
+B2_INTRO = (say('window.each_new_episode_goes_straight_to'))
 B2_COSTS = ('<p>Backblaze bills you itself, not through Comic Archiver. Comic Archiver never sees your payment details and is paid nothing.</p><ul>'
             '<li><b>Signing up is free</b> and needs no card. The first 10 GB you store is always free.</li>'
             '<li><b>Past 10 GB</b>, Backblaze charges $6.95 a month for each 1,000 GB (1 TB) stored, and only for what is stored. '
@@ -85,16 +76,12 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="billing">Billing</a>: your card and your monthly bills.</li>'
                  '<li><a href="caps">Caps &amp; Alerts</a>: the most you allow a day, and Backblaze’s emails as you near it.</li>'
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
-ABOUT = ('Copyright 2026 Ben Crute. Comic Archiver is free software under the MIT license. It is built with '
-         'other people’s software, each under its own license; every one of those licenses can be read here.')
-SUPPORT = ('Asking for help? This copies a short summary of each site’s download to paste into your message: the '
-           'app’s version, counts and the app’s own codes. It has no series titles, folder names or sign-in details.')
-SUPPORT_COPIED = 'Copied. Paste it into your message or email.'
-SUPPORT_LOG = ('Asked for the app’s log? Save log for support puts it in one file in your Downloads folder, to attach to '
-               'an email. It has the app’s own messages and each site’s series and episode numbers, but no titles, '
-               'folder names or sign-in details.')
-LOG_SAVED = 'Saved in your Downloads folder as “{name}”.'
-LOG_FAILED = 'The log could not be saved. Check that your Downloads folder can be written to.'
+ABOUT = (say('licenses.copyright_2026_ben_crute_comic_archiver'))
+SUPPORT = (say('about.asking_for_help_this_copies_a'))
+SUPPORT_COPIED = say('app.copied_paste_it_into_your_message')
+SUPPORT_LOG = (say('about.asked_for_the_apps_log_save'))
+LOG_SAVED = say('app.saved_in_your_downloads_folder_as')
+LOG_FAILED = say('app.the_log_could_not_be_saved')
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 660
 CARD_THREE_COLUMNS_FROM = 1000
@@ -212,7 +199,7 @@ class Kit:
         hint = self.w.QToolButton()
         hint.setObjectName('hint')
         hint.setText('?')
-        hint.setAccessibleName('What this means')
+        hint.setAccessibleName(say('window.what_this_means'))
         hint.setCursor(self.q.QtCore.Qt.CursorShape.WhatsThisCursor)
         hint.clicked.connect(lambda checked=False: self.w.QToolTip.showText(
             hint.mapToGlobal(self.q.QtCore.QPoint(0, hint.height())), hint.toolTip(), hint))
@@ -310,7 +297,7 @@ def set_visible(widget, visible):
     widget.setVisible(visible)
 
 
-def say(label, text, error=False):
+def show(label, text, error=False):
     if label.text() != text:
         label.setText(text)
     tone(label, 'error', error)
@@ -339,7 +326,10 @@ def choose(combo, key):
         combo.blockSignals(blocked)
 
 
-def heading(kit, title, eyebrow='Your archive', name='pageTitle'):
+YOUR_ARCHIVE = say('window.your_archive')
+
+
+def heading(kit, title, eyebrow=YOUR_ARCHIVE, name='pageTitle'):
     holder = kit.w.QWidget()
     box = kit.w.QVBoxLayout(holder)
     box.setContentsMargins(0, 0, 0, 0)
@@ -377,7 +367,7 @@ class Header:
         self.nav = {}
         group = w.QButtonGroup(self.widget)
         group.setExclusive(True)
-        for key, text in (('dashboard', 'Dashboard'), ('library', 'Library'), ('settings', 'Settings')):
+        for key, text in (('dashboard', say('window.dashboard')), ('library', 'Library'), ('settings', say('app.settings'))):
             button = kit.button(text, lambda key=key: pages.go_to(key))
             button.setObjectName('nav')
             button.setIconSize(kit.q.QtCore.QSize(28, 20))
@@ -398,7 +388,7 @@ class Header:
             button.setIcon(icon(self.kit.q, key, colours(dark)['nav-on-text' if button.isChecked() else 'text'], 20, 8))
         # The switch shows where it leads: the sun to light, the moon to dark.
         self.theme.setText('☀' if dark else '☾')
-        tip = 'Switch to light mode' if dark else 'Switch to dark mode'
+        tip = say('window.switch_to_light_mode') if dark else say('window.switch_to_dark_mode')
         self.theme.setToolTip(tip)
         self.theme.setAccessibleName(tip)
 
@@ -433,7 +423,7 @@ class SiteCard:
         top.setSpacing(8)
         top.addWidget(paper_mark(kit.q))
         top.addWidget(kit.single_line(name, 'providerTitle'), 1)
-        self.pill = kit.label('Loading', 'pill', wrap=False)
+        self.pill = kit.label(say('dashboard.loading'), 'pill', wrap=False)
         top.addWidget(self.pill, 0, kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
         box.addLayout(top)
         self.fields = w.QGridLayout()
@@ -446,20 +436,20 @@ class SiteCard:
         self.message = kit.single_line('')
         reserved(self.message)
         box.addWidget(self.message)
-        self.selection = kit.button('Download: All types', lambda: pages.open_download_choices(key), 'downloadChoice')
-        self.selection.setAccessibleName(f'Download choices for {name}')
+        self.selection = kit.button(say('window.download_all_types'), lambda: pages.open_download_choices(key), 'downloadChoice')
+        self.selection.setAccessibleName(say('window.download_choices_for', name=name))
         box.addWidget(self.selection)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
         self.doing = 'signin'
         acts = {'signin': pages.signin, 'go': pages.go, 'pause': pages.pause}
-        self.action = kit.button('Sign in', lambda: acts[self.doing](key), 'go')
-        self.action.setMinimumWidth(self.action.fontMetrics().horizontalAdvance('Signing in…') + 48)
-        self.signout = kit.button('Sign out', lambda: pages.sign_out(key), 'destructive')
-        self.signout.setAccessibleName(f'Sign out of {name}')
+        self.action = kit.button(say('dashboard.sign_in'), lambda: acts[self.doing](key), 'go')
+        self.action.setMinimumWidth(self.action.fontMetrics().horizontalAdvance(say('dashboard.signing_in_2')) + 48)
+        self.signout = kit.button(say('app.sign_out'), lambda: pages.sign_out(key), 'destructive')
+        self.signout.setAccessibleName(say('app.sign_out_of_2', name=name))
         reserved(self.signout)
         self.signout.hide()
-        self.allow = kit.button('Allow connection', lambda: pages.allow_network(key), 'secondary')
-        self.allow.setAccessibleName('Allow this connection')
+        self.allow = kit.button(say('window.allow_connection'), lambda: pages.allow_network(key), 'secondary')
+        self.allow.setAccessibleName(say('window.allow_this_connection'))
         # Connection permission precedes Start/Continue. Share their slot so a
         # hidden permission control does not leave an empty button row.
         self.primary = w.QWidget()
@@ -505,54 +495,54 @@ class SiteCard:
             parts = {}
             for index, row in enumerate(rows):
                 key = row['name']
-                captions = {'Saved': 'Episodes saved', 'Time left': 'Est. time left',
-                            'Space': 'Est. space needed', 'Download speed': 'Transfer rate:', 'Status': '●'}
-                if paper and key in ('Time left', 'Space', 'Status'):
+                captions = {say('settings.saved'): say('window.episodes_saved'), say('dashboard.time_left'): say('window.est_time_left'),
+                            say('dashboard.space'): say('window.est_space_needed'), say('dashboard.download_speed'): say('window.transfer_rate'), say('dashboard.status'): '●'}
+                if paper and key in (say('dashboard.time_left'), say('dashboard.space'), say('dashboard.status')):
                     from .window_art import symbol_label
-                    name = symbol_label(self.kit.q, '' if key == 'Status' else captions[key],
-                                        {'Time left': 'clock', 'Space': 'storage', 'Status': 'info'}[key],
-                                        22 if key == 'Status' else 16)
+                    name = symbol_label(self.kit.q, '' if key == say('dashboard.status') else captions[key],
+                                        {say('dashboard.time_left'): 'clock', say('dashboard.space'): 'storage', say('dashboard.status'): 'info'}[key],
+                                        22 if key == say('dashboard.status') else 16)
                     name.setObjectName('fieldName')
                 else:
                     name = self.kit.label(captions.get(key, key) if paper else key, 'fieldName', wrap=False)
                 name.setProperty('fieldKey', key)
                 name.setAccessibleName(key)
-                if paper and key in ('Time left', 'Space'):
+                if paper and key in (say('dashboard.time_left'), say('dashboard.space')):
                     name.setObjectName('estimateLabel')
-                elif paper and key == 'Saved':
+                elif paper and key == say('settings.saved'):
                     name.setObjectName('episodeCaption')
                     name.setContentsMargins(0, 0, 0, 10)  # The total and its caption read as one; the estimates stand apart.
-                elif paper and key == 'Status':
+                elif paper and key == say('dashboard.status'):
                     name.setObjectName('statusSymbol')
-                elif paper and key == 'Download speed':
+                elif paper and key == say('dashboard.download_speed'):
                     name.setObjectName('transferName')
-                if row['name'] == 'Speed':
+                if row['name'] == say('dashboard.speed'):
                     self.speed = value = self.kit.combo([(key, SPEED_NAMES[key]) for key in SPEEDS],
                                                        lambda speed: self.pages.speed(speed, self.key), wheel_changes=False)
-                    value.setAccessibleName(f'Speed on {self.name}')
+                    value.setAccessibleName(say('window.speed_on', name=self.name))
                     value.setObjectName('dashboardSpeed')
                     value.setPlaceholderText(dashboard_model.NONE)
                     value.setCurrentIndex(-1)
                     value.setEnabled(False)
                     value.setMinimumWidth(0)
                 else:
-                    role = {'Saved': 'episodeTotal', 'Time left': 'estimateValue', 'Space': 'estimateValue',
-                            'Download speed': 'transferValue', 'Status': 'cardStatus'}.get(key, 'fieldValue')
+                    role = {say('settings.saved'): 'episodeTotal', say('dashboard.time_left'): 'estimateValue', say('dashboard.space'): 'estimateValue',
+                            say('dashboard.download_speed'): 'transferValue', say('dashboard.status'): 'cardStatus'}.get(key, 'fieldValue')
                     value = self.kit.single_line('', role if paper else 'fieldValue')
                 hint = self.kit.hint()
-                if not paper or key in ('Time left', 'Space'):
+                if not paper or key in (say('dashboard.time_left'), say('dashboard.space')):
                     reserved(hint)
                 holder = self.kit.row(value, hint, spacing=6)
                 parts[key] = (name, holder)
                 if paper:
-                    if key == 'Status':
+                    if key == say('dashboard.status'):
                         name.setFixedWidth(26)
                         holder.layout().insertWidget(0, name)
                         self.fields.addWidget(holder, 7, 0, 1, 3)
-                    elif key not in ('Speed', 'Download speed'):
-                        positions = {'Saved': ((1, 0, 1, 3), (0, 0, 1, 3)),
-                                     'Time left': ((2, 0, 1, 1), (3, 0, 1, 1)),
-                                     'Space': ((2, 2, 1, 1), (3, 2, 1, 1))}
+                    elif key not in (say('dashboard.speed'), say('dashboard.download_speed')):
+                        positions = {say('settings.saved'): ((1, 0, 1, 3), (0, 0, 1, 3)),
+                                     say('dashboard.time_left'): ((2, 0, 1, 1), (3, 0, 1, 1)),
+                                     say('dashboard.space'): ((2, 2, 1, 1), (3, 2, 1, 1))}
                         caption_at, value_at = positions[key]
                         self.fields.addWidget(name, *caption_at)
                         self.fields.addWidget(holder, *value_at)
@@ -560,13 +550,13 @@ class SiteCard:
                     self.fields.addWidget(name, index, 0, self.kit.q.QtCore.Qt.AlignmentFlag.AlignTop)
                     self.fields.addWidget(holder, index, 1)
                 placed(name, holder)
-                if paper and key == 'Speed':
+                if paper and key == say('dashboard.speed'):
                     name.hide()  # The compact dropdown names its setting accessibly; it needs no extra caption.
                 self.cells.append((name, value))
                 self.hints.append(hint)
             if paper:
-                rate_name, rate_value = parts['Download speed']
-                speed_name, speed_value = parts['Speed']
+                rate_name, rate_value = parts[say('dashboard.download_speed')]
+                speed_name, speed_value = parts[say('dashboard.speed')]
                 divider = self.kit.w.QFrame()
                 divider.setObjectName('cardDivider')
                 divider.setFixedHeight(26)
@@ -585,12 +575,12 @@ class SiteCard:
                 self.rules.append(between)
                 placed(between)
         for (name, value), hint, row in zip(self.cells, self.hints, rows, strict=True):
-            if row['name'] != 'Speed':
+            if row['name'] != say('dashboard.speed'):
                 text = row['value']
-                if paper and row['name'] == 'Saved':
+                if paper and row['name'] == say('settings.saved'):
                     text = text.removesuffix(' episodes').removesuffix(' episode')
                 value.setText(text)
-            if paper and row['name'] == 'Status':
+            if paper and row['name'] == say('dashboard.status'):
                 appearance = self.widget.property('appearance')
                 name.setSymbol({'active': 'spinner', 'complete': 'check', 'paused': 'pause',
                                 'waiting': 'clock', 'attention': 'alert'}.get(appearance, 'info'))
@@ -603,7 +593,7 @@ class SiteCard:
             # A hint follows the value; spare width goes after it. The row keeps
             # its height, and long values can still shrink and elide on one line.
             policy = self.kit.w.QSizePolicy.Policy
-            value.setSizePolicy(policy.Fixed if row['name'] == 'Speed' else policy.Preferred if tip else policy.Ignored,
+            value.setSizePolicy(policy.Fixed if row['name'] == say('dashboard.speed') else policy.Preferred if tip else policy.Ignored,
                                 policy.Fixed)
             layout = value.parentWidget().layout()
             layout.setStretchFactor(value, 0 if tip else 1)
@@ -618,34 +608,34 @@ class SiteCard:
         if not available:
             chosen = dict.fromkeys(TYPES, False)
         count = sum(bool(chosen.get(key)) for key in TYPES)
-        suffix = 'All types' if count == len(TYPES) else 'Paid series' if chosen.get('bought') and count == 1 else LABELS[next(key for key in TYPES if chosen.get(key))] if count == 1 else f'{count} types'
+        suffix = say('window.all_types') if count == len(TYPES) else say('window.paid_series') if chosen.get('bought') and count == 1 else LABELS[next(key for key in TYPES if chosen.get(key))] if count == 1 else f'{count} types'
         self.selection.setText('Download: ' + suffix)
         self.selection.setToolTip('\n'.join(f'{LABELS[key]}: {HELP[key]}' for key in TYPES if chosen.get(key)))
         if not available:
-            self.selection.setText('Download: Unavailable')
-            self.selection.setToolTip('Saved choices could not be read. Choose the desired episode types again.')
+            self.selection.setText(say('window.download_unavailable'))
+            self.selection.setToolTip(say('window.saved_choices_could_not_be_read'))
         set_enabled(self.selection, s is not None and not s.busy)
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
         if v is None:
             self._appearance('neutral')
-            self.pill.setText('Not signed in')
+            self.pill.setText(say('dashboard.not_signed_in'))
             tone(self.pill, 'tone', '')  # The plain look.
             tone(self.widget, 'tone', '')
             self._fields(dashboard_model.card_summary()['rows'])
             self.speed.setCurrentIndex(-1)
             set_enabled(self.speed, False)
-            self.speed.setToolTip(f'Sign in to {self.name} to choose a speed.')
-            say(self.message, '')
+            self.speed.setToolTip(say('window.sign_in_to_to_choose_a', name=self.name))
+            show(self.message, '')
             self.doing = 'signin'
             set_enabled(self.action, True)
-            self.action.setText('Sign in')
+            self.action.setText(say('dashboard.sign_in'))
             self._show_primary(self.action)
             set_visible(self.signout, False)
             return
         summary = dashboard_model.card_summary(s, v)
         self._appearance(summary['appearance'])
-        self.pill.setText({'Needs attention': 'Attention', 'Sign-in needed': 'Sign in', 'Finished': 'Done',
-                          'Status unavailable': 'Offline'}.get(summary['state'], summary['state']))
+        self.pill.setText({say('dashboard.needs_attention'): say('window.attention'), say('cloud.sign_in_needed'): say('dashboard.sign_in'), say('dashboard.finished'): say('dashboard.done'),
+                          say('dashboard.status_unavailable'): say('dashboard.offline')}.get(summary['state'], summary['state']))
         tone(self.pill, 'tone', summary['tone'])
         tone(self.widget, 'tone', 'warning' if summary['tone'] == 'warning' else 'status')
         self._fields(summary['rows'])
@@ -656,11 +646,11 @@ class SiteCard:
         speed_enabled = v['speed_visible'] and v['speed_enabled']
         set_enabled(self.speed, speed_enabled)
         speed_tip = v['speed_help'] if v['speed_visible'] else v['signin_note']
-        speed_row = next(row for row in v['rows'] if row['name'] == 'Speed')
+        speed_row = next(row for row in v['rows'] if row['name'] == say('dashboard.speed'))
         if speed_row['warning']:
             speed_tip += ' ' + speed_row['value']
         self.speed.setToolTip(speed_tip)
-        say(self.message, v['signin_status'], v['signin_status_error'])
+        show(self.message, v['signin_status'], v['signin_status_error'])
         self.doing = v['action']
         set_enabled(self.action, v['action_enabled'])
         self.action.setText(v['action_text'])
@@ -687,11 +677,11 @@ class Dashboard:
         column = w.QVBoxLayout(content)
         column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(16)
-        self.updated = kit.single_line('Checking current status…', 'muted')
+        self.updated = kit.single_line(say('dashboard.checking_current_status'), 'muted')
         self.updated.setParent(content)
         self.updated.hide()
-        self.go_all = kit.button('Start all', pages.go_all, 'secondary')
-        self.pause_all = kit.button('Pause all', pages.pause_all, 'secondary')
+        self.go_all = kit.button(say('downloads.start_all'), pages.go_all, 'secondary')
+        self.pause_all = kit.button(say('downloads.pause_all'), pages.pause_all, 'secondary')
         self.go_all.setObjectName('toolbarAction')
         self.pause_all.setObjectName('toolbarAction')
         reserved(self.pause_all)
@@ -704,7 +694,7 @@ class Dashboard:
         self.cards = {}
         column.addWidget(self.grid_holder)
         from .window_art import symbol_label
-        estimate_note = symbol_label(kit.q, 'Estimates adjust as episodes are discovered.', 'info')
+        estimate_note = symbol_label(kit.q, say('window.estimates_adjust_as_episodes_are_discovered'), 'info')
         estimate_note.setObjectName('muted')
         notes = w.QVBoxLayout()
         notes.setSpacing(16)
@@ -721,13 +711,13 @@ class Dashboard:
     def _library(self, kit, pages):
         w = kit.w
         card, box = kit.frame('libraryOverview', margins=(0, 0, 0, 0), spacing=8)
-        card.setAccessibleName('All sites library')
-        self.library_title = kit.label('All sites', 'sectionTitle')
+        card.setAccessibleName(say('window.all_sites_library'))
+        self.library_title = kit.label(say('downloads.all_sites'), 'sectionTitle')
         self.library_title.setParent(card)
         self.library_title.hide()
-        self.counting = kit.label('⌛ Counting episodes…', 'muted', wrap=False)
-        self.counting.setAccessibleName('Counting saved episodes')
-        self.counting.setToolTip('Reading saved-file counts. Previous totals stay visible until the count finishes.')
+        self.counting = kit.label(say('window.counting_episodes'), 'muted', wrap=False)
+        self.counting.setAccessibleName(say('window.counting_saved_episodes'))
+        self.counting.setToolTip(say('window.reading_saved_file_counts_previous_totals'))
         reserved(self.counting)
         self.counting.hide()
         self.metrics = w.QGridLayout()
@@ -736,7 +726,7 @@ class Dashboard:
         metric_holder = w.QWidget()
         metric_holder.setLayout(self.metrics)
         self.metric_cells = []
-        self.files = kit.button('Open library folder', pages.open_folder, 'secondary')
+        self.files = kit.button(say('library.open_library_folder'), pages.open_folder, 'secondary')
         self.files.setObjectName('toolbarAction')
         from .window_art import symbol_label
         folder = symbol_label(kit.q, '', 'folder', 26)
@@ -754,7 +744,7 @@ class Dashboard:
         self.change_folder = w.QToolButton()
         self.change_folder.setObjectName('editFolder')
         self.change_folder.setText('✎')
-        self.change_folder.setAccessibleName('Change library folder for all sites')
+        self.change_folder.setAccessibleName(say('window.change_library_folder_for_all_sites'))
         self.change_folder.setCursor(kit.q.QtCore.Qt.CursorShape.PointingHandCursor)
         self.change_folder.clicked.connect(pages.change_folder)
         location = kit.row(self.save, self.change_folder, spacing=6)
@@ -827,7 +817,7 @@ class Dashboard:
             # The total is never cut short: in a narrow window the page scrolls sideways instead.
             number = self.kit.label(value, 'metricNumber', wrap=False)
             number.setSizePolicy(self.kit.w.QSizePolicy.Policy.Preferred, self.kit.w.QSizePolicy.Policy.Fixed)
-            caption = self.kit.label('saved episodes' if index == 0 else name, 'metricCaption', wrap=False)
+            caption = self.kit.label(say('window.saved_episodes') if index == 0 else name, 'metricCaption', wrap=False)
             for label in (number, caption):
                 box.addWidget(label)
             if index == 0:
@@ -868,16 +858,16 @@ class Dashboard:
             card.show(*views.get(key, (None, None)))
         place = dashboard_model.save_place(s)
         root = s.library_root or ''
-        self.save.setText(f'Library folder: {root}' if root else '')
+        self.save.setText(say('window.library_folder', root=root) if root else '')
         self.save.setVisible(bool(root))
         set_enabled(self.change_folder, bool(root) and everything['folder_enabled'])
-        self.change_folder.setToolTip(everything['folder_tooltip'] or 'Change library folder for all sites')
-        self.destination.setText(f'Saving to {place}' if place and place != root else '')
+        self.change_folder.setToolTip(everything['folder_tooltip'] or say('window.change_library_folder_for_all_sites'))
+        self.destination.setText(say('window.saving_to', place=place) if place and place != root else '')
         self.destination.setVisible(bool(place and place != root))
         set_enabled(self.files, not s.busy)
         self.counting.setVisible(bool(self.pages.counting))
         summary = storage_model.combined([state.summary for state, _ in views.values()])
-        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')
+        show(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')
         if summary is False:
             return
         overview = storage_model.library_overview(summary, s.cloud_offered)
@@ -892,25 +882,25 @@ class ProviderSettingsCard:
         self.kit, self.pages, self.key = kit, pages, key
         w = kit.w
         self.widget, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        self.widget.setAccessibleName(f'{name} downloads and storage')
-        self.pill = kit.label('Not signed in', 'pill', wrap=False)
+        self.widget.setAccessibleName(say('window.downloads_and_storage', name=name))
+        self.pill = kit.label(say('dashboard.not_signed_in'), 'pill', wrap=False)
         box.addWidget(kit.row(kit.label(name, 'sectionTitle'), self.pill))
         self.device_stored = kit.single_line('—')
         self.device_stored.setSizePolicy(w.QSizePolicy.Policy.Preferred, w.QSizePolicy.Policy.Fixed)
-        box.addWidget(kit.row(kit.label('This device', 'fieldName', wrap=False), self.device_stored))
+        box.addWidget(kit.row(kit.label(say('libraries.this_device'), 'fieldName', wrap=False), self.device_stored))
         self.cloud_row = w.QWidget()
         cloud = w.QHBoxLayout(self.cloud_row)
         cloud.setContentsMargins(0, 0, 0, 0)
         self.b2_stored = kit.single_line('—')
-        self.b2_pill = kit.label('Not set up', 'pill', wrap=False)
-        cloud.addWidget(kit.label('Backblaze B2', 'fieldName', wrap=False))
+        self.b2_pill = kit.label(say('storage.not_set_up'), 'pill', wrap=False)
+        cloud.addWidget(kit.label(say('cloud.backblaze_b2'), 'fieldName', wrap=False))
         cloud.addWidget(self.b2_stored, 1)
         cloud.addWidget(self.b2_pill)
         box.addWidget(self.cloud_row)
         self.choice = w.QWidget()
         choice = w.QVBoxLayout(self.choice)
         choice.setContentsMargins(0, 0, 0, 0)
-        choice.addWidget(kit.label('Save new episodes to', 'strong'))
+        choice.addWidget(kit.label(say('window.save_new_episodes_to'), 'strong'))
         self.options_box = w.QHBoxLayout()
         self.options_box.setSpacing(24)
         self.options_box.addStretch(1)
@@ -927,12 +917,12 @@ class ProviderSettingsCard:
         box.addWidget(self.choice_status)
         self.episode_types = {}
         types = w.QWidget()
-        types.setAccessibleName(f'{name} episode types')
-        types.setToolTip('Saved episodes and episodes waiting to download. Types reflect the provider’s last report.')
+        types.setAccessibleName(say('window.episode_types', name=name))
+        types.setToolTip(say('window.saved_episodes_and_episodes_waiting_to'))
         grid = w.QGridLayout(types)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setColumnStretch(0, 1)
-        for column, text in enumerate(('Episode type', 'Saved', 'Pending')):
+        for column, text in enumerate((say('settings.episode_type'), say('settings.saved'), say('settings.pending'))):
             grid.addWidget(kit.label(text, 'strong', wrap=False), 0, column)
         for index, item in enumerate(dashboard_model.episode_types({}), 1):
             grid.addWidget(kit.label(item['label'], 'fieldName', wrap=False), index, 0)
@@ -945,7 +935,7 @@ class ProviderSettingsCard:
             self.episode_types[item['key']] = cells
         box.addWidget(types)
         self.not_downloaded = w.QTableWidget(0, 2)
-        self.not_downloaded.setHorizontalHeaderLabels(['Issue', 'Episodes'])
+        self.not_downloaded.setHorizontalHeaderLabels([say('settings.issue'), say('settings.episodes_2')])
         self.not_downloaded.horizontalHeaderItem(0).setTextAlignment(kit.q.QtCore.Qt.AlignmentFlag.AlignLeft
                                                                    | kit.q.QtCore.Qt.AlignmentFlag.AlignVCenter)
         self.not_downloaded.horizontalHeaderItem(1).setTextAlignment(kit.q.QtCore.Qt.AlignmentFlag.AlignRight
@@ -960,17 +950,17 @@ class ProviderSettingsCard:
         self.not_downloaded.setHorizontalScrollBarPolicy(kit.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.not_downloaded.horizontalHeader().setSectionResizeMode(0, w.QHeaderView.ResizeMode.Stretch)
         self.not_downloaded.horizontalHeader().setSectionResizeMode(1, w.QHeaderView.ResizeMode.ResizeToContents)
-        self.not_downloaded.setAccessibleName(f'{name} download issues')
-        self.issues_status = kit.label('Not checked', 'muted', wrap=False)
-        box.addWidget(kit.label('Download issues', 'strong'))
+        self.not_downloaded.setAccessibleName(say('window.download_issues', name=name))
+        self.issues_status = kit.label(say('settings.not_checked'), 'muted', wrap=False)
+        box.addWidget(kit.label(say('settings.download_issues'), 'strong'))
         box.addWidget(self.issues_status)
         box.addWidget(self.not_downloaded)
-        self.b2_setup = kit.button('Cloud settings', lambda: pages.provider_cloud(key), 'secondary')
+        self.b2_setup = kit.button(say('window.cloud_settings'), lambda: pages.provider_cloud(key), 'secondary')
         box.addWidget(kit.row(self.b2_setup))
 
     def show(self, s, v):
         if s is None:
-            self.pill.setText('Not signed in')
+            self.pill.setText(say('dashboard.not_signed_in'))
             tone(self.pill, 'tone', '')
             self.device_stored.setText('—')
             self.choice.hide()
@@ -978,7 +968,7 @@ class ProviderSettingsCard:
             self.b2_setup.hide()
             self.choice_status.hide()
             self.not_downloaded.hide()
-            self.issues_status.setText('Not checked')
+            self.issues_status.setText(say('settings.not_checked'))
             self.issues_status.show()
             for cells in self.episode_types.values():
                 for cell in cells:
@@ -987,7 +977,7 @@ class ProviderSettingsCard:
         self.pill.setText(v['state'])
         tone(self.pill, 'tone', v['tone'])
         place = storage_model.storage(s)
-        self.device_stored.setText(place['device_stored'] if s.summary is not False else 'Counts unavailable')
+        self.device_stored.setText(place['device_stored'] if s.summary is not False else say('window.counts_unavailable'))
         self.cloud_row.setVisible(s.cloud_offered)
         self.b2_stored.setText(place['b2_stored'] or '—')
         self.b2_pill.setText(place['b2_pill'])
@@ -997,10 +987,10 @@ class ProviderSettingsCard:
         choice = storage_model.storage_choice(s)
         self.choice.setVisible(choice['visible'])
         self._storage_options(choice['options'])
-        say(self.choice_lock, choice['lock'])
+        show(self.choice_lock, choice['lock'])
         self.choice_help.setText(choice['help'])
         message = s.choice_message or v['settings_status']
-        say(self.choice_status, message, bool(s.choice_message) or v['settings_status_error'])
+        show(self.choice_status, message, bool(s.choice_message) or v['settings_status_error'])
         for item in v['episode_types']:
             saved, waiting = self.episode_types[item['key']]
             saved.setText(item['saved'])
@@ -1009,7 +999,7 @@ class ProviderSettingsCard:
         self._not_downloaded(rows)
         self.not_downloaded.setVisible(bool(rows))
         self.issues_status.setVisible(not rows)
-        self.issues_status.setText('No recorded issues' if s.status is not None else 'Not checked')
+        self.issues_status.setText(say('settings.no_recorded_issues') if s.status is not None else say('settings.not_checked'))
 
     def _not_downloaded(self, rows):
         table, w = self.not_downloaded, self.kit.w
@@ -1053,9 +1043,9 @@ class Settings:
         column.setContentsMargins(32, 24, 32, 24)
         column.setSpacing(20)
         top = w.QHBoxLayout()
-        title, _ = heading(kit, 'Settings')
+        title, _ = heading(kit, say('app.settings'))
         top.addWidget(title, 1)
-        top.addWidget(kit.button('←  Back to dashboard', lambda: pages.go_to('dashboard'), 'secondary'), 0,
+        top.addWidget(kit.button(say('window.back_to_dashboard'), lambda: pages.go_to('dashboard'), 'secondary'), 0,
                       kit.q.QtCore.Qt.AlignmentFlag.AlignBottom)
         column.addLayout(top)
         layout = w.QHBoxLayout()
@@ -1119,46 +1109,46 @@ class Settings:
 
     def _about(self, kit, pages):
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        box.addWidget(kit.label('About', 'sectionTitle'))
-        box.addWidget(kit.label(f'Comic Archiver {license_texts.version()}', 'strong'))
+        box.addWidget(kit.label(say('app.about'), 'sectionTitle'))
+        box.addWidget(kit.label(say('window.comic_archiver', value=license_texts.version()), 'strong'))
         box.addWidget(kit.label(ABOUT, 'muted'))
         box.addWidget(kit.label(SUPPORT, 'muted'))
         box.addWidget(kit.label(SUPPORT_LOG, 'muted'))
-        self.support = kit.button('Copy details for support', pages.copy_support_details, 'secondary')
-        self.save_log = kit.button('Save log for support', pages.save_support_log, 'secondary')
+        self.support = kit.button(say('about.copy_details_for_support'), pages.copy_support_details, 'secondary')
+        self.save_log = kit.button(say('about.save_log_for_support'), pages.save_support_log, 'secondary')
         self.support_note = kit.label('', 'muted', wrap=False)
         self.support_note.setVisible(False)
         box.addWidget(kit.row(self.support, self.save_log, self.support_note))
         self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
-        self.license_choice.setAccessibleName('License to read')
+        self.license_choice.setAccessibleName(say('window.license_to_read'))
         box.addWidget(kit.row(self.license_choice))
         self.license_text = kit.w.QPlainTextEdit()
         self.license_text.setReadOnly(True)
         self.license_text.setMinimumHeight(420)
-        self.license_text.setAccessibleName('License text')
+        self.license_text.setAccessibleName(say('window.license_text'))
         box.addWidget(self.license_text)
         self._license(self.license_choice.itemData(0))
         return card
 
     def _license(self, path):
         text = license_texts.read(path)
-        self.license_text.setPlainText('This text could not be read.' if text is None else text)
+        self.license_text.setPlainText(say('licenses.this_text_could_not_be_read') if text is None else text)
 
     def _b2(self, kit, pages):
         w = kit.w
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
-        box.addWidget(kit.label('Save to your Backblaze B2 account', 'sectionTitle'))
+        box.addWidget(kit.label(say('window.save_to_your_backblaze_b2_account'), 'sectionTitle'))
         self.site = kit.combo([], pages.choose_site)
-        self.site.setAccessibleName('Site')
-        self.site_row = kit.row(kit.label('Site', 'strong', wrap=False), self.site)
+        self.site.setAccessibleName(say('window.site'))
+        self.site_row = kit.row(kit.label(say('window.site'), 'strong', wrap=False), self.site)
         box.addWidget(self.site_row)
         self.b2_state, state = kit.frame('state', vertical=False, margins=(14, 10, 14, 10), spacing=12)
-        self.b2_state_pill = kit.label('Not set up', 'pill', wrap=False)
+        self.b2_state_pill = kit.label(say('storage.not_set_up'), 'pill', wrap=False)
         self.b2_state_text = kit.label('')
         state.addWidget(self.b2_state_pill)
         state.addWidget(self.b2_state_text, 1)
         box.addWidget(self.b2_state)
-        self.shared = w.QCheckBox('Use the same Backblaze setup for every site')
+        self.shared = w.QCheckBox(say('cloud.use_the_same_backblaze_setup_for'))
         self.shared.toggled.connect(pages.share_b2)
         self.sharing_help = kit.label('', 'muted')
         self.sharing = w.QWidget()
@@ -1168,7 +1158,7 @@ class Settings:
         sharing.addWidget(self.sharing_help)
         box.addWidget(self.sharing)
         box.addWidget(kit.label(B2_INTRO))
-        self.cloud_status = kit.label('Checking cloud connections…')
+        self.cloud_status = kit.label(say('storage.checking_cloud_connections'))
         self.action_status = kit.label('')
         self.repair = kit.label('')
         for part in (self.cloud_status, self.action_status, self.repair):
@@ -1190,24 +1180,24 @@ class Settings:
         steps = w.QVBoxLayout(self.setup)
         steps.setContentsMargins(0, 0, 0, 0)
         steps.setSpacing(16)
-        steps.addWidget(kit.label('One-time setup. Already have a Backblaze account? Start at step 2.'))
+        steps.addWidget(kit.label(say('window.one_time_setup_already_have_a')))
         steps.addWidget(kit.label(B2_STEP1, rich=True))
-        steps.addWidget(kit.row(kit.button('Create B2 account', lambda: pages.link('signup'), 'secondary'),
-                                kit.button('Sign in to Backblaze', lambda: pages.link('signin'), 'secondary'),
-                                kit.button('Open Billing', lambda: pages.link('billing'), 'secondary'),
-                                kit.button('Open Caps && Alerts', lambda: pages.link('caps'), 'secondary'), spacing=8))
+        steps.addWidget(kit.row(kit.button(say('cloud.create_b2_account'), lambda: pages.link('signup'), 'secondary'),
+                                kit.button(say('cloud.sign_in_to_backblaze'), lambda: pages.link('signin'), 'secondary'),
+                                kit.button(say('cloud.open_billing'), lambda: pages.link('billing'), 'secondary'),
+                                kit.button(say('window.open_caps_alerts'), lambda: pages.link('caps'), 'secondary'), spacing=8))
         steps.addWidget(kit.label(B2_STEP2, rich=True))
-        steps.addWidget(kit.row(kit.button('Open Buckets', lambda: pages.link('buckets'), 'secondary')))
+        steps.addWidget(kit.row(kit.button(say('cloud.open_buckets'), lambda: pages.link('buckets'), 'secondary')))
         self.bucket = w.QLineEdit()
         self.bucket.setMaxLength(63)
-        self.bucket.setAccessibleName('Bucket name')
+        self.bucket.setAccessibleName(say('cloud.bucket_name'))
         self.bucket.textEdited.connect(self._bucket_typed)
-        steps.addWidget(kit.label('Bucket name', 'strong'))
+        steps.addWidget(kit.label(say('cloud.bucket_name'), 'strong'))
         steps.addWidget(self.bucket)
         steps.addWidget(kit.label(B2_STEP2_MORE, rich=True))
         self.step3 = kit.label('', rich=True)
         steps.addWidget(self.step3)
-        steps.addWidget(kit.row(kit.button('Open Application Keys', lambda: pages.link('keys'), 'secondary')))
+        steps.addWidget(kit.row(kit.button(say('cloud.open_application_keys'), lambda: pages.link('keys'), 'secondary')))
         steps.addWidget(kit.label(B2_STEP4, rich=True))
         self.key_id = w.QLineEdit()
         self.key_id.setMaxLength(256)
@@ -1219,28 +1209,28 @@ class Settings:
         for field in (self.key_id, self.application_key):
             field.textEdited.connect(lambda text, field=field: self._key_typed(field, text))
         self.application_key.returnPressed.connect(self._connect)
-        self.connect = kit.button('Connect B2', self._connect)
+        self.connect = kit.button(say('storage.connect_b2'), self._connect)
         form = w.QFormLayout()
         form.addRow('keyID', self.key_id)
         form.addRow('applicationKey', self.application_key)
         steps.addLayout(form)
         self.auth = kit.label('')
-        self.cancel = kit.button('Cancel sign-in', pages.cloud_cancel, 'secondary')
+        self.cancel = kit.button(say('desktop.cancel_sign_in'), pages.cloud_cancel, 'secondary')
         steps.addWidget(kit.row(self.connect, self.cancel))
         steps.addWidget(self.auth)
         box.addWidget(self.setup)
-        self.fold = kit.button('Show the setup steps', self._fold_steps, 'secondary')
-        self.fold_row = kit.row(self.fold, kit.label('to use another bucket or key.', 'muted', wrap=False))
+        self.fold = kit.button(say('storage.show_the_setup_steps'), self._fold_steps, 'secondary')
+        self.fold_row = kit.row(self.fold, kit.label(say('window.to_use_another_bucket_or_key'), 'muted', wrap=False))
         box.addWidget(self.fold_row)
         box.addWidget(kit.label(B2_STEP5, rich=True))
-        self.test = kit.button('Test cloud connection', pages.cloud_test)
+        self.test = kit.button(say('cloud.test_cloud_connection'), pages.cloud_test)
         box.addWidget(kit.row(self.test))
         self.cleanup_box = w.QVBoxLayout()
         box.addLayout(self.cleanup_box)
         self.cleanups = []
         box.addWidget(kit.label(B2_STEP6, rich=True))
-        box.addWidget(kit.row(kit.button('Go to Downloads && storage', lambda: pages.go_to('settings/downloads'), 'secondary')))
-        self.retry = kit.button('Retry unfinished uploads', pages.cloud_upload)
+        box.addWidget(kit.row(kit.button(say('window.go_to_downloads_storage'), lambda: pages.go_to('settings/downloads'), 'secondary')))
+        self.retry = kit.button(say('cloud.retry_unfinished_uploads'), pages.cloud_upload)
         box.addWidget(kit.row(self.retry))
         box.addWidget(kit.label(B2_YOUR_PAGES, rich=True))
         return card
@@ -1292,13 +1282,13 @@ class Settings:
         self.tabs[tab].setChecked(True)
         for key, panel in self.panels.items():
             panel.setVisible(key == tab)
-        say(self.status, v['settings_status'] if tab != 'downloads' else '', v['settings_status_error'])
+        show(self.status, v['settings_status'] if tab != 'downloads' else '', v['settings_status_error'])
         self._providers(sites, views)
         if [self.site.itemData(i) for i in range(self.site.count())] != [item['key'] for item in sites]:
             blocked = self.site.blockSignals(True)
             self.site.clear()
             for item in sites:
-                self.site.addItem(item['name'] if item.get('available') else item['name'] + ' — coming later', item['key'])
+                self.site.addItem(item['name'] if item.get('available') else item['name'] + say('window.coming_later'), item['key'])
                 self.site.model().item(self.site.count() - 1).setEnabled(bool(item.get('available')))
             self.site.blockSignals(blocked)
         choose(self.site, self.pages.chosen)
@@ -1319,14 +1309,14 @@ class Settings:
         self.sharing_help.setText(b2['sharing_help'])
         self.cloud_status.setText(b2['status'])
         message = s.cloud_message
-        say(self.action_status, message.text if message else '', bool(message and message.error))
-        say(self.repair, b2['repair'])
-        self.costs_toggle.setText(f"Estimated Backblaze cost: {b2['cost_short']}  ·  Cost details")
-        say(self.cost, b2['cost'])
+        show(self.action_status, message.text if message else '', bool(message and message.error))
+        show(self.repair, b2['repair'])
+        self.costs_toggle.setText(say('window.estimated_backblaze_cost_cost_details', cost_short=b2['cost_short']))
+        show(self.cost, b2['cost'])
         bucket = storage_model.bucket_name(s.bucket_draft, b2['bucket'], s.workspace_id or '')
         if self.bucket.text() != bucket:
             self.bucket.setText(bucket)
-        self.step3.setText(prose(B2_STEP3 % html.escape(bucket or 'the one from step 2')))
+        self.step3.setText(prose(B2_STEP3 % html.escape(bucket or say('window.the_one_from_step_2'))))
         self.setup.setVisible(not b2['folded'])
         self.fold_row.setVisible(b2['fold_visible'])
         self.fold.setText(b2['fold_text'])
@@ -1336,7 +1326,7 @@ class Settings:
             field.setEnabled(b2['connect_enabled'])
         self.cancel.setVisible(b2['cancel_visible'])
         self.cancel.setEnabled(b2['cancel_enabled'])
-        say(self.auth, b2['auth'])
+        show(self.auth, b2['auth'])
         self.test.setEnabled(b2['test_enabled'])
         self._cleanups(b2['cleanup'])
         self.retry.setEnabled(b2['retry_enabled'])
@@ -1590,7 +1580,7 @@ class Pages:
         oldest = min(active or views.values(), key=lambda pair: (not pair[0].offline, pair[0].refreshed_at), default=(s, v))
         everything = {'updated': oldest[1]['updated'] if active or any(state.offline for state, _ in views.values())
                       or not all(state.loaded for state, _ in views.values())
-                      else 'Automatic updates paused', 'go_all': any(view['go_enabled'] for _, view in views.values()),
+                      else say('window.automatic_updates_paused'), 'go_all': any(view['go_enabled'] for _, view in views.values()),
                       'pause_all': any(view['pause_visible'] for _, view in views.values()),
                       'folder_enabled': v['folder_enabled'] and all(view['folder_enabled'] for _, view in views.values()),
                       'folder_tooltip': next((view['folder_tooltip'] for _, view in views.values()
@@ -1708,7 +1698,7 @@ class Pages:
     def copy_support_details(self):
         """Put the details for support on the clipboard, for the person to paste into a message."""
         self.q.QtGui.QGuiApplication.clipboard().setText(self.support_details())
-        say(self.settings.support_note, SUPPORT_COPIED)
+        show(self.settings.support_note, SUPPORT_COPIED)
 
     def downloads(self):
         """The folder a log saved for support goes in: the person's Downloads folder, or their home folder."""
@@ -1738,7 +1728,7 @@ class Pages:
 
         def done(path, error):
             button.setEnabled(True)
-            say(self.settings.support_note, LOG_FAILED if error else LOG_SAVED.format(name=path.name), error is not None)
+            show(self.settings.support_note, LOG_FAILED if error else LOG_SAVED.format(name=path.name), error is not None)
         self.run(work, done)
 
     def pause_all(self):
@@ -1758,7 +1748,7 @@ class Pages:
         if s.busy:
             self.render()
             return
-        s.message = dashboard_model.Message(f'Changing speed to {SPEED_NAMES.get(value, "the selected speed")}…')
+        s.message = dashboard_model.Message(say('window.changing_speed_to', value=SPEED_NAMES.get(value, say('window.the_selected_speed'))))
 
         def work():
             try:
@@ -1785,7 +1775,7 @@ class Pages:
         if state.busy:
             return
         dialog = self.q.QtWidgets.QDialog(self.widget)
-        dialog.setWindowTitle(f'What to download from {find_site(key).name}')
+        dialog.setWindowTitle(say('window.what_to_download_from', value=find_site(key).name))
         dialog.setMinimumWidth(440)
         box = self.q.QtWidgets.QVBoxLayout(dialog)
         box.setContentsMargins(24, 24, 24, 24)
@@ -1815,8 +1805,7 @@ class Pages:
                                       self.q.QtWidgets.QSizePolicy.Policy.Minimum)
             body.addWidget(description)
             checks[kind] = check
-        note = self.q.QtWidgets.QLabel('Already saved files are kept. Choices also apply on future runs. '
-                                       'A running download pauses to apply changes, then continues.')
+        note = self.q.QtWidgets.QLabel(say('settings.already_saved_files_are_kept_choices'))
         note.setWordWrap(True)
         note.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
                            self.q.QtWidgets.QSizePolicy.Policy.Minimum)
@@ -1851,7 +1840,7 @@ class Pages:
         state, actions = self.of(key), self.actions_for(key)
         if state.busy:
             return
-        state.message = dashboard_model.Message('Applying download choices…')
+        state.message = dashboard_model.Message(say('window.applying_download_choices'))
 
         def work():
             try:
@@ -1946,7 +1935,7 @@ class Pages:
         self.cloud_asked.add(key)  # Never twice in one window, even while the answer is being kept.
         bucket = target.get('bucket')
         use = self.shell.ask(CLOUD_CONFIRM.format(
-            bucket=f'the Backblaze B2 bucket "{bucket}"' if bucket else 'a Backblaze B2 bucket'))
+            bucket=say('window.the_backblaze_b2_bucket', bucket=bucket) if bucket else say('window.a_backblaze_b2_bucket')))
         if use is None or self.states.get(key) is not s:
             self.cloud_asked.discard(key)  # The app ended or another folder opened under the question: not an answer.
             return
