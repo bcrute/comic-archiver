@@ -568,11 +568,22 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                    'held_series_checks':0,'series_check_target_count':0}
     reading_lists = []
     purchase_check = {}
+    history_skipped = []
     def refresh_inventory(inventory, budget, run_id):
         if history_round is not None:
             from .purchase_history import reconcile
             job_progress(inventory.root, run_id, phase='purchase_history')
-            purchase_check.update(reconcile(adapter, inventory, history_round, budget.check, pages=1, links=10))
+            try:
+                purchase_check.update(reconcile(adapter, inventory, history_round, budget.check, pages=1, links=10))
+            except ArchiveError as error:
+                # A purchase-history page the site answered with an error must not keep the lists and the series
+                # from being read. It stays pending, so every later step of the round asks for it again.
+                status = getattr(error, 'source_http_status', None)
+                if (isinstance(error, (AuthenticationError, RunLimit, NetworkUnavailable))
+                        or type(status) is not int or status in {401, 403, 429}):
+                    raise
+                logging.getLogger('comic_archive.download').info('purchase history: read=skipped http=%s', status)
+                history_skipped.append(error)
         if include_history:
             budget.check()
             job_progress(inventory.root,run_id,phase='history')
@@ -712,6 +723,9 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             series_checkpoint(series['id'])
             if download_ready():
                 break
+        if history_skipped and not reading_lists and not scan_counts['series_checks_completed']:
+            # Nothing else was left for this step to do, so the page's own error is the step's.
+            raise history_skipped[0]
         from .purchase_history import pending as history_pending
         if not history_pending(inventory):
             inventory.finish_scan_cycle()

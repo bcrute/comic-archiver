@@ -719,7 +719,7 @@ def _catalog_projection(result, checked, *, portable=False):
             row["saved_epoch"] = None
         row["row_id"] = raw.get("id")
         row["b2_copy"] = re.fullmatch(r"b2(?:-[a-f0-9]{16})?", raw.get("location", "")) is not None
-    notice = library_model.notice(result).replace("Use Dashboard to start.", "Use Saving to start.")
+    notice = library_model.notice(result).replace("Use Dashboard to start.", "Use Downloads to start.")
     if portable and not result["file_count"]:
         notice = "No CBZ, EPUB or portable library files were found. Choose a Library folder or exported series folder."
     return {"rows": displayed, "total": result["total"], "offset": result["offset"], "limit": result["limit"],

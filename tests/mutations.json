@@ -9758,5 +9758,45 @@
   "new": "    if (browser_factory is not None",
   "test_file": "test_android_download.py",
   "test": "test_a_browser_too_old_for_the_desktops_reader_is_told_to_update_instead_of_saving_less"
+ },
+ {
+  "id": "history-page-error-stops-the-lists",
+  "source": "comic_archive/jobs.py",
+  "old": "                        or type(status) is not int or status in {401, 403, 429}):",
+  "new": "                        or True):",
+  "test_file": "test_jobs.py",
+  "test": "test_a_history_page_answered_with_an_error_waits_while_lists_and_series_are_read_and_is_asked_for_again"
+ },
+ {
+  "id": "history-page-error-is-never-the-steps",
+  "source": "comic_archive/jobs.py",
+  "old": "        if history_skipped and not reading_lists and not scan_counts['series_checks_completed']:",
+  "new": "        if False:",
+  "test_file": "test_jobs.py",
+  "test": "test_a_history_page_answered_with_an_error_waits_while_lists_and_series_are_read_and_is_asked_for_again"
+ },
+ {
+  "id": "history-page-refusal-is-skipped",
+  "source": "comic_archive/jobs.py",
+  "old": "                        or type(status) is not int or status in {401, 403, 429}):",
+  "new": "                        or type(status) is not int):",
+  "test_file": "test_jobs.py",
+  "test": "test_a_history_page_the_site_refused_or_could_not_be_reached_still_stops_the_step"
+ },
+ {
+  "id": "history-page-outage-is-skipped",
+  "source": "comic_archive/jobs.py",
+  "old": "                if (isinstance(error, (AuthenticationError, RunLimit, NetworkUnavailable))\n                        or type(status) is not int or status in {401, 403, 429}):",
+  "new": "                if (status in {401, 403, 429}):",
+  "test_file": "test_jobs.py",
+  "test": "test_a_history_page_the_site_refused_or_could_not_be_reached_still_stops_the_step"
+ },
+ {
+  "id": "phone-empty-library-names-a-tab-that-is-not-there",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "\"Use Downloads to start.\")",
+  "new": "\"Use Saving to start.\")",
+  "test_file": "test_app_bridge.py",
+  "test": "test_an_empty_library_points_to_the_downloads_tab_by_its_name"
  }
 ]

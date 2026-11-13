@@ -11,7 +11,7 @@ from support import PRIVATE_FILE
 from comic_archive.publication import PublicationStore as Store
 from comic_archive.archive import verify, sidecar_path
 from comic_archive import archive_paths
-from comic_archive.errors import AccessDenied, AuthenticationError, LibraryMoved, MetadataError, RunLimit
+from comic_archive.errors import AccessDenied, AuthenticationError, LibraryMoved, MetadataError, NetworkUnavailable, RunLimit
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import DownloadBudget, archive_discovered, sync
 from comic_archive.locking import LibraryLock, wait_for_library
@@ -764,6 +764,54 @@ class JobTests(unittest.TestCase):
         self.assertNotIn(('capture', '84'), self.adapter.calls)
         sync(self.adapter, self.root, self.report, history_round='synthetic-round')
         self.adapter.purchase_history_page.assert_called_once()
+
+    @patch('builtins.print')
+    def test_a_history_page_answered_with_an_error_waits_while_lists_and_series_are_read_and_is_asked_for_again(self, output):
+        def refused(status):
+            error = ArchiveError('The site answered with an error.')
+            error.source_http_status = status
+            return error
+
+        self.adapter.purchase_history_page = Mock(side_effect=refused(404))
+        self.adapter.purchase_series_identity = Mock()
+        with self.assertLogs('comic_archive.download', 'INFO') as logged:
+            result = sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        self.assertIn('INFO:comic_archive.download:purchase history: read=skipped http=404', logged.output)
+        self.assertEqual(set(result['archived_episode_ids']), {'81', '82'})
+        self.assertEqual(result['refresh']['purchase_history']['status'], 'pending')
+        self.assertGreater(result['refresh']['series_checks_completed'], 0)
+        with Inventory(self.root, read_only=True) as inventory:
+            # The round is not over while the page is still owed.
+            self.assertIsNone(inventory.status()['last_completed_scan'])
+        # With nothing else left to read, the page's own error is the step's.
+        with self.assertRaises(ArchiveError) as stopped:
+            sync(self.adapter, self.root, self.report, history_round='synthetic-round', scan_only=True, refresh_lists=False)
+        self.assertEqual(stopped.exception.source_http_status, 404)
+        self.assertEqual(self.adapter.purchase_history_page.call_count, 2)
+        self.adapter.purchase_history_page = Mock(return_value={
+            'authenticated': True, 'scope_verified': True, 'record_ids': [], 'empty_verified': True,
+            'page_identity': 'index:0', 'links': [], 'next_cursor': None, 'boundary_verified': True})
+        again = sync(self.adapter, self.root, self.report, history_round='synthetic-round', scan_only=True, refresh_lists=False)
+        self.assertEqual(again['refresh']['purchase_history']['status'], 'checked')
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertIsNotNone(inventory.status()['last_completed_scan'])
+
+    @patch('builtins.print')
+    def test_a_history_page_the_site_refused_or_could_not_be_reached_still_stops_the_step(self, output):
+        self.adapter.purchase_history_page = Mock(side_effect=NetworkUnavailable('offline'))
+        paused = sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        self.assertEqual(paused.get('pause_reason'), 'network_unavailable')
+        for error in (AuthenticationError('signed out'), ArchiveError('no status')):
+            self.adapter.purchase_history_page = Mock(side_effect=error)
+            with self.assertRaises(type(error)):
+                sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        for status in (401, 403, 429):
+            error = ArchiveError('refused')
+            error.source_http_status = status
+            self.adapter.purchase_history_page = Mock(side_effect=error)
+            with self.assertRaises(ArchiveError):
+                sync(self.adapter, self.root, self.report, history_round='synthetic-round')
+        self.assertEqual(self.adapter.calls.count(('capture', '81')), 0)
 
     @patch('builtins.print')
     def test_paged_history_recovers_an_owned_episode_missed_by_lists_and_preserves_existing_archives(self, output):

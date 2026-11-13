@@ -627,6 +627,11 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(all(not row["b2_copy"] for row in page["rows"]))
         start.assert_not_called()
 
+    def test_an_empty_library_points_to_the_downloads_tab_by_its_name(self):
+        value = self.call("file_catalog", {"root": str(self.root), "options": {"kind": "episodes"}})
+        self.assertTrue(value["ok"], value)
+        self.assertEqual(value["result"]["notice"], "No files have been saved yet. Use Downloads to start.")
+
     def test_catalog_identifies_current_and_previous_b2_copies_without_exposing_a_url_or_local_open(self):
         from comic_archive.local_library import LOCAL_OWNER
         self._export_library()
