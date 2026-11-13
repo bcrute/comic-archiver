@@ -26,7 +26,7 @@ class DownloadStatusTest {
 
     @Test fun running_list_scan_displays_observed_phase_and_list_counts() {
         val result = state("""{"status":"running","phase":"lists","lists":{"checked":2,"total":4}}""") as DownloadState.Running
-        assertEquals("Reading library lists (2 of 4)…", result.description)
+        assertEquals("Finding your series | 2 of 4 read", result.description)
     }
 
     @Test fun finished_is_based_on_plan_and_keeps_coverage_limit_visible() {
@@ -43,7 +43,7 @@ class DownloadStatusTest {
 
     @Test fun actual_transfer_overrides_generic_account_series_phase_and_exposes_counters() {
         val result = live("""{"phase":"archive","downloaded_pages":316,"downloaded_bytes":67108864,"age_seconds":1}""")
-        assertEquals("Downloading episodes…", result.description)
+        assertEquals("Downloading episodes", result.description)
         assertTrue(result.detail!!.contains("22 episodes saved"))
         assertTrue(result.detail!!.contains("316 image pages"))
         assertTrue(result.detail!!.contains("64 MiB"))

@@ -26,7 +26,7 @@ object DownloadStatus {
                 val counts = result.optJSONObject("counts")
                 val phase = progress?.optString("phase").orEmpty()
                 val description = when (phase) {
-                    "archive" -> say("downloads.downloading_episodes")
+                    "archive" -> say("dashboard.downloading_episodes")
                     "account_list" -> say("downloads.reading_your_library")
                     "scan", "history_series" -> say("downloads.checking_available_episodes")
                     "authentication" -> say("downloads.checking_sign_in")
@@ -37,11 +37,12 @@ object DownloadStatus {
                             val lists = account.optJSONObject("lists")
                             val checked = lists?.optInt("checked", 0) ?: 0
                             val total = lists?.optInt("total", 0) ?: 0
-                            say("downloads.reading_library_lists_of", "checked" to checked, "total" to total)
+                            say("dashboard.finding_your_series") + " | " + say("dashboard.of_read", "n" to checked, "n2" to total)
                         }
-                        "series" -> say("downloads.checking_series_and_available_episodes")
-                        "archive", "existing_backlog" -> say("downloads.saving_available_episodes")
-                        "verify" -> say("downloads.checking_saved_files")
+                        "series" -> say("dashboard.checking_series_and_downloading")
+                        "archive" -> say("dashboard.downloading_episodes")
+                        "existing_backlog" -> say("dashboard.finishing_saved_downloads")
+                        "verify" -> say("dashboard.finishing_download")
                         else -> say("downloads.starting")
                     }
                 }

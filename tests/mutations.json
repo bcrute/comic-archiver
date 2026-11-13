@@ -5234,16 +5234,16 @@
  {
   "id": "library-unavailable-never-said",
   "source": "comic_archive/window_pages.py",
-  "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
-  "new": "        say(self.library_summary, '')\n",
+  "old": "        show(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
+  "new": "        show(self.library_summary, '')\n",
   "test_file": "test_window_pages.py",
   "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
  {
   "id": "library-unavailable-said-after-recovery",
   "source": "comic_archive/window_pages.py",
-  "old": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
-  "new": "        say(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else self.library_summary.text())\n",
+  "old": "        show(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else '')\n",
+  "new": "        show(self.library_summary, storage_model.LIBRARY_UNAVAILABLE if summary is False else self.library_summary.text())\n",
   "test_file": "test_window_pages.py",
   "test": "test_the_library_card_opens_the_folder_and_says_when_it_cannot_count"
  },
@@ -5338,7 +5338,7 @@
  {
   "id": "support-copied-not-said",
   "source": "comic_archive/window_pages.py",
-  "old": "        say(self.settings.support_note, SUPPORT_COPIED)\n",
+  "old": "        show(self.settings.support_note, SUPPORT_COPIED)\n",
   "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_about_copies_details_for_support_without_the_library_folder"

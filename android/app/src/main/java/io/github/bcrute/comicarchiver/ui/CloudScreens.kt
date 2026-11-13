@@ -50,7 +50,7 @@ internal enum class B2Page(val label: String, val url: String) {
     ACCOUNT(say("cloud.create_b2_account"), "https://www.backblaze.com/sign-up/s3"),
     SIGN_IN(say("cloud.sign_in_to_backblaze"), "https://secure.backblaze.com/user_signin.htm"),
     BILLING(say("cloud.open_billing"), "https://secure.backblaze.com/billing.htm"),
-    CAPS(say("cloud.open_caps_and_alerts"), "https://secure.backblaze.com/b2_caps_alerts.htm"),
+    CAPS(say("cloud.open_caps_alerts"), "https://secure.backblaze.com/b2_caps_alerts.htm"),
     BUCKETS(say("cloud.open_buckets"), "https://secure.backblaze.com/b2_buckets.htm"),
     KEYS(say("cloud.open_application_keys"), "https://secure.backblaze.com/app_keys.htm"),
     BROWSE(say("cloud.open_in_backblaze"), "https://secure.backblaze.com/b2_browse_files2.htm"),

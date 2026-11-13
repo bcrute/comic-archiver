@@ -1185,7 +1185,7 @@ class Settings:
         steps.addWidget(kit.row(kit.button(say('cloud.create_b2_account'), lambda: pages.link('signup'), 'secondary'),
                                 kit.button(say('cloud.sign_in_to_backblaze'), lambda: pages.link('signin'), 'secondary'),
                                 kit.button(say('cloud.open_billing'), lambda: pages.link('billing'), 'secondary'),
-                                kit.button(say('window.open_caps_alerts'), lambda: pages.link('caps'), 'secondary'), spacing=8))
+                                kit.button(say('cloud.open_caps_alerts').replace('&', '&&'), lambda: pages.link('caps'), 'secondary'), spacing=8))
         steps.addWidget(kit.label(B2_STEP2, rich=True))
         steps.addWidget(kit.row(kit.button(say('cloud.open_buckets'), lambda: pages.link('buckets'), 'secondary')))
         self.bucket = w.QLineEdit()
