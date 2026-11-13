@@ -47,7 +47,7 @@ fun SignInScreen(
         }
         if (!state.busy && !state.restoring) {
             Button(onClick = onStartSignIn, enabled = state.controlsEnabled, modifier = Modifier.fillMaxWidth()) {
-                Text(say("signin.sign_in_to", "siteName" to state.siteName))
+                Text(if (state.retry) say("downloads.try_again") else say("signin.sign_in_to", "siteName" to state.siteName))
             }
         }
         Spacer(Modifier.height(4.dp))

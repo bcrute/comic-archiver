@@ -103,6 +103,8 @@ data class SignInScreenUi(
     val siteName: String = "Tapas",
     val origin: String? = null,
     val controlsEnabled: Boolean = true,
+    /** The sign-in page could not be opened: the button offers to try again, as the desktop's does. */
+    val retry: Boolean = false,
 )
 
 /** One series row in the library: what the controller reports as finished. */

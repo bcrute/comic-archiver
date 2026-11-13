@@ -32,6 +32,7 @@ fun accountMismatchText(site: String) =
 internal fun signInNotice(code: String, site: String): NoticeUi? = when (code) {
     "signin_cancelled" -> null
     "account_mismatch" -> NoticeUi(PublicIssue.LOGIN_REQUIRED, accountMismatchText(site))
+    "signin_unreachable" -> NoticeUi(PublicIssue.JOB_FAILED, say("desktop.the_sign_in_page_could_not", "site" to site))
     "signin_incomplete" -> NoticeUi(PublicIssue.JOB_FAILED, say("signin.incomplete", "site" to site))
     else -> PublicIssue.fromWireName(code)?.let { NoticeUi(it) }
         ?: NoticeUi(PublicIssue.JOB_FAILED, say("signin.failed", "site" to site))
@@ -43,6 +44,7 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
     origin = signInOrigin,
     controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && sites.firstOrNull { it.key == site }?.signInAvailable != false,
+    retry = (signIn as? SignInState.Failed)?.code == "signin_unreachable",
     notice = (signIn as? SignInState.Failed)?.let {
         signInNotice(it.code, sites.firstOrNull { choice -> choice.key == site }?.name ?: if (site == "tapas") "Tapas" else site)
     } ?: notice?.toNoticeUi(),

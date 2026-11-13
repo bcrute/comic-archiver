@@ -68,7 +68,8 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
     }
 
     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-        if (request.isForMainFrame) fail()
+        // The page itself could not be fetched: no internet, or the site could not be reached.
+        if (request.isForMainFrame) engine.verificationFailed("signin_unreachable", session)
     }
 
     /** An HTTP error page is still the site talking to the person: a rejected password

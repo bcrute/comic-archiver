@@ -62,6 +62,12 @@ class UiMappingTest {
         assertEquals(NoticeUi(PublicIssue.JOB_FAILED, "Sign-in did not finish. Try Sign in to Tapas again."),
             notice("signin_unavailable"))
         assertEquals(NoticeUi(PublicIssue.UNSUPPORTED_SITE), notice("unsupported_site"))
+        val unreachable = UiFixtures.coldStart.copy(signIn = SignInState.Failed("signin_unreachable")).toSignInScreenUi()
+        assertEquals(NoticeUi(PublicIssue.JOB_FAILED,
+            "The Tapas sign-in page could not be opened.\n\nCheck your internet connection, then choose \"Try again\"."),
+            unreachable.notice)
+        assertEquals(true, unreachable.retry)
+        assertEquals(false, UiFixtures.coldStart.copy(signIn = SignInState.Failed("signin_incomplete")).toSignInScreenUi().retry)
     }
 
     @Test
