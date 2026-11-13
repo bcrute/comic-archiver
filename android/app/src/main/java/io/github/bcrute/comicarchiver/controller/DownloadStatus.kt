@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.controller
 
 import org.json.JSONObject
+import io.github.bcrute.comicarchiver.words.say
 
 /** Interpret the durable plan, rather than mistaking an idle worker for progress. */
 object DownloadStatus {
@@ -19,54 +20,56 @@ object DownloadStatus {
                 else -> DownloadState.Failed(BetaCodes.JOB_FAILED)
             }
             "stopped" -> DownloadState.Paused("user")
-            "finished" -> DownloadState.Finished("Saved available items; account coverage is not verified.")
+            "finished" -> DownloadState.Finished(say("downloads.saved_available_items_account_coverage_is"))
             "running" -> {
                 val progress = result.optJSONObject("progress")
                 val counts = result.optJSONObject("counts")
                 val phase = progress?.optString("phase").orEmpty()
                 val description = when (phase) {
-                    "archive" -> "Downloading episodes…"
-                    "account_list" -> "Reading your library…"
-                    "scan", "history_series" -> "Checking available episodes…"
-                    "authentication" -> "Checking sign-in…"
-                    "metadata" -> "Reading series information…"
-                    "history" -> "Reading account history…"
+                    "archive" -> say("downloads.downloading_episodes")
+                    "account_list" -> say("downloads.reading_your_library")
+                    "scan", "history_series" -> say("downloads.checking_available_episodes")
+                    "authentication" -> say("downloads.checking_sign_in")
+                    "metadata" -> say("downloads.reading_series_information")
+                    "history" -> say("downloads.reading_account_history")
                     else -> when (account.optString("phase")) {
                         "lists" -> {
                             val lists = account.optJSONObject("lists")
-                            "Reading library lists (${lists?.optInt("checked", 0) ?: 0} of ${lists?.optInt("total", 0) ?: 0})…"
+                            val checked = lists?.optInt("checked", 0) ?: 0
+                            val total = lists?.optInt("total", 0) ?: 0
+                            say("downloads.reading_library_lists_of", "checked" to checked, "total" to total)
                         }
-                        "series" -> "Checking series and available episodes…"
-                        "archive", "existing_backlog" -> "Saving available episodes…"
-                        "verify" -> "Checking saved files…"
-                        else -> "Starting…"
+                        "series" -> say("downloads.checking_series_and_available_episodes")
+                        "archive", "existing_backlog" -> say("downloads.saving_available_episodes")
+                        "verify" -> say("downloads.checking_saved_files")
+                        else -> say("downloads.starting")
                     }
                 }
                 val details = buildList {
-                    count(counts, "saved_episodes")?.let { add(if (it == 1L) "1 episode saved" else "$it episodes saved") }
+                    count(counts, "saved_episodes")?.let { add(if (it == 1L) say("downloads.1_episode_saved") else say("downloads.episodes_saved", "it" to it)) }
                     if (phase == "account_list") {
                         add(LIST_FIRST)
                         val series = count(progress, "observed_library_series_count")
                         val pages = count(progress, "reading_list_page_count")
-                        if (series != null) add("$series series found in this list")
-                        if (pages != null) add("$pages list pages checked")
+                        if (series != null) add(say("downloads.series_found_in_this_list", "series" to series))
+                        if (pages != null) add(say("downloads.list_pages_checked", "pages" to pages))
                     }
                     val checked = count(progress, "series_checks_completed")
                     val target = count(progress, "series_check_target_count")
                     if (checked != null && target != null && target > 0)
-                        add("$checked of $target series checked")
+                        add(say("downloads.of_series_checked", "checked" to checked, "target" to target))
                     val pages = count(progress, "downloaded_pages")
                     val bytes = count(progress, "downloaded_bytes")
-                    if (pages != null) add("$pages image pages in this batch")
+                    if (pages != null) add(say("downloads.image_pages_in_this_batch", "pages" to pages))
                     count(progress, "downloaded_chapters")?.takeIf { it > 0 }?.let {
-                        add("$it text chapters in this batch")
+                        add(say("downloads.text_chapters_in_this_batch", "it" to it))
                     }
-                    if (bytes != null) add("${displayBytes(bytes)} downloaded in this batch")
+                    if (bytes != null) add(say("downloads.downloaded_in_this_batch", "value" to (displayBytes(bytes))))
                     count(progress, "age_seconds")?.let {
-                        add(if (it < 2) "Progress updated just now" else "Last progress $it s ago")
+                        add(if (it < 2) say("downloads.progress_updated_just_now") else say("downloads.last_progress_s_ago", "it" to it))
                     }
                     val retry = account.optJSONObject("retry")
-                    count(retry, "seconds")?.let { add("Waiting $it s before retrying") }
+                    count(retry, "seconds")?.let { add(say("downloads.waiting_s_before_retrying", "it" to it)) }
                 }
                 DownloadState.Running(0, 0, description, details.joinToString("\n").ifBlank { null })
             }
@@ -83,7 +86,7 @@ object DownloadStatus {
             ?.takeIf { it.optString("status") == "stopped" }?.let { DownloadState.Paused("user") }
 
     // Lists are pages in a shifting order: read in one go, a series cannot slip past unseen.
-    const val LIST_FIRST = "Saving starts once every list is read, so nothing is missed. A large library takes a few minutes."
+    val LIST_FIRST get() = say("downloads.saving_starts_once_every_list_is")
 
     private fun count(value: JSONObject?, key: String): Long? {
         val raw = value?.opt(key)
@@ -95,9 +98,9 @@ object DownloadStatus {
     }
 
     private fun displayBytes(bytes: Long): String = when {
-        bytes >= 1024L * 1024 * 1024 -> "${bytes / (1024L * 1024 * 1024)} GiB"
-        bytes >= 1024L * 1024 -> "${bytes / (1024L * 1024)} MiB"
-        bytes >= 1024L -> "${bytes / 1024L} KiB"
+        bytes >= 1024L * 1024 * 1024 -> say("downloads.gib", "value" to (bytes / (1024L * 1024 * 1024)))
+        bytes >= 1024L * 1024 -> say("downloads.mib", "value" to (bytes / (1024L * 1024)))
+        bytes >= 1024L -> say("downloads.kib", "value" to (bytes / 1024L))
         else -> "$bytes B"
     }
 }

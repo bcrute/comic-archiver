@@ -39,6 +39,7 @@ import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.controller.CatalogState
 import java.text.DateFormat
 import java.util.Date
+import io.github.bcrute.comicarchiver.words.say
 
 /** The desktop catalog's projection, laid out for a phone. Filters are server-supplied,
  * storage is never scanned here, and only a catalog-offered CBZ/EPUB gets Open. */
@@ -59,41 +60,41 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Saved files", style = MaterialTheme.typography.headlineSmall)
+                Text(say("library.saved_files"), style = MaterialTheme.typography.headlineSmall)
                 OutlinedTextField(value = draft, onValueChange = { draft = it.take(200) },
-                    label = { Text("Find saved files") }, singleLine = true, enabled = !state.loading,
+                    label = { Text(say("library.find_saved_files")) }, singleLine = true, enabled = !state.loading,
                     modifier = Modifier.fillMaxWidth())
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(enabled = !state.loading, onClick = { onQuery(query.copy(query = draft.trim(), offset = 0), false) }) {
-                        Text("Search")
+                        Text(say("library.search"))
                     }
                     TextButton(enabled = !state.loading, onClick = {
                         draft = ""; onQuery(query.copy(query = "", kind = "episodes", offset = 0), false)
-                    }) { Text("Clear") }
-                    TextButton(enabled = !state.loading, onClick = { onQuery(query, true) }) { Text("Refresh files") }
+                    }) { Text(say("library.clear")) }
+                    TextButton(enabled = !state.loading, onClick = { onQuery(query, true) }) { Text(say("library.refresh_files")) }
                 }
-                TextButton(onClick = { filters = !filters }) { Text(if (filters) "Hide filters" else "Filters & sort") }
+                TextButton(onClick = { filters = !filters }) { Text(if (filters) say("library.hide_filters") else "Filters & sort") }
                 if (page != null && filters) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        CatalogMenu("File types", page.kinds, query.kind, !state.loading, Modifier.weight(1f)) {
+                        CatalogMenu(say("library.file_types"), page.kinds, query.kind, !state.loading, Modifier.weight(1f)) {
                             onQuery(query.copy(kind = it, offset = 0), false)
                         }
-                        CatalogMenu("Sort by", page.sorts, query.sort, !state.loading, Modifier.weight(1f)) {
+                        CatalogMenu(say("library.sort_by"), page.sorts, query.sort, !state.loading, Modifier.weight(1f)) {
                             onQuery(query.copy(sort = it, offset = 0), false)
                         }
                     }
-                    CatalogMenu("Storage", page.locations, query.location, !state.loading) {
+                    CatalogMenu(say("cloud.storage"), page.locations, query.location, !state.loading) {
                         onQuery(query.copy(location = it, offset = 0), false)
                     }
-                    CatalogMenu("Files per page", page.pageSizes.map { CatalogChoice(it.toString(), it.toString()) },
+                    CatalogMenu(say("library.files_per_page"), page.pageSizes.map { CatalogChoice(it.toString(), it.toString()) },
                         query.limit.toString(), !state.loading) {
                         onQuery(query.copy(limit = it.toInt(), offset = 0), false)
                     }
                 }
                 if (state.loading) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("Loading saved files…")
+                    Text(say("library.loading_saved_files"))
                 }
                 state.error?.let { Text(it) }
                 if (state.feedbackFor == null) state.feedback?.let { Text(it) }
@@ -101,17 +102,19 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
         }
         item { exportPanel() }
         if (!state.loading && state.error == null && page != null) {
-            item { Text("${page.total} ${if (page.total == 1) "file" else "files"}") }
+            item { Text(if (page.total == 1) "1 file" else say("library.files", "total" to page.total)) }
             if (page.total > query.limit) item {
-                Text("Showing ${query.offset + 1}–${(query.offset + page.rows.size).coerceAtMost(page.total)}")
+                val first = query.offset + 1
+                val last = (query.offset + page.rows.size).coerceAtMost(page.total)
+                Text(say("library.showing", "first" to first, "last" to last))
             }
             if (page.notice.isNotBlank()) item { Text(page.notice) }
             if (page.rows.isEmpty()) item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No saved files in this view", style = MaterialTheme.typography.titleMedium)
-                        Text(if (query.query.isNotBlank()) "Try clearing your search or changing the filters."
-                            else "Save episodes from Downloads, change the storage filter, or open a folder from Library.")
+                        Text(say("library.no_saved_files_in_this_view"), style = MaterialTheme.typography.titleMedium)
+                        Text(if (query.query.isNotBlank()) say("library.try_clearing_your_search_or_changing")
+                            else say("library.save_episodes_from_downloads_change_the"))
                     }
                 }
             }
@@ -125,39 +128,39 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                             if (state.feedbackFor == id) state.feedback?.let {
                                 Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
-                            val action = if (state.openingId == id) "Opening" else "Open"
+                            val action = if (state.openingId == id) say("library.opening") else say("library.open")
                             Button(onClick = { onOpen(id) }, enabled = state.openingId == null,
                                 modifier = Modifier.semantics {
                                     contentDescription = "$action ${file.title}, ${file.series}. ${file.filename}. ${file.storage}"
                                 }) {
-                                Text(if (state.openingId == id) "Opening…" else "Open")
+                                Text(if (state.openingId == id) say("library.opening_2") else say("library.open"))
                             }
                         }
                         var details by rememberSaveable(file.key) { mutableStateOf(false) }
                         TextButton(onClick = { details = !details }, modifier = Modifier.testTag("file-details-${file.key}")) {
-                            Text(if (details) "Hide file details" else "File details")
+                            Text(if (details) say("library.hide_file_details") else say("library.file_details"))
                         }
                         if (details) {
                             Text(file.filename, style = MaterialTheme.typography.bodySmall)
                         file.savedEpoch?.let { epoch ->
                             Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                                .format(Date((epoch * 1000).toLong())) + if (file.fileTime) " · File time" else "")
+                                .format(Date((epoch * 1000).toLong())) + if (file.fileTime) say("library.file_time") else "")
                         }
                         }
                         if (file.b2Copy) {
                             var browserFailed by rememberSaveable(file.key, file.filename, file.series, file.storage) {
                                 mutableStateOf(false)
                             }
-                            Text("Cloud copy. Use your Backblaze account to browse this bucket.")
+                            Text(say("library.cloud_copy_use_your_backblaze_account"))
                             TextButton(onClick = {
                                 browserFailed = try {
                                     browser.openUri(B2Page.BROWSE.url)
                                     false
                                 } catch (_: Exception) { true }
                             }, modifier = Modifier.semantics {
-                                contentDescription = "Browse ${file.title}, ${file.series} in Backblaze. ${file.filename}"
-                            }) { Text("Open in Backblaze") }
-                            if (browserFailed) Text("Could not open Backblaze. Check that a browser is available and try again.")
+                                contentDescription = say("library.browse_in_backblaze", "title" to file.title, "series" to file.series, "filename" to file.filename)
+                            }) { Text(say("cloud.open_in_backblaze")) }
+                            if (browserFailed) Text(say("library.could_not_open_backblaze_check_that"))
                         }
                     }
                 }
@@ -168,21 +171,21 @@ fun SavedFilesScreen(state: CatalogState, onQuery: (CatalogQuery, Boolean) -> Un
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(enabled = query.offset > 0, onClick = {
                         onQuery(query.copy(offset = (query.offset - query.limit).coerceAtLeast(0)), false)
-                    }) { Text("Previous") }
+                    }) { Text(say("library.previous")) }
                     TextButton(enabled = query.offset + query.limit < page.total, onClick = {
                         onQuery(query.copy(offset = (query.offset + query.limit).coerceAtMost(10_000_000)), false)
-                    }) { Text("Next") }
-                    Text("Page ${query.offset / query.limit + 1} of $pages")
+                    }) { Text(say("library.next")) }
+                    Text(say("library.page_of", "value" to (query.offset / query.limit + 1), "pages" to pages))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = pageDraft, onValueChange = { value ->
                         if (value.length <= 8 && value.all(Char::isDigit)) pageDraft = value
-                    }, label = { Text("Page") }, singleLine = true, modifier = Modifier.weight(1f))
+                    }, label = { Text(say("library.page")) }, singleLine = true, modifier = Modifier.weight(1f))
                     TextButton(enabled = pageDraft.toIntOrNull() != null, onClick = {
                         val chosen = (pageDraft.toIntOrNull() ?: 1).coerceIn(1, pages)
                         onQuery(query.copy(offset = ((chosen.toLong() - 1) * query.limit)
                             .coerceAtMost(10_000_000).toInt()), false)
-                    }) { Text("Go to page") }
+                    }) { Text(say("library.go_to_page")) }
                 }
                 }
             }

@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.controller
 
 import org.json.JSONObject
+import io.github.bcrute.comicarchiver.words.say
 
 /** Read-only observations, separate from the user's Go admission. No diagnostic strings. */
 data class DownloadObservations(
@@ -39,12 +40,12 @@ data class DownloadObservations(
             val total = count(lists, "total")?.takeIf { it > 0 }
             val checked = count(lists, "checked")?.takeIf { total != null && it <= total }
             val current = when (lists?.optString("current")) {
-                "unlocked" -> "Bought"
-                "subscribed" -> "Subscribed"
-                "updated" -> "Updated"
-                "recent" -> "Recent"
-                "free_episodes" -> "Free episodes"
-                "wait_until_free" -> "Wait until free"
+                "unlocked" -> say("downloads.bought")
+                "subscribed" -> say("downloads.subscribed")
+                "updated" -> say("downloads.updated")
+                "recent" -> say("downloads.recent")
+                "free_episodes" -> say("downloads.free_episodes")
+                "wait_until_free" -> say("downloads.wait_until_free")
                 else -> null
             }
             val retry = account.optJSONObject("retry")?.takeIf { account.optString("status") == "running" }
@@ -72,5 +73,5 @@ data class DownloadObservations(
 }
 
 enum class ObservedWorker(val label: String) {
-    OFF("Off"), STOPPING("Stopping"), WORKING("Working"), READY("Ready"), AVAILABLE("Available")
+    OFF(say("downloads.off")), STOPPING(say("downloads.stopping")), WORKING(say("downloads.working")), READY(say("downloads.ready")), AVAILABLE(say("downloads.available"))
 }

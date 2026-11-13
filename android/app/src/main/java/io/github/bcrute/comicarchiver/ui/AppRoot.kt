@@ -37,6 +37,7 @@ import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The whole Compose application root over the frozen controller. Native's MainActivity
@@ -117,13 +118,10 @@ fun ComicArchiverAppRoot(
             ?: if (targetSite == "tapas") "Tapas" else targetSite
         AlertDialog(
             onDismissRequest = { signOutSite = null; signOutLibrary = null },
-            title = { Text("Sign out of $name?") },
+            title = { Text(say("app.sign_out_of", "name" to name)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("This signs out of $name in Comic Archiver on this phone. " +
-                        "Your $name account, other sites and sign-ins in other apps stay unchanged.\n\n" +
-                        "Your saved episodes, export copies and B2 setup stay where they are. " +
-                        "Sign in again to download more from $name.")
+                    Text(say("app.this_signs_out_of_in_comic", "name" to name, "name2" to name, "name3" to name))
                 }
             },
             confirmButton = {
@@ -135,10 +133,10 @@ fun ComicArchiverAppRoot(
                     if (confirmed && current.site == targetSite && current.libraryId == targetLibrary &&
                         current.signIn is SignInState.SignedIn && !current.signOutPending &&
                         !current.siteBusy && !current.libraryBusy && current.workspaceReady) controller.signOut()
-                }) { Text("Sign out") }
+                }) { Text(say("app.sign_out")) }
             },
             dismissButton = {
-                TextButton(onClick = { signOutSite = null; signOutLibrary = null }) { Text("Cancel") }
+                TextButton(onClick = { signOutSite = null; signOutLibrary = null }) { Text(say("app.cancel")) }
             },
         )
     }
@@ -151,18 +149,18 @@ fun ComicArchiverAppRoot(
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Updating account and library…", Modifier.padding(horizontal = 16.dp))
+                    Text(say("app.updating_account_and_library"), Modifier.padding(horizontal = 16.dp))
                 }
                 if (state.signOutPending && !state.siteBusy) {
-                    Text("Sign-out did not finish. Your saved files are kept.", Modifier.padding(horizontal = 16.dp))
+                    Text(say("app.sign_out_did_not_finish_your"), Modifier.padding(horizontal = 16.dp))
                     OutlinedButton(onClick = controller::signOut, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        Text("Retry sign-out")
+                        Text(say("app.retry_sign_out"))
                     }
                 }
                 if (tab != AppTab.SAVING) state.notice?.let { notice ->
                     NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
                 }
-                if (state.libraryBusy && tab != AppTab.SETTINGS) Text("Working library change in progress. Open Settings → Libraries for its status.", Modifier.padding(horizontal = 16.dp))
+                if (state.libraryBusy && tab != AppTab.SETTINGS) Text(say("app.working_library_change_in_progress_open"), Modifier.padding(horizontal = 16.dp))
                 tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
                     when (tab) {
                         AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
@@ -227,7 +225,7 @@ fun ComicArchiverAppRoot(
                             onAccount = accountAction,
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
-                            TextButton(onClick = { tab = AppTab.SETTINGS }) { Text("All settings") }
+                            TextButton(onClick = { tab = AppTab.SETTINGS }) { Text(say("app.all_settings")) }
                             LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES },
                                 supportNote = state.supportNote, supportBusy = state.supportBusy,
                                 onCopyDetails = controller::copySupportDetails, onSaveLog = controller::saveSupportLog)
@@ -239,12 +237,12 @@ fun ComicArchiverAppRoot(
                             ) {
                                 val name = state.sites.firstOrNull { it.key == state.site }?.name
                                     ?: if (state.site == "tapas") "Tapas" else state.site
-                                Text(if (state.signIn is SignInState.SignedIn || state.signOutPending) "Sign out of $name"
-                                     else "Go to sign in")
+                                Text(if (state.signIn is SignInState.SignedIn || state.signOutPending) say("app.sign_out_of_2", "name" to name)
+                                     else say("app.go_to_sign_in"))
                             }
                         }
                         AppTab.LICENSES -> Column(Modifier.fillMaxSize()) {
-                            TextButton(onClick = { tab = AppTab.ABOUT }) { Text("About") }
+                            TextButton(onClick = { tab = AppTab.ABOUT }) { Text(say("app.about")) }
                             LicensesScreen(modifier = Modifier.weight(1f))
                         }
                     }
@@ -267,7 +265,7 @@ internal fun routeFor(signIn: SignInState): RootRoute =
 
 /** About, and the Licenses it leads to, are Settings subpages; only the first three destinations appear in navigation. */
 internal enum class AppTab(val label: String) {
-    SAVING("Downloads"), LIBRARY("Library"), SETTINGS("Settings"), ABOUT("About"), LICENSES("Licenses")
+    SAVING(say("app.downloads")), LIBRARY(say("app.library")), SETTINGS(say("app.settings")), ABOUT(say("app.about")), LICENSES(say("app.licenses"))
 }
 
 /**
@@ -281,7 +279,7 @@ internal fun DownloadsViewUi.goEnabled(): Boolean =
 internal fun DownloadsViewUi.pauseEnabled(): Boolean = this is DownloadsViewUi.Running
 
 /** The desktop's words for a Sign out that waits for the download to be paused. */
-const val SIGN_OUT_HELD = "Pause the download to sign out."
+val SIGN_OUT_HELD get() = say("app.pause_the_download_to_sign_out")
 
 /** A sign-out that did not finish may always be retried; otherwise a signed-in site that is saving keeps its sign-in. */
 fun signOutHeldBySaving(state: AppState): Boolean =

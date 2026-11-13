@@ -2,6 +2,7 @@ package io.github.bcrute.comicarchiver.export
 
 import org.json.JSONArray
 import org.json.JSONObject
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * Parses the bridge's `export_manifest` response envelope into [ExportEntry] values.
@@ -38,7 +39,7 @@ object ExportManifestParser {
                 entries = emptyList(),
                 invalid = 0,
                 refusedCode = envelope.optString("code", "job_failed"),
-                refusedMessage = envelope.optString("message", "The export list could not be read."),
+                refusedMessage = envelope.optString("message", say("library.the_export_list_could_not_be")),
             )
         }
         val result = envelope.opt("result")

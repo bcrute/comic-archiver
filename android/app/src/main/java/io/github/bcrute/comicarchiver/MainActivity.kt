@@ -44,6 +44,7 @@ import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
 import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
 import io.github.bcrute.comicarchiver.worker.DownloadNotifications
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The app's one activity (UI/export line): mounts the Compose root over the real
@@ -193,11 +194,11 @@ class MainActivity : ComponentActivity() {
                                         try { requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
                                         catch (_: RuntimeException) {
                                             notificationAccess = DownloadNotificationAccess.SETTINGS
-                                            notificationError = "Android could not open the permission prompt. Use notification settings."
+                                            notificationError = say("app.android_could_not_open_the_permission")
                                         }
                                     }
                                     DownloadNotificationAccess.SETTINGS -> if (!notifications.openSettings()) {
-                                        notificationError = "Android could not open notification settings. Open this app's settings from your device settings."
+                                        notificationError = say("app.android_could_not_open_notification_settings")
                                     }
                                     DownloadNotificationAccess.ENABLED -> Unit
                                 }
@@ -219,7 +220,7 @@ class MainActivity : ComponentActivity() {
                                         workingPickerTicket = ticket
                                         try { chooseWorking.launch(null) } catch (_: Exception) {
                                             workingPickerTicket = null; working.picked(null, ticket)
-                                            controller.openNotice(Notice(BetaCodes.STORAGE_LOW, "Android could not open the folder chooser. Try again."))
+                                            controller.openNotice(Notice(BetaCodes.STORAGE_LOW, say("app.android_could_not_open_the_folder")))
                                         }
                                     }
                                 }, confirm = { working.confirm(it) }, stop = working::stop, discard = working::discard,
@@ -326,7 +327,7 @@ class MainActivity : ComponentActivity() {
 
     private fun surfaceUnavailable() {
         val notice = Notice(BetaCodes.JOB_FAILED,
-            "The sign-in page could not be opened. Update Android System WebView and try sign-in again.")
+            say("app.the_sign_in_page_could_not_2"))
         // Creation and the initial Compose effect may both observe the same failure.
         // Only a user acknowledgement should toggle an existing notice away.
         if (controller.state.value.notice != notice) controller.openNotice(notice)

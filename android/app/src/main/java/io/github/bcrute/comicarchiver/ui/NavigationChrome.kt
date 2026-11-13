@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.AppState
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.words.say
 
 @Composable
 internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false) {
@@ -53,10 +54,10 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
             val current = state.sites.firstOrNull { it.key == state.site }
             TextButton(onClick = { expanded = true }, enabled = enabled,
                 modifier = Modifier.testTag("source-picker").semantics {
-                    if (working) stateDescription = "Finish this before changing the site."
+                    if (working) stateDescription = say("app.finish_this_before_changing_the_site")
                 }) {
                 Text(current?.name ?: state.site)
-                Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose source")
+                Icon(Icons.Default.ArrowDropDown, contentDescription = say("app.choose_source"))
             }
             DropdownMenu(expanded && enabled, onDismissRequest = { expanded = false }) {
                 state.sites.forEach { site ->
@@ -65,7 +66,7 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
                             Text(it, style = MaterialTheme.typography.bodySmall)
                         }
                             if (site.saving || site.key == state.site && saving)
-                                Text("Saving", style = MaterialTheme.typography.bodySmall)
+                                Text(say("app.saving"), style = MaterialTheme.typography.bodySmall)
                         } },
                         onClick = { expanded = false; onSelect(site.key) })
                 }
@@ -92,7 +93,7 @@ internal fun MainNavigation(tab: AppTab, onSelect: (AppTab) -> Unit) {
                 icon = { Icon(icon, contentDescription = null) },
                 // Keep whole words at the user's font size. "Downloads" can
                 // otherwise strand its final letter under a fixed-width item.
-                label = { Text(if (largeText && candidate == AppTab.SAVING) "Save" else candidate.label, maxLines = 1) },
+                label = { Text(if (largeText && candidate == AppTab.SAVING) say("app.save") else candidate.label, maxLines = 1) },
                 modifier = Modifier.testTag("nav-${candidate.name.lowercase()}"))
         }
     }

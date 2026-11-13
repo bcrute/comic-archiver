@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * Go/Pause and progress. Renders [DownloadsScreenUi], derived from the controller's
@@ -63,37 +64,37 @@ fun DownloadsScreen(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).testTag("downloads-scroll"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Downloads", style = MaterialTheme.typography.headlineMedium)
+        Text(say("app.downloads"), style = MaterialTheme.typography.headlineMedium)
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(when {
-                    running && statusDelayed -> "Status unknown"
+                    running && statusDelayed -> say("downloads.status_unknown")
                     state.headline != null -> state.headline
-                    running -> "Saving your episodes"
-                    state.download is DownloadsViewUi.Finished -> "Saving finished"
-                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.PAUSED_BY_USER -> "Saving paused"
-                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.METERED_OR_UNKNOWN_NETWORK -> "Waiting for your connection"
-                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.CONNECTION_UNVERIFIED -> "Check your connection"
-                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.FAILED -> "Saving stopped"
-                    else -> "Ready to save"
+                    running -> say("downloads.saving_your_episodes")
+                    state.download is DownloadsViewUi.Finished -> say("downloads.saving_finished")
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.PAUSED_BY_USER -> say("downloads.saving_paused")
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.METERED_OR_UNKNOWN_NETWORK -> say("downloads.waiting_for_your_connection")
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.CONNECTION_UNVERIFIED -> say("downloads.check_your_connection")
+                    (state.download as? DownloadsViewUi.Held)?.reason == HoldReasonUi.FAILED -> say("downloads.saving_stopped")
+                    else -> say("downloads.ready_to_save")
                 }, style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 PhaseBanner(if (statusDelayed && state.download is DownloadsViewUi.Running)
-                    state.download.copy(description = "Saving status is unavailable.") else state.download)
-                if (statusDelayed) Text("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
+                    state.download.copy(description = say("downloads.saving_status_is_unavailable")) else state.download)
+                if (statusDelayed) Text(say("downloads.status_updates_are_delayed_the_downloaders"))
                 if (state.download is DownloadsViewUi.Running) {
-                    if (statusDelayed) Text(if (state.observations != null) "At the last successful status check:"
-                        else "Waiting for the first status update.")
+                    if (statusDelayed) Text(if (state.observations != null) say("downloads.at_the_last_successful_status_check")
+                        else say("downloads.waiting_for_the_first_status_update"))
                     ProgressCard(state.download)
                 }
                 state.observations?.savedEpisodes?.let {
-                    Text("$it ${if (it == 1L) "episode" else "episodes"} saved", style = MaterialTheme.typography.titleMedium)
+                    Text(if (it == 1L) say("downloads.1_episode_saved") else say("downloads.episodes_saved", "it" to it), style = MaterialTheme.typography.titleMedium)
                 }
-                if (state.remaining > 0) Text("${state.remaining} more to save")
+                if (state.remaining > 0) Text(say("downloads.more_to_save", "remaining" to state.remaining))
                 Button(onClick = if (running) onPause else onGo,
                     enabled = state.controlsEnabled && (if (running) state.download.pauseEnabled() else state.download.goEnabled()),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("saving-action")) {
-                    Text(if (running) "Pause" else state.download.startLabel())
+                    Text(if (running) say("downloads.pause") else state.download.startLabel())
                 }
             }
         }
@@ -101,16 +102,16 @@ fun DownloadsScreen(
         state.allSites?.let { all ->
             Card(Modifier.fillMaxWidth().testTag("all-sites")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("All sites", style = MaterialTheme.typography.titleMedium)
+                    Text(say("downloads.all_sites"), style = MaterialTheme.typography.titleMedium)
                     all.counts?.let { Text(it) }
                     all.lines.forEach { Text(it) }
-                    if (all.starting) Text("Starting each signed-in site in turn…",
+                    if (all.starting) Text(say("downloads.starting_each_signed_in_site_in"),
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedButton(onClick = onGoAll, enabled = state.controlsEnabled,
-                            modifier = Modifier.weight(1f)) { Text("Start all") }
+                            modifier = Modifier.weight(1f)) { Text(say("downloads.start_all")) }
                         if (all.anySaving || all.starting) OutlinedButton(onClick = onPauseAll,
-                            modifier = Modifier.weight(1f)) { Text("Pause all") }
+                            modifier = Modifier.weight(1f)) { Text(say("downloads.pause_all")) }
                     }
                 }
             }
@@ -129,14 +130,14 @@ fun DownloadsScreen(
         }
         DashboardCards(state, now, onDownloadSettings, onStorageSettings, onOpenCatalog, details)
         TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (details) "Hide download details" else "Download details")
+            Text(if (details) say("downloads.hide_download_details") else say("downloads.download_details"))
         }
         if (notificationAccess != DownloadNotificationAccess.ENABLED) {
-            Text(notificationError ?: "Notifications are off. Enable them to control saving while the app is in the background.",
+            Text(notificationError ?: say("downloads.notifications_are_off_enable_them_to"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = onNotificationAccess) {
                 Text(if (notificationAccess == DownloadNotificationAccess.ASK_PERMISSION)
-                    "Allow download notifications" else "Notification settings")
+                    say("downloads.allow_download_notifications") else say("downloads.notification_settings"))
             }
         }
     }
@@ -146,17 +147,17 @@ fun DownloadsScreen(
 private fun PhaseBanner(download: DownloadsViewUi) {
     val text = when (download) {
         is DownloadsViewUi.Held -> when (download.reason) {
-            HoldReasonUi.NOT_STARTED -> "Save the episodes you can access as CBZ and EPUB files. Nothing starts until you choose Start saving."
-            HoldReasonUi.PAUSED_BY_USER -> "Your progress is kept. Resume when you’re ready."
+            HoldReasonUi.NOT_STARTED -> say("downloads.save_the_episodes_you_can_access")
+            HoldReasonUi.PAUSED_BY_USER -> say("downloads.your_progress_is_kept_resume_when")
             HoldReasonUi.METERED_OR_UNKNOWN_NETWORK ->
-                "Saving was held by your network setting. Check your connection and metered-data choice in Settings, then choose Resume."
+                say("downloads.saving_was_held_by_your_network")
             HoldReasonUi.CONNECTION_UNVERIFIED ->
-                "Your connection could not be verified. Check it and try again."
-            HoldReasonUi.FAILED -> "Saving stopped. Your saved files are kept. Try again when ready."
+                say("downloads.your_connection_could_not_be_verified")
+            HoldReasonUi.FAILED -> say("downloads.saving_stopped_your_saved_files_are")
         }
         is DownloadsViewUi.Running ->
-            download.description ?: if (download.totalUnits == 0) "Preparing…" else "Saving."
-        is DownloadsViewUi.Finished -> "Finished. ${download.summary}"
+            download.description ?: if (download.totalUnits == 0) say("downloads.preparing") else say("downloads.saving")
+        is DownloadsViewUi.Finished -> say("downloads.finished", "summary" to download.summary)
     }
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
@@ -171,7 +172,7 @@ private fun ProgressCard(running: DownloadsViewUi.Running) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "${running.doneUnits} of ${running.totalUnits} saved",
+                    say("downloads.of_saved", "doneUnits" to running.doneUnits, "totalUnits" to running.totalUnits),
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
@@ -187,9 +188,9 @@ private fun ProgressCard(running: DownloadsViewUi.Running) {
 /** Labels describe the next action; the controller still owns admission. */
 internal fun DownloadsViewUi.startLabel(): String = when (this) {
     is DownloadsViewUi.Held -> when (reason) {
-        HoldReasonUi.NOT_STARTED -> "Start saving"
-        HoldReasonUi.FAILED, HoldReasonUi.CONNECTION_UNVERIFIED -> "Try again"
-        else -> "Resume"
+        HoldReasonUi.NOT_STARTED -> say("downloads.start_saving")
+        HoldReasonUi.FAILED, HoldReasonUi.CONNECTION_UNVERIFIED -> say("downloads.try_again")
+        else -> say("downloads.resume")
     }
-    else -> "Start saving"
+    else -> say("downloads.start_saving")
 }

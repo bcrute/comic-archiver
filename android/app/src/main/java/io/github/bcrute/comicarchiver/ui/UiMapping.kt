@@ -7,6 +7,7 @@ import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The whole adaptation between the frozen controller DTOs and the screens: `AppState`
@@ -23,8 +24,18 @@ fun Notice.toNoticeUi(): NoticeUi = NoticeUi(
 
 /** The desktop's words for a sign-in to an account the library was not saved from. */
 fun accountMismatchText(site: String) =
-    "That $site account does not match this saved library. Sign in to the original account, " +
-        "or choose a different library folder to save this account separately."
+    say("signin.account_mismatch", "site" to site)
+
+/**
+ * What a sign-in that ended says, in the desktop's words. Going back says nothing, as on the desktop.
+ */
+internal fun signInNotice(code: String, site: String): NoticeUi? = when (code) {
+    "signin_cancelled" -> null
+    "account_mismatch" -> NoticeUi(PublicIssue.LOGIN_REQUIRED, accountMismatchText(site))
+    "signin_incomplete" -> NoticeUi(PublicIssue.JOB_FAILED, say("signin.incomplete", "site" to site))
+    else -> PublicIssue.fromWireName(code)?.let { NoticeUi(it) }
+        ?: NoticeUi(PublicIssue.JOB_FAILED, say("signin.failed", "site" to site))
+}
 
 fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     busy = signIn is SignInState.Page || signIn is SignInState.Settling,
@@ -33,9 +44,7 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     origin = signInOrigin,
     controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && sites.firstOrNull { it.key == site }?.signInAvailable != false,
     notice = (signIn as? SignInState.Failed)?.let {
-        if (it.code == "account_mismatch") NoticeUi(PublicIssue.LOGIN_REQUIRED, accountMismatchText(
-            sites.firstOrNull { choice -> choice.key == site }?.name ?: if (site == "tapas") "Tapas" else site))
-        else NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
+        signInNotice(it.code, sites.firstOrNull { choice -> choice.key == site }?.name ?: if (site == "tapas") "Tapas" else site)
     } ?: notice?.toNoticeUi(),
 )
 
@@ -82,20 +91,21 @@ private fun AppState.allSitesCard(): AllSitesCardUi? {
     if (offered.size < 2) return null
     val counts = allSites?.let { counted ->
         val missing = offered.filter { it.key !in counted.sites }.map { it.name }
-        "${counted.episodes} saved ${if (counted.episodes == 1L) "episode" else "episodes"} · " +
-            "${counted.files} ${if (counted.files == 1L) "file" else "files"}" +
-            if (missing.isEmpty()) "" else " (not counted: ${missing.joinToString(", ")})"
+        val names = missing.joinToString(", ")
+        (if (counted.episodes == 1L) say("downloads.1_saved_episode") else say("downloads.saved_episodes", "episodes" to counted.episodes)) + " · " +
+            (if (counted.files == 1L) "1 file" else say("downloads.files", "files" to counted.files)) +
+            if (missing.isEmpty()) "" else say("downloads.not_counted", "names" to names)
     }
     // The shown site's own state is the newest word on it; the others carry their mark.
     val shownSaving = download is DownloadState.Planning || download is DownloadState.Running
     val saving = offered.associate { it.key to if (it.key == site) shownSaving else it.saving }
-    return AllSitesCardUi(counts, offered.map { "${it.name}: ${if (saving[it.key] == true) "Saving" else "Not saving"}" },
+    return AllSitesCardUi(counts, offered.map { if (saving[it.key] == true) say("downloads.saving_2", "name" to it.name) else say("downloads.not_saving", "name" to it.name) },
         saving.values.any { it }, startingAll)
 }
 
 private fun AppState.downloadView(): DownloadsViewUi = when (val d = download) {
     DownloadState.Held -> DownloadsViewUi.Held(HoldReasonUi.NOT_STARTED)
-    DownloadState.Planning -> DownloadsViewUi.Running(doneUnits = 0, totalUnits = 0, description = "Starting…")
+    DownloadState.Planning -> DownloadsViewUi.Running(doneUnits = 0, totalUnits = 0, description = say("downloads.starting"))
     is DownloadState.Running -> DownloadsViewUi.Running(d.done, d.total, d.description, d.detail)
     is DownloadState.Paused -> DownloadsViewUi.Held(holdReasonOf(d.reason))
     is DownloadState.Finished -> DownloadsViewUi.Finished(d.summary)

@@ -33,10 +33,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import kotlin.coroutines.resume
+import io.github.bcrute.comicarchiver.words.say
 
 /** The desktop's words for a sign-in held by the connection rule, with the phone's switch in place of its button. */
-const val SIGN_IN_CONNECTION_HELD =
-    "Connect to Wi-Fi or a wired connection, or allow metered and mobile connections in Settings, then sign in again."
+val SIGN_IN_CONNECTION_HELD get() = say("app.connect_to_wi_fi_or_a")
 
 /**
  * Runtime AppController (native line) against the frozen contract. Every download action
@@ -119,7 +119,7 @@ class DefaultAppController(
         if (allJob?.isActive == true || _state.value.siteBusy || _state.value.libraryBusy || !workspaceReady) return
         if (_state.value.signOutPending || screenHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish sign-in, export or cloud setup before starting every site."))
+                say("app.finish_sign_in_export_or_cloud")))
             return
         }
         val home = location.key
@@ -386,7 +386,7 @@ class DefaultAppController(
     internal fun reserveLibraryChange(): Boolean {
         if (_state.value.siteBusy || _state.value.libraryBusy || _state.value.signOutPending || contextHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish sign-in, saving, export or cloud activity before changing the working library."))
+                say("app.finish_sign_in_saving_export_or")))
             return false
         }
         _state.value = _state.value.copy(libraryBusy = true, notice = null)
@@ -398,7 +398,7 @@ class DefaultAppController(
         if (workspaceReady && !_state.value.siteBusy && !_state.value.signOutPending) {
             try { signInWebView?.let(engine::restoreSignIn) }
             catch (_: Exception) { _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
-                "Open the site to verify sign-in for this working library.")) }
+                say("app.open_the_site_to_verify_sign"))) }
         }
     }
 
@@ -408,13 +408,13 @@ class DefaultAppController(
         // A site that is saving goes on saving while another is shown.
         if (_state.value.signOutPending || screenHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish sign-in, export or cloud setup before switching sites."))
+                say("app.finish_sign_in_export_or_cloud_2")))
             return
         }
         val choice = _state.value.sites.firstOrNull { it.key == key }
         if (choice == null || !choice.enabled) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
-                choice?.reason ?: "Choose a supported site."))
+                choice?.reason ?: say("app.choose_a_supported_site")))
             return
         }
         val target = context.app.workspaceFor(key)
@@ -487,7 +487,7 @@ class DefaultAppController(
                     } catch (cancelled: CancellationException) { throw cancelled }
                       catch (_: Exception) {
                         failure = Notice(BetaCodes.JOB_FAILED,
-                            "The working library could not be opened. The previous library is retained. Try again.")
+                            say("app.the_working_library_could_not_be"))
                     }
                     if (failure != null) {
                         workspaceReady = previousReady
@@ -526,7 +526,7 @@ class DefaultAppController(
         if (_state.value.libraryBusy || _state.value.siteBusy || _state.value.signOutPending || !workspaceReady) return
         if (_state.value.sites.firstOrNull { it.key == location.key }?.signInAvailable == false) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.UNSUPPORTED_SITE,
-                "Saved files are available. Update Android System WebView to sign in to this site."))
+                say("app.saved_files_are_available_update_android")))
             return
         }
         if (engine.state.value is SignInState.Restoring || engine.state.value is SignInState.Page ||
@@ -534,7 +534,7 @@ class DefaultAppController(
         if (admitted || _state.value.download is DownloadState.Planning ||
             _state.value.download is DownloadState.Running) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Pause saving before starting sign-in again."))
+                say("app.pause_saving_before_starting_sign_in")))
             return
         }
         // As on the desktop, the connection rule is checked before the sign-in page opens: a connection
@@ -545,23 +545,23 @@ class DefaultAppController(
         }
         try { surfaceFactory?.invoke(location.key) } catch (_: Exception) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "The sign-in page could not be opened. Update Android System WebView and try again."))
+                say("app.the_sign_in_page_could_not")))
             return
         }
         val webView = signInWebView
         when {
             siteLoaded == null -> _state.value = _state.value.copy(
                 notice = Notice(BetaCodes.UNSUPPORTED_SITE,
-                                "This app cannot sign in to that site yet."))
+                                say("app.this_app_cannot_sign_in_to")))
             webView == null -> _state.value = _state.value.copy(
-                notice = Notice(BetaCodes.JOB_FAILED, "The sign-in page is not showing yet. Try sign-in again."))
+                notice = Notice(BetaCodes.JOB_FAILED, say("app.the_sign_in_page_is_not")))
             else -> try {
                 engine.startSignIn(webView)
                 _state.value = _state.value.copy(notice = null)
             } catch (_: Exception) {
                 engine.cancelSignIn()
                 _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                    "The sign-in page could not be opened. Update Android System WebView and try again."))
+                    say("app.the_sign_in_page_could_not")))
             }
         }
     }
@@ -581,13 +581,13 @@ class DefaultAppController(
         // As on the desktop, a download is paused before its site is signed out. A sign-out
         // that did not finish has already stopped it and may always be retried.
         if (!_state.value.signOutPending && isSaving(location.key)) {
-            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED, "Pause the download to sign out."))
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED, say("app.pause_the_download_to_sign_out")))
             return
         }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
             _state.value.cloud?.authStatus == "running" || context.app.exports.isActive) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish export and cloud activity before signing out."))
+                say("app.finish_export_and_cloud_activity_before")))
             return
         }
         admissionVersion++
@@ -627,7 +627,7 @@ class DefaultAppController(
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) {
                 _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                    "Sign-out did not finish. The library is retained. Retry sign-out after activity stops."))
+                    say("app.sign_out_did_not_finish_the")))
             } finally {
                 _state.value = _state.value.copy(siteBusy = false)
             }
@@ -642,29 +642,29 @@ class DefaultAppController(
             _state.value.download is DownloadState.Running) return
         if (_state.value.libraryBusy) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish or stop the working-library change before pressing Start."))
+                say("app.finish_or_stop_the_working_library")))
             return
         }
         if (_state.value.signOutPending) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish signing out before starting another download."))
+                say("app.finish_signing_out_before_starting_another")))
             return
         }
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady || engine.state.value !is SignInState.SignedIn) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
-                "Open the site and finish sign-in before pressing Start."))
+                say("app.open_the_site_and_finish_sign")))
             return
         }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||
             _state.value.cloud?.authStatus == "running") {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "Finish the cloud activity before pressing Start."))
+                say("app.finish_the_cloud_activity_before_pressing")))
             return
         }
         val settings = _state.value.settings
         if (settings != null && settings.speeds.none { it.key == settings.speed && it.available }) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
-                "The stored speed cannot run here. Choose Medium or Slow in Settings, or update Android System WebView."))
+                say("app.the_stored_speed_cannot_run_here")))
             return
         }
         val version = ++admissionVersion
@@ -738,7 +738,7 @@ class DefaultAppController(
             request is CloudRequest.Cleanup || request is CloudRequest.Resume
         if (needsWorker && _state.value.signIn !is SignInState.SignedIn) {
             _state.value = _state.value.copy(cloudNotice = Notice(BetaCodes.LOGIN_REQUIRED,
-                "Sign in to the site before starting a cloud task."))
+                say("app.sign_in_to_the_site_before")))
             return
         }
         _state.value = _state.value.copy(cloudBusy = true, cloudNotice = null)
@@ -766,7 +766,7 @@ class DefaultAppController(
                     if (!current(target, version)) return@withContext
                     _state.value = _state.value.copy(cloud = result ?: _state.value.cloud, cloudBusy = false,
                         cloudNotice = if (result == null) Notice(BetaCodes.JOB_FAILED,
-                            refusal ?: "The cloud action did not finish. Refresh cloud settings and try again.") else null)
+                            refusal ?: say("app.the_cloud_action_did_not_finish")) else null)
                 }
             }
             // Re-read actual policy even when the mutation returned a refusal.
@@ -786,7 +786,7 @@ class DefaultAppController(
                     cloudCheckedAtMillis = if (status != null) SystemClock.elapsedRealtime() else _state.value.cloudCheckedAtMillis,
                     cloudReadFailed = status == null,
                     cloudNotice = if (status == null) Notice(BetaCodes.JOB_FAILED,
-                        "Cloud settings could not be read. Try Refresh cloud settings.") else _state.value.cloudNotice)
+                        say("app.cloud_settings_could_not_be_read")) else _state.value.cloudNotice)
             }
         }
     }
@@ -810,7 +810,7 @@ class DefaultAppController(
                 _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
                     page = page ?: _state.value.catalog.page, loading = false,
                     query = if (page == null) query else query.copy(offset = page.offset, limit = page.limit),
-                    error = if (page == null) "Saved files could not be loaded. Try Refresh files." else null,
+                    error = if (page == null) say("app.saved_files_could_not_be_loaded") else null,
                 ))
             }
         }
@@ -821,7 +821,7 @@ class DefaultAppController(
         val target = location; val version = siteVersion
         if (_state.value.catalog.openingId != null) return
         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
-            feedback = "Opening in your device's reader…", feedbackFor = id))
+            feedback = say("app.opening_in_your_devices_reader"), feedbackFor = id))
         scope.launch(Dispatchers.IO) {
             val file = try {
                 val answer = JSONObject(bridge.dispatch("file_open", JSONObject().put("root", target.root.absolutePath)
@@ -833,9 +833,9 @@ class DefaultAppController(
                 if (!current(target, version)) return@withContext
                 val result = file?.let { ArchiveViewer(context, target.library).open(it.optString("relpath"), it.optString("kind")) }
                 val feedback = when (result) {
-                    ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
-                    ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
-                    else -> "This file could not be opened. Refresh files and try again."
+                    ArchiveOpenResult.REQUESTED -> say("app.sent_to_your_devices_reader")
+                    ArchiveOpenResult.NO_READER -> say("app.no_app_could_open_this_file")
+                    else -> say("app.this_file_could_not_be_opened")
                 }
                 _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
                     openingId = null, feedback = feedback, feedbackFor = id))
@@ -869,7 +869,7 @@ class DefaultAppController(
                         settings = actual,
                         settingsBusy = false,
                         settingsNotice = if (settings == null) Notice(BetaCodes.JOB_FAILED,
-                            "The download setting could not be saved. Try again.") else null,
+                            say("app.the_download_setting_could_not_be")) else null,
                     )
                 }
             }
@@ -890,7 +890,7 @@ class DefaultAppController(
                 _state.value = _state.value.copy(
                     settings = settings,
                     settingsNotice = if (settings == null) Notice(BetaCodes.JOB_FAILED,
-                        "Download settings could not be read. Try again.") else null,
+                        say("app.download_settings_could_not_be_read")) else null,
                 )
             }
         } finally { settingsActions.unlock() }
@@ -908,7 +908,7 @@ class DefaultAppController(
             if (!envelope.optBoolean("ok")) {
                 withContext(Dispatchers.Main) { if (current(target, version)) _state.value = _state.value.copy(notice = Notice(
                     envelope.optString("code", BetaCodes.JOB_FAILED),
-                    envelope.optString("message", "The export could not start."))) }
+                    envelope.optString("message", say("app.the_export_could_not_start")))) }
             }
         }
     }
@@ -930,11 +930,11 @@ class DefaultAppController(
             .put("base_root", target.base.absolutePath).put("site_key", target.key)
             .put("network_schema", 1).toString()))
     } catch (_: Exception) {
-        JSONObject().put("ok", false).put("message", "The workspace could not be opened. Try the site again.")
+        JSONObject().put("ok", false).put("message", say("app.the_workspace_could_not_be_opened"))
     }
 
     private fun workspaceNotice(answer: JSONObject) = Notice(answer.optString("code", BetaCodes.JOB_FAILED),
-        answer.optString("message", "The workspace could not be opened. Try the site again."))
+        answer.optString("message", say("app.the_workspace_could_not_be_opened")))
 
     private fun current(target: SiteWorkspace, version: Long): Boolean =
         siteVersion == version && location.identity == target.identity && location.root == target.root
@@ -949,7 +949,7 @@ class DefaultAppController(
             siteLoaded = null
             _state.value = _state.value.copy(
                 notice = Notice(BetaCodes.UNSUPPORTED_SITE,
-                                "This app cannot sign in to that site yet."))
+                                say("app.this_app_cannot_sign_in_to")))
         }
     }
 

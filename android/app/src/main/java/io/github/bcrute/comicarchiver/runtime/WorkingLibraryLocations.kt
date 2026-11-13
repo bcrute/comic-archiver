@@ -13,6 +13,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import io.github.bcrute.comicarchiver.words.say
 
 /** Private picker authority. Neither the URI nor the source identity belongs in UI/log projections. */
 internal data class WorkingLibrarySource(val key: String, val tree: String) {
@@ -31,13 +32,13 @@ internal sealed interface WorkingLibraryStart {
 }
 
 internal enum class WorkingLibraryFailure(val words: String) {
-    UNAVAILABLE("The working library could not be opened. The previous library is retained."),
-    CORRUPT("The saved library choices could not be read. Existing files are retained."),
-    BUSY("Finish or cancel the library copy before choosing another folder."),
-    STALE("This library choice has changed. Choose the folder again."),
-    NOT_READY("The library copy has not finished verification. The previous library is retained."),
-    INVALID_NAME("Use a name with 1 to 120 characters and no control characters."),
-    NAME_USED("Another working library already uses that name. Choose a different name."),
+    UNAVAILABLE(say("libraries.the_working_library_could_not_be_2")),
+    CORRUPT(say("libraries.the_saved_library_choices_could_not")),
+    BUSY(say("libraries.finish_or_cancel_the_library_copy")),
+    STALE(say("libraries.this_library_choice_has_changed_choose")),
+    NOT_READY(say("libraries.the_library_copy_has_not_finished")),
+    INVALID_NAME(say("libraries.use_a_name_with_1_to")),
+    NAME_USED(say("libraries.another_working_library_already_uses_that_2")),
 }
 
 internal class WorkingLibraryException(val failure: WorkingLibraryFailure) : IllegalStateException(failure.words)
@@ -60,7 +61,7 @@ internal class WorkingLibraryLocations(filesDir: File) {
     private val gate = gates.getOrPut(owner.path) { Any() }
 
     private data class Snapshot(val active: String = DEFAULT,
-        val libraries: List<WorkingLibraryLocation> = listOf(WorkingLibraryLocation(DEFAULT, "This device")),
+        val libraries: List<WorkingLibraryLocation> = listOf(WorkingLibraryLocation(DEFAULT, say("libraries.this_device"))),
         val pending: PendingWorkingLibrary? = null)
 
     fun libraries(): List<WorkingLibraryLocation> = locked { read().libraries.toList() }
@@ -94,7 +95,7 @@ internal class WorkingLibraryLocations(filesDir: File) {
         if (state.libraries.size >= MAX_LIBRARIES) fail(WorkingLibraryFailure.UNAVAILABLE)
         val copies = state.libraries.count { it.source?.key == source.key }
         val pending = PendingWorkingLibrary(UUID.randomUUID().toString(),
-            if (copies == 0) label else label.take(100) + " (copy ${copies + 1})", source)
+            if (copies == 0) label else label.take(100) + say("libraries.copy", "value" to (copies + 1)), source)
         val stage = stageRoot(pending.id)
         val payload = File(stage, "payload")
         checkNewRoot(pending.id)

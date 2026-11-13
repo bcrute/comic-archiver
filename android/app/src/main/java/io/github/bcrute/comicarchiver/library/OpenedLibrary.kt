@@ -21,6 +21,7 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
+import io.github.bcrute.comicarchiver.words.say
 
 data class FolderLibraryState(val selected: Boolean = false, val label: String? = null,
     val choosing: Boolean = false, val needsFolder: Boolean = false,
@@ -83,7 +84,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
               catch (_: Exception) {
                 withContext(Dispatchers.Main) {
                     if (selection == chosen && request == version) _state.value = prior.copy(choosing = false,
-                        message = "The folder could not be opened. Choose an available Library or series folder.",
+                        message = say("library.the_folder_could_not_be_opened"),
                         catalog = prior.catalog.copy(loading = false, openingId = null))
                 }
             } finally { if (cached !== candidate) candidate?.file?.delete() }
@@ -138,8 +139,8 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
                 withContext(Dispatchers.Main) {
                     if (selection == chosen && version == request && tree == selected) {
                         _state.value = _state.value.copy(needsFolder = missing, catalog = _state.value.catalog.copy(
-                            loading = false, error = if (missing) "Folder access was lost. Choose the folder again."
-                            else "The folder could not be read. Refresh files or choose an available folder."))
+                            loading = false, error = if (missing) say("library.folder_access_was_lost_choose_the")
+                            else say("library.the_folder_could_not_be_read")))
                     }
                 }
             } finally { if (source !== cached) source?.file?.delete() }
@@ -164,7 +165,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
         val document = source.value.documents[id] ?: return
         val chosen = selection
         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = id,
-            feedback = "Preparing a reading copy…", feedbackFor = id))
+            feedback = say("library.preparing_a_reading_copy"), feedbackFor = id))
         pending?.cancel()
         pending = scope.launch(Dispatchers.IO) {
             var prepared: PreparedPortableOpen? = null
@@ -178,9 +179,9 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
                         catch (_: Exception) { ArchiveOpenResult.UNAVAILABLE }
                     launched = result == ArchiveOpenResult.REQUESTED
                     val message = when (result) {
-                        ArchiveOpenResult.REQUESTED -> "Sent to your device's reader."
-                        ArchiveOpenResult.NO_READER -> "No app could open this file. Choose a CBZ or EPUB reader and try again."
-                        else -> "This file changed or is unavailable. Refresh files or choose the folder again."
+                        ArchiveOpenResult.REQUESTED -> say("app.sent_to_your_devices_reader")
+                        ArchiveOpenResult.NO_READER -> say("app.no_app_could_open_this_file")
+                        else -> say("library.this_file_changed_or_is_unavailable")
                     }
                     _state.value = _state.value.copy(catalog = _state.value.catalog.copy(
                         openingId = null, feedback = message, feedbackFor = id))
@@ -190,7 +191,7 @@ internal class OpenedLibrary(context: Context, private val bridge: PythonBridge,
                 withContext(Dispatchers.Main) {
                     if (chosen == selection && tree == source.tree && cached === source)
                         _state.value = _state.value.copy(catalog = _state.value.catalog.copy(openingId = null,
-                            feedback = "The reading copy could not be prepared. Free some space, refresh files or choose the folder again.",
+                            feedback = say("library.the_reading_copy_could_not_be"),
                             feedbackFor = id))
                 }
             } finally { if (!launched) prepared?.discard() }

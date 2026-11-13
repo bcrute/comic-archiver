@@ -6,6 +6,8 @@ and tested here. The window only puts the answers on screen.
 from dataclasses import dataclass, field
 import math
 
+from .messages import say
+
 # Each refresh of the dashboard reads the library this often; the clocks are redrawn every second in between.
 POLL_SECONDS = 60
 # The connection is checked now and then, not on every refresh.
@@ -642,15 +644,12 @@ def view(s, now):
              'this may use your data allowance.' if (net or {}).get('reason') == 'metered_connection'
         else 'This computer cannot tell whether its connection is metered (a VPN can cause this), so saving waits. '
              'Tick this to save on it anyway.')
-    auth_messages = {'network_held': 'Connect to Wi-Fi or a wired connection, or press Allow this connection, then sign in again.',
-                     'account_mismatch': f'That {site} account does not match this saved library. Sign in to the original account, '
-                                         'or choose a different library folder to save this account separately.',
-                     'signin_failed': f'Sign-in did not finish. Try Sign in to {site} again.',
-                     'signin_incomplete': f'Sign-in was not completed. Click Sign in to {site} to try again.'}
+    auth_messages = {code: say(f'signin.{code}', site=site)
+                     for code in ('network_held', 'account_mismatch', 'failed', 'incomplete')}
     site_auth = s.site_auth or {}
     v['signin_status'] = (s.message.text if s.message else
                           f'Finish signing in to {site}. We’ll detect it automatically; then return here to start saving.' if signing_in
-                          else auth_messages.get(site_auth.get('code'), auth_messages['signin_failed'])
+                          else auth_messages.get(str(site_auth.get('code')).removeprefix('signin_'), auth_messages['failed'])
                           if site_auth.get('status') == 'error' else '')
     v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
     v['settings_status'] = s.message.text if s.message else ''

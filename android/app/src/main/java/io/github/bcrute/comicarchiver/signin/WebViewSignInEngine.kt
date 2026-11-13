@@ -225,7 +225,8 @@ class WebViewSignInEngine(
 
     /** The person went back, or the app is closing; an unfinished sign-in is stopped. */
     override fun cancelSignIn() {
-        finish(SignInState.Failed("signin_incomplete"))
+        // Going back is the person's own choice, so it is told apart from a sign-in that ran out of time.
+        finish(SignInState.Failed("signin_cancelled"))
     }
 
     override fun requireSignIn() {

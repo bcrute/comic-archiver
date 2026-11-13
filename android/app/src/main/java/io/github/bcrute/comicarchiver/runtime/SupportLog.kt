@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.MediaStore
 import java.io.File
 import java.io.IOException
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The phone's part of the desktop's Copy details for support and Save log for support. What
@@ -24,7 +25,7 @@ object SupportLog {
     /** The phone's system as a support reply needs it, in letters the core accepts. */
     fun system(release: String? = Build.VERSION.RELEASE, api: Int = Build.VERSION.SDK_INT): String {
         val name = release.orEmpty().filter { it.isLetterOrDigit() && it.code < 128 || it in " ._-" }.take(20).trim()
-        return if (name.isEmpty()) "Android (API $api)" else "Android $name (API $api)"
+        return if (name.isEmpty()) say("about.android_api", "api" to api) else say("about.android_api_2", "name" to name, "api" to api)
     }
 
     /** The installed app's version, or "unknown". */
@@ -38,7 +39,7 @@ object SupportLog {
 
     fun copy(context: Context, text: String) {
         val clipboard = context.getSystemService(ClipboardManager::class.java) ?: throw IOException()
-        clipboard.setPrimaryClip(ClipData.newPlainText("Comic Archiver details for support", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText(say("about.comic_archiver_details_for_support"), text))
     }
 
     /** Put [file] in the phone's Downloads as a text file of the same name; the name it has

@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.json.JSONObject
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * Starts the embedded Python runtime once per process (native line; the bootstrap form is
@@ -103,7 +104,7 @@ open class App : Application() {
     fun siteChoices(): List<SiteChoice> = signInSites.map { (key, address) ->
         val enabled = signInAvailable(key)
         SiteChoice(key, address.name.ifBlank { if (key == "tapas") "Tapas" else key }, true,
-            if (enabled) null else "Saved files remain available. Update Android System WebView to sign in to this site.",
+            if (enabled) null else say("app.saved_files_remain_available_update_android"),
             signInAvailable = enabled)
     }
 

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import io.github.bcrute.comicarchiver.words.say
 
 enum class WorkingLibraryPhase { IDLE, CHOOSING, SCANNING, PREVIEW, CHECKING_COPY, COPYING,
     CHECKING_SOURCE, VERIFYING, SELECTING, STOPPING, HELD, FAILED }
@@ -69,7 +70,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
     private fun words(error: Exception): String = when (error) {
         is LibraryCaptureException -> error.failure.words
         is WorkingLibraryException -> error.failure.words
-        else -> "The working library could not be prepared. The previous library is retained. Retry or discard this copy."
+        else -> say("libraries.the_working_library_could_not_be")
     }
 
     fun load() {
@@ -86,7 +87,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
                     _state.value = WorkingLibrariesState(enabled = true, choices = choices.entries,
                         phase = if (pending == null) WorkingLibraryPhase.IDLE else WorkingLibraryPhase.HELD,
                         pending = pending != null, pendingLabel = pending?.label,
-                        message = if (pending == null) null else "Library copy held. Continue or discard it; nothing starts by itself.")
+                        message = if (pending == null) null else say("libraries.library_copy_held_continue_or_discard"))
                 }
             } catch (error: Exception) {
                 withContext(Dispatchers.Main) { if (operation == generation) _state.value = _state.value.copy(
@@ -115,7 +116,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
         val source = try { locations.libraries().singleOrNull { it.id == app.currentLibraryId }?.source }
             catch (_: Exception) { null }
         if (source == null) {
-            release(); _state.value = _state.value.copy(message = "This library has no captured source. Choose a project or Library folder.")
+            release(); _state.value = _state.value.copy(message = say("libraries.this_library_has_no_captured_source"))
             return
         }
         scan(Uri.parse(source.tree), true)
@@ -185,7 +186,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
                 if (existingCopy != null) {
                     withContext(Dispatchers.Main) {
                         _state.value = _state.value.copy(phase = WorkingLibraryPhase.SELECTING)
-                        if (!app.controller.selectWorkingLibrary(existingCopy.id)) resultMessage = "The saved copy could not be opened. The previous library is retained."
+                        if (!app.controller.selectWorkingLibrary(existingCopy.id)) resultMessage = say("libraries.the_saved_copy_could_not_be")
                     }
                 } else {
                     val pendingCopy = ticket ?: throw WorkingLibraryException(WorkingLibraryFailure.STALE)
@@ -239,16 +240,16 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
                     withContext(Dispatchers.Main) {
                         _state.value = _state.value.copy(phase = WorkingLibraryPhase.SELECTING)
                         if (!app.controller.selectWorkingLibrary(completed.id, site)) resultMessage =
-                            "The verified copy is ready. The previous library remains selected; open the new copy when activity stops."
+                            say("libraries.the_verified_copy_is_ready_the")
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (error: Exception) {
                 failed = error !is LibraryCaptureException || error.failure != LibraryCaptureFailure.CANCELLED
-                resultMessage = if (!failed) "Library copy held. Continue or discard it; the previous library is retained." else words(error)
+                resultMessage = if (!failed) say("libraries.library_copy_held_continue_or_discard_2") else words(error)
             } finally {
                 if (discardRequested) {
-                    try { locations.pending()?.let { locations.cancel(it.id) }; resultMessage = "Copy discarded. The previous library is retained." }
+                    try { locations.pending()?.let { locations.cancel(it.id) }; resultMessage = say("libraries.copy_discarded_the_previous_library_is") }
                     catch (error: Exception) { failed = true; resultMessage = words(error) }
                 }
                 val choices = runCatching { readChoices() }.getOrNull()
@@ -277,7 +278,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
             if (operation == generation) {
                 _state.value = _state.value.copy(phase = if (opened) WorkingLibraryPhase.IDLE else WorkingLibraryPhase.FAILED,
                     choices = choices?.entries ?: _state.value.choices,
-                    message = if (opened) null else "The working library could not be opened. The previous library is retained.")
+                    message = if (opened) null else say("libraries.the_working_library_could_not_be_2"))
                 release()
             }
         }
@@ -298,7 +299,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
                 _state.value = _state.value.copy(loading = false,
                     choices = choices?.entries ?: _state.value.choices,
                     renamedId = if (failure == null && choices != null) id else null,
-                    message = failure ?: if (choices == null) "The name could not be read. Reload library choices." else "Library name saved.")
+                    message = failure ?: if (choices == null) say("libraries.the_name_could_not_be_read") else say("libraries.library_name_saved"))
             }
         }
     }
@@ -326,7 +327,7 @@ internal class WorkingLibraries(private val app: App, private val scope: Corouti
         val operation = ++generation
         _state.value = _state.value.copy(phase = WorkingLibraryPhase.STOPPING)
         running = scope.launch(Dispatchers.IO) {
-            var message = "Copy discarded. The previous library is retained."
+            var message = say("libraries.copy_discarded_the_previous_library_is")
             try { locations.pending()?.let { locations.cancel(it.id) } } catch (error: Exception) { message = words(error) }
             val choices = runCatching { readChoices() }.getOrNull()
             withContext(Dispatchers.Main) {

@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import io.github.bcrute.comicarchiver.words.say
 
 /** Time passing only ages observations. It never advances progress or changes admission. */
 internal fun dashboardAge(nowMillis: Long, recordedMillis: Long): Long =
@@ -56,70 +57,70 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
     val delayed = dashboardDelayed(state.statusReadFailed, now, observation?.receivedAtMillis)
     if (details) Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Download status", style = MaterialTheme.typography.titleMedium)
-            Text(if (state.signedIn) "Account: Signed in to ${state.siteName}" else "Account: Sign-in needed")
-            Text("${if (delayed) "Last reported downloader" else "Downloader"}: ${observation?.worker?.label ?: "Not checked yet"}")
+            Text(say("downloads.download_status"), style = MaterialTheme.typography.titleMedium)
+            Text(if (state.signedIn) say("downloads.account_signed_in_to", "siteName" to state.siteName) else say("downloads.account_sign_in_needed"))
+            Text((if (delayed) say("downloads.last_reported_downloader", "value" to (observation?.worker?.label ?: say("downloads.not_checked_yet"))) else say("downloads.downloader", "value" to (observation?.worker?.label ?: say("downloads.not_checked_yet")))))
             if (running) state.admittedAtMillis?.let {
-                Text("Elapsed since starting: ${dashboardDuration(dashboardAge(now, it))}")
+                Text(say("downloads.elapsed_since_starting", "value" to (dashboardDuration(dashboardAge(now, it)))))
             }
             observation?.let { observed ->
                 val age = dashboardAge(now, observed.receivedAtMillis)
-                Text("Status checked ${dashboardDuration(age)} ago")
-                observed.savedEpisodes?.let { Text("$it saved episodes recorded") }
-                observed.observedSeries?.let { Text("$it known series") }
+                Text(say("downloads.status_checked_ago", "value" to (dashboardDuration(age))))
+                observed.savedEpisodes?.let { Text(say("downloads.saved_episodes_recorded", "it" to it)) }
+                observed.observedSeries?.let { Text(say("downloads.known_series", "it" to it)) }
                 if (running) {
                     observed.activityAgeSeconds?.let {
                         val activity = if (Long.MAX_VALUE - age < it) Long.MAX_VALUE else it + age
-                        Text("Last recorded activity: ${dashboardDuration(activity)} ago")
+                        Text(say("downloads.last_recorded_activity_ago", "value" to (dashboardDuration(activity))))
                         if (!delayed && activity >= 60 && observed.retrySeconds == null)
-                            Text("No new progress for over a minute. The site may be slow; you can wait or press Pause.")
+                            Text(say("downloads.no_new_progress_for_over_a"))
                     }
                     if (!delayed && observed.retrySeconds != null) {
                         val left = (observed.retrySeconds - age).coerceAtLeast(0)
-                        Text(if (left == 0L) "A retry is due; waiting for the next status update." else {
+                        Text(if (left == 0L) say("downloads.a_retry_is_due_waiting_for") else {
                             val why = when (observed.retryReason) {
-                                "source" -> "The site asked the app to wait."
-                                "images" -> "Some images did not arrive."
-                                "connection" -> "The connection was interrupted."
-                                "idle" -> "The last step saved nothing new."
-                                else -> "The download is waiting before retrying."
+                                "source" -> say("downloads.the_site_asked_the_app_to")
+                                "images" -> say("downloads.some_images_did_not_arrive")
+                                "connection" -> say("downloads.the_connection_was_interrupted")
+                                "idle" -> say("downloads.the_last_step_saved_nothing_new")
+                                else -> say("downloads.the_download_is_waiting_before_retrying")
                             }
-                            "$why Next retry in ${dashboardDuration(left)}."
+                            say("downloads.next_retry_in", "why" to why, "value" to (dashboardDuration(left)))
                         })
                     }
-                    observed.currentList?.let { Text("${if (delayed) "Last reported list" else "Current list"}: $it") }
+                    observed.currentList?.let { Text(if (delayed) say("downloads.last_reported_list", "it" to it) else say("downloads.current_list", "it" to it)) }
                     if (observed.listsChecked != null && observed.listsTotal != null) {
                         LinearProgressIndicator(progress = { observed.listsChecked.toFloat() / observed.listsTotal },
                             modifier = Modifier.fillMaxWidth())
-                        Text("${observed.listsChecked} of ${observed.listsTotal} account lists checked")
+                        Text(say("downloads.of_account_lists_checked", "listsChecked" to observed.listsChecked, "listsTotal" to observed.listsTotal))
                     }
                 }
             }
             OutlinedButton(onClick = onDownloadSettings, enabled = state.controlsEnabled,
-                modifier = Modifier.fillMaxWidth()) { Text("Open download settings") }
+                modifier = Modifier.fillMaxWidth()) { Text(say("downloads.open_download_settings")) }
         }
     }
     val cloud = state.cloud
     val overview = cloud?.overview
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Your saved library", style = MaterialTheme.typography.titleMedium)
+            Text(say("downloads.your_saved_library"), style = MaterialTheme.typography.titleMedium)
             Text(when (cloud?.destination) {
-                "device" -> "New episodes save to this device's working library."
-                "b2" -> "New episodes save to your Backblaze B2 storage."
-                else -> "The saving destination has not been checked yet."
+                "device" -> say("downloads.new_episodes_save_to_this_devices")
+                "b2" -> say("downloads.new_episodes_save_to_your_backblaze")
+                else -> say("downloads.the_saving_destination_has_not_been")
             })
             if (dashboardDelayed(state.cloudReadFailed, now, state.cloudCheckedAtMillis))
-                Text("Storage updates are delayed. These are the last recorded counts and destination.")
-            if (details) state.cloudCheckedAtMillis?.let { Text("Storage checked ${dashboardDuration(dashboardAge(now, it))} ago") }
-            Text(if (!details && overview?.available == true) "Find your finished CBZ and EPUB files."
-                else overview?.summary ?: "Saved file counts have not been read. Open View saved files to check them.")
+                Text(say("downloads.storage_updates_are_delayed_these_are"))
+            if (details) state.cloudCheckedAtMillis?.let { Text(say("downloads.storage_checked_ago", "value" to (dashboardDuration(dashboardAge(now, it))))) }
+            Text(if (!details && overview?.available == true) say("downloads.find_your_finished_cbz_and_epub")
+                else overview?.summary ?: say("downloads.saved_file_counts_have_not_been"))
             if (details && overview?.available == true) {
                 overview.metrics.forEach { Text("${it.label}: ${it.value}") }
                 overview.locations.forEach { place ->
                     OutlinedButton(onClick = { onOpenCatalog(place.id) }, enabled = state.controlsEnabled,
                         modifier = Modifier.fillMaxWidth().semantics {
-                            contentDescription = "View stored episodes on ${place.label}. ${place.counts}"
+                            contentDescription = say("downloads.view_stored_episodes_on", "label" to place.label, "counts" to place.counts)
                         }) {
                         Column { Text(place.label); Text(place.counts) }
                     }
@@ -128,10 +129,10 @@ internal fun DashboardCards(state: DownloadsScreenUi, now: Long, onDownloadSetti
             if (details) cloud?.timeEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
             if (details) cloud?.spaceEstimate?.takeIf { it.isNotBlank() }?.let { Text(it) }
             OutlinedButton(onClick = { onOpenCatalog("all") }, enabled = state.controlsEnabled,
-                modifier = Modifier.fillMaxWidth()) { Text("View saved files") }
+                modifier = Modifier.fillMaxWidth()) { Text(say("downloads.view_saved_files")) }
             OutlinedButton(onClick = onStorageSettings, enabled = state.controlsEnabled,
-                modifier = Modifier.fillMaxWidth()) { Text("Change saving destination") }
-            if (details) Text("Finished exports are separate copies. Comics use CBZ; novels use EPUB.")
+                modifier = Modifier.fillMaxWidth()) { Text(say("downloads.change_saving_destination")) }
+            if (details) Text(say("downloads.finished_exports_are_separate_copies_comics"))
         }
     }
 }

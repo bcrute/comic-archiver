@@ -54,6 +54,17 @@ class UiMappingTest {
     }
 
     @Test
+    fun aSignInThatEndedSaysWhatTheDesktopSaysAndGoingBackSaysNothing() {
+        fun notice(code: String) = UiFixtures.coldStart.copy(signIn = SignInState.Failed(code)).toSignInScreenUi().notice
+        assertEquals(null, notice("signin_cancelled"))
+        assertEquals(NoticeUi(PublicIssue.JOB_FAILED, "Sign-in was not completed. Choose Sign in to Tapas to try again."),
+            notice("signin_incomplete"))
+        assertEquals(NoticeUi(PublicIssue.JOB_FAILED, "Sign-in did not finish. Try Sign in to Tapas again."),
+            notice("signin_unavailable"))
+        assertEquals(NoticeUi(PublicIssue.UNSUPPORTED_SITE), notice("unsupported_site"))
+    }
+
+    @Test
     fun theTopCardTakesTheShownSitesDesktopWordsOnlyFromACardReadInTheSameState() {
         fun card(site: String, title: String, download: String) =
             SiteCard(site, site, title, "Waiting", "active", "", emptyList(), download = download)

@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * Tapas sign-in entry. The screen owns no sign-in logic: it renders [SignInScreenUi]
@@ -36,17 +37,17 @@ fun SignInScreen(
     ) {
         Text(state.siteName, style = MaterialTheme.typography.headlineSmall)
         if (!state.busy && !state.restoring) Text(
-            "Sign in with your ${state.siteName} account to save episodes you can access.",
+            say("signin.sign_in_with_your_account_to", "siteName" to state.siteName),
             style = MaterialTheme.typography.bodyMedium,
         )
         state.origin?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         state.notice?.let { NoticeCard(it) }
         if (state.restoring) {
-            Text("Checking saved sign-in…", style = MaterialTheme.typography.bodyMedium)
+            Text(say("signin.checking_saved_sign_in"), style = MaterialTheme.typography.bodyMedium)
         }
         if (!state.busy && !state.restoring) {
             Button(onClick = onStartSignIn, enabled = state.controlsEnabled, modifier = Modifier.fillMaxWidth()) {
-                Text("Sign in to ${state.siteName}")
+                Text(say("signin.sign_in_to", "siteName" to state.siteName))
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -74,17 +75,15 @@ fun NoticeCard(
     val words = NoticeText.wordsFor(notice.issue)
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(words.notice, style = MaterialTheme.typography.bodyMedium)
-            if (showRecovery) Text(
+            // A notice with words of its own says only those; the issue's general words are for one without.
+            Text(notice.detail ?: words.notice, style = MaterialTheme.typography.bodyMedium)
+            if (showRecovery && notice.detail == null) Text(
                     words.recoveryAction,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-            notice.detail?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
-            }
             if (onDismiss != null) {
-                TextButton(onClick = onDismiss) { Text("Got it") }
+                TextButton(onClick = onDismiss) { Text(say("signin.got_it")) }
             }
         }
     }

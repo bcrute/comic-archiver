@@ -1,5 +1,7 @@
 package io.github.bcrute.comicarchiver.controller
 
+import io.github.bcrute.comicarchiver.words.say
+
 /** Frozen beta DTOs. The UI renders these; it never owns policy. */
 
 data class AppState(
@@ -45,10 +47,10 @@ data class SupportNote(val text: String, val failed: Boolean = false)
 
 /** The desktop's words for its two support buttons, and the phone's for a copy that failed. */
 object SupportWords {
-    const val COPIED = "Copied. Paste it into your message or email."
-    const val NOT_COPIED = "The details could not be copied. Try again."
-    const val LOG_FAILED = "The log could not be saved. Check that your Downloads folder can be written to."
-    fun logSaved(name: String) = "Saved in your Downloads folder as \u201c$name\u201d."
+    val COPIED get() = say("app.copied_paste_it_into_your_message")
+    val NOT_COPIED get() = say("app.the_details_could_not_be_copied")
+    val LOG_FAILED get() = say("app.the_log_could_not_be_saved")
+    fun logSaved(name: String) = say("app.saved_in_your_downloads_folder_as", "name" to name)
 }
 
 /** Saved-file counts over every site of the working library, and the sites they cover. */
@@ -151,7 +153,7 @@ data class SiteChoice(val key: String, val name: String, val enabled: Boolean, v
                       /** This site is saving now, whichever site is being shown. */
                       val saving: Boolean = false)
 
-enum class AppTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
+enum class AppTheme(val label: String) { SYSTEM(say("app.system")), LIGHT(say("app.light")), DARK(say("app.dark")) }
 
 data class SpeedChoice(val key: String, val label: String, val available: Boolean)
 

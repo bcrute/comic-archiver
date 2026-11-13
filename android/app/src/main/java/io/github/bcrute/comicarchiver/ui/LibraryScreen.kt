@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * Library plus the batch-export panel. The list renders what the controller reports as
@@ -93,29 +94,29 @@ fun LibraryScreen(
             LazyRow(Modifier.weight(1f).testTag("library-views"), state = viewScroll,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("Files", "Series", "Folder", "Episodes")) { choice ->
-                    FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(choice) })
+                    FilterChip(selected = view == choice, onClick = { view = choice }, label = { Text(libraryLabel(choice)) })
                 }
             }
             Box {
                 IconButton(onClick = { options = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Library options")
+                    Icon(Icons.Default.MoreVert, contentDescription = say("library.library_options"))
                 }
                 DropdownMenu(options, onDismissRequest = { options = false }) {
-                    DropdownMenuItem(text = { Text("Export files") }, onClick = { options = false; view = "Export" })
+                    DropdownMenuItem(text = { Text(say("library.export_files")) }, onClick = { options = false; view = say("library.export") })
                     onWorkingLibrary?.let { action ->
-                        DropdownMenuItem(text = { Text("Change working library") }, onClick = { options = false; action() })
+                        DropdownMenuItem(text = { Text(say("library.change_working_library")) }, onClick = { options = false; action() })
                     }
                 }
             }
         }
         if (view != "Export" && exportState.phase == ExportPhaseUi.RUNNING)
-            TextButton(onClick = { view = "Export" }) { Text("Export running · View progress") }
+            TextButton(onClick = { view = say("library.export") }) { Text(say("library.export_running_view_progress")) }
 
         Box(Modifier.weight(1f)) {
             if (view == "Export") Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Export files", style = MaterialTheme.typography.headlineMedium)
-                Text("Copy finished archives to a folder you choose.")
+                Text(say("library.export_files"), style = MaterialTheme.typography.headlineMedium)
+                Text(say("library.copy_finished_archives_to_a_folder"))
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
             else if (view == "Series") SeriesLibraryScreen(series)
@@ -154,15 +155,15 @@ private fun SeriesLibraryScreen(series: List<LibrarySeriesUi>) {
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Library", style = MaterialTheme.typography.headlineSmall)
+                Text(say("app.library"), style = MaterialTheme.typography.headlineSmall)
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it.take(200) },
-                    label = { Text("Find saved series") },
+                    label = { Text(say("library.find_saved_series")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = if (query.isNotEmpty()) {
-                        { TextButton(onClick = { query = "" }) { Text("Clear search") } }
+                        { TextButton(onClick = { query = "" }) { Text(say("library.clear_search")) } }
                     } else null,
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -170,18 +171,18 @@ private fun SeriesLibraryScreen(series: List<LibrarySeriesUi>) {
                         FilterChip(
                             selected = format == choice,
                             onClick = { format = choice },
-                            label = { Text(choice) },
+                            label = { Text(libraryLabel(choice)) },
                         )
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("${matches.size} of ${series.size} series", Modifier.weight(1f))
+                    Text(say("library.of_series", "size" to matches.size, "size2" to series.size), Modifier.weight(1f))
                     Box {
-                        TextButton(onClick = { sortOpen = true }) { Text("Sort: $sort") }
+                        TextButton(onClick = { sortOpen = true }) { Text(say("library.sort", "sort" to libraryLabel(sort))) }
                         DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
                             listOf("Title A–Z", "Title Z–A", "Most saved").forEach { choice ->
                                 DropdownMenuItem(
-                                    text = { Text(choice) },
+                                    text = { Text(libraryLabel(choice)) },
                                     onClick = { sort = choice; sortOpen = false },
                                 )
                             }
@@ -193,19 +194,19 @@ private fun SeriesLibraryScreen(series: List<LibrarySeriesUi>) {
         if (series.isEmpty()) {
             item {
                 Text(
-                    "Nothing finished yet. Saved comics appear here as CBZ and novels as EPUB.",
+                    say("library.nothing_finished_yet_saved_comics_appear"),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
         } else if (matches.isEmpty()) {
-            item { Text("No saved series match these filters.") }
+            item { Text(say("library.no_saved_series_match_these_filters")) }
         } else {
             items(matches, key = { it.seriesId }) { item ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${item.savedCount} of ${item.episodeCount} saved · ${item.formatLabel}",
+                            say("library.of_saved", "savedCount" to item.savedCount, "episodeCount" to item.episodeCount, "formatLabel" to item.formatLabel),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -225,10 +226,9 @@ internal fun ExportPanel(
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Export", style = MaterialTheme.typography.titleMedium)
+            Text(say("library.export"), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Copies finished CBZ and EPUB files into series folders you choose. " +
-                    "Every copy is checked before it counts as exported.",
+                say("library.copies_finished_cbz_and_epub_files"),
                 style = MaterialTheme.typography.bodySmall,
             )
             state.progress?.let { p ->
@@ -240,21 +240,21 @@ internal fun ExportPanel(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        "${p.verified + p.alreadyVerified} of ${p.total} verified" +
-                            (if (p.failed > 0) " · ${p.failed} failed" else ""),
+                        say("library.of_verified", "value" to (p.verified + p.alreadyVerified), "total" to p.total) +
+                            (if (p.failed > 0) say("library.failed", "failed" to p.failed) else ""),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
             state.lastIssue?.let { NoticeCard(NoticeUi(it)) }
-            if (state.phase == ExportPhaseUi.ALL_VERIFIED) Text("Last export verified.")
+            if (state.phase == ExportPhaseUi.ALL_VERIFIED) Text(say("library.last_export_verified"))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (state.phase) {
                     ExportPhaseUi.NOT_PICKED, ExportPhaseUi.GRANT_LOST -> Button(
                         enabled = actionsEnabled,
                         onClick = onPickFolder,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Choose export folder") }
+                    ) { Text(say("library.choose_export_folder")) }
 
                     ExportPhaseUi.READY, ExportPhaseUi.INTERRUPTED,
                     ExportPhaseUi.FINISHED_WITH_FAILURES, ExportPhaseUi.ALL_VERIFIED,
@@ -265,9 +265,9 @@ internal fun ExportPanel(
                     ) {
                         Text(
                             when (state.phase) {
-                                ExportPhaseUi.INTERRUPTED -> "Continue export"
-                                ExportPhaseUi.FINISHED_WITH_FAILURES -> "Retry failed files"
-                                else -> "Export all"
+                                ExportPhaseUi.INTERRUPTED -> say("library.continue_export")
+                                ExportPhaseUi.FINISHED_WITH_FAILURES -> say("library.retry_failed_files")
+                                else -> say("library.export_all")
                             },
                         )
                     }
@@ -275,15 +275,30 @@ internal fun ExportPanel(
                     ExportPhaseUi.RUNNING -> OutlinedButton(
                         onClick = onStopExport,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Stop export") }
+                    ) { Text(say("library.stop_export")) }
                 }
             }
             if (state.phase in setOf(ExportPhaseUi.READY, ExportPhaseUi.INTERRUPTED,
                     ExportPhaseUi.FINISHED_WITH_FAILURES, ExportPhaseUi.ALL_VERIFIED)) {
                 TextButton(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) {
-                    Text("Change export folder")
+                    Text(say("library.change_export_folder"))
                 }
             }
         }
     }
+}
+
+/** The words for a choice the Library screens keep by a fixed name. */
+internal fun libraryLabel(choice: String): String = when (choice) {
+    "Files" -> say("library.view.files")
+    "Series" -> say("library.view.series")
+    "Folder" -> say("library.view.folder")
+    "Episodes" -> say("library.view.episodes")
+    "All" -> say("library.format.all")
+    "Comics" -> say("library.format.comics")
+    "Novels" -> say("library.format.novels")
+    "Title A–Z" -> say("library.sort.title_a_z")
+    "Title Z–A" -> say("library.sort.title_z_a")
+    "Most saved" -> say("library.sort.most_saved")
+    else -> choice
 }

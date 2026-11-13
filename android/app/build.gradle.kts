@@ -13,6 +13,12 @@ val syncCorePython = tasks.register<Sync>("syncCorePython") {
     into(layout.buildDirectory.dir("generated/core-python/comic_archive"))
 }
 
+// The words both apps show, packed where the phone's own code reads them: one file, written once.
+val syncWords = tasks.register<Sync>("syncWords") {
+    from(rootProject.projectDir.resolve("../comic_archive/messages.json"))
+    into(layout.buildDirectory.dir("generated/words"))
+}
+
 // The license texts the About page shows, packed as assets: Comic Archiver's own license, the
 // third-party notices, the texts no package brings (Apache-2.0 for AndroidX, Compose and Kotlin;
 // Chaquopy's; Python's and those of the libraries built into it) and each Python package's own.
@@ -108,6 +114,7 @@ android {
     sourceSets {
         getByName("main") {
             assets.srcDir(layout.buildDirectory.dir("generated/license-assets"))
+            resources.srcDir(layout.buildDirectory.dir("generated/words"))
         }
     }
 
@@ -180,7 +187,12 @@ chaquopy {
 }
 
 tasks.named("preBuild") {
-    dependsOn(syncCorePython, syncLicenses)
+    dependsOn(syncCorePython, syncLicenses, syncWords)
+}
+
+// The tasks that pack the words, for the app and for its tests.
+tasks.matching { it.name.contains("JavaRes") }.configureEach {
+    dependsOn(syncWords)
 }
 
 // The same for the tasks that read the assets, as for the Python sources below.

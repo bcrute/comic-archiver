@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The beta's truthful limitations, in plain words: what this build does not do, stated
@@ -52,54 +53,49 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Comic Archiver", style = MaterialTheme.typography.headlineSmall)
-        Text(identity?.version ?: "Reading installed version…")
-        Text(identity?.fingerprint ?: "Reading APK fingerprint…")
-        Text("Include this version and fingerprint when reporting a problem.",
+        Text(identity?.version ?: say("about.reading_installed_version"))
+        Text(identity?.fingerprint ?: say("about.reading_apk_fingerprint"))
+        Text(say("about.include_this_version_and_fingerprint_when"),
             style = MaterialTheme.typography.bodySmall)
         Text(LICENSE_SUMMARY, style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = onLicenses) { Text("Licenses") }
+        TextButton(onClick = onLicenses) { Text(say("app.licenses")) }
         Text(SUPPORT_DETAILS, style = MaterialTheme.typography.bodySmall)
         Text(SUPPORT_LOG, style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = onCopyDetails, enabled = !supportBusy,
-            modifier = Modifier.testTag("support-copy")) { Text("Copy details for support") }
+            modifier = Modifier.testTag("support-copy")) { Text(say("about.copy_details_for_support")) }
         OutlinedButton(onClick = onSaveLog, enabled = !supportBusy,
-            modifier = Modifier.testTag("support-save-log")) { Text("Save log for support") }
+            modifier = Modifier.testTag("support-save-log")) { Text(say("about.save_log_for_support")) }
         supportNote?.let {
             Text(it.text, modifier = Modifier.testTag("support-note"),
                 color = if (it.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
         }
-        Text("What this beta does not do", style = MaterialTheme.typography.headlineSmall)
+        Text(say("about.what_this_beta_does_not_do"), style = MaterialTheme.typography.headlineSmall)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Limitation("Choose a source site above. Each site keeps its sign-in and library separate.")
-            Limitation("On devices without isolated browser profiles, saved libraries remain available; sign-in needs an updated Android System WebView.")
-            Limitation("Tapas Recent and Free Episodes discovery and Fast mode need an updated Android System WebView. Settings shows whether Fast can run on this device.")
-            Limitation("Saving uses unmetered connections by default. Settings lets you allow mobile data.")
-            Limitation("Comic Archiver saves CBZ and EPUB files. Use Open to read a saved file in another app.")
-            Limitation("Reading positions and bookmarks stay with the working library. Export copies finished archives; it does not copy reading progress.")
+            Limitation(say("about.choose_a_source_site_above_each"))
+            Limitation(say("about.on_devices_without_isolated_browser_profiles"))
+            Limitation(say("about.tapas_recent_and_free_episodes_discovery"))
+            Limitation(say("about.saving_uses_unmetered_connections_by_default"))
+            Limitation(say("about.comic_archiver_saves_cbz_and_epub"))
+            Limitation(say("about.reading_positions_and_bookmarks_stay_with"))
             Limitation(
-                "After an app update or process restart, saving waits until you choose Start saving. " +
-                    "Returning to an active save keeps its progress visible.",
+                say("about.after_an_app_update_or_process"),
             )
             Limitation(
-                "Export copies finished archives into a folder you choose and verifies each copy. " +
-                    "Export keeps your originals in the app.",
+                say("about.export_copies_finished_archives_into_a"),
             )
             Limitation(
-                "Opening a working library makes a separate copy in the app. The selected source " +
-                    "is unchanged; refreshing it makes another working copy.",
+                say("about.opening_a_working_library_makes_a"),
             )
             Limitation(
-                "Uninstalling removes app-private libraries and sign-ins. Files already copied " +
-                    "to your chosen export folder or verified in your B2 bucket stay there.",
+                say("about.uninstalling_removes_app_private_libraries_and"),
             )
             Limitation(
-                "Long saves can be stopped by the system after a while; choosing Start saving " +
-                    "continues them.",
+                say("about.long_saves_can_be_stopped_by"),
             )
-            Limitation("B2 storage uses your own private bucket. Connect and pass the upload/readback test before choosing it as a destination.")
-            Limitation("Saving from Tapas needs an up-to-date Android System WebView. If Tapas will not start, update it in the Play Store.")
-            Limitation("Other cloud providers, image-quality options and listing services are not supported yet.")
-            Limitation("Tapas closes at the end of March 2027; save what you bought before then.")
+            Limitation(say("about.b2_storage_uses_your_own_private"))
+            Limitation(say("about.saving_from_tapas_needs_an_up"))
+            Limitation(say("about.other_cloud_providers_image_quality_options"))
+            Limitation(say("about.tapas_closes_at_the_end_of"))
         }
         TextButton(onClick = {
             helpUnavailable = try {
@@ -108,18 +104,14 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
             } catch (_: Exception) {
                 true
             }
-        }) { Text("Read the official Tapas closure FAQ") }
-        if (helpUnavailable) Text("Could not open the FAQ. Check that a browser is available and try again.")
+        }) { Text(say("about.read_the_official_tapas_closure_faq")) }
+        if (helpUnavailable) Text(say("about.could_not_open_the_faq_check"))
     }
 }
 
 /** The desktop's own words above its two support buttons. */
-internal const val SUPPORT_DETAILS = "Asking for help? This copies a short summary of each site\u2019s download to " +
-    "paste into your message: the app\u2019s version, counts and the app\u2019s own codes. It has no series titles, " +
-    "folder names or sign-in details."
-internal const val SUPPORT_LOG = "Asked for the app\u2019s log? Save log for support puts it in one file in your " +
-    "Downloads folder, to attach to an email. It has the app\u2019s own messages and each site\u2019s series and " +
-    "episode numbers, but no titles, folder names or sign-in details."
+internal val SUPPORT_DETAILS get() = say("about.asking_for_help_this_copies_a")
+internal val SUPPORT_LOG get() = say("about.asked_for_the_apps_log_save")
 
 private data class InstalledIdentity(val version: String, val fingerprint: String)
 
@@ -132,10 +124,10 @@ private suspend fun installedIdentity(context: Context): InstalledIdentity {
     } catch (_: Exception) { null }
     val version = info?.let {
         val code = if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong()
-        val name = it.versionName?.takeIf(String::isNotBlank)?.let { name -> "Version $name" }
-            ?: "Version unavailable"
-        "$name (build $code)"
-    } ?: "Installed version unavailable"
+        val name = it.versionName?.takeIf(String::isNotBlank)?.let { name -> say("about.version", "name" to name) }
+            ?: say("about.version_unavailable")
+        say("about.build", "name" to name, "code" to code)
+    } ?: say("about.installed_version_unavailable")
     val fingerprint = try {
         val digest = MessageDigest.getInstance("SHA-256")
         val apk = info?.applicationInfo?.sourceDir ?: throw IllegalStateException()
@@ -148,10 +140,10 @@ private suspend fun installedIdentity(context: Context): InstalledIdentity {
                 digest.update(buffer, 0, count)
             }
         }
-        "APK fingerprint: " + digest.digest().take(8).joinToString("") { "%02x".format(it) }
+        say("about.apk_fingerprint") + digest.digest().take(8).joinToString("") { "%02x".format(it) }
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) { "APK fingerprint unavailable" }
+    } catch (_: Exception) { say("about.apk_fingerprint_unavailable") }
     return InstalledIdentity(version, fingerprint)
 }
 

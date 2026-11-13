@@ -9737,9 +9737,9 @@
  },
  {
   "id": "second-account-is-not-told-it-can-have-its-own-folder",
-  "source": "comic_archive/dashboard_model.py",
-  "old": "                                         'or choose a different library folder to save this account separately.',",
-  "new": "                                         '',",
+  "source": "comic_archive/messages.json",
+  "old": " Sign in to the original account, or choose a different library folder to save this account separately.\",",
+  "new": " Sign in to the original account.\",",
   "test_file": "test_dashboard_model.py",
   "test": "test_sign_in_messages_say_what_went_wrong_or_what_to_do_next"
  },

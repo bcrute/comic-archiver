@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.CatalogQuery
 import io.github.bcrute.comicarchiver.library.FolderLibraryState
+import io.github.bcrute.comicarchiver.words.say
 
 @Composable
 fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose: () -> Unit,
@@ -26,16 +27,15 @@ fun FolderLibraryScreen(state: FolderLibraryState, onLoad: () -> Unit, onChoose:
     val panel: @Composable () -> Unit = {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(state.label?.let { "Folder: $it" } ?: "Open a library folder", style = MaterialTheme.typography.titleMedium)
-                Text("Browse a Library, project or exported series folder. Originals stay where they are. " +
-                    "Opening needs temporary space on this device. New downloads keep their current destination.")
-                if (state.choosing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Reading folder…") }
+                Text(state.label?.let { say("library.folder", "it" to it) } ?: say("library.open_a_library_folder"), style = MaterialTheme.typography.titleMedium)
+                Text(say("library.browse_a_library_project_or_exported"))
+                if (state.choosing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(say("library.reading_folder")) }
                 state.message?.let { Text(it) }
-                if (state.needsFolder) Text("Choose the folder again to restore access.")
+                if (state.needsFolder) Text(say("library.choose_the_folder_again_to_restore"))
                 Button(onClick = onChoose, enabled = !state.choosing) {
-                    Text(if (state.selected) "Change library folder" else "Open library folder")
+                    Text(if (state.selected) say("library.change_library_folder") else say("library.open_library_folder"))
                 }
-                if (state.selected || state.choosing) TextButton(onClick = onClose) { Text("Close folder") }
+                if (state.selected || state.choosing) TextButton(onClick = onClose) { Text(say("library.close_folder")) }
             }
         }
     }

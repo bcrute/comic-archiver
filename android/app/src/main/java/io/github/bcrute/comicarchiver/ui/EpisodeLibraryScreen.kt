@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.EpisodeList
 import io.github.bcrute.comicarchiver.controller.SiteChoice
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * The desktop's Library page: recorded episodes by site, series and episode, each with its
@@ -52,11 +53,11 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
         item(key = "heading") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    OutlinedButton(onClick = { opened = emptyList(); onRefresh() }) { Text("Refresh") }
+                    Text(say("app.library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    OutlinedButton(onClick = { opened = emptyList(); onRefresh() }) { Text(say("library.refresh")) }
                 }
-                Text("Recorded episodes · expand a provider and series", style = MaterialTheme.typography.bodySmall)
-                Text("Saved can include cloud storage. This list does not check files on this device.",
+                Text(say("library.recorded_episodes_expand_a_provider_and"), style = MaterialTheme.typography.bodySmall)
+                Text(say("library.saved_can_include_cloud_storage_this"),
                     style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -65,7 +66,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
             val series = lists[siteKey]
             val siteOpen = siteKey in opened
             item(key = siteKey) {
-                EpisodeLine(site.name, placeStatus(series, "Expand to view", "Recorded list"), null, 0, siteOpen,
+                EpisodeLine(site.name, placeStatus(series, say("library.expand_to_view"), say("library.recorded_list")), null, 0, siteOpen,
                     "episodes-$siteKey") { toggle(site.key, null) }
             }
             if (!siteOpen || series == null) return@forEach
@@ -84,17 +85,17 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                             "episode-$seriesKey/${episode.id}", null)
                     }
                 }
-                more(episodes, "$seriesKey/more", "More episodes…", 2) { onLoad(site.key, row.id) }
+                more(episodes, "$seriesKey/more", say("library.more_episodes"), 2) { onLoad(site.key, row.id) }
             }
-            more(series, "$siteKey/more", "More series…", 1) { onLoad(site.key, null) }
+            more(series, "$siteKey/more", say("library.more_series"), 1) { onLoad(site.key, null) }
         }
     }
 }
 
 /** The desktop's second column for a site or a series: what it says before, while and after its list is read. */
 private fun placeStatus(list: EpisodeList?, unread: String, read: String): String = when {
-    list?.loading == true -> "Loading…"
-    list?.failed == true -> "Could not read · retry"
+    list?.loading == true -> say("library.loading")
+    list?.failed == true -> say("library.could_not_read_retry")
     list?.loaded != true -> unread
     list.rows.isEmpty() -> list.empty.ifBlank { read }
     else -> read
@@ -105,7 +106,7 @@ private fun LazyListScope.more(list: EpisodeList, key: String, label: String, de
     item(key = key) {
         TextButton(onClick = onMore, enabled = !list.loading,
             modifier = Modifier.padding(start = (16 * depth).dp).testTag(key)) {
-            Text(if (list.loading) "Loading…" else if (list.failed) "Could not read · retry" else label)
+            Text(if (list.loading) say("library.loading") else if (list.failed) say("library.could_not_read_retry") else label)
         }
     }
 }
@@ -116,7 +117,7 @@ private fun EpisodeLine(title: String, status: String, detail: String?, depth: I
                         onToggle: (() -> Unit)?) {
     val place = if (onToggle == null) Modifier else Modifier
         .clickable(role = Role.Button, onClick = onToggle)
-        .semantics { stateDescription = if (open == true) "Expanded" else "Collapsed" }
+        .semantics { stateDescription = if (open == true) say("library.expanded") else say("library.collapsed") }
     Row(Modifier.fillMaxWidth().then(place).padding(start = (16 * depth).dp, top = 8.dp, bottom = 8.dp).testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (open != null) Text(if (open) "▾" else "▸")

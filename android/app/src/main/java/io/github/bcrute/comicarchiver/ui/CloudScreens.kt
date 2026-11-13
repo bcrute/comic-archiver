@@ -43,18 +43,19 @@ import io.github.bcrute.comicarchiver.controller.CloudStatus
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrariesState
+import io.github.bcrute.comicarchiver.words.say
 
 /** Fixed public destinations only. Site sessions never enter these browser intents. */
 internal enum class B2Page(val label: String, val url: String) {
-    ACCOUNT("Create B2 account", "https://www.backblaze.com/sign-up/s3"),
-    SIGN_IN("Sign in to Backblaze", "https://secure.backblaze.com/user_signin.htm"),
-    BILLING("Open Billing", "https://secure.backblaze.com/billing.htm"),
-    CAPS("Open Caps and Alerts", "https://secure.backblaze.com/b2_caps_alerts.htm"),
-    BUCKETS("Open Buckets", "https://secure.backblaze.com/b2_buckets.htm"),
-    KEYS("Open Application Keys", "https://secure.backblaze.com/app_keys.htm"),
-    BROWSE("Open in Backblaze", "https://secure.backblaze.com/b2_browse_files2.htm"),
-    REPORTS("Open Reports", "https://secure.backblaze.com/b2_reports.htm"),
-    PRICING("Current Backblaze prices", "https://www.backblaze.com/cloud-storage/pricing"),
+    ACCOUNT(say("cloud.create_b2_account"), "https://www.backblaze.com/sign-up/s3"),
+    SIGN_IN(say("cloud.sign_in_to_backblaze"), "https://secure.backblaze.com/user_signin.htm"),
+    BILLING(say("cloud.open_billing"), "https://secure.backblaze.com/billing.htm"),
+    CAPS(say("cloud.open_caps_and_alerts"), "https://secure.backblaze.com/b2_caps_alerts.htm"),
+    BUCKETS(say("cloud.open_buckets"), "https://secure.backblaze.com/b2_buckets.htm"),
+    KEYS(say("cloud.open_application_keys"), "https://secure.backblaze.com/app_keys.htm"),
+    BROWSE(say("cloud.open_in_backblaze"), "https://secure.backblaze.com/b2_browse_files2.htm"),
+    REPORTS(say("cloud.open_reports"), "https://secure.backblaze.com/b2_reports.htm"),
+    PRICING(say("cloud.current_backblaze_prices"), "https://www.backblaze.com/cloud-storage/pricing"),
 }
 
 @Composable
@@ -78,28 +79,28 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
         if (page == "Overview") {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Settings", style = MaterialTheme.typography.headlineMedium)
-                Text("Make saving fit your setup.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SettingsDestination("Download preferences", "Connection, speed and appearance") { choose("Downloads") }
-                SettingsDestination("Storage & destination", "Choose where new episodes are saved") { choose("Storage") }
-                SettingsDestination("Backblaze B2", "Connect your own bucket or reuse an existing key") { choose("B2 setup") }
-                if (workingLibraries.enabled) SettingsDestination("Working libraries", "Switch, import or name a library") { choose("Libraries") }
-                SettingsDestination("About & help", "App information, help and sign out", onAbout)
+                Text(say("app.settings"), style = MaterialTheme.typography.headlineMedium)
+                Text(say("cloud.make_saving_fit_your_setup"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SettingsDestination(say("cloud.download_preferences"), say("cloud.connection_speed_and_appearance")) { choose("Downloads") }
+                SettingsDestination("Storage & destination", say("cloud.choose_where_new_episodes_are_saved")) { choose("Storage") }
+                SettingsDestination(say("cloud.backblaze_b2"), say("cloud.connect_your_own_bucket_or_reuse")) { choose("B2 setup") }
+                if (workingLibraries.enabled) SettingsDestination(say("cloud.working_libraries"), say("cloud.switch_import_or_name_a_library")) { choose("Libraries") }
+                SettingsDestination("About & help", say("cloud.app_information_help_and_sign_out"), onAbout)
                 val siteName = state.sites.firstOrNull { it.key == state.site }?.name
                     ?: if (state.site == "tapas") "Tapas" else state.site
-                Text("$siteName account", style = MaterialTheme.typography.titleMedium)
-                Text(if (state.signIn is SignInState.SignedIn) "Signed in on this phone" else "Sign-in needed")
+                Text(say("cloud.account", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)
+                Text(if (state.signIn is SignInState.SignedIn) say("cloud.signed_in_on_this_phone") else say("cloud.sign_in_needed"))
                 val held = signOutHeldBySaving(state)
                 if (held) Text(SIGN_OUT_HELD)
                 TextButton(onClick = onAccount,
                     enabled = !state.siteBusy && !state.libraryBusy && state.workspaceReady && !held) {
-                    Text(if (state.signOutPending) "Retry sign-out"
-                        else if (state.signIn is SignInState.SignedIn) "Sign out of $siteName" else "Sign in to $siteName")
+                    Text(if (state.signOutPending) say("app.retry_sign_out")
+                        else if (state.signIn is SignInState.SignedIn) say("cloud.sign_out_of", "siteName" to siteName) else say("signin.sign_in_to", "siteName" to siteName))
                 }
             }
             return@Column
         }
-        if (!compactEditing) TextButton(onClick = { choose("Overview") }) { Text("All settings") }
+        if (!compactEditing) TextButton(onClick = { choose("Overview") }) { Text(say("app.all_settings")) }
         when (page) {
             "Libraries" -> WorkingLibrariesScreen(workingLibraries, workingLibraryActions)
             "Downloads" -> SettingsScreen(state.settings, state.settingsBusy || state.siteBusy || state.libraryBusy || state.signOutPending || !state.workspaceReady,
@@ -112,8 +113,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                 val cloud = state.cloud
                 if (cloud == null) {
                     Column(Modifier.padding(16.dp)) {
-                        Text(state.cloudNotice?.message ?: "Loading cloud settings…")
-                        OutlinedButton(onClick = onCloudRefresh) { Text("Refresh cloud settings") }
+                        Text(state.cloudNotice?.message ?: say("cloud.loading_cloud_settings"))
+                        OutlinedButton(onClick = onCloudRefresh) { Text(say("cloud.refresh_cloud_settings")) }
                     }
                 } else {
                     val open = LocalUriHandler.current
@@ -158,18 +159,18 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
         .testTag("cloud-screen"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(if (setup) "Backblaze B2" else "Storage", style = MaterialTheme.typography.headlineSmall)
-        OutlinedButton(onClick = onRefresh, enabled = !busy) { Text("Refresh cloud settings") }
+        Text(if (setup) say("cloud.backblaze_b2") else say("cloud.storage"), style = MaterialTheme.typography.headlineSmall)
+        OutlinedButton(onClick = onRefresh, enabled = !busy) { Text(say("cloud.refresh_cloud_settings")) }
         if (busy || state.authStatus == "running" || (state.taskRunning && !state.taskHeld)) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text(if (state.taskRunning) "Cloud task running…" else "Updating cloud settings…")
+            Text(if (state.taskRunning) say("cloud.cloud_task_running") else say("cloud.updating_cloud_settings"))
         }
         notice?.let { Text(it) }
         if (state.message.isNotBlank()) Text(state.message)
         if (state.taskHeld) {
-            Text("Cloud task held. Nothing restarts until you continue it.")
+            Text(say("cloud.cloud_task_held_nothing_restarts_until"))
             Button(enabled = signedIn && !busy, onClick = { onAction(CloudRequest.Resume) }) {
-                Text("Continue cloud task")
+                Text(say("cloud.continue_cloud_task"))
             }
         }
         Text(state.title, style = MaterialTheme.typography.titleMedium)
@@ -178,8 +179,8 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
         if (state.auth.isNotBlank()) Text(state.auth)
         if (state.repair.isNotBlank()) Text(state.repair)
         if (!setup) {
-            Text("Store new episodes on", style = MaterialTheme.typography.titleMedium)
-            if (state.destinations.isEmpty()) Text("New episodes stay on this device. Connect and test B2 to offer another destination.")
+            Text(say("cloud.store_new_episodes_on"), style = MaterialTheme.typography.titleMedium)
+            if (state.destinations.isEmpty()) Text(say("cloud.new_episodes_stay_on_this_device"))
             state.destinations.forEach { destination ->
                 FilterChip(selected = destination.checked, enabled = destination.enabled && !busy,
                     onClick = { onAction(CloudRequest.Destination(destination.key)) },
@@ -187,42 +188,42 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
             }
             Text(state.destinationHelp)
             if (state.destinationLock.isNotBlank()) Text(state.destinationLock)
-            Text("This device: ${state.deviceStored}")
-            if (state.b2Stored.isNotBlank()) Text("Backblaze B2: ${state.b2Stored}")
+            Text(say("cloud.this_device", "deviceStored" to state.deviceStored))
+            if (state.b2Stored.isNotBlank()) Text(say("cloud.backblaze_b2_2", "b2Stored" to state.b2Stored))
             state.overview?.takeIf { it.available }?.locations?.forEach { place ->
                 OutlinedButton(onClick = { onOpenCatalog(place.id) }, enabled = !busy) {
-                    Text("View stored episodes on ${place.label}")
+                    Text(say("cloud.view_stored_episodes_on", "label" to place.label))
                 }
             }
-            Text("Finished archives can also be copied to a folder from Library. Exported copies and the working library are separate.")
+            Text(say("cloud.finished_archives_can_also_be_copied"))
             B2Link(B2Page.BROWSE, onPage)
             return@Column
         }
         if (state.showSharing) {
             Row(Modifier.fillMaxWidth()) {
-                Text("Use the same Backblaze setup for every site", Modifier.weight(1f))
+                Text(say("cloud.use_the_same_backblaze_setup_for"), Modifier.weight(1f))
                 Switch(checked = state.shared, enabled = state.canShare && !busy && !state.taskRunning,
                     onCheckedChange = { onAction(CloudRequest.Sharing(it)) },
-                    modifier = Modifier.semantics { contentDescription = "Use the same Backblaze setup for every site" })
+                    modifier = Modifier.semantics { contentDescription = say("cloud.use_the_same_backblaze_setup_for") })
             }
             Text(state.sharingHelp)
         }
-        TextButton(onClick = { showCost = !showCost }) { Text("Backblaze cost details") }
+        TextButton(onClick = { showCost = !showCost }) { Text(say("cloud.backblaze_cost_details")) }
         if (showCost) {
-            Text("Backblaze bills you directly. Comic Archiver does not store your payment details.")
-            Text(state.cost.ifBlank { "A library-size estimate is not available yet. Check Backblaze's prices and your usage." })
+            Text(say("cloud.backblaze_bills_you_directly_comic_archiver"))
+            Text(state.cost.ifBlank { say("cloud.a_library_size_estimate_is_not") })
             B2Link(B2Page.PRICING, onPage)
             B2Link(B2Page.BILLING, onPage)
             B2Link(B2Page.CAPS, onPage)
         }
         if (state.bucket.isNotBlank()) TextButton(onClick = { replaceKey = !replaceKey }) {
-            Text(if (replaceKey) "Cancel key replacement" else "Replace connection key")
+            Text(if (replaceKey) say("cloud.cancel_key_replacement") else say("cloud.replace_connection_key"))
         }
         if (state.bucket.isBlank() || replaceKey) {
-            Text("Connect your bucket", style = MaterialTheme.typography.titleMedium)
-            Text("Already use B2 on your computer? Reuse that bucket and application key here. Your key stays on this device.")
+            Text(say("cloud.connect_your_bucket"), style = MaterialTheme.typography.titleMedium)
+            Text(say("cloud.already_use_b2_on_your_computer"))
             OutlinedTextField(value = bucket, onValueChange = { bucket = it.filterNot(Char::isWhitespace).take(63) },
-                label = { Text("Bucket name") }, enabled = state.canConnect && !busy,
+                label = { Text(say("cloud.bucket_name")) }, enabled = state.canConnect && !busy,
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = keyId, onValueChange = { keyId = it.filterNot(Char::isWhitespace).take(256) },
                 label = { Text("keyID") }, enabled = state.canConnect && !busy,
@@ -243,30 +244,30 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
                 }) { Text(state.connectLabel) }
         }
         if (state.showCancel)
-            OutlinedButton(enabled = state.canCancel && !busy, onClick = { onAction(CloudRequest.Cancel) }) { Text("Cancel B2 sign-in") }
-        Text("Verify your connection", style = MaterialTheme.typography.titleMedium)
-        Text("The test uploads two finished episodes, verifies them and removes the test copies. Your local originals stay here.")
-        if (!signedIn) Text("Sign in to the site before starting cloud tests or retries.")
-        Button(enabled = state.canTest && signedIn && !busy, onClick = { onAction(CloudRequest.Test) }) { Text("Test cloud connection") }
+            OutlinedButton(enabled = state.canCancel && !busy, onClick = { onAction(CloudRequest.Cancel) }) { Text(say("cloud.cancel_b2_sign_in")) }
+        Text(say("cloud.verify_your_connection"), style = MaterialTheme.typography.titleMedium)
+        Text(say("cloud.the_test_uploads_two_finished_episodes"))
+        if (!signedIn) Text(say("cloud.sign_in_to_the_site_before"))
+        Button(enabled = state.canTest && signedIn && !busy, onClick = { onAction(CloudRequest.Test) }) { Text(say("cloud.test_cloud_connection")) }
         state.cleanups.forEach { cleanup ->
             OutlinedButton(enabled = cleanup.enabled && signedIn && !busy,
                 onClick = { onAction(CloudRequest.Cleanup(cleanup.id)) },
                 modifier = Modifier.testTag("cloud-cleanup-${cleanup.id}")) { Text(cleanup.label) }
         }
-        Text("After a successful test, choose Backblaze B2 in Storage & destination. A failed upload keeps its local original.")
+        Text(say("cloud.after_a_successful_test_choose_backblaze"))
         if (state.cleanupRemaining > 0)
-            Text("${state.cleanupRemaining} additional recorded cleanups remain. Finish these and refresh to see the next ones.")
+            Text(say("cloud.additional_recorded_cleanups_remain_finish_these", "cleanupRemaining" to state.cleanupRemaining))
         OutlinedButton(enabled = state.canRetry && signedIn && !busy,
-            onClick = { onAction(CloudRequest.Retry) }) { Text("Retry unfinished uploads") }
+            onClick = { onAction(CloudRequest.Retry) }) { Text(say("cloud.retry_unfinished_uploads")) }
         TextButton(onClick = { showSteps = !showSteps }) {
-            Text(if (showSteps) "Hide setup guide" else "Need a bucket or key? Setup guide")
+            Text(if (showSteps) say("cloud.hide_setup_guide") else say("cloud.need_a_bucket_or_key_setup"))
         }
         if (showSteps) {
-            Text("1. Use your own Backblaze account", style = MaterialTheme.typography.titleMedium)
+            Text(say("cloud.1_use_your_own_backblaze_account"), style = MaterialTheme.typography.titleMedium)
             B2Link(B2Page.ACCOUNT, onPage); B2Link(B2Page.SIGN_IN, onPage)
-            Text("2. Create a private bucket. Disable Object Lock so the connection test can remove its copies.")
+            Text(say("cloud.2_create_a_private_bucket_disable"))
             B2Link(B2Page.BUCKETS, onPage)
-            Text("3. Create an application key for this bucket with Read and Write, no name prefix or expiry. Leave List All Bucket Names off. Copy keyID and applicationKey into the fields above.")
+            Text(say("cloud.3_create_an_application_key_for"))
             B2Link(B2Page.KEYS, onPage)
         }
         listOf(B2Page.BROWSE, B2Page.REPORTS, B2Page.BILLING, B2Page.CAPS, B2Page.KEYS).forEach { page ->
@@ -282,5 +283,5 @@ private fun B2Link(page: B2Page, onPage: (B2Page) -> Unit) {
     TextButton(onClick = {
         failed = try { onPage(page); false } catch (_: Exception) { true }
     }) { Text(page.label) }
-    if (failed) Text("Could not open Backblaze. Check that a browser is available and try this link again.")
+    if (failed) Text(say("cloud.could_not_open_backblaze_check_that"))
 }

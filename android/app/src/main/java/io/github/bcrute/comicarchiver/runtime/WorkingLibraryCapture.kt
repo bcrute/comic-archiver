@@ -19,14 +19,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
+import io.github.bcrute.comicarchiver.words.say
 
 internal enum class LibraryCaptureFailure(val words: String) {
-    ACCESS("Folder access was lost. Choose the folder again; the previous library is retained."),
-    INCOMPLETE("This folder is incomplete or unsupported. Choose a complete project or Library folder."),
-    CHANGED("The source library changed. Pause it before trying the copy again."),
-    SPACE("There is not enough free space for a verified working copy. Free space and retry or cancel."),
-    CANCELLED("Library copying was canceled. The previous library is retained."),
-    PRIVATE_COPY("The private library copy could not be read. Retry or cancel; the previous library is retained."),
+    ACCESS(say("libraries.folder_access_was_lost_choose_the")),
+    INCOMPLETE(say("libraries.this_folder_is_incomplete_or_unsupported")),
+    CHANGED(say("libraries.the_source_library_changed_pause_it")),
+    SPACE(say("libraries.there_is_not_enough_free_space")),
+    CANCELLED(say("libraries.library_copying_was_canceled_the_previous")),
+    PRIVATE_COPY(say("libraries.the_private_library_copy_could_not")),
 }
 
 internal class LibraryCaptureException(val failure: LibraryCaptureFailure) : IllegalStateException(failure.words)
@@ -156,7 +157,7 @@ internal class WorkingCapturePlan internal constructor(val tree: Uri, val siteKe
     val files: List<WorkingCaptureFile>) {
     val knownBytes = files.fold(0L) { total, file -> Math.addExact(total, file.document.bytes ?: 0L) }
     val unknownSizes = files.count { it.document.bytes == null }
-    val label = root.name.filter { it.code >= 32 && it.code != 127 }.take(120).ifBlank { "Picked library" }
+    val label = root.name.filter { it.code >= 32 && it.code != 127 }.take(120).ifBlank { say("libraries.picked_library") }
     override fun toString() = "WorkingCapturePlan(private)"
 }
 

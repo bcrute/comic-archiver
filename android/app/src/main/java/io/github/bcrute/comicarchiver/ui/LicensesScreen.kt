@@ -22,19 +22,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import io.github.bcrute.comicarchiver.words.say
 
 /** Said on About and over the licenses, as on the desktop's About tab. */
-internal const val LICENSE_SUMMARY = "Copyright 2026 Ben Crute. Comic Archiver is free software under the MIT " +
-    "license. It is built with other people’s software, each under its own license; every one of those " +
-    "licenses can be read here."
+internal val LICENSE_SUMMARY get() = say("licenses.copyright_2026_ben_crute_comic_archiver")
 
 /** A license text the app carries, by its place under the licenses folder of its assets. */
 internal data class LicenseText(val title: String, val path: String)
 
 /** What a text is called, as on the desktop: other/LGPL-3.0.txt is LGPL-3.0, a package's text bears its name. */
 internal fun licenseTitle(path: String): String = when {
-    path == "LICENSE" -> "Comic Archiver (MIT license)"
-    path == "THIRD-PARTY-NOTICES.md" -> "Third-party notices"
+    path == "LICENSE" -> say("licenses.comic_archiver_mit_license")
+    path == "THIRD-PARTY-NOTICES.md" -> say("licenses.third_party_notices")
     path.startsWith("other/") -> path.removePrefix("other/").removeSuffix(".txt")
     else -> path.substringBefore('/') + ": " + path.substringAfterLast('/')
 }
@@ -76,23 +75,23 @@ fun LicensesScreen(modifier: Modifier = Modifier) {
         value = open?.let { path ->
             withContext(Dispatchers.IO) {
                 runCatching { context.assets.open("licenses/$path").bufferedReader().use { it.readText() } }.getOrNull()
-            } ?: "This text could not be read."
+            } ?: say("licenses.this_text_could_not_be_read")
         }
     }
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Licenses", style = MaterialTheme.typography.headlineSmall)
+        Text(say("app.licenses"), style = MaterialTheme.typography.headlineSmall)
         Text(LICENSE_SUMMARY, style = MaterialTheme.typography.bodyMedium)
         when (val found = texts) {
-            null -> Text("Reading licenses…")
+            null -> Text(say("licenses.reading_licenses"))
             else -> {
-                if (found.isEmpty()) Text("The license texts could not be read.")
+                if (found.isEmpty()) Text(say("licenses.the_license_texts_could_not_be"))
                 found.forEach { item ->
                     TextButton(onClick = { open = if (open == item.path) null else item.path }) { Text(item.title) }
                     if (open == item.path) {
-                        Text(text ?: "Reading…", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                        Text(text ?: say("licenses.reading"), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     }
                 }
             }

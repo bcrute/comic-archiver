@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import io.github.bcrute.comicarchiver.words.say
 
 /**
  * dataSync foreground service (native line). Owns the lifetime of the in-process Python
@@ -34,7 +35,7 @@ class DownloadHostService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, getString(R.string.download_channel_name),
+                NotificationChannel(CHANNEL_ID, say("notification.channel"),
                     NotificationManager.IMPORTANCE_LOW))
         }
     }
@@ -81,10 +82,10 @@ class DownloadHostService : Service() {
         }
         startForeground(NOTIFICATION_ID, builder
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(getString(R.string.download_notification_title))
+            .setContentTitle(say("notification.title"))
             .setContentIntent(open)
             .setOnlyAlertOnce(true)
-            .addAction(0, getString(R.string.download_notification_stop), stop)
+            .addAction(0, say("notification.stop"), stop)
             .build())
     }
 

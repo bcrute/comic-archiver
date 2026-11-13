@@ -34,6 +34,7 @@ import io.github.bcrute.comicarchiver.controller.DownloadTypeChoice
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SiteCard
 import io.github.bcrute.comicarchiver.controller.AppTheme
+import io.github.bcrute.comicarchiver.words.say
 
 /** Stored core policy, not local toggle state. No settings action admits a transfer. */
 @Composable
@@ -55,12 +56,12 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Text(say("app.settings"), style = MaterialTheme.typography.headlineSmall)
         // First on the page: what the shown site saved and what it could not.
         SiteCountsCard(card)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                Text(say("settings.appearance"), style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppTheme.entries.forEach { choice ->
                         FilterChip(selected = choice == theme, onClick = { onTheme(choice) },
@@ -71,30 +72,30 @@ fun SettingsScreen(
         }
         notice?.let { NoticeCard(it.toNoticeUi()) }
         if (settings == null) {
-            Text(if (notice == null) "Loading download settings…" else "Download settings are unavailable.")
+            Text(if (notice == null) say("settings.loading_download_settings") else say("settings.download_settings_are_unavailable"))
             if (notice == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = onRefresh) { Text("Retry settings") }
+            OutlinedButton(onClick = onRefresh) { Text(say("settings.retry_settings")) }
             return@Column
         }
         if (busy) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text("Saving setting…")
+            Text(say("settings.saving_setting"))
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Connections", style = MaterialTheme.typography.titleMedium)
+                Text(say("settings.connections"), style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Also save on metered and mobile connections", Modifier.weight(1f))
+                    Text(say("settings.also_save_on_metered_and_mobile"), Modifier.weight(1f))
                     Switch(
                         checked = !settings.wifiOnly,
                         enabled = !busy,
                         onCheckedChange = { onWifiOnly(!it) },
                         modifier = Modifier.semantics {
-                            contentDescription = "Also save on metered and mobile connections"
+                            contentDescription = say("settings.also_save_on_metered_and_mobile")
                         },
                     )
                 }
-                Text("Mobile data can incur charges. Changing this choice never starts a download.")
+                Text(say("settings.mobile_data_can_incur_charges_changing"))
                 val connection = when (settings.connection) {
                     "wifi" -> "Wi-Fi"
                     "wired" -> "wired"
@@ -106,14 +107,14 @@ fun SettingsScreen(
                     false -> " · unmetered"
                     null -> ""
                 }
-                Text("Current connection: $connection$metering")
-                if (!settings.allowed) Text("Saving is held by your connection choice. Return to Downloads and start saving when ready.")
+                Text(say("settings.current_connection", "connection" to connection, "metering" to metering))
+                if (!settings.allowed) Text(say("settings.saving_is_held_by_your_connection"))
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Another site's speed is chosen on that site, through the source list at the top.
-                Text("Download speed on $siteName", style = MaterialTheme.typography.titleMedium)
+                Text(say("settings.download_speed_on", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     settings.speeds.forEach { speed ->
                         FilterChip(
@@ -124,12 +125,12 @@ fun SettingsScreen(
                         )
                     }
                 }
-                Text(if (saving) "A running download pauses to apply the change, then continues."
-                     else "The stored choice applies when you start saving. It never starts saving on its own.")
+                Text(if (saving) say("settings.a_running_download_pauses_to_apply")
+                     else say("settings.the_stored_choice_applies_when_you"))
                 if (settings.speeds.none { it.key == settings.speed && it.available })
-                    Text("Your stored speed is unavailable. Choose Medium or Slow, or update Android System WebView before starting saving.")
+                    Text(say("settings.your_stored_speed_is_unavailable_choose"))
                 if (settings.speeds.any { it.key == "fast" && !it.available })
-                    Text("Update Android System WebView to save from Tapas.")
+                    Text(say("settings.update_android_system_webview_to_save"))
             }
         }
         if (settings.downloadTypes.isNotEmpty())
@@ -145,7 +146,7 @@ private fun DownloadTypesCard(types: List<DownloadTypeChoice>, siteName: String,
     var draft by remember(stored) { mutableStateOf(stored) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Episode types on $siteName", style = MaterialTheme.typography.titleMedium)
+            Text(say("settings.episode_types_on", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)
             types.forEach { type ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Checkbox(
@@ -160,10 +161,9 @@ private fun DownloadTypesCard(types: List<DownloadTypeChoice>, siteName: String,
                     }
                 }
             }
-            Text("Already saved files are kept. Choices also apply on future runs. " +
-                 "A running download pauses to apply changes, then continues.")
+            Text(say("settings.already_saved_files_are_kept_choices"))
             OutlinedButton(onClick = { onSave(draft) },
-                enabled = !busy && draft != stored && draft.values.any { it }) { Text("Save episode types") }
+                enabled = !busy && draft != stored && draft.values.any { it }) { Text(say("settings.save_episode_types")) }
         }
     }
 }
@@ -174,17 +174,17 @@ private fun SiteCountsCard(card: SiteCard?) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (card != null && card.types.isNotEmpty()) {
-                Text("${card.name} episodes", style = MaterialTheme.typography.titleMedium)
+                Text(say("settings.episodes", "name" to card.name), style = MaterialTheme.typography.titleMedium)
                 Column {
-                    CountLine(0, listOf("Episode type", "Saved", "Pending"), heading = true)
+                    CountLine(0, listOf(say("settings.episode_type"), say("settings.saved"), say("settings.pending")), heading = true)
                     card.types.forEachIndexed { index, type -> CountLine(index, listOf(type.label, type.saved, type.waiting)) }
                 }
             }
-            Text("Download issues", style = MaterialTheme.typography.titleMedium)
-            if (card == null) Text("Not checked")
-            else if (card.issues.isEmpty()) Text("No recorded issues")
+            Text(say("settings.download_issues"), style = MaterialTheme.typography.titleMedium)
+            if (card == null) Text(say("settings.not_checked"))
+            else if (card.issues.isEmpty()) Text(say("settings.no_recorded_issues"))
             else Column {
-                CountLine(0, listOf("Issue", "Episodes"), heading = true)
+                CountLine(0, listOf(say("settings.issue"), say("settings.episodes_2")), heading = true)
                 card.issues.forEachIndexed { index, issue -> CountLine(index, listOf(issue.reason, issue.count)) }
             }
         }
