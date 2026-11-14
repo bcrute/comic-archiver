@@ -30,9 +30,15 @@ jobs:
           COMMIT: ${{ github.sha }}
           OWNER: ${{ github.repository_owner }}
           REF_TYPE: ${{ github.ref_type }}
-          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+          # The Android release key's public certificate; the repository variable, when set, takes its place.
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 || '9196fb0c14a00d2516f8ad79cad12d5b8c7593c254d623367ed1182044b51099' }}
         run: |
           set -euo pipefail
+          # The APK is checked with the Android SDK's own tools; install them when the runner lacks this version.
+          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if ! test -x "$sdk/build-tools/37.0.0/apksigner"; then
+            (yes || true) | "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" "build-tools;37.0.0" > /dev/null
+          fi
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           test "$REF_TYPE" = tag
           test "$RELEASE_TAG" = "v$version"

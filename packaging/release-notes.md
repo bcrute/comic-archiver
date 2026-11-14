@@ -1,9 +1,10 @@
-| Your computer | File |
+| Your device | File |
 |---|---|
 | Windows 10 or 11 (64-bit) | [`ComicArchiver-{version}-windows-x86_64-setup.exe`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64-setup.exe) |
 | Windows, without installing | [`ComicArchiver-{version}-windows-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip) |
 | Linux (x86_64) | [`ComicArchiver-{version}-linux-x86_64.tar.gz`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-linux-x86_64.tar.gz) |
 | Mac with an Intel processor (macOS 13 or newer) | [`ComicArchiver-{version}-macos-x86_64.zip`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip) — early Mac version: not notarized by Apple, and tested only on macOS 15 |
+| Android 15 or newer (beta) | [`ComicArchiver-{version}-android-universal.apk`](https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-android-universal.apk) — install steps on [the Android page](https://comicarchiver.com/android.html) |
 
 ## Changes in {version}
 

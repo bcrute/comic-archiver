@@ -176,7 +176,7 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertIn(f'## Changes in {NEWEST}\n\n' + site_release.changes()[NEWEST][1] + '\n\nEach is self-contained',
                       text)
         self.assertNotIn('{', text)
-        self.assertTrue(text.startswith('| Your computer | File |'))
+        self.assertTrue(text.startswith('| Your device | File |'))
         with self.assertRaisesRegex(site_release.SiteError, '9.9.9.md is missing'):
             site_release.notes('9.9.9')
 
