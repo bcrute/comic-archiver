@@ -8,6 +8,10 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
+<script src="platform.js"></script>
+<!-- if android -->
+<meta name="android-app" content="{android_version}">
+<!-- end if -->
 </head>
 <body>
 <header class="site">
@@ -46,7 +50,7 @@
     <h1>Keep your own copy of the comics and novels you've bought.</h1>
     <p class="lede">Comic Archiver saves what you can read on Tapas, Tappytoon and Webtoon to your own computer. Sign in, press Start, and it works through your library.</p>
     <div class="actions">
-      <a class="btn primary" href="download.html">Download {version}</a>
+      <a class="btn primary" href="download.html" data-download>Download {version}</a>
       <a class="btn ghost" href="guide.html">How it works</a>
     </div>
     <p class="small">Free and open source. Windows, Linux and Mac (Intel). No account, no tracking.</p>

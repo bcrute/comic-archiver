@@ -8,6 +8,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
+<script src="platform.js"></script>
 </head>
 <body>
 <header class="site">
@@ -46,20 +47,38 @@
 </div>
 <div class="content">
   <div class="wrap">
+<div class="for-device" data-os="android" hidden>
+<!-- if android -->
+<div class="panels one">
+  <div class="panel download yours">
+        <h3>Android <span class="tag">Beta</span></h3>
+        <p class="spec">Android 15 or newer · version {android_version}</p>
+        <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{android_version}/ComicArchiver-{android_version}-android-universal.apk">Download the app</a>
+        <p class="small">The Android app is still being tested. <a href="android.html">How to install it</a>.</p>
+  </div>
+</div>
+<p class="small">Or download Comic Archiver for a computer:</p>
+<!-- else -->
+<p class="note">There's no Android app yet. Comic Archiver runs on Windows, Linux and Mac computers: download it on one of those.</p>
+<!-- end if -->
+</div>
+<div class="for-device" data-os="ios" hidden>
+<p class="note">There's no app for iPhone or iPad. Comic Archiver runs on Windows, Linux and Mac computers: download it on one of those.</p>
+</div>
 <div class="panels">
-  <div class="panel download">
+  <div class="panel download" data-os="windows">
         <h3>Windows</h3>
         <p class="spec">Windows 10 or 11, 64-bit · 114 MB</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64-setup.exe">Download installer</a>
         <p class="small"><a href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip">Or the ZIP, to run without installing (165 MB)</a></p>
   </div>
-  <div class="panel download">
+  <div class="panel download" data-os="linux">
         <h3>Linux</h3>
         <p class="spec">x86_64 · 202 MB</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-linux-x86_64.tar.gz">Download archive</a>
         <p class="small">Unpack it and run <code>comic-archiver</code>.</p>
   </div>
-  <div class="panel download">
+  <div class="panel download" data-os="mac">
         <h3>Mac</h3>
         <p class="spec">Intel processor, macOS 13 or newer · 476 MB</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip">Download app</a>
@@ -70,7 +89,7 @@
       <a href="https://github.com/bcrute/comic-archiver/releases/latest">This release on GitHub</a></p>
 <section class="block">
   <h2>Installing and updating</h2>
-  <details>
+  <details data-os="windows">
       <summary>Windows: install and update</summary>
       <div>
         <p>The app is not signed yet, so Windows warns about it twice. Both warnings are expected.</p>
@@ -85,14 +104,14 @@
         <p>To update, run the new setup file over the old version; don't uninstall first. You stay signed in, and your settings and saved episodes stay.</p>
       </div>
     </details>
-  <details>
+  <details data-os="linux">
       <summary>Linux: install and update</summary>
       <div>
         <p>Unpack the file, open the folder and double-click <code>comic-archiver</code> (choose "Run" if asked). After the first start it is in your applications menu.</p>
         <p>To update, close Comic Archiver, unpack the new version and start it: it offers to delete the older copy, and you keep your sign-ins and settings. To uninstall, right-click Comic Archiver in the applications menu, choose <b>Uninstall</b>, then delete the folder.</p>
       </div>
     </details>
-  <details>
+  <details data-os="mac">
       <summary>Mac: install and update</summary>
       <div>
         <p>Apple has not notarized the app, so macOS will not open it until you allow it once.</p>

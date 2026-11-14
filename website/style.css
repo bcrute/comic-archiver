@@ -112,6 +112,14 @@ h2 .tag { font-size: 13px; padding: 2px 10px; }
 .small.center + .block { margin-top: 56px; }
 .panel .btn { margin-top: 4px; }
 .panels + .small.center { margin-top: 18px; }
+/* The visitor's own system (platform.js): its download first and outlined, the others' buttons quieter. */
+.panel.yours { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.panel h3 .tag { font-size: 13px; padding: 2px 10px; }
+.panels.picked .panel:not(.yours) .btn.primary { background: var(--panel); color: var(--text); border-color: var(--border); }
+.panels.picked .panel:not(.yours) .btn.primary:hover { border-color: var(--muted); }
+.for-device { margin-bottom: 28px; }
+.for-device .note { margin: 0; }
+.for-device .panels + .small { margin-top: 28px; }
 
 /* Numbered steps */
 ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }

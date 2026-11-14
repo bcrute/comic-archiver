@@ -1,8 +1,12 @@
 """Make the website, and a release's notes, from the release itself.
 
 The pages in website/ name what changes from release to release in braces: {version}, {released}, {changelog}
-and {android_version}. Each release's changes are written once, in website/changes/<version>.md, and become
-both the release's notes on GitHub and its entry in the site's Changelog.
+and {android_version}. Text between <!-- if android --> and <!-- else --> (or <!-- end if -->) is kept only when
+there is an Android release; text between <!-- else --> and <!-- end if --> only when there is none. A page that
+still names {android_version} after that exists only with an Android release.
+
+Each release's changes are written once, in website/changes/<version>.md, and become both the release's notes
+on GitHub and its entry in the site's Changelog.
 
     python3 scripts/site_release.py site OUT --release latest.json --releases releases.json
         The site as published: the newest release and the newest Android release, as GitHub's API describes
@@ -31,6 +35,7 @@ VERSION = re.compile(r'\d+\.\d+\.\d+(?:-[a-z]+\d+)?')
 ANDROID = '-android-universal.apk'
 DOWNLOAD = re.compile(r'https://github\.com/bcrute/comic-archiver/releases/download/v([^/"]+)/([^"#?]+)')
 TOKEN = re.compile(r'\{[a-z_]+\}')
+IF_ANDROID = re.compile(r'<!-- if android -->\n?(.*?)(?:<!-- else -->\n?(.*?))?<!-- end if -->\n?', re.S)
 
 
 class SiteError(Exception):
@@ -144,7 +149,9 @@ def build(out, version, released=None, android=None, offered=None, folder=SITE):
         shutil.rmtree(out)
     shutil.copytree(folder, out, ignore=shutil.ignore_patterns('changes', '.*'))
     for page in sorted(out.glob('*.html')):
-        text = page.read_text(encoding='utf-8')
+        text = IF_ANDROID.sub(lambda found: found[1] if android else found[2] or '', page.read_text(encoding='utf-8'))
+        if '<!-- if android' in text or '<!-- else' in text or '<!-- end if' in text:
+            raise SiteError(f'{page.name} has an unmatched <!-- if android --> block')
         if '{android_version}' in text and not android:
             page.unlink()  # No Android release yet: no Android page.
             continue

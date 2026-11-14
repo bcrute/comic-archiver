@@ -59,13 +59,18 @@ class SiteReleaseTests(unittest.TestCase):
         download = self.page('download.html')
         self.assertIn(f'Version {NEWEST}, released 20 November 2026.', download)
         links = re.findall(r'releases/download/v([^/]+)/([^"]+)"', download)
-        self.assertEqual({tag for tag, _ in links}, {NEWEST})
-        self.assertEqual({name for _, name in links} - set(files(NEWEST)), set())
+        self.assertEqual({tag for tag, _ in links}, {NEWEST, '0.5.1-beta1'})
+        self.assertEqual({name for _, name in links} - set(files(NEWEST)),
+                         {'ComicArchiver-0.5.1-beta1-android-universal.apk'})
         self.assertIn(f'>Download {NEWEST}</a>', self.page('index.html'))
-        # The newest Android release, a prerelease, has its own page.
+        # The newest Android release, a prerelease, has its own page, and the download page offers it to phones.
         android = self.page('android.html')
         self.assertIn('Version 0.5.1-beta1', android)
         self.assertIn('/v0.5.1-beta1/ComicArchiver-0.5.1-beta1-android-universal.apk"', android)
+        self.assertIn('<p class="spec">Android 15 or newer · version 0.5.1-beta1</p>', download)
+        self.assertNotIn("There's no Android app yet", download)
+        self.assertIn('<meta name="android-app" content="0.5.1-beta1">', self.page('index.html'))
+        self.assertNotIn('<!--', download + self.page('index.html'))
         for page in self.out.glob('*.html'):
             self.assertIsNone(re.search(r'\{[a-z_]+\}', page.read_text(encoding='utf-8')), page.name)
         # The notes files are made into the Changelog and not published themselves.
@@ -101,6 +106,25 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertFalse((self.out / 'android.html').exists())
         for page in self.out.glob('*.html'):
             self.assertNotIn('android.html', page.read_text(encoding='utf-8'), page.name)
+            self.assertNotIn('android-app', page.read_text(encoding='utf-8'), page.name)
+        # A phone is told there is no Android app yet instead.
+        self.assertIn("There's no Android app yet.", self.page('download.html'))
+        self.assertTrue((self.out / 'platform.js').is_file())
+
+    def test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site(self):
+        folder = self.folder / 'web'
+        (folder / 'changes').mkdir(parents=True)
+        (folder / 'changes/1.0.0.md').write_text('- New.\n')
+        (folder / 'page.html').write_text('a <!-- if android -->\nA {android_version}<!-- else -->\nnone<!-- end if -->\nb'
+                                          ' <!-- if android -->only<!-- end if --> c')
+        site_release.build(self.out, '1.0.0', '2026-11-20', folder=folder)
+        self.assertEqual(self.page('page.html'), 'a noneb  c')
+        site_release.build(self.out, '1.0.0', '2026-11-20', android='1.1.0-beta1', folder=folder)
+        self.assertEqual(self.page('page.html'), 'a A 1.1.0-beta1b only c')
+        for broken in ('<!-- if android -->A', 'A<!-- end if -->', 'A<!-- else -->B'):
+            (folder / 'page.html').write_text(broken)
+            with self.assertRaisesRegex(site_release.SiteError, 'page.html has an unmatched'):
+                site_release.build(self.out, '1.0.0', '2026-11-20', folder=folder)
 
     def test_only_a_published_full_release_makes_the_site(self):
         for refused in (release(NEWEST, draft=True), release(NEWEST, prerelease=True)):

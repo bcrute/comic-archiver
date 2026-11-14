@@ -9934,5 +9934,29 @@
   "new": ".replace('{changes}', '')",
   "test_file": "test_site_release.py",
   "test": "test_the_release_notes_carry_the_same_changes_as_the_changelog"
+ },
+ {
+  "id": "site-android-block-always-kept",
+  "source": "scripts/site_release.py",
+  "old": "found[1] if android else found[2] or ''",
+  "new": "found[1]",
+  "test_file": "test_site_release.py",
+  "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
+ },
+ {
+  "id": "site-android-else-side-dropped",
+  "source": "scripts/site_release.py",
+  "old": "found[1] if android else found[2] or ''",
+  "new": "found[1] if android else ''",
+  "test_file": "test_site_release.py",
+  "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
+ },
+ {
+  "id": "site-android-block-unclosed-allowed",
+  "source": "scripts/site_release.py",
+  "old": "        if '<!-- if android' in text or '<!-- else' in text or '<!-- end if' in text:\n",
+  "new": "        if False:\n",
+  "test_file": "test_site_release.py",
+  "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
  }
 ]
