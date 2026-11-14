@@ -607,9 +607,10 @@ class DefaultAppController(
         // which can lag — so a cancel only ever speaks to an attempt in flight (the Back
         // handler's case). A completed sign-in is not an attempt and is never ended here;
         // the activity's own destruction calls this too, and cookies are never touched.
+        // A sign-in page that could not be opened waits with Try again; going back leaves it too.
         val signIn = engine.state.value
-        if (signIn is SignInState.Page || signIn is SignInState.Settling ||
-            signIn is SignInState.Restoring) engine.cancelSignIn()
+        if (signIn is SignInState.Page || signIn is SignInState.Settling || signIn is SignInState.Restoring ||
+            signIn == SignInState.Failed("signin_unreachable")) engine.cancelSignIn()
     }
 
     override fun signOut() {

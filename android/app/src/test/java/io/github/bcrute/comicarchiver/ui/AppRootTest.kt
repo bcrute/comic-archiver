@@ -21,8 +21,10 @@ class AppRootTest {
     fun `the sign-in page takes the tab only while it is open`() {
         assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Page("https://example.invalid/")))
         assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Settling))
+        // A page that could not be opened stays, to offer the desktop's Try again.
+        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Failed("signin_unreachable")))
         for (signIn in listOf(SignInState.SignedIn("tapas"), SignInState.SignedOut, SignInState.Restoring,
-            SignInState.Failed("login_required"))) assertEquals(RootRoute.APP, routeFor(signIn))
+            SignInState.Failed("login_required"), SignInState.Failed("signin_cancelled"))) assertEquals(RootRoute.APP, routeFor(signIn))
     }
 
     @Test

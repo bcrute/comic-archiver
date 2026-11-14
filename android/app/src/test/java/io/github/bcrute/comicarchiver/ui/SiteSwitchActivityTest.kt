@@ -256,6 +256,27 @@ class SiteSwitchActivityTest {
 
     @Test
     @Config(application = SurfaceFailureTestApp::class)
+    fun aSignInPageThatCannotBeOpenedOffersTryAgainUntilThePersonGoesBack() {
+        await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
+        compose.runOnIdle { (app as SurfaceFailureTestApp).failSurface = false }
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
+        await { app.controller.state.value.signIn is SignInState.Page }
+        // The page never shows: the wait for it runs out.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(31))
+        await { app.controller.state.value.signIn == SignInState.Failed("signin_unreachable") }
+        compose.onNodeWithText("The Tapas sign-in page could not be opened.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Try again").assertIsDisplayed().performClick()
+        await { app.controller.state.value.signIn is SignInState.Page }
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(31))
+        await { app.controller.state.value.signIn == SignInState.Failed("signin_unreachable") }
+        // Going back leaves it, and the card offers Sign in again without a complaint.
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        await { app.controller.state.value.signIn == SignInState.Failed("signin_cancelled") }
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Sign in")).performScrollTo().assertIsEnabled()
+    }
+
+    @Test
+    @Config(application = SurfaceFailureTestApp::class)
     fun aConnectionTheRuleDoesNotAllowHoldsSignInBeforeItsPageOpens() {
         await { !app.controller.state.value.siteBusy && app.controller.state.value.notice != null }
         compose.runOnIdle {

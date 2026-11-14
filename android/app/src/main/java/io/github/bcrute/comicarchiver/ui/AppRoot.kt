@@ -104,7 +104,7 @@ fun ComicArchiverAppRoot(
     }
     val tabState = rememberSaveableStateHolder()
     val signingIn = state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
-        state.signIn is SignInState.Restoring
+        state.signIn is SignInState.Restoring || state.signIn.couldNotOpen()
     BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
         if (tab == AppTab.LICENSES) tab = AppTab.ABOUT
         else if (tab == AppTab.ABOUT) tab = AppTab.SETTINGS
@@ -302,9 +302,13 @@ fun ComicArchiverAppRoot(
 internal enum class RootRoute { SIGN_IN, APP }
 
 /** The site's sign-in page takes the tab only while it is open, as the desktop's sign-in window does;
- *  otherwise the dashboard shows, and a site that is signed out offers Sign in on its own card. */
+ *  otherwise the dashboard shows, and a site that is signed out offers Sign in on its own card. A page
+ *  that could not be opened stays, with the desktop's Try again, until the person goes back. */
 internal fun routeFor(signIn: SignInState): RootRoute =
-    if (signIn is SignInState.Page || signIn is SignInState.Settling) RootRoute.SIGN_IN else RootRoute.APP
+    if (signIn is SignInState.Page || signIn is SignInState.Settling || signIn.couldNotOpen()) RootRoute.SIGN_IN
+    else RootRoute.APP
+
+internal fun SignInState.couldNotOpen() = (this as? SignInState.Failed)?.code == "signin_unreachable"
 
 /** About, and the Licenses it leads to, are Settings subpages; only the first three destinations appear in navigation. */
 internal enum class AppTab(val label: String) {
