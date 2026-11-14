@@ -385,7 +385,8 @@ class AndroidReleaseGateTests(ReleaseGateTests):
     @unittest.skipIf(os.name == 'nt', 'The release workflow runs its shell steps on Linux.')
     def test_workflow_executes_beta_publication_without_promoting_latest(self):
         workflow = (Path(__file__).parents[1] / '.github/workflows/release.yml').read_text()
-        script = textwrap.dedent(workflow[workflow.index('          if test '):])
+        # The publish step's last lines, up to the blank line before the next job.
+        script = textwrap.dedent(workflow[workflow.index('          if test '):].split('\n\n', 1)[0])
         fake_bin = self.folder / 'bin'
         fake_bin.mkdir()
         gh = fake_bin / 'gh'

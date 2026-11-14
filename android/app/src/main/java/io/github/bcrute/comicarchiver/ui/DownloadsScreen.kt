@@ -124,7 +124,7 @@ fun DownloadsScreen(
     }
 }
 
-/** The desktop's card palettes, light and dark: the card takes the colour of what its site is doing. */
+/** The desktop's card palettes, light and dark: the card takes the color of what its site is doing. */
 internal data class CardColors(val surface: Color, val shade: Color, val accent: Color, val text: Color, val buttonText: Color)
 
 private fun pair(light: Long, dark: Long, isDark: Boolean) = Color(if (isDark) dark else light)
