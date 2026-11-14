@@ -76,6 +76,8 @@ object SignInLanding {
  * @param sites the sites this app can load, by site key.
  * @param savedSignIn whether a site's sign-in record is still on the phone; asked only
  * when the check of a saved sign-in ran out of time.
+ * @param online whether the phone has a network to try; without one the sign-in page is not opened.
+ * @param openTimeoutMs how long the sign-in page may take to show before it is given up on.
  */
 class WebViewSignInEngine(
     private var store: WebViewCookieStore,
@@ -89,6 +91,8 @@ class WebViewSignInEngine(
     private val onAttempt: (String, Long, Long, Boolean) -> Unit = { _, _, _, _ -> },
     private val onVerified: (String, Long) -> Boolean = { _, _ -> true },
     private val savedSignIn: (String) -> Boolean = { false },
+    private val online: () -> Boolean = { true },
+    private val openTimeoutMs: Long = SIGNIN_OPEN_TIMEOUT_MS,
 ) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
@@ -109,6 +113,23 @@ class WebViewSignInEngine(
     private val timeout = Runnable {
         finish(if (_state.value is SignInState.Restoring) unansweredRestore()
                else SignInState.Failed("signin_incomplete"))
+    }
+
+    private var opening: WebView? = null
+    /** The sign-in page has not shown in time: say so instead of waiting on the browser's own, far longer, limit. */
+    private val openTimeout = Runnable {
+        val waiting = opening
+        if (waiting != null && _state.value is SignInState.Page) {
+            try { waiting.stopLoading() } catch (_: Exception) {}
+            verificationFailed("signin_unreachable", sessionId)
+        }
+    }
+
+    /** The sign-in's first page is on the screen: it opened. */
+    fun pageShown(session: Long) {
+        if (session != sessionId) return
+        opening = null
+        main.removeCallbacks(openTimeout)
     }
 
     /** Point the engine at one site key; the previously loaded in-memory state goes. */
@@ -152,6 +173,8 @@ class WebViewSignInEngine(
         if (!hasAuthority) { finish(SignInState.Failed("unsupported_site")); return }
         val site = address ?: throw IllegalStateException("Load a site before signing in.")
         finish(SignInState.SignedOut)
+        val connected = try { online() } catch (_: Exception) { true }
+        if (!connected) { finish(SignInState.Failed("signin_unreachable")); return }
         // The sign-in page's own needs only: its scripts and storage on, every surface the
         // page does not need off. A JavaScript interface is never added, here or elsewhere.
         webView.settings.javaScriptEnabled = true
@@ -182,6 +205,9 @@ class WebViewSignInEngine(
         webView.loadUrl(page)
         main.removeCallbacks(timeout)
         main.postDelayed(timeout, timeoutMs)
+        opening = webView
+        main.removeCallbacks(openTimeout)
+        main.postDelayed(openTimeout, minOf(openTimeoutMs, timeoutMs))
     }
 
     override fun restoreSignIn(webView: WebView) {
@@ -303,6 +329,7 @@ class WebViewSignInEngine(
 
     /** Called by [SignInWebViewClient] on the main thread for every page that finished. */
     fun onPageFinished(url: String) {
+        pageShown(sessionId)
         val site = address ?: return
         if (!synchronized(this) { sessionOpen }) return  // A closed sign-in accepts no settle.
         val current = _state.value
@@ -355,6 +382,8 @@ class WebViewSignInEngine(
             open
         }
         main.removeCallbacks(timeout)
+        main.removeCallbacks(openTimeout)
+        opening = null
         visibleOrigin = null
         previous?.let {
             try { onAttempt(it.first, it.second, it.third, false) } catch (_: Exception) {
@@ -393,6 +422,7 @@ class WebViewSignInEngine(
     companion object {
         /** The desktop sign-in window's 900-second limit, kept the same here. */
         const val SIGNIN_TIMEOUT_MS = 15 * 60 * 1000L
+        const val SIGNIN_OPEN_TIMEOUT_MS = 30 * 1000L
 
         /** The beta minimum; the integrated runtime feeds [sites] from the Python sites module. */
         val BETA_SITES: Map<String, SiteAddress> = mapOf(

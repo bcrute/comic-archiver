@@ -60,6 +60,7 @@ class SignInWebViewClient(private val engine: WebViewSignInEngine,
     /** The page is ready to draw without a white flash: show the surface the sign-in hid. */
     override fun onPageCommitVisible(view: WebView, url: String) {
         view.visibility = View.VISIBLE
+        engine.pageShown(session)
     }
 
     override fun onPageFinished(view: WebView, url: String) {

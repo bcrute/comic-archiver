@@ -58,7 +58,12 @@ fun SignInScreen(
         // page puts its form below a large hero graphic, so a short fixed-height
         // surface kept the form below the fold behind the cookie banner.
         if (state.busy) {
-            Box(Modifier.weight(1f).fillMaxWidth()) { signInContent() }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Seen until the page is ready to draw; the page then covers it.
+                Text(say("desktop.opening_the_sign_in_page", "site" to state.siteName),
+                    style = MaterialTheme.typography.bodyMedium)
+                signInContent()
+            }
         }
     }
 }

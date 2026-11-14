@@ -133,6 +133,12 @@ open class App : Application() {
         lateinit var engine: WebViewSignInEngine
         engine = WebViewSignInEngine(
             cookieStore,
+            // Only a phone with no network at all is told so at once; one whose network may or may not
+            // reach the internet is given the page's own time limit.
+            online = {
+                val manager = getSystemService(android.net.ConnectivityManager::class.java)
+                manager == null || manager.activeNetwork != null
+            },
             onSettle = { engine.loadedSiteKey()?.let { probeFor(it).settled(engine) } },
             sites = signInSites,
             onRestore = { engine.loadedSiteKey()?.let { probeFor(it).settled(engine) } },
