@@ -692,6 +692,31 @@ class DashboardTests(PagesCase):
                     from pathlib import Path
                     self.assertTrue(card.widget.grab().save(str(Path(folder) / f'paper-{key}-{dark}.png')))
 
+    def test_the_whole_dashboard_is_pictured_in_both_themes(self):
+        """The pictures shown to people are the real window, taken again on every run that keeps them."""
+        self.shell.open = ['tapas', 'webtoon', 'tappytoon']
+        self.open()
+        states = self.pages.states
+        for key, saved in (('tapas', 1240), ('webtoon', 386), ('tappytoon', 512)):
+            states[key].status['episodes_by_status'] = {'archived': saved}
+            states[key].summary = dict(states[key].summary, episode_count=saved, file_count=saved)
+        states['tapas'].account.update(status='running', progress_age_seconds=10)
+        states['tapas'].status['estimate'] = {'waiting_episodes': 310, 'seconds': 3600,
+                                              'left_bytes': 4_800_000_000, 'free_bytes': 100_000_000_000}
+        states['webtoon'].account.update(status='stopped')
+        states['tappytoon'].account.update(status='finished', purchase_history={'status': 'checked'})
+        for dark in (False, True):
+            window_pages.paint(Q, self.window, dark)
+            self.pages.render()
+            settle()
+            self.assertEqual([self.dashboard.cards[key].widget.property('appearance') for key in self.shell.open],
+                             ['active', 'paused', 'complete'])
+            image = self.window.grab()
+            self.assertEqual((image.width() >= 1180, image.height() >= 900), (True, True))
+            if destination := os.environ.get('COMIC_LAYOUT_ARTIFACTS'):
+                from pathlib import Path
+                self.assertTrue(image.save(str(Path(destination) / f"dashboard-{'dark' if dark else 'light'}.png")))
+
     def test_all_provider_cards_hide_internal_backlogs_without_recreating_fields(self):
         self.shell.open = ['tapas', 'webtoon', 'tappytoon']
         self.open()
