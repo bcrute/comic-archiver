@@ -32,6 +32,8 @@ fun accountMismatchText(site: String) =
 internal fun signInNotice(code: String, site: String): NoticeUi? = when (code) {
     "signin_cancelled" -> null
     "account_mismatch" -> NoticeUi(PublicIssue.LOGIN_REQUIRED, accountMismatchText(site))
+    // The site ended the sign-in, or the saved one no longer works: the desktop's card says the same.
+    "login_required" -> NoticeUi(PublicIssue.LOGIN_REQUIRED, say("dashboard.signed_you_out", "site" to site))
     "signin_unreachable" -> NoticeUi(PublicIssue.JOB_FAILED, say("desktop.the_sign_in_page_could_not", "site" to site))
     "signin_incomplete" -> NoticeUi(PublicIssue.JOB_FAILED, say("signin.incomplete", "site" to site))
     else -> PublicIssue.fromWireName(code)?.let { NoticeUi(it) }
@@ -65,8 +67,9 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
     cloudReadFailed = cloudReadFailed,
     download = downloadView(),
     remaining = library.sumOf { (it.episodeCount - it.savedCount).coerceAtLeast(0) },
+    // A download the site signed out of says so on the sign-in screen and on its card, not here as well.
     notice = notice?.toNoticeUi()
-        ?: (download as? DownloadState.Failed)?.let {
+        ?: (download as? DownloadState.Failed)?.takeIf { it.code != BetaCodes.LOGIN_REQUIRED }?.let {
             NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
         },
 )

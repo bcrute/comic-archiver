@@ -651,8 +651,7 @@ class DefaultAppController(
             return
         }
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady || engine.state.value !is SignInState.SignedIn) {
-            _state.value = _state.value.copy(notice = Notice(BetaCodes.LOGIN_REQUIRED,
-                say("app.open_the_site_and_finish_sign")))
+            // Start is offered only once signed in; a tap that slipped through does nothing.
             return
         }
         if (_state.value.cloudBusy || _state.value.cloud?.taskRunning == true ||

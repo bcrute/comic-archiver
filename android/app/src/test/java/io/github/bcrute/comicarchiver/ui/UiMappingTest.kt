@@ -49,8 +49,12 @@ class UiMappingTest {
         assertEquals(NoticeUi(PublicIssue.LOGIN_REQUIRED,
             "That Tapas account does not match this saved library. Sign in to the original account, " +
                 "or choose a different library folder to save this account separately."), ui.notice)
-        assertEquals(NoticeUi(PublicIssue.LOGIN_REQUIRED),
+        assertEquals(NoticeUi(PublicIssue.LOGIN_REQUIRED, "Tapas signed you out"),
             UiFixtures.coldStart.copy(signIn = SignInState.Failed("login_required")).toSignInScreenUi().notice)
+        val signedOut = UiFixtures.coldStart.copy(download = DownloadState.Failed(BetaCodes.LOGIN_REQUIRED))
+        assertEquals(null, signedOut.toDownloadsScreenUi().notice)
+        assertEquals(NoticeUi(PublicIssue.JOB_FAILED),
+            UiFixtures.coldStart.copy(download = DownloadState.Failed(BetaCodes.JOB_FAILED)).toDownloadsScreenUi().notice)
     }
 
     @Test
