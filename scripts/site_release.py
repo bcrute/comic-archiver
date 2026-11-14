@@ -7,10 +7,10 @@ both the release's notes on GitHub and its entry in the site's Changelog.
     python3 scripts/site_release.py site OUT --release latest.json --releases releases.json
         The site as published: the newest release and the newest Android release, as GitHub's API describes
         them, fill in the pages, and every download link must name a file the release has.
-    python3 scripts/site_release.py site OUT [--version 0.5.0-beta1] [--android-version 0.5.0-beta1]
+    python3 scripts/site_release.py site OUT [--version 0.5.0] [--android-version 0.5.1-beta1]
         A preview on this computer: the version in pyproject.toml unless one is named, and no Android page
         unless an Android version is named.
-    python3 scripts/site_release.py notes 0.5.0-beta1
+    python3 scripts/site_release.py notes 0.5.0
         The release's notes: packaging/release-notes.md with that version and its changes filled in.
 """
 import argparse

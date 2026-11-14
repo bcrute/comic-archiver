@@ -26,7 +26,7 @@ def release(version, names=None, published='2026-11-20T10:00:00Z', **more):
                  'assets': [{'name': name} for name in (files(version) if names is None else names)]}, **more)
 
 
-def beta(version='0.5.0-beta1', published='2026-11-21T10:00:00Z'):
+def beta(version='0.5.1-beta1', published='2026-11-21T10:00:00Z'):
     return release(version, [f'ComicArchiver-{version}-android-universal.apk', 'SHA256SUMS.txt'], published,
                    prerelease=True)
 
@@ -52,8 +52,8 @@ class SiteReleaseTests(unittest.TestCase):
         return (self.out / name).read_text(encoding='utf-8')
 
     def test_the_published_site_takes_its_version_date_and_links_from_the_release(self):
-        code, error = self.run_site(release(NEWEST), [beta('0.5.0-beta0', '2026-11-01T00:00:00Z'), release(NEWEST),
-                                                      beta(), dict(beta('0.5.0-beta2', '2026-11-22T10:00:00Z'),
+        code, error = self.run_site(release(NEWEST), [beta('0.5.1-beta0', '2026-11-01T00:00:00Z'), release(NEWEST),
+                                                      beta(), dict(beta('0.5.1-beta2', '2026-11-22T10:00:00Z'),
                                                                    draft=True)])
         self.assertEqual((code, error), (0, ''))
         download = self.page('download.html')
@@ -64,8 +64,8 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertIn(f'>Download {NEWEST}</a>', self.page('index.html'))
         # The newest Android release, a prerelease, has its own page.
         android = self.page('android.html')
-        self.assertIn('Version 0.5.0-beta1', android)
-        self.assertIn('/v0.5.0-beta1/ComicArchiver-0.5.0-beta1-android-universal.apk"', android)
+        self.assertIn('Version 0.5.1-beta1', android)
+        self.assertIn('/v0.5.1-beta1/ComicArchiver-0.5.1-beta1-android-universal.apk"', android)
         for page in self.out.glob('*.html'):
             self.assertIsNone(re.search(r'\{[a-z_]+\}', page.read_text(encoding='utf-8')), page.name)
         # The notes files are made into the Changelog and not published themselves.
@@ -92,7 +92,7 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f'download.html links to ComicArchiver-{NEWEST}-macos-x86_64.zip, which release v{NEWEST} does not',
                       error)
-        code, error = self.run_site(release(NEWEST), [beta(), release('0.5.0-beta1', ['SHA256SUMS.txt'],
+        code, error = self.run_site(release(NEWEST), [beta(), release('0.5.1-beta1', ['SHA256SUMS.txt'],
                                                                       '2026-11-19T00:00:00Z', prerelease=True)])
         self.assertEqual(code, 0, error)
 
@@ -119,8 +119,8 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertFalse((self.out / 'android.html').exists())
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(site_release.main(['site', str(self.out), '--version', NEWEST,
-                                                '--android-version', '0.5.0-beta1']), 0)
-        self.assertIn('Version 0.5.0-beta1', self.page('android.html'))
+                                                '--android-version', '0.5.1-beta1']), 0)
+        self.assertIn('Version 0.5.1-beta1', self.page('android.html'))
 
     def test_every_notes_file_but_the_newest_is_dated_and_each_says_something(self):
         entries = site_release.changes()
