@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- packaging/comic-archiver.svg without its background square, shrunk into the middle of the 108dp layer so
+     that every outline a phone gives the icon (a circle at its smallest) shows all of the book and the arrow. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.27"
+        android:scaleY="0.27"
+        android:translateX="19.44"
+        android:translateY="22.14">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M44,100c30,-9 60,-4 84,14c24,-18 54,-23 84,-14v100c-30,-9 -60,-4 -84,14c-24,-18 -54,-23 -84,-14z" />
+        <path
+            android:pathData="M128,114v100"
+            android:strokeColor="#1F5F7A"
+            android:strokeWidth="6" />
+        <path
+            android:pathData="M128,28v80M92,74l36,36l36,-36"
+            android:strokeColor="#1F5F7A"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:strokeWidth="40" />
+        <path
+            android:pathData="M128,28v80M92,74l36,36l36,-36"
+            android:strokeColor="#F4B942"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:strokeWidth="22" />
+    </group>
+</vector>
