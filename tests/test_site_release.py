@@ -166,7 +166,9 @@ class SiteReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(site_release.SiteError, 'must start with'):
             site_release.markdown('- One\nnot indented')
         self.assertEqual(site_release.day('2026-03-01T23:00:00Z'), '1 March 2026')
-        self.assertLess(site_release.order('0.9.0'), site_release.order('0.10.0'))
+        self.assertEqual(sorted(['0.5.0', '0.10.0', '0.5.0-beta2', '0.4.2', '0.5.0-beta10', '0.5.0-beta1', '0.9.0'],
+                                key=site_release.order),
+                         ['0.4.2', '0.5.0-beta1', '0.5.0-beta2', '0.5.0-beta10', '0.5.0', '0.9.0', '0.10.0'])
 
 
 if __name__ == '__main__':
