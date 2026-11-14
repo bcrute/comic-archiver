@@ -133,13 +133,14 @@ class SiteSwitchActivityTest {
         ready("webtoon")
         assertEquals(0, app.wire.count("go"))
         compose.onNodeWithTag("card-action-webtoon").performScrollTo().performClick()
-        await { app.controller.isSaving("webtoon") }
+        // A site shows as saving as soon as it starts planning, a moment before its go request is sent.
+        await { app.controller.isSaving("webtoon") && roots("go").isNotEmpty() }
         assertEquals(listOf("Webtoon"), roots("go"))
         // Tapas starts from its own card while Webtoon goes on saving.
         compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         ready()
         compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
-        await { app.controller.isSaving("tapas") }
+        await { app.controller.isSaving("tapas") && roots("go").size == 2 }
         assertTrue(app.controller.isSaving("webtoon"))
         assertEquals(listOf("Webtoon", "workspace"), roots("go"))
         // Pause on Webtoon's card reaches Webtoon alone, without showing it.
