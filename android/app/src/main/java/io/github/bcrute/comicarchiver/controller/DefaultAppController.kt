@@ -168,6 +168,42 @@ class DefaultAppController(
             (settings == null || settings.speeds.any { it.key == settings.speed && it.available })
     }
 
+    /** A card's button on a site that is not the one shown: the site is shown first, then acted on. */
+    private fun onOther(key: String, act: suspend () -> Unit) {
+        if (allJob?.isActive == true || _state.value.siteBusy || _state.value.libraryBusy) return
+        if (_state.value.sites.firstOrNull { it.key == key }?.enabled != true) return
+        if (_state.value.signOutPending || screenHasActivity()) {
+            _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
+                say("app.finish_sign_in_export_or_cloud_2")))
+            return
+        }
+        scope.launch { if (show(key)) act() }
+    }
+
+    private fun shown(key: String) = key == location.key && workspaceReady
+
+    override fun signInSite(key: String) {
+        if (shown(key)) startSignIn()
+        // A saved sign-in that still works needs no page: the card then offers Start.
+        else onOther(key) { if (!signedInHere(key)) startSignIn() }
+    }
+
+    override fun goSite(key: String) {
+        if (shown(key)) go() else onOther(key) { if (signedInHere(key)) go() }
+    }
+
+    override fun pauseSite(key: String) {
+        if (key == location.key) { pause(); return }
+        val kept = away.remove(context.app.workspaceFor(key).identity) ?: return
+        kept.watch?.cancel()
+        kept.host.pause()
+        _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
+    }
+
+    override fun speedSite(key: String, value: String) {
+        if (shown(key)) setDownloadSpeed(value) else onOther(key) { setDownloadSpeed(value) }
+    }
+
     override fun pauseAll() {
         allJob?.cancel()
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return

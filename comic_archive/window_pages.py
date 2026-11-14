@@ -600,20 +600,11 @@ class SiteCard:
             layout.setStretch(layout.count() - 1, 1 if tip else 0)
 
     def show(self, s, v):
-        from .download_selection import HELP, LABELS, TYPES
         from .window_art import icon
         from .window_style import card_colours
-        chosen = (s.account or {}).get('download_types', dict.fromkeys(TYPES, True)) if s is not None else dict.fromkeys(TYPES, True)
-        available = isinstance(chosen, dict)
-        if not available:
-            chosen = dict.fromkeys(TYPES, False)
-        count = sum(bool(chosen.get(key)) for key in TYPES)
-        suffix = say('window.all_types') if count == len(TYPES) else say('window.paid_series') if chosen.get('bought') and count == 1 else LABELS[next(key for key in TYPES if chosen.get(key))] if count == 1 else f'{count} types'
-        self.selection.setText('Download: ' + suffix)
-        self.selection.setToolTip('\n'.join(f'{LABELS[key]}: {HELP[key]}' for key in TYPES if chosen.get(key)))
-        if not available:
-            self.selection.setText(say('window.download_unavailable'))
-            self.selection.setToolTip(say('window.saved_choices_could_not_be_read'))
+        text, tip = dashboard_model.download_choice(s.account if s is not None else None)
+        self.selection.setText(text)
+        self.selection.setToolTip(tip)
         set_enabled(self.selection, s is not None and not s.busy)
         """v is the site's view, or None for a site not opened yet: then its fields are empty and its button signs in."""
         if v is None:
@@ -634,8 +625,7 @@ class SiteCard:
             return
         summary = dashboard_model.card_summary(s, v)
         self._appearance(summary['appearance'])
-        self.pill.setText({say('dashboard.needs_attention'): say('window.attention'), say('cloud.sign_in_needed'): say('dashboard.sign_in'), say('dashboard.finished'): say('dashboard.done'),
-                          say('dashboard.status_unavailable'): say('dashboard.offline')}.get(summary['state'], summary['state']))
+        self.pill.setText(dashboard_model.pill(summary['state']))
         tone(self.pill, 'tone', summary['tone'])
         tone(self.widget, 'tone', 'warning' if summary['tone'] == 'warning' else 'status')
         self._fields(summary['rows'])

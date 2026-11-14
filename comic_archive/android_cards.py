@@ -8,7 +8,7 @@ import sqlite3
 import time
 
 from . import android_session, sites, worker_host
-from .dashboard_model import State, card_summary, view
+from .dashboard_model import SPEED_NAMES, SPEEDS, State, card_summary, download_choice, pill, view
 from .local_library import LOCAL_OWNER
 from .models import ArchiveError
 
@@ -62,6 +62,16 @@ class Cards:
                 'download': _word((s.account or {}).get('status')) if s.loaded else '',
                 'rows': [{'name': row['name'], 'value': row['value'], 'warning': bool(row['warning'])}
                          for row in summary['rows']],
+                # The card as the desktop draws it: its pill, its line of status, its one button for what can be
+                # done now, Sign out, the site's speed and the episode types it downloads.
+                'pill': pill(summary['state']), 'tone': summary['tone'],
+                'status': v['signin_status'], 'status_error': bool(v['signin_status_error']),
+                'action': v['action'], 'action_text': v['action_text'], 'action_enabled': bool(v['action_enabled']),
+                'signout': bool(v['signout_visible']), 'signout_enabled': bool(v['signout_enabled']),
+                'speed': v['speed'] if v['speed_visible'] and s.account is not None else '',
+                'speed_enabled': bool(v['speed_visible'] and v['speed_enabled']),
+                'speeds': [{'key': key, 'label': SPEED_NAMES[key]} for key in SPEEDS],
+                'selection': download_choice(s.account if s.loaded else None)[0],
                 # What Settings lists for the site: its download issues, and saved and pending by episode type.
                 'issues': [{'reason': row['reason'], 'count': row['count']} for row in v['not_downloaded']],
                 'types': [{'label': row['label'], 'saved': row['saved'], 'waiting': row['waiting']}

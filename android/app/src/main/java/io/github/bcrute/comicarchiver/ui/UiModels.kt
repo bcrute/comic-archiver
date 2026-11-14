@@ -1,9 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
 import io.github.bcrute.comicarchiver.export.ExportSummary
-import io.github.bcrute.comicarchiver.controller.CloudStatus
-import io.github.bcrute.comicarchiver.controller.DownloadObservations
-import io.github.bcrute.comicarchiver.controller.SiteCard
+import io.github.bcrute.comicarchiver.controller.SpeedOption
 
 /**
  * The beta's public issue codes, exactly the frozen contract's set — wire-identical to
@@ -34,65 +32,52 @@ enum class PublicIssue(val wireName: String) {
 data class NoticeUi(val issue: PublicIssue, val detail: String? = null)
 
 /**
- * What the downloads screen renders, derived from the controller's `AppState` by
- * [io.github.bcrute.comicarchiver.ui.toDownloadsScreenUi]. The UI renders controller
- * state; it owns no download policy — Go, Pause, holds and admission all live in the
+ * What the Downloads tab renders: the desktop's dashboard, derived from the controller's
+ * `AppState` by [io.github.bcrute.comicarchiver.ui.toDownloadsScreenUi]. The saved library
+ * over every site comes first, then one card for each site with its own buttons. The UI
+ * owns no download policy — sign-in, Start, Pause, holds and admission all live in the
  * controller.
  */
 data class DownloadsScreenUi(
-    val signedIn: Boolean,
-    val download: DownloadsViewUi,
-    /** Episodes the library still lacks, in aggregate; 0 when everything is saved. */
-    val remaining: Int,
+    /** Saved episodes over every site, already worded; null before they are counted. */
+    val savedEpisodes: String?,
+    val cards: List<SiteCardUi>,
+    val startAllEnabled: Boolean,
+    val pauseAllVisible: Boolean,
     val notice: NoticeUi?,
-    val controlsEnabled: Boolean = true,
-    val siteName: String = "Tapas",
-    val observations: DownloadObservations? = null,
-    val statusReadFailed: Boolean = false,
-    val admittedAtMillis: Long? = null,
-    val cloud: CloudStatus? = null,
-    val cloudCheckedAtMillis: Long? = null,
-    val cloudReadFailed: Boolean = false,
-    /** Shown when the library has more than one site; null otherwise. */
-    val allSites: AllSitesCardUi? = null,
-    /** A card for each opened site, in the desktop's words; the shown site's first. */
-    val siteCards: List<SiteCard> = emptyList(),
-    /** The top card's title in the desktop's words, from the shown site's card; null to use the phone's own. */
-    val headline: String? = null,
 )
 
-/** Every site of the library on one card, with the two actions that reach them all. */
-data class AllSitesCardUi(val counts: String?, val lines: List<String>, val anySaving: Boolean, val starting: Boolean)
+/** What a card's one button does now, as on the desktop: signing in and saving never both need doing. */
+enum class CardAction { SIGN_IN, GO, PAUSE }
 
-/** The download phase as the screen shows it: held (for any reason), running, or finished. */
-sealed interface DownloadsViewUi {
-    data class Held(val reason: HoldReasonUi) : DownloadsViewUi
-
-    /** In flight; `totalUnits == 0` means still preparing, before any unit exists. */
-    data class Running(val doneUnits: Int, val totalUnits: Int, val description: String? = null,
-                       val detail: String? = null) : DownloadsViewUi
-
-    /** The run ended; [summary] is the controller's user-visible words. */
-    data class Finished(val summary: String) : DownloadsViewUi
-}
-
-/** Why downloads are held. Held is the only shape a cold start, restart or update can produce. */
-enum class HoldReasonUi {
-    /** The app has never been told to go. */
-    NOT_STARTED,
-
-    /** The person pressed Pause. */
-    PAUSED_BY_USER,
-
-    /** The network is metered or unknown; the beta only moves data unmetered. */
-    METERED_OR_UNKNOWN_NETWORK,
-
-    /** The connection could not be verified as the site's own. */
-    CONNECTION_UNVERIFIED,
-
-    /** The run failed; choosing Start saving tries again. */
-    FAILED,
-}
+/** One site's card, laid out as the desktop's: its state in a pill, what is saved, the estimates, speed and buttons. */
+data class SiteCardUi(
+    val site: String,
+    val name: String,
+    /** Which of the desktop's card palettes to draw with: neutral, active, complete, paused, waiting, attention. */
+    val appearance: String,
+    val pill: String,
+    val saved: String,
+    val timeLeft: String,
+    val space: String,
+    val rate: String,
+    val status: String,
+    val statusWarning: Boolean,
+    /** The line under the status: what a sign-in or a change just answered. Blank when there is nothing to say. */
+    val message: String,
+    val messageError: Boolean,
+    val selection: String,
+    val selectionEnabled: Boolean,
+    val action: CardAction,
+    val actionText: String,
+    val actionEnabled: Boolean,
+    val signOut: Boolean,
+    val signOutEnabled: Boolean,
+    /** The chosen speed's key; blank before the site is signed in. */
+    val speed: String,
+    val speedEnabled: Boolean,
+    val speeds: List<SpeedOption>,
+)
 
 /** What the sign-in screen renders, derived from `AppState` by [toSignInScreenUi]. */
 data class SignInScreenUi(

@@ -22,6 +22,11 @@ interface AppController {
     /** The only action that moves downloads toward Running. */
     fun go()
     fun pause()
+    /** A site's card acts on its own site, as each desktop card does, whichever site the other screens show. */
+    fun signInSite(key: String) {}
+    fun goSite(key: String) {}
+    fun pauseSite(key: String) {}
+    fun speedSite(key: String, value: String) {}
     /** Start or continue every site that can now; the others stay as they are. */
     fun goAll() {}
     /** Pause every site that is saving. */

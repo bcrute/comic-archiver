@@ -89,6 +89,32 @@ class AndroidCardTests(unittest.TestCase):
         self.worker = {'running': True, 'state': 'stopping'}
         self.assertEqual(self.card()['title'], 'Finishing the current step')
 
+    def test_a_card_carries_the_desktop_cards_pill_button_sign_out_speed_and_episode_types(self):
+        keys = ('pill', 'action', 'action_text', 'action_enabled', 'signout', 'signout_enabled', 'speed', 'speed_enabled',
+                'selection')
+        speeds = [{'key': 'fast', 'label': 'Fast'}, {'key': 'medium', 'label': 'Medium'}, {'key': 'slow', 'label': 'Slow'}]
+
+        def parts():
+            card = self.card()
+            self.assertEqual(card['speeds'], speeds)
+            self.assertEqual((card['status'], card['status_error']), ('', False))
+            return tuple(card[key] for key in keys)
+
+        # Signed out: the card's one button signs in, and there is no sign-in to end or speed to change.
+        self.assertEqual(parts(), ('Sign in', 'signin', 'Sign in', True, False, True, '', False, 'Download: All types'))
+        self.sign_in()
+        self.assertEqual(parts(), ('Ready', 'go', 'Start', True, True, True, 'medium', True, 'Download: All types'))
+        self.registry.account = {'configured': True, 'status': 'running', 'phase': 'archive', 'speed': 'medium'}
+        self.worker = {'running': True, 'state': 'busy'}
+        # While it saves the button pauses, and the sign-in stays until it has.
+        self.assertEqual(parts(), ('Working', 'pause', 'Pause', True, True, False, 'medium', True, 'Download: All types'))
+        self.registry.account = {'configured': True, 'status': 'stopped', 'speed': 'slow', 'download_types': {'bought': True}}
+        self.worker = {'running': False}
+        self.assertEqual(parts(), ('Paused', 'go', 'Continue', True, True, True, 'slow', True, 'Download: Paid series'))
+        self.registry.account = {'configured': True, 'status': 'finished', 'speed': 'slow', 'download_types': 'x'}
+        self.assertEqual(parts(), ('Done', 'go', 'Start', True, True, True, 'slow', True, 'Download: Unavailable'))
+        self.assertEqual(self.card()['tone'], 'success')
+
     def test_a_card_carries_the_downloads_own_word_for_the_phones_top_card(self):
         self.sign_in()
         self.assertEqual(self.card()['download'], '')

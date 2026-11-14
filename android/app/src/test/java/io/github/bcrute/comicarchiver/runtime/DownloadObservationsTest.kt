@@ -4,9 +4,6 @@ import io.github.bcrute.comicarchiver.controller.CloudStatus
 import io.github.bcrute.comicarchiver.controller.DownloadObservations
 import io.github.bcrute.comicarchiver.controller.ObservedWorker
 import io.github.bcrute.comicarchiver.ui.cloudEnvelope
-import io.github.bcrute.comicarchiver.ui.dashboardAge
-import io.github.bcrute.comicarchiver.ui.dashboardDelayed
-import io.github.bcrute.comicarchiver.ui.dashboardDuration
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -152,14 +149,4 @@ class DownloadObservationsTest {
         assertThrows(Exception::class.java) { CloudStatus.parse(wrongOverview.toString()) }
     }
 
-    @Test fun clockAgesObservationsWithoutFabricatingFreshActivity() {
-        assertEquals(0L, dashboardAge(999, 1000))
-        assertEquals(29L, dashboardAge(30_999, 1000))
-        assertFalse(dashboardDelayed(false, 30_999, 1000))
-        assertTrue(dashboardDelayed(false, 31_000, 1000))
-        assertTrue(dashboardDelayed(true, 1000, null))
-        assertFalse(dashboardDelayed(false, 1000, null))
-        assertEquals("1h 1m 1s", dashboardDuration(3661))
-        assertEquals("0s", dashboardDuration(-1))
-    }
 }

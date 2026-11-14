@@ -39,7 +39,7 @@ import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.words.say
 
 @Composable
-internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false) {
+internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false, chooseSite: Boolean = true) {
     var expanded by remember { mutableStateOf(false) }
     // As on desktop, every site saves by itself: another can be shown while this one saves.
     // Only signing in, an export or a setting being changed keeps the site in place.
@@ -50,7 +50,7 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("Comic Archiver", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        if (state.sites.isNotEmpty()) Box {
+        if (chooseSite && state.sites.isNotEmpty()) Box {
             val current = state.sites.firstOrNull { it.key == state.site }
             TextButton(onClick = { expanded = true }, enabled = enabled,
                 modifier = Modifier.testTag("source-picker").semantics {

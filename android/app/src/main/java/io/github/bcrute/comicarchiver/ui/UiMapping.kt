@@ -7,6 +7,7 @@ import io.github.bcrute.comicarchiver.controller.LibraryEntry
 import io.github.bcrute.comicarchiver.controller.LibraryKind
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.SignInState
+import io.github.bcrute.comicarchiver.controller.SiteChoice
 import io.github.bcrute.comicarchiver.words.say
 
 /**
@@ -52,77 +53,80 @@ fun AppState.toSignInScreenUi(): SignInScreenUi = SignInScreenUi(
     } ?: notice?.toNoticeUi(),
 )
 
-fun AppState.toDownloadsScreenUi(): DownloadsScreenUi = DownloadsScreenUi(
-    signedIn = signIn is SignInState.SignedIn,
-    controlsEnabled = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && !startingAll,
-    siteName = sites.firstOrNull { it.key == site }?.name ?: if (site == "tapas") "Tapas" else site,
-    allSites = allSitesCard(),
-    siteCards = siteCards.sortedByDescending { it.site == site },
-    headline = shownCardTitle(),
-    observations = observations,
-    statusReadFailed = statusReadFailed,
-    admittedAtMillis = admittedAtMillis,
-    cloud = cloud,
-    cloudCheckedAtMillis = cloudCheckedAtMillis,
-    cloudReadFailed = cloudReadFailed,
-    download = downloadView(),
-    remaining = library.sumOf { (it.episodeCount - it.savedCount).coerceAtLeast(0) },
-    // A download the site signed out of says so on the sign-in screen and on its card, not here as well.
-    notice = notice?.toNoticeUi()
-        ?: (download as? DownloadState.Failed)?.takeIf { it.code != BetaCodes.LOGIN_REQUIRED }?.let {
-            NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
-        },
-)
+/** The desktop's dashboard: the saved library over every site, then a card for each site the app offers. */
+fun AppState.toDownloadsScreenUi(): DownloadsScreenUi {
+    val controls = workspaceReady && !libraryBusy && !siteBusy && !signOutPending && !startingAll
+    val offered = sites.filter { it.enabled }.ifEmpty { listOf(SiteChoice(site, if (site == "tapas") "Tapas" else site, true)) }
+    val cards = offered.map { siteCard(it, controls) }
+    return DownloadsScreenUi(
+        savedEpisodes = allSites?.let { String.format(java.util.Locale.US, "%,d", it.episodes) },
+        cards = cards,
+        startAllEnabled = controls,
+        pauseAllVisible = startingAll || cards.any { it.action == CardAction.PAUSE },
+        // A download the site signed out of says so on its card, not here as well.
+        notice = notice?.toNoticeUi()
+            ?: (download as? DownloadState.Failed)?.takeIf { it.code != BetaCodes.LOGIN_REQUIRED }?.let {
+                NoticeUi(PublicIssue.fromWireName(it.code) ?: PublicIssue.JOB_FAILED)
+            },
+    )
+}
 
 /**
- * The shown site's card title, which is the desktop's own headline for the download: a wait
- * for the connection, a retry, a check of saved files. Only a card read in the same state
- * as the phone shows is used, so a press of Start or Pause is never contradicted by a card
- * read just before it.
+ * One site's card. Its words are the card the desktop's own model wrote for the site; a site not
+ * read yet has the desktop's empty card. What its button does is the controller's newest word for
+ * the site on screen, so a press of Start or Pause is never contradicted by a card read just before it.
  */
-private fun AppState.shownCardTitle(): String? {
-    val card = siteCards.firstOrNull { it.site == site } ?: return null
-    val agrees = when (download) {
-        is DownloadState.Planning, is DownloadState.Running -> card.download == "running"
-        is DownloadState.Paused -> card.download == "stopped"
-        is DownloadState.Finished -> card.download == "finished"
-        else -> false
-    }
-    return card.title.takeIf { agrees && it.isNotBlank() }
+private fun AppState.siteCard(choice: SiteChoice, controls: Boolean): SiteCardUi {
+    val card = siteCards.firstOrNull { it.site == choice.key }
+    val shown = choice.key == site
+    fun row(name: String) = card?.rows?.firstOrNull { it.name == name }
+    val restoring = shown && signIn is SignInState.Restoring
+    val checking = restoring || shown && (signIn is SignInState.Page || signIn is SignInState.Settling)
+    val signedIn = if (shown) signIn is SignInState.SignedIn || signIn is SignInState.Restoring && card?.signOut == true
+        else card?.signOut == true && card.action != "signin"
+    val saving = if (shown) download is DownloadState.Planning || download is DownloadState.Running
+        else choice.saving || card?.action == "pause"
+    val action = if (saving) CardAction.PAUSE else if (!signedIn) CardAction.SIGN_IN else CardAction.GO
+    val failed = (signIn as? SignInState.Failed)?.takeIf { shown }?.let { signInNotice(it.code, choice.name)?.detail }
+    val status = row(say("dashboard.status"))
+    return SiteCardUi(
+        site = choice.key,
+        name = choice.name,
+        appearance = card?.appearance ?: "neutral",
+        pill = card?.pill ?: say("dashboard.not_signed_in"),
+        saved = row(say("settings.saved"))?.value?.removeSuffix(" episodes")?.removeSuffix(" episode") ?: NO_VALUE,
+        timeLeft = row(say("dashboard.time_left"))?.value ?: NO_VALUE,
+        space = row(say("dashboard.space"))?.value ?: NO_VALUE,
+        rate = row(say("dashboard.download_speed"))?.value ?: NO_VALUE,
+        status = status?.value ?: NO_VALUE,
+        statusWarning = status?.warning == true,
+        message = failed ?: card?.status?.takeIf { it.isNotBlank() }
+            ?: if (restoring) say("signin.checking_saved_sign_in") else "",
+        messageError = failed != null || card?.statusError == true,
+        selection = card?.selection?.takeIf { it.isNotBlank() } ?: say("window.download_all_types"),
+        selectionEnabled = controls,
+        action = action,
+        actionText = when (action) {
+            CardAction.SIGN_IN -> if (checking && !restoring) say("dashboard.signing_in_2") else say("dashboard.sign_in")
+            CardAction.PAUSE -> say("downloads.pause")
+            CardAction.GO -> card?.actionText?.takeIf { card.action == "go" && it.isNotBlank() }
+                ?: if (shown && download is DownloadState.Paused) say("dashboard.continue") else say("dashboard.start")
+        },
+        actionEnabled = controls && when (action) {
+            CardAction.SIGN_IN -> !checking && choice.signInAvailable
+            CardAction.PAUSE -> true
+            CardAction.GO -> !checking && (card == null || card.action != "go" || card.actionEnabled)
+        },
+        signOut = if (shown) signIn is SignInState.SignedIn else card?.signOut == true,
+        signOutEnabled = controls && !saving,
+        speed = card?.speed.orEmpty(),
+        speedEnabled = controls && signedIn && card?.speedEnabled == true,
+        speeds = card?.speeds.orEmpty(),
+    )
 }
 
-private fun AppState.allSitesCard(): AllSitesCardUi? {
-    val offered = sites.filter { it.enabled }
-    if (offered.size < 2) return null
-    val counts = allSites?.let { counted ->
-        val missing = offered.filter { it.key !in counted.sites }.map { it.name }
-        val names = missing.joinToString(", ")
-        (if (counted.episodes == 1L) say("downloads.1_saved_episode") else say("downloads.saved_episodes", "episodes" to counted.episodes)) + " · " +
-            (if (counted.files == 1L) "1 file" else say("downloads.files", "files" to counted.files)) +
-            if (missing.isEmpty()) "" else say("downloads.not_counted", "names" to names)
-    }
-    // The shown site's own state is the newest word on it; the others carry their mark.
-    val shownSaving = download is DownloadState.Planning || download is DownloadState.Running
-    val saving = offered.associate { it.key to if (it.key == site) shownSaving else it.saving }
-    return AllSitesCardUi(counts, offered.map { if (saving[it.key] == true) say("downloads.saving_2", "name" to it.name) else say("downloads.not_saving", "name" to it.name) },
-        saving.values.any { it }, startingAll)
-}
-
-private fun AppState.downloadView(): DownloadsViewUi = when (val d = download) {
-    DownloadState.Held -> DownloadsViewUi.Held(HoldReasonUi.NOT_STARTED)
-    DownloadState.Planning -> DownloadsViewUi.Running(doneUnits = 0, totalUnits = 0, description = say("downloads.starting"))
-    is DownloadState.Running -> DownloadsViewUi.Running(d.done, d.total, d.description, d.detail)
-    is DownloadState.Paused -> DownloadsViewUi.Held(holdReasonOf(d.reason))
-    is DownloadState.Finished -> DownloadsViewUi.Finished(d.summary)
-    is DownloadState.Failed -> DownloadsViewUi.Held(HoldReasonUi.FAILED)
-}
-
-/** Pause reasons arrive as public codes; map the two known holds, default to user-paused. */
-private fun holdReasonOf(reason: String): HoldReasonUi = when (reason) {
-    BetaCodes.METERED_HOLD -> HoldReasonUi.METERED_OR_UNKNOWN_NETWORK
-    BetaCodes.CONNECTION_UNVERIFIED -> HoldReasonUi.CONNECTION_UNVERIFIED
-    else -> HoldReasonUi.PAUSED_BY_USER
-}
+/** A card's field with nothing to show yet, as the desktop marks it. */
+private const val NO_VALUE = "—"
 
 fun LibraryEntry.toSeriesUi(): LibrarySeriesUi = LibrarySeriesUi(
     seriesId = seriesId,

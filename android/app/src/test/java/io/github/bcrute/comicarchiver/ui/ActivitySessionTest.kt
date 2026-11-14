@@ -21,6 +21,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToNode
@@ -123,7 +124,7 @@ class ActivitySessionTest {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.onNodeWithText("Notification settings").assertDoesNotExist()
-        compose.onNodeWithTag("saving-action").assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsDisplayed()
         assertEquals(DownloadState.Held, app.controller.state.value.download)
         assertEquals(0, app.fake.count("worker_start"))
         assertEquals(0, app.fake.count("go"))
@@ -145,7 +146,7 @@ class ActivitySessionTest {
         app.fake.speed = "fast"
         compose.runOnIdle { app.controller.refreshSettings() }
         awaitState { app.controller.state.value.settings?.speed == "fast" }
-        compose.onNodeWithTag("saving-action").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         awaitState { app.controller.state.value.notice?.message?.contains("stored speed") == true }
         assertEquals(0, app.fake.count("worker_start"))
         assertEquals(0, app.fake.count("go"))
@@ -155,7 +156,7 @@ class ActivitySessionTest {
         compose.onNodeWithText("Medium").performScrollTo().performClick()
         awaitState { app.controller.state.value.settings?.speed == "medium" && !app.controller.state.value.settingsBusy }
         compose.onNode(hasText("Downloads") and hasClickAction()).performClick()
-        compose.onNodeWithTag("saving-action").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         awaitState { app.controller.state.value.download is DownloadState.Running }
         assertEquals(1, app.fake.count("go"))
     }
@@ -189,10 +190,10 @@ class ActivitySessionTest {
     @Test fun activityRecreationKeepsLiveAdmissionAndDoesNotRestartOrReauthenticate() {
         ready()
         val controller = app.controller
-        compose.onNodeWithTag("saving-action").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         awaitState { controller.state.value.download is DownloadState.Running }
         compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("Saving your episodes").assertIsDisplayed()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Pause")).performScrollTo().assertIsDisplayed()
         assertSame(controller, app.controller)
         assertTrue(controller.state.value.signIn is SignInState.SignedIn)
         assertEquals(1, app.fake.count("prepare_workspace"))
@@ -225,7 +226,7 @@ class ActivitySessionTest {
         val controller = app.controller
         val entered = CountDownLatch(1); val release = CountDownLatch(1)
         try {
-            compose.onNodeWithTag("saving-action").performClick()
+            compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
             awaitState { controller.state.value.download is DownloadState.Running }
             // The change pauses the download while it is applied; the phone reads that pause.
             app.fake.settingsGate = entered to release
@@ -254,7 +255,7 @@ class ActivitySessionTest {
         app.fake.statusPayload = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
         val controller = app.controller
         try {
-            compose.onNodeWithTag("saving-action").performClick()
+            compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
             awaitState { controller.state.value.download is DownloadState.Running }
             // A late tap or a restored dialog: the controller itself keeps the sign-in.
             compose.runOnIdle { controller.signOut() }
@@ -413,32 +414,29 @@ class ActivitySessionTest {
         ready()
         assertSame(controller, app.controller)
         assertEquals(DownloadState.Held, controller.state.value.download)
-        compose.onNodeWithText("Download details").performScrollTo().performClick()
-        compose.onNodeWithText("Open download settings").performScrollTo().performClick()
-        compose.onNodeWithText("Connections").assertIsDisplayed()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Start")).performScrollTo().assertIsDisplayed()
         assertEquals(0, app.fake.count("go"))
         assertEquals(0, app.fake.count("worker_start"))
     }
 
     @Test fun losingStatusAndLibraryReadsKeepsLivePauseAndRecoveryDoesNotReadmitGo() {
         ready()
-        compose.onNodeWithTag("saving-action").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         awaitState { app.controller.state.value.download is DownloadState.Running }
         app.fake.statusReadable = false
         app.fake.libraryReadable = false
         awaitState { app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Running)
-        compose.onNodeWithText("Status unknown").assertIsDisplayed()
         // Recover before Pause starts its new held poll; do not race the ten-second
         // held refresh interval against the test's observation timeout.
         app.fake.statusReadable = true
         app.fake.libraryReadable = true
-        compose.onNodeWithText("Pause").performClick()
+        compose.onNodeWithText("Pause").performScrollTo().performClick()
         awaitState { app.controller.state.value.download is DownloadState.Paused }
         awaitState { !app.controller.state.value.statusReadFailed }
         assertTrue(app.controller.state.value.download is DownloadState.Paused)
         assertEquals(1, app.fake.count("go"))
-        compose.onNodeWithTag("saving-action").assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun aLateRunningObservationCannotReplaceTheNewerPausedAdmission() {
@@ -448,11 +446,11 @@ class ActivitySessionTest {
             "account":{"status":"running","phase":"archive"},"counts":{"saved_episodes":999}}"""
         app.fake.statusGate = entered to release
         try {
-            compose.onNodeWithTag("saving-action").performClick()
+            compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
             awaitState { entered.count == 0L }
             app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},
                 "account":{"status":"stopped"},"counts":{"saved_episodes":7}}"""
-            compose.onNodeWithText("Pause").performClick()
+            compose.onNodeWithText("Pause").performScrollTo().performClick()
             awaitState { app.controller.state.value.download is DownloadState.Paused &&
                 app.controller.state.value.observations?.savedEpisodes == 7L }
             release.countDown()

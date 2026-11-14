@@ -52,8 +52,8 @@ import io.github.bcrute.comicarchiver.words.say
  * - every transition toward Running remains the controller's `go()`.
  *
  * No navigation framework: an internal tab (saved across recomposition and process
- * restoration) chooses Downloads / Library / Settings; About lives under Settings. Sign-in replaces only the Saving
- * content; local library browsing and export work offline and while signed out.
+ * restoration) chooses Downloads / Library / Settings; About lives under Settings. An open sign-in page replaces only the
+ * Downloads content; local library browsing and export work offline and while signed out.
  */
 @Composable
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -79,6 +79,9 @@ fun ComicArchiverAppRoot(
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
     var signOutSite by rememberSaveable { mutableStateOf<String?>(null) }
     var signOutLibrary by rememberSaveable { mutableStateOf<String?>(null) }
+    // A card's Sign out or episode types on a site that is not the one shown: the site is shown first.
+    var signOutWanted by rememberSaveable { mutableStateOf<String?>(null) }
+    var typesSite by rememberSaveable { mutableStateOf<String?>(null) }
     // As on the desktop: a site that is downloading is paused first, then signed out.
     val signOutHeld = signOutHeldBySaving(state)
     val signOutAvailable = state.signIn is SignInState.SignedIn && !state.signOutPending &&
@@ -87,6 +90,11 @@ fun ComicArchiverAppRoot(
         if (signOutSite != state.site || signOutLibrary != state.libraryId || !signOutAvailable) {
             signOutSite = null
             signOutLibrary = null
+        }
+        if (signOutWanted == state.site && signOutAvailable) {
+            signOutSite = state.site
+            signOutLibrary = state.libraryId
+            signOutWanted = null
         }
     }
     val openCatalog: (String) -> Unit = { location ->
@@ -140,12 +148,33 @@ fun ComicArchiverAppRoot(
             },
         )
     }
+    typesSite?.let { wanted ->
+        val name = state.sites.firstOrNull { it.key == wanted }?.name ?: if (wanted == "tapas") "Tapas" else wanted
+        val types = state.settings?.downloadTypes.orEmpty().takeIf { state.site == wanted && !state.siteBusy }.orEmpty()
+        AlertDialog(
+            onDismissRequest = { typesSite = null },
+            title = { Text(say("window.download_choices_for", "name" to name)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (types.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else DownloadTypeChoices(types, state.settingsBusy) { chosen ->
+                        typesSite = null
+                        controller.setDownloadTypes(chosen)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { typesSite = null }) { Text(say("app.cancel")) } },
+        )
+    }
     BoxWithConstraints(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         // A landscape IME can leave less height than the navigation rows alone.
         // Keep the selected editor mounted; dismissing IME restores its navigation.
         val compactEditing = keyboardVisible && maxHeight < 320.dp
         Column(Modifier.fillMaxSize()) {
-            if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING)
+            if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING,
+                // The dashboard shows every site at once; only the Library and Settings are one site's at a time.
+                chooseSite = tab != AppTab.SAVING)
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -161,7 +190,9 @@ fun ComicArchiverAppRoot(
                     NoticeCard(notice.toNoticeUi(), onDismiss = { controller.openNotice(notice) }, showRecovery = false)
                 }
                 if (state.libraryBusy && tab != AppTab.SETTINGS) Text(say("app.working_library_change_in_progress_open"), Modifier.padding(horizontal = 16.dp))
-                tabState.SaveableStateProvider(if (state.libraryId == "default") "${state.site}:${tab.name}" else "${state.libraryId}:${state.site}:${tab.name}") {
+                // The dashboard is every site's: it keeps its place whichever site a card's button shows.
+                val shownSite = if (tab == AppTab.SAVING) "" else state.site
+                tabState.SaveableStateProvider(if (state.libraryId == "default") "$shownSite:${tab.name}" else "${state.libraryId}:$shownSite:${tab.name}") {
                     when (tab) {
                         AppTab.SAVING -> if (routeFor(state.signIn) == RootRoute.SIGN_IN) {
                             SignInScreen(
@@ -172,16 +203,27 @@ fun ComicArchiverAppRoot(
                         } else {
                             DownloadsScreen(
                                 state = state.toDownloadsScreenUi(),
-                                onGo = controller::go,
-                                onPause = controller::pause,
+                                onSignIn = controller::signInSite,
+                                onGo = controller::goSite,
+                                onPause = controller::pauseSite,
+                                onSignOut = { key ->
+                                    if (key == state.site) accountAction()
+                                    else { signOutWanted = key; controller.selectSite(key) }
+                                },
+                                onSpeed = controller::speedSite,
+                                onDownloadChoices = { key ->
+                                    typesSite = key
+                                    if (key == state.site) controller.refreshSettings() else controller.selectSite(key)
+                                },
                                 onGoAll = controller::goAll,
                                 onPauseAll = controller::pauseAll,
+                                onOpenLibrary = { showFilesRequested = true; tab = AppTab.LIBRARY },
+                                libraryFolder = workingLibraries.choices.firstOrNull { it.current }?.label
+                                    ?.takeIf { workingLibraries.enabled },
+                                onChangeLibrary = { settingsPage = "Libraries"; tab = AppTab.SETTINGS },
                                 notificationAccess = notificationAccess,
                                 notificationError = notificationError,
                                 onNotificationAccess = onNotificationAccess,
-                                onDownloadSettings = { settingsPage = "Downloads"; controller.refreshSettings(); tab = AppTab.SETTINGS },
-                                onStorageSettings = { settingsPage = "Storage"; controller.refreshCloud(); tab = AppTab.SETTINGS },
-                                onOpenCatalog = openCatalog,
                                 onDismissNotice = state.notice?.let { notice ->
                                     { controller.openNotice(notice) }
                                 },
@@ -259,24 +301,15 @@ fun ComicArchiverAppRoot(
 /** Which surface the Saving tab shows. */
 internal enum class RootRoute { SIGN_IN, APP }
 
-/** Only verified sign-in offers download controls. Local library access is independent. */
+/** The site's sign-in page takes the tab only while it is open, as the desktop's sign-in window does;
+ *  otherwise the dashboard shows, and a site that is signed out offers Sign in on its own card. */
 internal fun routeFor(signIn: SignInState): RootRoute =
-    if (signIn is SignInState.SignedIn) RootRoute.APP else RootRoute.SIGN_IN
+    if (signIn is SignInState.Page || signIn is SignInState.Settling) RootRoute.SIGN_IN else RootRoute.APP
 
 /** About, and the Licenses it leads to, are Settings subpages; only the first three destinations appear in navigation. */
 internal enum class AppTab(val label: String) {
     SAVING(say("app.downloads")), LIBRARY(say("app.library")), SETTINGS(say("app.settings")), ABOUT(say("app.about")), LICENSES(say("app.licenses"))
 }
-
-/**
- * Go is offered only while held (any reason) or after a finished run — never while
- * running, where choosing Start saving again would be meaningless or policy-changing.
- */
-internal fun DownloadsViewUi.goEnabled(): Boolean =
-    this is DownloadsViewUi.Held || this is DownloadsViewUi.Finished
-
-/** Pause is offered only while something is actually in flight (planning or running). */
-internal fun DownloadsViewUi.pauseEnabled(): Boolean = this is DownloadsViewUi.Running
 
 /** The desktop's words for a Sign out that waits for the download to be paused. */
 val SIGN_OUT_HELD get() = say("app.pause_the_download_to_sign_out")

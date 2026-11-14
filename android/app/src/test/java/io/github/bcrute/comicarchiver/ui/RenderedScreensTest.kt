@@ -76,6 +76,8 @@ import io.github.bcrute.comicarchiver.controller.CardRow
 import io.github.bcrute.comicarchiver.controller.IssueCount
 import io.github.bcrute.comicarchiver.controller.TypeCount
 import io.github.bcrute.comicarchiver.controller.SiteCard
+import io.github.bcrute.comicarchiver.controller.SpeedOption
+import io.github.bcrute.comicarchiver.controller.AllSites
 import io.github.bcrute.comicarchiver.controller.DownloadObservations
 import io.github.bcrute.comicarchiver.controller.ObservedWorker
 import io.github.bcrute.comicarchiver.controller.LibraryOverview
@@ -145,7 +147,6 @@ class RenderedScreensTest {
     private fun about() {
         overview(); compose.onNodeWithText("About & help").performScrollTo().performClick()
     }
-    private fun details() = compose.onNodeWithText("Download details").performScrollTo().performClick()
 
 
     private fun dashboardCloud() = cloudFixture(true).copy(overview = LibraryOverview(true,
@@ -229,28 +230,16 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun savingActionNamesItsStateAndNavigationNeverRestartsIt() {
+    @Test fun aCardsButtonNamesWhatItDoesNowAndNavigationNeverRestartsIt() {
         show()
-        compose.onNodeWithText("Start saving").assertIsEnabled().performClick()
-        compose.onNodeWithText("Starting…").assertIsDisplayed()
+        compose.onNodeWithText("Start").assertIsEnabled().performClick()
         compose.onNodeWithText("Pause").assertIsEnabled().performClick()
-        compose.onNodeWithText("Resume").assertIsEnabled()
+        compose.onNodeWithText("Continue").assertIsEnabled()
         overview()
         compose.onNodeWithTag("nav-saving").performClick()
-        compose.onNodeWithText("Resume").assertIsEnabled()
+        compose.onNodeWithText("Continue").assertIsEnabled()
         assertEquals(1, controller.goCalls)
         assertEquals(1, controller.pauseCalls)
-    }
-
-    @Test fun downloadDiagnosticsAreDisclosedWithoutHidingThePrimaryAction() {
-        show()
-        compose.onNodeWithText("Download status").assertDoesNotExist()
-        details()
-        compose.onNodeWithText("Download status").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Hide download details").performScrollTo().performClick()
-        compose.onNodeWithText("Download status").assertDoesNotExist()
-        compose.onNodeWithText("Start saving").performScrollTo().assertIsEnabled()
-        assertEquals(0, controller.goCalls)
     }
 
     @Test fun connectionEntryWorksWithoutOpeningTheOptionalB2Guide() {
@@ -269,116 +258,77 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun dashboardStorageLinksOpenTheMatchingCatalogAndReturnWithoutGo() {
-        controller.state.value = controller.state.value.copy(cloud = dashboardCloud(), catalog = catalogFixture(),
-            cloudCheckedAtMillis = SystemClock.elapsedRealtime())
-        show(); details()
-        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
-            .performScrollTo().performClick()
-        compose.onNodeWithText("Files").assertIsSelected()
-        assertEquals("device", controller.catalogRequests.last().first.location)
-        compose.onNode(hasText("Downloads") and hasClickAction()).performClick()
-        compose.onNodeWithText("Change saving destination").performScrollTo().performClick()
-        compose.onNodeWithText("Store new episodes on").assertIsDisplayed()
-        compose.onNodeWithText("View stored episodes on Backblaze B2").performScrollTo().performClick()
-        compose.onNodeWithText("Files").assertIsSelected()
-        assertEquals("b2", controller.catalogRequests.last().first.location)
-        compose.onNode(hasText("Downloads") and hasClickAction()).performClick()
-        compose.onNodeWithText("View saved files").performScrollTo().performClick()
-        assertEquals("all", controller.catalogRequests.last().first.location)
-        assertEquals(0, controller.goCalls)
-        assertTrue(controller.cloudRequests.isEmpty())
-    }
-
-    @Test fun everyOpenedSiteHasACardInTheDesktopsWordsWithTheShownSiteFirst() {
-        val rows = listOf(CardRow("Status", "Webtoon asked the app to slow down", true), CardRow("Saved", "12 episodes", false))
-        controller.state.value = controller.state.value.copy(siteCards = listOf(
-            SiteCard("webtoon", "Webtoon", "Your download is paused", "Paused", "attention", "", rows),
-            SiteCard("tapas", "Tapas", "Ready to save", "Ready", "neutral",
-                "Could not refresh progress.", listOf(CardRow("Status", "Ready to save", false)))))
+    @Test fun everySiteHasTheDesktopsCardWithItsOwnButtonsUnderTheSavedLibrary() {
+        val rows = listOf(CardRow("Status", "Webtoon asked the app to slow down", true), CardRow("Saved", "12 episodes", false),
+            CardRow("Time left", "~2 hours", false), CardRow("Space", "~1.5 GB", false), CardRow("Download speed", "1.2 MB/s", false))
+        val speeds = listOf(SpeedOption("fast", "Fast"), SpeedOption("medium", "Medium"), SpeedOption("slow", "Slow"))
+        controller.state.value = controller.state.value.copy(
+            sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true),
+                SiteChoice("tappytoon", "Tappytoon", true)),
+            allSites = AllSites(listOf("tapas", "webtoon"), 1210, 1300),
+            siteCards = listOf(
+                SiteCard("webtoon", "Webtoon", "Your download is paused", "Paused", "paused", "", rows, pill = "Paused",
+                    action = "go", actionText = "Continue", actionEnabled = true, signOut = true, signOutEnabled = true,
+                    speed = "medium", speedEnabled = true, speeds = speeds, selection = "Download: Paid series"),
+                SiteCard("tapas", "Tapas", "Ready to save", "Ready", "neutral", "", listOf(CardRow("Status", "Ready to save", false)),
+                    status = "Could not refresh progress.", statusError = true, action = "go", actionText = "Start",
+                    actionEnabled = true, signOut = true, signOutEnabled = true)))
         show()
-        compose.onNodeWithTag("site-card-webtoon").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Webtoon · Paused").assertIsDisplayed()
-        compose.onNodeWithText("Status: Webtoon asked the app to slow down").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Saved: 12 episodes").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Tapas · Ready").performScrollTo().assertIsDisplayed()
+        // The saved library over every site comes first, with the two buttons that reach them all.
+        compose.onNodeWithText("1,210").assertIsDisplayed()
+        compose.onNodeWithText("Open library folder").assertIsDisplayed()
+        compose.onNodeWithText("Start all").assertIsEnabled()
+        compose.onNodeWithText("Pause all").assertDoesNotExist()
+        // One card for each site, in the sites' order: no site is chosen first.
+        val tops = listOf("library-overview", "site-card-tapas", "site-card-webtoon", "site-card-tappytoon")
+            .map { compose.onNodeWithTag(it).getUnclippedBoundsInRoot().top }
+        assertEquals(tops.sorted(), tops)
         compose.onNodeWithText("Could not refresh progress.").performScrollTo().assertIsDisplayed()
-        val tops = listOf("tapas", "webtoon").map { compose.onNodeWithTag("site-card-$it").getUnclippedBoundsInRoot().top }
-        assertTrue(tops[0] < tops[1])
+        for (text in listOf("12", "~2 hours", "~1.5 GB", "1.2 MB/s", "Webtoon asked the app to slow down", "Download: Paid series"))
+            compose.onNodeWithText(text).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasTestTag("card-action-webtoon") and hasText("Continue")).performScrollTo().assertIsEnabled().performClick()
+        assertEquals(listOf("webtoon"), controller.goSites)
+        compose.onNodeWithTag("card-speed-webtoon").performScrollTo().performClick()
+        compose.onNodeWithText("Slow").performClick()
+        assertEquals(listOf("webtoon" to "slow"), controller.speedChanges)
+        // Sign out of a site that is not the one shown shows the site first; nothing is signed out before its question.
+        compose.onNodeWithTag("card-signout-webtoon").performScrollTo().performClick()
+        assertEquals(listOf("webtoon"), controller.selected)
+        assertEquals(0, controller.signOutCalls)
+        // A site never opened has the desktop's empty card, and signs in from it.
+        compose.onNodeWithText("Not signed in").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("card-signout-tappytoon").assertDoesNotExist()
+        compose.onNode(hasTestTag("card-action-tappytoon") and hasText("Sign in")).performScrollTo().performClick()
+        assertEquals(listOf("tappytoon"), controller.signIns)
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun delayedDashboardKeepsPauseAndDoesNotInventZeroCounts() {
-        controller.state.value = controller.state.value.copy(download = DownloadState.Running(0, 0),
-            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.WORKING),
-            statusReadFailed = true, cloudReadFailed = true,
-            cloud = dashboardCloud().copy(overview = LibraryOverview(false, emptyList(), emptyList(),
-                "Saved file counts are unavailable. Open View saved files to retry.")))
+    @Test fun aCardsEpisodeTypesAreChosenFromTheCardAndTheSignInPageTakesTheTabOnlyWhileOpen() {
         show()
-        compose.onNodeWithText("Status unknown").assertIsDisplayed()
-        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
-            .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Saved episodes: 0").assertDoesNotExist()
-        compose.onNodeWithText("Saved file counts are unavailable. Open View saved files to retry.")
-            .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Pause").performScrollTo().assertIsEnabled().performClick()
-        compose.onNodeWithTag("saving-action").assertIsEnabled()
-        assertEquals(1, controller.pauseCalls)
+        compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
+        compose.onNodeWithText("Download choices for Tapas").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Free").performClick()
+        compose.onNodeWithText("Save episode types").performClick()
+        assertEquals(listOf(mapOf("bought" to true, "free" to true)), controller.typeChanges)
+        compose.onNodeWithText("Download choices for Tapas").assertDoesNotExist()
+        // Signed out, the dashboard stays: the card offers Sign in and says what the site answered.
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(signIn = SignInState.Failed("login_required")) }
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Sign in")).performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("card-message-tapas").assertIsDisplayed()
+        compose.onNodeWithTag("card-signout-tapas").assertDoesNotExist()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(signIn = SignInState.Page("https://example.invalid/")) }
+        compose.onNodeWithTag("site-card-tapas").assertDoesNotExist()
+        compose.onNodeWithText("Opening the Tapas sign-in page…").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun recoveredDashboardUpdatesObservationsWithoutRestartingTheDownload() {
-        controller.state.value = controller.state.value.copy(download = DownloadState.Running(0, 0),
-            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.WORKING,
-                savedEpisodes = 53), statusReadFailed = true)
-        show(); details()
-        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
-            .performScrollTo().assertIsDisplayed()
-        compose.runOnIdle { controller.state.value = controller.state.value.copy(statusReadFailed = false,
-            observations = DownloadObservations(SystemClock.elapsedRealtime(), ObservedWorker.READY, savedEpisodes = 54)) }
-        compose.onNodeWithText("54 saved episodes recorded").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Status updates are delayed. The downloader's current activity is unknown. You can still Pause if saving was running.")
-            .assertDoesNotExist()
-        compose.onNodeWithText("Pause").performScrollTo().assertIsEnabled()
-        compose.onNodeWithText("Saving your episodes").assertIsDisplayed()
+    @Test fun busyDashboardKeepsEveryCardAndStartAllDisabled() {
+        controller.state.value = controller.state.value.copy(libraryBusy = true)
+        show()
+        compose.onNodeWithTag("card-action-tapas").assertIsNotEnabled()
+        compose.onNodeWithTag("card-types-tapas").assertIsNotEnabled()
+        compose.onNodeWithTag("start-all").assertIsNotEnabled()
         assertEquals(0, controller.goCalls)
-    }
-
-    @Test
-    @Config(qualifiers = "w320dp-h480dp")
-    fun largeTextDashboardKeepsEveryStorageAndSettingsActionReachable() {
-        val actions = mutableListOf<String>()
-        compose.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
-                MaterialTheme { DownloadsScreen(UiFixtures.coldStart.copy(signIn = SignInState.SignedIn("tapas"),
-                    cloud = dashboardCloud().copy(timeEstimate = "About an hour remains. This is a rough estimate; Android may limit background saving.",
-                        spaceEstimate = "The complete library may need more space than this device currently has free.")).toDownloadsScreenUi(),
-                    { actions.add("go") }, { actions.add("pause") },
-                    onDownloadSettings = { actions.add("settings") }, onStorageSettings = { actions.add("storage") },
-                    onOpenCatalog = { actions.add(it) }) }
-            }
-        }
-        details()
-        compose.onNodeWithText("Open download settings").performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
-            .performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithContentDescription("View stored episodes on Backblaze B2. 2 episodes · 4 files · Not connected")
-            .performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithText("View saved files").performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithText("Change saving destination").performScrollTo().assertIsDisplayed().performClick()
-        assertEquals(listOf("settings", "device", "b2", "all", "storage"), actions)
-    }
-
-    @Test fun busyDashboardKeepsAllMutationAndNavigationControlsDisabled() {
-        controller.state.value = controller.state.value.copy(libraryBusy = true, cloud = dashboardCloud())
-        show(); details()
-        compose.onNodeWithTag("saving-action").assertIsNotEnabled()
-        for (text in listOf("Open download settings", "View saved files", "Change saving destination"))
-            compose.onNodeWithText(text).performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithContentDescription("View stored episodes on This device. 53 episodes · 108 files")
-            .performScrollTo().assertIsNotEnabled()
-        assertEquals(0, controller.goCalls)
-        assertTrue(controller.catalogRequests.isEmpty())
     }
 
     @Test fun notificationAccessAndSettingsReturnNeverAdmitSaving() {
@@ -394,7 +344,7 @@ class RenderedScreensTest {
         compose.onNodeWithText("Allow download notifications").performScrollTo().performClick()
         assertEquals(1, requests)
         assertEquals(0, controller.goCalls)
-        compose.onNodeWithTag("saving-action").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsEnabled().performClick()
         assertEquals(1, controller.goCalls)
         compose.onNodeWithText("Notification settings").performScrollTo().performClick()
         assertEquals(2, requests)
@@ -421,7 +371,7 @@ class RenderedScreensTest {
         compose.onNodeWithText("Notification settings").performScrollTo().assertIsDisplayed().performClick()
         assertEquals(1, requests)
         assertEquals(0, controller.goCalls)
-        compose.onNodeWithTag("saving-action").performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsEnabled()
     }
 
     @Test fun aRecordedNetworkHoldDoesNotClaimTheReconnectedRouteIsMeteredOrAutoResume() {
@@ -429,9 +379,7 @@ class RenderedScreensTest {
             download = DownloadState.Paused(BetaCodes.METERED_HOLD),
             settings = controller.state.value.settings?.copy(connection = "wifi", metered = false, allowed = true))
         show()
-        compose.onNodeWithText("Saving was held by your network setting. Check your connection and metered-data choice in Settings, then choose Resume.")
-            .assertIsDisplayed()
-        compose.onNodeWithTag("saving-action").assertIsEnabled()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Continue")).assertIsEnabled()
         compose.onNodeWithText("Pause").assertDoesNotExist()
         assertEquals(0, controller.goCalls)
     }
@@ -467,12 +415,11 @@ class RenderedScreensTest {
     @Test fun goImmediatelyShowsStartingAndPauseActuallyPauses() {
         show()
         compose.onNodeWithText("Pause").assertDoesNotExist()
-        compose.onNodeWithTag("saving-action").performClick()
-        compose.onNodeWithText("Starting…").assertIsDisplayed()
-        compose.onNodeWithText("Saving your episodes").assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").performClick()
+        compose.onNodeWithText("Pause all").assertIsDisplayed()
         compose.onNodeWithText("Pause").assertIsEnabled().performClick()
-        compose.onNodeWithText("Your progress is kept. Resume when you’re ready.").assertIsDisplayed()
-        compose.onNodeWithTag("saving-action").assertIsEnabled()
+        compose.onNodeWithText("Pause all").assertDoesNotExist()
+        compose.onNodeWithTag("card-action-tapas").assertIsEnabled()
         assertEquals(1, controller.goCalls)
         assertEquals(1, controller.pauseCalls)
     }
@@ -483,12 +430,11 @@ class RenderedScreensTest {
             controller.state.value = controller.state.value.copy(download = DownloadState.Running(
                 0, 0, "Downloading episodes…", "37 episodes saved · 41 image pages in this batch"))
         }
-        compose.onNodeWithText("37 episodes saved · 41 image pages in this batch").assertIsDisplayed()
-        compose.onNodeWithText("Saving your episodes").assertIsDisplayed()
+        compose.onNodeWithText("Pause").assertIsEnabled()
         compose.runOnIdle {
             controller.state.value = controller.state.value.copy(download = DownloadState.Failed("job_failed"))
         }
-        compose.onNodeWithTag("saving-action").assertIsEnabled()
+        compose.onNodeWithTag("card-action-tapas").assertIsEnabled()
         compose.onNodeWithText("Pause").assertDoesNotExist()
     }
 
@@ -753,7 +699,8 @@ class RenderedScreensTest {
     @Test fun signedOutCanBrowseSavedLibraryWithoutOfferingGo() {
         controller.state.value = controller.state.value.copy(signIn = SignInState.SignedOut)
         show()
-        compose.onNodeWithTag("saving-action").assertDoesNotExist()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Sign in")).assertIsDisplayed()
+        compose.onNodeWithText("Start").assertDoesNotExist()
         library()
         compose.onNodeWithText("Find saved series").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
@@ -997,7 +944,7 @@ class RenderedScreensTest {
                 MaterialTheme { ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {}) }
             }
         }
-        compose.onNodeWithText("View saved files").performScrollTo().performClick()
+        compose.onNodeWithTag("open-library").performScrollTo().performClick()
         compose.onNodeWithText("Files").assertIsSelected()
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithText("Refresh files", useUnmergedTree = true).performScrollTo()
@@ -1228,7 +1175,9 @@ class RenderedScreensTest {
         assertEquals(0, controller.signOutCalls)
         compose.onNodeWithText("Sign out").performClick()
         assertEquals(1, controller.signOutCalls)
-        compose.onNodeWithTag("saving-action").assertDoesNotExist()
+        compose.onNodeWithTag("nav-saving").performClick()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Sign in")).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("card-signout-tapas").assertDoesNotExist()
     }
 
     @Test
@@ -1242,7 +1191,7 @@ class RenderedScreensTest {
         assertEquals(0, controller.signOutCalls)
         assertEquals(0, controller.pauseCalls)
         compose.onNodeWithTag("nav-saving").performClick()
-        compose.onNodeWithTag("saving-action").assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
     }
 
@@ -1334,7 +1283,7 @@ class RenderedScreensTest {
         assertEquals(listOf("https://tapas.io/newsfeed/271", "https://tapas.io/newsfeed/271"), opened)
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
         compose.onNodeWithTag("nav-saving").performClick()
-        compose.onNodeWithTag("saving-action").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsDisplayed()
         assertEquals(0, controller.goCalls)
         assertEquals(0, controller.signOutCalls)
     }
@@ -1360,7 +1309,7 @@ class RenderedScreensTest {
         compose.onNodeWithText("APK fingerprint unavailable").assertIsDisplayed()
         compose.onNodeWithText(absent.path).assertDoesNotExist()
         compose.onNodeWithTag("nav-saving").performClick()
-        compose.onNodeWithTag("saving-action").assertIsDisplayed()
+        compose.onNodeWithTag("card-action-tapas").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
         assertEquals(0, controller.signOutCalls)
     }
@@ -1399,7 +1348,15 @@ private class ScreenController : AppController {
     val cloudRequests = mutableListOf<CloudRequest>()
     override fun go() { goCalls++; state.value = state.value.copy(download = DownloadState.Planning) }
     override fun pause() { pauseCalls++; state.value = state.value.copy(download = DownloadState.Paused("user")) }
-    override fun selectSite(key: String) {}
+    val selected = mutableListOf<String>()
+    val signIns = mutableListOf<String>()
+    val goSites = mutableListOf<String>()
+    val speedChanges = mutableListOf<Pair<String, String>>()
+    override fun selectSite(key: String) { selected.add(key) }
+    override fun signInSite(key: String) { signIns.add(key) }
+    override fun goSite(key: String) { if (key == state.value.site) go() else goSites.add(key) }
+    override fun pauseSite(key: String) { if (key == state.value.site) pause() }
+    override fun speedSite(key: String, value: String) { speedChanges.add(key to value) }
     override fun startSignIn() {}
     override fun cancelSignIn() {}
     override fun signOut() {

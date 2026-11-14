@@ -142,29 +142,37 @@ fun SettingsScreen(
 @Composable
 private fun DownloadTypesCard(types: List<DownloadTypeChoice>, siteName: String, busy: Boolean,
                               onSave: (Map<String, Boolean>) -> Unit) {
-    val stored = types.associate { it.key to it.chosen }
-    var draft by remember(stored) { mutableStateOf(stored) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(say("settings.episode_types_on", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)
-            types.forEach { type ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Checkbox(
-                        checked = draft[type.key] == true,
-                        enabled = !busy,
-                        onCheckedChange = { draft = draft + (type.key to it) },
-                        modifier = Modifier.semantics { contentDescription = type.label },
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(type.label)
-                        if (type.help.isNotBlank()) Text(type.help, style = MaterialTheme.typography.bodySmall)
-                    }
+            DownloadTypeChoices(types, busy, onSave)
+        }
+    }
+}
+
+/** The episode types and their Save, for Settings and for a dashboard card's own choice. */
+@Composable
+internal fun DownloadTypeChoices(types: List<DownloadTypeChoice>, busy: Boolean, onSave: (Map<String, Boolean>) -> Unit) {
+    val stored = types.associate { it.key to it.chosen }
+    var draft by remember(stored) { mutableStateOf(stored) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        types.forEach { type ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Checkbox(
+                    checked = draft[type.key] == true,
+                    enabled = !busy,
+                    onCheckedChange = { draft = draft + (type.key to it) },
+                    modifier = Modifier.semantics { contentDescription = type.label },
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(type.label)
+                    if (type.help.isNotBlank()) Text(type.help, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Text(say("settings.already_saved_files_are_kept_choices"))
-            OutlinedButton(onClick = { onSave(draft) },
-                enabled = !busy && draft != stored && draft.values.any { it }) { Text(say("settings.save_episode_types")) }
         }
+        Text(say("settings.already_saved_files_are_kept_choices"))
+        OutlinedButton(onClick = { onSave(draft) },
+            enabled = !busy && draft != stored && draft.values.any { it }) { Text(say("settings.save_episode_types")) }
     }
 }
 

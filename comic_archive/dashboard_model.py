@@ -474,6 +474,27 @@ CARD_FIELDS = (say('dashboard.account'), say('dashboard.downloader'), say('dashb
 DASHBOARD_FIELDS = (say('dashboard.status'), say('settings.saved'), say('dashboard.time_left'), say('dashboard.space'), say('dashboard.speed'), say('dashboard.download_speed'))
 
 
+def pill(state):
+    """A card's state in a word short enough for its pill."""
+    return {say('dashboard.needs_attention'): say('window.attention'), say('cloud.sign_in_needed'): say('dashboard.sign_in'),
+            say('dashboard.finished'): say('dashboard.done'),
+            say('dashboard.status_unavailable'): say('dashboard.offline')}.get(state, state)
+
+
+def download_choice(account):
+    """A card's line for the episode types its site downloads, and what each chosen type takes in.
+
+    account is the site's account record, or None for a site not opened: every type is then chosen."""
+    from .download_selection import HELP, LABELS, TYPES
+    chosen = (account or {}).get('download_types', dict.fromkeys(TYPES, True))
+    if not isinstance(chosen, dict):
+        return say('window.download_unavailable'), say('window.saved_choices_could_not_be_read')
+    count = sum(bool(chosen.get(key)) for key in TYPES)
+    value = (say('window.all_types') if count == len(TYPES) else say('window.paid_series') if chosen.get('bought') and count == 1
+             else LABELS[next(key for key in TYPES if chosen.get(key))] if count == 1 else say('window.n_types', n=count))
+    return say('window.download_value', value=value), '\n'.join(f'{LABELS[key]}: {HELP[key]}' for key in TYPES if chosen.get(key))
+
+
 def card_summary(s=None, v=None):
     """Stable dashboard facts, including estimates; internal step counters stay in diagnostics."""
     if s is None or v is None:

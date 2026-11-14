@@ -15,58 +15,51 @@ import org.junit.Test
  */
 class AppRootTest {
 
+    private fun card(state: io.github.bcrute.comicarchiver.controller.AppState) = state.toDownloadsScreenUi().cards.single()
+
     @Test
-    fun `only a verified sign-in reaches download controls`() {
-        assertEquals(RootRoute.APP, routeFor(SignInState.SignedIn("tapas")))
-        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.SignedOut))
+    fun `the sign-in page takes the tab only while it is open`() {
+        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Page("https://example.invalid/")))
         assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Settling))
-        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Restoring))
-        assertEquals(
-            RootRoute.SIGN_IN,
-            routeFor(SignInState.Page("https://example.invalid/")),
-        )
-        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Failed("login_required")))
+        for (signIn in listOf(SignInState.SignedIn("tapas"), SignInState.SignedOut, SignInState.Restoring,
+            SignInState.Failed("login_required"))) assertEquals(RootRoute.APP, routeFor(signIn))
     }
 
     @Test
-    fun `a failed sign-in stays on the sign-in screen, with its notice`() {
-        val ui = UiFixtures.coldStart
-            .copy(signIn = SignInState.Failed("login_required"))
-            .toSignInScreenUi()
-        assertEquals(RootRoute.SIGN_IN, routeFor(SignInState.Failed("login_required")))
-        assertEquals(PublicIssue.LOGIN_REQUIRED, ui.notice?.issue)
+    fun `a signed-out site offers sign in on its own card, never a download`() {
+        val signedOut = card(UiFixtures.coldStart)
+        assertEquals(CardAction.SIGN_IN to "Sign in", signedOut.action to signedOut.actionText)
+        assertTrue(signedOut.actionEnabled)
+        assertFalse(signedOut.signOut)
+        assertEquals("", signedOut.message)
+        val refused = card(UiFixtures.coldStart.copy(signIn = SignInState.Failed("login_required")))
+        assertEquals(CardAction.SIGN_IN, refused.action)
+        assertEquals("Tapas signed you out" to true, refused.message to refused.messageError)
     }
 
     @Test
     fun `go is offered only while held or finished, never while running`() {
-        val held = UiFixtures.coldStart.toDownloadsScreenUi().download
-        assertTrue(held.goEnabled())
-        assertFalse(held.pauseEnabled())
+        val held = card(UiFixtures.heldAfterRestart)
+        assertEquals(CardAction.GO to "Start", held.action to held.actionText)
+        assertTrue(held.actionEnabled && held.signOut && held.signOutEnabled)
 
-        val running = UiFixtures.running.toDownloadsScreenUi().download
-        assertFalse(running.goEnabled())
-        assertTrue(running.pauseEnabled())
+        val running = card(UiFixtures.running)
+        assertEquals(CardAction.PAUSE to "Pause", running.action to running.actionText)
+        assertTrue(running.actionEnabled)
+        assertFalse(running.signOutEnabled)
     }
 
     @Test
     fun `planning offers pause but not go`() {
-        val planning = UiFixtures.running
-            .copy(download = DownloadState.Planning)
-            .toDownloadsScreenUi().download
-        assertFalse(planning.goEnabled())
-        assertTrue(planning.pauseEnabled())
+        assertEquals(CardAction.PAUSE, card(UiFixtures.running.copy(download = DownloadState.Planning)).action)
     }
 
     @Test
-    fun `finished offers go again, paused does too`() {
-        val finished = UiFixtures.running
-            .copy(download = DownloadState.Finished("37 items saved"))
-            .toDownloadsScreenUi().download
-        assertTrue(finished.goEnabled())
-        assertFalse(finished.pauseEnabled())
-
-        val paused = UiFixtures.meteredHold.toDownloadsScreenUi().download
-        assertTrue(paused.goEnabled())
-        assertFalse(paused.pauseEnabled())
+    fun `finished offers start again, paused offers continue`() {
+        val finished = card(UiFixtures.running.copy(download = DownloadState.Finished("37 items saved")))
+        assertEquals(CardAction.GO to "Start", finished.action to finished.actionText)
+        val paused = card(UiFixtures.meteredHold)
+        assertEquals(CardAction.GO to "Continue", paused.action to paused.actionText)
+        assertTrue(paused.actionEnabled)
     }
 }

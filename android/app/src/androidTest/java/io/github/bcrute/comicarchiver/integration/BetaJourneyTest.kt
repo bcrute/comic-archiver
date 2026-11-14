@@ -156,7 +156,8 @@ class BetaJourneyTest {
         if (!clickIfPresent(selector, timeout, before)) failure("Control not reachable: $label")
     }
     private fun click(text: String) {
-        val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings")[text]
+        val destination = mapOf("Downloads" to "nav-saving", "Library" to "nav-library", "Settings" to "nav-settings",
+            "Sign in to Tapas" to "card-action-tapas", "Start saving" to "card-action-tapas")[text]
         val selector = if (destination != null) By.res(destination) else By.text(text)
         repeat(8) {
             // Wait for Compose's accessibility publication before scrolling.
@@ -172,9 +173,8 @@ class BetaJourneyTest {
         nativeClick(selector, text, 1_500) // Include the final scroll's result.
     }
     private fun startSaving() {
-        nativeClick(By.res("saving-action"), "Start saving", 10_000) {
-            assertTrue(device.hasObject(By.text("Start saving")) || device.hasObject(By.text("Resume")) || device.hasObject(By.text("Try again")))
-        }
+        // The site's own card starts it, as on the desktop.
+        click("Start saving")
     }
     private fun openLibraryOptions() {
         nativeClick(By.desc("Library options"), "Library options", 10_000)

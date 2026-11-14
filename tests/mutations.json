@@ -9137,11 +9137,43 @@
  },
  {
   "id": "finished-card-pill-not-done",
-  "source": "comic_archive/window_pages.py",
-  "old": "say('cloud.sign_in_needed'): say('dashboard.sign_in'), say('dashboard.finished'): say('dashboard.done'),",
-  "new": "say('cloud.sign_in_needed'): say('dashboard.sign_in'),",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "            say('dashboard.finished'): say('dashboard.done'),\n",
+  "new": "",
   "test_file": "test_window_pages.py",
   "test": "test_each_site_has_its_own_go_and_pause_and_every_open_site_is_refreshed"
+ },
+ {
+  "id": "phone-card-pill-not-short",
+  "source": "comic_archive/android_cards.py",
+  "old": "'pill': pill(summary['state'])",
+  "new": "'pill': summary['state']",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_desktop_cards_pill_button_sign_out_speed_and_episode_types"
+ },
+ {
+  "id": "phone-card-types-not-the-sites-own",
+  "source": "comic_archive/android_cards.py",
+  "old": "download_choice(s.account if s.loaded else None)[0]",
+  "new": "download_choice(None)[0]",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_desktop_cards_pill_button_sign_out_speed_and_episode_types"
+ },
+ {
+  "id": "phone-card-speed-shown-signed-out",
+  "source": "comic_archive/android_cards.py",
+  "old": "v['speed'] if v['speed_visible'] and s.account is not None else ''",
+  "new": "v['speed']",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_desktop_cards_pill_button_sign_out_speed_and_episode_types"
+ },
+ {
+  "id": "card-paid-series-not-named",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "if chosen.get('bought') and count == 1",
+  "new": "if chosen.get('free') and count == 1",
+  "test_file": "test_android_cards.py",
+  "test": "test_a_card_carries_the_desktop_cards_pill_button_sign_out_speed_and_episode_types"
  },
  {
   "id": "finished-card-status-not-spelled-out",

@@ -8,6 +8,9 @@ import io.github.bcrute.comicarchiver.controller.CardRow
 import io.github.bcrute.comicarchiver.controller.IssueCount
 import io.github.bcrute.comicarchiver.controller.TypeCount
 import io.github.bcrute.comicarchiver.controller.SiteCard
+import io.github.bcrute.comicarchiver.controller.SiteChoice
+import io.github.bcrute.comicarchiver.controller.SpeedOption
+import io.github.bcrute.comicarchiver.controller.AllSites
 import org.json.JSONObject
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.LibraryEntry
@@ -75,24 +78,52 @@ class UiMappingTest {
     }
 
     @Test
-    fun theTopCardTakesTheShownSitesDesktopWordsOnlyFromACardReadInTheSameState() {
-        fun card(site: String, title: String, download: String) =
-            SiteCard(site, site, title, "Waiting", "active", "", emptyList(), download = download)
-        val waiting = card("tapas", "Waiting for Wi-Fi", "running")
-        val running = DownloadState.Running(0, 0, "Downloading episodes\u2026", null)
-        fun headline(download: DownloadState, vararg cards: SiteCard) =
-            UiFixtures.coldStart.copy(download = download, siteCards = cards.toList()).toDownloadsScreenUi().headline
-        assertEquals("Waiting for Wi-Fi", headline(running, waiting))
-        assertEquals("Waiting for Wi-Fi", headline(DownloadState.Planning, card("webtoon", "Other", "running"), waiting))
-        assertEquals("Your download is paused", headline(DownloadState.Paused("user"), card("tapas", "Your download is paused", "stopped")))
-        assertEquals("All done", headline(DownloadState.Finished("x"), card("tapas", "All done", "finished")))
-        // A card read before Start or Pause was pressed, another site's card, or none: the phone's own words.
-        assertEquals(null, headline(running, card("tapas", "Your download is paused", "stopped")))
-        assertEquals(null, headline(DownloadState.Paused("user"), waiting))
-        assertEquals(null, headline(running, card("webtoon", "Waiting for Wi-Fi", "running")))
-        assertEquals(null, headline(running))
-        assertEquals(null, headline(DownloadState.Held, card("tapas", "Ready to save", "")))
-        assertEquals(null, headline(running, card("tapas", "", "running")))
+    fun aCardSaysWhatTheDesktopsCardSaysAndItsButtonFollowsTheControllerForTheSiteOnScreen() {
+        val rows = listOf(CardRow("Status", "Checking and saving your episodes", false), CardRow("Saved", "1 episode", false),
+            CardRow("Time left", "~8 hours", false), CardRow("Space", "~4.8 GB", false), CardRow("Speed", "Fast", false),
+            CardRow("Download speed", "\u2014", false))
+        val read = SiteCard("tapas", "Tapas", "Saving your episodes", "Working", "active", "", rows, download = "running",
+            pill = "Working", action = "pause", actionText = "Pause", actionEnabled = true, signOut = true,
+            speed = "fast", speedEnabled = true, speeds = listOf(SpeedOption("fast", "Fast")), selection = "Download: 2 types")
+        val sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true, saving = true),
+            SiteChoice("tappytoon", "Tappytoon", false))
+        val ui = state(download = DownloadState.Paused("user")).copy(sites = sites, siteCards = listOf(read),
+            allSites = AllSites(listOf("tapas"), 1234567, 9)).toDownloadsScreenUi()
+        assertEquals("1,234,567", ui.savedEpisodes)
+        // A site the app cannot offer has no card.
+        assertEquals(listOf("tapas", "webtoon"), ui.cards.map { it.site })
+        val tapas = ui.cards[0]
+        assertEquals(listOf("active", "Working", "1", "~8 hours", "~4.8 GB", "\u2014", "Checking and saving your episodes",
+            "Download: 2 types", "fast"), listOf(tapas.appearance, tapas.pill, tapas.saved, tapas.timeLeft, tapas.space,
+            tapas.rate, tapas.status, tapas.selection, tapas.speed))
+        // Pause was just pressed: the card read before it still says Pause, the button does not.
+        assertEquals(CardAction.GO to "Continue", tapas.action to tapas.actionText)
+        assertTrue(tapas.actionEnabled && tapas.signOut && tapas.signOutEnabled && tapas.speedEnabled && tapas.selectionEnabled)
+        // A site saving while another is shown offers Pause and keeps its sign-in until it is paused;
+        // one not read yet has the desktop's empty card.
+        val webtoon = ui.cards[1]
+        assertEquals(CardAction.PAUSE to "Pause", webtoon.action to webtoon.actionText)
+        assertFalse(webtoon.signOutEnabled || webtoon.speedEnabled)
+        assertTrue(webtoon.selectionEnabled)
+        assertEquals(listOf("neutral", "Not signed in", "\u2014", "Download: All types"),
+            listOf(webtoon.appearance, webtoon.pill, webtoon.saved, webtoon.selection))
+        assertTrue(ui.pauseAllVisible && ui.startAllEnabled)
+        val idle = state().toDownloadsScreenUi()
+        assertNull(idle.savedEpisodes)
+        assertFalse(idle.pauseAllVisible)
+        // Nothing can be pressed while the library is being changed.
+        val busy = state().copy(libraryBusy = true).toDownloadsScreenUi()
+        assertFalse(busy.startAllEnabled || busy.cards.single().actionEnabled)
+        // Another site's card is that site's own word, and a site known to be saving offers Pause whatever it read.
+        val other = read.copy(site = "webtoon", action = "go", actionText = "Start")
+        assertEquals(CardAction.PAUSE, state().copy(sites = sites, siteCards = listOf(other)).toDownloadsScreenUi().cards[1].action)
+        val ready = state().copy(sites = sites.map { it.copy(saving = false) }, siteCards = listOf(other)).toDownloadsScreenUi().cards[1]
+        assertEquals(CardAction.GO to "Start", ready.action to ready.actionText)
+        assertTrue(ready.signOut && ready.signOutEnabled)
+        // A card that says to sign in is a site that is not signed in, whatever else it carries.
+        val out = state().copy(sites = sites.map { it.copy(saving = false) },
+            siteCards = listOf(other.copy(action = "signin", actionText = "Sign in"))).toDownloadsScreenUi().cards[1]
+        assertEquals(CardAction.SIGN_IN to "Sign in", out.action to out.actionText)
     }
 
     @Test
@@ -100,7 +131,9 @@ class UiMappingTest {
         val ui = UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toSignInScreenUi()
         assertTrue(ui.restoring)
         assertFalse(ui.busy)
-        assertFalse(UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toDownloadsScreenUi().signedIn)
+        val card = UiFixtures.coldStart.copy(signIn = SignInState.Restoring).toDownloadsScreenUi().cards.single()
+        assertEquals(CardAction.SIGN_IN to false, card.action to card.actionEnabled)
+        assertEquals("Sign in" to "Checking saved sign-in\u2026", card.actionText to card.message)
     }
 
     @Test
@@ -125,57 +158,36 @@ class UiMappingTest {
     }
 
     @Test
-    fun `cold start maps to held, not running, signed out`() {
-        val ui = UiFixtures.coldStart.toDownloadsScreenUi()
-        assertTrue(ui.download is DownloadsViewUi.Held)
-        assertEquals(HoldReasonUi.NOT_STARTED, (ui.download as DownloadsViewUi.Held).reason)
-        assertFalse(ui.signedIn)
+    fun `cold start offers sign in, not a download`() {
+        val card = UiFixtures.coldStart.toDownloadsScreenUi().cards.single()
+        assertEquals(CardAction.SIGN_IN, card.action)
+        assertFalse(card.signOut)
     }
 
     @Test
-    fun `planning maps to running with zero units, never to a hold`() {
-        val ui = state(download = DownloadState.Planning).toDownloadsScreenUi()
-        val running = ui.download as DownloadsViewUi.Running
-        assertEquals(0, running.doneUnits)
-        assertEquals(0, running.totalUnits)
+    fun `planning offers pause, never go`() {
+        assertEquals(CardAction.PAUSE, state(download = DownloadState.Planning).toDownloadsScreenUi().cards.single().action)
     }
 
     @Test
-    fun `running carries its counts`() {
-        val ui = state(download = DownloadState.Running(done = 34, total = 80)).toDownloadsScreenUi()
-        val running = ui.download as DownloadsViewUi.Running
-        assertEquals(34, running.doneUnits)
-        assertEquals(80, running.totalUnits)
+    fun `a paused download offers continue whatever paused it`() {
+        for (reason in listOf(BetaCodes.METERED_HOLD, BetaCodes.CONNECTION_UNVERIFIED, "anything_else")) {
+            val card = state(download = DownloadState.Paused(reason)).toDownloadsScreenUi().cards.single()
+            assertEquals(CardAction.GO to "Continue", card.action to card.actionText)
+        }
     }
 
     @Test
-    fun `known pause reasons map to their holds, others to user-paused`() {
-        val metered = state(download = DownloadState.Paused(BetaCodes.METERED_HOLD))
-            .toDownloadsScreenUi().download as DownloadsViewUi.Held
-        assertEquals(HoldReasonUi.METERED_OR_UNKNOWN_NETWORK, metered.reason)
-
-        val unverified = state(download = DownloadState.Paused(BetaCodes.CONNECTION_UNVERIFIED))
-            .toDownloadsScreenUi().download as DownloadsViewUi.Held
-        assertEquals(HoldReasonUi.CONNECTION_UNVERIFIED, unverified.reason)
-
-        val other = state(download = DownloadState.Paused("anything_else"))
-            .toDownloadsScreenUi().download as DownloadsViewUi.Held
-        assertEquals(HoldReasonUi.PAUSED_BY_USER, other.reason)
-    }
-
-    @Test
-    fun `finished carries the controller's summary words`() {
-        val ui = state(download = DownloadState.Finished("37 items saved"))
-            .toDownloadsScreenUi()
-        val finished = ui.download as DownloadsViewUi.Finished
-        assertEquals("37 items saved", finished.summary)
+    fun `a finished download offers start again`() {
+        val card = state(download = DownloadState.Finished("37 items saved")).toDownloadsScreenUi().cards.single()
+        assertEquals(CardAction.GO to "Start", card.action to card.actionText)
     }
 
     @Test
     fun `a failed download surfaces a notice and stays held`() {
         val ui = state(download = DownloadState.Failed(BetaCodes.WORKER_OFFLINE))
             .toDownloadsScreenUi()
-        assertTrue(ui.download is DownloadsViewUi.Held)
+        assertEquals(CardAction.GO, ui.cards.single().action)
         assertEquals(PublicIssue.WORKER_OFFLINE, ui.notice?.issue)
     }
 
@@ -198,17 +210,6 @@ class UiMappingTest {
         val failed = state(signIn = SignInState.Failed(BetaCodes.LOGIN_REQUIRED))
             .toSignInScreenUi()
         assertEquals(PublicIssue.LOGIN_REQUIRED, failed.notice?.issue)
-    }
-
-    @Test
-    fun `remaining counts only unsaved episodes and never goes negative`() {
-        val ui = state(library = listOf(comic, novel)).toDownloadsScreenUi()
-        assertEquals(3, ui.remaining) // novel has 5 - 2 saved; comic complete
-
-        val over = state(
-            library = listOf(LibraryEntry("s", "T", LibraryKind.COMIC, 4, 9)),
-        ).toDownloadsScreenUi()
-        assertEquals(0, over.remaining)
     }
 
     @Test
@@ -287,14 +288,6 @@ class UiMappingTest {
         assertTrue(UiFixtures.running.download is DownloadState.Running)
     }
     @Test
-    fun `live status details reach the screen without being discarded`() {
-        val ui = state(download = DownloadState.Running(0, 0, "Downloading episodes…", "22 episodes saved\n316 image pages"))
-            .toDownloadsScreenUi().download as DownloadsViewUi.Running
-        assertEquals("Downloading episodes…", ui.description)
-        assertEquals("22 episodes saved\n316 image pages", ui.detail)
-    }
-
-    @Test
     fun `site cards are read whole or left out, and a refusal gives none`() {
         val card = """{"site":"webtoon","name":"Webtoon","title":"Ready to save","state":"Ready","appearance":"neutral",
             "message":"","rows":[{"name":"Status","value":"Ready to save","warning":false},
@@ -309,16 +302,18 @@ class UiMappingTest {
         assertEquals(listOf(SiteCard("webtoon", "Webtoon", "Ready to save", "Ready", "neutral", "", listOf(
             CardRow("Status", "Ready to save", false), CardRow("Speed", "Medium (a slower speed may help)", true)),
             listOf(IssueCount("Download errors", "2")), listOf(TypeCount("Free", "1,200", "—")))), cards)
+        // The desktop card's own parts are read with it.
+        val whole = SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[{"site":"tapas","name":"Tapas","title":"t",
+            "state":"Finished","appearance":"complete","rows":[],"pill":"Done","tone":"success","status":"Could not refresh.",
+            "status_error":true,"action":"go","action_text":"Start","action_enabled":true,"signout":true,"signout_enabled":true,
+            "speed":"slow","speed_enabled":true,"speeds":[{"key":"slow","label":"Slow"}],"selection":"Download: All types"}]}}"""))
+        assertEquals(listOf(SiteCard("tapas", "Tapas", "t", "Finished", "complete", "", emptyList(), pill = "Done", tone = "success",
+            status = "Could not refresh.", statusError = true, action = "go", actionText = "Start", actionEnabled = true,
+            signOut = true, signOutEnabled = true, speed = "slow", speedEnabled = true, speeds = listOf(SpeedOption("slow", "Slow")),
+            selection = "Download: All types")), whole)
         assertNull(SiteCard.parse(JSONObject("""{"ok":false,"result":{"cards":[$card]}}""")))
         assertNull(SiteCard.parse(JSONObject("""{"ok":true,"result":{}}""")))
         assertEquals(emptyList<SiteCard>(), SiteCard.parse(JSONObject("""{"ok":true,"result":{"cards":[]}}""")))
-    }
-
-    @Test
-    fun `the shown site's card comes first on the downloads screen`() {
-        val cards = listOf("webtoon", "tapas", "tappytoon").map { SiteCard(it, it, "t", "Ready", "neutral", "", emptyList()) }
-        assertEquals(listOf("tapas", "webtoon", "tappytoon"),
-            state().copy(siteCards = cards).toDownloadsScreenUi().siteCards.map { it.site })
     }
 
 

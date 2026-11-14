@@ -58,7 +58,7 @@ class SiteSwitchActivityTest {
     }
     private fun select(label: String) {
         when (label) {
-            "Go" -> compose.onNodeWithTag("saving-action").performClick()
+            "Go" -> compose.onNodeWithTag("card-action-${app.controller.state.value.site}").performScrollTo().performClick()
             "About" -> {
                 compose.onNodeWithTag("nav-settings").performClick()
                 compose.onNodeWithText("About & help").performScrollTo().performClick()
@@ -72,8 +72,11 @@ class SiteSwitchActivityTest {
                 compose.onNodeWithText("Series").performClick()
             }
             else -> {
+                // The dashboard shows every site at once; the Library and Settings are one site at a time.
+                compose.onNodeWithTag("nav-library").performClick()
                 compose.onNodeWithTag("source-picker").performClick()
                 compose.onNode(hasText(label) and hasClickAction() and !hasTestTag("source-picker")).performClick()
+                compose.onNodeWithTag("nav-saving").performClick()
             }
         }
     }
@@ -122,9 +125,36 @@ class SiteSwitchActivityTest {
         assertFalse(app.controller.isSaving("tapas"))
     }
 
+    @Test fun aCardsButtonActsOnItsOwnSiteWithoutChoosingTheSiteFirst() {
+        ready()
+        fun roots(op: String) = app.wire.requests.filter { it.first == op }.map { File(it.second.getString("root")).name }
+        // Tapas is the site on screen; Webtoon's own button signs in and starts Webtoon.
+        compose.onNodeWithTag("card-action-webtoon").performScrollTo().performClick()
+        ready("webtoon")
+        assertEquals(0, app.wire.count("go"))
+        compose.onNodeWithTag("card-action-webtoon").performScrollTo().performClick()
+        await { app.controller.isSaving("webtoon") }
+        assertEquals(listOf("Webtoon"), roots("go"))
+        // Tapas starts from its own card while Webtoon goes on saving.
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
+        ready()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
+        await { app.controller.isSaving("tapas") }
+        assertTrue(app.controller.isSaving("webtoon"))
+        assertEquals(listOf("Webtoon", "workspace"), roots("go"))
+        // Pause on Webtoon's card reaches Webtoon alone, without showing it.
+        val before = roots("pause").count { it == "workspace" }
+        compose.onNode(hasTestTag("card-action-webtoon") and hasText("Pause")).performScrollTo().assertIsEnabled().performClick()
+        await { !app.controller.isSaving("webtoon") && roots("pause").count { it == "Webtoon" } == 1 }
+        assertEquals("tapas", app.controller.state.value.site)
+        assertTrue(app.controller.isSaving("tapas"))
+        assertEquals(before, roots("pause").count { it == "workspace" })
+    }
+
     @Test fun startAllStartsEverySignedInSiteInTurnAndPauseAllReachesEachOfThem() {
         ready()
-        compose.onNodeWithTag("all-sites").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("library-overview").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("source-picker").assertDoesNotExist()
         compose.onNodeWithText("Pause all").assertDoesNotExist()
         compose.onNodeWithText("Start all").performScrollTo().performClick()
         await { app.wire.count("go") == 3 && !app.controller.state.value.startingAll }
@@ -132,7 +162,8 @@ class SiteSwitchActivityTest {
         assertEquals(setOf("tapas", "webtoon", "tappytoon"),
             app.controller.state.value.sites.filter { it.saving }.map { it.key }.toSet())
         assertEquals(3, app.wire.requests.filter { it.first == "go" }.map { it.second.getString("root") }.toSet().size)
-        compose.onNodeWithText("Webtoon: Saving").performScrollTo().assertIsDisplayed()
+        for (key in listOf("tapas", "webtoon", "tappytoon"))
+            compose.onNode(hasTestTag("card-action-$key") and hasText("Pause")).performScrollTo().assertIsDisplayed()
         // A second Start all has nothing left to start.
         compose.runOnIdle { app.controller.goAll() }
         await { !app.controller.state.value.startingAll }
@@ -203,7 +234,8 @@ class SiteSwitchActivityTest {
         app.wire.loginRequired = true
         select("Go")
         await { app.controller.state.value.signIn == SignInState.Failed("login_required") }
-        compose.onNodeWithText("Sign in to Tapas").assertIsDisplayed()
+        compose.onNode(hasTestTag("card-action-tapas") and hasText("Sign in")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasTestTag("card-message-tapas") and hasText("Tapas signed you out")).assertIsDisplayed()
         select("Library")
         compose.onNodeWithText("Tapas book").assertIsDisplayed()
         assertEquals(1, app.wire.count("go"))
@@ -231,7 +263,7 @@ class SiteSwitchActivityTest {
             app.wire.metered = true; app.controller.refreshSettings()
         }
         await { app.controller.state.value.settings?.allowed == false }
-        compose.onNodeWithText("Sign in to Tapas").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         await { app.controller.state.value.notice?.code == "metered_hold" }
         compose.onNodeWithText("Connect to Wi-Fi or a wired connection, or allow metered and mobile connections " +
             "in Settings, then sign in again.").assertIsDisplayed()
@@ -239,7 +271,7 @@ class SiteSwitchActivityTest {
         // Once the connection is one the rule allows, the same button opens the page.
         compose.runOnIdle { app.wire.metered = false; app.controller.refreshSettings() }
         await { app.controller.state.value.settings?.allowed == true }
-        compose.onNodeWithText("Sign in to Tapas").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         await { app.controller.state.value.signIn is SignInState.Page }
         assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))
     }
@@ -252,7 +284,7 @@ class SiteSwitchActivityTest {
             .assertIsDisplayed()
         compose.onNodeWithText("Return to Downloads to start saving again.").assertDoesNotExist()
         compose.runOnIdle { (app as SurfaceFailureTestApp).failSurface = false }
-        compose.onNodeWithText("Sign in to Tapas").performClick()
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
         await { app.controller.state.value.signIn is SignInState.Page }
         assertNull(app.controller.state.value.notice)
         assertEquals(0, app.wire.count("go")); assertEquals(0, app.wire.count("worker_start"))

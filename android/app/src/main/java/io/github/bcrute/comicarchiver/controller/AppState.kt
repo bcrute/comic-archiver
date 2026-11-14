@@ -62,7 +62,13 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                     /** What Settings lists for the site: its download issues, and saved and pending by episode type. */
                     val issues: List<IssueCount> = emptyList(), val types: List<TypeCount> = emptyList(),
                     /** The download's own word for where it was when the card was read: running, stopped, finished. */
-                    val download: String = "") {
+                    val download: String = "",
+                    /** The card as the desktop draws it: its pill, its status line, its one button, Sign out, speed and episode types. */
+                    val pill: String = state, val tone: String = "", val status: String = "", val statusError: Boolean = false,
+                    val action: String = "", val actionText: String = "", val actionEnabled: Boolean = false,
+                    val signOut: Boolean = false, val signOutEnabled: Boolean = false,
+                    val speed: String = "", val speedEnabled: Boolean = false, val speeds: List<SpeedOption> = emptyList(),
+                    val selection: String = "") {
     companion object {
         /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
         fun parse(envelope: org.json.JSONObject): List<SiteCard>? {
@@ -93,13 +99,29 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                                 type.opt("waiting") as? String ?: return@mapNotNull null)
                         }
                     },
-                    card.opt("download") as? String ?: "")
+                    card.opt("download") as? String ?: "",
+                    card.opt("pill") as? String ?: words[3], card.opt("tone") as? String ?: "",
+                    card.opt("status") as? String ?: "", card.opt("status_error") == true,
+                    card.opt("action") as? String ?: "", card.opt("action_text") as? String ?: "",
+                    card.opt("action_enabled") == true, card.opt("signout") == true, card.opt("signout_enabled") == true,
+                    card.opt("speed") as? String ?: "", card.opt("speed_enabled") == true,
+                    (card.optJSONArray("speeds") ?: org.json.JSONArray()).let { speeds ->
+                        (0 until speeds.length()).map { at ->
+                            val speed = speeds.optJSONObject(at) ?: return@mapNotNull null
+                            SpeedOption(speed.opt("key") as? String ?: return@mapNotNull null,
+                                speed.opt("label") as? String ?: return@mapNotNull null)
+                        }
+                    },
+                    card.opt("selection") as? String ?: "")
             }
         }
     }
 }
 
 data class CardRow(val name: String, val value: String, val warning: Boolean)
+
+/** One of a site's download speeds, in the desktop's words. */
+data class SpeedOption(val key: String, val label: String)
 
 /** One line of the Library's recorded episodes, in the desktop's words: a series under its site, or an episode under its series. */
 data class EpisodeRow(val id: String, val title: String, val status: String, val format: String, val access: String)
