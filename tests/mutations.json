@@ -9846,5 +9846,93 @@
   "new": "",
   "test_file": "test_desktop_app.py",
   "test": "test_a_saved_log_is_picked_out_in_the_file_manager_or_else_its_folder_opens"
+ },
+ {
+  "id": "site-download-link-not-checked",
+  "source": "scripts/site_release.py",
+  "old": "            if offered is not None and name not in offered.get(tag, set()):\n",
+  "new": "            if False:\n",
+  "test_file": "test_site_release.py",
+  "test": "test_a_link_to_a_file_the_release_does_not_have_stops_the_site"
+ },
+ {
+  "id": "site-android-page-kept-without-a-release",
+  "source": "scripts/site_release.py",
+  "old": "            page.unlink()  # No Android release yet: no Android page.\n            continue\n",
+  "new": "            pass\n",
+  "test_file": "test_site_release.py",
+  "test": "test_without_an_android_release_there_is_no_android_page"
+ },
+ {
+  "id": "site-prerelease-published",
+  "source": "scripts/site_release.py",
+  "old": "            if release.get('draft') or release.get('prerelease'):\n",
+  "new": "            if release.get('draft'):\n",
+  "test_file": "test_site_release.py",
+  "test": "test_only_a_published_full_release_makes_the_site"
+ },
+ {
+  "id": "site-changelog-oldest-first",
+  "source": "scripts/site_release.py",
+  "old": "key=order, reverse=True)\n    if not shown",
+  "new": "key=order)\n    if not shown",
+  "test_file": "test_site_release.py",
+  "test": "test_the_changelog_lists_every_release_newest_first_with_the_new_one_dated_by_its_release"
+ },
+ {
+  "id": "site-new-release-not-dated-by-github",
+  "source": "scripts/site_release.py",
+  "old": "        if v == version:\n            date = released\n",
+  "new": "        if False:\n            date = released\n",
+  "test_file": "test_site_release.py",
+  "test": "test_the_changelog_lists_every_release_newest_first_with_the_new_one_dated_by_its_release"
+ },
+ {
+  "id": "site-older-release-without-a-date-allowed",
+  "source": "scripts/site_release.py",
+  "old": "            raise SiteError(f'website/changes/{v}.md needs its date: line')\n",
+  "new": "            date = released\n",
+  "test_file": "test_site_release.py",
+  "test": "test_every_notes_file_but_the_newest_is_dated_and_each_says_something"
+ },
+ {
+  "id": "site-leftover-placeholder-allowed",
+  "source": "scripts/site_release.py",
+  "old": "        if left := TOKEN.findall(text):\n",
+  "new": "        if left := []:\n",
+  "test_file": "test_site_release.py",
+  "test": "test_every_notes_file_but_the_newest_is_dated_and_each_says_something"
+ },
+ {
+  "id": "site-notes-text-not-escaped",
+  "source": "scripts/site_release.py",
+  "old": "        part = html.escape(part, quote=False)\n",
+  "new": "",
+  "test_file": "test_site_release.py",
+  "test": "test_the_notes_markdown_becomes_safe_html"
+ },
+ {
+  "id": "site-android-from-a-draft",
+  "source": "scripts/site_release.py",
+  "old": "    found = [item for item in releases if not item.get('draft') and any(",
+  "new": "    found = [item for item in releases if any(",
+  "test_file": "test_site_release.py",
+  "test": "test_the_published_site_takes_its_version_date_and_links_from_the_release"
+ },
+ {
+  "id": "site-oldest-android-release",
+  "source": "scripts/site_release.py",
+  "old": "    return max(found, key=lambda item: item['published_at'], default=None)\n",
+  "new": "    return min(found, key=lambda item: item['published_at'], default=None)\n",
+  "test_file": "test_site_release.py",
+  "test": "test_the_published_site_takes_its_version_date_and_links_from_the_release"
+ },
+ {
+  "id": "site-release-notes-without-changes",
+  "source": "scripts/site_release.py",
+  "old": ".replace('{changes}', entry[1])",
+  "new": ".replace('{changes}', '')",
+  "test_file": "test_site_release.py",
+  "test": "test_the_release_notes_carry_the_same_changes_as_the_changelog"
  }
 ]

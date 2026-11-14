@@ -1,0 +1,43 @@
+# The website, made from the published releases and put on GitHub Pages. The Release workflow runs this after
+# every release; it can also be run by hand, from the Actions tab, to republish the site from main.
+name: Website
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Make the site from the newest release and the newest Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/releases/latest" > latest.json
+          gh api "repos/$GH_REPO/releases?per_page=100" > releases.json
+          python3 scripts/site_release.py site _site --release latest.json --releases releases.json
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

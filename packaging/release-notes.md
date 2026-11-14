@@ -7,13 +7,7 @@
 
 ## Changes in {version}
 
-- **One odd series no longer stops a Tapas download.** When Tapas promised more of a series' episode list but
-  gave no way to read on, the download stopped with "task failed" and pressing **Start** only repeated it. The
-  app now saves the episodes that were listed, sets that series aside as incomplete and carries on with the rest.
-- **The support log names the series a step stopped on**, so one odd series can be told from a wider problem.
-
-Version 0.4.1, a day earlier, added the first Mac version, a clearer dashboard, libraries on Windows drives
-that keep no access permissions, and fewer downloads that stop partway.
+{changes}
 
 Each is self-contained: nothing else needs installing.
 

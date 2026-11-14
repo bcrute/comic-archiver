@@ -49,3 +49,11 @@ jobs:
           else
             gh release edit "$RELEASE_TAG" --draft=false --latest
           fi
+
+  website:
+    needs: publish
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/website.yml
