@@ -1,25 +1,29 @@
 package io.github.bcrute.comicarchiver.runtime
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
 import io.github.bcrute.comicarchiver.words.say
 
 /**
- * The phone's part of the desktop's Copy details for support and Save log for support. What
- * the details and the log hold is decided by the shared core; this only names the phone,
- * keeps the log's folders and hands the finished text to the clipboard or to Downloads.
+ * The phone's part of the desktop's Email support. What the log holds is decided by the shared
+ * core; this only names the phone, keeps the log's folders, and hands the finished log to an
+ * email app, or to Downloads when there is no email app.
  */
 object SupportLog {
     /** Where the app's own log is kept: private, and removed with the app. */
     fun folder(context: Context): File = File(context.filesDir, "support-log")
 
-    /** Where a log is put together before it is handed to Downloads. */
+    /** Where a log is put together before it is handed on. The email app reads it from here, so
+     *  it stays until the next log is made; it is private and removed with the app. */
     fun outbox(context: Context): File = File(context.cacheDir, "support-out")
 
     /** The phone's system as a support reply needs it, in letters the core accepts. */
@@ -37,9 +41,27 @@ object SupportLog {
             .ifEmpty { "unknown" }
     }
 
-    fun copy(context: Context, text: String) {
-        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: throw IOException()
-        clipboard.setPrimaryClip(ClipData.newPlainText(say("about.comic_archiver_details_for_support"), text))
+    /** A new email to support in the person's email app, with [log] attached when there is one;
+     *  false when the phone has no email app. */
+    fun email(context: Context, log: File?, version: String): Boolean {
+        val body = say("support.email_body") +
+            if (log != null) "\n\n\n" + say("support.email_log", "name" to log.name) else ""
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(say("support.address")))
+            putExtra(Intent.EXTRA_SUBJECT, say("support.email_subject", "version" to version))
+            putExtra(Intent.EXTRA_TEXT, body)
+            if (log != null) {
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".support", log)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(log.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            // Only email apps are offered: the message goes to an address.
+            selector = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try { context.startActivity(send); true } catch (_: ActivityNotFoundException) { false }
     }
 
     /** Put [file] in the phone's Downloads as a text file of the same name; the name it has

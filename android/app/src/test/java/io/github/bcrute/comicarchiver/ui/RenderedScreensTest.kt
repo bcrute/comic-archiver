@@ -145,7 +145,10 @@ class RenderedScreensTest {
         overview(); compose.onNodeWithText("Download preferences").performScrollTo().performClick()
     }
     private fun about() {
-        overview(); compose.onNodeWithText("About & help").performScrollTo().performClick()
+        overview(); compose.onNodeWithText("About").performScrollTo().performClick()
+    }
+    private fun support() {
+        overview(); compose.onNodeWithText("Support").performScrollTo().performClick()
     }
 
 
@@ -160,39 +163,46 @@ class RenderedScreensTest {
         compose.onNodeWithTag("nav-saving").assertIsSelected().assertIsDisplayed()
         compose.onNodeWithTag("nav-library").assertIsDisplayed()
         compose.onNodeWithTag("nav-settings").assertIsDisplayed()
-        compose.onNodeWithText("About & help").assertDoesNotExist()
+        compose.onNodeWithText("App information, licenses and sign out").assertDoesNotExist()
         overview()
         compose.onNodeWithText("Download preferences").assertIsDisplayed()
         compose.onNodeWithText("Storage & destination").assertIsDisplayed()
-        compose.onNodeWithText("About & help").performScrollTo().performClick()
+        compose.onNodeWithText("Support").performScrollTo().performClick()
+        compose.onNodeWithTag("nav-settings").assertIsSelected()
+        compose.onNodeWithTag("support-email").assertIsDisplayed()
+        compose.onNode(hasText("All settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("About").performScrollTo().performClick()
         compose.onNodeWithTag("nav-settings").assertIsSelected()
         compose.onNodeWithText("Sign out of Tapas").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
     }
 
-    @Test fun aboutOffersTheDesktopsTwoSupportButtonsInItsWordsAndShowsWhatTheyAnswer() {
+    @Test fun supportIsItsOwnSettingsPageWithOneEmailButtonAndAboutHasNoSupportItems() {
         show()
         about()
-        compose.onNodeWithText(SUPPORT_DETAILS).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText(SUPPORT_LOG).performScrollTo().assertIsDisplayed()
-        assertTrue(SUPPORT_DETAILS.startsWith("Asking for help? This copies a short summary of each site\u2019s download"))
-        assertTrue(SUPPORT_LOG.endsWith("but no titles, folder names or sign-in details."))
+        compose.onNodeWithTag("support-email").assertDoesNotExist()
+        compose.onNodeWithText("Copy details for support").assertDoesNotExist()
+        support()
+        compose.onNodeWithText("Need help?").assertIsDisplayed()
+        compose.onNodeWithText("Email support opens a new email to ben@comicarchiver.com with the app\u2019s log attached. " +
+            "Say what happened and send it.").assertIsDisplayed()
+        compose.onNodeWithText("no titles, folder names or sign-in details", substring = true).assertIsDisplayed()
         compose.onNodeWithTag("support-note").assertDoesNotExist()
-        compose.onNode(hasTestTag("support-copy") and hasText("Copy details for support")).performScrollTo().performClick()
-        compose.onNode(hasTestTag("support-save-log") and hasText("Save log for support")).performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(1 to 1, controller.supportCopies to controller.supportSaves) }
-        controller.state.value = controller.state.value.copy(supportNote = SupportNote(SupportWords.COPIED))
-        compose.onNode(hasTestTag("support-note") and hasText("Copied. Paste it into your message or email."))
+        compose.onNode(hasTestTag("support-email") and hasText("Email support")).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, controller.supportEmails) }
+        controller.state.value = controller.state.value.copy(supportNote = SupportNote(SupportWords.EMAIL_OPENED))
+        compose.onNode(hasTestTag("support-note") and hasText("Your email app opened with the log attached."))
             .performScrollTo().assertIsDisplayed()
-        // While one is being made neither can be asked for again.
+        // While a log is being made it cannot be asked for again; a log that went to Downloads is named.
         controller.state.value = controller.state.value.copy(supportBusy = true,
-            supportNote = SupportNote(SupportWords.logSaved("Comic Archiver log 2026-11-11 09.30.05.txt")))
-        compose.onNodeWithTag("support-copy").assertIsNotEnabled()
-        compose.onNodeWithTag("support-save-log").assertIsNotEnabled()
-        compose.onNodeWithText("Saved in your Downloads folder as \u201cComic Archiver log 2026-11-11 09.30.05.txt\u201d.")
+            supportNote = SupportNote(SupportWords.noEmailApp("Comic Archiver log 2026-11-11 09.30.05.txt"), failed = true))
+        compose.onNodeWithTag("support-email").assertIsNotEnabled()
+        compose.onNodeWithText("No email app was found, so the log is saved in your Downloads folder as " +
+            "\u201cComic Archiver log 2026-11-11 09.30.05.txt\u201d. Send it to ben@comicarchiver.com from any email account.")
             .performScrollTo().assertIsDisplayed()
-        assertEquals("The log could not be saved. Check that your Downloads folder can be written to.",
-            SupportWords.LOG_FAILED)
+        compose.onNodeWithText("No email app? Email support then saves the log", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("All settings") and hasClickAction()).performClick()
+        compose.onNodeWithText("Download preferences").assertIsDisplayed()
         assertEquals(0, controller.goCalls)
     }
 
@@ -1381,10 +1391,8 @@ private class ScreenController : AppController {
     }
     val episodeLoads = mutableListOf<Pair<String, String?>>()
     var episodeRefreshes = 0
-    var supportCopies = 0
-    var supportSaves = 0
-    override fun copySupportDetails() { supportCopies++ }
-    override fun saveSupportLog() { supportSaves++ }
+    var supportEmails = 0
+    override fun emailSupport() { supportEmails++ }
     override fun loadEpisodes(site: String, seriesId: String?) {
         episodeLoads.add(site to seriesId)
         val key = EpisodeList.key(site, seriesId)

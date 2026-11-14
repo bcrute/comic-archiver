@@ -47,10 +47,11 @@ data class SupportNote(val text: String, val failed: Boolean = false)
 
 /** The desktop's words for its two support buttons, and the phone's for a copy that failed. */
 object SupportWords {
-    val COPIED get() = say("app.copied_paste_it_into_your_message")
-    val NOT_COPIED get() = say("app.the_details_could_not_be_copied")
-    val LOG_FAILED get() = say("app.the_log_could_not_be_saved")
-    fun logSaved(name: String) = say("app.saved_in_your_downloads_folder_as", "name" to name)
+    val ADDRESS get() = say("support.address")
+    val EMAIL_OPENED get() = say("support.email_opened_with_the_log")
+    val LOG_NOT_SAVED get() = say("support.log_not_saved_email_anyway")
+    fun noEmailApp(name: String) = say("support.no_email_app_log_saved", "name" to name, "address" to ADDRESS)
+    val NOTHING_WORKED get() = say("support.no_email_app_and_no_log", "address" to ADDRESS)
 }
 
 /** Saved-file counts over every site of the working library, and the sites they cover. */

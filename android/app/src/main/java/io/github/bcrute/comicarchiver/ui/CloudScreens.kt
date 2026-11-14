@@ -67,7 +67,7 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
                   compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {},
-                  onAbout: () -> Unit = {}, onAccount: () -> Unit = {}) {
+                  onAbout: () -> Unit = {}, onSupport: () -> Unit = {}, onAccount: () -> Unit = {}) {
     var savedPage by rememberSaveable { mutableStateOf("Overview") }
     val page = selectedPage ?: savedPage
     fun choose(name: String) {
@@ -85,7 +85,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                 SettingsDestination("Storage & destination", say("cloud.choose_where_new_episodes_are_saved")) { choose("Storage") }
                 SettingsDestination(say("cloud.backblaze_b2"), say("cloud.connect_your_own_bucket_or_reuse")) { choose("B2 setup") }
                 if (workingLibraries.enabled) SettingsDestination(say("cloud.working_libraries"), say("cloud.switch_import_or_name_a_library")) { choose("Libraries") }
-                SettingsDestination("About & help", say("cloud.app_information_help_and_sign_out"), onAbout)
+                SettingsDestination(say("app.support"), say("support.need_help_email_with_the_log"), onSupport)
+                SettingsDestination(say("app.about"), say("cloud.app_information_licenses_and_sign_out"), onAbout)
                 val siteName = state.sites.firstOrNull { it.key == state.site }?.name
                     ?: if (state.site == "tapas") "Tapas" else state.site
                 Text(say("cloud.account", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)

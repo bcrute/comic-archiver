@@ -294,14 +294,14 @@ class DefaultAppController(
         _state.value = _state.value.copy(episodes = emptyMap())
     }
 
-    /** Test seams: where copied details and a saved log are handed to the phone. */
-    internal var copyText: (String) -> Unit = { SupportLog.copy(context, it) }
+    /** Test seams: the email app a log is handed to (false when there is none), and Downloads. */
+    internal var sendEmail: (File?) -> Boolean = { SupportLog.email(context, it, SupportLog.version(context)) }
     internal var saveToDownloads: (File) -> String? = { SupportLog.toDownloads(context, it) }
 
     private fun supportArgs(target: SiteWorkspace) = JSONObject().put("base_root", target.base.absolutePath)
         .put("version", SupportLog.version(context)).put("system", SupportLog.system())
 
-    private fun support(work: (SiteWorkspace) -> SupportNote) {
+    private fun support(work: suspend (SiteWorkspace) -> SupportNote) {
         if (_state.value.supportBusy) return
         val target = location
         _state.value = _state.value.copy(supportBusy = true, supportNote = null)
@@ -314,31 +314,27 @@ class DefaultAppController(
         }
     }
 
-    override fun copySupportDetails() = support { target ->
-        val failed = SupportNote(SupportWords.NOT_COPIED, failed = true)
-        val answer = try { JSONObject(bridge.dispatch("support_details", supportArgs(target).toString())) }
-                     catch (_: Exception) { null }
-        val text = answer?.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optString("text").orEmpty()
-        if (text.isEmpty()) failed
-        else try { copyText(text); SupportNote(SupportWords.COPIED) } catch (_: Exception) { failed }
-    }
-
-    override fun saveSupportLog() = support { target ->
-        val failed = SupportNote(SupportWords.LOG_FAILED, failed = true)
+    override fun emailSupport() = support { target ->
         val outbox = SupportLog.outbox(context)
-        try {
+        // The last log was read by its email app by now; only the newest is kept.
+        try { outbox.listFiles()?.forEach { it.delete() } } catch (_: Exception) {}
+        val log = try {
             val answer = JSONObject(bridge.dispatch("support_save", supportArgs(target)
                 .put("log_root", SupportLog.folder(context).absolutePath)
                 .put("out_root", outbox.absolutePath).toString()))
             val name = answer.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optString("name").orEmpty()
             // Only a plain file name of the core's own making is looked for in the outbox.
-            if (name.isEmpty() || name.contains('/') || name.startsWith(".")) failed
-            else saveToDownloads(File(outbox, name))?.let { SupportNote(SupportWords.logSaved(it)) } ?: failed
-        } catch (_: Exception) {
-            failed
-        } finally {
-            // The copy in Downloads is the person's; nothing of it stays behind in the app.
-            try { outbox.listFiles()?.forEach { it.delete() } } catch (_: Exception) {}
+            if (name.isEmpty() || name.contains('/') || name.startsWith(".")) null
+            else File(outbox, name).takeIf { it.isFile }
+        } catch (cancelled: CancellationException) { throw cancelled }
+          catch (_: Exception) { null }
+        val emailed = withContext(Dispatchers.Main) { try { sendEmail(log) } catch (_: Exception) { false } }
+        val downloaded = if (emailed || log == null) null else try { saveToDownloads(log) } catch (_: Exception) { null }
+        when {
+            emailed && log != null -> SupportNote(SupportWords.EMAIL_OPENED)
+            emailed -> SupportNote(SupportWords.LOG_NOT_SAVED, failed = true)
+            downloaded != null -> SupportNote(SupportWords.noEmailApp(downloaded), failed = true)
+            else -> SupportNote(SupportWords.NOTHING_WORKED, failed = true)
         }
     }
 

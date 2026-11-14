@@ -1002,6 +1002,38 @@ class DesktopAppTests(unittest.TestCase):
         shell.open_folder()
         self.assertEqual(external.call_args.args[0].toString(), 'file://' + str(self.home / 'Other'))
 
+    def test_a_saved_log_is_picked_out_in_the_file_manager_or_else_its_folder_opens(self):
+        shell = self.opened()
+        external = self.q.QtGui.QDesktopServices.openUrl
+        external.reset_mock()
+        log = self.home / 'Downloads' / 'Comic Archiver log 2026-11-14 10.00.00.txt'
+        with patch.object(desktop_app.sys, 'platform', 'linux'), patch('shutil.which', return_value='/usr/bin/dbus-send'), \
+                patch('subprocess.run', return_value=Mock(returncode=0)) as run:
+            shell.show_file(log)
+        asked = run.call_args.args[0]
+        self.assertEqual(asked[0], '/usr/bin/dbus-send')
+        self.assertIn('org.freedesktop.FileManager1.ShowItems', asked)
+        self.assertIn('array:string:' + log.as_uri(), asked)
+        external.assert_not_called()
+        # No file manager answers, or none can be asked: the folder opens instead.
+        for which, answer in (('/usr/bin/dbus-send', Mock(returncode=1)), (None, None)):
+            external.reset_mock()
+            with patch.object(desktop_app.sys, 'platform', 'linux'), patch('shutil.which', return_value=which), \
+                    patch('subprocess.run', return_value=answer):
+                shell.show_file(log)
+            self.assertEqual(external.call_args.args[0].toString(), 'file://' + str(log.parent))
+        external.reset_mock()
+        with patch.object(desktop_app.sys, 'platform', 'darwin'), patch('subprocess.Popen') as popen:
+            shell.show_file(log)
+        self.assertEqual(popen.call_args.args[0], ['/usr/bin/open', '-R', str(log)])
+        with patch.object(desktop_app.sys, 'platform', 'win32'), patch.dict(os.environ, {'SystemRoot': 'C:\\Windows'}), \
+                patch('subprocess.Popen') as popen:
+            shell.show_file(log)
+        command = popen.call_args.args[0]
+        self.assertTrue(command.startswith('"C:\\Windows'))
+        self.assertTrue(command.endswith(f'explorer.exe" /select,"{log}"'))
+        external.assert_not_called()
+
     def test_another_launch_brings_this_window_forward_and_nothing_else_does(self):
         shell = desktop_app.Shell(self.q, desktop_app.application(self.q), self.runtime)
         shell.listen('comic-archive-test')

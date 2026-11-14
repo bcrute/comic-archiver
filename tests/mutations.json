@@ -5328,28 +5328,12 @@
   "test": "test_metadata_hold_reasons_remain_explicit_and_never_grant_access"
  },
  {
-  "id": "support-details-not-copied",
-  "source": "comic_archive/window_pages.py",
-  "old": "        self.q.QtGui.QGuiApplication.clipboard().setText(self.support_details())\n",
-  "new": "",
-  "test_file": "test_window_pages.py",
-  "test": "test_about_copies_details_for_support_without_the_library_folder"
- },
- {
-  "id": "support-copied-not-said",
-  "source": "comic_archive/window_pages.py",
-  "old": "        show(self.settings.support_note, SUPPORT_COPIED)\n",
-  "new": "",
-  "test_file": "test_window_pages.py",
-  "test": "test_about_copies_details_for_support_without_the_library_folder"
- },
- {
   "id": "support-details-leave-out-closed-sites",
   "source": "comic_archive/window_pages.py",
   "old": "            for item in sites if item.get('available')])\n",
   "new": "            for item in sites if item['key'] in shown])\n",
   "test_file": "test_window_pages.py",
-  "test": "test_about_copies_details_for_support_without_the_library_folder"
+  "test": "test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email"
  },
  {
   "id": "read-waits-off-windows",
@@ -5573,7 +5557,7 @@
   "old": "support_log.app_log(state_dir()), libraries)",
   "new": "support_log.app_log(state_dir()), [])",
   "test_file": "test_window_pages.py",
-  "test": "test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder"
+  "test": "test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email"
  },
  {
   "id": "saved-log-without-app-log",
@@ -5581,7 +5565,7 @@
   "old": "support_log.bundle(details, records, support_log.app_log(state_dir()), libraries)",
   "new": "support_log.bundle(details, records, '', libraries)",
   "test_file": "test_window_pages.py",
-  "test": "test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder"
+  "test": "test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email"
  },
  {
   "id": "site-records-not-asked-for",
@@ -9830,5 +9814,37 @@
   "new": "\"Use Saving to start.\")",
   "test_file": "test_app_bridge.py",
   "test": "test_an_empty_library_points_to_the_downloads_tab_by_its_name"
+ },
+ {
+  "id": "support-log-not-shown",
+  "source": "comic_archive/window_pages.py",
+  "old": "                self.shell.show_file(path)\n",
+  "new": "                pass\n",
+  "test_file": "test_window_pages.py",
+  "test": "test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email"
+ },
+ {
+  "id": "support-email-not-opened",
+  "source": "comic_archive/window_pages.py",
+  "old": "            self.shell.open_url(support_email(license_texts.version(), None if error else path.name))\n",
+  "new": "",
+  "test_file": "test_window_pages.py",
+  "test": "test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email"
+ },
+ {
+  "id": "support-email-without-the-log-name",
+  "source": "comic_archive/window_pages.py",
+  "old": "    body = say('support.email_body') + (",
+  "new": "    body = say('support.email_body') + '' and (",
+  "test_file": "test_window_pages.py",
+  "test": "test_a_support_email_names_the_version_and_the_log_to_attach"
+ },
+ {
+  "id": "support-file-not-picked-out-on-linux",
+  "source": "comic_archive/desktop_app.py",
+  "old": "            if asked and asked.returncode == 0:\n                return\n",
+  "new": "",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_saved_log_is_picked_out_in_the_file_manager_or_else_its_folder_opens"
  }
 ]

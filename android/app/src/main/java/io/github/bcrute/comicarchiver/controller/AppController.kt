@@ -39,10 +39,9 @@ interface AppController {
     fun setDownloadTypes(value: Map<String, Boolean>) {}
     /** Read a site's recorded series, or a series' episodes: the first page, then the next on each call. */
     fun loadEpisodes(site: String, seriesId: String? = null) {}
-    /** Copy a short summary of each site's download to the clipboard, as the desktop does. */
-    fun copySupportDetails() {}
-    /** Save the app's log as one file in the phone's Downloads, as the desktop does. */
-    fun saveSupportLog() {}
+    /** Email support, as the desktop does: save the app's log as one file and open a new email to
+     *  support with it attached; without an email app the log goes to the phone's Downloads. */
+    fun emailSupport() {}
     /** Forget every list read for the Library, so each is read again when opened. */
     fun refreshEpisodes() {}
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)

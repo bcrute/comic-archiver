@@ -107,7 +107,7 @@ fun ComicArchiverAppRoot(
         state.signIn is SignInState.Restoring || state.signIn.couldNotOpen()
     BackHandler(enabled = tab != AppTab.SAVING || signingIn) {
         if (tab == AppTab.LICENSES) tab = AppTab.ABOUT
-        else if (tab == AppTab.ABOUT) tab = AppTab.SETTINGS
+        else if (tab == AppTab.ABOUT || tab == AppTab.SUPPORT) tab = AppTab.SETTINGS
         else if (tab == AppTab.SETTINGS && settingsPage != "Overview") settingsPage = "Overview"
         else if (tab != AppTab.SAVING) tab = AppTab.SAVING else controller.cancelSignIn()
     }
@@ -264,13 +264,12 @@ fun ComicArchiverAppRoot(
                             compactEditing = compactEditing,
                             onOpenCatalog = openCatalog,
                             onAbout = { tab = AppTab.ABOUT },
+                            onSupport = { tab = AppTab.SUPPORT },
                             onAccount = accountAction,
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text(say("app.all_settings")) }
-                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES },
-                                supportNote = state.supportNote, supportBusy = state.supportBusy,
-                                onCopyDetails = controller::copySupportDetails, onSaveLog = controller::saveSupportLog)
+                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES })
                             if (signOutHeld) Text(SIGN_OUT_HELD, Modifier.padding(horizontal = 16.dp))
                             OutlinedButton(
                                 onClick = accountAction,
@@ -283,6 +282,11 @@ fun ComicArchiverAppRoot(
                                      else say("app.go_to_sign_in"))
                             }
                         }
+                        AppTab.SUPPORT -> Column(Modifier.fillMaxSize()) {
+                            TextButton(onClick = { tab = AppTab.SETTINGS }) { Text(say("app.all_settings")) }
+                            SupportScreen(modifier = Modifier.weight(1f), supportNote = state.supportNote,
+                                supportBusy = state.supportBusy, onEmailSupport = controller::emailSupport)
+                        }
                         AppTab.LICENSES -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.ABOUT }) { Text(say("app.about")) }
                             LicensesScreen(modifier = Modifier.weight(1f))
@@ -291,7 +295,7 @@ fun ComicArchiverAppRoot(
                 }
             }
             if (!compactEditing) MainNavigation(tab) { selected ->
-                if ((tab == AppTab.ABOUT || tab == AppTab.LICENSES) && selected == AppTab.SETTINGS) settingsPage = "Overview"
+                if (tab.underSettings() && selected == AppTab.SETTINGS) settingsPage = "Overview"
                 tab = selected
             }
         }
@@ -310,9 +314,12 @@ internal fun routeFor(signIn: SignInState): RootRoute =
 
 internal fun SignInState.couldNotOpen() = (this as? SignInState.Failed)?.code == "signin_unreachable"
 
-/** About, and the Licenses it leads to, are Settings subpages; only the first three destinations appear in navigation. */
+/** Support, About and the Licenses About leads to are Settings subpages; only the first three destinations appear in navigation. */
 internal enum class AppTab(val label: String) {
-    SAVING(say("app.downloads")), LIBRARY(say("app.library")), SETTINGS(say("app.settings")), ABOUT(say("app.about")), LICENSES(say("app.licenses"))
+    SAVING(say("app.downloads")), LIBRARY(say("app.library")), SETTINGS(say("app.settings")), SUPPORT(say("app.support")),
+    ABOUT(say("app.about")), LICENSES(say("app.licenses"));
+
+    fun underSettings() = this == SUPPORT || this == ABOUT || this == LICENSES
 }
 
 /** The desktop's words for a Sign out that waits for the download to be paused. */

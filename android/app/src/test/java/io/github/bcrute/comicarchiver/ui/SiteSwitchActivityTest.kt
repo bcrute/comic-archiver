@@ -61,7 +61,7 @@ class SiteSwitchActivityTest {
             "Go" -> compose.onNodeWithTag("card-action-${app.controller.state.value.site}").performScrollTo().performClick()
             "About" -> {
                 compose.onNodeWithTag("nav-settings").performClick()
-                compose.onNodeWithText("About & help").performScrollTo().performClick()
+                compose.onNodeWithText("About").performScrollTo().performClick()
             }
             "Settings" -> {
                 compose.onNodeWithTag("nav-settings").performClick()

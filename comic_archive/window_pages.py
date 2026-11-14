@@ -13,8 +13,10 @@ from .dashboard_model import SPEED_NAMES, SPEEDS, State
 from .sites import DEFAULT, choices as site_choices, find as find_site
 from .messages import say
 
-ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/about')
-TABS = (('downloads', 'Downloads && storage'), ('b2', say('cloud.backblaze_b2')), ('about', say('app.about')))
+ROUTES = ('dashboard', 'library', 'settings/downloads', 'settings/storage', 'settings/b2', 'settings/support',
+          'settings/about')
+TABS = (('downloads', 'Downloads && storage'), ('b2', say('cloud.backblaze_b2')), ('support', say('app.support')),
+        ('about', say('app.about')))
 SIGN_OUT = (say('window.sign_out_of_in_comic_archiver'))
 # After signing out: the library folders the app opened before that it could not sign out in.
 SIGNED_OUT_AWAY = {1: (say('window.signed_out_of_except_in_this')),
@@ -77,11 +79,8 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="caps">Caps &amp; Alerts</a>: the most you allow a day, and Backblaze’s emails as you near it.</li>'
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
 ABOUT = (say('licenses.copyright_2026_ben_crute_comic_archiver'))
-SUPPORT = (say('about.asking_for_help_this_copies_a'))
-SUPPORT_COPIED = say('app.copied_paste_it_into_your_message')
-SUPPORT_LOG = (say('about.asked_for_the_apps_log_save'))
-LOG_SAVED = say('app.saved_in_your_downloads_folder_as')
-LOG_FAILED = say('app.the_log_could_not_be_saved')
+SUPPORT_ADDRESS = say('support.address')
+LOG_FAILED = say('support.log_not_saved_email_anyway')
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 660
 CARD_THREE_COLUMNS_FROM = 1000
@@ -95,6 +94,15 @@ def route_of(name, cloud_offered):
     if name == 'settings/b2' and not cloud_offered:
         return 'settings/downloads'
     return name if name in ROUTES else 'dashboard'
+
+
+def support_email(version, log_name):
+    """A new email to support: its subject names the version, and its body asks what happened and names the log
+    to attach (None when the log could not be saved)."""
+    from urllib.parse import quote
+    body = say('support.email_body') + ('\n\n\n' + say('support.email_log', name=log_name) if log_name else '')
+    subject = say('support.email_subject', version=version)
+    return f"mailto:{SUPPORT_ADDRESS}?subject={quote(subject, safe='')}&body={quote(body, safe='')}"
 
 
 def flat(text):
@@ -1061,7 +1069,7 @@ class Settings:
         panels.addWidget(self.status)
         # Only the open tab takes room, so a short one is not as tall as the longest.
         self.panels = {'downloads': self._downloads(kit, pages), 'b2': self._b2(kit, pages),
-                       'about': self._about(kit, pages)}
+                       'support': self._support(kit, pages), 'about': self._about(kit, pages)}
         from .window_style import READING
         for panel in self.panels.values():
             panels.addWidget(panel)
@@ -1102,13 +1110,6 @@ class Settings:
         box.addWidget(kit.label(say('app.about'), 'sectionTitle'))
         box.addWidget(kit.label(say('window.comic_archiver', value=license_texts.version()), 'strong'))
         box.addWidget(kit.label(ABOUT, 'muted'))
-        box.addWidget(kit.label(SUPPORT, 'muted'))
-        box.addWidget(kit.label(SUPPORT_LOG, 'muted'))
-        self.support = kit.button(say('about.copy_details_for_support'), pages.copy_support_details, 'secondary')
-        self.save_log = kit.button(say('about.save_log_for_support'), pages.save_support_log, 'secondary')
-        self.support_note = kit.label('', 'muted', wrap=False)
-        self.support_note.setVisible(False)
-        box.addWidget(kit.row(self.support, self.save_log, self.support_note))
         self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
         self.license_choice.setAccessibleName(say('window.license_to_read'))
         box.addWidget(kit.row(self.license_choice))
@@ -1118,6 +1119,22 @@ class Settings:
         self.license_text.setAccessibleName(say('window.license_text'))
         box.addWidget(self.license_text)
         self._license(self.license_choice.itemData(0))
+        return card
+
+    def _support(self, kit, pages):
+        """Need help? One button that saves the log, opens an email to support and shows the log to attach."""
+        card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
+        box.addWidget(kit.label(say('support.need_help'), 'sectionTitle'))
+        box.addWidget(kit.label(say('support.email_support_does', address=SUPPORT_ADDRESS), 'muted'))
+        box.addWidget(kit.label(say('support.what_the_log_holds'), 'muted'))
+        self.email = kit.button(say('support.email_support'), pages.email_support)
+        box.addWidget(kit.row(self.email))
+        self.support_note = kit.label('', 'muted')
+        self.support_note.setVisible(False)
+        box.addWidget(self.support_note)
+        self.address = kit.label(say('support.no_email_app', address=SUPPORT_ADDRESS), 'muted')
+        self.address.setTextInteractionFlags(kit.q.QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.addWidget(self.address)
         return card
 
     def _license(self, path):
@@ -1685,22 +1702,18 @@ class Pages:
             (item['name'], self.states.get(item['key']) if item['key'] in shown else None)
             for item in sites if item.get('available')])
 
-    def copy_support_details(self):
-        """Put the details for support on the clipboard, for the person to paste into a message."""
-        self.q.QtGui.QGuiApplication.clipboard().setText(self.support_details())
-        show(self.settings.support_note, SUPPORT_COPIED)
-
     def downloads(self):
         """The folder a log saved for support goes in: the person's Downloads folder, or their home folder."""
         paths = self.q.QtCore.QStandardPaths
         return (paths.writableLocation(paths.StandardLocation.DownloadLocation)
                 or paths.writableLocation(paths.StandardLocation.HomeLocation))
 
-    def save_support_log(self):
-        """Save one file for support in the Downloads folder: the details, each open site's records and the app log."""
+    def email_support(self):
+        """Save one file for support in the Downloads folder (the details, each open site's records and the app log),
+        show it in the file manager, then open a new email to support for the person to attach it to."""
         folder = self.downloads()
         details, sites = self.support_details(), [self.actions_for(key) for key in self.open_keys()]
-        button = self.settings.save_log
+        button = self.settings.email
         button.setEnabled(False)
 
         def work():
@@ -1718,7 +1731,12 @@ class Pages:
 
         def done(path, error):
             button.setEnabled(True)
-            show(self.settings.support_note, LOG_FAILED if error else LOG_SAVED.format(name=path.name), error is not None)
+            show(self.settings.support_note, LOG_FAILED if error else say('support.log_saved_attach_it', name=path.name),
+                 error is not None)
+            if not error:
+                self.shell.show_file(path)
+            # The email opens last, so it is in front, with the log beside it to attach.
+            self.shell.open_url(support_email(license_texts.version(), None if error else path.name))
         self.run(work, done)
 
     def pause_all(self):

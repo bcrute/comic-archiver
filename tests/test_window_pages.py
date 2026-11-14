@@ -16,7 +16,7 @@ if os.name == 'nt' and os.environ.get('WINDIR'):
     os.environ.setdefault('QT_QPA_FONTDIR', os.path.join(os.environ['WINDIR'], 'Fonts'))
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-from comic_archive import app_actions, dashboard_model, storage_model, window_pages, window_style  # noqa: E402
+from comic_archive import app_actions, dashboard_model, license_texts, storage_model, window_pages, window_style  # noqa: E402
 
 Q = SimpleNamespace(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
 NOW = 1_000_000.0
@@ -250,6 +250,9 @@ class Shell:
 
     def open_folder(self):
         self.calls.append(('open_folder',))
+
+    def show_file(self, path):
+        self.calls.append(('show_file', path))
 
     def choose_site(self, key, then=None):
         """Recorded; with opens set, the site opens and is chosen as the window's does, then then() follows."""
@@ -1531,21 +1534,39 @@ class NavigationTests(PagesCase):
         choice.activated.emit(1)
         self.assertTrue(s.license_text.toPlainText().startswith('# Third-party notices'))
 
-    def test_about_copies_details_for_support_without_the_library_folder(self):
+    def test_support_has_its_own_tab_with_one_button_and_about_has_no_support_items(self):
         self.open()
-        self.settings.tabs['about'].click()
         s = self.settings
+        self.assertEqual(list(s.tabs), ['downloads', 'b2', 'support', 'about'])
+        s.tabs['support'].click()
+        self.assertEqual(self.pages.route, 'settings/support')
+        self.assertTrue(s.panels['support'].isVisible() and not s.panels['about'].isVisible())
+        buttons = [button.text() for button in s.panels['support'].findChildren(QtWidgets.QPushButton)]
+        self.assertEqual(buttons, ['Email support'])
+        words = ' '.join(label.text() for label in s.panels['support'].findChildren(QtWidgets.QLabel))
+        self.assertIn('Need help?', words)
+        self.assertIn('ben@comicarchiver.com', words)
+        self.assertIn('no titles, folder names or sign-in details', words)
         self.assertFalse(s.support_note.isVisible())
-        s.support.click()
-        copied = QtGui.QGuiApplication.clipboard().text()
-        self.assertTrue(copied.startswith('Comic Archiver '))
-        self.assertIn('\n== Tapas\nSign-in: signed in', copied)
-        self.assertIn('\n== Tappytoon\nNot opened yet', copied)
-        self.assertNotIn(FOLDER, copied)
-        self.assertTrue(s.support_note.isVisible())
-        self.assertEqual(s.support_note.text(), window_pages.SUPPORT_COPIED)
+        self.assertEqual(s.panels['about'].findChildren(QtWidgets.QPushButton), [])
+        about = ' '.join(label.text() for label in s.panels['about'].findChildren(QtWidgets.QLabel))
+        self.assertNotIn('support', about.lower())
 
-    def test_about_saves_one_log_for_support_in_the_downloads_folder_without_the_library_folder(self):
+    def test_a_support_email_names_the_version_and_the_log_to_attach(self):
+        from urllib.parse import parse_qs, urlsplit
+        url = window_pages.support_email('0.4.2', 'Comic Archiver log 2026-11-14 10.00.00.txt')
+        parts = urlsplit(url)
+        self.assertEqual((parts.scheme, parts.path), ('mailto', 'ben@comicarchiver.com'))
+        asked = parse_qs(parts.query)
+        self.assertEqual(asked['subject'], ['Comic Archiver 0.4.2: help'])
+        self.assertEqual(asked['body'], ['What happened, and what were you doing at the time?\n\n\n'
+                                         'Log: Comic Archiver log 2026-11-14 10.00.00.txt'])
+        self.assertNotIn(' ', url)
+        # Without a log, the email asks what happened and names no file.
+        self.assertEqual(parse_qs(urlsplit(window_pages.support_email('0.4.2', None)).query)['body'],
+                         ['What happened, and what were you doing at the time?'])
+
+    def test_email_support_saves_one_log_in_the_downloads_folder_shows_it_then_opens_the_email(self):
         from pathlib import Path
         import tempfile
         from unittest import mock
@@ -1555,33 +1576,41 @@ class NavigationTests(PagesCase):
         (state / 'desktop.log').write_text(f'2026-11-04 10:00:00,000 INFO the library is open\nopened {FOLDER}\n')
         self.assertTrue(self.pages.downloads())
         self.open()
-        self.settings.tabs['about'].click()
+        self.settings.tabs['support'].click()
         s = self.settings
         with mock.patch.object(self.pages, 'downloads', return_value=str(downloads)), \
                 mock.patch('comic_archive.app_runtime.state_dir', return_value=state):
-            s.save_log.click()
+            s.email.click()
         saved, = downloads.iterdir()
         self.assertRegex(saved.name, r'^Comic Archiver log [0-9-]{10} [0-9.]{8}\.txt$')
         text = saved.read_text(encoding='utf-8')
         # The details, every open site's records, then the app's log, in one file.
         self.assertIn('\n== Tapas\nSign-in: signed in', text)
+        self.assertIn('\n== Tappytoon\nNot opened yet', text)
         self.assertIn('=== Tapas: episodes not saved\nseries 11 episode 22: failed job_failed', text)
         self.assertIn('INFO the library is open', text)
         self.assertLess(text.index('== Tapas'), text.index('=== Tapas'))
         self.assertLess(text.index('=== Tapas'), text.index('=== The app’s log'))
         self.assertNotIn(FOLDER, text)
         self.assertIn('This step stopped in <library>/tapas/Library/x.cbz', text)
-        self.assertEqual(s.support_note.text(), window_pages.LOG_SAVED.format(name=saved.name))
-        self.assertTrue(s.support_note.isVisible() and s.save_log.isEnabled())
+        self.assertEqual(s.support_note.text(), f'Your log is saved in your Downloads folder as “{saved.name}”. '
+                                                'Attach it to the email.')
+        self.assertTrue(s.support_note.isVisible() and s.email.isEnabled())
+        # The log is shown first, then the email opens in front of it.
+        self.assertEqual(self.shell.calls[-2:], [('show_file', saved),
+                                                 ('open_url', window_pages.support_email(license_texts.version(), saved.name))])
+        self.shell.calls.clear()
         # A site that cannot be read is said in the file; a file that cannot be saved is said on the page.
         self.actions.refused['support_records'] = 'No.'
         with mock.patch.object(self.pages, 'downloads', return_value=str(downloads)), \
                 mock.patch('comic_archive.app_runtime.state_dir', return_value=state), \
                 mock.patch('comic_archive.support_log.save', side_effect=app_actions.Refused('x', 'No.')) as save:
-            s.save_log.click()
+            s.email.click()
         self.assertIn('=== A site could not be read: request_unavailable', save.call_args.args[1])
         self.assertEqual(s.support_note.text(), window_pages.LOG_FAILED)
-        self.assertTrue(s.save_log.isEnabled())
+        self.assertTrue(s.email.isEnabled())
+        # Without a log the email still opens, naming no file, and nothing is shown.
+        self.assertEqual(self.shell.calls, [('open_url', window_pages.support_email(license_texts.version(), None))])
 
     def test_without_cloud_storage_there_is_no_backblaze_tab_card_or_offer(self):
         self.actions.cloud_offered = False

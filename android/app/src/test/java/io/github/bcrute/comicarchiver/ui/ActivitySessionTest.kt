@@ -267,51 +267,55 @@ class ActivitySessionTest {
         } finally { compose.runOnIdle { controller.pause() } }
     }
 
-    @Test fun supportDetailsAreCopiedAndTheLogIsHandedToDownloadsWithNothingLeftBehind() {
+    @Test fun emailSupportAttachesTheLogOrHandsItToDownloadsWhenThereIsNoEmailApp() {
         ready()
         val controller = app.controller
-        val copied = mutableListOf<String>()
+        val sent = mutableListOf<String?>()
         val handed = mutableListOf<String>()
-        controller.copyText = { copied.add(it) }
+        fun ask(): SupportNote? {
+            compose.runOnIdle { controller.emailSupport() }
+            awaitState { !controller.state.value.supportBusy && controller.state.value.supportNote != null }
+            return controller.state.value.supportNote
+        }
+        controller.sendEmail = { file -> sent.add(file?.readText()); true }
         controller.saveToDownloads = { file -> handed.add(file.readText()); file.name }
-        compose.runOnIdle { controller.copySupportDetails() }
-        awaitState { controller.state.value.supportNote != null && !controller.state.value.supportBusy }
-        assertEquals(listOf("Comic Archiver details"), copied)
-        assertEquals(SupportNote("Copied. Paste it into your message or email."), controller.state.value.supportNote)
-        val asked = JSONObject(app.fake.lastArgs.getValue("support_details"))
-        assertEquals(setOf("base_root", "version", "system"), asked.keys().asSequence().toSet())
-        assertTrue(Regex("Android [0-9A-Za-z ._-]*\\(API \\d+\\)").matches(asked.getString("system")))
-
-        compose.runOnIdle { controller.saveSupportLog() }
-        awaitState { controller.state.value.supportNote?.text?.startsWith("Saved") == true }
-        assertEquals(listOf("the whole log"), handed)
-        assertEquals(SupportNote("Saved in your Downloads folder as \u201cComic Archiver log fixture.txt\u201d."),
-            controller.state.value.supportNote)
+        assertEquals(SupportNote("Your email app opened with the log attached."), ask())
+        assertEquals(listOf<String?>("the whole log"), sent)
+        assertEquals(emptyList<String>(), handed)
+        val asked = JSONObject(app.fake.lastArgs.getValue("support_save"))
         val outbox = SupportLog.outbox(app)
-        assertEquals(outbox.absolutePath, JSONObject(app.fake.lastArgs.getValue("support_save")).getString("out_root"))
-        assertEquals(SupportLog.folder(app).absolutePath,
-            JSONObject(app.fake.lastArgs.getValue("support_save")).getString("log_root"))
-        assertTrue(outbox.listFiles().orEmpty().isEmpty())
+        assertEquals(setOf("base_root", "version", "system", "log_root", "out_root"), asked.keys().asSequence().toSet())
+        assertEquals(outbox.absolutePath, asked.getString("out_root"))
+        assertEquals(SupportLog.folder(app).absolutePath, asked.getString("log_root"))
+        assertTrue(Regex("Android [0-9A-Za-z ._-]*\\(API \\d+\\)").matches(asked.getString("system")))
+        // The email app reads the log after the button is done; only the newest log is kept for it.
+        assertEquals(listOf("Comic Archiver log fixture.txt"), outbox.listFiles().orEmpty().map { it.name })
 
-        // Downloads refuses the file, the core cannot write it, or the clipboard is unavailable.
-        controller.saveToDownloads = { null }
-        compose.runOnIdle { controller.saveSupportLog() }
-        awaitState { controller.state.value.supportNote?.failed == true }
-        assertEquals("The log could not be saved. Check that your Downloads folder can be written to.",
-            controller.state.value.supportNote?.text)
-        assertTrue(outbox.listFiles().orEmpty().isEmpty())
-        app.fake.supportReadable = false
-        controller.saveToDownloads = { file -> handed.add("never"); file.name }
-        compose.runOnIdle { controller.saveSupportLog() }
-        awaitState { !controller.state.value.supportBusy && controller.state.value.supportNote?.failed == true }
-        compose.runOnIdle { controller.copySupportDetails() }
-        awaitState { controller.state.value.supportNote?.text == "The details could not be copied. Try again." }
-        app.fake.supportReadable = true
-        controller.copyText = { throw IllegalStateException("PRIVATE clipboard failure") }
-        compose.runOnIdle { controller.copySupportDetails() }
-        awaitState { !controller.state.value.supportBusy && controller.state.value.supportNote?.failed == true }
-        assertEquals(listOf("Comic Archiver details"), copied)
+        // No email app: the log goes to Downloads and is named, with the address to send it to.
+        controller.sendEmail = { false }
+        assertEquals(SupportNote("No email app was found, so the log is saved in your Downloads folder as " +
+            "\u201cComic Archiver log fixture.txt\u201d. Send it to ben@comicarchiver.com from any email account.",
+            failed = true), ask())
         assertEquals(listOf("the whole log"), handed)
+        // Nor can Downloads take it; an email app that fails to open counts as none.
+        controller.saveToDownloads = { null }
+        controller.sendEmail = { throw IllegalStateException("PRIVATE email failure") }
+        assertEquals(SupportNote("No email app was found and the log could not be saved. Write to ben@comicarchiver.com " +
+            "from any email account and say what happened.", failed = true), ask())
+
+        // The core cannot write the log: the email still opens, with nothing attached.
+        app.fake.supportReadable = false
+        controller.sendEmail = { file -> sent.add(file?.readText()); true }
+        controller.saveToDownloads = { file -> handed.add("never"); file.name }
+        assertEquals(SupportNote("The log could not be saved, so there is none to attach. Send the email anyway " +
+            "and say what happened.", failed = true), ask())
+        assertEquals(listOf<String?>("the whole log", null), sent)
+        assertTrue(outbox.listFiles().orEmpty().isEmpty())
+        controller.sendEmail = { false }
+        assertEquals(true, ask()?.failed)
+        app.fake.supportReadable = true
+        assertEquals(listOf("the whole log"), handed)
+        assertEquals(0, app.fake.count("support_details"))
         assertEquals(0, app.fake.count("go"))
     }
 

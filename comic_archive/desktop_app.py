@@ -809,6 +809,35 @@ class Shell:
         """The selected shared library root, in the computer's own file manager."""
         self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(self.runtime.root)))
 
+    def show_file(self, path):
+        """A file in the computer's own file manager, picked out where the file manager can do that; otherwise its
+        folder opened."""
+        import shutil
+        import subprocess
+        path = Path(path)
+        try:
+            if sys.platform == 'win32':
+                # Explorer takes the path quoted after /select, and as one argument; a Windows path holds no quote.
+                explorer = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'explorer.exe'
+                subprocess.Popen(f'"{explorer}" /select,"{path}"', **osdep.detached())
+                return
+            if sys.platform == 'darwin':
+                subprocess.Popen(['/usr/bin/open', '-R', str(path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, **osdep.detached())
+                return
+            # Linux file managers (Files, Dolphin, Nemo, Thunar and others) pick a file out when asked over D-Bus.
+            send = shutil.which('dbus-send')
+            asked = send and subprocess.run([send, '--session', '--print-reply', '--reply-timeout=2000',
+                                    '--dest=org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
+                                    'org.freedesktop.FileManager1.ShowItems', f'array:string:{path.as_uri()}', 'string:'],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   timeout=3, check=False)
+            if asked and asked.returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self.q.QtGui.QDesktopServices.openUrl(self.q.QtCore.QUrl.fromLocalFile(str(path.parent)))
+
     def ask(self, text):
         """A question about something the person chose to do: No unless they choose Yes. None when the app began
         to end while it showed: the question closing with the app is not an answer."""
