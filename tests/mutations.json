@@ -2730,16 +2730,16 @@
  {
   "id": "unrun-task-left-queued-at-a-start",
   "source": "comic_archive/download_control.py",
-  "old": "                end_unstarted(session, library, task['task_id'])\n",
-  "new": "                pass\n",
+  "old": "            end_unstarted(session, library, task['task_id'])\n",
+  "new": "            pass\n",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_ends_unrun_the_task_a_power_cut_left_queued_so_no_downloader_works_through_it"
  },
  {
   "id": "unrun-task-ended-under-a-running-downloader",
   "source": "comic_archive/download_control.py",
-  "old": "        if idle and task is not None:",
-  "new": "        if task is not None:",
+  "old": "        if idle and task is not None and (",
+  "new": "        if task is not None and (",
   "test_file": "test_account_ui.py",
   "test": "test_a_start_of_the_app_that_finds_a_downloader_still_running_stops_what_it_is_on_like_pause"
  },
@@ -4626,8 +4626,8 @@
  {
   "id": "dc-refusal-go-after",
   "source": "comic_archive/download_control.py",
-  "old": "value['go_after'] = _stamp(_now() + timedelta(seconds=later))",
-  "new": "pass",
+  "old": "            value['go_after'] = until\n",
+  "new": "            pass\n",
   "test_file": "test_download_control.py",
   "test": "test_a_refusal_with_nothing_to_probe_waits_five_fifteen_sixty_minutes_then_holds_past_the_sites_wait"
  },
@@ -4778,8 +4778,8 @@
  {
   "id": "dc-pause-forgets-unsent",
   "source": "comic_archive/download_control.py",
-  "old": "        if task is not None and task['published_at'] is None:\n            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))",
-  "new": "        if False:\n            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))",
+  "old": "        if task is not None and task['published_at'] is None:\n            _sent(db, root, session, task)\n",
+  "new": "        if False:\n            _sent(db, root, session, task)\n",
   "test_file": "test_download_control.py",
   "test": "test_pause_stops_and_forgets_a_step_never_sent_but_leaves_one_out_to_answer"
  },
@@ -4794,16 +4794,16 @@
  {
   "id": "dc-reopen-ends-unrun",
   "source": "comic_archive/download_control.py",
-  "old": "                end_unstarted(session, library, task['task_id'])\n",
-  "new": "                pass\n",
+  "old": "            end_unstarted(session, library, task['task_id'])\n",
+  "new": "            pass\n",
   "test_file": "test_download_control.py",
   "test": "test_a_start_of_the_app_sets_a_going_download_to_wait_for_go_and_ends_its_unsent_or_unrun_step"
  },
  {
   "id": "dc-reopen-running-left",
   "source": "comic_archive/download_control.py",
-  "old": "        if idle and task is not None:",
-  "new": "        if task is not None:",
+  "old": "        if idle and task is not None and (",
+  "new": "        if task is not None and (",
   "test_file": "test_download_control.py",
   "test": "test_a_start_of_the_app_with_its_downloader_still_running_leaves_the_step_to_it"
  },
@@ -10022,5 +10022,69 @@
   "new": "                pass\n",
   "test_file": "test_android_browser.py",
   "test": "test_a_request_refused_during_the_last_task_does_not_stop_the_next_one"
+ },
+ {
+  "id": "site-wait-connection",
+  "source": "comic_archive/download_control.py",
+  "old": "    _site_wait(value, _retry_after(result))\n",
+  "new": "",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_connection_retry_after_survives_pause_then_go"
+ },
+ {
+  "id": "site-wait-refusal",
+  "source": "comic_archive/download_control.py",
+  "old": "    _site_wait(value, later)\n",
+  "new": "",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_source_retry_after_survives_pause_then_go"
+ },
+ {
+  "id": "site-wait-go-keeps",
+  "source": "comic_archive/download_control.py",
+  "old": "        else:\n            value['go_after'] = None\n",
+  "new": "        value['go_after'] = None\n",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_held_server_deadline_survives_go_then_pause_go_and_reopen_go"
+ },
+ {
+  "id": "unrecorded-pause-deletes",
+  "source": "comic_archive/download_control.py",
+  "old": "        if task is not None and task['published_at'] is None:\n            _sent(db, root, session, task)\n",
+  "new": "        if task is not None and task['published_at'] is None:\n            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))\n",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_pause_keeps_custody_of_a_request_written_before_publication_was_committed"
+ },
+ {
+  "id": "unrecorded-reopen-deletes",
+  "source": "comic_archive/download_control.py",
+  "old": "(task['published_at'] is not None or _sent(db, root, session, task))",
+  "new": "task['published_at'] is not None",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_idle_reopen_cancels_a_request_written_before_publication_was_committed"
+ },
+ {
+  "id": "unrecorded-step-forgets",
+  "source": "comic_archive/download_control.py",
+  "old": "value['status'] != 'running' and not _sent(db, root, session, task):",
+  "new": "value['status'] != 'running':",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_a_request_sent_unrecorded_is_stopped_when_the_download_is_no_longer_going"
+ },
+ {
+  "id": "queued-step-not-stopped",
+  "source": "comic_archive/download_control.py",
+  "old": "                    request_running_stop(session, task['task_id'], include_queued=True)\n",
+  "new": "                    pass\n",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_a_request_sent_unrecorded_is_stopped_when_the_download_is_no_longer_going"
+ },
+ {
+  "id": "pause-leaves-queued",
+  "source": "comic_archive/account_ui.py",
+  "old": "            request_running_stop(session, task, include_queued=True)\n",
+  "new": "            pass\n",
+  "test_file": "test_download_recovery_contract.py",
+  "test": "test_pause_keeps_custody_of_a_request_written_before_publication_was_committed"
  }
 ]

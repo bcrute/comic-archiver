@@ -206,9 +206,13 @@ def _interrupted(session, library, task):
     from .monitoring import _read
     from .task_cancellation import request_running_stop
     try:
-        if task_status(session, task)['status'] != 'running':
+        status = task_status(session, task)['status']
+        if status == 'queued':
+            # Sent but not taken up yet: stopped before a downloader starts it.
+            request_running_stop(session, task, include_queued=True)
+        if status != 'running':
             return True
-    except ArchiveError:
+    except (ArchiveError, OSError):
         return True
     try:
         # Left with the task first: a batch still getting ready stops as soon as it records its run.

@@ -366,9 +366,18 @@ def _failed(value, code):
             _wait(value, 'idle', FAILED_WAIT if code == 'task_failed' else 1)
 
 
+def _site_wait(value, seconds):
+    """The wait a site or the cloud asked for: kept through Pause, a start of the app and Go, which cannot cut it short."""
+    if seconds:
+        until = _stamp(_now() + timedelta(seconds=seconds))
+        if not value['go_after'] or _instant(value['go_after']) < _instant(until):
+            value['go_after'] = until
+
+
 def _connection(value, result):
     tries = value['network_waits']
     value['network_waits'] += 1
+    _site_wait(value, _retry_after(result))
     if value['status'] == 'running':
         _wait(value, 'connection', max(CONNECTION_WAITS[min(tries, len(CONNECTION_WAITS) - 1)], _retry_after(result)))
 
@@ -390,8 +399,7 @@ def _refused(value, task, result):
         _hold(value, 'source_refused')
     elif value['status'] == 'running':
         _wait(value, 'source', max(REFUSAL_WAITS[value['source_probes'] - 1], later))
-    if value['status'] == 'held' and later:
-        value['go_after'] = _stamp(_now() + timedelta(seconds=later))
+    _site_wait(value, later)
 
 
 def _settle(db, value, task, response, session):
@@ -575,10 +583,9 @@ def _step(db, root, session, library):
     if task is not None:
         request = root / 'requests' / f"{task['task_id']}.json"
         receipt = root / 'responses' / f"{task['task_id']}.json"
+        if task['published_at'] is None and value['status'] != 'running' and not _sent(db, root, session, task):
+            return False  # It never went out.
         if task['published_at'] is None:
-            if value['status'] != 'running':
-                db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))  # It never went out.
-                return False
             if not request.exists() and not receipt.exists() and not _publishable(root, library):
                 return False
             submit_job(session, task['operation'], task['options'], _task_id=task['task_id'])
@@ -602,6 +609,13 @@ def _step(db, root, session, library):
         except ArchiveError:
             response = None  # A receipt that cannot be read is settled as one.
         if response is not None and response['status'] in ('queued', 'running'):
+            if response['status'] == 'queued' and value['status'] != 'running':
+                # Sent before a Pause or a start of the app could see it: stopped before a downloader takes it up.
+                from .task_cancellation import request_running_stop
+                try:
+                    request_running_stop(session, task['task_id'], include_queued=True)
+                except (ArchiveError, OSError):
+                    pass  # Asked again at the next look.
             return False
         _settle(db, value, task, response, session)
         _save(db, value)
@@ -918,9 +932,11 @@ def start(session, library=Path('Library')):
         value.update(status='running', code=None, wait_until=None, stretch_started_at=now, idle_waits=0,
                      network_waits=0, source_probes=0, failed_retries=0)
         if value['go_after'] and _now() < _instant(value['go_after']):
-            # The site's own wait still runs; Go cannot cut it short, only start when it ends.
+            # The site's own wait still runs; Go cannot cut it short, only start when it ends. It is kept, so a
+            # Pause or a start of the app before it ends does not lose it either.
             value.update(status='waiting', code='source', wait_until=value['go_after'])
-        value['go_after'] = None
+        else:
+            value['go_after'] = None
         _save(db, value, 'Go')
     _transaction(session, library, go, create=True)
 
@@ -941,22 +957,8 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
             if not selection and task is not None and task['kind'] not in ('download', 'probe', 'series'):
                 return None  # List discovery and local verification do not use the chosen pace.
             previous = dict(value)
-            if task is not None and task['published_at'] is None:
-                from .monitoring import _read
-                from .task_cancellation import admission_lock
-                with admission_lock(session):
-                    worker = _read(root / 'status.json')
-                    files = [root / kind / (task['task_id'] + '.json') for kind in ('requests', 'responses')]
-                    admitted = (any(path.exists() or path.is_symlink() for path in files)
-                                or worker.get('state') == 'busy' and worker.get('task_id') == task['task_id'])
-                    if admitted:
-                        # Publication may have succeeded just before its database commit was interrupted.
-                        task['published_at'] = task['reserved_at']
-                        db.execute('UPDATE tasks SET published_at=? WHERE task_id=?',
-                                   (task['published_at'], task['task_id']))
-                    else:
-                        db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
-                        task = None  # Never sent; the next reservation reads the new pace.
+            if task is not None and task['published_at'] is None and not _sent(db, root, session, task):
+                task = None  # Never sent; the next reservation reads the new pace.
             if value['status'] in ('running', 'waiting'):
                 # Even if this change fails, an explicit Continue must respect an existing wait.
                 deadlines = [v for v in (value['go_after'], value['wait_until']) if v]
@@ -1020,6 +1022,25 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
         _transaction(session, library, finish, require_queue=False)
 
 
+def _sent(db, root, session, task):
+    """Whether a step not yet recorded as sent went out all the same; one that did not is forgotten.
+
+    Its request may have been written just before the record of sending it was cut short. Such a step is
+    recorded as sent, so it is stopped or ended like any other, never left for a downloader to run unasked."""
+    from .monitoring import _read
+    from .task_cancellation import admission_lock
+    with admission_lock(session):
+        worker = _read(root / 'status.json')
+        files = [root / kind / (task['task_id'] + '.json') for kind in ('requests', 'responses')]
+        if (any(path.exists() or path.is_symlink() for path in files)
+                or worker.get('state') == 'busy' and worker.get('task_id') == task['task_id']):
+            task['published_at'] = task['reserved_at']
+            db.execute('UPDATE tasks SET published_at=? WHERE task_id=?', (task['published_at'], task['task_id']))
+            return True
+        db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
+        return False
+
+
 def request_stop(session, library=Path('Library')):
     """Pause: nothing more is asked for until Go. The task already out is cancelled by the caller."""
     def stop(db, value, root):
@@ -1027,7 +1048,7 @@ def request_stop(session, library=Path('Library')):
             return
         task = _outstanding(db)
         if task is not None and task['published_at'] is None:
-            db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
+            _sent(db, root, session, task)
         value.update(status='stopped', code=None, wait_until=None)
         _save(db, value, 'Pause')
     try:
@@ -1050,11 +1071,8 @@ def reopen(session, library=Path('Library'), *, idle=True):
             value.update(status='stopped', code=None, wait_until=None)
             _save(db, value, 'the app started')
         task = _outstanding(db)
-        if idle and task is not None:
-            if task['published_at'] is None:
-                db.execute('DELETE FROM tasks WHERE task_id=?', (task['task_id'],))
-            else:
-                end_unstarted(session, library, task['task_id'])
+        if idle and task is not None and (task['published_at'] is not None or _sent(db, root, session, task)):
+            end_unstarted(session, library, task['task_id'])
         return going
     try:
         return _transaction(session, library, stopped, require_queue=False)
