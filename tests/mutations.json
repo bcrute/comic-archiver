@@ -9958,5 +9958,69 @@
   "new": "        if False:\n",
   "test_file": "test_site_release.py",
   "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
+ },
+ {
+  "id": "wifi-wait-asks-connection",
+  "source": "comic_archive/download_control.py",
+  "old": " and not (\n                value['code'] == 'network_policy' and _connection_allowed(root, library))",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_wifi_wait_ends_within_seconds_of_the_connection_being_allowed_again"
+ },
+ {
+  "id": "wifi-wait-only-policy",
+  "source": "comic_archive/download_control.py",
+  "old": "value['code'] == 'network_policy' and _connection_allowed(root, library)",
+  "new": "_connection_allowed(root, library)",
+  "test_file": "test_download_control.py",
+  "test": "test_only_a_wifi_wait_asks_the_connection"
+ },
+ {
+  "id": "wifi-recheck-interval",
+  "source": "comic_archive/download_control.py",
+  "old": "now - last < timedelta(seconds=POLICY_RECHECK)",
+  "new": "now - last < timedelta(seconds=0)",
+  "test_file": "test_download_control.py",
+  "test": "test_a_wifi_wait_ends_within_seconds_of_the_connection_being_allowed_again"
+ },
+ {
+  "id": "wifi-recheck-stamp",
+  "source": "comic_archive/download_control.py",
+  "old": "    _policy_asked[root] = now\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_wifi_wait_ends_within_seconds_of_the_connection_being_allowed_again"
+ },
+ {
+  "id": "wifi-recheck-allowed-true",
+  "source": "comic_archive/download_control.py",
+  "old": "['allowed'] is True",
+  "new": "['allowed'] is not None",
+  "test_file": "test_download_control.py",
+  "test": "test_a_connection_this_device_may_not_use_is_tried_again_every_five_minutes"
+ },
+ {
+  "id": "wifi-recheck-failure-held",
+  "source": "comic_archive/download_control.py",
+  "old": "    except (ArchiveError, OSError):\n        return False\n\n\ndef worker_tick",
+  "new": "    except (ArchiveError, OSError):\n        return True\n\n\ndef worker_tick",
+  "test_file": "test_download_control.py",
+  "test": "test_a_connection_check_that_fails_keeps_the_wifi_wait"
+ },
+ {
+  "id": "wifi-recheck-library",
+  "source": "comic_archive/download_control.py",
+  "old": "network_status(Path(library).absolute())",
+  "new": "network_status(root)",
+  "test_file": "test_download_control.py",
+  "test": "test_a_connection_this_device_may_not_use_is_tried_again_every_five_minutes"
+ },
+ {
+  "id": "android-begin-task-forgets-refusal",
+  "source": "comic_archive/android_browser.py",
+  "old": "                context.problem = None\n",
+  "new": "                pass\n",
+  "test_file": "test_android_browser.py",
+  "test": "test_a_request_refused_during_the_last_task_does_not_stop_the_next_one"
  }
 ]

@@ -742,13 +742,59 @@ class ControllerTests(Controller):
 
     def test_a_connection_this_device_may_not_use_is_tried_again_every_five_minutes(self):
         self.downloading()
-        for _ in range(6):
-            self.ok(counted(status='paused', pause_reason='network_policy'))
+        with patch('comic_archive.network.status', return_value={'allowed': False}) as network:
+            for _ in range(6):
+                self.ok(counted(status='paused', pause_reason='network_policy'))
+                self.tick()
+                self.assertEqual((self.state()['code'], self.status()['retry']),
+                                 ('network_policy', {'reason': 'connection', 'seconds': 300}))
+                self.later(dc.POLICY_WAIT - 1)
+                self.tick()
+                self.assertFalse(self.requests())
+                self.later(1)
+                self.published()
+        network.assert_called_with(self.library.absolute())
+
+    def test_a_wifi_wait_ends_within_seconds_of_the_connection_being_allowed_again(self):
+        self.downloading()
+        self.ok(counted(status='paused', pause_reason='network_policy'))
+        allowed = {'allowed': False}
+        with patch('comic_archive.network.status', side_effect=lambda root: dict(allowed)) as network:
             self.tick()
-            self.assertEqual((self.state()['code'], self.status()['retry']),
-                             ('network_policy', {'reason': 'connection', 'seconds': 300}))
-            self.later(dc.POLICY_WAIT)
+            self.assertEqual(self.state()['code'], 'network_policy')
+            self.tick()  # The connection is asked once in its recheck time, however often the worker looks.
+            self.assertEqual(network.call_count, 1)
+            self.later(dc.POLICY_RECHECK - 1)
+            allowed['allowed'] = True
+            self.tick()
+            self.assertEqual((network.call_count, self.requests()), (1, []))
+            self.later(1)
             self.published()
+            self.assertEqual(network.call_count, 2)
+            self.assertEqual(self.state()['status'], 'running')
+
+    def test_a_connection_check_that_fails_keeps_the_wifi_wait(self):
+        for failure in (ArchiveError('Network settings are invalid; transfers are held.'), OSError('PRIVATE')):
+            with self.subTest(type(failure).__name__):
+                self.setUp()
+                self.downloading()
+                self.ok(counted(status='paused', pause_reason='network_policy'))
+                with patch('comic_archive.network.status', side_effect=failure):
+                    self.tick()
+                    self.later(dc.POLICY_RECHECK)
+                    self.tick()
+                    self.assertFalse(self.requests())
+                    self.assertEqual(self.state()['code'], 'network_policy')
+
+    def test_only_a_wifi_wait_asks_the_connection(self):
+        self.downloading()
+        self.ok(counted(status='paused', pause_reason='network_unavailable'))
+        with patch('comic_archive.network.status', return_value={'allowed': True}) as network:
+            self.tick()
+            self.later(dc.CONNECTION_WAITS[0] - 1)
+            self.tick()
+            self.assertFalse(self.requests())
+            network.assert_not_called()
 
     def test_cloud_troubles_that_pass_are_waited_out_and_the_rest_hold_with_their_own_code(self):
         for code in sorted(dc.CLOUD_WAITS):

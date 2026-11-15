@@ -487,6 +487,11 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
         context = self.context
         if context is not None and (context.closed or context.cancelled or context.surface.gone):
             self.close()
+        elif context is not None:
+            # A request refused while the last task ran (a Wi-Fi hold, say) belongs to that task. Kept, it would
+            # stop this one at once without the connection being asked again.
+            with context.rules_lock:
+                context.problem = None
         self.deadline = self.cancel_check = self.expected_account_id = self.asset_metrics = None
 
     def capture_automatic(self, url, series_id=None, series_title=None, title=None, order=None):

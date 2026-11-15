@@ -42,6 +42,7 @@ WAITS = ('connection', 'network_policy', 'source', 'images', 'idle')
 # How long each kind of wait lasts, try by try; the last stays for every try after it.
 CONNECTION_WAITS = (60, 120, 240, 480, 900)
 POLICY_WAIT = 300
+POLICY_RECHECK = 5  # A Wi-Fi wait asks the connection again this often, so saving resumes soon after Wi-Fi returns.
 IDLE_WAITS = (300, 900, 3600)  # A step that did nothing; the next after the last holds as no_progress.
 REFUSAL_WAITS = (300, 900, 3600)  # Refused with nothing to probe; the next after the last holds.
 SOURCE_PROBES = 4  # The refused episode tried alone this many times before the download holds.
@@ -606,7 +607,8 @@ def _step(db, root, session, library):
         _save(db, value)
         return True
     if value['status'] == 'waiting':
-        if _now() < _instant(value['wait_until']):
+        if _now() < _instant(value['wait_until']) and not (
+                value['code'] == 'network_policy' and _connection_allowed(root, library)):
             return False
         value.update(status='running', code=None, wait_until=None)
     if value['status'] != 'running':
@@ -615,6 +617,25 @@ def _step(db, root, session, library):
     _next(db, value, session, library)
     _save(db, value)
     return True
+
+
+_policy_asked = {}
+
+
+def _connection_allowed(root, library):
+    """Whether the connection rule allows transfers now, so a Wi-Fi wait can end before its time.
+
+    Asked at most every POLICY_RECHECK seconds: a computer runs its route probe for each answer."""
+    now = _now()
+    last = _policy_asked.get(root)
+    if last is not None and timedelta(0) <= now - last < timedelta(seconds=POLICY_RECHECK):
+        return False
+    _policy_asked[root] = now
+    from .network import status as network_status
+    try:
+        return network_status(Path(library).absolute())['allowed'] is True
+    except (ArchiveError, OSError):
+        return False
 
 
 def worker_tick(session, library=Path('Library')):

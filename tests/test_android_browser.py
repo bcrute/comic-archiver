@@ -380,6 +380,22 @@ class BrowserAdapterTests(unittest.TestCase):
         self.assertIsNot(adapter.context, old)
         adapter.context.check()
 
+    def test_a_request_refused_during_the_last_task_does_not_stop_the_next_one(self):
+        adapter = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
+        self.addCleanup(adapter.close)
+        adapter.__enter__()
+        context = adapter.context
+        def held(route):
+            raise NetworkPolicyHold('Wi-Fi only: held.')
+        context.route('**/*', held)
+        # A page request the WebView makes after the task paused is refused, and the hold is kept for that task.
+        self.assertFalse(context.allowRequest('https://tapas.io/', 'GET', 'document'))
+        context.unroute('**/*', held)
+        adapter.begin_task()
+        self.assertIs(adapter.context, context)  # The open document is kept; only the old refusal is let go.
+        context.check()
+        self.assertIsNotNone(adapter.automatic_adapter())
+
     def test_cached_worker_is_removed_then_its_entire_document_is_replaced(self):
         old = self.factory.native
         old.workers = {'registered': 2, 'controlled': True, 'cleared': True}
