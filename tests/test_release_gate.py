@@ -459,10 +459,15 @@ class AndroidSDKReaderTests(unittest.TestCase):
         self.assertIn('every release asset match', result.stdout)
 
     def test_actual_source_identity_is_read_without_executing_gradle(self):
-        identity = android_release.identity_from_source(Path(__file__).parents[1])
-        self.assertEqual(identity, {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': '0.5.0-beta1',
-                                    'version_code': 1, 'min_sdk': 29, 'target_sdk': 36,
-                                    'abis': ['arm64-v8a', 'x86_64']})
+        project = Path(__file__).parents[1]
+        identity = android_release.identity_from_source(project)
+        code = identity.pop('version_code')
+        self.assertTrue(type(code) is int and code >= 1, code)
+        # The phone app and the desktop app share one version.
+        self.assertEqual(identity, {'package_id': 'io.github.bcrute.comicarchiver',
+                                    'version_name': tomllib.loads((project / 'pyproject.toml').read_text())['project'][
+                                        'version'],
+                                    'min_sdk': 29, 'target_sdk': 36, 'abis': ['arm64-v8a', 'x86_64']})
 
     def test_refuses_missing_or_ambiguous_source_identity(self):
         source = (Path(__file__).parents[1] / 'android/app/build.gradle.kts').read_text()
@@ -470,7 +475,7 @@ class AndroidSDKReaderTests(unittest.TestCase):
             project = Path(temporary)
             path = project / 'android/app/build.gradle.kts'
             path.parent.mkdir(parents=True)
-            for value in (source.replace('versionCode = 1', 'versionCode = nextVersion()'),
+            for value in (re.sub(r'versionCode = [0-9]+', 'versionCode = nextVersion()', source),
                           source + '\nversionCode = 2\n', source.replace('listOf("arm64-v8a", "x86_64")', 'abis()')):
                 path.write_text(value)
                 with self.assertRaises(ValueError):
