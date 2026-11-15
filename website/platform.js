@@ -19,18 +19,22 @@
   document.addEventListener('DOMContentLoaded', function () {
     var os = system();
     if (!os) return;
-    // Phones: a note, or the phone app, above the computer downloads.
+    // An iPhone, or an Android phone before there is an app: a note above the computer downloads.
     document.querySelectorAll('.for-device[data-os="' + os + '"]').forEach(function (block) { block.hidden = false; });
-    // Computers: their download first and marked, and its install steps open and first.
+    // The visitor's own download first and marked, and its install steps open and first.
     var panel = document.querySelector('.panels .panel[data-os="' + os + '"]');
     if (panel) {
       var tag = document.createElement('span');
       tag.className = 'tag';
-      tag.textContent = 'Your computer';
+      tag.textContent = os === 'android' ? 'Your phone' : 'Your computer';
       panel.querySelector('h3').appendChild(tag);
       panel.classList.add('yours');
       panel.parentNode.classList.add('picked');
       panel.parentNode.insertBefore(panel, panel.parentNode.firstChild);
+      var others = document.createElement('p');
+      others.className = 'others';
+      others.textContent = 'Other systems';
+      panel.after(others);
     }
     var steps = document.querySelector('details[data-os="' + os + '"]');
     if (steps) {

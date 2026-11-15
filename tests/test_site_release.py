@@ -68,6 +68,11 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertIn('Version 0.5.1-beta1', android)
         self.assertIn('/v0.5.1-beta1/ComicArchiver-0.5.1-beta1-android-universal.apk"', android)
         self.assertIn('<p class="spec">Android 15 or newer · version 0.5.1-beta1</p>', download)
+        # Shown to every visitor beside the computer downloads, not only to a phone.
+        panels = download.split('<div class="panels">', 1)[1].split('</div>\n</div>', 1)[0] + '</div>'
+        self.assertIn('<div class="panel download" data-os="android">', panels)
+        self.assertIn('-android-universal.apk"', panels)
+        self.assertNotIn('data-os="android" hidden', download)
         self.assertNotIn("There's no Android app yet", download)
         self.assertIn('<meta name="android-app" content="0.5.1-beta1">', self.page('index.html'))
         self.assertNotIn('<!--', download + self.page('index.html'))

@@ -104,6 +104,7 @@ h2 .tag { font-size: 13px; padding: 2px 10px; }
 /* Boxes you act on: downloads, contact */
 .panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .panels.one { grid-template-columns: minmax(0, 420px); }
+.panels:has(> .panel:nth-child(4)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
 .panel p { color: var(--muted); margin: 0; }
 .panel.download { display: flex; flex-direction: column; gap: 12px; }
@@ -117,6 +118,21 @@ h2 .tag { font-size: 13px; padding: 2px 10px; }
 .panel h3 .tag { font-size: 13px; padding: 2px 10px; }
 .panels.picked .panel:not(.yours) .btn.primary { background: var(--panel); color: var(--text); border-color: var(--border); }
 .panels.picked .panel:not(.yours) .btn.primary:hover { border-color: var(--muted); }
+/* Its download is then the one big box across the top, the others smaller in a row under it. */
+.panels.picked, .panels.picked:has(> .panel:nth-child(4)) { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.panels.picked:not(:has(> .panel:nth-child(4))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.panels.picked .panel.yours { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 8px 40px; padding: 32px 36px; }
+.panels.picked .panel.yours > * { grid-column: 1; }
+.panels.picked .panel.yours h3 { font-size: 30px; }
+.panels.picked .panel.yours .spec { font-size: 17px; min-height: 0; }
+.panels.picked .panel.yours .btn { grid-column: 2; grid-row: 1 / span 4; margin: 0; font-size: 19px; padding: 16px 36px; }
+.panels.picked .others { grid-column: 1 / -1; margin: 14px 0 -2px; color: var(--muted); font-size: 15px; }
+.panels.picked .panel:not(.yours) { padding: 18px 20px; gap: 8px; }
+.panels.picked .panel:not(.yours) h3 { font-size: 17px; }
+.panels.picked .panel:not(.yours) .spec { font-size: 14px; min-height: 0; }
+.panels.picked .panel:not(.yours) .small { font-size: 13px; }
+.panels.picked .panel:not(.yours) .btn { font-size: 15px; padding: 8px 14px; }
 .for-device { margin-bottom: 28px; }
 .for-device .note { margin: 0; }
 .for-device .panels + .small { margin-top: 28px; }
@@ -162,18 +178,29 @@ footer nav.foot a { color: var(--muted); text-decoration: none; }
 footer nav.foot a:hover { color: var(--text); text-decoration: underline; }
 footer .copy { margin: 14px 0 0; font-size: 14px; }
 
-@media (max-width: 860px) {
-  .wrap { padding: 0 20px; }
+/* The header's links fit on one line only above this width; below it they go on a line of their own. */
+@media (max-width: 1000px) {
   header.site .wrap { flex-wrap: wrap; gap: 8px 10px; padding-top: 10px; }
   header.site .theme-pick { margin-left: auto; }
   header.site nav { order: 3; width: calc(100% + 20px); margin: 0 -10px; flex-wrap: wrap; gap: 0 2px; padding-bottom: 8px; }
   header.site nav a { padding: 5px 10px; }
+}
+@media (max-width: 1000px) and (min-width: 861px) {
+  .panels:not(.picked):has(> .panel:nth-child(4)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .wrap { padding: 0 20px; }
   .page-head { padding: 44px 0 36px; }
   .content { padding: 40px 0 64px; }
   .hero { padding: 56px 0 120px; }
   .showcase { margin-top: -90px; padding-bottom: 56px; }
-  .features, .panels { grid-template-columns: minmax(0, 1fr); }
+  .features, .panels, .panels:has(> .panel:nth-child(4)) { grid-template-columns: minmax(0, 1fr); }
   .panels.one { grid-template-columns: minmax(0, 1fr); }
+  .panels.picked, .panels.picked:has(> .panel:nth-child(4)),
+  .panels.picked:not(:has(> .panel:nth-child(4))) { grid-template-columns: minmax(0, 1fr); }
+  .panels.picked .panel.yours { display: flex; padding: 24px; }
+  .panels.picked .panel.yours h3 { font-size: 26px; }
+  .panels.picked .panel.yours .btn { padding: 14px 20px; }
   .panel .spec { min-height: 0; }
   ul.items li { grid-template-columns: 1fr auto; padding: 14px 18px; }
   ul.items li > b { grid-column: 1; grid-row: 1; }

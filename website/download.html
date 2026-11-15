@@ -47,21 +47,12 @@
 </div>
 <div class="content">
   <div class="wrap">
-<div class="for-device" data-os="android" hidden>
 <!-- if android -->
-<div class="panels one">
-  <div class="panel download yours">
-        <h3>Android <span class="tag">Beta</span></h3>
-        <p class="spec">Android 15 or newer · version {android_version}</p>
-        <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{android_version}/ComicArchiver-{android_version}-android-universal.apk">Download the app</a>
-        <p class="small">The Android app is still being tested. <a href="android.html">How to install it</a>.</p>
-  </div>
-</div>
-<p class="small">Or download Comic Archiver for a computer:</p>
 <!-- else -->
+<div class="for-device" data-os="android" hidden>
 <p class="note">There's no Android app yet. Comic Archiver runs on Windows, Linux and Mac computers: download it on one of those.</p>
-<!-- end if -->
 </div>
+<!-- end if -->
 <div class="for-device" data-os="ios" hidden>
 <p class="note">There's no app for iPhone or iPad. Comic Archiver runs on Windows, Linux and Mac computers: download it on one of those.</p>
 </div>
@@ -84,6 +75,14 @@
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip">Download app</a>
         <p class="small">Early Mac version: not notarized by Apple, tested on macOS 15 only. Apple silicon is not available yet.</p>
   </div>
+<!-- if android -->
+  <div class="panel download" data-os="android">
+        <h3>Android <span class="tag">Beta</span></h3>
+        <p class="spec">Android 15 or newer · version {android_version}</p>
+        <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{android_version}/ComicArchiver-{android_version}-android-universal.apk">Download the app</a>
+        <p class="small">Still being tested. <a href="android.html">How to install it</a>.</p>
+  </div>
+<!-- end if -->
 </div>
 <p class="small center">Checksums: <a href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/SHA256SUMS.txt">SHA256SUMS.txt</a> ·
       <a href="https://github.com/bcrute/comic-archiver/releases/latest">This release on GitHub</a></p>
