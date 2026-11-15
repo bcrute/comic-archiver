@@ -196,7 +196,9 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                              TARGET + '.integration.SignInPageStyleTest', '-e', 'disposable_emulator', 'true',
                              '-e', 'run_token', token, component], capture_output=True, text=True, timeout=180,
                             check=False)
-    (artifacts / 'signin-page-style.log').write_text(styled.stdout[-32000:] + styled.stderr[-4000:])
+    # Kept beside any earlier attempt's log in the same job, so a failure that passes on a retry can still be read.
+    with (artifacts / 'signin-page-style.log').open('a', encoding='utf-8') as log:
+        log.write('=== attempt\n' + styled.stdout[-32000:] + styled.stderr[-4000:])
     if 'OK (1 test)' not in styled.stdout or 'INSTRUMENTATION_CODE: -1' not in styled.stdout:
         raise RuntimeError('The sign-in page style test did not pass')
     # The journey starts from fresh app data, as after the integration gate's cookie check.

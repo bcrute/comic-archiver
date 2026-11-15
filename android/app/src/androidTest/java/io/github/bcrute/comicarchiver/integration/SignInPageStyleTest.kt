@@ -62,13 +62,22 @@ class SignInPageStyleTest {
                 browser.loadUrl(SIGNIN)
             }
             assertTrue("Sign-in fixture did not load", pages.getValue(SIGNIN).await(20, TimeUnit.SECONDS))
-            val signIn = read()
-            assertEquals("none", signIn.getString("notice"))
-            assertEquals("email", signIn.getString("atLink"))
+            // A page just finished may not be laid out in its window yet, and then nothing is at the link's
+            // spot: ask again for a few seconds before taking the answer.
+            var signIn = read()
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while ((signIn.getString("notice") != "none" || signIn.getString("atLink") != "email")
+                    && System.nanoTime() < until) {
+                Thread.sleep(100)
+                signIn = read()
+            }
+            assertEquals("Sign-in page: $signIn", "none", signIn.getString("notice"))
+            assertEquals("Sign-in page: $signIn", "email", signIn.getString("atLink"))
 
             instrumentation.runOnMainSync { requireNotNull(view).loadUrl(ELSEWHERE) }
             assertTrue("Other-site fixture did not load", pages.getValue(ELSEWHERE).await(20, TimeUnit.SECONDS))
-            assertEquals("block", read().getString("notice"))
+            val elsewhere = read()
+            assertEquals("Other site's page: $elsewhere", "block", elsewhere.getString("notice"))
         } finally {
             instrumentation.runOnMainSync { surface?.close() }
         }
@@ -93,6 +102,7 @@ class SignInPageStyleTest {
                 return JSON.stringify({
                     notice: getComputedStyle(document.getElementById('gdpr-cookie-message')).display,
                     atLink: top ? top.id : '',
+                    view: [innerWidth, innerHeight],
                 });
             })()
         """.trimIndent()

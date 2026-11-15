@@ -495,11 +495,14 @@ def work(origin):
         print(f'NOTE wheel configuration: {hints}', flush=True)
         page.mouse.move(400, 300)
         # A page just loaded may not take a wheel yet, and a slow machine moves late: turn it until the page
-        # has moved, for a few seconds at most.
+        # has moved, for about ten seconds at most. A slow Mac once took a turn as a real wheel but did not move
+        # for all of five seconds of turns 300 ms apart, then moved for the same turn later in the run. Turns
+        # that close may be taken as one gesture still aimed at a page not ready to scroll, so each comes after
+        # the last has surely ended.
         moved = 0
-        for _ in range(15):
+        for _ in range(12):
             page.mouse.wheel(0, 1200)
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(800)
             moved = page.evaluate('() => window.scrollY')
             if moved > 0:
                 break
