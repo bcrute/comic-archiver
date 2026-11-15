@@ -73,6 +73,7 @@ class SiteReleaseTests(unittest.TestCase):
         self.assertIn('<div class="panel download" data-os="android">', panels)
         self.assertIn('-android-universal.apk"', panels)
         self.assertNotIn('data-os="android" hidden', download)
+        self.assertIn('<details data-os="android">\n      <summary>Android: install and update</summary>', download)
         self.assertNotIn("There's no Android app yet", download)
         self.assertIn('<meta name="android-app" content="0.5.1-beta1">', self.page('index.html'))
         self.assertNotIn('<!--', download + self.page('index.html'))
@@ -114,6 +115,7 @@ class SiteReleaseTests(unittest.TestCase):
             self.assertNotIn('android-app', page.read_text(encoding='utf-8'), page.name)
         # A phone is told there is no Android app yet instead.
         self.assertIn("There's no Android app yet.", self.page('download.html'))
+        self.assertNotIn('Android: install and update', self.page('download.html'))
         self.assertTrue((self.out / 'platform.js').is_file())
 
     def test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site(self):
