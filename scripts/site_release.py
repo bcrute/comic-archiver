@@ -8,6 +8,11 @@ still names {android_version} after that exists only with an Android release.
 Each release's changes are written once, in website/changes/<version>.md, and become both the release's notes
 on GitHub and its entry in the site's Changelog.
 
+The Roadmap, {roadmap}, comes from website/roadmap.json: what works today, then everything planned. A planned item
+names the version it is in once its work is done ("in": "0.5.3"); it shows as coming in the next release until
+that version is the one published, and then leaves the Roadmap, since the Changelog says it is done. A planned item
+that has begun is "started"; any other is on the wishlist.
+
     python3 scripts/site_release.py site OUT --release latest.json --releases releases.json
         The site as published: the newest release and the newest Android release, as GitHub's API describes
         them, fill in the pages, and every download link must name a file the release has.
@@ -35,6 +40,8 @@ VERSION = re.compile(r'\d+\.\d+\.\d+(?:-[a-z]+\d+)?')
 ANDROID = '-android-universal.apk'
 DOWNLOAD = re.compile(r'https://github\.com/bcrute/comic-archiver/releases/download/v([^/"]+)/([^"#?]+)')
 TOKEN = re.compile(r'\{[a-z_]+\}')
+ROADMAP = SITE / 'roadmap.json'
+WORKS = {'works': ('works', 'Works'), 'beta': ('progress', 'Beta')}
 IF_ANDROID = re.compile(r'<!-- if android -->\n?(.*?)(?:<!-- else -->\n?(.*?))?<!-- end if -->\n?', re.S)
 
 
@@ -124,6 +131,63 @@ def changelog(entries, version, released):
     return '\n'.join(articles)
 
 
+def _items(rows):
+    return '  <ul class="items">\n' + ''.join(
+        f'      <li><b>{inline(name)}</b><span>{inline(text)}</span><em class="pill {kind}">{pill}</em></li>\n'
+        for name, text, kind, pill in rows) + '    </ul>'
+
+
+def roadmap(version, path=ROADMAP):
+    """The Roadmap's sections for the site of version: works today, being worked on, and the wishlist."""
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        raise SiteError(f'{path.name} cannot be read: {error}') from None
+    if not isinstance(data, dict) or set(data) != {'works', 'planned'} or not all(
+            isinstance(data[key], list) for key in data):
+        raise SiteError(f'{path.name} has "works" and "planned" lists, and nothing else')
+
+    def item(row, allowed):
+        if (not isinstance(row, dict) or not {'name', 'text'} <= set(row) <= allowed
+                or not all(isinstance(value, (str, bool)) for value in row.values())
+                or not (isinstance(row['name'], str) and row['name'].strip())
+                or not (isinstance(row['text'], str) and row['text'].strip())):
+            raise SiteError(f'{path.name} has an item that is not a name, a text and {sorted(allowed - {"name", "text"})}: {row!r}')
+        return row
+
+    works = []
+    for row in data['works']:
+        row = item(row, {'name', 'text', 'pill'})
+        if row.get('pill') not in WORKS:
+            raise SiteError(f'{path.name}: "pill" is one of {sorted(WORKS)} for {row["name"]!r}')
+        works.append((row['name'], row['text'], *WORKS[row['pill']]))
+    coming, started, wished = [], [], []
+    for row in data['planned']:
+        row = item(row, {'name', 'text', 'in', 'started'})
+        if 'started' in row and row['started'] is not True:
+            raise SiteError(f'{path.name}: "started" is only ever true, for {row["name"]!r}')
+        if 'in' in row:
+            if not isinstance(row['in'], str) or not VERSION.fullmatch(row['in']) or 'started' in row:
+                raise SiteError(f'{path.name}: "in" names one version, and no "started", for {row["name"]!r}')
+            if order(row['in']) > order(version):
+                coming.append((row['name'], row['text'], 'progress', 'Next release'))
+        elif row.get('started'):
+            started.append((row['name'], row['text'], 'progress', 'Started'))
+        else:
+            wished.append((row['name'], row['text'], 'wish', 'Not started'))
+    if not works:
+        raise SiteError(f'{path.name} names what works today')
+    working = coming + started
+    sections = [('Works today', 'In the current version.', _items(works)),
+                ('Being worked on', 'Started, and coming in a future version.',
+                 _items(working) if working else
+                 '  <p>Nothing right now. Everything finished is in the <a href="changelog.html">Changelog</a>.</p>'),
+                ('Wishlist', 'Wanted, but not started and not promised.',
+                 _items(wished) if wished else '  <p>Nothing right now.</p>')]
+    return '\n'.join(f'<section class="block">\n  <h2>{title}</h2>\n  <p class="sub">{sub}</p>\n{body}\n</section>'
+                      for title, sub, body in sections)
+
+
 def assets(release):
     return {item['name'] for item in release.get('assets', [])}
 
@@ -142,12 +206,14 @@ def build(out, version, released=None, android=None, offered=None, folder=SITE):
     released = released or entries.get(version, (None,))[0] or datetime.date.today().isoformat()
     values = {'{version}': version, '{released}': day(released),
               '{changelog}': changelog(entries, version, released)}
+    if any('{roadmap}' in page.read_text(encoding='utf-8') for page in folder.glob('*.html')):
+        values['{roadmap}'] = roadmap(version, folder / 'roadmap.json')
     if android:
         values['{android_version}'] = android
     out = Path(out)
     if out.exists():
         shutil.rmtree(out)
-    shutil.copytree(folder, out, ignore=shutil.ignore_patterns('changes', '.*'))
+    shutil.copytree(folder, out, ignore=shutil.ignore_patterns('changes', 'roadmap.json', '.*'))
     for page in sorted(out.glob('*.html')):
         text = IF_ANDROID.sub(lambda found: found[1] if android else found[2] or '', page.read_text(encoding='utf-8'))
         if '<!-- if android' in text or '<!-- else' in text or '<!-- end if' in text:

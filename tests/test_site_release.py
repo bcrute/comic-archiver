@@ -187,6 +187,60 @@ class SiteReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(site_release.SiteError, '9.9.9.md is missing'):
             site_release.notes('9.9.9')
 
+    def test_the_roadmap_drops_what_the_published_version_has_and_shows_what_comes_next(self):
+        folder = self.folder / 'roadmap.json'
+        folder.write_text(json.dumps({'works': [{'name': 'Windows', 'text': 'Ten <and> eleven.', 'pill': 'works'},
+                                                {'name': 'Android', 'text': 'A **beta**.', 'pill': 'beta'}],
+                                      'planned': [{'name': 'Done', 'text': 'Shipped.', 'in': '0.5.2'},
+                                                  {'name': 'Soon', 'text': 'Next.', 'in': '0.5.3'},
+                                                  {'name': 'Begun', 'text': 'Started.', 'started': True},
+                                                  {'name': 'Someday', 'text': 'Wanted.'}]}))
+        before = site_release.roadmap('0.5.2', folder)
+        self.assertNotIn('Done', before)
+        self.assertIn('<li><b>Windows</b><span>Ten &lt;and&gt; eleven.</span><em class="pill works">Works</em></li>', before)
+        self.assertIn('<span>A <b>beta</b>.</span><em class="pill progress">Beta</em>', before)
+        sections = re.findall(r'<h2>(.*?)</h2>(.*?)</section>', before, re.S)
+        self.assertEqual([title for title, _ in sections], ['Works today', 'Being worked on', 'Wishlist'])
+        self.assertEqual(re.findall(r'<b>(.*?)</b>.*?pill \w+">(.*?)<', sections[1][1]), [('Soon', 'Next release'), ('Begun', 'Started')])
+        self.assertEqual(re.findall(r'<b>(.*?)</b>.*?pill \w+">(.*?)<', sections[2][1]), [('Someday', 'Not started')])
+        # Once 0.5.3 is the published version, its work leaves the Roadmap for the Changelog.
+        after = site_release.roadmap('0.5.3', folder)
+        self.assertNotIn('Soon', after)
+        self.assertIn('Begun', after)
+        nothing = json.dumps({'works': [{'name': 'Linux', 'text': 'x86_64.', 'pill': 'works'}], 'planned': []})
+        folder.write_text(nothing)
+        self.assertIn('Nothing right now. Everything finished is in the <a href="changelog.html">Changelog</a>.',
+                      site_release.roadmap('0.5.3', folder))
+
+    def test_a_roadmap_item_that_is_not_a_name_a_text_and_one_state_stops_the_site(self):
+        folder = self.folder / 'roadmap.json'
+        works = [{'name': 'Linux', 'text': 'x86_64.', 'pill': 'works'}]
+        bad = [{'works': works}, {'works': [], 'planned': []}, {'works': works, 'planned': [], 'more': []},
+               {'works': [{'name': 'Linux', 'text': 'x86_64.', 'pill': 'soon'}], 'planned': []},
+               {'works': [{'name': 'Linux', 'text': 'x86_64.'}], 'planned': []},
+               {'works': works, 'planned': [{'name': 'A', 'text': ''}]},
+               {'works': works, 'planned': [{'name': 'A', 'text': 'B', 'when': 'soon'}]},
+               {'works': works, 'planned': [{'name': 'A', 'text': 'B', 'in': 'soon'}]},
+               {'works': works, 'planned': [{'name': 'A', 'text': 'B', 'in': '0.6.0', 'started': True}]},
+               {'works': works, 'planned': [{'name': 'A', 'text': 'B', 'started': False}]},
+               {'works': works, 'planned': ['A']}]
+        for value in bad:
+            with self.subTest(value=value):
+                folder.write_text(json.dumps(value))
+                with self.assertRaises(site_release.SiteError):
+                    site_release.roadmap('0.5.3', folder)
+        folder.write_text('{')
+        with self.assertRaises(site_release.SiteError):
+            site_release.roadmap('0.5.3', folder)
+
+    def test_the_published_roadmap_page_is_made_from_the_data_file_which_is_not_published(self):
+        code, error = self.run_site(release(NEWEST))
+        self.assertEqual((code, error), (0, ''))
+        page = self.page('roadmap.html')
+        self.assertIn(site_release.roadmap(NEWEST), page)
+        self.assertNotIn('{roadmap}', page)
+        self.assertFalse((self.out / 'roadmap.json').exists())
+
     def test_the_notes_markdown_becomes_safe_html(self):
         self.assertEqual(site_release.inline('**Bold** and `a **b** <c>` <script>&'),
                          '<b>Bold</b> and <code>a **b** &lt;c&gt;</code> &lt;script&gt;&amp;')

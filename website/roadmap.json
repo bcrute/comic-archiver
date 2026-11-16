@@ -1,0 +1,56 @@
+{
+  "works": [
+    {
+      "name": "Windows",
+      "text": "Windows 10 and 11, 64-bit.",
+      "pill": "works"
+    },
+    {
+      "name": "Linux",
+      "text": "x86_64.",
+      "pill": "works"
+    },
+    {
+      "name": "Mac",
+      "text": "Intel processor, macOS 13 or newer. An early version: not notarized by Apple, tested on macOS 15.",
+      "pill": "works"
+    },
+    {
+      "name": "Android",
+      "text": "The same app on a phone: the same dashboard, sites and files. Android 15 or newer. A beta: download it from this site on the phone.",
+      "pill": "beta"
+    }
+  ],
+  "planned": [
+    {
+      "name": "One series never stops the rest",
+      "text": "A series the site answers oddly for is set aside, shown with the reason and tried again later, while everything else carries on.",
+      "in": "0.5.3"
+    },
+    {
+      "name": "Creator's notes, music, views and comments",
+      "text": "Saved beside each episode when you choose them; every one starts off. Comments are from Tapas.",
+      "in": "0.5.3"
+    },
+    {
+      "name": "Sign in with Google or Facebook",
+      "text": "Today you set a password on your account first."
+    },
+    {
+      "name": "A notice when a download needs you",
+      "text": "A desktop notification when a download stops and waits."
+    },
+    {
+      "name": "Moving a library",
+      "text": "\"Move library here\", and finding a library folder that was renamed."
+    },
+    {
+      "name": "Choosing single series",
+      "text": "Save only the series you pick."
+    },
+    {
+      "name": "Reading the saved extras",
+      "text": "Creator's notes, music and comments shown beside the episode, in the app and when it is exported."
+    }
+  ]
+}

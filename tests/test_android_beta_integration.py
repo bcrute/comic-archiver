@@ -26,6 +26,57 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
             self.provider if provider is None else provider, self.journal if journal is None else journal,
             self.token, pid, running)
 
+    def style_attempts(self, outputs):
+        """Runs the journey up to the reset after the sign-in style test; the attempts made and the error, if any."""
+        import pathlib
+        import subprocess
+        import tempfile
+        from unittest.mock import Mock, patch
+        answers = iter(outputs)
+        calls = []
+
+        def runner(command, timeout=30, keep_bytes=0):
+            calls.append(command[3:])
+            if command[3:5] == ['shell', 'getprop']:
+                return {'returncode': 0, 'tail': '1\n'}
+            if command[3:5] == ['emu', 'avd']:
+                return {'returncode': 0, 'tail': 'avd\nOK\n'}
+            if command[3] == 'install':
+                return {'returncode': 0, 'tail': 'Success\n'}
+            if command[3:5] == ['shell', 'pm']:
+                raise StopIteration  # Past the sign-in style test: far enough.
+            return {'returncode': 0, 'tail': 'WebView package (name, version): (example, 1)\n'}
+
+        def instrument(command, **options):
+            return subprocess.CompletedProcess(command, 0, next(answers), '')
+
+        with tempfile.TemporaryDirectory() as folder, patch.object(gate.subprocess, 'run', side_effect=instrument) as made, \
+                patch.object(gate.time, 'sleep', Mock()) as slept:
+            try:
+                gate.run('adb', 'emulator-5554', 'avd', 'test.apk', pathlib.Path(folder), runner)
+                error = None
+            except StopIteration:
+                error = None
+            except RuntimeError as failure:
+                error = str(failure)
+            log = (pathlib.Path(folder) / 'signin-page-style.log').read_text()
+        return made.call_count, error, slept.call_count, log
+
+    def test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready(self):
+        passed = 'OK (1 test)\nINSTRUMENTATION_CODE: -1\n'
+        unready = f'java.lang.AssertionError: {gate.SIGNIN_STYLE_UNSUPPORTED}\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n'
+        other = 'java.lang.AssertionError: Sign-in page: {}\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n'
+        self.assertEqual(self.style_attempts([passed])[:3], (1, None, 0))
+        attempts, error, slept, log = self.style_attempts([unready, passed])
+        self.assertEqual((attempts, error, slept), (2, None, 1))
+        self.assertIn('=== attempt 1', log)
+        self.assertIn('=== attempt 2', log)
+        self.assertIn('WebView package', log)
+        self.assertEqual(self.style_attempts([unready] * gate.SIGNIN_STYLE_ATTEMPTS)[:2],
+                         (gate.SIGNIN_STYLE_ATTEMPTS, 'The sign-in page style test did not pass'))
+        # Any other failure is never asked again.
+        self.assertEqual(self.style_attempts([other, passed])[:2], (1, 'The sign-in page style test did not pass'))
+
     def test_only_live_matching_partial_and_durable_copy_state_can_authorize_the_host_stop(self):
         self.assertTrue(self.valid())
         self.assertFalse(self.valid(pid=''))
