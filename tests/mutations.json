@@ -10566,5 +10566,109 @@
   "new": "",
   "test_file": "test_extras.py",
   "test": "test_a_tapas_episode_keeps_its_extras_when_the_next_one_is_read_first"
+ },
+ {
+  "id": "history-series-link-info-suffix-refused",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "r'https://tapas\\.io/series/([A-Za-z0-9_-]{1,100})(?:/info)?'",
+  "new": "r'https://tapas\\.io/series/([A-Za-z0-9_-]{1,100})'",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_each_kind_of_history_link_finds_its_series_through_metadata"
+ },
+ {
+  "id": "history-episode-link-other-episode-accepted",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        if type(info.get('id')) is not int or str(info['id']) != episode[1]:\n",
+  "new": "        if type(info.get('id')) is not int:\n",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_each_kind_of_history_link_finds_its_series_through_metadata"
+ },
+ {
+  "id": "history-episode-link-reader-page-ignored",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "            series = safe_primitives('\\n'.join(parser.inline)).get('seriesId')\n",
+  "new": "            series = None\n",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_each_kind_of_history_link_finds_its_series_through_metadata"
+ },
+ {
+  "id": "stop-during-extras-requeues-the-saved-episode",
+  "source": "comic_archive/jobs.py",
+  "old": "                                current = None  # The episode itself is saved; only the job stops.\n",
+  "new": "                                pass\n",
+  "test_file": "test_jobs.py",
+  "test": "test_a_stop_while_extras_are_saved_leaves_the_saved_episode_saved"
+ },
+ {
+  "id": "cbz-page-digest-unchecked",
+  "source": "comic_archive/archive.py",
+  "old": "if p[\"file\"] != f\"{i:0{width}d}{image_extension(data)}\" or digest(data) != p[\"sha256\"]:",
+  "new": "if p[\"file\"] != f\"{i:0{width}d}{image_extension(data)}\":",
+  "test_file": "test_archive.py",
+  "test": "test_a_page_whose_bytes_changed_but_not_its_size_is_reported"
+ },
+ {
+  "id": "png-palette-images-refused",
+  "source": "comic_archive/image_formats.py",
+  "old": "                palette = True\n",
+  "new": "                palette = False\n",
+  "test_file": "test_image_formats.py",
+  "test": "test_png_with_a_colour_palette_is_accepted_only_with_its_palette_before_the_image"
+ },
+ {
+  "id": "webtoon-pageless-web-page-not-read-through-app",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "        if not page.images and not canvas and self.mobile_available():\n            return self._capture_mobile(identity)\n",
+  "new": "",
+  "test_file": "test_webtoon_paid.py",
+  "test": "test_an_episode_not_in_the_unlocked_list_is_read_through_the_app_when_its_web_page_cannot_show_it"
+ },
+ {
+  "id": "webtoon-gone-web-page-not-read-through-app",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "not in {404, 410}:\n                raise\n            return self._capture_mobile(identity)\n        if not page.images and not canvas",
+  "new": "not in {410}:\n                raise\n            return self._capture_mobile(identity)\n        if not page.images and not canvas",
+  "test_file": "test_webtoon_paid.py",
+  "test": "test_an_episode_not_in_the_unlocked_list_is_read_through_the_app_when_its_web_page_cannot_show_it"
+ },
+ {
+  "id": "cloud-record-cover-refused-on-adoption",
+  "source": "comic_archive/working_library.py",
+  "old": "            if len(files) == 4 and files[3].get('name') in {'cover.jpg', 'cover.png', 'cover.gif', 'cover.webp'}:\n",
+  "new": "            if False:\n",
+  "test_file": "test_working_library.py",
+  "test": "test_a_cloud_copy_saved_with_its_series_cover_is_adopted_even_after_the_cover_changed"
+ },
+ {
+  "id": "save-choices-refusal-unexplained",
+  "source": "comic_archive/app_actions.py",
+  "old": "        except DownloadSelectionChangeError as error:\n            LOG.warning('Download choice change failed site=%s reason=%s', site, error.reason)\n            raise Refused('download_selection_change_failed', str(error)) from None\n",
+  "new": "",
+  "test_file": "test_app_actions.py",
+  "test": "test_save_choices_reaches_the_open_library_and_a_download_that_cannot_stop_says_to_wait"
+ },
+ {
+  "id": "save-choices-reaches-another-setting",
+  "source": "comic_archive/app_actions.py",
+  "old": "        return self._call('choose_download_types', value)",
+  "new": "        return self._call('choose_speed', value)",
+  "test_file": "test_app_actions.py",
+  "test": "test_save_choices_reaches_the_open_library_and_a_download_that_cannot_stop_says_to_wait"
+ },
+ {
+  "id": "library-busy-prefers-a-sign-in",
+  "source": "comic_archive/app_runtime.py",
+  "old": "return 'download' if 'download' in answers else 'signin' if 'signin' in answers else None",
+  "new": "return 'signin' if 'signin' in answers else 'download' if 'download' in answers else None",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_library_folder_is_busy_or_gone_when_any_one_site_is"
+ },
+ {
+  "id": "library-vanished-needs-every-site",
+  "source": "comic_archive/app_runtime.py",
+  "old": "return any(runtime.vanished() for runtime in list(self.runtimes.values()))",
+  "new": "return all(runtime.vanished() for runtime in list(self.runtimes.values()))",
+  "test_file": "test_app_runtime.py",
+  "test": "test_the_library_folder_is_busy_or_gone_when_any_one_site_is"
  }
 ]

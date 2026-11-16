@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -102,6 +103,20 @@ class NetworkTests(unittest.TestCase):
             for failure in (OSError('no such library'), AttributeError('WinDLL'), ValueError()):
                 with patch('comic_archive.network_windows.probe', side_effect=failure):
                     self.assertEqual(probe(), {'connection': 'unknown', 'metered': None})
+
+    def test_real_windows_says_which_kind_of_connection_this_computer_is_on(self):
+        # Anything that goes wrong in asking Windows reads as "unknown", which holds every download and upload under
+        # the default Wi-Fi-only rule. The Windows test computer is wired and not metered.
+        from comic_archive import network_windows
+        if os.name != 'nt':
+            # Only Windows can answer; the Windows job asks it. Here: what it should say is that answer.
+            self.assertEqual(network_windows.classify(6, network_windows.UNRESTRICTED), {'connection': 'wired', 'metered': False})
+            return
+        self.assertIn(network_windows._adapter_kind(), network_windows.KINDS)
+        cost = network_windows._cost()
+        self.assertIs(type(cost), int)
+        self.assertTrue(cost & network_windows.UNRESTRICTED)
+        self.assertEqual(network_windows.probe(), {'connection': 'wired', 'metered': False})
 
     def test_windows_adapter_kinds_and_costs_give_the_answers_the_connection_rule_works_with(self):
         from comic_archive.network_windows import classify

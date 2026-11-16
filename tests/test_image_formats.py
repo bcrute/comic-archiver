@@ -217,6 +217,18 @@ class ImageFormatTests(unittest.TestCase):
         self.refused(data[:-12] + png_chunk(b'IEND', b'not-empty'))
         self.refused(data[:33] + data[:33][8:] + data[33:])
 
+    def test_png_with_a_colour_palette_is_accepted_only_with_its_palette_before_the_image(self):
+        output = io.BytesIO()
+        Image.new('RGB', (8, 8), 'red').convert('P').save(output, 'PNG')
+        data = output.getvalue()
+        self.assertEqual(data[25], 3)  # Colour type 3: the pixels are indexes into the palette.
+        self.accepted(data, '.png')
+        start = data.index(b'PLTE') - 4
+        palette = data[start:start + 12 + int.from_bytes(data[start:start + 4], 'big')]
+        without = data.replace(palette, b'')
+        self.refused(without)
+        self.refused(without[:-12] + palette + without[-12:])
+
     def test_gif_counts_sub_blocks_and_colour_tables_instead_of_searching_for_a_semicolon(self):
         data = encoded('GIF')
         with_comment = data[:-1] + b'\x21\xfe\x03a;b\0' + data[-1:]

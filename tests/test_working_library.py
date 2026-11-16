@@ -26,7 +26,7 @@ from comic_archive.saved_library import Catalog
 from comic_archive.working_library import (LibraryImportError, LOCATION_MARKER, RECEIPT, prepare_snapshot,
                                           prepared_snapshot)
 from comic_archive.workspace import Workspace
-from test_archive import MemoryAdapter, png
+from test_archive import MemoryAdapter, jpeg, png
 
 
 class WorkingLibraryTests(unittest.TestCase):
@@ -194,6 +194,29 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assertEqual((saved.parent / 'cover.png').read_bytes(), png(2))
         self.assertEqual(import_metadata(saved.parent / 'series.json'), metadata)
         self.assertEqual(verify(self.output / 'Library'), [])
+
+    def test_a_cloud_copy_saved_with_its_series_cover_is_adopted_even_after_the_cover_changed(self):
+        # A series with a cover uploads it beside each episode, so its cloud record lists four files.
+        for changed in (False, True):
+            with self.subTest(cover_changed=changed):
+                shutil.rmtree(self.source, ignore_errors=True); shutil.rmtree(self.output, ignore_errors=True)
+                root, archive, series, _ = self.publish()
+                with closing(PublicationStore(root)) as store:
+                    store.write_series_metadata(series, cover=png(2))
+                record = self.cloud_receipt(root, archive)
+                self.assertEqual([item['name'] for item in record['files']][3:], ['cover.png'])
+                if changed:
+                    with closing(PublicationStore(root)) as store:
+                        store.write_series_metadata(series, cover=jpeg())
+                with patch.object(cloud, 'transfer_for', side_effect=AssertionError('No network during adoption')):
+                    result = prepare_snapshot(self.source, self.output)
+                self.assertEqual(result.sites[0].cloud_only, 1)
+                target = self.output / 'Library'
+                saved = next(p for p in target.glob('*/*.json') if p.name != 'series.json').with_suffix('.cbz')
+                files = cloud.receipts_for(target, saved, 'b2')[0]['files']
+                self.assertEqual([(item['name'], item['path']) for item in files[2:]],
+                                 [('series.json', (saved.parent / 'series.json').relative_to(target).as_posix()),
+                                  ('cover.png', (saved.parent / 'cover.png').relative_to(target).as_posix())])
 
     def test_legacy_compressed_comic_keeps_its_format_and_publisher_identity(self):
         root, archive, series, episode = self.publish()

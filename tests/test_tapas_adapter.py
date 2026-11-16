@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from comic_archive.adapters.tapas import BrowserReadTransport, TapasAdapter
-from comic_archive.errors import AccessDenied, AuthenticationError, NetworkUnavailable, RunLimit
+from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, NetworkUnavailable, RunLimit
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.network import NetworkPolicyHold
 
@@ -826,6 +826,32 @@ class HistoryAnswerTests(AdapterBase):
         result = adapter.inspect_transaction_history(1)
         self.assertTrue(result['observed_boundary'])
         self.assertEqual((result['pages'][0]['source_types'], result['pages'][0]['server_pagination']), ([], {}))
+
+    def test_each_kind_of_history_link_finds_its_series_through_metadata(self):
+        http = Mock()
+        http.series_identity.side_effect = lambda key: {'source_series_id': key}
+        self.adapter.automatic_adapter = Mock(return_value=http)
+        resolve = self.adapter.purchase_series_identity
+        for url in ('https://tapas.io/series/my-comic', 'https://tapas.io/series/my-comic/info'):
+            self.assertEqual(resolve(url), {'source_series_id': 'my-comic'})
+        http.json_get.assert_not_called()
+        # An episode link is found through its episode's details, or failing that its reader page.
+        http.json_get.return_value = {'id': 81, 'series_id': 42}
+        self.assertEqual(resolve('https://tapas.io/episode/81'), {'source_series_id': '42'})
+        http.json_get.assert_called_with('/episode/81/info')
+        http.transport.get.assert_not_called()
+        http.json_get.return_value = {'id': 81}
+        http.transport.get.return_value = b'<html><script>var page = {seriesId: 43};</script></html>'
+        self.assertEqual(resolve('https://tapas.io/episode/81'), {'source_series_id': '43'})
+        http.transport.get.assert_called_once_with('https://tapas.io/episode/81', max_bytes=8 * 1024 * 1024)
+        http.transport.get.return_value = b'<html><script>var page = {};</script></html>'
+        self.assertIsNone(resolve('https://tapas.io/episode/81'))
+        # Details for another episode, or a link to anywhere else, are refused.
+        http.json_get.return_value = {'id': 82, 'series_id': 42}
+        for url in ('https://tapas.io/episode/81', 'https://example.com/series/my-comic', 'http://tapas.io/series/my-comic',
+                    'https://tapas.io/series/my-comic/episodes', 'https://tapas.io/episode/0'):
+            with self.subTest(url=url), self.assertRaises(MetadataError):
+                resolve(url)
 
 
 class FreeFilterTests(unittest.TestCase):

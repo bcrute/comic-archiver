@@ -545,6 +545,20 @@ class ArchiveTests(unittest.TestCase):
         self.store.write_series_metadata(self.series, cover=jpeg())
         self.assertTrue((folder / 'cover.jpg').is_file())
 
+    def test_a_page_whose_bytes_changed_but_not_its_size_is_reported(self):
+        archive = next(self.archive().glob('*.cbz'))
+        self.assertEqual(verify_episode(archive), [])
+        with zipfile.ZipFile(archive) as z:
+            members = [(name, z.read(name)) for name in z.namelist()]
+        # Two whole, valid pages of the same size trade places: only the recorded content tells them apart.
+        self.assertEqual(len(members[0][1]), len(members[1][1]))
+        self.assertNotEqual(members[0][1], members[1][1])
+        members[0], members[1] = (members[0][0], members[1][1]), (members[1][0], members[0][1])
+        with zipfile.ZipFile(archive, 'w', zipfile.ZIP_STORED) as z:
+            for name, data in members:
+                z.writestr(name, data)
+        self.assertEqual(verify_episode(archive), ['Page content or numbering mismatch'])
+
     def test_an_oversized_episode_record_is_reported_and_never_read(self):
         folder = self.archive()
         archive = next(folder.glob('*.cbz'))

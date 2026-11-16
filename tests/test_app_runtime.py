@@ -46,6 +46,21 @@ class AppRuntimeTests(unittest.TestCase):
         self.addCleanup(library.stop, 0)
         return library
 
+    def test_the_library_folder_is_busy_or_gone_when_any_one_site_is(self):
+        # Closing the window asks first, and the computer is kept awake, while any site downloads or signs in.
+        library = app_runtime.Library(self.root, noted=False)
+
+        def site(busy, vanished=False):
+            return Mock(**{'busy.return_value': busy, 'vanished.return_value': vanished})
+        for tapas, webtoon, expected in ((None, None, None), (None, 'signin', 'signin'), ('signin', 'download', 'download'),
+                                         ('download', 'signin', 'download')):
+            with self.subTest(tapas=tapas, webtoon=webtoon):
+                library.runtimes = {'tapas': site(tapas), 'webtoon': site(webtoon)}
+                self.assertEqual(library.busy(), expected)
+                self.assertFalse(library.vanished())
+        library.runtimes['webtoon'].vanished.return_value = True
+        self.assertTrue(library.vanished())
+
     def reset_logging(self):
         for log in (app_runtime.LOG, logging.getLogger(support_log.DOWNLOAD_LOG)):
             for handler in list(log.handlers):

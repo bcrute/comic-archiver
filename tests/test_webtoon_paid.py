@@ -21,7 +21,7 @@ from comic_archive.models import ArchiveError
 from comic_archive.transport import Transport, asset_url
 from comic_archive.webtoon_gateway import BASE, CLOCK, PUBLIC_GATEWAY_KEY, PAGE_SIZE, signed_url
 from test_archive import png
-from test_webtoon import HOME, Response, series_pages, subscriptions_page, subscription, viewer_link, who
+from test_webtoon import HOME, Response, series_pages, subscriptions_page, subscription, viewer_link, viewer_page, who
 from test_webtoon import LIST_API, listed
 
 
@@ -133,7 +133,8 @@ class MobileSite:
             if parts.path == '/cover.png':
                 return Response(png(44))
         if url in self.pages:
-            return Response(self.pages[url])
+            value = self.pages[url]
+            return Response(*value) if isinstance(value, tuple) else Response(value)
         raise AssertionError('Unexpected synthetic website or image request')
 
     def close(self):
@@ -257,6 +258,29 @@ class PaidWebtoonTests(unittest.TestCase):
         self.assertIn('?dt=one', episode.pages[0].location)
         self.assertIn('?type=q90&delivery=one', episode.pages[1].location)
         self.assertFalse(any('/episode-9/viewer' in u for u, _ in site.calls))
+
+    def test_an_episode_not_in_the_unlocked_list_is_read_through_the_app_when_its_web_page_cannot_show_it(self):
+        # Episode 2 is not in the account's unlocked list. Its web page is used when it shows the pictures.
+        reader, site = adapter()
+        episode = reader.capture_automatic(reader.episode_url('7000002')).episodes[0]
+        self.assertEqual((episode.id, len(episode.pages)), ('7000002', 2))
+        self.assertEqual(site.content_calls(), [])
+        # A web page without pictures, or one Webtoon says is gone, is read through the app instead of set aside.
+        for status in (200, 404, 410):
+            with self.subTest(status=status):
+                reader, site = adapter()
+                url = reader.episode_url('7000002')
+                site.pages[url] = (viewer_page('fantasy', 'sample-series', 7, 2, []) if status == 200 else b'', status)
+                episode = reader.capture_automatic(url).episodes[0]
+                self.assertEqual((episode.id, len(episode.pages)), ('7000002', 3))
+                self.assertEqual(len(site.content_calls()), 1)
+        # Any other refusal is not a reason to read it elsewhere.
+        reader, site = adapter()
+        url = reader.episode_url('7000002')
+        site.pages[url] = (b'', 500)
+        with self.assertRaises(ArchiveError):
+            reader.capture_automatic(url)
+        self.assertEqual(site.content_calls(), [])
 
     def test_free_mobile_policy_may_omit_paid_policy_fields(self):
         reader, site = adapter()

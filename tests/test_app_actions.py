@@ -7,9 +7,9 @@ from unittest.mock import Mock, call, patch
 from comic_archive import app_actions, sites
 from comic_archive.app_actions import Actions, Refused, due, received
 from comic_archive.dashboard_model import LIBRARY_SECONDS, NETWORK_SECONDS, Message, State, error_text
-from comic_archive.errors import DeviceFileOpenUnavailable, LibraryBusy
+from comic_archive.errors import DeviceFileOpenUnavailable, DownloadSelectionChangeError, LibraryBusy
 from comic_archive.library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
-from comic_archive.local_library import LOCAL_OWNER
+from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from comic_archive.models import ArchiveError
 
 LIBRARY = 'a' * 32
@@ -65,9 +65,29 @@ class ActionsTests(unittest.TestCase):
                                    ('cloud_cancel', 'cancel_cloud_signin', ()), ('cloud_upload', 'upload_cloud', ()),
                                    ('wifi_only', 'configure_network', (False,)), ('cloud_storage', 'choose_cloud_storage', ('separate',)),
                                    ('cloud_test', 'test_cloud', ('b2',)), ('task', 'task', (TASK,))):
+            self.assertTrue(callable(getattr(LocalWorkspaceRegistry, method, None)), method)  # The real library has it.
             answer = getattr(self.registry, method).return_value = {'answer': name}
             self.assertEqual(getattr(self.actions, name)(*args), answer, name)
             getattr(self.registry, method).assert_called_once_with(LOCAL_OWNER, LIBRARY, *args)
+
+    def test_save_choices_reaches_the_open_library_and_a_download_that_cannot_stop_says_to_wait(self):
+        from unittest.mock import create_autospec
+        library = create_autospec(LocalWorkspaceRegistry, instance=True)
+        library.workspace_id = LIBRARY
+        self.runtime.registry = library
+        value = dict(bought=True, free=False, limited=True, unclassified=False, notes=True)
+        library.choose_download_types.return_value = {'answer': 'saved'}
+        self.assertEqual(self.actions.download_types(value), {'answer': 'saved'})
+        library.choose_download_types.assert_called_once_with(LOCAL_OWNER, LIBRARY, value)
+        library.choose_download_types.side_effect = DownloadSelectionChangeError('stop_timeout')
+        with self.assertLogs('comic_archive', 'WARNING'):
+            self.assertEqual(self.refused(self.actions.download_types, value), (
+                'download_selection_change_failed',
+                'Download choices could not be changed. The download was not restarted. Wait for it to stop, then try again.'))
+        library.choose_download_types.reset_mock()
+        self.assertEqual(self.refused(self.actions.download_types, value | {'bought': False, 'limited': False})[0],
+                         'request_unavailable')
+        library.choose_download_types.assert_not_called()
 
 
     def test_a_site_or_folder_change_is_followed_and_no_library_is_said_plainly(self):

@@ -609,6 +609,29 @@ class JobTests(unittest.TestCase):
             self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1,'failed':1})
 
     @patch('builtins.print')
+    def test_a_stop_while_extras_are_saved_leaves_the_saved_episode_saved(self, output):
+        # Extras are saved after the episode itself. A Pause or limit then stops the job, but the episode is kept
+        # as saved instead of going back in the queue to be downloaded again.
+        from comic_archive.cancellation import RunCancelled
+        stops = [(RunCancelled('stopped'), 'cancelled'), (RunLimit('limit'), 'limited')]
+        stopped = []
+
+        def extras(output, db, budget, series, episode):
+            stopped.append(episode.id)
+            raise stops[len(stopped) - 1][0]
+        with patch('comic_archive.extras.save_episode', side_effect=extras):
+            for _, status in stops:
+                with self.subTest(status=status):
+                    result = archive_discovered(self.adapter, self.root, self.report)
+                    self.assertEqual(result['status'], status)
+                    self.assertEqual(result['archived_episode_ids'], stopped[-1:])
+                    with Inventory(self.root, read_only=True) as inventory:
+                        self.assertEqual(inventory.db.execute("SELECT status FROM episodes WHERE id=?",
+                                                              (stopped[-1],)).fetchone()[0], 'archived')
+        self.assertEqual(sorted(stopped), ['81', '82'])
+        self.assertEqual(self.adapter.downloads, [1, 2, 1, 2])
+
+    @patch('builtins.print')
     def test_starts_cut_short_do_not_count_towards_setting_an_episode_aside(self,output):
         from comic_archive.cancellation import RunCancelled
         from comic_archive.errors import NetworkUnavailable
