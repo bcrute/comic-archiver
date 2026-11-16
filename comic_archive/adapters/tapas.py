@@ -401,6 +401,9 @@ class TapasAdapter:
         self._automatic = TapasHTTPAdapter(transport=self.transport, expected_account_id=getattr(self, "expected_account_id", None))
         self._automatic.series_seeds = getattr(self, '_series_seeds', {})
         self._automatic.unavailable_headers = getattr(self, '_unavailable_headers', {})
+        # Each capture gets a new reader, and at Fast speed the next episode is captured before this one's extras are
+        # saved, so every reader keeps them in one place.
+        self._automatic._extras = self.__dict__.setdefault('_extras', {})
         return self._automatic
 
     def account_identity(self):

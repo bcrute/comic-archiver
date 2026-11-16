@@ -85,6 +85,7 @@ class FastBrowserAdapter(TapasAdapter):
             expected_account_id=getattr(self, 'expected_account_id', None))
         self._automatic.series_seeds = getattr(self, '_series_seeds', {})
         self._automatic.unavailable_headers = getattr(self, '_unavailable_headers', {})
+        self._automatic._extras = self.__dict__.setdefault('_extras', {})  # As in TapasAdapter.automatic_adapter.
         return self._automatic
 
 

@@ -10542,5 +10542,29 @@
   "new": "        start = walked + 1 if type(walked) is int and walked < index else 0\n",
   "test_file": "test_purchase_history.py",
   "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
+ },
+ {
+  "id": "tapas-reader-keeps-its-own-extras",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        self._automatic._extras = self.__dict__.setdefault('_extras', {})\n        return self._automatic\n",
+  "new": "        return self._automatic\n",
+  "test_file": "test_extras.py",
+  "test": "test_a_tapas_episode_keeps_its_extras_when_the_next_one_is_read_first"
+ },
+ {
+  "id": "fast-tapas-reader-keeps-its-own-extras",
+  "source": "comic_archive/fast_import.py",
+  "old": "        self._automatic._extras = self.__dict__.setdefault('_extras', {})  # As in TapasAdapter.automatic_adapter.\n",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_a_tapas_episode_keeps_its_extras_when_the_next_one_is_read_first"
+ },
+ {
+  "id": "phone-tapas-reader-keeps-its-own-extras",
+  "source": "comic_archive/android_browser.py",
+  "old": "        self._automatic._extras = self.__dict__.setdefault('_extras', {})  # As in TapasAdapter.automatic_adapter.\n",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_a_tapas_episode_keeps_its_extras_when_the_next_one_is_read_first"
  }
 ]

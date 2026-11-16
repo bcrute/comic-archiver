@@ -305,6 +305,42 @@ class SiteCaptureTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ArchiveError):
                 adapter.retrieve_extra(bad, 5)
 
+    def test_a_tapas_episode_keeps_its_extras_when_the_next_one_is_read_first(self):
+        # Each Tapas capture gets a new reader, and at Fast speed the job reads the next episode before it saves this
+        # one's extras. The extras must still be there, on the desktop at either speed and on the phone.
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from comic_archive.adapters.tapas import TapasAdapter
+        from comic_archive.android_browser import AndroidTapasBrowserAdapter
+        from comic_archive.fast_import import FastBrowserAdapter
+
+        class Transport:
+            def __init__(self, *args, **kwargs):
+                self.assets, self.last, self.deadline = SimpleNamespace(client=Mock()), 0.0, None
+
+            def close(self):
+                pass
+
+        def bare(kind, **values):
+            adapter = kind.__new__(kind)
+            adapter.__dict__.update(context=Mock(closed=False), page=Mock(), transport=None, **values)
+            return adapter
+
+        with patch('comic_archive.adapters.tapas.BrowserReadTransport', Transport), \
+                patch('comic_archive.fast_import.BrowserReadTransport', Transport), \
+                patch('comic_archive.android_browser.AndroidBrowserTransport', Transport), patch('httpx.Client'):
+            for adapter in (bare(TapasAdapter), bare(FastBrowserAdapter),
+                            bare(AndroidTapasBrowserAdapter, fast=True, interval=1.0, network_guard=None)):
+                with self.subTest(adapter=type(adapter).__name__):
+                    this = adapter.automatic_adapter()
+                    this._remember_extras('1', 'note one')
+                    following = adapter.automatic_adapter()
+                    following._remember_extras('2', 'note two')
+                    self.assertIsNot(following, this)
+                    self.assertEqual(adapter.episode_extras('1'), 'note one')
+                    self.assertEqual(adapter.episode_extras('2'), 'note two')
+                    self.assertIsNone(adapter.episode_extras('1'))
+
 
 class BudgetTests(unittest.TestCase):
     def test_music_counts_toward_the_byte_budget_and_comments_toward_its_checks(self):
