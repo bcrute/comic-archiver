@@ -6626,8 +6626,8 @@
  {
   "id": "speed-change-accepts-queued-as-finished",
   "source": "comic_archive/account_ui.py",
-  "old": "if response['status'] in ('ok', 'error') and worker.get('state') == 'ready':",
-  "new": "if worker.get('state') == 'ready':",
+  "old": "if response['status'] in ('ok', 'error') and (idle or worker.get('state') == 'ready'):",
+  "new": "if (idle or worker.get('state') == 'ready'):",
   "test_file": "test_account_ui.py",
   "test": "test_a_queued_old_pace_is_cancelled_before_a_fresh_task_can_use_the_new_speed"
  },
@@ -10686,5 +10686,29 @@
   "new": "and number(estimate.get('waiting_episodes')):",
   "test_file": "test_dashboard_model.py",
   "test": "test_a_guess_from_series_never_checked_stays_put_while_each_series_is_read"
+ },
+ {
+  "id": "setting-change-waits-for-a-gone-downloader-to-say-ready",
+  "source": "comic_archive/account_ui.py",
+  "old": "(idle or worker.get('state') == 'ready')",
+  "new": "worker.get('state') == 'ready'",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_change_after_the_downloader_was_ended_mid_step_saves_without_waiting_for_it"
+ },
+ {
+  "id": "setting-change-leaves-a-gone-downloaders-step-unanswered",
+  "source": "comic_archive/account_ui.py",
+  "old": "                if idle:\n                    end_unstarted(workspace.session, workspace.library, task)\n",
+  "new": "",
+  "test_file": "test_account_ui.py",
+  "test": "test_a_change_after_the_downloader_was_ended_mid_step_saves_without_waiting_for_it"
+ },
+ {
+  "id": "setting-change-ends-a-running-downloaders-step-unrun",
+  "source": "comic_archive/account_ui.py",
+  "old": "idle = not background.running(background.root(workspace.session))",
+  "new": "idle = True",
+  "test_file": "test_account_ui.py",
+  "test": "test_speed_change_timeout_keeps_the_old_choice_and_the_download_paused"
  }
 ]

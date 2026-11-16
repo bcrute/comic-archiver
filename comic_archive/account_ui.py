@@ -129,7 +129,8 @@ def _change_setting(workspace, save_choice, *, closing, selection=False, on_stop
     asked = []
 
     def wait(task):
-        from .task_cancellation import admission_lock, request_running_stop
+        from . import background
+        from .task_cancellation import admission_lock, end_unstarted, request_running_stop
         deadline = time.monotonic() + SPEED_CHANGE_WAIT_SECONDS
         while not closing.is_set():
             try:
@@ -139,10 +140,16 @@ def _change_setting(workspace, save_choice, *, closing, selection=False, on_stop
                     asked.append(True)
                     on_stop_requested()
                 _interrupted(workspace.session, workspace.library, task)
+                # No downloader runs: one ended with the app (as the phone's is when the app is closed mid-step)
+                # leaves its last word, busy, behind. Nothing will answer the step or say it is ready, so the
+                # step is ended unrun, as at a start of the app, instead of being waited for until the change fails.
+                idle = not background.running(background.root(workspace.session))
+                if idle:
+                    end_unstarted(workspace.session, workspace.library, task)
                 with admission_lock(workspace.session):
                     response = task_status(workspace.session, task)
                     worker = _read(workspace.session / 'worker/status.json')
-                    if response['status'] in ('ok', 'error') and worker.get('state') == 'ready':
+                    if response['status'] in ('ok', 'error') and (idle or worker.get('state') == 'ready'):
                         with LibraryLock(workspace.library):
                             return response
             except LibraryBusy:

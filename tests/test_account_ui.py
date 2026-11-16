@@ -525,9 +525,39 @@ class AccountUITests(unittest.TestCase):
         task=self.outstanding()
         if task is None or not (self.queue/'requests'/(task+'.json')).is_file():self.fail('no batch was published')
         private_json(self.queue/'status.json',{'state':'busy','task_id':task})
+        self.hold_worker_lock()
         with Inventory(library) as inventory:run=inventory.start_run()
         job_progress(library,run,phase='archive')
         return task,run
+
+    def hold_worker_lock(self):
+        """The runtime lock a running downloader holds for as long as it runs, taken on a thread of its own."""
+        from comic_archive.locking import LibraryLock
+        taken,release=threading.Event(),threading.Event()
+
+        def hold():
+            with LibraryLock(self.queue/'.runtime'):
+                taken.set();release.wait(30)
+        thread=threading.Thread(target=hold);thread.start();taken.wait(10)
+
+        def end():
+            release.set();thread.join(10)
+        self.addCleanup(end)
+        self.end_worker=end
+
+    def test_a_change_after_the_downloader_was_ended_mid_step_saves_without_waiting_for_it(self):
+        # The phone's downloader runs inside the app: closed mid-step, it leaves the worker's last word (busy
+        # with the step) and the step's request, with no downloader left to answer either.
+        task,_=self.running_batch()
+        self.end_worker()  # The downloader is gone; its lock went with it.
+        choices=dict(bought=False,free=True,limited=False,unclassified=False)
+        with patch.object(account_ui.time,'sleep',side_effect=AssertionError('waited for a downloader that is gone')):
+            changed=self.registry.choose_download_types(LOCAL_OWNER,self.workspace.id,choices)
+        self.assertEqual(changed['download_types'],choices)
+        self.assertEqual(account_ui.download_types(self.workspace),choices)
+        self.assertIsNone(self.outstanding())
+        receipt=json.loads((self.queue/'responses'/(task+'.json')).read_text())
+        self.assertEqual(receipt['result']['status'],'cancelled')
 
     def end_batch(self,task,value,request=True):
         private_json(self.queue/'responses'/(task+'.json'),{'task_id':task,**value})
