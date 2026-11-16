@@ -6490,10 +6490,10 @@
  {
   "id": "dashboard-speculative-size-shown-as-queued",
   "source": "comic_archive/dashboard_model.py",
-  "old": "return bool(estimate and not number(estimate.get('waiting_episodes'))\n                and (number(estimate.get('unchecked_series')) or number(estimate.get('checking_series'))\n                     or estimate.get('checking_lists') is True))",
+  "old": "return bool(estimate and not number(estimate.get('waiting_episodes')) and not number(estimate.get('unchecked_series'))\n                and (number(estimate.get('checking_series')) or estimate.get('checking_lists') is True))",
   "new": "return False",
   "test_file": "test_dashboard_model.py",
-  "test": "test_unchecked_series_do_not_claim_that_downloads_are_waiting"
+  "test": "test_series_only_being_checked_again_do_not_claim_that_downloads_are_waiting"
  },
  {
   "id": "site-layout-copies-instead-of-moves",
@@ -10670,5 +10670,21 @@
   "new": "return all(runtime.vanished() for runtime in list(self.runtimes.values()))",
   "test_file": "test_app_runtime.py",
   "test": "test_the_library_folder_is_busy_or_gone_when_any_one_site_is"
+ },
+ {
+  "id": "dashboard-guess-hidden-while-the-next-series-is-read",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "and not number(estimate.get('unchecked_series'))\n                and (number(estimate.get('checking_series'))",
+  "new": "\n                and (number(estimate.get('unchecked_series')) or number(estimate.get('checking_series'))",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_guess_from_series_never_checked_stays_put_while_each_series_is_read"
+ },
+ {
+  "id": "dashboard-card-space-only-while-episodes-are-queued",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "and (number(estimate.get('waiting_episodes')) or number(estimate.get('unchecked_series'))):",
+  "new": "and number(estimate.get('waiting_episodes')):",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_a_guess_from_series_never_checked_stays_put_while_each_series_is_read"
  }
 ]

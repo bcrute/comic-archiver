@@ -274,11 +274,14 @@ most once per minute, plus phase boundaries; they reuse the verification pass
 and do not trigger recounts. Logs include the stage, checked/total archives,
 bytes, integrity failures and elapsed seconds without filenames or account data.
 
-The desktop distinguishes possible downloads in unchecked series from episodes
-actually queued. If only speculative work remains, Time left is unknown and
-Space says no downloads are queued, while retaining the free-space figure. The
-hint explains that those series may contain nothing new. Mixed estimates are
-labeled as estimates; the underlying conservative planning figures are retained.
+Time left and Space are guessed from episodes queued plus series never checked
+(each taken to hold a typical series), whether or not anything is queued at that
+moment: a first download empties its queue at every series, and the figure must
+not come and go with it. Only when the remaining work is series being checked
+again (or account lists still being read) and nothing is queued is there nothing
+to guess from: Time left is unknown and Space says no downloads are queued, with
+the free-space figure kept and no disk-full warning. Guesses are labeled as
+estimates.
 
 The selected library location is a shared root. Tapas, Webtoon and Tappytoon
 each use a sibling provider directory containing their Library and private

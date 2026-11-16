@@ -857,8 +857,8 @@ class DashboardTests(PagesCase):
         window_pages.paint(Q, self.window, True)
         self.actions.reading['account'].update(status='running', phase='series', elapsed_seconds=600,
                                               progress_age_seconds=10)
-        self.actions.reading['status']['estimate'] = {'waiting_episodes':0,'unchecked_series':10,
-            'left_bytes':4_800_000_000,'free_bytes':1_400_000_000_000,'seconds':3600}
+        self.actions.reading['status']['estimate'] = {'waiting_episodes':0,'checking_series':10,
+            'left_bytes':0,'free_bytes':1_400_000_000_000,'seconds':0}
         self.open()
         settle()
         self.assertEqual(self.fields()['Status'], 'Checking and saving your episodes')

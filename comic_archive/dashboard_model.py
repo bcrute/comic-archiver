@@ -120,10 +120,11 @@ def wait_text(seconds):
 
 
 def unconfirmed_downloads(estimate):
-    """Unchecked series are possible future work, not episodes known to be waiting."""
-    return bool(estimate and not number(estimate.get('waiting_episodes'))
-                and (number(estimate.get('unchecked_series')) or number(estimate.get('checking_series'))
-                     or estimate.get('checking_lists') is True))
+    """Nothing waiting and nothing to guess from: only series being checked again, or the account's lists still being
+    read. A series never checked is guessed at (estimate.EPISODES_PER_SERIES) whether or not episodes are queued at
+    that moment, so the figure stays put as each series' episodes are saved and the next series is read."""
+    return bool(estimate and not number(estimate.get('waiting_episodes')) and not number(estimate.get('unchecked_series'))
+                and (number(estimate.get('checking_series')) or estimate.get('checking_lists') is True))
 
 
 def estimate_tip(estimate):
@@ -550,7 +551,7 @@ def card_summary(s=None, v=None):
         elif time != NONE:
             facts[say('dashboard.time_left')]['value'] = '~' + time.replace(' minutes', ' min')
         left = estimate.get('left_bytes')
-        if type(left) is int and left >= 0 and number(estimate.get('waiting_episodes')):
+        if type(left) is int and left >= 0 and (number(estimate.get('waiting_episodes')) or number(estimate.get('unchecked_series'))):
             tip = ESTIMATE_TIP
             if type(estimate.get('free_bytes')) is int:
                 tip += say('dashboard.free_on_this_disk', value=room(estimate['free_bytes']))
@@ -788,7 +789,8 @@ def view(s, now):
     time = time_row(estimate) if not finished else ''
     row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
     space, short = space_row({'free_bytes': estimate.get('free_bytes')} if finished and estimate else estimate)
-    estimated_space = estimate and (number(estimate.get('waiting_episodes')) or unconfirmed_downloads(estimate))
+    estimated_space = estimate and (number(estimate.get('waiting_episodes')) or number(estimate.get('unchecked_series'))
+                                    or unconfirmed_downloads(estimate))
     row(say('dashboard.space'), space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')
     if running and elapsed is not None:
         row(say('dashboard.running_for'), duration(elapsed) + ('' if age is None else
