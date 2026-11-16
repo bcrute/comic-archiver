@@ -16,9 +16,16 @@ TARGET = 'io.github.bcrute.comicarchiver'
 TEST_CLASS = TARGET + '.integration.BetaJourneyTest'
 CONTROL = 'content://' + TARGET + '.test.control'
 TREE = 'content://' + TARGET + '.test.documents/tree/root'
-SIGNIN_STYLE_ATTEMPTS = 3
-SIGNIN_STYLE_PAUSE = 15
 SIGNIN_STYLE_UNSUPPORTED = 'The hide rule needs the script-world capability'
+# The current WebView the integration rerun installs (android_ci_integration.py). The emulator image's own
+# WebView 133 predates the script-world capability, so there the hide rule cannot run and is checked on this one.
+PINNED_WEBVIEW = 'com.android.webview'
+
+
+def active_webview(dumpsys):
+    """The active WebView provider's package name and version from `dumpsys webviewupdate`, or None."""
+    found = re.search(r'Current WebView package \(name, version\): \(([^,()]+), ([^()]+)\)', dumpsys)
+    return (found[1].strip(), found[2].strip()) if found else None
 
 
 def _inventory(provider):
@@ -195,24 +202,22 @@ def run(adb, serial, avd_name, test_apk, artifacts, runner):
                 '-e', 'disposable_emulator', 'true', '-e', 'run_token', token, component]
 
     # The sign-in screen's hide rule, in the real WebView, before the journey's own state.
-    for attempt in range(1, SIGNIN_STYLE_ATTEMPTS + 1):
-        styled = subprocess.run([*prefix, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
-                                 TARGET + '.integration.SignInPageStyleTest', '-e', 'disposable_emulator', 'true',
-                                 '-e', 'run_token', token, component], capture_output=True, text=True, timeout=180,
-                                check=False)
-        webview = runner([*prefix, 'shell', 'dumpsys', 'webviewupdate'], timeout=30, keep_bytes=4000)
-        # Kept beside any earlier attempt's log in the same job, so a failure that passes on a retry can still be read.
-        with (artifacts / 'signin-page-style.log').open('a', encoding='utf-8') as log:
-            log.write(f'=== attempt {attempt}\n' + styled.stdout[-32000:] + styled.stderr[-4000:]
-                      + '\n--- webview\n' + webview['tail'] + '\n')
-        if 'OK (1 test)' in styled.stdout and 'INSTRUMENTATION_CODE: -1' in styled.stdout:
-            break
-        # A fresh emulator may still be setting up its WebView, and a process asks it what it can do only once:
-        # only that answer is asked again, in a new process. Any other failure stops the journey.
-        if SIGNIN_STYLE_UNSUPPORTED not in styled.stdout or attempt == SIGNIN_STYLE_ATTEMPTS:
+    styled = subprocess.run([*prefix, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+                             TARGET + '.integration.SignInPageStyleTest', '-e', 'disposable_emulator', 'true',
+                             '-e', 'run_token', token, component], capture_output=True, text=True, timeout=180,
+                            check=False)
+    webview = runner([*prefix, 'shell', 'dumpsys', 'webviewupdate'], timeout=30, keep_bytes=4000)
+    provider = active_webview(webview['tail'])
+    # Kept beside the other run's log in the same job, so both WebViews' results can be read.
+    with (artifacts / 'signin-page-style.log').open('a', encoding='utf-8') as log:
+        log.write(f'=== WebView {provider}\n' + styled.stdout[-32000:] + styled.stderr[-4000:]
+                  + '\n--- webview\n' + webview['tail'] + '\n')
+    if not ('OK (1 test)' in styled.stdout and 'INSTRUMENTATION_CODE: -1' in styled.stdout):
+        # Only a WebView without the capability, and never the pinned one, is let through: the rerun checks there.
+        if SIGNIN_STYLE_UNSUPPORTED not in styled.stdout or provider is None or provider[0] == PINNED_WEBVIEW:
             raise RuntimeError('The sign-in page style test did not pass')
-        print(json.dumps({'signin_page_style': 'webview_not_ready', 'attempt': attempt}), flush=True)
-        time.sleep(SIGNIN_STYLE_PAUSE)
+        print(json.dumps({'signin_page_style': 'checked_on_the_pinned_webview', 'webview': ' '.join(provider)}),
+              flush=True)
     # The journey starts from fresh app data, as after the integration gate's cookie check.
     if 'Success' not in command('shell', 'pm', 'clear', TARGET).splitlines():
         raise RuntimeError('Fixture reset after the sign-in page style test failed')

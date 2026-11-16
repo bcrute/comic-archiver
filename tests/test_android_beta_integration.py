@@ -26,8 +26,8 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
             self.provider if provider is None else provider, self.journal if journal is None else journal,
             self.token, pid, running)
 
-    def style_attempts(self, outputs):
-        """Runs the journey up to the reset after the sign-in style test; the attempts made and the error, if any."""
+    def style_attempts(self, outputs, webview='com.google.android.webview, 133.0.6943.137'):
+        """Runs the journey up to the reset after the sign-in style test; the runs made and the error, if any."""
         import pathlib
         import subprocess
         import tempfile
@@ -45,7 +45,7 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
                 return {'returncode': 0, 'tail': 'Success\n'}
             if command[3:5] == ['shell', 'pm']:
                 raise StopIteration  # Past the sign-in style test: far enough.
-            return {'returncode': 0, 'tail': 'WebView package (name, version): (example, 1)\n'}
+            return {'returncode': 0, 'tail': f'Current WebView package (name, version): ({webview})\n'}
 
         def instrument(command, **options):
             return subprocess.CompletedProcess(command, 0, next(answers), '')
@@ -62,20 +62,24 @@ class BetaJourneyEvidenceTests(unittest.TestCase):
             log = (pathlib.Path(folder) / 'signin-page-style.log').read_text()
         return made.call_count, error, slept.call_count, log
 
-    def test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready(self):
+    def test_the_sign_in_style_test_is_let_through_only_on_a_stock_webview_without_the_capability(self):
         passed = 'OK (1 test)\nINSTRUMENTATION_CODE: -1\n'
-        unready = f'java.lang.AssertionError: {gate.SIGNIN_STYLE_UNSUPPORTED}\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n'
+        unsupported = f'java.lang.AssertionError: {gate.SIGNIN_STYLE_UNSUPPORTED}\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n'
         other = 'java.lang.AssertionError: Sign-in page: {}\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n'
-        self.assertEqual(self.style_attempts([passed])[:3], (1, None, 0))
-        attempts, error, slept, log = self.style_attempts([unready, passed])
-        self.assertEqual((attempts, error, slept), (2, None, 1))
-        self.assertIn('=== attempt 1', log)
-        self.assertIn('=== attempt 2', log)
-        self.assertIn('WebView package', log)
-        self.assertEqual(self.style_attempts([unready] * gate.SIGNIN_STYLE_ATTEMPTS)[:2],
-                         (gate.SIGNIN_STYLE_ATTEMPTS, 'The sign-in page style test did not pass'))
-        # Any other failure is never asked again.
-        self.assertEqual(self.style_attempts([other, passed])[:2], (1, 'The sign-in page style test did not pass'))
+        failed = 'The sign-in page style test did not pass'
+        pinned = gate.PINNED_WEBVIEW + ', 159.0.8128.0'
+        runs, error, slept, log = self.style_attempts([passed])
+        self.assertEqual((runs, error, slept), (1, None, 0))
+        self.assertIn("=== WebView ('com.google.android.webview', '133.0.6943.137')", log)
+        # The image's own WebView cannot run the rule: run once, never again, and the rerun checks it.
+        self.assertEqual(self.style_attempts([unsupported])[:3], (1, None, 0))
+        self.assertEqual(self.style_attempts([passed], webview=pinned)[:2], (1, None))
+        # On the pinned WebView, on an unknown one, or for any other reason, a failure stops the journey.
+        self.assertEqual(self.style_attempts([unsupported], webview=pinned)[:2], (1, failed))
+        self.assertEqual(self.style_attempts([unsupported], webview='nothing here')[:2], (1, failed))
+        self.assertEqual(self.style_attempts([other])[:2], (1, failed))
+        self.assertEqual(gate.active_webview('Current WebView package (name, version): (a.b, 1.2)\n'), ('a.b', '1.2'))
+        self.assertIsNone(gate.active_webview(''))
 
     def test_only_live_matching_partial_and_durable_copy_state_can_authorize_the_host_stop(self):
         self.assertTrue(self.valid())

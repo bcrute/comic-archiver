@@ -10448,20 +10448,20 @@
   "test": "test_the_roadmap_drops_what_the_published_version_has_and_shows_what_comes_next"
  },
  {
-  "id": "signin-style-any-failure-retried",
+  "id": "signin-style-any-failure-let-through",
   "source": "scripts/android_beta_integration.py",
-  "old": "        if SIGNIN_STYLE_UNSUPPORTED not in styled.stdout or attempt == SIGNIN_STYLE_ATTEMPTS:",
-  "new": "        if attempt == SIGNIN_STYLE_ATTEMPTS:",
+  "old": "        if SIGNIN_STYLE_UNSUPPORTED not in styled.stdout or provider is None or provider[0] == PINNED_WEBVIEW:",
+  "new": "        if provider is None or provider[0] == PINNED_WEBVIEW:",
   "test_file": "test_android_beta_integration.py",
-  "test": "test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready"
+  "test": "test_the_sign_in_style_test_is_let_through_only_on_a_stock_webview_without_the_capability"
  },
  {
-  "id": "signin-style-endless",
+  "id": "signin-style-pinned-webview-let-through",
   "source": "scripts/android_beta_integration.py",
-  "old": " or attempt == SIGNIN_STYLE_ATTEMPTS:",
+  "old": " or provider[0] == PINNED_WEBVIEW:",
   "new": ":",
   "test_file": "test_android_beta_integration.py",
-  "test": "test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready"
+  "test": "test_the_sign_in_style_test_is_let_through_only_on_a_stock_webview_without_the_capability"
  },
  {
   "id": "extras-comments-pause-ignored",
