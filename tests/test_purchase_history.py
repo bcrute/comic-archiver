@@ -185,6 +185,17 @@ class PurchaseHistoryTests(unittest.TestCase):
             self.assertNotIn('PRIVATE', '\n'.join(captured.output))
             self.assertIn('reason=metadata_unverified', '\n'.join(captured.output))
 
+    def test_a_history_page_tapas_refused_sets_history_aside_and_says_why(self):
+        from comic_archive.adapters.tapas_history import invalid
+        refused = invalid('page_refused', 'Tapas refused a purchase-history page (HTTP 400).')
+        refused.source_http_status = 400
+        self.adapter.purchase_history_page.side_effect = refused
+        with self.store() as inventory:
+            with self.assertLogs('comic_archive.download', level='INFO') as captured:
+                result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+            self.assertEqual((result['status'], result['code']), ('partial', 'history_rows_unverified'))
+            self.assertIn('reason=page_refused', '\n'.join(captured.output))
+
     def test_skipped_or_invalid_continuation_retains_candidates_without_following(self):
         for cursor in (self.cursor | {'index': 2}, self.cursor | {'index': 10000}, {'action': 'buy'}):
             with self.subTest(cursor=cursor), self.store() as inventory:

@@ -15,7 +15,7 @@ from ..models import ArchiveError
 
 LIMIT = 4 * 1024 * 1024
 REASONS = frozenset({'row_structure', 'row_balance', 'row_size', 'response_size', 'response_encoding',
-                     'response_shape', 'pagination_shape', 'row_incomplete', 'row_empty'})
+                     'response_shape', 'pagination_shape', 'row_incomplete', 'row_empty', 'page_refused'})
 
 
 def invalid(reason, message):

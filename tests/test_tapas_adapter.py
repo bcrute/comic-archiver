@@ -192,6 +192,33 @@ class BrowserTransportTests(unittest.TestCase):
                 transport.get('https://tapas.io/profile/transactions'+query)
         page.evaluate.assert_not_called()
 
+    @patch('comic_archive.adapters.tapas.Transport')
+    def test_a_history_page_tapas_refuses_is_set_aside_but_a_refusal_elsewhere_still_stops(self, assets):
+        from comic_archive.errors import MetadataError
+        page = Mock(url='https://tapas.io/')
+        transport = BrowserReadTransport(page, Mock())
+        history = 'https://tapas.io/profile/transactions?to_prev=true&index=3'
+        for status in (400, 500):
+            page.evaluate.return_value = {'status': status, 'text': '{"code":400}'}
+            with self.subTest(status=status), self.assertRaises(MetadataError) as refused:
+                transport.get(history, max_bytes=4194304)
+            self.assertEqual((refused.exception.history_reason, refused.exception.source_http_status),
+                             ('page_refused', status))
+        # Slow down, gone, and signed out keep their own handling; any other page refused still stops the job.
+        for status in (403, 404, 410, 429):
+            page.evaluate.return_value = {'status': status, 'text': ''}
+            with self.subTest(status=status), self.assertRaises(ArchiveError) as refused:
+                transport.get(history, max_bytes=4194304)
+            self.assertNotIsInstance(refused.exception, MetadataError)
+            self.assertEqual(refused.exception.source_http_status, status)
+        page.evaluate.return_value = {'status': 401, 'text': ''}
+        with self.assertRaises(AuthenticationError):
+            transport.get(history, max_bytes=4194304)
+        page.evaluate.return_value = {'status': 400, 'text': ''}
+        with self.assertRaises(ArchiveError) as refused:
+            transport.get('https://tapas.io/series/12/episodes')
+        self.assertNotIsInstance(refused.exception, MetadataError)
+
 
 class AdapterBase(unittest.TestCase):
     def setUp(self):

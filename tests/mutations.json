@@ -10478,5 +10478,37 @@
   "new": "    if True:\n        values['{roadmap}']",
   "test_file": "test_site_release.py",
   "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
+ },
+ {
+  "id": "history-page-refusal-stops-the-download",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        if history and value['status'] not in {200, 403, 404, 410, 429}:\n",
+  "new": "        if False:\n",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_a_history_page_tapas_refuses_is_set_aside_but_a_refusal_elsewhere_still_stops"
+ },
+ {
+  "id": "history-page-slow-down-set-aside",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        if history and value['status'] not in {200, 403, 404, 410, 429}:\n",
+  "new": "        if history and value['status'] != 200:\n",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_a_history_page_tapas_refuses_is_set_aside_but_a_refusal_elsewhere_still_stops"
+ },
+ {
+  "id": "any-refused-page-set-aside-as-history",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        if history and value['status'] not in {200, 403, 404, 410, 429}:\n",
+  "new": "        if value['status'] not in {200, 403, 404, 410, 429}:\n",
+  "test_file": "test_tapas_adapter.py",
+  "test": "test_a_history_page_tapas_refuses_is_set_aside_but_a_refusal_elsewhere_still_stops"
+ },
+ {
+  "id": "refused-history-page-reason-unlisted",
+  "source": "comic_archive/adapters/tapas_history.py",
+  "old": "'row_incomplete', 'row_empty', 'page_refused'})",
+  "new": "'row_incomplete', 'row_empty'})",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_history_page_tapas_refused_sets_history_aside_and_says_why"
  }
 ]

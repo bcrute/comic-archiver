@@ -282,6 +282,13 @@ class BrowserReadTransport:
             unavailable.source_series_id=series_route[1]
             unavailable.source_route=parsed.path
             raise unavailable
+        if history and value['status'] not in {200, 403, 404, 410, 429}:
+            # Tapas refuses a history page asked out of turn (HTTP 400 since November 2026). History only finds
+            # more series; the round sets it aside and the lists and series are still read.
+            from .tapas_history import invalid
+            refused = invalid('page_refused', f"Tapas refused a purchase-history page (HTTP {value['status']}).")
+            refused.source_http_status = value['status']
+            raise refused
         if value["status"] != 200:
             detail = ' (browser challenge)' if diagnostics.get('source_response_kind') == 'challenge' else ''
             refused = ArchiveError(f"Normal browser metadata GET {parsed.path} returned HTTP {value['status']}{detail}; this job has stopped.")

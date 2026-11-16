@@ -135,7 +135,7 @@ class WordingTests(unittest.TestCase):
                  ('cancelled', 0): '',
                  ('login_required', 0): 'The sign-in had expired',
                  ('cloud_space', 0): 'An upload to cloud storage stopped. ' + model.CLOUD_HINTS['cloud_space'],
-                 ('mystery', 0): 'It stopped unexpectedly; check that this disk has free space'}
+                 ('mystery', 0): 'It stopped unexpectedly; if it stops again, send the log from Support'}
         for (code, missing), said in cases.items():
             with self.subTest(code=code, missing=missing):
                 self.assertEqual(model.held_reason(code, 'Tapas', missing), said)

@@ -255,7 +255,7 @@
  "dashboard.incomplete_content": "Incomplete content",
  "dashboard.is_saved_and_about_is_still": ": {value} is saved and about {value2} is still to come",
  "dashboard.it_only_continues_while_this_app": "It only continues while this app is open.",
- "dashboard.it_stopped_unexpectedly_check_that_this": "It stopped unexpectedly; check that this disk has free space",
+ "dashboard.it_stopped_unexpectedly_if_it_stops": "It stopped unexpectedly; if it stops again, send the log from Support",
  "dashboard.last_ago": " | last {value} {value2} ago",
  "dashboard.limited": "Limited",
  "dashboard.lists": "Lists",

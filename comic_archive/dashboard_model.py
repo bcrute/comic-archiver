@@ -257,7 +257,7 @@ def held_reason(code, site, missing, audit=None):
                'cancelled': ''}
     if code in CLOUD_HINTS:
         return say('dashboard.an_upload_to_cloud_storage_stopped', value=CLOUD_HINTS[code])
-    return reasons.get(code, say('dashboard.it_stopped_unexpectedly_check_that_this'))
+    return reasons.get(code, say('dashboard.it_stopped_unexpectedly_if_it_stops'))
 
 
 def time_row(estimate):
