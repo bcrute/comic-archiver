@@ -21,7 +21,7 @@ from comic_archive.run_receipts import failure_result
 from comic_archive.worker import controller_ticks, execute, private_json
 from test_download_integration import OfflineAdapter, library_archives
 
-KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'status', 'phase', 'code', 'lists',
+KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'download_extras', 'status', 'phase', 'code', 'lists',
         'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit', 'purchase_history', 'transfer'}
 STATUSES = {'running', 'held', 'stopped', 'finished'}
 PHASES = ['existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished']
@@ -65,6 +65,9 @@ class DownloadContractTests(unittest.TestCase):
         self.assertIs(value['supported'], True)
         self.assertIs(value['coverage_verified'], False)
         self.assertIn(value['speed'], account_ui.SPEEDS)
+        # The offline workspace is Tapas's; its extras all start off, and none are reported when choices cannot be read.
+        self.assertIn(value['download_extras'], ({}, dict.fromkeys(('notes', 'music', 'stats', 'comments'), False)))
+        self.assertEqual(value['download_extras'] == {}, value['download_types'] is None)
         choices = value['download_types']
         if choices is None:
             self.assertEqual((value.get('status'), value.get('code')), ('held', 'controller_failed'))

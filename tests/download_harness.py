@@ -16,7 +16,7 @@ from comic_archive.task_cancellation import cancelled_result, queued_stop_reques
 from comic_archive.worker import controller_ticks, execute, private_json
 from test_archive import png
 
-KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'status', 'phase', 'code', 'lists',
+KEYS = {'supported', 'configured', 'coverage_verified', 'speed', 'download_types', 'download_extras', 'status', 'phase', 'code', 'lists',
         'elapsed_seconds', 'progress_age_seconds', 'between_steps_seconds', 'retry', 'go_after_seconds', 'audit', 'purchase_history', 'transfer'}
 STATUSES = {'running', 'held', 'stopped', 'finished'}
 PHASES = ['existing_backlog', 'lists', 'series', 'archive', 'verify', 'finished']
@@ -47,6 +47,12 @@ def status_problems(value):
             problems.append('unavailable choices without a held status')
     except ArchiveError:
         problems.append('invalid download types')
+    from comic_archive.extras import KINDS
+    chosen = value.get('download_extras', {})
+    if (not isinstance(chosen, dict) or not set(chosen) <= set(KINDS)
+            or not all(type(on) is bool for on in chosen.values())
+            or (value.get('download_types') is None and chosen)):
+        problems.append(f'download extras {chosen!r}')
     if not value.get('configured'):
         if value.get('status') in ('running', 'held'):
             problems.append('running or held while not configured')

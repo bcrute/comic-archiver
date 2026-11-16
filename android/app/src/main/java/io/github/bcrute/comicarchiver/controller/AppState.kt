@@ -191,6 +191,8 @@ data class DownloadSettings(
     val metered: Boolean?,
     val allowed: Boolean,
     val downloadTypes: List<DownloadTypeChoice> = emptyList(),
+    /** What else the site saves beside each episode when chosen; empty for a site that shows none. */
+    val downloadExtras: List<DownloadTypeChoice> = emptyList(),
 )
 
 sealed interface SignInState {

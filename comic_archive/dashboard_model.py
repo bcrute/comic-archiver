@@ -206,7 +206,12 @@ def not_downloaded(status, site):
     rows = [(say('dashboard.download_errors'), counts['failed']), (say('dashboard.incomplete_content'), incomplete),
             (say('dashboard.page_order_unknown'), ordering), (say('dashboard.access_not_confirmed'), counts['temporary_access']),
             (say('dashboard.unsupported_format'), counts['novel'] + max(0, counts['unsupported'] - incomplete - ordering))]
-    return [{'reason': reason, 'count': display(count)} for reason, count in rows if count]
+    rows = [{'reason': reason, 'count': display(count)} for reason, count in rows if count]
+    gaps = status.get('series_scan_gaps')
+    set_aside = sum(isinstance(gap, dict) and gap.get('code') == 'series_set_aside' for gap in gaps) if isinstance(gaps, list) else 0
+    if set_aside:  # Counted in series, not episodes: their episodes are not known until the list is read.
+        rows.append({'reason': say('dashboard.series_set_aside'), 'count': say('dashboard.n_series', n=display(set_aside))})
+    return rows
 
 
 def episode_types(status):

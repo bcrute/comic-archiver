@@ -624,13 +624,18 @@ def _settings_unlocked(root):
     network_android.configure(root / "net.json")
     workspace = Workspace(id="default", root=root)
     saved = android_download.selected_speed(workspace)
+    from comic_archive import extras
     chosen = account_ui.download_types(workspace)
+    saved_extras = account_ui.download_extras(workspace)
     return network.status(workspace.library) | {
         "speed": saved, "speeds": _speed_choices(_site_of(root)),
         # Which episode types this site downloads, named and explained as on the desktop.
         "download_types": [{"key": key, "label": download_selection.LABELS[key],
                             "help": download_selection.HELP[key], "chosen": chosen[key]}
-                           for key in download_selection.TYPES]}
+                           for key in download_selection.TYPES],
+        # And what else it saves beside each episode, as on the desktop: none for a site that shows none.
+        "download_extras": [{"key": key, "label": extras.label(key), "help": extras.help_text(key), "chosen": value}
+                            for key, value in saved_extras.items()]}
 
 
 def _settings(args):

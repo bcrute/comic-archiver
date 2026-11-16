@@ -79,6 +79,8 @@ def _stamp(path):
 
 # A list that twice ended at the same count below the site's own: recorded, and no longer a gap.
 COUNT_DIFFERS = 'reported_count_differs'
+# A series whose own data could not be read: set aside so the rest are checked, then checked again after them.
+SET_ASIDE = 'series_set_aside'
 
 class Inventory:
     def __init__(self, root, read_only=False):
@@ -585,10 +587,11 @@ class Inventory:
         rows = [dict(row) for row in self.db.execute('''SELECT s.id,s.title FROM series s
             LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?
-            ORDER BY CASE WHEN scans.observed_at IS NULL THEN 0
+            ORDER BY CASE WHEN EXISTS(SELECT 1 FROM series_scan_gaps g WHERE g.series_id=s.id AND g.code=?) THEN 3
+                WHEN scans.observed_at IS NULL THEN 0
                 WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e
                 WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,
-                COALESCE(scans.observed_at,''),s.id''',(started,since[0] if since else ''))
+                COALESCE(scans.observed_at,''),s.id''',(started,SET_ASIDE,since[0] if since else ''))
             if row['id'] not in held]
         return rows if limit is None else rows[:limit]
 
@@ -647,6 +650,11 @@ class Inventory:
                 result.append({'source_series_id':row['series_id'],'observed_at':row['observed_at'],
                                'code':row['code'],'unsupported_reason':'novel'})
                 continue
+            if (observed_id(row['series_id']) and row['code']==SET_ASIDE
+                    and row['observed_count'] is None and row['reported_count'] is None):
+                observation_time(row['observed_at'])
+                result.append({'source_series_id':row['series_id'],'observed_at':row['observed_at'],'code':row['code']})
+                continue
             if (observed_id(row['series_id']) and row['code'] in {'metadata_http_404','metadata_http_410'}
                     and row['observed_count'] is None and row['reported_count'] is None):
                 observation_time(row['observed_at'])
@@ -679,6 +687,22 @@ class Inventory:
             'observed_at=excluded.observed_at,code=excluded.code,observed_count=excluded.observed_count,reported_count=excluded.reported_count',
             (key,timestamp(),'unsupported_novel_series',None,None))
         self.db.commit()
+
+    def record_series_set_aside(self,key):
+        """One series' own data could not be read. It is held as incomplete for this round, and checked after the rest."""
+        if (not observed_id(key)
+                or self.db.execute('SELECT 1 FROM series WHERE id=?',(key,)).fetchone() is None):
+            raise MetadataError('Cannot set aside a series without an observed identity.')
+        self.db.execute('INSERT INTO series_scan_gaps VALUES (?,?,?,?,?) ON CONFLICT(series_id) DO UPDATE SET '
+            'observed_at=excluded.observed_at,code=excluded.code,observed_count=excluded.observed_count,reported_count=excluded.reported_count',
+            (key,timestamp(),SET_ASIDE,None,None))
+        self.db.commit()
+
+    def forget_series_set_aside(self,keys):
+        """Undo set-asides that turned out to be one wider fault, so the step stops on it as before."""
+        with self.db:
+            for key in keys:
+                self.db.execute('DELETE FROM series_scan_gaps WHERE series_id=? AND code=?',(key,SET_ASIDE))
 
     def record_scan_gap(self,key,observed_count,reported_count):
         """Record a list that ended short of the count the site reports; whether that is now taken as the site's own.

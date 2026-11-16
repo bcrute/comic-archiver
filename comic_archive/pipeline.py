@@ -153,6 +153,17 @@ class MetadataPipeline:
     def retrieve_cover(self, series, max_bytes=None):
         return self._submit('retrieve_cover', series, max_bytes=max_bytes).result()
 
+    def episode_extras(self, key):
+        # A reader that shows no extras has nothing to say.
+        return self._submit('episode_extras', key).result() if hasattr(self._inner, 'episode_extras') else None
+
+    def retrieve_extra(self, url, max_bytes):
+        return self._submit('retrieve_extra', url, max_bytes).result()
+
+    def episode_comments(self, key, limit, check=None):
+        # check only reads the stop and time limits, never the reader, so it is safe on the reader's thread.
+        return self._submit('episode_comments', key, limit, check).result()
+
     def refresh(self, episode):
         updated = self._submit('capture_automatic', episode.source_url, series_id=episode.series_id,
                                title=episode.title, order=episode.order).result().episodes[0]

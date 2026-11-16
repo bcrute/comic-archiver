@@ -29,10 +29,12 @@ def access_kind(mark, expires_at=None):
 
 
 def validate(value):
-    if (not isinstance(value, dict) or set(value) != set(TYPES)
-            or any(type(value[key]) is not bool for key in TYPES) or not any(value.values())):
+    """The episode types, every one named; with them may come the extras to save beside each episode."""
+    from .extras import KINDS
+    if (not isinstance(value, dict) or not set(TYPES) <= set(value) or set(value) - set(TYPES) - set(KINDS)
+            or any(type(value[key]) is not bool for key in value) or not any(value[key] for key in TYPES)):
         raise ArchiveError('Choose which episode types to download.')
-    return {key: value[key] for key in TYPES}
+    return {key: value[key] for key in (*TYPES, *KINDS) if key in value}
 
 
 def read(db):
@@ -47,10 +49,15 @@ def read(db):
 
 
 def save(db, value):
+    from . import extras
     value = validate(value)
+    chosen = {key: value[key] for key in extras.KINDS if key in value}
+    value = {key: value[key] for key in TYPES}
     with db:
         db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                    (KEY, json.dumps(value, sort_keys=True)))
+        if chosen:
+            extras.store(db, extras.read(db) | chosen)
     logging.getLogger('comic_archive.download').info(
         'download choices saved: bought=%s free=%s limited=%s unclassified=%s free_paid_companions=true saved_files_changed=false',
         *(value[key] for key in TYPES))

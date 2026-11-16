@@ -276,6 +276,17 @@ class AndroidTapasAdapter:
         self._sync_state()
         return self._http.retrieve_cover(series, max_bytes=max_bytes)
 
+    def episode_extras(self, key):
+        return self._http.episode_extras(key)
+
+    def retrieve_extra(self, url, max_bytes):
+        self._sync_state()
+        return self._http.retrieve_extra(url, max_bytes)
+
+    def episode_comments(self, key, limit, check=None):
+        self._sync_state()
+        return self._http.episode_comments(key, limit, check)
+
     def inspect_series(self, key, strict_order=True, comic_only=False):
         self._sync_state()
         return self._http.inspect_series(key, strict_order=strict_order, comic_only=comic_only)

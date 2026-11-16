@@ -6738,8 +6738,8 @@
 {
  "id": "old-catalogue-refusals-delay-never-checked-series",
  "source": "comic_archive/inventory.py",
- "old": "ORDER BY CASE WHEN scans.observed_at IS NULL THEN 0\n                WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,",
- "new": "ORDER BY CASE WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 0 ELSE 1 END,",
+ "old": "                WHEN scans.observed_at IS NULL THEN 0\n                WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,",
+ "new": "                WHEN scans.observed_at < ? AND EXISTS(SELECT 1 FROM episodes e\n                WHERE e.series_id=s.id AND e.status='unavailable') THEN 0 ELSE 1 END,",
  "test_file": "test_inventory.py",
  "test": "test_unchecked_series_precede_old_refusals_without_resetting_scan_or_reader_checkpoints"
 },
@@ -9234,10 +9234,10 @@
  {
   "id": "stopped-series-check-not-named-in-the-log",
   "source": "comic_archive/jobs.py",
-  "old": "                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.\n                logging.getLogger('comic_archive.download').info(",
-  "new": "                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.\n                (lambda *values: None)(",
+  "old": "                    logging.getLogger('comic_archive.download').info(\n                        'series check stopped: series=%s error=%s', series['id'], type(error).__name__)",
+  "new": "                    (lambda *values: None)(\n                        'series check stopped: series=%s error=%s', series['id'], type(error).__name__)",
   "test_file": "test_scan_gaps.py",
-  "test": "test_wrong_series_gap_or_general_schema_error_stops_the_run"
+  "test": "test_wrong_series_gap_stops_the_run"
  },
  {
   "id": "worker-library-beside-session",
@@ -10086,5 +10086,397 @@
   "new": "            pass\n",
   "test_file": "test_download_recovery_contract.py",
   "test": "test_pause_keeps_custody_of_a_request_written_before_publication_was_committed"
+ },
+ {
+  "id": "isolate-series-error-stops",
+  "source": "comic_archive/jobs.py",
+  "old": "                # The log names the series, so that one odd series can be told from a wider fault.\n                set_aside(series['id'], error)\n",
+  "new": "                raise\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_different_failures_do_not_add_up_and_a_success_breaks_the_run"
+ },
+ {
+  "id": "isolate-metadata-error-stops",
+  "source": "comic_archive/jobs.py",
+  "old": "                    set_aside(series['id'], error)\n                    continue\n                inventory.record_series_unavailable",
+  "new": "                    raise\n                inventory.record_series_unavailable",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_one_series_with_unreadable_data_is_set_aside_and_the_rest_are_checked"
+ },
+ {
+  "id": "isolate-answer-error-stops",
+  "source": "comic_archive/jobs.py",
+  "old": "            except MetadataError as error:\n                set_aside(series['id'], error)\n                continue\n            inventory.record_series_scan",
+  "new": "            except MetadataError as error:\n                raise\n            inventory.record_series_scan",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_inconsistent_or_invalid_series_answers_are_set_aside"
+ },
+ {
+  "id": "isolate-no-breaker",
+  "source": "comic_archive/jobs.py",
+  "old": "            if len(set_aside_streak) >= MAX_SERIES_SET_ASIDE_IN_A_ROW:\n",
+  "new": "            if False:\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_the_same_failure_in_three_series_in_a_row_stops_the_run_and_sets_none_aside"
+ },
+ {
+  "id": "isolate-breaker-keeps-set-asides",
+  "source": "comic_archive/jobs.py",
+  "old": "                inventory.forget_series_set_aside([key for _, key in set_aside_streak[:-1]])\n",
+  "new": "                pass\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_the_same_failure_in_three_series_in_a_row_stops_the_run_and_sets_none_aside"
+ },
+ {
+  "id": "isolate-streak-never-reset-by-other-failure",
+  "source": "comic_archive/jobs.py",
+  "old": "            if set_aside_streak and set_aside_streak[-1][0] != failure:\n",
+  "new": "            if False:\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_different_failures_do_not_add_up_and_a_success_breaks_the_run"
+ },
+ {
+  "id": "isolate-streak-never-reset-by-success",
+  "source": "comic_archive/jobs.py",
+  "old": "            if not held:\n                set_aside_streak.clear()\n",
+  "new": "            if False:\n                set_aside_streak.clear()\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_different_failures_do_not_add_up_and_a_success_breaks_the_run"
+ },
+ {
+  "id": "isolate-everything",
+  "source": "comic_archive/jobs.py",
+  "old": "            if stops_the_step(error):\n                log.info(",
+  "new": "            if False:\n                log.info(",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_account_connection_refusal_and_limits_still_stop_the_run"
+ },
+ {
+  "id": "isolate-refusals",
+  "source": "comic_archive/jobs.py",
+  "old": "    return type(status) is int and (status in {401, 403, 407, 408, 429} or status >= 500)\n",
+  "new": "    return type(status) is int and status in {401, 403, 407, 408}\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_account_connection_refusal_and_limits_still_stop_the_run"
+ },
+ {
+  "id": "isolate-account-errors",
+  "source": "comic_archive/jobs.py",
+  "old": "    if isinstance(error, (AuthenticationError, AccessDenied, RunLimit, NetworkUnavailable, NetworkPolicyHold,\n",
+  "new": "    if isinstance(error, (RunLimit, NetworkUnavailable, NetworkPolicyHold,\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_account_connection_refusal_and_limits_still_stop_the_run"
+ },
+ {
+  "id": "isolate-signed-out-set-aside",
+  "source": "comic_archive/jobs.py",
+  "old": "            if inspected.get(\"authenticated\") is not True:\n                # Not signed in",
+  "new": "            if False:\n                # Not signed in",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_account_connection_refusal_and_limits_still_stop_the_run"
+ },
+ {
+  "id": "isolate-set-aside-first",
+  "source": "comic_archive/inventory.py",
+  "old": "            ORDER BY CASE WHEN EXISTS(SELECT 1 FROM series_scan_gaps g WHERE g.series_id=s.id AND g.code=?) THEN 3\n",
+  "new": "            ORDER BY CASE WHEN EXISTS(SELECT 1 FROM series_scan_gaps g WHERE g.series_id=s.id AND g.code=?) THEN 0\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_one_series_with_unreadable_data_is_set_aside_and_the_rest_are_checked"
+ },
+ {
+  "id": "isolate-set-aside-unlisted",
+  "source": "comic_archive/inventory.py",
+  "old": "                result.append({'source_series_id':row['series_id'],'observed_at':row['observed_at'],'code':row['code']})\n",
+  "new": "                pass\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_one_series_with_unreadable_data_is_set_aside_and_the_rest_are_checked"
+ },
+ {
+  "id": "isolate-set-aside-unknown-series",
+  "source": "comic_archive/inventory.py",
+  "old": "        if (not observed_id(key)\n                or self.db.execute('SELECT 1 FROM series WHERE id=?',(key,)).fetchone() is None):\n            raise MetadataError('Cannot set aside",
+  "new": "        if (not observed_id(key)):\n            raise MetadataError('Cannot set aside",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_set_aside_needs_a_known_series_and_forgetting_leaves_other_gaps"
+ },
+ {
+  "id": "isolate-forget-every-gap",
+  "source": "comic_archive/inventory.py",
+  "old": "                self.db.execute('DELETE FROM series_scan_gaps WHERE series_id=? AND code=?',(key,SET_ASIDE))\n",
+  "new": "                self.db.execute('DELETE FROM series_scan_gaps WHERE series_id=?',(key,))\n",
+  "test_file": "test_scan_gaps.py",
+  "test": "test_set_aside_needs_a_known_series_and_forgetting_leaves_other_gaps"
+ },
+ {
+  "id": "isolate-issue-row-hidden",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    if set_aside:  # Counted in series",
+  "new": "    if False:  # Counted in series",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_set_aside_series_are_listed_in_series_with_why"
+ },
+ {
+  "id": "isolate-issue-row-counts-every-gap",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "    set_aside = sum(isinstance(gap, dict) and gap.get('code') == 'series_set_aside' for gap in gaps) if isinstance(gaps, list) else 0\n",
+  "new": "    set_aside = len(gaps) if isinstance(gaps, list) else 0\n",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_set_aside_series_are_listed_in_series_with_why"
+ },
+ {
+  "id": "extras-start-on",
+  "source": "comic_archive/extras.py",
+  "old": "    if row is None:\n        return dict.fromkeys(KINDS, False)\n",
+  "new": "    if row is None:\n        return dict.fromkeys(KINDS, True)\n",
+  "test_file": "test_extras.py",
+  "test": "test_every_extra_starts_off_and_an_unreadable_choice_saves_nothing"
+ },
+ {
+  "id": "extras-corrupt-on",
+  "source": "comic_archive/extras.py",
+  "old": "        LOG.warning('download extras: saved choice unreadable; nothing extra is saved until it is chosen again')\n        return dict.fromkeys(KINDS, False)",
+  "new": "        return dict.fromkeys(KINDS, True)",
+  "test_file": "test_extras.py",
+  "test": "test_every_extra_starts_off_and_an_unreadable_choice_saves_nothing"
+ },
+ {
+  "id": "extras-offered-all",
+  "source": "comic_archive/extras.py",
+  "old": "    return tuple(kind for kind in KINDS if site is not None and kind in site.extras)",
+  "new": "    return KINDS",
+  "test_file": "test_extras.py",
+  "test": "test_each_site_offers_only_what_it_shows"
+ },
+ {
+  "id": "extras-unchosen-saved",
+  "source": "comic_archive/extras.py",
+  "old": "    wanted = [kind for kind in offered(series.source) if read(db)[kind]]",
+  "new": "    wanted = list(offered(series.source))",
+  "test_file": "test_extras.py",
+  "test": "test_nothing_is_asked_or_written_until_an_extra_is_chosen"
+ },
+ {
+  "id": "extras-notes-unchosen",
+  "source": "comic_archive/extras.py",
+  "old": "    if 'notes' in wanted and seen.get('note'):",
+  "new": "    if seen.get('note'):",
+  "test_file": "test_extras.py",
+  "test": "test_only_what_was_chosen_is_kept"
+ },
+ {
+  "id": "extras-stats-unchosen",
+  "source": "comic_archive/extras.py",
+  "old": "    if 'stats' in wanted and seen.get('stats'):",
+  "new": "    if seen.get('stats'):",
+  "test_file": "test_extras.py",
+  "test": "test_only_what_was_chosen_is_kept"
+ },
+ {
+  "id": "extras-music-any-bytes",
+  "source": "comic_archive/extras.py",
+  "old": "                if extension is None:\n                    raise ArchiveError('The music is not a sound file.')\n",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_an_extra_that_cannot_be_had_is_left_out_and_the_rest_kept"
+ },
+ {
+  "id": "extras-stops-swallowed",
+  "source": "comic_archive/extras.py",
+  "old": "        if _stops(error):\n            raise\n        LOG.info('download extras: episode=%s saved=false",
+  "new": "        LOG.info('download extras: episode=%s saved=false",
+  "test_file": "test_extras.py",
+  "test": "test_a_lost_sign_in_a_limit_or_a_request_to_slow_down_still_stops_the_job"
+ },
+ {
+  "id": "extras-429-swallowed",
+  "source": "comic_archive/extras.py",
+  "old": "            or getattr(error, 'source_http_status', None) == 429)",
+  "new": "            or False)",
+  "test_file": "test_extras.py",
+  "test": "test_a_lost_sign_in_a_limit_or_a_request_to_slow_down_still_stops_the_job"
+ },
+ {
+  "id": "extras-music-error-fails",
+  "source": "comic_archive/extras.py",
+  "old": "            except (ArchiveError, OSError) as error:\n                if _stops(error):\n                    raise\n                LOG.info('download extras: episode=%s music",
+  "new": "            except RuntimeError as error:\n                LOG.info('download extras: episode=%s music",
+  "test_file": "test_extras.py",
+  "test": "test_an_extra_that_cannot_be_had_is_left_out_and_the_rest_kept"
+ },
+ {
+  "id": "extras-max-tracks",
+  "source": "comic_archive/extras.py",
+  "old": " and len(tracks) < MAX_TRACKS:",
+  "new": ":",
+  "test_file": "test_extras.py",
+  "test": "test_found_keeps_bounded_https_music_and_plain_words"
+ },
+ {
+  "id": "extras-http-music",
+  "source": "comic_archive/extras.py",
+  "old": "url.startswith('https://') and ",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_found_keeps_bounded_https_music_and_plain_words"
+ },
+ {
+  "id": "extras-folder-unchecked",
+  "source": "comic_archive/extras.py",
+  "old": "    identifier(series_key)\n    if source not in sites.KEYS:",
+  "new": "    if False:",
+  "test_file": "test_extras.py",
+  "test": "test_extras_stay_inside_the_library_folder"
+ },
+ {
+  "id": "extras-note-second",
+  "source": "comic_archive/extras.py",
+  "old": "            if not self.depth:\n                self.done = True",
+  "new": "            pass",
+  "test_file": "test_extras.py",
+  "test": "test_creator_note_is_the_words_of_its_element_with_its_line_breaks"
+ },
+ {
+  "id": "extras-types-unvalidated",
+  "source": "comic_archive/download_selection.py",
+  "old": "set(value) - set(TYPES) - set(KINDS)",
+  "new": "False",
+  "test_file": "test_extras.py",
+  "test": "test_episode_types_may_carry_some_extras_and_keep_the_others"
+ },
+ {
+  "id": "extras-types-only-replaces",
+  "source": "comic_archive/download_selection.py",
+  "old": "extras.store(db, extras.read(db) | chosen)",
+  "new": "extras.store(db, dict.fromkeys(extras.KINDS, False) | chosen)",
+  "test_file": "test_extras.py",
+  "test": "test_episode_types_may_carry_some_extras_and_keep_the_others"
+ },
+ {
+  "id": "extras-comments-unbounded",
+  "source": "comic_archive/adapters/tapas_comments.py",
+  "old": "    for _ in range(-(-limit // PAGE_SIZE) + 1):",
+  "new": "    for _ in range(100):",
+  "test_file": "test_extras.py",
+  "test": "test_comments_stop_at_the_limit_or_an_answer_without_pages_and_say_so"
+ },
+ {
+  "id": "extras-comments-no-since",
+  "source": "comic_archive/adapters/tapas_comments.py",
+  "old": " + (f'&since={since}' if since is not None else '')",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_pages_are_read_newest_first_until_tapas_says_there_are_no_more"
+ },
+ {
+  "id": "extras-comments-no-check",
+  "source": "comic_archive/adapters/tapas_comments.py",
+  "old": "        if callable(check):\n            check()\n",
+  "new": "",
+  "test_file": "test_extras.py",
+  "test": "test_pages_are_read_newest_first_until_tapas_says_there_are_no_more"
+ },
+ {
+  "id": "extras-comments-complete-guess",
+  "source": "comic_archive/adapters/tapas_comments.py",
+  "old": "            complete = isinstance(pagination, dict) and pagination.get('has_next') is False",
+  "new": "            complete = True",
+  "test_file": "test_extras.py",
+  "test": "test_comments_stop_at_the_limit_or_an_answer_without_pages_and_say_so"
+ },
+ {
+  "id": "extras-budget-unbounded",
+  "source": "comic_archive/jobs.py",
+  "old": "            max_bytes = min(max_bytes, self.max_bytes - self.bytes - self.reserved_bytes)",
+  "new": "            pass",
+  "test_file": "test_extras.py",
+  "test": "test_music_counts_toward_the_byte_budget_and_comments_toward_its_checks"
+ },
+ {
+  "id": "extras-budget-uncounted",
+  "source": "comic_archive/jobs.py",
+  "old": "        data = self.adapter.retrieve_extra(url, max_bytes)\n        self.bytes += len(data)",
+  "new": "        data = self.adapter.retrieve_extra(url, max_bytes)",
+  "test_file": "test_extras.py",
+  "test": "test_music_counts_toward_the_byte_budget_and_comments_toward_its_checks"
+ },
+ {
+  "id": "extras-webtoon-any-host",
+  "source": "comic_archive/adapters/webtoon.py",
+  "old": "        return self.transport.get(asset_url(url, SITE), max_bytes=max_bytes)",
+  "new": "        return self.transport.get(url, max_bytes=max_bytes)",
+  "test_file": "test_extras.py",
+  "test": "test_webtoon_music_is_read_only_from_its_own_hosts"
+ },
+ {
+  "id": "extras-tapas-any-host",
+  "source": "comic_archive/adapters/tapas_http.py",
+  "old": "        return self.transport.get(asset_url(url), max_bytes=max_bytes)\n\n    def episode_comments",
+  "new": "        return self.transport.get(url, max_bytes=max_bytes)\n\n    def episode_comments",
+  "test_file": "test_extras.py",
+  "test": "test_tapas_music_is_read_only_from_tapas"
+ },
+ {
+  "id": "roadmap-shipped-stays",
+  "source": "scripts/site_release.py",
+  "old": "            if order(row['in']) > order(version):",
+  "new": "            if True:",
+  "test_file": "test_site_release.py",
+  "test": "test_the_roadmap_drops_what_the_published_version_has_and_shows_what_comes_next"
+ },
+ {
+  "id": "roadmap-unknown-keys",
+  "source": "scripts/site_release.py",
+  "old": "not {'name', 'text'} <= set(row) <= allowed",
+  "new": "not {'name', 'text'} <= set(row)",
+  "test_file": "test_site_release.py",
+  "test": "test_a_roadmap_item_that_is_not_a_name_a_text_and_one_state_stops_the_site"
+ },
+ {
+  "id": "roadmap-data-published",
+  "source": "scripts/site_release.py",
+  "old": "shutil.ignore_patterns('changes', 'roadmap.json', '.*')",
+  "new": "shutil.ignore_patterns('changes', '.*')",
+  "test_file": "test_site_release.py",
+  "test": "test_the_published_roadmap_page_is_made_from_the_data_file_which_is_not_published"
+ },
+ {
+  "id": "roadmap-unescaped",
+  "source": "scripts/site_release.py",
+  "old": "f'      <li><b>{inline(name)}</b><span>{inline(text)}</span>",
+  "new": "f'      <li><b>{name}</b><span>{text}</span>",
+  "test_file": "test_site_release.py",
+  "test": "test_the_roadmap_drops_what_the_published_version_has_and_shows_what_comes_next"
+ },
+ {
+  "id": "signin-style-any-failure-retried",
+  "source": "scripts/android_beta_integration.py",
+  "old": "        if SIGNIN_STYLE_UNSUPPORTED not in styled.stdout or attempt == SIGNIN_STYLE_ATTEMPTS:",
+  "new": "        if attempt == SIGNIN_STYLE_ATTEMPTS:",
+  "test_file": "test_android_beta_integration.py",
+  "test": "test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready"
+ },
+ {
+  "id": "signin-style-endless",
+  "source": "scripts/android_beta_integration.py",
+  "old": " or attempt == SIGNIN_STYLE_ATTEMPTS:",
+  "new": ":",
+  "test_file": "test_android_beta_integration.py",
+  "test": "test_the_sign_in_style_test_is_asked_again_only_while_the_webview_is_not_ready"
+ },
+ {
+  "id": "extras-comments-pause-ignored",
+  "source": "comic_archive/jobs.py",
+  "old": "            if self.cancellation is not None:\n                self.cancellation.check()\n            if self.max_seconds is not None and time.monotonic() - self.started >= self.max_seconds:\n                raise RunLimit(\"The job time budget is exhausted; its queue is retained.\")\n        return self.adapter.episode_comments",
+  "new": "            pass\n        return self.adapter.episode_comments",
+  "test_file": "test_extras.py",
+  "test": "test_music_counts_toward_the_byte_budget_and_comments_toward_its_checks"
+ },
+ {
+  "id": "roadmap-always-read",
+  "source": "scripts/site_release.py",
+  "old": "    if any('{roadmap}' in page.read_text(encoding='utf-8') for page in folder.glob('*.html')):\n        values['{roadmap}']",
+  "new": "    if True:\n        values['{roadmap}']",
+  "test_file": "test_site_release.py",
+  "test": "test_an_android_block_keeps_one_side_and_an_unclosed_one_stops_the_site"
  }
 ]

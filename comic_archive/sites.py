@@ -30,6 +30,8 @@ class Site:
     # Page parts the Android sign-in screen hides (CSS id/class selectors): the site's cookie
     # notice covers its own login links on a phone. Hidden only, never answered or clicked.
     signin_hidden: tuple[str, ...] = ()
+    # What the site shows beside an episode that can be saved with it when chosen (extras.KINDS).
+    extras: tuple[str, ...] = ()
 
     @property
     def host(self):
@@ -80,9 +82,11 @@ API_HOSTS = {'webtoon': frozenset({'m.webtoons.com'}), 'tappytoon': frozenset({'
 
 SITES = (
     Site('tapas', 'Tapas', True, 'https://tapas.io', ('tapas.io',), ('tapas.io',), ('tapas.io',), '/account/signin',
-         ('subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free'), ('m.tapas.io',), ('#gdpr-cookie-message',)),
+         ('subscribed', 'updated', 'recent', 'free_episodes', 'wait_until_free'), ('m.tapas.io',), ('#gdpr-cookie-message',),
+         extras=('notes', 'music', 'stats', 'comments')),
     Site('webtoon', 'Webtoon', True, 'https://www.webtoons.com', ('webtoons.com', 'www.webtoons.com', 'm.webtoons.com'),
-         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed', 'unlocked'), ()),
+         ('www.webtoons.com', 'm.webtoons.com'), ('webtoons.com', 'pstatic.net'), '/member/login', ('subscribed', 'unlocked'), (),
+         extras=('notes', 'music', 'stats')),
     Site('tappytoon', 'Tappytoon', True, 'https://www.tappytoon.com', ('tappytoon.com', 'www.tappytoon.com'),
          ('www.tappytoon.com', 'api-global.tappytoon.com', 'content-repository-cdn.tappytoon.com'), ('tappytoon.com',),
          '/en/login', ('unlocked', 'subscribed', 'recent'), ()),

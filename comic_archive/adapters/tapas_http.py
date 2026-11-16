@@ -459,6 +459,13 @@ class TapasHTTPAdapter:
                                  source_url=f"https://tapas.io/series/{slug}/info",
                                  platform_id=str(platform_id), slug=slug)
         self.episode_info = {key: info.get(key) for key in ("id", "free", "unlocked", "must_pay", "scheduled", "book", "closing_date")}
+        from .. import extras
+        # What the reader page shows beside the episode; saved only when chosen (extras.save_episode).
+        self._remember_extras(match[1], extras.found(
+            extras.ElementText.of(html, 'js-episode-story'),
+            extras.counts(views=info.get('view_cnt'), likes=info.get('like_cnt'), comments=info.get('comment_cnt')),
+            ((info.get('bgm_url'), info.get('bgm_title')),) if info.get('has_bgm') is True else (),
+            comments=info.get('open_comments') is True))
         episode = Episode(match[1], self.series.id, title or info.get("title"),
                           order if order is not None else info["scene"],
                           tuple(Page(i, value, False) for i, value in enumerate(urls, 1)),
@@ -472,6 +479,24 @@ class TapasHTTPAdapter:
 
     def manifest(self):
         return self._manifest
+
+    def _remember_extras(self, key, value):
+        kept = self.__dict__.setdefault('_extras', {})
+        kept[key] = value
+        while len(kept) > 16:  # Only the few episodes being saved now; lookahead may capture one ahead.
+            kept.pop(next(iter(kept)))
+
+    def episode_extras(self, key):
+        return self.__dict__.get('_extras', {}).pop(key, None)
+
+    def retrieve_extra(self, url, max_bytes):
+        self.stage = 'extra_asset'
+        return self.transport.get(asset_url(url), max_bytes=max_bytes)
+
+    def episode_comments(self, key, limit, check=None):
+        from .tapas_comments import episode_comments
+        self.stage = 'episode_comments'
+        return episode_comments(self.json_get, key, limit, check)
 
     def retrieve(self, page, max_bytes=None):
         self.stage = "page_asset"

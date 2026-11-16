@@ -1359,8 +1359,14 @@ class JobTests(unittest.TestCase):
                'episodes':[{'id':'81','title':'E81','order':1,'access_state':'tapas_free'}]}
         for change in ({'complete':False},{'authenticated':False},{'source_series_id':'99'}):
             self.adapter.inspect_series=lambda key,strict_order=False,change=change:{'source_series_id':key}|valid|change
-            with self.subTest(change=change),self.assertRaises(MetadataError):
-                sync(self.adapter,self.root,refresh_lists=False)
+            with self.subTest(change=change):
+                if 'authenticated' in change:  # About the account: the step stops.
+                    with self.assertRaises(MetadataError):sync(self.adapter,self.root,refresh_lists=False)
+                else:  # About this series' answer: it is set aside, unqueued, and the round is incomplete.
+                    self.assertEqual(sync(self.adapter,self.root,refresh_lists=False)['refresh']['state'],'partial')
+                    with Inventory(self.root) as inventory:
+                        self.assertEqual([gap['code'] for gap in inventory.scan_gaps()],['series_set_aside'])
+                        inventory.forget_series_set_aside(['42'])
         with Inventory(self.root,read_only=True) as inventory:
             self.assertEqual(inventory.status()['episodes_by_status'],{})
             self.assertIsNone(inventory.status()['last_completed_scan'])

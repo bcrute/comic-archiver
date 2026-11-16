@@ -24,7 +24,12 @@ object SettingsStatus {
         if (speeds.map { it.key }.distinct().size != speeds.size ||
             speeds.none { it.key == speed }) return null
         val types = typeChoices(value.optJSONArray("download_types") ?: return null) ?: return null
-        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed, types)
+        // A site that shows no extras sends an empty list; a list that cannot be read is no settings at all.
+        val extras = value.optJSONArray("download_extras")?.let { rows ->
+            if (rows.length() == 0) emptyList() else typeChoices(rows) ?: return null
+        } ?: emptyList()
+        if (extras.any { extra -> types.any { it.key == extra.key } }) return null
+        return DownloadSettings(wifiOnly, speed, speeds, connection, metered, allowed, types, extras)
     }
 
     /** Null when a row cannot be read: a choice that is not known is never shown as made. */

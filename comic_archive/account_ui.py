@@ -95,6 +95,18 @@ def download_types(workspace):
         return read(inventory.db)
 
 
+def download_extras(workspace):
+    """The extras this site shows beside an episode, each with whether it is saved: {} for a site with none."""
+    from . import extras, sites
+    from .inventory import Inventory
+    offered = extras.offered(sites.of_session(workspace.session).key)
+    chosen = dict.fromkeys(extras.KINDS, False)
+    if offered and (workspace.library / '.archive-state/inventory.sqlite3').is_file():
+        with Inventory(workspace.library, read_only=True) as inventory:
+            chosen = extras.read(inventory.db)
+    return {kind: chosen[kind] for kind in offered}
+
+
 def change_download_types(workspace, value, *, closing, on_stop_requested=None):
     from .download_selection import save, validate
     from .inventory import Inventory
@@ -262,9 +274,10 @@ def _transfer(workspace, state, progress, path, now):
 
 def status(workspace, since=None):
     result = {'supported': True, 'configured': False, 'coverage_verified': False, 'speed': speed(workspace),
-              'download_types': None}
+              'download_types': None, 'download_extras': {}}
     try:
         result['download_types'] = download_types(workspace)
+        result['download_extras'] = download_extras(workspace)
         state = download_control.status(workspace.session, workspace.library)
     except (ArchiveError, OSError, sqlite3.Error):
         state = {'configured': True, 'status': 'held', 'phase': 'lists', 'code': 'controller_failed'}

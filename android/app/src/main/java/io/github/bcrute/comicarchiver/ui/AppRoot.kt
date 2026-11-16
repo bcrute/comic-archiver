@@ -151,16 +151,17 @@ fun ComicArchiverAppRoot(
     typesSite?.let { wanted ->
         val name = state.sites.firstOrNull { it.key == wanted }?.name ?: if (wanted == "tapas") "Tapas" else wanted
         val types = state.settings?.downloadTypes.orEmpty().takeIf { state.site == wanted && !state.siteBusy }.orEmpty()
+        val extras = state.settings?.downloadExtras.orEmpty().takeIf { types.isNotEmpty() }.orEmpty()
         AlertDialog(
             onDismissRequest = { typesSite = null },
             title = { Text(say("window.download_choices_for", "name" to name)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (types.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    else DownloadTypeChoices(types, state.settingsBusy) { chosen ->
+                    else DownloadTypeChoices(types, state.settingsBusy, { chosen ->
                         typesSite = null
                         controller.setDownloadTypes(chosen)
-                    }
+                    }, extras)
                 }
             },
             confirmButton = {},

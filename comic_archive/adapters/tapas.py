@@ -444,6 +444,20 @@ class TapasAdapter:
         from .tapas_http import TapasHTTPAdapter
         return TapasHTTPAdapter.episode_url(self,key)
 
+    def episode_extras(self, key):
+        automatic = getattr(self, '_automatic', None)
+        return automatic.episode_extras(key) if automatic is not None else None
+
+    def retrieve_extra(self, url, max_bytes):
+        if getattr(self, '_automatic', None) is None:
+            raise ArchiveError('Capture the episode before retrieving its extras.')
+        return self._automatic.retrieve_extra(url, max_bytes)
+
+    def episode_comments(self, key, limit, check=None):
+        if getattr(self, '_automatic', None) is None:
+            raise ArchiveError('Capture the episode before reading its comments.')
+        return self._automatic.episode_comments(key, limit, check)
+
     def capture_automatic(self, url, series_id=None, series_title=None, title=None, order=None):
         adapter = self.automatic_adapter()
         self._manifest = adapter.capture(url, series_id, series_title, title, order)

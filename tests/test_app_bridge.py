@@ -531,6 +531,16 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual({item["key"]: item["chosen"] for item in changed["result"]["download_types"]}, chosen)
         workspace = Workspace(id="default", root=self.root)
         self.assertEqual(account_ui.download_types(workspace), chosen)
+        # The extras the site shows come after them, as on the desktop, each off until chosen with the types.
+        from comic_archive import extras
+        self.assertEqual(changed["result"]["download_extras"],
+                         [{"key": key, "label": extras.label(key), "help": extras.help_text(key), "chosen": False}
+                          for key in extras.offered("tapas")])
+        changed = self.call("configure_settings", {"root": str(self.root), "download_types": chosen | {"music": True}})
+        self.assertTrue(changed["ok"], changed)
+        self.assertEqual({item["key"]: item["chosen"] for item in changed["result"]["download_extras"]},
+                         dict.fromkeys(extras.offered("tapas"), False) | {"music": True})
+        self.assertEqual(account_ui.download_types(workspace), chosen)
         # Nothing at all, a missing type or a word in place of yes or no is refused, and nothing is written.
         for bad in (dict.fromkeys(chosen, False), {"bought": True}, chosen | {"free": "no"}, "all"):
             with self.subTest(bad=bad):

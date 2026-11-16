@@ -621,6 +621,19 @@ class StatusTests(unittest.TestCase):
                          [('Download errors', '2'), ('Incomplete content', '3'),
                           ('Access not confirmed', '2'), ('Unsupported format', '1')])
 
+    def test_set_aside_series_are_listed_in_series_with_why(self):
+        gap = {'source_series_id': '42', 'observed_at': '2026-11-16T00:00:00+00:00'}
+        rows = view(status={'session_configured': True, 'episodes_by_status': {'failed': 1}, 'series_scan_gaps': [
+            gap | {'code': 'series_set_aside'}, gap | {'code': 'series_set_aside'},
+            gap | {'code': 'pagination_count_mismatch'}, 'odd']})['not_downloaded']
+        self.assertEqual(rows, [{'reason': 'Download errors', 'count': '1'},
+                                {'reason': 'Episode list could not be read; checked again after the rest', 'count': '2 series'}])
+        alone = view(status={'session_configured': True, 'series_scan_gaps': [gap | {'code': 'series_set_aside'}]})
+        self.assertTrue(alone['not_downloaded_visible'])
+        self.assertEqual([row['count'] for row in alone['not_downloaded']], ['1 series'])
+        for gaps in (None, {}, [gap | {'code': 'unsupported_novel_series'}]):
+            self.assertEqual(model.not_downloaded({'series_scan_gaps': gaps}, 'Tapas'), [])
+
     def test_the_not_downloaded_table_waits_for_the_library_and_never_invents_or_loses_episodes(self):
         unread = view(status=None)
         self.assertEqual((unread['not_downloaded_visible'], unread['not_downloaded']), (False, []))

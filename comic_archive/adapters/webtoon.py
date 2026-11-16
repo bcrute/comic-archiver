@@ -396,10 +396,38 @@ class WebtoonAdapter(SiteReader):
         self._known_mobile_episodes.add(key)
         self._mobile_image_identities[key] = tuple(identities)
         self._mobile_capture_marker = marker
+        self._remember_extras(key, info)
         self._manifest = Manifest(series, (episode,))
         logging.getLogger('comic_archive.download').info(
             'reader access: provider=webtoon result=complete metadata_access=%s images=%s', access, count)
         return self._manifest
+
+    def _remember_extras(self, key, info):
+        """What the episode's reader shows beside it; saved only when chosen (extras.save_episode)."""
+        from .. import extras
+        music, listed = [], info.get('bgmInfo')
+        for item in listed if isinstance(listed, list) else ():
+            if not isinstance(item, dict):
+                continue
+            # Only the field names are logged, never their values: they tell how Webtoon lists an episode's music.
+            logging.getLogger('comic_archive.download').info(
+                'webtoon extras: episode=%s music_fields=%s', key, ','.join(sorted(str(name)[:40] for name in item)[:20]))
+            address = next((value for name, value in item.items()
+                            if isinstance(name, str) and 'url' in name.lower() and isinstance(value, str)), None)
+            title = next((item[name] for name in ('bgmTitle', 'title', 'name') if isinstance(item.get(name), str)), None)
+            if address is not None:
+                music.append((urljoin('https://webtoon-phinf.pstatic.net/', address) if address.startswith('/') else address,
+                              title))
+        kept = self.__dict__.setdefault('_extras', {})
+        kept[key] = extras.found(info.get('creatorNote'), extras.counts(likes=info.get('likeItCount')), music)
+        while len(kept) > 16:
+            kept.pop(next(iter(kept)))
+
+    def episode_extras(self, key):
+        return self.__dict__.get('_extras', {}).pop(key, None)
+
+    def retrieve_extra(self, url, max_bytes):
+        return self.transport.get(asset_url(url, SITE), max_bytes=max_bytes)
 
     def account_identity(self):
         """The signed-in account, as Webtoon's own pages name it. Once one is seen, it must stay the same: a

@@ -519,6 +519,44 @@ class DashboardTests(PagesCase):
             self.assertEqual(len(self.actions.named('download_types')), before + int(accept))
         self.assertEqual(self.actions.named('download_types')[-1][1], (choices,))
 
+    def test_download_choices_offer_the_sites_extras_after_the_types_and_save_them_together(self):
+        self.actions.reading['account']['download_extras'] = dict(notes=False, music=True, stats=False, comments=False)
+        self.open()
+        seen, errors = [], []
+
+        def answer():
+            try:
+                dialog = APP.activeModalWidget()
+                found = dialog.findChildren(QtWidgets.QCheckBox)
+                names = [check.objectName() for check in found]
+                extra = {name.removeprefix('downloadExtra_'): check for name, check in zip(names, found, strict=True)
+                         if name.startswith('downloadExtra_')}
+                seen.append([name.split('_')[0] for name in names])
+                seen.append({key: check.isChecked() for key, check in extra.items()})
+                extra['notes'].setChecked(True)
+                buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+                # The extras alone never make a choice: one episode type stays needed.
+                for name, check in zip(names, found, strict=True):
+                    if name.startswith('downloadType_'):
+                        check.setChecked(False)
+                seen.append(buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save).isEnabled())
+                dialog.findChild(QtWidgets.QCheckBox, 'downloadType_bought').setChecked(True)
+                buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save).click()
+            except Exception as error:
+                errors.append(repr(error))
+                APP.activeModalWidget().reject()
+
+        QtCore.QTimer.singleShot(0, self.window, answer)
+        self.card.selection.click()
+        settle()
+        self.assertEqual(errors, [])
+        self.assertEqual(seen[0], ['downloadType'] * 4 + ['downloadExtra'] * 4)
+        self.assertEqual(seen[1], dict(notes=False, music=True, stats=False, comments=False))
+        self.assertIs(seen[2], False)
+        self.assertEqual(self.actions.named('download_types')[-1][1],
+                         (dict(bought=True, free=False, limited=False, unclassified=False,
+                               notes=True, music=True, stats=False, comments=False),))
+
     def test_download_choices_keep_wrapped_text_and_buttons_accessible_in_a_short_dialog(self):
         self.open()
         for dark in (False, True):

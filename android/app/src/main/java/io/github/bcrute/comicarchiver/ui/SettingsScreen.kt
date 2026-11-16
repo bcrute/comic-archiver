@@ -134,45 +134,54 @@ fun SettingsScreen(
             }
         }
         if (settings.downloadTypes.isNotEmpty())
-            DownloadTypesCard(settings.downloadTypes, siteName, busy, onDownloadTypes)
+            DownloadTypesCard(settings.downloadTypes, settings.downloadExtras, siteName, busy, onDownloadTypes)
     }
 }
 
 /** As the desktop's episode-type choices: nothing is saved until Save, and one type always stays chosen. */
 @Composable
-private fun DownloadTypesCard(types: List<DownloadTypeChoice>, siteName: String, busy: Boolean,
-                              onSave: (Map<String, Boolean>) -> Unit) {
+private fun DownloadTypesCard(types: List<DownloadTypeChoice>, extras: List<DownloadTypeChoice>, siteName: String,
+                              busy: Boolean, onSave: (Map<String, Boolean>) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(say("settings.episode_types_on", "siteName" to siteName), style = MaterialTheme.typography.titleMedium)
-            DownloadTypeChoices(types, busy, onSave)
+            DownloadTypeChoices(types, busy, onSave, extras)
         }
     }
 }
 
-/** The episode types and their Save, for Settings and for a dashboard card's own choice. */
+/** The episode types, then the extras the site shows, and their one Save: for Settings and a dashboard card. */
 @Composable
-internal fun DownloadTypeChoices(types: List<DownloadTypeChoice>, busy: Boolean, onSave: (Map<String, Boolean>) -> Unit) {
-    val stored = types.associate { it.key to it.chosen }
+internal fun DownloadTypeChoices(types: List<DownloadTypeChoice>, busy: Boolean, onSave: (Map<String, Boolean>) -> Unit,
+                                 extras: List<DownloadTypeChoice> = emptyList()) {
+    val stored = (types + extras).associate { it.key to it.chosen }
     var draft by remember(stored) { mutableStateOf(stored) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        types.forEach { type ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Checkbox(
-                    checked = draft[type.key] == true,
-                    enabled = !busy,
-                    onCheckedChange = { draft = draft + (type.key to it) },
-                    modifier = Modifier.semantics { contentDescription = type.label },
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(type.label)
-                    if (type.help.isNotBlank()) Text(type.help, style = MaterialTheme.typography.bodySmall)
-                }
+    @Composable
+    fun Choice(type: DownloadTypeChoice) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Checkbox(
+                checked = draft[type.key] == true,
+                enabled = !busy,
+                onCheckedChange = { draft = draft + (type.key to it) },
+                modifier = Modifier.semantics { contentDescription = type.label },
+            )
+            Column(Modifier.weight(1f)) {
+                Text(type.label)
+                if (type.help.isNotBlank()) Text(type.help, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        types.forEach { Choice(it) }
         Text(say("settings.already_saved_files_are_kept_choices"))
+        if (extras.isNotEmpty()) {
+            Text(say("settings.also_save"), style = MaterialTheme.typography.titleSmall)
+            extras.forEach { Choice(it) }
+            Text(say("settings.extras_are_kept"), style = MaterialTheme.typography.bodySmall)
+        }
+        // One episode type always stays chosen; the extras may all be off.
         OutlinedButton(onClick = { onSave(draft) },
-            enabled = !busy && draft != stored && draft.values.any { it }) { Text(say("settings.save_episode_types")) }
+            enabled = !busy && draft != stored && types.any { draft[it.key] == true }) { Text(say("settings.save_episode_types")) }
     }
 }
 

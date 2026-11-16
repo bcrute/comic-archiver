@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 from . import sites
 from .publication import PublicationStore as Store
 from .archive import atomic_json, verify_episode
-from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, LibraryMoved, MetadataError, NetworkUnavailable,
-                     RunLimit, UnsupportedContent)
+from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, LibraryBusy, LibraryMoved, MetadataError,
+                     NetworkUnavailable, RunLimit, UnsupportedContent)
 from .inventory import Inventory, UNSUPPORTED_REASONS
 from .models import ArchiveError
 from .cancellation import RunCancellation, RunCancelled
@@ -24,6 +24,8 @@ MAX_CONSECUTIVE_ASSET_FAILURES = 3
 MAX_DEFERRED_ASSET_FAILURES = 5
 # A short audit or backup holding the library is waited for; failing here would leave the batch without a receipt.
 LIBRARY_WAIT_SECONDS = 30
+# This many series in a row failing the same way is one wider fault (a site change), not that many odd series.
+MAX_SERIES_SET_ASIDE_IN_A_ROW = 3
 
 
 def retain_partial_series(inventory,error):
@@ -38,6 +40,18 @@ def retain_partial_series(inventory,error):
         raise MetadataError('The partial episode list does not match its observed series/count gap.')
     inventory.observe(error.series_id,partial['title'],partial['episodes'],'partial_series_list')
     return True
+
+
+def stops_the_step(error):
+    """An error about the account, the connection, the site refusing, the library or the step itself; any other
+    error in one series' check is about that series' data, which never holds up the rest."""
+    from .network import NetworkPolicyHold
+    from .cloud_errors import CloudTransferError
+    if isinstance(error, (AuthenticationError, AccessDenied, RunLimit, NetworkUnavailable, NetworkPolicyHold,
+                          LibraryBusy, LibraryMoved, CloudTransferError)) or not isinstance(error, ArchiveError):
+        return True
+    status = getattr(error, 'source_http_status', None)
+    return type(status) is int and (status in {401, 403, 407, 408, 429} or status >= 500)
 
 
 def job_progress(root,run_id,**fields):
@@ -145,6 +159,32 @@ class DownloadBudget:
             self.reserved_bytes -= allowance
 
         return AssetDownload(request.fetch, accept, release)
+
+    def episode_extras(self, key):
+        seen = getattr(self.adapter, 'episode_extras', None)
+        return seen(key) if callable(seen) else None
+
+    def retrieve_extra(self, url, max_bytes):
+        """An episode's music: its bytes count toward the job's byte budget, as covers do."""
+        self.check()
+        if self.max_bytes is not None:
+            max_bytes = min(max_bytes, self.max_bytes - self.bytes - self.reserved_bytes)
+            if max_bytes < 1:
+                raise RunLimit('The download byte budget is exhausted; completed archives are retained.')
+        data = self.adapter.retrieve_extra(url, max_bytes)
+        self.bytes += len(data)
+        return data
+
+    def episode_comments(self, key, limit):
+        """Each page of comments is one more request: Pause and the time limit are looked at before every one."""
+        self.check()
+
+        def between_pages():
+            if self.cancellation is not None:
+                self.cancellation.check()
+            if self.max_seconds is not None and time.monotonic() - self.started >= self.max_seconds:
+                raise RunLimit("The job time budget is exhausted; its queue is retained.")
+        return self.adapter.episode_comments(key, limit, between_pages)
 
     def retrieve_cover(self,series):
         self.check()
@@ -386,6 +426,12 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 raise ArchiveError("Newly published archive failed verification; repair is required.")
                             inventory.mark(key, "archived", path=path)
                             summary["archived_episode_ids"].append(key)
+                            from .extras import save_episode as save_extras
+                            try:
+                                save_extras(output, inventory.db, budget, manifest.series, manifest.episodes[0])
+                            except BaseException:
+                                current = None  # The episode itself is saved; only the job stops.
+                                raise
                             archived_series=manifest.series
                             consecutive_asset_failures = 0
                         except AssetReadUnavailable as error:
@@ -654,7 +700,10 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                                   'observed_series_count': len(library['series'])})
         candidates = inventory.scan_candidates(scan_limit)
         scan_counts['series_check_target_count'] = len(candidates)
+        set_aside_streak = []
         def series_checkpoint(series_id, held=False):
+            if not held:
+                set_aside_streak.clear()
             scan_counts['series_checks_completed'] += 1
             scan_counts['held_series_checks' if held else 'successful_series_checks'] += 1
             job_progress(inventory.root,run_id,phase='scan',series_id=series_id,**scan_counts)
@@ -669,6 +718,26 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                     scan_counts['series_checks_completed'], scan_counts['series_check_target_count'],
                     scan_counts['held_series_checks'])
             return ready
+        def set_aside(series_id, error):
+            log = logging.getLogger('comic_archive.download')
+            if stops_the_step(error):
+                log.info('series check stopped: series=%s error=%s', series_id, type(error).__name__)
+                raise error
+            failure = (type(error).__name__, str(error))
+            if set_aside_streak and set_aside_streak[-1][0] != failure:
+                set_aside_streak.clear()
+            set_aside_streak.append((failure, series_id))
+            if len(set_aside_streak) >= MAX_SERIES_SET_ASIDE_IN_A_ROW:
+                # The same failure series after series is the site, not the series: stop as before, and take back
+                # the set-asides it made, or each later step would set aside a few more and hide the fault.
+                inventory.forget_series_set_aside([key for _, key in set_aside_streak[:-1]])
+                log.info('series check stopped: series=%s error=%s reason=same_failure_in_a_row count=%s',
+                         series_id, type(error).__name__, len(set_aside_streak))
+                raise error
+            inventory.record_series_set_aside(series_id)
+            log.warning('series set aside: series=%s error=%s reason=series_data_unreadable checked_again=after_the_rest',
+                        series_id, type(error).__name__)
+            series_checkpoint(series_id, held=True)
         for series in candidates:
             budget.check()
             job_progress(inventory.root,run_id,phase='scan',series_id=series['id'],**scan_counts)
@@ -694,17 +763,15 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 if (type(status) is not int or status not in {404,410}
                         or getattr(error,'source_series_id',None)!=series['id']
                         or getattr(error,'source_route',None) not in {f"/series/{series['id']}", f"/series/{series['id']}/episodes"}):
-                    logging.getLogger('comic_archive.download').info(
-                        'series check stopped: series=%s error=%s', series['id'], type(error).__name__)
-                    raise
+                    set_aside(series['id'], error)
+                    continue
                 inventory.record_series_unavailable(series['id'],status)
                 series_checkpoint(series['id'],held=True)
                 continue
             except ArchiveError as error:
-                # The log names the series a step stopped on, so that one odd series can be told from a wider fault.
-                logging.getLogger('comic_archive.download').info(
-                    'series check stopped: series=%s error=%s', series['id'], type(error).__name__)
-                raise
+                # The log names the series, so that one odd series can be told from a wider fault.
+                set_aside(series['id'], error)
+                continue
             if inspected.get('episode_enumeration_skipped') is True:
                 flags=inspected.get('series_content_flags')
                 if (inspected.get('authenticated') is not True or inspected.get('complete') is not False
@@ -715,10 +782,16 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 inventory.record_novel_series_hold(series['id'])
                 series_checkpoint(series['id'],held=True)
                 continue
-            if (inspected.get("authenticated") is not True or inspected.get("complete") is not True
-                    or inspected.get("source_series_id") != series["id"]):
+            if inspected.get("authenticated") is not True:
+                # Not signed in is about the account, never one series: the step stops as before.
                 raise MetadataError("Watched series refresh is incomplete or inconsistent.")
-            inventory.observe(series["id"], inspected["title"], inspected["episodes"], "sync")
+            try:
+                if inspected.get("complete") is not True or inspected.get("source_series_id") != series["id"]:
+                    raise MetadataError("Watched series refresh is incomplete or inconsistent.")
+                inventory.observe(series["id"], inspected["title"], inspected["episodes"], "sync")
+            except MetadataError as error:
+                set_aside(series['id'], error)
+                continue
             inventory.record_series_scan(series['id'])
             series_checkpoint(series['id'])
             if download_ready():

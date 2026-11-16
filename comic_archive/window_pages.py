@@ -1818,6 +1818,30 @@ class Pages:
         note.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
                            self.q.QtWidgets.QSizePolicy.Policy.Minimum)
         body.addWidget(note)
+        # What else the site shows beside an episode, saved with it only when chosen; all start off.
+        offered = (state.account or {}).get('download_extras')
+        extra_checks = {}
+        if isinstance(offered, dict) and offered:
+            from . import extras
+            body.addWidget(self.kit.label(say('settings.also_save'), 'strong'))
+            for kind, on in offered.items():
+                check = self.q.QtWidgets.QCheckBox(extras.label(kind))
+                check.setObjectName('downloadExtra_' + kind)
+                check.setChecked(on is True)
+                check.setToolTip(extras.help_text(kind))
+                body.addWidget(check)
+                description = self.q.QtWidgets.QLabel(extras.help_text(kind))
+                description.setWordWrap(True)
+                description.setObjectName('muted')
+                description.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
+                                          self.q.QtWidgets.QSizePolicy.Policy.Minimum)
+                body.addWidget(description)
+                extra_checks[kind] = check
+            where = self.q.QtWidgets.QLabel(say('settings.extras_are_kept'))
+            where.setWordWrap(True)
+            where.setSizePolicy(self.q.QtWidgets.QSizePolicy.Policy.Preferred,
+                                self.q.QtWidgets.QSizePolicy.Policy.Minimum)
+            body.addWidget(where)
         buttons = self.q.QtWidgets.QDialogButtonBox(
             self.q.QtWidgets.QDialogButtonBox.StandardButton.Save | self.q.QtWidgets.QDialogButtonBox.StandardButton.Cancel)
         save = buttons.button(self.q.QtWidgets.QDialogButtonBox.StandardButton.Save)
@@ -1841,7 +1865,7 @@ class Pages:
         height += margins.top() + margins.bottom() + box.spacing()
         dialog.resize(width, min(height, dialog.screen().availableGeometry().height() - 80))
         if dialog.exec() == self.q.QtWidgets.QDialog.DialogCode.Accepted:
-            self.download_types({kind: check.isChecked() for kind, check in checks.items()}, key)
+            self.download_types({kind: check.isChecked() for kind, check in (*checks.items(), *extra_checks.items())}, key)
         dialog.deleteLater()
 
     def download_types(self, value, key):

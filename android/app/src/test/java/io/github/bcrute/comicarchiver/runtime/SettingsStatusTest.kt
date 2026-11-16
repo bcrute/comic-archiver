@@ -48,6 +48,25 @@ class SettingsStatusTest {
         }
     }
 
+    @Test fun extrasAreReadAfterTheTypesAndASiteWithoutAnyShowsNone() {
+        assertEquals(emptyList<DownloadTypeChoice>(), SettingsStatus.fromEnvelope(envelope())!!.downloadExtras)
+        val none = envelope()
+        none.getJSONObject("result").put("download_extras", org.json.JSONArray())
+        assertEquals(emptyList<DownloadTypeChoice>(), SettingsStatus.fromEnvelope(none)!!.downloadExtras)
+        val some = envelope()
+        some.getJSONObject("result").put("download_extras", org.json.JSONArray(
+            """[{"key":"notes","label":"Creator's notes","help":"The note.","chosen":false},
+            {"key":"music","label":"Music","help":"The music.","chosen":true}]"""))
+        assertEquals(listOf(DownloadTypeChoice("notes", "Creator's notes", "The note.", false),
+            DownloadTypeChoice("music", "Music", "The music.", true)), SettingsStatus.fromEnvelope(some)!!.downloadExtras)
+        // An extra that cannot be read, or one named like an episode type, is no settings at all.
+        for (row in listOf("""{"key":"notes","label":"Notes","chosen":"no"}""", """{"key":"bought","label":"Bought","chosen":true}""")) {
+            val bad = envelope()
+            bad.getJSONObject("result").put("download_extras", org.json.JSONArray("[$row]"))
+            assertNull(SettingsStatus.fromEnvelope(bad))
+        }
+    }
+
     @Test fun unverifiedConnectionCannotBeReportedAsAllowedUnderDefaultPolicy() {
         val bad = envelope()
         bad.getJSONObject("result").put("allowed", true)
