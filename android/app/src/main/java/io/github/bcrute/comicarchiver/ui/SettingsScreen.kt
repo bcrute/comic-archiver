@@ -181,7 +181,7 @@ internal fun DownloadTypeChoices(types: List<DownloadTypeChoice>, busy: Boolean,
         }
         // One episode type always stays chosen; the extras may all be off.
         OutlinedButton(onClick = { onSave(draft) },
-            enabled = !busy && draft != stored && types.any { draft[it.key] == true }) { Text(say("settings.save_episode_types")) }
+            enabled = !busy && draft != stored && types.any { draft[it.key] == true }) { Text(say("settings.save_choices")) }
     }
 }
 

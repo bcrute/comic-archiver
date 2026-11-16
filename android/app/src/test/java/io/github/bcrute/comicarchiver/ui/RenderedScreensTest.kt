@@ -318,7 +318,7 @@ class RenderedScreensTest {
         compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
         compose.onNodeWithText("Download choices for Tapas").assertIsDisplayed()
         compose.onNodeWithContentDescription("Free").performClick()
-        compose.onNodeWithText("Save episode types").performClick()
+        compose.onNodeWithText("Save choices").performClick()
         assertEquals(listOf(mapOf("bought" to true, "free" to true)), controller.typeChanges)
         compose.onNodeWithText("Download choices for Tapas").assertDoesNotExist()
         // Signed out, the dashboard stays: the card offers Sign in and says what the site answered.
@@ -665,14 +665,14 @@ class RenderedScreensTest {
         compose.onNodeWithContentDescription("Paid / unlocked").performScrollTo().assertIsOn()
         compose.onNodeWithContentDescription("Free").assertIsOff()
         // Nothing to save until a choice differs, and never with every type cleared.
-        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Save choices").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Paid / unlocked").performScrollTo().performClick()
-        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Save choices").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Free").performScrollTo().performClick()
-        compose.onNodeWithText("Save episode types").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Save choices").performScrollTo().assertIsEnabled().performClick()
         assertEquals(listOf(mapOf("bought" to false, "free" to true)), controller.typeChanges)
         compose.onNodeWithContentDescription("Free").performScrollTo().assertIsOn()
-        compose.onNodeWithText("Save episode types").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Save choices").performScrollTo().assertIsNotEnabled()
         assertEquals(0, controller.goCalls)
     }
 
