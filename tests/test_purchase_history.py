@@ -279,6 +279,46 @@ class PurchasePageTests(unittest.TestCase):
             self.adapter.purchase_history_page()
         self.assertEqual(caught.exception.source_http_status, 429)
 
+    def test_a_place_saved_by_another_session_is_reached_again_from_the_first_page(self):
+        asked, refuse = [], set()
+
+        def answer(url, max_bytes=None):
+            index = int(url.rsplit('=', 1)[1])
+            asked.append(index)
+            if index in refuse:
+                refuse.discard(index)
+                raise MetadataError('Tapas refused a purchase-history page (HTTP 400).')
+            return json.dumps({'code': 200, 'data': {'body': self.body,
+                                                     'pagination': {'index': index, 'has_next': True}}}).encode()
+
+        def walk(index):
+            asked.clear()
+            page = self.adapter.purchase_history_page({'contract': 'tapas-transactions-index-v1', 'index': index})
+            self.assertEqual(page['page_identity'], f'index:{index}')
+            return list(asked)
+
+        self.http.transport.get.side_effect = answer
+        # The app restarted: Tapas no longer knows the place, so the pages before it are read again in turn.
+        self.assertEqual(walk(3), [0, 1, 2, 3])
+        self.assertEqual(walk(4), [4])
+        # A page asked twice is out of turn too.
+        self.assertEqual(walk(4), [0, 1, 2, 3, 4])
+        # A refusal partway: the next read carries on after the last page read.
+        refuse.add(7)
+        with self.assertRaises(MetadataError):
+            walk(8)
+        self.assertEqual(walk(8), [7, 8])
+        # The very page asked in turn was refused: Tapas lost the place, so the next read starts over.
+        refuse.add(9)
+        with self.assertRaises(MetadataError):
+            walk(9)
+        self.assertEqual(walk(9), list(range(10)))
+        # The first page needs nothing before it.
+        asked.clear()
+        self.adapter.purchase_history_page()
+        self.assertEqual(asked, [0])
+        self.assertEqual(walk(1), [1])
+
     def test_unbound_direct_reader_establishes_identity_once(self):
         self.adapter.expected_account_id = None
         self.adapter.account_identity = Mock(return_value='synthetic-account')

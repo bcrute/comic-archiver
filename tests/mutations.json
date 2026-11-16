@@ -10510,5 +10510,37 @@
   "new": "'row_incomplete', 'row_empty'})",
   "test_file": "test_purchase_history.py",
   "test": "test_a_history_page_tapas_refused_sets_history_aside_and_says_why"
+ },
+ {
+  "id": "history-walk-never-replays-earlier-pages",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        start = walked + 1 if type(walked) is int and walked < index else 0\n",
+  "new": "        start = index\n",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
+ },
+ {
+  "id": "history-walk-always-starts-over",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        start = walked + 1 if type(walked) is int and walked < index else 0\n",
+  "new": "        start = 0\n",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
+ },
+ {
+  "id": "history-walk-replayed-page-not-remembered",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "                                         max_bytes=4 * 1024 * 1024), earlier)\n            self._history_walked = earlier\n",
+  "new": "                                         max_bytes=4 * 1024 * 1024), earlier)\n",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
+ },
+ {
+  "id": "history-walk-place-kept-after-a-refusal",
+  "source": "comic_archive/adapters/tapas.py",
+  "old": "        start = walked + 1 if type(walked) is int and walked < index else 0\n        self._history_walked = None\n",
+  "new": "        start = walked + 1 if type(walked) is int and walked < index else 0\n",
+  "test_file": "test_purchase_history.py",
+  "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
  }
 ]

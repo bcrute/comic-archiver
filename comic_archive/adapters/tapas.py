@@ -947,9 +947,21 @@ class TapasAdapter:
         if not getattr(self, 'expected_account_id', None):
             self.expected_account_id = self.account_identity()
         http = self.automatic_adapter()
-        url = continuation_url(cursor) if cursor is not None else continuation_url({'contract': 'tapas-transactions-index-v1', 'index': 0})
-        raw = http.transport.get(url, max_bytes=4 * 1024 * 1024)
-        return read_page(raw, 0 if cursor is None else cursor['index'])
+        index = 0 if cursor is None else cursor['index']
+        url = continuation_url(cursor if cursor is not None else {'contract': 'tapas-transactions-index-v1', 'index': 0})
+        # Tapas keeps the pager's place in the browser session and refuses (HTTP 400) a page asked out of turn,
+        # so a place saved by another session (the app restarted) is reached again from the first page, as the
+        # site's own Older button would.
+        walked = getattr(self, '_history_walked', None)
+        start = walked + 1 if type(walked) is int and walked < index else 0
+        self._history_walked = None
+        for earlier in range(start, index):
+            read_page(http.transport.get(continuation_url({'contract': 'tapas-transactions-index-v1', 'index': earlier}),
+                                         max_bytes=4 * 1024 * 1024), earlier)
+            self._history_walked = earlier
+        page = read_page(http.transport.get(url, max_bytes=4 * 1024 * 1024), index)
+        self._history_walked = index
+        return page
 
     def purchase_series_identity(self, url):
         """Resolve a history association through normal metadata, never images."""
