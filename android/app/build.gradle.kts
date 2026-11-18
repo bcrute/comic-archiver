@@ -45,8 +45,8 @@ android {
         applicationId = "io.github.bcrute.comicarchiver"
         minSdk = 29
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.5.3"
+        versionCode = 5
+        versionName = "0.5.4"
         testInstrumentationRunner = "io.github.bcrute.comicarchiver.integration.BetaTestRunner"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
