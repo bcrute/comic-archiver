@@ -818,7 +818,10 @@ class Inventory:
               or (image_recheck and row['access_state'] in sites.ACCESS)
               or (product_recheck and row['access_state'] in ('webtoon_free', 'webtoon_unlocked'))]
         # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
-        return sorted(rows,key=lambda row:(failing(row),row['attempts'] if failing(row) else 0,rank(row)))
+        from .extras_backfill import pending as pending_extras
+        # A later extras choice must not wait for an entire unfinished comic backlog.
+        return pending_extras(self, free_only) + sorted(
+            rows, key=lambda row: (failing(row), row['attempts'] if failing(row) else 0, rank(row)))
 
     def watched_series(self):
         return [dict(row) for row in self.db.execute("SELECT id,title FROM series ORDER BY id")]

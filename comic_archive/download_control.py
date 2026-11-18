@@ -342,7 +342,7 @@ def progressed(result):
     history = refresh.get('purchase_history') if isinstance(refresh, dict) else None
     history_pages = history.get('pages_read') if isinstance(history, dict) else None
     history_links = history.get('links_processed') if isinstance(history, dict) else None
-    return bool(result.get('archived_episode_ids') or result.get('downloaded_pages')
+    return bool(result.get('archived_episode_ids') or result.get('extras_episode_ids') or result.get('downloaded_pages')
                 or type(history_pages) is int and history_pages > 0
                 or type(history_links) is int and history_links > 0
                 or type(checked) is int and checked > 0

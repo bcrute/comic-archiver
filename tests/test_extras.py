@@ -136,7 +136,7 @@ class ExtrasTests(unittest.TestCase):
         # Nothing beside the episode's own files changes.
         self.assertEqual([p.name for p in self.root.iterdir()], ['.archive-state'])
 
-    def test_only_what_was_chosen_is_kept(self):
+    def test_only_chosen_extras_are_requested_and_earlier_choices_are_kept(self):
         extras.save(self.db, ALL_OFF | {'notes': True})
         source = Source(self.seen)
         value = json.loads(extras.save_episode(self.root, self.db, source, self.series, self.episode).read_text())
@@ -146,7 +146,7 @@ class ExtrasTests(unittest.TestCase):
         self.assertEqual(source.asked, [('seen', '81')])
         extras.save(self.db, ALL_OFF | {'stats': True})
         value = json.loads(extras.save_episode(self.root, self.db, Source(self.seen), self.series, self.episode).read_text())
-        self.assertNotIn('creator_note', value)
+        self.assertEqual(value['creator_note'], self.seen['note'])
         self.assertEqual(value['stats']['views'], 10)
 
     def test_an_extra_that_cannot_be_had_is_left_out_and_the_rest_kept(self):

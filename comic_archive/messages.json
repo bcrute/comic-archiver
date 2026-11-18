@@ -752,7 +752,7 @@
  "settings.episode_types_on": "Episode types on {siteName}",
  "settings.episodes": "{name} episodes",
  "settings.episodes_2": "Episodes",
- "settings.extras_are_kept": "Extras are kept in the library folder under .archive-state/extras, for episodes saved from now on. They are not uploaded or exported yet.",
+ "settings.extras_are_kept": "Selected extras are collected for new and previously saved episodes when you Start or Continue. Existing comic and novel files stay unchanged. Extras are kept under .archive-state/extras in the library; they are not uploaded or exported yet.",
  "settings.issue": "Issue",
  "settings.loading_download_settings": "Loading download settings…",
  "settings.mobile_data_can_incur_charges_changing": "Mobile data can incur charges. Changing this choice never starts a download.",

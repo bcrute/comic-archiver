@@ -246,7 +246,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         summary = {"run_id": run_id, "status": "running", "archived_episode_ids": [],
                    "unavailable_episode_ids": [], "unsupported_episode_ids": [],
                    "not_free_episode_ids": [],
-                   'excluded_episode_ids': [],
+                   'excluded_episode_ids': [], 'extras_episode_ids': [],
                    'deferred_asset_episode_ids':[],
                    'enriched_series_ids':[],'metadata_unavailable_series':[],
                    "downloaded_pages": 0, "downloaded_bytes": 0, "inventory_complete": False,
@@ -364,6 +364,16 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                         if shutil.disk_usage(output).free < min_free_bytes:
                             raise RunLimit("The configured free disk reserve was reached; its queue is retained.")
                         key = current["id"]
+                        if current.get('extras_only'):
+                            from .extras_backfill import collect
+                            # Exceptions must never turn an already saved archive back into queued work.
+                            extra_row, current = current, None
+                            job_progress(output, run_id, phase='archive', episode_id=key,
+                                         completed=len(summary['archived_episode_ids']),
+                                         downloaded_pages=budget.pages, downloaded_bytes=budget.bytes)
+                            collect(inventory, adapter, budget, extra_row, free_only)
+                            summary['extras_episode_ids'].append(key)
+                            continue
                         archived_series=None
                         inventory.mark(key, "downloading")
                         print(f"Archiving episode {key}; {len(summary['archived_episode_ids'])} episodes completed in this run.", flush=True)
@@ -414,7 +424,8 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                     'downloaded_chapters':budget.chapters,
                                     'cancellation_supported':True})
                                 (output / ".archive-state/progress.json").chmod(0o600)
-                            if _pipeline and selected_index + 1 < len(selected):
+                            if (_pipeline and selected_index + 1 < len(selected)
+                                    and not selected[selected_index + 1].get('extras_only')):
                                 units = (len(manifest.episodes[0].pages) if manifest.episodes[0].content_type == 'comic'
                                          else 1 + len(manifest.episodes[0].illustrations))
                                 if budget.max_pages is None or budget.pages + units < budget.max_pages:

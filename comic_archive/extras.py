@@ -1,7 +1,7 @@
 """What a site shows beside an episode: the creator's note, its music, its counts and its readers' comments.
 
-Each is saved only when chosen, and every one starts off. Only an episode the account could read, and that was
-just saved, has its extras saved, and only what the site shows its reader on that episode's page.
+Each is saved only when chosen, and every one starts off. An episode the account can still read can have its
+extras collected after its archive was saved, and only what the site shows its reader on that episode's page.
 
 They are kept in the library's own private folder, apart from the portable files:
 <library>/.archive-state/extras/<site>/<series>/<episode>.json, with any music beside it. Nothing that lists,
@@ -69,6 +69,9 @@ def read(db):
 def store(db, value):
     """Write the choice inside the caller's transaction."""
     value = validate(value)
+    if value != read(db) and db.execute("SELECT 1 FROM sqlite_master WHERE name='extras_collections'").fetchone():
+        # A deliberate choice change gives failed extras another bounded chance, keeping successes.
+        db.execute('DELETE FROM extras_collections WHERE done=0')
     db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                (KEY, json.dumps(value, sort_keys=True)))
     LOG.info('download extras saved: ' + ' '.join(f'{key}=%s' for key in KINDS), *(value[key] for key in KINDS))
@@ -202,25 +205,50 @@ def save_episode(root, db, source, series, episode):
     except (ArchiveError, OSError) as error:
         if _stops(error):
             raise
+        from .extras_backfill import record, wanted
+        record(db, episode.id, wanted(db, series.source, episode.id), False)
         LOG.info('download extras: episode=%s saved=false error=%s', episode.id, type(error).__name__)
         return None
 
 
+def saved_value(root, source, series_key, episode_key):
+    """Read an existing supplemental record only inside its expected episode folder."""
+    identifier(episode_key)
+    path = folder(root, source, series_key) / f'{episode_key}.json'
+    value = {}
+    if path.exists() or path.is_symlink():
+        if any(p.is_symlink() for p in (path, *path.parents)) or path.stat().st_size > 2_000_000:
+            raise ArchiveError('The saved extras cannot be safely updated.')
+        try:
+            value = json.loads(path.read_text(encoding='utf-8'))
+        except (ValueError, OSError, RecursionError):
+            raise ArchiveError('The saved extras could not be read; they are retained.') from None
+        if (not isinstance(value, dict) or value.get('schema_version') != 1 or value.get('site') != source
+                or value.get('series') != series_key or value.get('episode') != episode_key):
+            raise ArchiveError('The saved extras belong to another episode; they are retained.')
+    return value
+
+
 def _save_episode(root, db, source, series, episode):
     from .archive import atomic_json, directory
-    wanted = [kind for kind in offered(series.source) if read(db)[kind]]
+    from .extras_backfill import record, wanted as missing
+    wanted = missing(db, series.source, episode.id)
     if not wanted:
         return None
     seen = getattr(source, 'episode_extras', None)
     seen = seen(episode.id) if callable(seen) else None
     if not isinstance(seen, dict):
         LOG.info('download extras: episode=%s seen=false', episode.id)
+        record(db, episode.id, wanted, False)
         return None
     series_key = series.platform_id or series.id
     place = folder(root, series.source, series_key)
     now = datetime.now(timezone.utc).isoformat()
-    value = {'schema_version': 1, 'site': series.source, 'series': series_key, 'episode': episode.id,
-             'title': episode.title, 'source_url': episode.source_url, 'saved_at': now}
+    path = place / f'{episode.id}.json'
+    value = saved_value(root, series.source, series_key, episode.id)
+    value.update(schema_version=1, site=series.source, series=series_key, episode=episode.id,
+                 title=episode.title, source_url=episode.source_url, saved_at=now)
+    failed = set()
     if 'notes' in wanted and seen.get('note'):
         value['creator_note'] = seen['note']
     if 'stats' in wanted and seen.get('stats'):
@@ -241,6 +269,7 @@ def _save_episode(root, db, source, series, episode):
             except (ArchiveError, OSError) as error:
                 if _stops(error):
                     raise
+                failed.add('music')
                 LOG.info('download extras: episode=%s music=%s saved=false error=%s', episode.id, number, type(error).__name__)
         if tracks:
             value['music'] = tracks
@@ -251,15 +280,21 @@ def _save_episode(root, db, source, series, episode):
                 value['comments'] = listed['comments'][:MAX_COMMENTS]
                 value['comments_total'] = count(listed.get('total'))
                 value['comments_complete'] = listed.get('complete') is True
+            else:
+                failed.add('comments')
         except ArchiveError as error:
             if _stops(error):
                 raise
+            failed.add('comments')
             LOG.info('download extras: episode=%s comments saved=false error=%s', episode.id, type(error).__name__)
     kept = [key for key in ('creator_note', 'stats', 'music', 'comments') if key in value]
     if not kept:
+        record(db, episode.id, set(wanted) - failed, True)
+        record(db, episode.id, failed, False)
         return None
     directory(place, root)
-    path = place / f'{episode.id}.json'
     atomic_json(path, value)
+    record(db, episode.id, set(wanted) - failed, True)
+    record(db, episode.id, failed, False)
     LOG.info('download extras: episode=%s saved=%s', episode.id, ','.join(kept))
     return path
