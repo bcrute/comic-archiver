@@ -107,6 +107,34 @@ class SiteReleaseTests(unittest.TestCase):
                                                                       '2026-11-19T00:00:00Z', prerelease=True)])
         self.assertEqual(code, 0, error)
 
+    def test_download_sizes_follow_the_selected_release_assets(self):
+        latest = release(NEWEST)
+        sizes = [123_400_000, 165_000_000, 202_500_000, 476_100_000, 400, 1000]
+        for asset, size in zip(latest['assets'], sizes, strict=True):
+            asset['size'] = size
+        android = beta()
+        android['assets'][0]['size'] = 61_500_000
+        self.assertEqual(self.run_site(latest, [latest, android])[0], 0)
+        page = self.page('download.html')
+        for text in ('64-bit · 123.4 MB', 'installing · 165 MB', 'x86_64 · 202.5 MB',
+                     'macOS 13 or newer · 476.1 MB', 'version 0.5.1-beta1 · 61.5 MB'):
+            self.assertIn(text, page)
+        self.assertIn('Android 15 or newer · 61.5 MB', self.page('android.html'))
+        latest['assets'][0]['size'] = 130_000_000
+        self.assertEqual(self.run_site(latest, [latest, android])[0], 0)
+        self.assertIn('64-bit · 130 MB', self.page('download.html'))
+        self.assertNotIn('123.4 MB', self.page('download.html'))
+
+    def test_missing_or_invalid_download_sizes_are_omitted(self):
+        for invalid in (None, True, '123000000', 0, -1, 10 ** 20):
+            with self.subTest(invalid=invalid):
+                latest = release(NEWEST)
+                for asset in latest['assets']:
+                    asset['size'] = invalid
+                self.assertEqual(self.run_site(latest)[0], 0)
+                self.assertNotIn(' MB', self.page('download.html'))
+                self.assertNotIn('{windows_size}', self.page('download.html'))
+
     def test_without_an_android_release_there_is_no_android_page(self):
         self.assertEqual(self.run_site(release(NEWEST), [release(NEWEST)])[0], 0)
         self.assertFalse((self.out / 'android.html').exists())

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Download — Comic Archiver</title>
-<meta name="description" content="Download Comic Archiver {version} for Windows, Linux and Mac.">
+<meta name="description" content="Download Comic Archiver {version} and find installation instructions for your device.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
@@ -15,12 +15,9 @@
   <div class="wrap">
     <a class="brand" href="./"><img src="icon.svg" alt="">Comic Archiver</a>
     <nav aria-label="Site">
-      <a href="guide.html">How it works</a>
-      <a href="howto.html">How to</a>
-      <a href="roadmap.html">Roadmap</a>
-      <a href="changelog.html">Changelog</a>
+      <a href="guide.html">Features</a>
+      <a href="howto.html">Getting started</a>
       <a href="contact.html">Contact</a>
-      <a href="https://github.com/bcrute/comic-archiver">GitHub</a>
     </nav>
     <div class="theme-pick">
       <button class="theme" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Theme: System" title="Theme: System">
@@ -47,6 +44,10 @@
 </div>
 <div class="content">
   <div class="wrap">
+<details class="download-trust">
+  <summary>Why installation warnings may appear</summary>
+  <div><p>Windows builds are not signed by a recognized publisher, and Apple has not notarized the Mac app. Follow the installation steps below only for files linked on this page or the <a href="https://github.com/bcrute/comic-archiver/releases/latest">official GitHub release</a>. You can compare a file with the release's <a href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/SHA256SUMS.txt">checksums</a> or inspect the <a href="https://github.com/bcrute/comic-archiver">source code</a>; a warning alone does not establish whether a file is safe.</p></div>
+</details>
 <!-- if android -->
 <!-- else -->
 <div class="for-device" data-os="android" hidden>
@@ -54,31 +55,31 @@
 </div>
 <!-- end if -->
 <div class="for-device" data-os="ios" hidden>
-<p class="note">There's no app for iPhone or iPad. Comic Archiver runs on Windows, Linux and Mac computers: download it on one of those.</p>
+<p class="note">There's no app for iPhone or iPad. Use Windows, Linux or an Intel Mac<!-- if android -->, or an Android phone<!-- end if -->; choose a supported device below.</p>
 </div>
 <div class="panels">
   <div class="panel download" data-os="windows">
         <h3>Windows</h3>
-        <p class="spec">Windows 10 or 11, 64-bit · 114 MB</p>
+        <p class="spec">Windows 10 or 11, 64-bit{windows_size}</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64-setup.exe">Download installer</a>
-        <p class="small"><a href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip">Or the ZIP, to run without installing (165 MB)</a></p>
+        <p class="small"><a href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-windows-x86_64.zip">Or the ZIP, to run without installing{windows_zip_size}</a></p>
   </div>
   <div class="panel download" data-os="linux">
         <h3>Linux</h3>
-        <p class="spec">x86_64 · 202 MB</p>
+        <p class="spec">x86_64{linux_size}</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-linux-x86_64.tar.gz">Download archive</a>
         <p class="small">Unpack it and run <code>comic-archiver</code>.</p>
   </div>
   <div class="panel download" data-os="mac">
         <h3>Mac</h3>
-        <p class="spec">Intel processor, macOS 13 or newer · 476 MB</p>
+        <p class="spec">Intel processor, macOS 13 or newer{mac_size}</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{version}/ComicArchiver-{version}-macos-x86_64.zip">Download app</a>
         <p class="small">Early Mac version: not notarized by Apple, tested on macOS 15 only. Apple silicon is not available yet.</p>
   </div>
 <!-- if android -->
   <div class="panel download" data-os="android">
         <h3>Android <span class="tag">Beta</span></h3>
-        <p class="spec">Android 15 or newer · version {android_version}</p>
+        <p class="spec">Android 15 or newer · version {android_version}{android_size}</p>
         <a class="btn primary" href="https://github.com/bcrute/comic-archiver/releases/download/v{android_version}/ComicArchiver-{android_version}-android-universal.apk">Download the app</a>
         <p class="small">Still being tested. <a href="android.html">How to install it</a>.</p>
   </div>
@@ -91,7 +92,7 @@
   <details data-os="windows">
       <summary>Windows: install and update</summary>
       <div>
-        <p>The app is not signed yet, so Windows warns about it twice. Both warnings are expected.</p>
+        <p>The Windows app is not signed by a recognized publisher. Your browser or Windows may show the warnings below. These steps apply to the official download linked above.</p>
         <ol class="steps">
           <li>If Edge says the file "isn't commonly downloaded", point at the download, choose <b>…</b>, then <b>Keep</b>. If it asks again, choose <b>Show more</b>, then <b>Keep anyway</b>.</li>
           <li>Run the setup file. If Windows says "Windows protected your PC", its only button is <b>Don't run</b>. Don't press it. Click the small <b>More info</b> link under the message instead:<br>
@@ -113,7 +114,7 @@
   <details data-os="mac">
       <summary>Mac: install and update</summary>
       <div>
-        <p>Apple has not notarized the app, so macOS will not open it until you allow it once.</p>
+        <p>Apple has not notarized the app, so macOS may block the first open. These steps apply to the official download linked above.</p>
         <ol class="steps">
           <li>Open the downloaded ZIP file, then drag <b>Comic Archiver</b> into your Applications folder.</li>
           <li>Open Comic Archiver. macOS says it could not verify the app. Choose <b>Done</b>, not <b>Move to Trash</b>.</li>
@@ -126,7 +127,7 @@
   <details data-os="android">
       <summary>Android: install and update</summary>
       <div>
-        <p>The app is installed from the file, not from Google Play, so Android asks you to allow it once.</p>
+        <p>The app is signed for updates and installed from an APK file outside Google Play. Follow these steps only for the file from the official download linked above.</p>
         <ol class="steps">
           <li>On the phone, open this page and tap <b>Download the app</b>. If the browser warns that the file might be harmful, choose <b>Download anyway</b>.</li>
           <li>Open the downloaded file. If Android says your phone isn't allowed to install unknown apps from this source, choose <b>Settings</b>, turn on <b>Allow from this source</b>, then go back.</li>
@@ -145,8 +146,8 @@
   <div class="wrap">
     <nav class="foot" aria-label="Footer">
       <a href="download.html">Download</a>
-      <a href="guide.html">How it works</a>
-      <a href="howto.html">How to</a>
+      <a href="guide.html">Features</a>
+      <a href="howto.html">Getting started</a>
       <a href="roadmap.html">Roadmap</a>
       <a href="changelog.html">Changelog</a>
       <a href="privacy.html">Privacy</a>

@@ -199,13 +199,26 @@ def android_release(releases):
     return max(found, key=lambda item: item['published_at'], default=None)
 
 
-def build(out, version, released=None, android=None, offered=None, folder=SITE):
+def size_suffix(release_sizes, version, filename):
+    """Decimal MB from the selected release asset, omitted when no reliable size is given."""
+    size = (release_sizes or {}).get(version, {}).get(filename)
+    if type(size) is not int or not 0 < size < 10 ** 12:
+        return ''
+    amount = f'{size / 1_000_000:.1f}'.removesuffix('.0')
+    return f' · {amount} MB'
+
+
+def build(out, version, released=None, android=None, offered=None, folder=SITE, release_sizes=None):
     """Write the site to out. released is the release's date: for a preview, its changes file's date or today.
     offered is {version: set of file names} when every download link must be checked."""
     entries = changes(folder / 'changes')
     released = released or entries.get(version, (None,))[0] or datetime.date.today().isoformat()
     values = {'{version}': version, '{released}': day(released),
               '{changelog}': changelog(entries, version, released)}
+    for token, suffix in (('windows_size', 'windows-x86_64-setup.exe'), ('windows_zip_size', 'windows-x86_64.zip'),
+                          ('linux_size', 'linux-x86_64.tar.gz'), ('mac_size', 'macos-x86_64.zip')):
+        values['{' + token + '}'] = size_suffix(release_sizes, version, f'ComicArchiver-{version}-{suffix}')
+    values['{android_size}'] = size_suffix(release_sizes, android, f'ComicArchiver-{android}-android-universal.apk')
     if any('{roadmap}' in page.read_text(encoding='utf-8') for page in folder.glob('*.html')):
         values['{roadmap}'] = roadmap(version, folder / 'roadmap.json')
     if android:
@@ -262,13 +275,15 @@ def main(argv=None):
                 raise SiteError(f"{release.get('tag_name')} is not a published full release")
             version = release['tag_name'].removeprefix('v')
             offered = {version: assets(release)}
+            release_sizes = {version: {item['name']: item.get('size') for item in release.get('assets', [])}}
             android = None
             if args.releases:
                 found = android_release(json.loads(Path(args.releases).read_text(encoding='utf-8')))
                 if found:
                     android = found['tag_name'].removeprefix('v')
                     offered[android] = assets(found)
-            out = build(args.out, version, release['published_at'], android, offered)
+                    release_sizes[android] = {item['name']: item.get('size') for item in found.get('assets', [])}
+            out = build(args.out, version, release['published_at'], android, offered, release_sizes=release_sizes)
         else:
             version = args.version or tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']
             out = build(args.out, version, android=args.android_version)

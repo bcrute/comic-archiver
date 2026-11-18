@@ -95,6 +95,11 @@ h2 .tag { font-size: 13px; padding: 2px 10px; }
 .hero .lede { margin: 20px auto 0; }
 .showcase { margin-top: -130px; padding-bottom: 88px; }
 .shot img { display: block; width: 100%; max-width: 1000px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.wrap.home-start { padding-bottom: 64px; }
+.home-start h2 { margin-bottom: 24px; }
+.home-start .next { margin-top: 24px; }
+ol.quick-start { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+ol.quick-start > li { margin-bottom: 0; }
 
 /* Short items with a heading: How it works, Privacy */
 .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 56px; }
@@ -143,6 +148,8 @@ ol.steps > li { counter-increment: step; position: relative; padding-left: 44px;
 ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 15px; display: grid; place-items: center; }
 .note { margin: 24px 0 0; padding: 16px 20px; background: var(--band); border: 1px solid var(--border); border-radius: 10px; color: var(--lede); font-size: 16px; }
+.note p:last-child { margin-bottom: 0; }
+.download-trust { margin: 0 0 24px; }
 
 /* Expanding help */
 details { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-top: 12px; }
@@ -194,6 +201,7 @@ footer .copy { margin: 14px 0 0; font-size: 14px; }
   .content { padding: 40px 0 64px; }
   .hero { padding: 56px 0 120px; }
   .showcase { margin-top: -90px; padding-bottom: 56px; }
+  ol.quick-start { grid-template-columns: minmax(0, 1fr); }
   .features, .panels, .panels:has(> .panel:nth-child(4)) { grid-template-columns: minmax(0, 1fr); }
   .panels.one { grid-template-columns: minmax(0, 1fr); }
   .panels.picked, .panels.picked:has(> .panel:nth-child(4)),
@@ -244,4 +252,11 @@ button.theme svg { width: 18px; height: 18px; display: none; }
   .brand { font-size: 16px; gap: 8px; }
   .brand img { width: 26px; height: 26px; }
   header.site .btn.small { padding: 7px 12px; }
+}
+
+@media (pointer: coarse) {
+  header.site .brand, header.site nav a, header.site .btn { min-height: 44px; display: inline-flex; align-items: center; }
+  button.theme { width: 44px; height: 44px; }
+  .theme-menu button { min-height: 44px; }
+  footer nav.foot a { min-height: 44px; display: inline-flex; align-items: center; }
 }
