@@ -10710,5 +10710,13 @@
   "new": "idle = True",
   "test_file": "test_account_ui.py",
   "test": "test_speed_change_timeout_keeps_the_old_choice_and_the_download_paused"
+ },
+ {
+  "id": "support-subreddit-button-opens-the-subreddit",
+  "source": "comic_archive/window_pages.py",
+  "old": "self.shell.open_url(SUBREDDIT)",
+  "new": "self.shell.open_url(SUPPORT_ADDRESS)",
+  "test_file": "test_window_pages.py",
+  "test": "test_the_subreddit_button_opens_the_subreddit_in_the_browser"
  }
 ]

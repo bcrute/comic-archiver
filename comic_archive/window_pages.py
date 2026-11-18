@@ -80,6 +80,7 @@ B2_YOUR_PAGES = ('<b>Your Backblaze pages</b><br><span>Each opens in your browse
                  '<li><a href="keys">Application Keys</a>: delete Comic Archiver’s key here to take away its access.</li></ul>')
 ABOUT = (say('licenses.copyright_2026_ben_crute_comic_archiver'))
 SUPPORT_ADDRESS = say('support.address')
+SUBREDDIT = say('support.subreddit')
 LOG_FAILED = say('support.log_not_saved_email_anyway')
 # The dashboard puts two cards in a row from this width of its page's content, and one below it.
 CARD_COLUMNS_FROM = 660
@@ -1135,6 +1136,9 @@ class Settings:
         self.address = kit.label(say('support.no_email_app', address=SUPPORT_ADDRESS), 'muted')
         self.address.setTextInteractionFlags(kit.q.QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         box.addWidget(self.address)
+        box.addWidget(kit.label(say('support.community'), 'muted'))
+        self.subreddit = kit.button(say('support.open_the_subreddit'), pages.open_subreddit, 'secondary')
+        box.addWidget(kit.row(self.subreddit))
         return card
 
     def _license(self, path):
@@ -1707,6 +1711,10 @@ class Pages:
         paths = self.q.QtCore.QStandardPaths
         return (paths.writableLocation(paths.StandardLocation.DownloadLocation)
                 or paths.writableLocation(paths.StandardLocation.HomeLocation))
+
+    def open_subreddit(self):
+        """The Comic Archiver subreddit, in the computer's browser."""
+        self.shell.open_url(SUBREDDIT)
 
     def email_support(self):
         """Save one file for support in the Downloads folder (the details, each open site's records and the app log),

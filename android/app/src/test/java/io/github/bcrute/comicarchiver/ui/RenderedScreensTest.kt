@@ -1249,6 +1249,32 @@ class RenderedScreensTest {
 
     @Test
     @Config(qualifiers = "w360dp-h640dp")
+    fun supportOpensTheSubredditAndSaysWhereItIsWhenNoBrowserOpens() {
+        val opened = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalUriHandler provides object : UriHandler {
+                override fun openUri(uri: String) {
+                    opened.add(uri)
+                    if (opened.size == 1) throw IllegalStateException("private-browser-detail")
+                }
+            }) {
+                MaterialTheme { SupportScreen() }
+            }
+        }
+        compose.onNodeWithText("Questions and ideas are welcome on the Comic Archiver subreddit too", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNode(hasTestTag("support-subreddit") and hasText("Open r/ComicArchiver")).performScrollTo().performClick()
+        compose.onNodeWithText("The browser could not be opened. The subreddit is at reddit.com/r/ComicArchiver.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("private-browser-detail").assertDoesNotExist()
+        compose.onNodeWithTag("support-subreddit").performScrollTo().performClick()
+        compose.onNodeWithText("The browser could not be opened. The subreddit is at reddit.com/r/ComicArchiver.")
+            .assertDoesNotExist()
+        assertEquals(listOf("https://www.reddit.com/r/ComicArchiver/", "https://www.reddit.com/r/ComicArchiver/"), opened)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
     fun aboutUsesInstalledIdentityAndHelpCanRetryWithoutStartingSaving() {
         val app = RuntimeEnvironment.getApplication()
         val apk = java.io.File(app.cacheDir, "installed-identity.apk").apply { writeText("abc") }

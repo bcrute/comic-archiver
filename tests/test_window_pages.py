@@ -1580,15 +1580,23 @@ class NavigationTests(PagesCase):
         self.assertEqual(self.pages.route, 'settings/support')
         self.assertTrue(s.panels['support'].isVisible() and not s.panels['about'].isVisible())
         buttons = [button.text() for button in s.panels['support'].findChildren(QtWidgets.QPushButton)]
-        self.assertEqual(buttons, ['Email support'])
+        self.assertEqual(buttons, ['Email support', 'Open r/ComicArchiver'])
         words = ' '.join(label.text() for label in s.panels['support'].findChildren(QtWidgets.QLabel))
         self.assertIn('Need help?', words)
         self.assertIn('ben@comicarchiver.com', words)
+        self.assertIn('Comic Archiver subreddit', words)
         self.assertIn('no titles, folder names or sign-in details', words)
         self.assertFalse(s.support_note.isVisible())
         self.assertEqual(s.panels['about'].findChildren(QtWidgets.QPushButton), [])
         about = ' '.join(label.text() for label in s.panels['about'].findChildren(QtWidgets.QLabel))
         self.assertNotIn('support', about.lower())
+
+    def test_the_subreddit_button_opens_the_subreddit_in_the_browser(self):
+        self.open()
+        self.settings.tabs['support'].click()
+        self.shell.calls.clear()
+        self.settings.subreddit.click()
+        self.assertEqual(self.shell.calls, [('open_url', 'https://www.reddit.com/r/ComicArchiver/')])
 
     def test_a_support_email_names_the_version_and_the_log_to_attach(self):
         from urllib.parse import parse_qs, urlsplit
