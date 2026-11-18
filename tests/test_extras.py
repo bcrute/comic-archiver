@@ -149,6 +149,13 @@ class ExtrasTests(unittest.TestCase):
         self.assertEqual(value['creator_note'], self.seen['note'])
         self.assertEqual(value['stats']['views'], 10)
 
+    def test_unchosen_notes_are_not_saved_when_counts_are_selected(self):
+        extras.save(self.db, ALL_OFF | {'stats': True})
+        value = json.loads(extras.save_episode(self.root, self.db, Source(self.seen),
+                                              self.series, self.episode).read_text())
+        self.assertNotIn('creator_note', value)
+        self.assertEqual(value['stats']['views'], 10)
+
     def test_an_extra_that_cannot_be_had_is_left_out_and_the_rest_kept(self):
         extras.save(self.db, ALL_ON)
         for music in (b'<html>not a sound</html>', ArchiveError('gone'), OSError('disk')):

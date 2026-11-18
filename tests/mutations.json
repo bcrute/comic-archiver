@@ -10250,7 +10250,7 @@
  {
   "id": "extras-unchosen-saved",
   "source": "comic_archive/extras.py",
-  "old": "    wanted = [kind for kind in offered(series.source) if read(db)[kind]]",
+  "old": "    wanted = missing(db, series.source, episode.id)",
   "new": "    wanted = list(offered(series.source))",
   "test_file": "test_extras.py",
   "test": "test_nothing_is_asked_or_written_until_an_extra_is_chosen"
@@ -10261,7 +10261,7 @@
   "old": "    if 'notes' in wanted and seen.get('note'):",
   "new": "    if seen.get('note'):",
   "test_file": "test_extras.py",
-  "test": "test_only_what_was_chosen_is_kept"
+  "test": "test_unchosen_notes_are_not_saved_when_counts_are_selected"
  },
  {
   "id": "extras-stats-unchosen",
@@ -10269,7 +10269,7 @@
   "old": "    if 'stats' in wanted and seen.get('stats'):",
   "new": "    if seen.get('stats'):",
   "test_file": "test_extras.py",
-  "test": "test_only_what_was_chosen_is_kept"
+  "test": "test_only_chosen_extras_are_requested_and_earlier_choices_are_kept"
  },
  {
   "id": "extras-music-any-bytes",
@@ -10282,8 +10282,8 @@
  {
   "id": "extras-stops-swallowed",
   "source": "comic_archive/extras.py",
-  "old": "        if _stops(error):\n            raise\n        LOG.info('download extras: episode=%s saved=false",
-  "new": "        LOG.info('download extras: episode=%s saved=false",
+  "old": "        if _stops(error):\n            raise\n        from .extras_backfill import record, wanted",
+  "new": "        from .extras_backfill import record, wanted",
   "test_file": "test_extras.py",
   "test": "test_a_lost_sign_in_a_limit_or_a_request_to_slow_down_still_stops_the_job"
  },
@@ -10298,8 +10298,8 @@
  {
   "id": "extras-music-error-fails",
   "source": "comic_archive/extras.py",
-  "old": "            except (ArchiveError, OSError) as error:\n                if _stops(error):\n                    raise\n                LOG.info('download extras: episode=%s music",
-  "new": "            except RuntimeError as error:\n                LOG.info('download extras: episode=%s music",
+  "old": "            except (ArchiveError, OSError) as error:",
+  "new": "            except RuntimeError as error:",
   "test_file": "test_extras.py",
   "test": "test_an_extra_that_cannot_be_had_is_left_out_and_the_rest_kept"
  },
