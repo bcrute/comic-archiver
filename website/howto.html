@@ -57,6 +57,28 @@
     <p>If your account has no usable email/password login, <a href="contact.html">contact support</a>. Social sign-in is a current limitation.</p>
   </div>
 </section>
+<section class="block" id="episode-extras">
+  <h2>Save notes, music and other extras</h2>
+  <p>Extras are optional and every one starts off. Each site offers a different set:</p>
+  <ul>
+    <li><b>Tapas:</b> creator's notes, background music, views, likes and comment counts, plus the readers' comments themselves: newest first, up to 300 per episode.</li>
+    <li><b>Webtoon:</b> creator's notes, background music and likes. Saving views, comment counts or the comments themselves is not supported.</li>
+    <li><b>Tappytoon:</b> comics and novels can be saved, but saving episode extras is not supported yet.</li>
+  </ul>
+  <ol class="steps">
+    <li>On the dashboard, choose <b>Download: All types</b> (or the current selection) on the site's card.</li>
+    <li>Scroll to <b>Also save</b>, choose the extras you want and press <b>Save</b>. Each site's choices are kept separately.</li>
+    <li>Press <b>Start</b> or <b>Continue</b> if downloading is paused. If it is already running, it pauses to apply your choices and then continues.</li>
+  </ol>
+  <p>Only extras the site supplies for an episode your account can still access can be saved. Not every episode has a note or music. Counts are a snapshot from the time they are collected, not live counters. Saving comments takes longer because it needs extra requests to Tapas.</p>
+  <div class="note">
+    <p><b>Already saved the episodes?</b> Revisiting saved episodes requires version 0.5.4 or later. After you select extras, the next run revisits episodes recorded as saved in your library and collects the missing selected extras before saving new episodes. It keeps your existing comic and novel files, without downloading their pages again. Previously collected extras are kept, and restarting does not fetch completed extras again.</p>
+    <p>Version 0.5.3 collects extras only when an episode is first saved.</p>
+  </div>
+  <h3>Where the extras go</h3>
+  <p>They are stored separately from the comic or novel files, in the working library's <code>.archive-state/extras</code> folder, grouped by site and series. Notes, counts and comments are JSON files; music is saved as sound files alongside them.</p>
+  <p>Extras are not yet included in cloud copies or exported CBZ/EPUB files, or shown inside Comic Archiver. On Android they stay in the app's private working library; saving a copy of an episode does not include its extras.</p>
+</section>
   </div>
 </div>
 </main>

@@ -84,6 +84,40 @@ eligible for the reader to check; deselecting it excludes those unknown types.
 Unknown type can include free episodes when the provider cannot identify their
 type, so deselect that category as well for confirmed paid series only.
 
+### Optional episode extras
+
+On a provider's dashboard card, open **Download: All types** (or its current
+selection), scroll to **Also save**, choose the extras you want, and press
+**Save**. Every extra starts off; choices are saved separately for each provider.
+
+| Provider | Creator's notes | Background music | Episode counts | Readers' comments |
+|---|---|---|---|---|
+| Tapas | Yes | Yes | Views, likes and comment count | Newest first, up to 300 per episode |
+| Webtoon | Yes | Yes | Likes | Not supported |
+| Tappytoon | Not supported | Not supported | Not supported | Not supported |
+
+Only extras the provider supplies for an episode your account can still access
+can be saved. A comment count is separate from the comments themselves. Counts
+are a snapshot taken when collected, not a live counter.
+
+**Already saved your comics?** Starting with version 0.5.4, select
+the extras later, then press **Start** or **Continue**. The app revisits recorded,
+already-saved episodes for missing selected extras before downloading new
+episodes. Existing CBZ/EPUB files and previously saved extras are kept; comic
+pages are not downloaded again. Completed extras are remembered across restarts,
+so starting again does not keep fetching them. A running download pauses to
+apply a choice change and then continues; a paused download stays paused.
+In 0.5.3, extras are collected only when an episode is first saved.
+
+Extras are stored separately from CBZ/EPUB files, under
+`.archive-state/extras/<provider>/<series>/<episode>.json` in the working library,
+with music saved as sound files alongside the JSON. They are not yet included in
+cloud copies or exported episodes, or displayed inside the app. On Android,
+they remain in the app's private working library; saving a copy of a comic or
+novel does not include its extras.
+
+### Your saved library
+
 The Library page expands from provider to series to recorded episodes, with a
 saved/pending indicator for each episode. Format shows CBZ/EPUB (or the recorded
 legacy format); Access shows free/unlocked/limited classifications and marks

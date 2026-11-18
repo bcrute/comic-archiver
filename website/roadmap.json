@@ -33,6 +33,11 @@
       "in": "0.5.3"
     },
     {
+      "name": "Extras for already-saved episodes",
+      "text": "Choose extras later and the next run revisits saved episodes for missing selected extras, keeping the comic and novel files unchanged.",
+      "in": "0.5.4"
+    },
+    {
       "name": "Sign in with Google or Facebook",
       "text": "Today you set a password on your account first."
     },
