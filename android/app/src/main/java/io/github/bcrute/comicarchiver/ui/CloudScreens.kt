@@ -16,7 +16,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,13 +68,16 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                   workingLibraryActions: WorkingLibraryActions = WorkingLibraryActions(),
                   selectedPage: String? = null, onPageSelected: (String) -> Unit = {},
                   compactEditing: Boolean = false, onOpenCatalog: (String) -> Unit = {},
-                  onAbout: () -> Unit = {}, onSupport: () -> Unit = {}, onAccount: () -> Unit = {}) {
+                  onAbout: () -> Unit = {}, onSupport: () -> Unit = {}, onAccount: () -> Unit = {},
+                  onSelectSite: (String) -> Unit = {}) {
     var savedPage by rememberSaveable { mutableStateOf("Overview") }
     val page = selectedPage ?: savedPage
     fun choose(name: String) {
         savedPage = name; onPageSelected(name)
-        if (name in setOf("Storage", "B2 setup")) onCloudRefresh()
         if (name == "Downloads") onRefresh()
+    }
+    LaunchedEffect(page, state.site, state.libraryId, state.workspaceReady, state.siteBusy) {
+        if (page in setOf("Storage", "B2 setup") && state.workspaceReady && !state.siteBusy) onCloudRefresh()
     }
     Column(Modifier.fillMaxSize()) {
         if (page == "Overview") {
@@ -121,7 +125,8 @@ fun SettingsPages(state: AppState, onTheme: (AppTheme) -> Unit, onWifiOnly: (Boo
                     val open = LocalUriHandler.current
                     CloudScreen(cloud, state.cloudBusy || state.siteBusy || state.libraryBusy || !state.workspaceReady || state.signOutPending, state.cloudNotice?.message,
                         page == "B2 setup", state.signIn is SignInState.SignedIn,
-                        onCloudRefresh, onCloudAction, { open.openUri(it.url) }, onOpenCatalog)
+                        onCloudRefresh, onCloudAction, { open.openUri(it.url) }, onOpenCatalog,
+                        providerPicker = { SourcePicker(state, onSelectSite) })
                 }
             }
         }
@@ -143,7 +148,7 @@ private fun SettingsDestination(title: String, description: String, onClick: () 
 internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, setup: Boolean,
                          signedIn: Boolean, onRefresh: () -> Unit,
                          onAction: (CloudRequest) -> Unit, onPage: (B2Page) -> Unit,
-                         onOpenCatalog: (String) -> Unit = {}) {
+                         onOpenCatalog: (String) -> Unit = {}, providerPicker: @Composable () -> Unit = {}) {
     // Key text deliberately uses remember, never rememberSaveable. Leaving setup,
     // recreation and process death discard it; AppState contains no credentials.
     var bucket by remember { mutableStateOf(state.suggestion) }
@@ -203,11 +208,14 @@ internal fun CloudScreen(state: CloudStatus, busy: Boolean, notice: String?, set
         if (state.showSharing) {
             Row(Modifier.fillMaxWidth()) {
                 Text(say("cloud.use_the_same_backblaze_setup_for"), Modifier.weight(1f))
-                Switch(checked = state.shared, enabled = state.canShare && !busy && !state.taskRunning,
-                    onCheckedChange = { onAction(CloudRequest.Sharing(it)) },
+                TriStateCheckbox(state = if (state.sharingMixed) ToggleableState.Indeterminate else
+                    if (state.shared) ToggleableState.On else ToggleableState.Off,
+                    enabled = state.canShare && !busy && !state.taskRunning,
+                    onClick = { onAction(CloudRequest.Sharing(!state.shared)) },
                     modifier = Modifier.semantics { contentDescription = say("cloud.use_the_same_backblaze_setup_for") })
             }
             Text(state.sharingHelp)
+            if (!state.shared && !state.sharingMixed) providerPicker()
         }
         TextButton(onClick = { showCost = !showCost }) { Text(say("cloud.backblaze_cost_details")) }
         if (showCost) {

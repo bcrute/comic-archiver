@@ -2,6 +2,8 @@ package io.github.bcrute.comicarchiver.ui
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -62,6 +64,31 @@ internal fun cloudEnvelope(): String {
 @Config(application = Application::class, sdk = [34], qualifiers = "w393dp-h1000dp")
 class CloudScreensTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun oneSharingCheckboxRevealsProviderSelectionOnlyWhenUnchecked() {
+        var state by mutableStateOf(cloudFixture())
+        compose.setContent { MaterialTheme {
+            CloudScreen(state, false, null, true, true, {}, { request ->
+                if (request is CloudRequest.Sharing) state = state.copy(shared = request.shared)
+            }, {}, providerPicker = { Text("Provider selector") })
+        } }
+        compose.onNodeWithText("Provider selector").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Use the same settings for all providers").performScrollTo().performClick()
+        compose.onNodeWithText("Provider selector").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Use the same settings for all providers").performScrollTo().performClick()
+        compose.onNodeWithText("Provider selector").assertDoesNotExist()
+    }
+
+    @Test fun differingLegacyChoicesRequireAnExplicitSharedChoice() {
+        val requests = mutableListOf<CloudRequest>()
+        compose.setContent { MaterialTheme {
+            CloudScreen(cloudFixture().copy(shared = false, sharingMixed = true, canConnect = false),
+                false, null, true, true, {}, requests::add, {}, providerPicker = { Text("Provider selector") })
+        } }
+        compose.onNodeWithText("Provider selector").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Use the same settings for all providers").performScrollTo().performClick()
+        assertEquals(listOf(CloudRequest.Sharing(true)), requests)
+    }
 
     @Test fun setupCleansPastedKeysAndClearsThemWhenConnectionStarts() {
         val requests = mutableListOf<CloudRequest>()

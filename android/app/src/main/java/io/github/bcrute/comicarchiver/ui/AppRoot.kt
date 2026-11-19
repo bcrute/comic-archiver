@@ -176,7 +176,7 @@ fun ComicArchiverAppRoot(
         Column(Modifier.fillMaxSize()) {
             if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING,
                 // The dashboard shows every site at once; only the Library and Settings are one site's at a time.
-                chooseSite = tab != AppTab.SAVING)
+                chooseSite = tab != AppTab.SAVING && !(tab == AppTab.SETTINGS && settingsPage == "B2 setup"))
             UpdateControls(updates, manual = false)
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
@@ -269,6 +269,7 @@ fun ComicArchiverAppRoot(
                             onAbout = { tab = AppTab.ABOUT },
                             onSupport = { tab = AppTab.SUPPORT },
                             onAccount = accountAction,
+                            onSelectSite = controller::selectSite,
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text(say("app.all_settings")) }

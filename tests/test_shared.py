@@ -391,3 +391,93 @@ class SharedSettingsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GlobalCloudSharingTests(unittest.TestCase):
+    setUp = SharedSettingsTests.setUp
+    config = SharedSettingsTests.config
+    own = staticmethod(SharedSettingsTests.own)
+    publish = SharedSettingsTests.publish
+    ready = SharedSettingsTests.ready
+    b2 = SharedSettingsTests.b2
+
+    def test_one_atomic_choice_is_seen_by_every_provider_and_survives_reopening(self):
+        for library in (self.tapas, self.other):
+            shared.link(library, self.store)
+        shared.choose_cloud_all(self.tapas, 'separate')
+        for library in (self.tapas, self.other):
+            self.assertEqual(shared.cloud_mode(library), 'separate')
+            self.assertEqual(shared.sharing_mode(library), 'separate')
+            self.assertIsNone(shared.cloud_folder(library))
+        shared.choose_cloud_all(self.other, 'shared')
+        for library in (self.tapas, self.other):
+            self.assertEqual(shared.cloud_mode(library), 'shared')
+            self.assertEqual(shared.cloud_folder(library), self.store / 'cloud')
+        self.assertEqual(stat.S_IMODE((self.store / 'cloud-sharing.json').stat().st_mode), PRIVATE_FILE)
+
+    def test_legacy_mixed_settings_remain_untouched_until_the_person_chooses(self):
+        for library in (self.tapas, self.other):shared.link(library, self.store)
+        shared.choose_cloud(self.other, 'separate')
+        self.assertEqual(shared.sharing_mode(self.tapas), 'mixed')
+        self.assertEqual(shared.sharing_mode(self.other), 'mixed')
+        self.assertEqual((shared.cloud_mode(self.tapas), shared.cloud_mode(self.other)), ('shared', 'separate'))
+        self.assertFalse((self.store / 'cloud-sharing.json').exists())
+        shared.choose_cloud_all(self.other, 'shared')
+        self.assertEqual((shared.cloud_mode(self.tapas), shared.cloud_mode(self.other)), ('shared', 'shared'))
+
+    def test_new_providers_follow_the_global_choice_without_moving_their_own_credentials(self):
+        shared.link(self.tapas, self.store)
+        shared.choose_cloud_all(self.tapas, 'separate')
+        self.publish(self.other)
+        config = self.config(self.own(self.other))
+        self.ready(self.other, config)
+        before = cloud.settings(self.other)
+        shared.link(self.other, self.store)
+        self.assertEqual(cloud.settings(self.other), before)
+        self.assertTrue(config.is_file())
+        self.assertEqual(shared.sharing_mode(self.other), 'separate')
+
+    def test_switching_back_restores_individual_connections_and_keeps_shared_connections(self):
+        for library in (self.tapas, self.other):shared.link(library, self.store)
+        self.publish(self.tapas);self.publish(self.other)
+        self.ready(self.tapas, self.config(self.store / 'cloud'))
+        common = cloud.settings(self.tapas)['targets']
+        shared.choose_cloud_all(self.tapas, 'separate')
+        self.ready(self.other, self.config(self.own(self.other), 'individual.conf'))
+        individual = cloud.settings(self.other)['targets']
+        self.assertNotEqual(common, individual)
+        shared.choose_cloud_all(self.other, 'shared')
+        self.assertEqual(cloud.settings(self.other)['targets'], common)
+        shared.choose_cloud_all(self.other, 'separate')
+        self.assertEqual(cloud.settings(self.other)['targets'], individual)
+        self.assertEqual(cloud._shared(self.store / 'cloud'), common)
+
+    def test_a_busy_other_provider_refuses_the_whole_choice_without_partial_changes(self):
+        import threading
+        from comic_archive.locking import LibraryLock
+        from comic_archive.errors import LibraryBusy
+        for library in (self.tapas, self.other):shared.link(library, self.store)
+        held, release = threading.Event(), threading.Event()
+        def hold():
+            with LibraryLock(self.other):
+                held.set();release.wait(5)
+        thread=threading.Thread(target=hold);thread.start()
+        try:
+            self.assertTrue(held.wait(5))
+            with self.assertRaises(LibraryBusy):shared.choose_cloud_all(self.tapas, 'separate')
+            self.assertFalse((self.store / 'cloud-sharing.json').exists())
+        finally:
+            release.set();thread.join(5)
+
+    def test_invalid_or_redirected_global_settings_are_refused(self):
+        shared.link(self.tapas, self.store)
+        path=self.store / 'cloud-sharing.json'
+        path.write_text('{bad')
+        with self.assertRaises(ArchiveError):shared.cloud_mode(self.tapas)
+        path.unlink()
+        if hasattr(__import__('os'),'symlink'):
+            elsewhere=self.top/'unrelated.json';elsewhere.write_text('keep')
+            try:path.symlink_to(elsewhere)
+            except OSError:self.skipTest('Symbolic links unavailable')
+            with self.assertRaises(ArchiveError):shared.cloud_mode(self.tapas)
+            self.assertEqual(elsewhere.read_text(), 'keep')

@@ -340,3 +340,19 @@ class AndroidCloudTests(unittest.TestCase):
         self.assertTrue(restored['ok'], restored)
         self.assertEqual(restored['result']['auth_status'], 'connected')
         self.assertEqual(restored['result']['b2']['bucket'], 'fixture-library')
+
+    def test_one_sharing_choice_is_retained_when_the_native_app_changes_provider(self):
+        changed = self.call('cloud_action', action='sharing', value='separate')
+        self.assertTrue(changed['ok'], changed)
+        other = self.root / 'Webtoon'
+        prepared = self.call('prepare_workspace', root=str(other), base_root=str(self.root), site_key='webtoon')
+        self.assertTrue(prepared['ok'], prepared)
+        status = self.call('cloud_status', root=str(other))
+        self.assertTrue(status['ok'], status)
+        self.assertFalse(status['result']['b2']['shared'])
+        common = self.call('cloud_action', root=str(other), action='sharing', value='shared')
+        self.assertTrue(common['ok'], common)
+        prepared = self.call('prepare_workspace', base_root=str(self.root), site_key='tapas')
+        self.assertTrue(prepared['ok'], prepared)
+        self.assertTrue(self.call('cloud_status')['result']['b2']['shared'])
+        self.assertEqual(self.wire.operations, [])

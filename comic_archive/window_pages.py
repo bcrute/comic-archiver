@@ -1163,7 +1163,6 @@ class Settings:
         self.site = kit.combo([], pages.choose_site)
         self.site.setAccessibleName(say('window.site'))
         self.site_row = kit.row(kit.label(say('window.site'), 'strong', wrap=False), self.site)
-        box.addWidget(self.site_row)
         self.b2_state, state = kit.frame('state', vertical=False, margins=(14, 10, 14, 10), spacing=12)
         self.b2_state_pill = kit.label(say('storage.not_set_up'), 'pill', wrap=False)
         self.b2_state_text = kit.label('')
@@ -1171,7 +1170,8 @@ class Settings:
         state.addWidget(self.b2_state_text, 1)
         box.addWidget(self.b2_state)
         self.shared = w.QCheckBox(say('cloud.use_the_same_backblaze_setup_for'))
-        self.shared.toggled.connect(pages.share_b2)
+        self.shared.checkStateChanged.connect(lambda state: pages.share_b2(
+            state == kit.q.QtCore.Qt.CheckState.Checked) if state != kit.q.QtCore.Qt.CheckState.PartiallyChecked else None)
         self.sharing_help = kit.label('', 'muted')
         self.sharing = w.QWidget()
         sharing = w.QVBoxLayout(self.sharing)
@@ -1179,6 +1179,7 @@ class Settings:
         sharing.addWidget(self.shared)
         sharing.addWidget(self.sharing_help)
         box.addWidget(self.sharing)
+        box.addWidget(self.site_row)
         box.addWidget(kit.label(B2_INTRO))
         self.cloud_status = kit.label(say('storage.checking_cloud_connections'))
         self.action_status = kit.label('')
@@ -1314,19 +1315,21 @@ class Settings:
                 self.site.model().item(self.site.count() - 1).setEnabled(bool(item.get('available')))
             self.site.blockSignals(blocked)
         choose(self.site, self.pages.chosen)
-        self.site_row.setVisible(bool(sites))
         self.site.setEnabled(v['site_enabled'])
         # Backblaze B2.
         b2 = storage_model.b2(s, s.steps_open)
+        self.site_row.setVisible(bool(sites) and b2['sharing_visible'] and not b2['shared'] and not b2['sharing_mixed'])
         self.b2_state_pill.setText(b2['pill'])
         tone(self.b2_state_pill, 'tone', b2['tone'])
         tone(self.b2_state, 'tone', b2['tone'])
         self.b2_state_text.setText(b2['text'])
         self.sharing.setVisible(b2['sharing_visible'])
-        if self.shared.isChecked() != b2['shared']:
-            blocked = self.shared.blockSignals(True)
-            self.shared.setChecked(b2['shared'])
-            self.shared.blockSignals(blocked)
+        check_state = self.kit.q.QtCore.Qt.CheckState
+        wanted = check_state.PartiallyChecked if b2['sharing_mixed'] else check_state.Checked if b2['shared'] else check_state.Unchecked
+        blocked = self.shared.blockSignals(True)
+        self.shared.setTristate(b2['sharing_mixed'])
+        self.shared.setCheckState(wanted)
+        self.shared.blockSignals(blocked)
         self.shared.setEnabled(b2['sharing_enabled'])
         self.sharing_help.setText(b2['sharing_help'])
         self.cloud_status.setText(b2['status'])
@@ -2047,6 +2050,10 @@ class Pages:
 
         def kept(value):
             s.cloud = value
+            for other_key, other in self.states.items():
+                if other_key != key:
+                    other.cloud = None
+            self.drawn_from = None
         self.act(lambda: actions.cloud_storage('shared' if shared else 'separate'), kept, key=key)
 
     def cloud_connect(self, bucket, key_id, application_key):

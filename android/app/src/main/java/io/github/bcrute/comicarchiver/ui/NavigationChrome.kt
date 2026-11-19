@@ -40,6 +40,15 @@ import io.github.bcrute.comicarchiver.words.say
 
 @Composable
 internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false, chooseSite: Boolean = true) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text("Comic Archiver", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        if (chooseSite) SourcePicker(state, onSelect, exporting)
+    }
+}
+
+@Composable
+internal fun SourcePicker(state: AppState, onSelect: (String) -> Unit, exporting: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     // As on desktop, every site saves by itself: another can be shown while this one saves.
     // Only signing in, an export or a setting being changed keeps the site in place.
@@ -47,10 +56,7 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
     val working = exporting || state.signIn is SignInState.Page || state.signIn is SignInState.Settling ||
         state.settingsBusy || state.cloudBusy || state.cloud?.authStatus == "running"
     val enabled = !working && !state.siteBusy && !state.libraryBusy && !state.signOutPending
-    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text("Comic Archiver", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        if (chooseSite && state.sites.isNotEmpty()) Box {
+    if (state.sites.isNotEmpty()) Box {
             val current = state.sites.firstOrNull { it.key == state.site }
             TextButton(onClick = { expanded = true }, enabled = enabled,
                 modifier = Modifier.testTag("source-picker").semantics {
@@ -72,7 +78,6 @@ internal fun SourceHeader(state: AppState, onSelect: (String) -> Unit, exporting
                 }
             }
         }
-    }
 }
 
 @Composable

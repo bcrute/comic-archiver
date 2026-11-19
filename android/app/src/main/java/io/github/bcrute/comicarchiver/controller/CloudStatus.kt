@@ -53,6 +53,7 @@ data class CloudStatus(
     val overview: LibraryOverview? = null,
     val timeEstimate: String = "",
     val spaceEstimate: String = "",
+    val sharingMixed: Boolean = false,
 ) {
     companion object {
         fun parse(envelope: String): CloudStatus {
@@ -124,7 +125,7 @@ data class CloudStatus(
                     require(places.map { it.id }.distinct().size == places.size)
                     LibraryOverview(flag(overview, "available"), metricRows, places, text(overview, "summary"))
                 }, if (value.has("time_estimate")) text(value, "time_estimate") else "",
-                if (value.has("space_estimate")) text(value, "space_estimate") else "")
+                if (value.has("space_estimate")) text(value, "space_estimate") else "").copy(sharingMixed = if (b2.has("sharing_mixed")) flag(b2, "sharing_mixed") else false)
         }
     }
 }

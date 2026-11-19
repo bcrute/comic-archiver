@@ -202,7 +202,7 @@ class B2Tests(unittest.TestCase):
         self.assertTrue(shared['sharing_help'].startswith('Every site you save from uses it'))
         separate = model.b2(state(cloud={'storage': 'separate', 'targets': []}))
         self.assertFalse(separate['shared'])
-        self.assertEqual(separate['sharing_help'], 'Tapas has a Backblaze setup of its own. Your other sites keep the shared one.')
+        self.assertEqual(separate['sharing_help'], 'Each provider has its own Backblaze settings. Choose a provider below.')
         self.assertFalse(model.b2(state(cloud={'targets': []}))['sharing_visible'])
         self.assertFalse(model.b2(state(busy=True))['sharing_enabled'])
         self.assertFalse(model.b2(state(cloud_auth={'status': 'running'}))['sharing_enabled'])
@@ -290,3 +290,12 @@ class OverviewTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GlobalSharingViewTests(unittest.TestCase):
+    def test_the_global_choice_overrides_the_selected_providers_legacy_flag(self):
+        view = model.b2(state(cloud={'storage':'shared','sharing_storage':'separate','targets':[]}))
+        self.assertFalse(view['shared'] or view['sharing_mixed'])
+        mixed = model.b2(state(cloud={'storage':'shared','sharing_storage':'mixed','targets':[]}))
+        self.assertTrue(mixed['sharing_mixed'])
+        self.assertFalse(mixed['connect_enabled'] or mixed['test_enabled'] or mixed['retry_enabled'])

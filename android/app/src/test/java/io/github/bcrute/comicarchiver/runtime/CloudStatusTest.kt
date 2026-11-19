@@ -29,6 +29,15 @@ class CloudStatusTest {
         assertTrue(runCatching { CloudStatus.parse(bad.toString()) }.isFailure)
     }
 
+    @Test fun sharingMixedFlagIsOptionalButStrictWhenPresent() {
+        assertFalse(CloudStatus.parse(cloudEnvelope()).sharingMixed)
+        val value = JSONObject(cloudEnvelope())
+        value.getJSONObject("result").getJSONObject("b2").put("sharing_mixed", true)
+        assertTrue(CloudStatus.parse(value.toString()).sharingMixed)
+        value.getJSONObject("result").getJSONObject("b2").put("sharing_mixed", "true")
+        assertTrue(runCatching { CloudStatus.parse(value.toString()) }.isFailure)
+    }
+
     @Test fun credentialRequestHasFixedShapeAndRedactedDiagnosticText() {
         val request = CloudRequest.Connect("fixture-library", "fixtureKey123", "FIXTURE_KEY123")
         val json = request.json()

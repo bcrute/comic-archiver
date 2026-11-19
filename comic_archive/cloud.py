@@ -554,10 +554,10 @@ def status(root):
             code = code if isinstance(code, str) and code in MESSAGES else None
             cleanup.append({'test_id':path.stem, 'provider':record['provider'],
                             **({'error_code':code} if code else {})})
-    from .shared import cloud_mode
+    from .shared import cloud_mode, sharing_mode
     return {'targets':targets, 'pending_test_cleanup':cleanup, 'delete_local_after_upload':True,
             # 'shared': every site uses the library folder's cloud storage; 'separate': this site has its own.
-            'storage':cloud_mode(root),
+            'storage':cloud_mode(root), 'sharing_storage':sharing_mode(root),
             'cloud_availability_checked':False}
 
 

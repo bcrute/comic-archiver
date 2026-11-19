@@ -79,13 +79,72 @@ def folder(library):
 def cloud_folder(library):
     """Where this library's cloud connections are kept, when they are the shared ones; None when it keeps its own."""
     value = _linked(library)
-    return safe_root(value['folder']) / 'cloud' if value and value['cloud'] == 'shared' else None
+    return safe_root(value['folder']) / 'cloud' if value and cloud_mode(library) == 'shared' else None
 
 
 def cloud_mode(library):
     """'shared', 'separate', or None for a library that is not linked."""
     value = _linked(library)
-    return value['cloud'] if value else None
+    return (_global_mode(safe_root(value['folder'])) or value['cloud']) if value else None
+
+
+def _global_mode(store):
+    path = safe_root(store / 'cloud-sharing.json')
+    if not path.exists():
+        return None
+    try:
+        if path.stat().st_size > 4096:
+            raise ValueError
+        value = json.loads(path.read_text('utf-8'))
+        if (not isinstance(value, dict) or set(value) != {'schema_version', 'mode'}
+                or type(value['schema_version']) is not int or value['schema_version'] != 1
+                or value['mode'] not in MODES):
+            raise ValueError
+        return value['mode']
+    except (OSError, ValueError):
+        raise ArchiveError('Cloud sharing settings are unreadable; saved episodes are kept.') from None
+
+
+def _siblings(library, store):
+    from .sites import SITES
+    base = store.parent
+    candidates = {safe_root(library), base / 'Library'} | {base / site.name / 'Library' for site in SITES}
+    return sorted((p for p in candidates if p.is_dir() and (value := _linked(p))
+                   and Path(value['folder']) == store), key=str)
+
+
+def sharing_mode(library):
+    """One checkbox for the working library, including older mixed provider choices."""
+    store = folder(library)
+    if store is None:
+        return None
+    explicit = _global_mode(store)
+    if explicit:
+        return explicit
+    modes = {_linked(p)['cloud'] for p in _siblings(library, store)}
+    return next(iter(modes)) if len(modes) == 1 else 'mixed'
+
+
+def choose_cloud_all(library, mode):
+    """Switch every linked provider and future providers with one atomic preference.
+
+    Shared and individual connections remain untouched, so turning sharing off
+    restores individual setups. Refuse a change while any provider is writing.
+    """
+    from contextlib import ExitStack
+    if mode not in MODES:
+        raise ArchiveError('Choose shared or separate cloud storage.')
+    store = folder(library)
+    if store is None:
+        raise ArchiveError('This library has no shared settings.')
+    with ExitStack() as stack:
+        for sibling in _siblings(library, store):
+            stack.enter_context(LibraryLock(sibling))
+        stack.enter_context(LibraryLock(store))
+        _global_mode(store)
+        path = store / 'cloud-sharing.json'
+        atomic_json(path, {'schema_version': 1, 'mode': mode})
+        path.chmod(0o600)
 
 
 def choose_cloud(library, mode):
@@ -123,6 +182,6 @@ def link(library, shared):
     from .osdep import hide
     hide(shared)
     with LibraryLock(library), LibraryLock(shared):
-        mode = cloud.join(library, shared / 'cloud')
+        mode = 'separate' if _global_mode(shared) == 'separate' else cloud.join(library, shared / 'cloud')
         network.join(library, shared)
         _write(library, {'schema_version': 1, 'folder': str(shared), 'cloud': mode})

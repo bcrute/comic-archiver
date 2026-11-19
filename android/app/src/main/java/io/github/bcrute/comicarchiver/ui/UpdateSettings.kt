@@ -52,7 +52,7 @@ class UpdateSettings(private val context: Context, private val scope: CoroutineS
 
     fun check() = run { result(true) }
 
-    fun setAutomatic(enabled: Boolean) = run {
+    fun chooseAutomatic(enabled: Boolean) = run {
         withContext(Dispatchers.IO) { module().callAttr("set_automatic", path, enabled) }
         automatic = enabled
         result(false)
@@ -107,7 +107,7 @@ fun UpdateControls(settings: UpdateSettings, manual: Boolean) {
         Text(if (settings.busy) "Checking for updates…" else settings.message)
         if (manual) {
             Row(Modifier.fillMaxWidth().toggleable(value = settings.automatic,
-                enabled = !settings.busy, role = Role.Checkbox, onValueChange = settings::setAutomatic)) {
+                enabled = !settings.busy, role = Role.Checkbox, onValueChange = settings::chooseAutomatic)) {
                 Checkbox(checked = settings.automatic, onCheckedChange = null, enabled = !settings.busy)
                 Text("Check automatically once a day")
             }

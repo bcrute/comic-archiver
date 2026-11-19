@@ -173,7 +173,7 @@
  "cloud.the_test_uploads_two_finished_episodes": "The test uploads two finished episodes, verifies them and removes the test copies. Your local originals stay here.",
  "cloud.this_device": "This device: {deviceStored}",
  "cloud.updating_cloud_settings": "Updating cloud settings…",
- "cloud.use_the_same_backblaze_setup_for": "Use the same Backblaze setup for every site",
+ "cloud.use_the_same_backblaze_setup_for": "Use the same settings for all providers",
  "cloud.verify_your_connection": "Verify your connection",
  "cloud.view_stored_episodes_on": "View stored episodes on {label}",
  "cloud.working_libraries": "Working libraries",

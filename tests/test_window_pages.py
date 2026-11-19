@@ -160,6 +160,7 @@ class FakeActions:
     def cloud_storage(self, mode):
         self.record('cloud_storage', mode)
         self.reading['cloud']['storage'] = mode
+        self.reading['cloud']['sharing_storage'] = mode
         return copy.deepcopy(self.reading['cloud'])
 
     def cloud_signin(self, provider, credentials):
@@ -2237,7 +2238,7 @@ class B2SettingsTests(PagesCase):
         s.shared.click()
         self.assertEqual(self.actions.named('cloud_storage')[0][1], ('separate',))
         self.assertFalse(s.shared.isChecked())
-        self.assertEqual(s.sharing_help.text(), 'Tapas has a Backblaze setup of its own. Your other sites keep the shared one.')
+        self.assertEqual(s.sharing_help.text(), 'Each provider has its own Backblaze settings. Choose a provider below.')
 
     def test_the_setup_pages_open_in_the_browser(self):
         self.open('settings/b2')
@@ -2385,3 +2386,26 @@ class UpdateSettingsTests(PagesCase):
             self.pages.check_updates()
             self.assertEqual(fetch.call_count, 1)
             self.assertIn('off', self.settings.update_status.text())
+
+
+class GlobalSharingPageTests(PagesCase):
+    def test_provider_picker_is_below_the_single_checkbox_and_only_shown_for_individual_setups(self):
+        self.open('settings/b2')
+        s=self.settings
+        self.assertTrue(s.shared.isChecked())
+        self.assertFalse(s.site_row.isVisible())
+        s.shared.click();settle()
+        self.assertFalse(s.shared.isChecked())
+        self.assertTrue(s.site_row.isVisible())
+        s.shared.click();settle()
+        self.assertFalse(s.site_row.isVisible())
+
+    def test_mixed_legacy_choices_need_an_explicit_global_choice_before_editing(self):
+        self.actions.reading['cloud']['sharing_storage']='mixed'
+        self.open('settings/b2')
+        self.assertEqual(self.settings.shared.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertFalse(self.settings.site_row.isVisible() or self.settings.connect.isEnabled())
+        # Click the partial checkbox: the global choice becomes shared, never another partial state.
+        with mock.patch.object(self.actions,'cloud_storage', wraps=self.actions.cloud_storage):
+            self.settings.shared.click()
+        self.assertEqual(self.actions.named('cloud_storage')[0][1], ('shared',))

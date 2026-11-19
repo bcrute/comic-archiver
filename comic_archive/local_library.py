@@ -101,8 +101,8 @@ class LocalWorkspaceRegistry:
 
     def choose_cloud_storage(self, owner, workspace_id, mode):
         workspace = self.resolve(owner,workspace_id)
-        from .shared import choose_cloud
-        choose_cloud(workspace.library, mode)
+        from .shared import choose_cloud_all
+        choose_cloud_all(workspace.library, mode)
         return self.cloud_status(owner, workspace_id)
 
     def upload_cloud(self, owner, workspace_id):

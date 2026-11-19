@@ -210,6 +210,8 @@ def b2(s, steps_open=False, *, can_start_worker=False):
         cleanup.append({'test_id': record.get('test_id'), 'text': say('storage.retry_test_cleanup', value=label(record.get('provider'))),
                         'enabled': can_import(s, can_start_worker=can_start_worker)})
     connected = target.get('connected') is True
+    sharing = value.get('sharing_storage', value.get('storage'))
+    mixed = sharing == 'mixed'
     # A connected B2 needs only its check and the choice on the dashboard; the steps that made it fold away.
     folded = connected and not steps_open
     return {
@@ -224,20 +226,22 @@ def b2(s, steps_open=False, *, can_start_worker=False):
         'bucket': target.get('bucket'),
         # One Backblaze setup serves every site, unless this site keeps its own.
         'sharing_visible': value.get('storage') in ('shared', 'separate'),
-        'shared': value.get('storage') == 'shared',
+        'shared': sharing == 'shared',
+        'sharing_mixed': mixed,
         'sharing_enabled': not (s.busy or signing_in),
-        'sharing_help': (say('storage.every_site_you_save_from_uses')
-                         if value.get('storage') == 'shared'
-                         else say('storage.has_a_backblaze_setup_of_its', value=s.site())),
+        'sharing_help': ('Your providers currently use different sharing choices. Choose one sharing mode for all providers.'
+                         if mixed else say('storage.every_site_you_save_from_uses')
+                         if sharing == 'shared'
+                         else 'Each provider has its own Backblaze settings. Choose a provider below.'),
         'folded': folded, 'fold_visible': connected,
         'fold_text': say('storage.hide_the_setup_steps') if steps_open else say('storage.show_the_setup_steps'),
         'connect_text': say('storage.replace_b2_connection') if connected else say('storage.connect_b2'),
-        'connect_enabled': not (s.busy or s.task or signing_in or running or worker_busy or s.cloud is None),
+        'connect_enabled': not (mixed or s.busy or s.task or signing_in or running or worker_busy or s.cloud is None),
         'cancel_visible': signing_in, 'cancel_enabled': not s.busy,
         'auth': auth_text(s.cloud_auth),
         'repair': repair, 'cleanup': cleanup,
-        'retry_enabled': can_import(s, can_start_worker=can_start_worker) and any(t.get('enabled') for t in s.cloud_targets()),
-        'test_enabled': (can_import(s, can_start_worker=can_start_worker) and connected
+        'retry_enabled': not mixed and can_import(s, can_start_worker=can_start_worker) and any(t.get('enabled') for t in s.cloud_targets()),
+        'test_enabled': (not mixed and can_import(s, can_start_worker=can_start_worker) and connected
                          and not any(r.get('provider') == 'b2' for r in value.get('pending_test_cleanup') or [])),
     }
 
