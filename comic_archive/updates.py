@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import threading
 import time
-import urllib.request
+import httpx
 
 
 ENDPOINT = 'https://comicarchiver.com/version.json'
@@ -33,15 +33,16 @@ def release_version(value, platform='desktop'):
 
 
 def fetch(platform='desktop'):
-    request = urllib.request.Request(ENDPOINT, headers={
-        'Accept': 'application/json', 'User-Agent': 'ComicArchiver-update-check'})
     # No application credentials, cookies, library details or installed version are sent.
-    with urllib.request.urlopen(request, timeout=8) as response:
-        if response.geturl() != ENDPOINT:
-            raise ValueError('Unexpected update endpoint')
-        data = response.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise ValueError('Release response too large')
+    with httpx.stream('GET', ENDPOINT, headers={
+            'Accept': 'application/json', 'User-Agent': 'ComicArchiver-update-check'},
+            timeout=8, follow_redirects=False) as response:
+        response.raise_for_status()
+        data = bytearray()
+        for chunk in response.iter_bytes(chunk_size=8192):
+            data.extend(chunk)
+            if len(data) > MAX_BYTES:
+                raise ValueError('Release response too large')
     return release_version(json.loads(data), platform)
 
 

@@ -76,16 +76,14 @@ class UpdateTests(unittest.TestCase):
 
     def test_metadata_request_is_bounded_and_never_uses_an_account_or_installed_version(self):
         response = Mock()
-        response.geturl.return_value = updates.ENDPOINT
-        response.read.return_value = b'{"schema_version":1,"desktop":"0.5.5"}'
+        response.iter_bytes.return_value = [b'{"schema_version":1,"desktop":"0.5.5"}']
         manager = Mock(); manager.__enter__ = Mock(return_value=response); manager.__exit__ = Mock(return_value=False)
-        with patch.object(updates.urllib.request, 'urlopen', return_value=manager) as opened:
+        with patch.object(updates.httpx, 'stream', return_value=manager) as opened:
             self.assertEqual(updates.fetch(), '0.5.5')
-            request = opened.call_args.args[0]
-            self.assertEqual(request.full_url, 'https://comicarchiver.com/version.json')
-            self.assertNotIn('Authorization', request.headers)
-            self.assertNotIn('Cookie', request.headers)
-            self.assertIsNone(request.data)
-            response.read.assert_called_once_with(updates.MAX_BYTES + 1)
-            response.read.return_value = b' ' * (updates.MAX_BYTES + 1)
+            self.assertEqual(opened.call_args.args, ('GET', 'https://comicarchiver.com/version.json'))
+            self.assertNotIn('Authorization', opened.call_args.kwargs['headers'])
+            self.assertNotIn('Cookie', opened.call_args.kwargs['headers'])
+            self.assertFalse(opened.call_args.kwargs['follow_redirects'])
+            response.iter_bytes.assert_called_once_with(chunk_size=8192)
+            response.iter_bytes.return_value = [b' ' * (updates.MAX_BYTES + 1)]
             with self.assertRaises(ValueError):updates.fetch()
