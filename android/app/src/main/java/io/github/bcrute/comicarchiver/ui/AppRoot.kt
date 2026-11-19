@@ -74,6 +74,7 @@ fun ComicArchiverAppRoot(
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
+    val updates = rememberUpdateSettings(state.workspaceReady)
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Overview") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
@@ -176,6 +177,7 @@ fun ComicArchiverAppRoot(
             if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING,
                 // The dashboard shows every site at once; only the Library and Settings are one site's at a time.
                 chooseSite = tab != AppTab.SAVING)
+            UpdateControls(updates, manual = false)
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -270,7 +272,7 @@ fun ComicArchiverAppRoot(
                         )
                         AppTab.ABOUT -> Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { tab = AppTab.SETTINGS }) { Text(say("app.all_settings")) }
-                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES })
+                            LimitationsScreen(modifier = Modifier.weight(1f), onLicenses = { tab = AppTab.LICENSES }, updates = updates)
                             if (signOutHeld) Text(SIGN_OUT_HELD, Modifier.padding(horizontal = 16.dp))
                             OutlinedButton(
                                 onClick = accountAction,

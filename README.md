@@ -184,3 +184,13 @@ Comic Archiver is written with the help of AI coding tools, and every change goe
 ## License
 
 MIT; see [LICENSE](LICENSE). Bundled components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+### Version checks
+
+In builds with the update checker, open **Settings → About → Check for updates**.
+Automatic checks are **off by default**. You can opt into checking once a day and
+turn that setting off again on the same page. A manual check does not turn it on.
+Checks read a small version file from the official website, sending no account,
+sign-in or library information. The website host sees the usual connection
+information, including your IP address. Updates open the official download page;
+the app does not download or install a replacement automatically.

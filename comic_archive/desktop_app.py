@@ -678,6 +678,11 @@ class Shell:
         self.end_clock.setInterval(END_CHECK_MS)
         self.end_clock.timeout.connect(self.end_check)
         self.end_clock.start()
+        self.update_clock = q.QtCore.QTimer(self.window)
+        self.update_clock.setInterval(24 * 60 * 60 * 1000)
+        self.update_clock.timeout.connect(self.pages.check_updates)
+        if not self.probe:
+            self.update_clock.start()
         self.app.styleHints().colorSchemeChanged.connect(self.theme_paint)
         self.theme_apply()
         self.window.show()
@@ -764,6 +769,8 @@ class Shell:
         self.tick_clock.start()
         self.signin_clock.start()
         self.check_signin()
+        if not self.probe:
+            self.pages.check_updates()
 
     def check_signin(self, keys=None):
         """Ask each open site (or those keys'), off the window's thread, whether its saved sign-in still works, so an

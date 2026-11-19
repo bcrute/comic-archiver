@@ -36,7 +36,7 @@ import io.github.bcrute.comicarchiver.words.say
  * public roadmap; never soften a limitation to make a date.
  */
 @Composable
-fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}) {
+fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}, updates: UpdateSettings? = null) {
     val context = LocalContext.current.applicationContext
     val identity by produceState<InstalledIdentity?>(null, context) {
         value = withContext(Dispatchers.IO) { installedIdentity(context) }
@@ -49,6 +49,7 @@ fun LimitationsScreen(modifier: Modifier = Modifier, onLicenses: () -> Unit = {}
     ) {
         Text("Comic Archiver", style = MaterialTheme.typography.headlineSmall)
         Text(identity?.version ?: say("about.reading_installed_version"))
+        updates?.let { UpdateControls(it, manual = true) }
         Text(identity?.fingerprint ?: say("about.reading_apk_fingerprint"))
         Text(say("about.include_this_version_and_fingerprint_when"),
             style = MaterialTheme.typography.bodySmall)

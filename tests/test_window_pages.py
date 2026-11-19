@@ -2342,3 +2342,46 @@ class ConnectedB2Tests(PagesCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UpdateSettingsTests(PagesCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        patcher = mock.patch('comic_archive.app_runtime.state_dir', return_value=Path(temporary.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        super().setUp()
+
+    def test_starting_and_opening_about_make_no_request_by_default(self):
+        with mock.patch('comic_archive.updates.fetch') as fetch:
+            self.open('settings/about')
+            self.pages.check_updates()
+            self.assertFalse(self.settings.update_automatic.isChecked())
+            self.assertFalse(self.pages.update_banner.isVisible())
+            self.assertIn('off', self.settings.update_status.text())
+            fetch.assert_not_called()
+
+    def test_manual_check_shows_new_version_and_only_the_official_download_link(self):
+        with mock.patch('comic_archive.updates.fetch', return_value='99.0.0'), \
+                mock.patch.object(license_texts, 'version', return_value='0.5.4'):
+            self.open('settings/about')
+            self.settings.update_check.click()
+            settle()
+            self.assertIn('99.0.0', self.settings.update_status.text())
+            self.assertTrue(self.pages.update_banner.isVisible())
+            self.assertFalse(self.settings.update_automatic.isChecked())
+            self.pages.update_download.click()
+            self.assertIn(('open_url', 'https://comicarchiver.com/download.html'), self.shell.calls)
+
+    def test_opt_in_and_opt_out_are_saved_and_disable_future_requests(self):
+        with mock.patch('comic_archive.updates.fetch', return_value='99.0.0') as fetch:
+            self.open('settings/about')
+            self.settings.update_automatic.setChecked(True)
+            self.assertEqual(fetch.call_count, 1)
+            self.settings.update_automatic.setChecked(False)
+            self.pages.check_updates()
+            self.assertEqual(fetch.call_count, 1)
+            self.assertIn('off', self.settings.update_status.text())

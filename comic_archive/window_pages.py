@@ -1110,6 +1110,17 @@ class Settings:
         card, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
         box.addWidget(kit.label(say('app.about'), 'sectionTitle'))
         box.addWidget(kit.label(say('window.comic_archiver', value=license_texts.version()), 'strong'))
+        from . import updates
+        from .app_runtime import state_dir
+        self.update_automatic = kit.w.QCheckBox('Check automatically once a day')
+        self.update_automatic.setChecked(updates.automatic(state_dir() / 'updates.json'))
+        self.update_automatic.toggled.connect(pages.set_update_automatic)
+        box.addWidget(self.update_automatic)
+        box.addWidget(kit.label('Checks contact comicarchiver.com. No account or library information is sent.', 'muted'))
+        self.update_status = kit.label('Automatic update checks are off. Check manually whenever you choose.', 'muted')
+        box.addWidget(self.update_status)
+        self.update_check = kit.button('Check for updates', lambda: pages.check_updates(True), 'secondary')
+        box.addWidget(kit.row(self.update_check))
         box.addWidget(kit.label(ABOUT, 'muted'))
         self.license_choice = kit.combo([(path, name) for name, path in license_texts.texts()], self._license)
         self.license_choice.setAccessibleName(say('window.license_to_read'))
@@ -1372,6 +1383,13 @@ class Pages:
         column.setSpacing(0)
         self.header = Header(kit, self)
         column.addWidget(self.header.widget)
+        self.update_notice = kit.label('')
+        self.update_notice.setVisible(False)
+        self.update_download = kit.button('Get the update', lambda: shell.open_url('https://comicarchiver.com/download.html'), 'secondary')
+        self.update_banner = kit.row(self.update_notice, self.update_download)
+        self.update_banner.setVisible(False)
+        column.addWidget(self.update_banner)
+        self.update_busy = False
         self.stack = w.QStackedWidget()
         self.dashboard = Dashboard(kit, self)
         self.settings = Settings(kit, self)
@@ -1379,6 +1397,43 @@ class Pages:
         for page in (self.dashboard, self.library, self.settings):
             self.stack.addWidget(page.widget)
         column.addWidget(self.stack, 1)
+
+    def set_update_automatic(self, enabled):
+        from . import updates
+        from .app_runtime import state_dir
+        def done(value, error):
+            if error:
+                self.settings.update_automatic.blockSignals(True)
+                self.settings.update_automatic.setChecked(updates.automatic(state_dir() / 'updates.json'))
+                self.settings.update_automatic.blockSignals(False)
+                self.settings.update_status.setText('Could not save the update setting. Try again.')
+            else:
+                self.check_updates()
+        self.shell.run(lambda: updates.set_automatic(state_dir() / 'updates.json', enabled), done)
+
+    def check_updates(self, force=False):
+        from . import updates
+        from .app_runtime import state_dir
+        if self.update_busy:
+            return
+        self.update_busy = True
+        self.settings.update_check.setEnabled(False)
+        self.settings.update_status.setText('Checking for updates…')
+
+        def done(value, error):
+            self.update_busy = False
+            self.settings.update_check.setEnabled(True)
+            status = value.get('status') if value else 'unavailable'
+            available = status == 'available'
+            self.update_banner.setVisible(available)
+            self.update_notice.setVisible(available)
+            message = (f"Comic Archiver {value['latest']} is available." if available else
+                       'Automatic update checks are off. Check manually whenever you choose.' if status == 'disabled' else
+                       'You have the latest version.' if status == 'current' else
+                       'Could not check for updates. Try again when connected.')
+            self.update_notice.setText(message)
+            self.settings.update_status.setText(message)
+        self.shell.run(lambda: updates.check(license_texts.version(), state_dir() / 'updates.json', force), done)
 
     # The sites.
 

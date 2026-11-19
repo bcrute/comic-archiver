@@ -199,6 +199,16 @@ def android_release(releases):
     return max(found, key=lambda item: item['published_at'], default=None)
 
 
+def version_manifest(desktop, releases):
+    """Only published stable versions; Android may have a different latest release."""
+    candidates = [r for r in releases if not r.get('draft') and not r.get('prerelease')
+                  and re.fullmatch(r'v\d+\.\d+\.\d+', r.get('tag_name', ''))
+                  and any(name.endswith(ANDROID) for name in assets(r))]
+    android = max(candidates, key=lambda r: order(r['tag_name'][1:]), default=None)
+    return {'schema_version': 1, 'desktop': desktop,
+            'android': android['tag_name'][1:] if android else None}
+
+
 def size_suffix(release_sizes, version, filename):
     """Decimal MB from the selected release asset, omitted when no reliable size is given."""
     size = (release_sizes or {}).get(version, {}).get(filename)
@@ -277,13 +287,16 @@ def main(argv=None):
             offered = {version: assets(release)}
             release_sizes = {version: {item['name']: item.get('size') for item in release.get('assets', [])}}
             android = None
+            published_releases = [release]
             if args.releases:
-                found = android_release(json.loads(Path(args.releases).read_text(encoding='utf-8')))
+                published_releases = json.loads(Path(args.releases).read_text(encoding='utf-8'))
+                found = android_release(published_releases)
                 if found:
                     android = found['tag_name'].removeprefix('v')
                     offered[android] = assets(found)
                     release_sizes[android] = {item['name']: item.get('size') for item in found.get('assets', [])}
             out = build(args.out, version, release['published_at'], android, offered, release_sizes=release_sizes)
+            (out / 'version.json').write_text(json.dumps(version_manifest(version, published_releases))+'\n', encoding='utf-8')
         else:
             version = args.version or tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']
             out = build(args.out, version, android=args.android_version)

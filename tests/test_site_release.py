@@ -286,3 +286,13 @@ class SiteReleaseTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class VersionManifestTests(unittest.TestCase):
+    def test_the_manifest_keeps_platform_versions_separate_and_excludes_drafts_and_previews(self):
+        stable = release('0.5.3', ['ComicArchiver-0.5.3-android-universal.apk'])
+        preview = beta('0.6.0-beta1')
+        draft = dict(release('0.7.0', ['ComicArchiver-0.7.0-android-universal.apk']), draft=True)
+        self.assertEqual(site_release.version_manifest('0.5.4', [stable, preview, draft]),
+                         {'schema_version': 1, 'desktop': '0.5.4', 'android': '0.5.3'})
+        self.assertIsNone(site_release.version_manifest('0.5.4', [])['android'])
