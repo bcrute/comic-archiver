@@ -1587,7 +1587,7 @@ class NavigationTests(PagesCase):
         self.assertIn('Comic Archiver subreddit', words)
         self.assertIn('no titles, folder names or sign-in details', words)
         self.assertFalse(s.support_note.isVisible())
-        self.assertEqual(s.panels['about'].findChildren(QtWidgets.QPushButton), [])
+        self.assertEqual(s.panels['about'].findChildren(QtWidgets.QPushButton), [s.update_check])
         about = ' '.join(label.text() for label in s.panels['about'].findChildren(QtWidgets.QLabel))
         self.assertNotIn('support', about.lower())
 

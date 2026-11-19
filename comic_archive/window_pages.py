@@ -1112,11 +1112,11 @@ class Settings:
         box.addWidget(kit.label(say('window.comic_archiver', value=license_texts.version()), 'strong'))
         from . import updates
         from .app_runtime import state_dir
-        self.update_automatic = kit.w.QCheckBox('Check automatically once a day')
+        self.update_automatic = kit.w.QCheckBox('Automatic update checks')
         self.update_automatic.setChecked(updates.automatic(state_dir() / 'updates.json'))
         self.update_automatic.toggled.connect(pages.set_update_automatic)
         box.addWidget(self.update_automatic)
-        box.addWidget(kit.label('Checks contact comicarchiver.com. No account or library information is sent.', 'muted'))
+        box.addWidget(kit.label('When enabled, checks once a day at comicarchiver.com. No account or library information is sent.', 'muted'))
         self.update_status = kit.label('Automatic update checks are off. Check manually whenever you choose.', 'muted')
         box.addWidget(self.update_status)
         self.update_check = kit.button('Check for updates', lambda: pages.check_updates(True), 'secondary')
