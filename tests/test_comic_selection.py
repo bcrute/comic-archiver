@@ -12,7 +12,6 @@ from comic_archive.episode_index import page
 from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered, sync
 from comic_archive.models import ArchiveError
-from comic_archive.workspace import Workspace
 from test_jobs import AccountAdapter
 
 

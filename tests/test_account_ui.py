@@ -59,6 +59,7 @@ class AccountUITests(unittest.TestCase):
         with Inventory(self.workspace.library, read_only=True) as inventory:
             self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': []})
             self.assertEqual({row['id'] for row in inventory.pending()}, {'81', '82'})
+        private_json(self.queue / 'status.json', {'state': 'ready'})  # The new app starts its worker held.
         self.registry.start_account(LOCAL_OWNER, self.workspace.id)
         self.ticks()
         self.assertNotEqual(self.outstanding(), task)
