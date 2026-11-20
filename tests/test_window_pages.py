@@ -385,6 +385,36 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
+    def test_choices_stay_disabled_until_the_saved_checkmarks_are_read_back(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        self.shell.held = []
+        provider.child(0).setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        self.assertTrue(page.changing)
+        self.assertFalse(page.tree.isEnabled())
+        self.assertFalse(page.check_all.isEnabled())
+        page.check_all.click()
+        self.assertEqual(self.actions.named('choose_comics'), [])
+        self.shell.release()
+        self.assertFalse(page.changing)
+        self.assertTrue(page.tree.isEnabled())
+        self.assertEqual(provider.child(0).checkState(0), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(len(self.actions.named('choose_comics')), 1)
+
+    def test_failed_comic_write_restores_the_saved_checkmark_without_a_download(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        self.actions.refused['choose_comics'] = 'PRIVATE refusal'
+        provider.child(0).setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(provider.child(0).checkState(0), QtCore.Qt.CheckState.Checked)
+        self.assertIn('Could not apply', page.notice.text())
+        self.assertNotIn('PRIVATE', page.notice.text())
+        self.assertEqual(self.actions.named('go'), [])
+
     def test_comic_checkboxes_default_on_and_keep_expanded_episode_rows_when_changed(self):
         self.open('library')
         page = self.pages.library

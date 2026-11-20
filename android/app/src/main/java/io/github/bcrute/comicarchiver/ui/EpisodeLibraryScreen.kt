@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.bcrute.comicarchiver.controller.EpisodeList
@@ -144,7 +145,7 @@ private fun EpisodeLine(title: String, status: String, detail: String?, depth: I
     Row(Modifier.fillMaxWidth().then(place).padding(start = (16 * depth).dp, top = 8.dp, bottom = 8.dp).testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (selected != null) Checkbox(checked = selected, onCheckedChange = onSelected, enabled = enabled,
-            modifier = Modifier.testTag("select-$tag"))
+            modifier = Modifier.testTag("select-$tag").semantics { contentDescription = "Download $title" })
         if (open != null) Text(if (open) "▾" else "▸")
         Column(Modifier.weight(1f)) {
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis,

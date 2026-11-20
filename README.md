@@ -124,7 +124,23 @@ legacy format); Access shows free/unlocked/limited classifications and marks
 mixed series. Unknown values stay explicit. It reads the local inventory on demand;
 it does not browse files or query providers. Saved can include cloud storage, and
 an unlisted episode may simply not have been discovered yet. Refresh updates the
-indicators. Episode selection and selective downloading are not enabled yet.
+indicators.
+
+In 0.5.5, check or uncheck each comic on this page to choose future downloads.
+On Android, open **Library → Episodes**. **Check all** and **Uncheck all** at the
+top apply to every provider in this working library, including comics discovered
+later. Everything starts checked, including when updating an older installation
+with a download in progress. After Uncheck all, check just the comics you want.
+Selections are kept separately for each provider and working library.
+
+Unchecking a comic never deletes its saved CBZ/EPUB files or extras. You can
+delete unwanted files yourself; unchecked comics are not downloaded again.
+The existing episode-type and extras choices still apply within checked comics.
+A running download pauses to apply a choice and then continues; a paused one
+stays paused. Updating or reopening the app keeps its queue and files and waits
+for **Continue**. An unlisted comic may still need to be discovered: Start reads
+your account lists, even with every comic unchecked, without saving unchecked
+comics. Refresh the Library list, make your choices, then press Continue.
 
 If you'd like a copy in the cloud as well, the app can also save to your own Backblaze B2 storage. Settings walks
 you through setting it up.
