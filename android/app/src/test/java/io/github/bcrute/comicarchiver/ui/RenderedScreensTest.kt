@@ -646,6 +646,23 @@ class RenderedScreensTest {
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsNotEnabled()
     }
 
+    @Test fun anOpenComicListWaitsForTheWorkspaceAndReloadsWhenItBecomesReady() {
+        controller.state.value = controller.state.value.copy(
+            sites = listOf(SiteChoice("tapas", "Tapas", true)),
+            episodes = mapOf("tapas" to EpisodeList(loaded = true)))
+        show()
+        episodes()
+        compose.onNodeWithTag("episodes-tapas").performClick()
+        assertEquals(0, controller.episodeLoads.size)
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(workspaceReady = false, episodes = emptyMap()) }
+        compose.onNodeWithTag("comics-check-all").assertIsNotEnabled()
+        assertEquals(0, controller.episodeLoads.size)
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(workspaceReady = true) }
+        compose.waitForIdle()
+        assertEquals(listOf<Pair<String, String?>>("tapas" to null), controller.episodeLoads)
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun anEmptyOrUnreadableEpisodeListSaysSoAndRefreshStartsAgain() {
         controller.state.value = controller.state.value.copy(
             sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true)),

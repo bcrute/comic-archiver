@@ -129,7 +129,7 @@ fun LibraryScreen(
             }
             else if (view == "Series") SeriesLibraryScreen(series)
             else if (view == "Episodes") EpisodeLibraryScreen(sites, episodes, onLoadEpisodes, onRefreshEpisodes,
-                onChooseComics, comicChoicesBusy, comicChoicesNotice)
+                onChooseComics, comicChoicesBusy || !actionsEnabled, comicChoicesNotice)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {}
