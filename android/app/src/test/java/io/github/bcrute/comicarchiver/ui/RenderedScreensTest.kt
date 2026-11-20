@@ -646,6 +646,28 @@ class RenderedScreensTest {
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsNotEnabled()
     }
 
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    fun comicBulkChoicesStayWholeAndTappableWithDoubleSizeText() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                MaterialTheme {
+                    ComicArchiverAppRoot(controller, ExportPanelStateUi(ExportPhaseUi.NOT_PICKED), {}, {}, {})
+                }
+            }
+        }
+        episodes()
+        for (label in listOf("Check all", "Uncheck all")) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(label).performScrollTo().assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue("The whole $label label must fit", layouts.isNotEmpty() && layouts.all(::fitsSingleLine))
+            compose.onNodeWithText(label).performClick()
+        }
+        assertEquals(listOf(Triple(true, null, null), Triple(false, null, null)), controller.comicChanges)
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun anOpenComicListWaitsForTheWorkspaceAndReloadsWhenItBecomesReady() {
         controller.state.value = controller.state.value.copy(
             sites = listOf(SiteChoice("tapas", "Tapas", true)),

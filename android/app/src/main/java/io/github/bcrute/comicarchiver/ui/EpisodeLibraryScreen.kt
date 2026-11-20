@@ -2,6 +2,8 @@ package io.github.bcrute.comicarchiver.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +40,7 @@ import io.github.bcrute.comicarchiver.words.say
  * only the library's own record is read: no saved file is opened or checked.
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList>,
                          onLoad: (String, String?) -> Unit, onRefresh: () -> Unit,
                          onChooseComics: (Boolean, String?, String?) -> Unit = { _, _, _ -> },
@@ -68,7 +71,8 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                     Text(say("app.library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     OutlinedButton(onClick = { opened = emptyList(); onRefresh() }, enabled = !changing) { Text(say("library.refresh")) }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(onClick = { onChooseComics(true, null, null) }, enabled = !changing,
                         modifier = Modifier.testTag("comics-check-all")) { Text("Check all") }
                     OutlinedButton(onClick = { onChooseComics(false, null, null) }, enabled = !changing,
