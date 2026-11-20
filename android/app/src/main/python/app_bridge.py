@@ -84,8 +84,6 @@ def set_browser_seam(factory):
     if factory is not None and not all(callable(getattr(factory, name, None)) for name in methods):
         raise _BridgeError('bad_request', 'The native reading browser is not connected.')
     with _workspace_lock:
-        from comic_archive import worker_host
-        from comic_archive.state_paths import session_path
         if _running_roots():
             raise _BridgeError('refused', 'Stop the downloader before replacing its browser.')
         if _browser['factory'] is not factory:

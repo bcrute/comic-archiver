@@ -21,6 +21,19 @@ from test_jobs import AccountAdapter
 
 
 class AccountUITests(unittest.TestCase):
+    def test_comic_save_failure_keeps_the_previous_scope_and_the_download_paused(self):
+        from comic_archive import comic_selection
+        from comic_archive.errors import DownloadSelectionChangeError
+        task, _ = self.running_batch()
+        with patch.object(account_ui.time, 'sleep', side_effect=lambda _: self.cancelled_batch(task)), \
+                patch.object(comic_selection, 'change', side_effect=OSError('PRIVATE storage detail')):
+            with self.assertRaises(DownloadSelectionChangeError) as failure:
+                self.registry.choose_comics(LOCAL_OWNER, self.workspace.id, False, '42')
+        self.assertNotIn('PRIVATE', str(failure.exception))
+        self.assertEqual(self.state()['status'], 'stopped')
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': []})
+
     def test_comic_change_during_a_running_batch_waits_then_resumes_without_deleting_files(self):
         from comic_archive import comic_selection
         task, _ = self.running_batch()
