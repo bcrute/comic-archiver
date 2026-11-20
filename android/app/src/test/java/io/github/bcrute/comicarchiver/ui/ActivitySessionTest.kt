@@ -481,6 +481,7 @@ class ActivitySessionTest {
 
 /** A host seam, not a second controller or fake app UI. No Python/HTTP bootstrap. */
 class LifecycleTestApp : App() {
+    internal override val updateBackend: UpdateBackend = FakeUpdateBackend()
     val fake = LifecycleBridge()
     override val bridge: PythonBridge get() = fake
     override val signInSites get() = WebViewSignInEngine.BETA_SITES

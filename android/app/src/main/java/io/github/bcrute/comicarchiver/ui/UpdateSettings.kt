@@ -37,7 +37,7 @@ internal interface UpdateBackend {
     fun check(current: String, path: String, force: Boolean): JSONObject
 }
 
-private object PythonUpdateBackend : UpdateBackend {
+internal object PythonUpdateBackend : UpdateBackend {
     private fun module() = Python.getInstance().getModule("comic_archive.updates")
     override fun automatic(path: String) = module().callAttr("automatic", path).toBoolean()
     override fun choose(path: String, enabled: Boolean) { module().callAttr("set_automatic", path, enabled) }
@@ -102,10 +102,10 @@ class UpdateSettings internal constructor(
 }
 
 @Composable
-fun rememberUpdateSettings(ready: Boolean): UpdateSettings {
+internal fun rememberUpdateSettings(ready: Boolean, backend: UpdateBackend): UpdateSettings {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
-    val settings = remember(context, scope) { UpdateSettings(context, scope) }
+    val settings = remember(context, scope, backend) { UpdateSettings(context, scope, backend) }
     LaunchedEffect(ready) {
         if (ready) while (true) {
             settings.load()

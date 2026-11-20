@@ -18,28 +18,29 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+internal class FakeUpdateBackend : UpdateBackend {
+    @Volatile var enabled = false
+    @Volatile var requests = 0
+    @Volatile var checks = 0
+    @Volatile var fail = false
+    override fun automatic(path: String): Boolean = enabled
+    override fun choose(path: String, enabled: Boolean) { this.enabled = enabled }
+    override fun check(current: String, path: String, force: Boolean): JSONObject {
+        checks++
+        if (fail) throw IllegalStateException("private diagnostic")
+        if (force || enabled) requests++
+        return JSONObject().put("status", if (force || enabled) "current" else "disabled")
+    }
+}
+
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class UpdateSettingsTest {
     @get:Rule val compose = createComposeRule()
 
-    private class Backend : UpdateBackend {
-        @Volatile var enabled = false
-        @Volatile var requests = 0
-        @Volatile var checks = 0
-        @Volatile var fail = false
-        override fun automatic(path: String): Boolean = enabled
-        override fun choose(path: String, enabled: Boolean) { this.enabled = enabled }
-        override fun check(current: String, path: String, force: Boolean): JSONObject {
-            checks++
-            if (fail) throw IllegalStateException("private diagnostic")
-            if (force || enabled) requests++
-            return JSONObject().put("status", if (force || enabled) "current" else "disabled")
-        }
-    }
 
     private lateinit var settings: UpdateSettings
-    private fun show(backend: Backend) {
+    private fun show(backend: FakeUpdateBackend) {
         compose.setContent {
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
@@ -47,13 +48,13 @@ class UpdateSettingsTest {
             MaterialTheme { UpdateControls(settings, manual = true) }
         }
     }
-    private fun settled(checks: Int, backend: Backend) {
+    private fun settled(checks: Int, backend: FakeUpdateBackend) {
         compose.waitUntil(5_000) { backend.checks >= checks && !settings.busy }
         compose.waitForIdle()
     }
 
     @Test fun manualChecksLeaveAutomaticChecksOff() {
-        val backend = Backend(); show(backend)
+        val backend = FakeUpdateBackend(); show(backend)
         compose.runOnIdle { settings.load() }; settled(1, backend)
         assertFalse(settings.automatic); assertEquals(0, backend.requests)
         compose.onNodeWithText("Check for updates").performClick(); settled(2, backend)
@@ -65,7 +66,7 @@ class UpdateSettingsTest {
     }
 
     @Test fun optingInAndOutUsesTheSavedChoiceOnReload() {
-        val backend = Backend(); show(backend)
+        val backend = FakeUpdateBackend(); show(backend)
         compose.runOnIdle { settings.chooseAutomatic(true) }; settled(1, backend)
         assertTrue(settings.automatic); assertTrue(backend.enabled)
         compose.runOnIdle { settings.load() }; settled(2, backend)
@@ -77,7 +78,7 @@ class UpdateSettingsTest {
     }
 
     @Test fun aFailedCheckKeepsConsentOffAndCanBeRetriedWithoutRawDiagnostics() {
-        val backend = Backend(); backend.fail = true; show(backend)
+        val backend = FakeUpdateBackend(); backend.fail = true; show(backend)
         compose.onNodeWithText("Check for updates").performClick(); settled(1, backend)
         assertFalse(settings.automatic); assertFalse(backend.enabled)
         compose.onNodeWithText("Could not check or save update settings. Try again when connected.").assertExists()

@@ -407,6 +407,7 @@ class ViewportTestApp : SwitchTestApp() {
 }
 
 open class SwitchTestApp : App() {
+    internal override val updateBackend: UpdateBackend = FakeUpdateBackend()
     val wire = SwitchBridge()
     var failClear = false
     val clearCalls = java.util.concurrent.atomic.AtomicInteger()

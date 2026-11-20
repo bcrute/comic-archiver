@@ -43,6 +43,8 @@ open class App : Application() {
         private set
 
     open val bridge: PythonBridge by lazy { ChaquopyBridge() }
+    internal open val updateBackend: io.github.bcrute.comicarchiver.ui.UpdateBackend =
+        io.github.bcrute.comicarchiver.ui.PythonUpdateBackend
 
     private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val openedLibrary by lazy { io.github.bcrute.comicarchiver.library.OpenedLibrary(this, bridge, processScope) }

@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appState by controller.state.collectAsState()
-            val updates = rememberUpdateSettings(appState.workspaceReady)
+            val updates = rememberUpdateSettings(appState.workspaceReady, app.updateBackend)
             val notifications = remember { DownloadNotifications(this@MainActivity) }
             var notificationAccess by remember { mutableStateOf(notifications.access()) }
             var notificationError by remember { mutableStateOf<String?>(null) }
