@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -36,6 +37,38 @@ class ComicSelectionTests(unittest.TestCase):
             self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
             self.assertIsNone(inventory.db.execute('SELECT value FROM settings WHERE key=?', (comics.KEY,)).fetchone())
         self.assertEqual((self.root / '.archive-state/inventory.sqlite3').read_bytes(), before)
+
+    def test_desktop_actions_change_the_owned_library_and_refuse_another_root(self):
+        from comic_archive.app_actions import Actions
+        from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
+        registry = LocalWorkspaceRegistry(self.base)
+        runtime = SimpleNamespace(registry=registry, root=self.base, site=sites.DEFAULT)
+        actions = Actions(lambda: runtime)
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Comic', [episode()], 'fixture')
+        self.assertEqual(set(actions.choose_comics(False)), {'tapas', 'webtoon', 'tappytoon'})
+        self.assertEqual(actions.choose_comics(True, provider='tapas', series_id='42'), ['tapas'])
+        self.assertTrue(actions.episode_inventory(provider='tapas')['items'][0]['selected'])
+        self.assertFalse(actions.episode_inventory(provider='webtoon')['comic_selection']['default'])
+        other = self.base / 'other'
+        with self.assertRaises(ArchiveError):
+            registry.choose_library_comics(LOCAL_OWNER, registry.workspace_id, other, True)
+        self.assertFalse(other.exists())
+
+    def test_a_partial_global_failure_keeps_saved_choices_readable_for_review(self):
+        original = account_ui.change_comics
+        visited = []
+        def change(workspace, chosen, series_id=None, **options):
+            visited.append(workspace.root)
+            if len(visited) == 2:
+                raise ArchiveError('The next provider is busy.')
+            return original(workspace, chosen, series_id, **options)
+        with patch.object(account_ui, 'change_comics', side_effect=change), self.assertRaises(ArchiveError):
+            account_ui.change_library_comics(self.base, False, closing=threading.Event())
+        self.assertEqual(len(visited), 2)
+        with Inventory(visited[0] / 'Library', read_only=True) as inventory:
+            self.assertFalse(comics.read(inventory.db)['default'])
+        self.assertFalse((visited[1] / 'Library/.archive-state/inventory.sqlite3').exists())
 
     def test_individual_choices_and_future_discoveries_follow_the_saved_default(self):
         with Inventory(self.root) as inventory:
