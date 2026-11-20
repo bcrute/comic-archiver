@@ -151,6 +151,18 @@ class ComicSelectionTests(unittest.TestCase):
             self.assertEqual(inventory.status()['selected_series_count'], 1)
         self.assertTrue(check_completion(self.root)['completion_check_passed'])
 
+    def test_reselecting_a_previously_checked_comic_requires_a_new_scan(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Comic', [], 'fixture')
+            inventory.scan_candidates()
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle()
+            comics.change(inventory.db, False)
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+            comics.change(inventory.db, True, '42')
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+
     def test_access_filters_and_comic_choices_both_apply_for_all_providers(self):
         for site in sites.SITES:
             if not site.available:

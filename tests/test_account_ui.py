@@ -21,6 +21,22 @@ from test_jobs import AccountAdapter
 
 
 class AccountUITests(unittest.TestCase):
+    def test_comic_choice_after_a_finished_round_waits_for_go_before_new_work(self):
+        from comic_archive import comic_selection
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('42', 'Comic', [{'id': '81', 'title': 'One', 'order': 1,
+                                             'access_state': 'tapas_free'}], 'fixture')
+            comic_selection.change(inventory.db, False)
+        self.registry.start_account(LOCAL_OWNER, self.workspace.id)
+        self.change("UPDATE state SET status='finished',stage='finished',audit=NULL")
+        self.registry.choose_comics(LOCAL_OWNER, self.workspace.id, True, '42')
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+        self.registry.start_account(LOCAL_OWNER, self.workspace.id)
+        self.tick()
+        self.assertEqual(self.state()['status'], 'running')
+        self.assertIsNotNone(self.outstanding())
+
     def test_comic_save_failure_keeps_the_previous_scope_and_the_download_paused(self):
         from comic_archive import comic_selection
         from comic_archive.errors import DownloadSelectionChangeError
