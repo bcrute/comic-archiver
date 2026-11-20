@@ -337,4 +337,18 @@ class UiMappingTest {
             answer("""[{"id":"42","title":"A","status":"S","format":"F"}]""")))
             assertNull(EpisodeList.parse(bad, EpisodeList()))
     }
+
+    @Test fun comicSelectionSurvivesPagingAndMalformedChoicesAreRefused() {
+        fun answer(selected: String, default: String = "false", exceptions: String = "[\"42\"]") = JSONObject(
+            """{"ok":true,"result":{"items":[{"id":"42","title":"Comic","status":"Saved","format":"CBZ","access":"Free","selected":$selected}],
+                "next_offset":null,"comic_selection":{"default":$default,"exceptions":$exceptions}}}""")
+        val included = EpisodeList.parse(answer("true"), EpisodeList())!!
+        assertEquals(true, included.rows.single().selected)
+        assertEquals(false, included.selectionDefault)
+        assertEquals(setOf("42"), included.selectionExceptions)
+        assertEquals(false, EpisodeList.parse(answer("false", "true"), EpisodeList())!!.rows.single().selected)
+        assertNull(EpisodeList.parse(answer("1"), EpisodeList()))
+        assertNull(EpisodeList.parse(answer("true", "1"), EpisodeList()))
+        assertNull(EpisodeList.parse(answer("true", exceptions = "[1]"), EpisodeList()))
+    }
 }

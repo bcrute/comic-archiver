@@ -43,7 +43,8 @@ def clause(db, alias='e'):
         raise ValueError('Unsupported comic inventory alias.')
     value = read(db)
     if not value['exceptions']:
-        return '1' if value['default'] else '0'
+        # SQLite interprets a bare integer in GROUP BY as a column position.
+        return '1' if value['default'] else '(0=1)'
     column = 'id' if alias in {'s', 'series'} else 'series_id'
     # Validation admits only bounded ASCII decimal identifiers, never SQL text.
     identifiers = ','.join("'" + key + "'" for key in value['exceptions'])

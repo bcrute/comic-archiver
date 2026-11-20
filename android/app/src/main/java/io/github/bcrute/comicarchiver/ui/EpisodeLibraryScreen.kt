@@ -50,6 +50,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
         }
     }
     fun toggle(site: String, seriesId: String?) {
+        if (changing) return
         val key = EpisodeList.key(site, seriesId)
         if (key in opened) opened = opened - key
         else {

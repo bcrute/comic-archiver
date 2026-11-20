@@ -624,6 +624,28 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun comicCheckboxAndCheckAllOnlyChangeFutureDownloads() {
+        controller.state.value = controller.state.value.copy(
+            sites = listOf(SiteChoice("tapas", "Tapas", true)),
+            episodes = mapOf("tapas" to EpisodeList(listOf(
+                EpisodeRow("42", "Chosen Comic", "1 / 2 saved", "CBZ", "Free", selected = true)), loaded = true)))
+        show()
+        episodes()
+        compose.onNodeWithTag("episodes-tapas").performClick()
+        compose.onNodeWithTag("select-episodes-tapas/42").assertIsOn().performClick()
+        assertEquals(listOf(Triple(false, "tapas", "42")), controller.comicChanges)
+        compose.onNodeWithTag("select-episodes-tapas/42").assertIsOff()
+        compose.onNodeWithTag("comics-check-all").performClick()
+        compose.onNodeWithTag("select-episodes-tapas/42").assertIsOn()
+        compose.onNodeWithTag("comics-uncheck-all").performClick()
+        compose.onNodeWithTag("select-episodes-tapas/42").assertIsOff()
+        compose.onNodeWithText("1 / 2 saved").assertExists()
+        assertEquals(0, controller.goCalls)
+        controller.state.value = controller.state.value.copy(settingsBusy = true)
+        compose.onNodeWithTag("comics-check-all").assertIsNotEnabled()
+        compose.onNodeWithTag("select-episodes-tapas/42").assertIsNotEnabled()
+    }
+
     @Test fun anEmptyOrUnreadableEpisodeListSaysSoAndRefreshStartsAgain() {
         controller.state.value = controller.state.value.copy(
             sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("webtoon", "Webtoon", true)),
@@ -1416,6 +1438,16 @@ private class ScreenController : AppController {
         state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
     }
     val episodeLoads = mutableListOf<Pair<String, String?>>()
+    val comicChanges = mutableListOf<Triple<Boolean, String?, String?>>()
+    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?) {
+        comicChanges.add(Triple(chosen, site, seriesId))
+        state.value = state.value.copy(episodes = state.value.episodes.mapValues { (key, list) ->
+            if (key.contains('/') || site != null && site != key) list
+            else list.copy(rows = list.rows.map { row ->
+                if (seriesId == null || row.id == seriesId) row.copy(selected = chosen) else row
+            })
+        })
+    }
     var episodeRefreshes = 0
     var supportEmails = 0
     override fun emailSupport() { supportEmails++ }

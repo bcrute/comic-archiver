@@ -68,7 +68,7 @@ class AccountUITests(unittest.TestCase):
         self.end_worker()  # Replacing the running app ends its embedded worker.
         self.assertTrue(account_ui.reopen(self.workspace, idle=True))
         self.assertEqual(self.state()['status'], 'stopped')
-        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+        self.assertEqual(self.waiting_for_go(), ('stopped', []))
         with Inventory(self.workspace.library, read_only=True) as inventory:
             self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': []})
             self.assertEqual({row['id'] for row in inventory.pending()}, {'81', '82'})

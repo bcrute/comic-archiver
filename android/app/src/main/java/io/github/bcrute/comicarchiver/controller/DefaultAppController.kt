@@ -269,7 +269,7 @@ class DefaultAppController(
     override fun loadEpisodes(site: String, seriesId: String?) {
         val key = EpisodeList.key(site, seriesId)
         val before = _state.value.episodes[key] ?: EpisodeList()
-        if (before.loading || (before.loaded && before.nextOffset == null) || !workspaceReady) return
+        if (before.loading || (before.loaded && before.nextOffset == null) || !workspaceReady || _state.value.settingsBusy) return
         val target = location; val version = episodesVersion
         _state.value = _state.value.copy(episodes = _state.value.episodes + (key to before.copy(loading = true, failed = false)))
         scope.launch(Dispatchers.IO) {
