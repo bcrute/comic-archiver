@@ -31,8 +31,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+internal interface UpdateBackend {
+    fun automatic(path: String): Boolean
+    fun choose(path: String, enabled: Boolean)
+    fun check(current: String, path: String, force: Boolean): JSONObject
+}
+
+private object PythonUpdateBackend : UpdateBackend {
+    private fun module() = Python.getInstance().getModule("comic_archive.updates")
+    override fun automatic(path: String) = module().callAttr("automatic", path).toBoolean()
+    override fun choose(path: String, enabled: Boolean) { module().callAttr("set_automatic", path, enabled) }
+    override fun check(current: String, path: String, force: Boolean) =
+        JSONObject(module().callAttr("check_json", current, path, force).toString())
+}
+
 /** Device-local opt-in; all filesystem/Python/network work runs off the UI thread. */
-class UpdateSettings(private val context: Context, private val scope: CoroutineScope) {
+class UpdateSettings internal constructor(
+    private val context: Context, private val scope: CoroutineScope,
+    private val backend: UpdateBackend = PythonUpdateBackend,
+) {
     var automatic by mutableStateOf(false)
         private set
     var busy by mutableStateOf(false)
@@ -42,10 +59,9 @@ class UpdateSettings(private val context: Context, private val scope: CoroutineS
     var message by mutableStateOf("Automatic update checks are off. Check manually whenever you choose.")
         private set
     private val path get() = File(context.filesDir, "updates.json").absolutePath
-    private fun module() = Python.getInstance().getModule("comic_archive.updates")
 
     fun load() = run {
-        automatic = withContext(Dispatchers.IO) { module().callAttr("automatic", path).toBoolean() }
+        automatic = withContext(Dispatchers.IO) { backend.automatic(path) }
         // The shared checker refuses any request unless this opt-in is already stored.
         result(false)
     }
@@ -53,7 +69,7 @@ class UpdateSettings(private val context: Context, private val scope: CoroutineS
     fun check() = run { result(true) }
 
     fun chooseAutomatic(enabled: Boolean) = run {
-        withContext(Dispatchers.IO) { module().callAttr("set_automatic", path, enabled) }
+        withContext(Dispatchers.IO) { backend.choose(path, enabled) }
         automatic = enabled
         result(false)
     }
@@ -73,7 +89,7 @@ class UpdateSettings(private val context: Context, private val scope: CoroutineS
     private suspend fun result(force: Boolean) {
         val result = withContext(Dispatchers.IO) {
             val current = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-            JSONObject(module().callAttr("check_json", current, path, force).toString())
+            backend.check(current, path, force)
         }
         available = result.optString("status") == "available"
         message = when (result.optString("status")) {

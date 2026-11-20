@@ -71,10 +71,10 @@ fun ComicArchiverAppRoot(
     notificationAccess: DownloadNotificationAccess = DownloadNotificationAccess.ENABLED,
     notificationError: String? = null,
     onNotificationAccess: () -> Unit = {},
+    updates: UpdateSettings? = null,
     signInContent: @Composable () -> Unit = {},
 ) {
     val state by controller.state.collectAsState()
-    val updates = rememberUpdateSettings(state.workspaceReady)
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Overview") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
@@ -181,7 +181,7 @@ fun ComicArchiverAppRoot(
             if (!compactEditing) SourceHeader(state, controller::selectSite, exportState.phase == ExportPhaseUi.RUNNING,
                 // The dashboard shows every site at once; only the Library and Settings are one site's at a time.
                 chooseSite = tab != AppTab.SAVING && !(tab == AppTab.SETTINGS && settingsPage == "B2 setup"))
-            UpdateControls(updates, manual = false)
+            updates?.let { UpdateControls(it, manual = false) }
             Column(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.siteBusy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())

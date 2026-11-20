@@ -41,6 +41,7 @@ import io.github.bcrute.comicarchiver.controller.DefaultAppController
 import io.github.bcrute.comicarchiver.controller.Notice
 import io.github.bcrute.comicarchiver.controller.BetaCodes
 import io.github.bcrute.comicarchiver.ui.ComicArchiverAppRoot
+import io.github.bcrute.comicarchiver.ui.rememberUpdateSettings
 import io.github.bcrute.comicarchiver.ui.ComicArchiverTheme
 import io.github.bcrute.comicarchiver.worker.DownloadNotifications
 import io.github.bcrute.comicarchiver.worker.DownloadNotificationAccess
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appState by controller.state.collectAsState()
+            val updates = rememberUpdateSettings(appState.workspaceReady)
             val notifications = remember { DownloadNotifications(this@MainActivity) }
             var notificationAccess by remember { mutableStateOf(notifications.access()) }
             var notificationError by remember { mutableStateOf<String?>(null) }
@@ -184,6 +186,7 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
                         ComicArchiverAppRoot(
                             controller = controller,
+                            updates = updates,
                             notificationAccess = notificationAccess,
                             notificationError = notificationError,
                             onNotificationAccess = {
