@@ -258,7 +258,7 @@ fun ComicArchiverAppRoot(
                                 sites = state.sites, episodes = state.episodes,
                                 onLoadEpisodes = controller::loadEpisodes, onRefreshEpisodes = controller::refreshEpisodes,
                                 onChooseComics = controller::chooseComics, comicChoicesBusy = state.settingsBusy,
-                                comicChoicesNotice = state.settingsNotice,
+                                comicChoicesNotice = state.comicChoicesNotice,
                             )
                         }
                         AppTab.SETTINGS -> SettingsPages(

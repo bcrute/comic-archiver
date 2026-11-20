@@ -40,6 +40,7 @@ data class AppState(
     val allSites: AllSites? = null,
     /** Each opened site's card, worded by the same model as the desktop's. */
     val siteCards: List<SiteCard> = emptyList(),
+    val comicChoicesNotice: String? = null,
 )
 
 /** The line under the support buttons: the desktop's own words, and whether it reports a failure. */

@@ -299,7 +299,7 @@ class DefaultAppController(
         val target = location
         val version = siteVersion
         episodesVersion += 1
-        _state.value = _state.value.copy(settingsBusy = true, settingsNotice = "Applying comic choices…")
+        _state.value = _state.value.copy(settingsBusy = true, comicChoicesNotice = "Applying comic choices…")
         scope.launch(Dispatchers.IO) {
             val result = try {
                 val args = JSONObject().put("base_root", target.base.absolutePath).put("chosen", chosen)
@@ -325,7 +325,7 @@ class DefaultAppController(
                     }
                 }
                 _state.value = _state.value.copy(settingsBusy = false, episodes = updated,
-                    settingsNotice = if (result == null) "Could not apply every choice. Review the saved checkboxes and try again."
+                    comicChoicesNotice = if (result == null) "Could not apply every choice. Review the saved checkboxes and try again."
                         else "Comic choices saved. Existing files are kept.")
             }
         }
