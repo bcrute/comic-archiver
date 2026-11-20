@@ -397,6 +397,11 @@ class EpisodeLibraryTests(PagesCase):
         self.assertFalse(page.check_all.isEnabled())
         page.check_all.click()
         self.assertEqual(self.actions.named('choose_comics'), [])
+        # Finish the write while keeping its readback queued, to expose the
+        # real asynchronous interval in which stale checks must stay disabled.
+        self.shell.finish(*self.shell.held.pop(0))
+        self.assertTrue(page.changing)
+        self.assertFalse(page.check_all.isEnabled())
         self.shell.release()
         self.assertFalse(page.changing)
         self.assertTrue(page.tree.isEnabled())

@@ -10718,5 +10718,61 @@
   "new": "self.shell.open_url(SUPPORT_ADDRESS)",
   "test_file": "test_window_pages.py",
   "test": "test_the_subreddit_button_opens_the_subreddit_in_the_browser"
- }
+ },
+{
+ "id": "comic-upgrade-default-off",
+ "source": "comic_archive/comic_selection.py",
+ "old": "return {'default': True, 'exceptions': []}",
+ "new": "return {'default': False, 'exceptions': []}",
+ "test_file": "test_comic_selection.py",
+ "test": "test_legacy_and_new_inventories_include_all_without_a_migration_write"
+},
+{
+ "id": "comic-choice-exceptions-lost",
+ "source": "comic_archive/comic_selection.py",
+ "old": "value['exceptions'] = sorted(exceptions)",
+ "new": "value['exceptions'] = []",
+ "test_file": "test_comic_selection.py",
+ "test": "test_individual_choices_and_future_discoveries_follow_the_saved_default"
+},
+{
+ "id": "comic-queue-scope-ignored",
+ "source": "comic_archive/download_selection.py",
+ "old": "types, comics = _type_clause(db, alias), comic_clause(db, alias)",
+ "new": "types, comics = _type_clause(db, alias), '1'",
+ "test_file": "test_comic_selection.py",
+ "test": "test_unselected_comic_never_reaches_reader_or_asset_downloads"
+},
+{
+ "id": "comic-empty-scope-grouping-regression",
+ "source": "comic_archive/comic_selection.py",
+ "old": "else '(0=1)'",
+ "new": "else '0'",
+ "test_file": "test_comic_selection.py",
+ "test": "test_none_selected_discovers_titles_without_inspecting_comics_or_downloading"
+},
+{
+ "id": "comic-series-scan-scope-ignored",
+ "source": "comic_archive/inventory.py",
+ "old": "rows = [row for row in rows if includes(chosen, row['id'])]",
+ "new": "rows = list(rows)",
+ "test_file": "test_comic_selection.py",
+ "test": "test_scan_limit_applies_after_selection_and_excluded_gaps_do_not_hold_completion"
+},
+{
+ "id": "comic-excluded-gap-still-holds",
+ "source": "comic_archive/inventory.py",
+ "old": "if not includes(chosen, row['series_id']):",
+ "new": "if False:",
+ "test_file": "test_comic_selection.py",
+ "test": "test_scan_limit_applies_after_selection_and_excluded_gaps_do_not_hold_completion"
+},
+{
+ "id": "comic-checkbox-readback-race",
+ "source": "comic_archive/window_library.py",
+ "old": "            self.refresh_checks(enable)",
+ "new": "            enable()\n            self.refresh_checks()",
+ "test_file": "test_window_pages.py",
+ "test": "test_choices_stay_disabled_until_the_saved_checkmarks_are_read_back"
+}
 ]
