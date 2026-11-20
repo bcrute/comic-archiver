@@ -492,6 +492,19 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertFalse(self.background['start'].call_args.kwargs['restart'])
         self.assertIsNone(self.runtime._retry)
 
+    def test_a_running_054_worker_is_replaced_before_it_can_ignore_comic_choices(self):
+        session = self.sign_in()
+        self.runtime.start()
+        self.background['status'].return_value = {'running': True, 'worker_version': 82, 'state': 'busy'}
+        self.background['start'].return_value = {'running': False, 'start_deferred': True}
+        self.assertGreater(WORKER_VERSION, 82)
+        self.assertEqual(self.runtime._start_once(), 'deferred')
+        self.background['start'].assert_called_with(session, DESKTOP_BROWSER, DESKTOP_REQUEST_INTERVAL, restart=True)
+        self.background['status'].return_value = {'running': True, 'worker_version': WORKER_VERSION}
+        self.background['start'].return_value = {'running': True}
+        self.assertEqual(self.runtime._start_once(), 'running')
+        self.assertFalse(self.background['start'].call_args.kwargs['restart'])
+
     def test_window_sign_in_is_the_librarys_own_and_shares_the_launch_lock_and_closing_flag(self):
         session = self.sign_in(); self.runtime.start()
         registry, signin = self.runtime.registry, self.runtime.signin

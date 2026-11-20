@@ -10774,5 +10774,13 @@
  "new": "            enable()\n            self.refresh_checks()",
  "test_file": "test_window_pages.py",
  "test": "test_choices_stay_disabled_until_the_saved_checkmarks_are_read_back"
+},
+{
+ "id": "comic-upgrade-worker-not-replaced",
+ "source": "comic_archive/worker.py",
+ "old": "WORKER_VERSION = 83",
+ "new": "WORKER_VERSION = 82",
+ "test_file": "test_app_runtime.py",
+ "test": "test_a_running_054_worker_is_replaced_before_it_can_ignore_comic_choices"
 }
 ]
