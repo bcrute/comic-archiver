@@ -186,15 +186,32 @@ class FakeActions:
         return {'task_id': TASK}
 
     def episode_inventory(self, series_id=None, offset=0, provider=None):
+        from comic_archive.comic_selection import includes
         self.record('episode_inventory', series_id=series_id, offset=offset, provider=provider)
         if series_id is None:
             return {'initialized': True, 'items': [{'id': '42', 'title': 'Sample series', 'episodes': 2, 'saved': 1,
-                                                         'formats': ['CBZ'], 'access_kinds': ['free', 'limited']}],
-                    'next_offset': None}
+                                                         'formats': ['CBZ'], 'access_kinds': ['free', 'limited'],
+                                                         'selected': includes(
+                                                             getattr(self, 'comic_policies', {}).get(provider, {'default': True, 'exceptions': []}), '42')}],
+                    'next_offset': None,
+                    'comic_selection': getattr(self, 'comic_policies', {}).get(provider, {'default': True, 'exceptions': []})}
         return {'initialized': True, 'items': [
             {'id': '81', 'title': 'First', 'episode_number': 1, 'status': 'archived', 'access_state': 'tapas_free', 'format': 'CBZ', 'access_kind': 'free'},
             {'id': '82', 'title': 'Second', 'episode_number': 2, 'status': 'queued', 'access_state': 'tapas_limited', 'format': None, 'access_kind': 'limited'}],
             'next_offset': None}
+
+    def choose_comics(self, chosen, provider=None, series_id=None):
+        self.record('choose_comics', chosen, provider=provider, series_id=series_id)
+        if not hasattr(self, 'comic_policies'):
+            self.comic_policies = {}
+        keys = [provider] if provider is not None else ['tapas', 'webtoon', 'tappytoon']
+        for key in keys:
+            policy = self.comic_policies.setdefault(key, {'default': True, 'exceptions': []})
+            if series_id is None:
+                self.comic_policies[key] = {'default': chosen, 'exceptions': []}
+            else:
+                policy['exceptions'] = [] if chosen == policy['default'] else [series_id]
+        return keys
 
     def saved_files(self, **options):
         self.record('saved_files', **options)
@@ -368,6 +385,34 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
+    def test_comic_checkboxes_default_on_and_keep_expanded_episode_rows_when_changed(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        series = provider.child(0)
+        series.setExpanded(True)
+        self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Checked)
+        series.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Unchecked)
+        self.assertTrue(series.isExpanded())
+        self.assertEqual(series.childCount(), 2)
+        self.assertEqual(len(self.actions.named('choose_comics')), 1)
+        self.assertEqual(self.actions.named('go'), [])
+
+    def test_check_and_uncheck_all_update_loaded_rows_without_starting_a_download(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        series = provider.child(0)
+        page.uncheck_all.click()
+        self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Unchecked)
+        page.check_all.click()
+        self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(len(self.actions.named('choose_comics')), 2)
+        self.assertEqual(self.actions.named('go'), [])
+
     def test_expand_reads_index_lazily_and_dashboard_renders_do_not_rebuild_or_poll_it(self):
         self.open('library')
         page = self.pages.library

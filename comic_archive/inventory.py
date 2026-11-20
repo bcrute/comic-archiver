@@ -593,6 +593,9 @@ class Inventory:
                 WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,
                 COALESCE(scans.observed_at,''),s.id''',(started,SET_ASIDE,since[0] if since else ''))
             if row['id'] not in held]
+        from .comic_selection import includes, read
+        chosen = read(self.db)
+        rows = [row for row in rows if includes(chosen, row['id'])]
         return rows if limit is None else rows[:limit]
 
     def _completion_retry_candidates(self):
@@ -619,6 +622,8 @@ class Inventory:
     def prepare_completion_retry(self):
         """An explicit Continue retries recorded gaps, not the entire account."""
         keys = [gap['source_series_id'] for gap in self.scan_gaps() if gap['code'] != 'unsupported_novel_series']
+        from .download_selection import clause
+        selected = clause(self.db, 'episodes')
         with self.db:
             if keys:
                 self.db.execute("INSERT INTO settings VALUES ('completion_retry',?) "
@@ -626,12 +631,12 @@ class Inventory:
                                 (json.dumps({'started_at': timestamp(), 'series_ids': keys}),))
             retried = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
                 "WHERE status='unsupported' AND error_code IN ('reader_manifest_incomplete','novel_manifest_incomplete') "
-                'AND access_state IN ' + sites.sql_list(sites.ACCESS)).rowcount
+                'AND access_state IN ' + sites.sql_list(sites.ACCESS) + ' AND ' + selected).rowcount
             # The check counts an episode set aside after repeated failures as missing, so Continue must be
             # able to clear it: each gets one new bounded cycle, or the same hold would come straight back.
             failed = self.db.execute("UPDATE episodes SET status='queued',error_code=NULL,attempts=0 "
                 "WHERE status='failed' AND error_code='job_failed' AND attempts>=? "
-                'AND access_state IN ' + sites.sql_list(sites.ACCESS), (MAX_FAILED_ATTEMPTS,)).rowcount
+                'AND access_state IN ' + sites.sql_list(sites.ACCESS) + ' AND ' + selected, (MAX_FAILED_ATTEMPTS,)).rowcount
         logging.getLogger('comic_archive.download').info(
             'completion retry requested: series_lists=%s incomplete_manifests=%s set_aside_failures=%s '
             'scope=recorded_gaps saved_files_retained=true', len(keys), retried, failed)
@@ -642,8 +647,12 @@ class Inventory:
         # worker is active. Its next writer creates this additive table.
         if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='series_scan_gaps'").fetchone():
             return []
+        from .comic_selection import includes, read
+        chosen = read(self.db)
         result=[]
         for row in self.db.execute('SELECT * FROM series_scan_gaps ORDER BY series_id'):
+            if not includes(chosen, row['series_id']):
+                continue
             if (observed_id(row['series_id']) and row['code']=='unsupported_novel_series'
                     and row['observed_count'] is None and row['reported_count'] is None):
                 observation_time(row['observed_at'])
@@ -959,9 +968,12 @@ class Inventory:
         # A round begun under other rules starts over at its next check, so every series is still to come;
         # counted from the old round, that check would look like no progress and hold the account's download.
         since = cycle and (cycle[0] if rules is not None and rules[0] == SCAN_RULES else timestamp())
+        from .comic_selection import clause as comic_clause, includes, read as comic_choices
+        comics = comic_choices(self.db)
+        series_selection = comic_clause(self.db, 's')
         gaps=self.scan_gaps()
         held={gap['source_series_id'] for gap in gaps if cycle and gap['observed_at']>=since}
-        remaining = sum(row['id'] not in held for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
+        remaining = sum(row['id'] not in held and includes(comics, row['id']) for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?''',(since,))) if cycle else 0
         retry = self._completion_retry_candidates()
         if retry is not None:
@@ -974,7 +986,7 @@ class Inventory:
                    'oldest_successful_check':None}
         oldest=None
         for row in self.db.execute('''SELECT scans.observed_at FROM series s
-                LEFT JOIN series_scans scans ON scans.series_id=s.id'''):
+                LEFT JOIN series_scans scans ON scans.series_id=s.id WHERE ''' + series_selection):
             if row[0] is None:
                 freshness['never_checked']+=1
                 continue
@@ -993,10 +1005,12 @@ class Inventory:
                 'scan_cycle_started':cycle[0] if cycle else None,'scan_remaining_series_count':remaining,
                 'series_scan_gap_count':len(gaps),'series_scan_gaps':gaps,
                 'series_without_scan_checkpoint_count': self.db.execute('''SELECT COUNT(*) FROM series s
-                    LEFT JOIN series_scans scans ON scans.series_id=s.id WHERE scans.series_id IS NULL''').fetchone()[0],
+                    LEFT JOIN series_scans scans ON scans.series_id=s.id WHERE scans.series_id IS NULL AND ''' + series_selection).fetchone()[0],
                 'series_without_episode_observations_count': self.db.execute('''SELECT COUNT(*) FROM series s
-                    WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.series_id=s.id)''').fetchone()[0],
+                    WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.series_id=s.id) AND ''' + series_selection).fetchone()[0],
                 "series_count": self.db.execute("SELECT COUNT(*) FROM series").fetchone()[0],
+                'selected_series_count': self.db.execute('SELECT COUNT(*) FROM series s WHERE ' + series_selection).fetchone()[0],
+                'comic_selection': comics,
                 "episode_count": sum(counts.values()), "episodes_by_status": counts,
                 'episode_types': types, 'unsupported_by_reason':unsupported,
                 'download_types': read(self.db), 'selected_episodes_by_status': selected_counts,

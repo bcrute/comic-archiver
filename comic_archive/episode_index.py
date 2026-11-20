@@ -28,7 +28,8 @@ def page(root, series_id=None, offset=0, limit=PAGE_SIZE):
     root = Path(root)
     database = root / '.archive-state' / 'inventory.sqlite3'
     if not database.is_file():
-        return {'initialized': False, 'items': [], 'next_offset': None}
+        return {'initialized': False, 'items': [], 'next_offset': None,
+                'comic_selection': {'default': True, 'exceptions': []}}
     with Inventory(root, read_only=True) as inventory:
         expirations = {}
         if inventory.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='episode_expirations'").fetchone():
@@ -53,9 +54,13 @@ def page(root, series_id=None, offset=0, limit=PAGE_SIZE):
                 ORDER BY episode_order IS NULL,episode_order,id LIMIT ? OFFSET ?''',
                 (series_id, limit + 1, offset)).fetchall()
         items = [dict(row) for row in rows[:limit]]
+        from .comic_selection import includes, read
+        chosen = read(inventory.db)
         if series_id is None:
             for item in items:
+                item['selected'] = includes(chosen, item['id'])
                 for field in ('formats', 'access_kinds'):
                     item[field] = sorted(item[field].split(',')) if item[field] else []
         return {'initialized': True, 'items': items,
-                'next_offset': offset + limit if len(rows) > limit else None}
+                'next_offset': offset + limit if len(rows) > limit else None,
+                'comic_selection': chosen}

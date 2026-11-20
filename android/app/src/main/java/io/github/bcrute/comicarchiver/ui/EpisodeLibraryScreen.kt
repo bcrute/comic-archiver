@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,9 +38,17 @@ import io.github.bcrute.comicarchiver.words.say
  */
 @Composable
 fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList>,
-                         onLoad: (String, String?) -> Unit, onRefresh: () -> Unit) {
+                         onLoad: (String, String?) -> Unit, onRefresh: () -> Unit,
+                         onChooseComics: (Boolean, String?, String?) -> Unit = { _, _, _ -> },
+                         changing: Boolean = false, notice: String? = null) {
     // Places opened on screen, by the same key as their lists.
     var opened by rememberSaveable { mutableStateOf(listOf<String>()) }
+    LaunchedEffect(opened, lists, changing) {
+        if (!changing) opened.filter { lists[it]?.let { value -> !value.loaded && !value.loading && !value.failed } != false }.forEach { key ->
+            val parts = key.split('/', limit = 2)
+            onLoad(parts[0], parts.getOrNull(1))
+        }
+    }
     fun toggle(site: String, seriesId: String?) {
         val key = EpisodeList.key(site, seriesId)
         if (key in opened) opened = opened - key
@@ -54,8 +64,17 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(say("app.library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    OutlinedButton(onClick = { opened = emptyList(); onRefresh() }) { Text(say("library.refresh")) }
+                    OutlinedButton(onClick = { opened = emptyList(); onRefresh() }, enabled = !changing) { Text(say("library.refresh")) }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onChooseComics(true, null, null) }, enabled = !changing,
+                        modifier = Modifier.testTag("comics-check-all")) { Text("Check all") }
+                    OutlinedButton(onClick = { onChooseComics(false, null, null) }, enabled = !changing,
+                        modifier = Modifier.testTag("comics-uncheck-all")) { Text("Uncheck all") }
+                }
+                Text("Choose which comics to download. Unchecking keeps saved files.", style = MaterialTheme.typography.bodySmall)
+                if (notice != null) Text(notice, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("comic-selection-notice"))
                 Text(say("library.recorded_episodes_expand_a_provider_and"), style = MaterialTheme.typography.bodySmall)
                 Text(say("library.saved_can_include_cloud_storage_this"),
                     style = MaterialTheme.typography.bodySmall)
@@ -67,7 +86,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
             val siteOpen = siteKey in opened
             item(key = siteKey) {
                 EpisodeLine(site.name, placeStatus(series, say("library.expand_to_view"), say("library.recorded_list")), null, 0, siteOpen,
-                    "episodes-$siteKey") { toggle(site.key, null) }
+                    "episodes-$siteKey", onToggle = { toggle(site.key, null) })
             }
             if (!siteOpen || series == null) return@forEach
             series.rows.forEach { row ->
@@ -76,7 +95,9 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                 val seriesOpen = seriesKey in opened
                 item(key = seriesKey) {
                     EpisodeLine(row.title, placeStatus(episodes, row.status, row.status), "${row.format} · ${row.access}",
-                        1, seriesOpen, "episodes-$seriesKey") { toggle(site.key, row.id) }
+                        1, seriesOpen, "episodes-$seriesKey", onToggle = { toggle(site.key, row.id) },
+                        selected = row.selected, enabled = !changing,
+                        onSelected = { onChooseComics(it, site.key, row.id) })
                 }
                 if (!seriesOpen || episodes == null) return@forEach
                 episodes.rows.forEach { episode ->
@@ -114,12 +135,15 @@ private fun LazyListScope.more(list: EpisodeList, key: String, label: String, de
 /** One line of the tree. A site or a series opens and closes; an episode only says what is recorded. */
 @Composable
 private fun EpisodeLine(title: String, status: String, detail: String?, depth: Int, open: Boolean?, tag: String,
-                        onToggle: (() -> Unit)?) {
+                        onToggle: (() -> Unit)?, selected: Boolean? = null, enabled: Boolean = true,
+                        onSelected: (Boolean) -> Unit = {}) {
     val place = if (onToggle == null) Modifier else Modifier
         .clickable(role = Role.Button, onClick = onToggle)
         .semantics { stateDescription = if (open == true) say("library.expanded") else say("library.collapsed") }
     Row(Modifier.fillMaxWidth().then(place).padding(start = (16 * depth).dp, top = 8.dp, bottom = 8.dp).testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (selected != null) Checkbox(checked = selected, onCheckedChange = onSelected, enabled = enabled,
+            modifier = Modifier.testTag("select-$tag"))
         if (open != null) Text(if (open) "▾" else "▸")
         Column(Modifier.weight(1f)) {
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis,

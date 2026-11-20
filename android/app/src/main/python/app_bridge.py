@@ -32,7 +32,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
                  "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites",
-                 "site_cards", "episode_inventory", "support_start", "support_details", "support_save"})
+                 "site_cards", "episode_inventory", "choose_comics", "support_start", "support_details", "support_save"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -1161,6 +1161,11 @@ def _episode_inventory(args):
         from comic_archive.workspace import Workspace
         with _workspace_lock:
             roots = [root for root, kept in _open.items() if kept == {"base": base, "site_key": site}]
+            if not roots and _workspace['base'] == base:
+                from comic_archive import sites
+                provider = sites.find(site)
+                if provider is not None and provider.available:
+                    roots = [sites.folder(base, provider)]
         if not roots:
             raise ArchiveError("The episode list could not be read. Retry when the library is available.")
         try:
@@ -1171,11 +1176,37 @@ def _episode_inventory(args):
         items = []
         for row in value["items"]:
             title, status, form, access = columns(row)
-            items.append({"id": str(row["id"]), "title": title, "status": status, "format": form, "access": access})
+            item = {"id": str(row["id"]), "title": title, "status": status, "format": form, "access": access}
+            if series is None:
+                item['selected'] = row['selected']
+            items.append(item)
         return {"items": items, "next_offset": value["next_offset"],
+                'comic_selection': value['comic_selection'],
                 "empty": "" if items or offset else words.empty_text(value)}
 
     return _core(read)
+
+
+def _choose_comics(args):
+    base = _path_arg(args, 'base_root')
+    if not set(args) <= {'base_root', 'chosen', 'site', 'series_id'} or type(args.get('chosen')) is not bool:
+        raise _BridgeError('bad_request', 'Choose a recorded comic and an explicit download choice.')
+
+    def change(ArchiveError):
+        from comic_archive.account_ui import change_library_comics
+        with _workspace_lock:
+            if _workspace['base'] != base:
+                raise ArchiveError('Choose the open working library.')
+        applied = change_library_comics(base, args['chosen'], args.get('site'), args.get('series_id'),
+                                       closing=_never_closing, interrupt=_interrupt_browser)
+        from comic_archive import comic_selection, sites
+        from comic_archive.inventory import Inventory
+        choices = {}
+        for key in applied:
+            with Inventory(sites.folder(base, sites.find(key)) / 'Library', read_only=True) as inventory:
+                choices[key] = comic_selection.read(inventory.db)
+        return {'applied': applied, 'choices': choices}
+    return _core(change)
 
 
 def _in_active_workspace(handler):
@@ -1218,6 +1249,7 @@ HANDLERS = {"ping": _ping,
             "all_sites": _all_sites,
             "site_cards": _site_cards,
             "episode_inventory": _episode_inventory,
+            "choose_comics": _choose_comics,
             "support_start": _support_start,
             "support_details": _support_details,
             "support_save": _support_save,

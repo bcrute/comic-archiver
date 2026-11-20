@@ -271,7 +271,12 @@ def _inventory(library):
     with Inventory(library, read_only=True) as inventory:
         status = inventory.status()
         from .purchase_history import pending
-        return {'pending': len(inventory.pending()), 'remaining': status['scan_remaining_series_count'] + int(pending(inventory))}
+        from .comic_selection import read
+        scope = read(inventory.db)
+        none_selected = not scope['default'] and not scope['exceptions']
+        return {'pending': len(inventory.pending()),
+                'remaining': status['scan_remaining_series_count'] + int(not none_selected and pending(inventory)),
+                'none_selected': none_selected}
 
 
 def _pace(session):
@@ -534,7 +539,8 @@ def _next(db, value, session, library):
     if value['stage'] == 'archive' and not waiting['pending']:
         value['stage'] = 'verify'
     options, speed = _pace(session)
-    discovery = {'history_round': value['round_started_at']} if sites.of_session(Path(session)).key == 'tapas' else {}
+    discovery = ({'history_round': value['round_started_at']}
+                 if sites.of_session(Path(session)).key == 'tapas' and not waiting.get('none_selected') else {})
     if value['source_episode'] is not None:
         _reserve(db, 'probe', 'archive_discovered', options | {'limit': 1, 'retry_episode_id': value['source_episode']})
     elif waiting['pending']:

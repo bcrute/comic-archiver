@@ -21,6 +21,69 @@ from test_jobs import AccountAdapter
 
 
 class AccountUITests(unittest.TestCase):
+    def test_comic_change_during_a_running_batch_waits_then_resumes_without_deleting_files(self):
+        from comic_archive import comic_selection
+        task, _ = self.running_batch()
+        saved = self.workspace.library / 'saved.cbz'
+        saved.write_bytes(b'existing saved file')
+
+        def stopped(_):
+            self.assertEqual(self.state()['status'], 'stopped')
+            with Inventory(self.workspace.library, read_only=True) as inventory:
+                self.assertTrue(comic_selection.read(inventory.db)['default'])
+            self.cancelled_batch(task)
+
+        with patch.object(account_ui.time, 'sleep', side_effect=stopped):
+            self.registry.choose_comics(LOCAL_OWNER, self.workspace.id, False, '42')
+        self.assertEqual(self.state()['status'], 'running')
+        self.assertIsNone(self.outstanding())
+        self.assertEqual(saved.read_bytes(), b'existing saved file')
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(inventory.pending(), [])
+        self.tick()
+        self.assertNotEqual(self.outstanding(), task)
+        if self.outstanding() is not None:
+            request = json.loads((self.queue / 'requests' / (self.outstanding() + '.json')).read_text())
+            self.assertNotEqual(request['operation'], 'archive_discovered')
+
+    def test_upgrading_a_running_download_keeps_the_old_all_comics_scope_and_requires_go(self):
+        from comic_archive import comic_selection
+        task, _ = self.running_batch()
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('43', 'Another comic', [{'id': '82', 'title': 'Two', 'order': 1,
+                                                     'access_state': 'tapas_free'}], 'fixture')
+        self.end_worker()  # Replacing the running app ends its embedded worker.
+        self.assertTrue(account_ui.reopen(self.workspace, idle=True))
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': []})
+            self.assertEqual({row['id'] for row in inventory.pending()}, {'81', '82'})
+        self.registry.start_account(LOCAL_OWNER, self.workspace.id)
+        self.ticks()
+        self.assertNotEqual(self.outstanding(), task)
+        self.assertEqual(self.state()['status'], 'running')
+
+    def test_upgrading_with_saved_comic_choices_preserves_them_and_the_paused_queue(self):
+        from comic_archive import comic_selection
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('42', 'Comic', [{'id': '81', 'title': 'One', 'order': 1,
+                                             'access_state': 'tapas_free'}], 'fixture')
+            comic_selection.change(inventory.db, False, '42')
+        account_ui.reopen(self.workspace, idle=True)
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': ['42']})
+            self.assertEqual(inventory.pending(), [])
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+
+    def test_comic_change_on_a_paused_download_does_not_resume_it(self):
+        task, _ = self.running_batch()
+        self.cancelled_batch(task)
+        self.registry.pause_account(LOCAL_OWNER, self.workspace.id)
+        self.registry.choose_comics(LOCAL_OWNER, self.workspace.id, False, '42')
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.assertFalse(list((self.queue / 'requests').glob('*.json')))
+
     def test_unreadable_choices_hold_safely_and_can_be_replaced_without_starting_downloads(self):
         with Inventory(self.workspace.library) as inventory:
             inventory.db.execute("INSERT INTO settings VALUES ('download_types','{PRIVATE')")

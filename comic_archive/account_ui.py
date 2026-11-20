@@ -119,6 +119,39 @@ def change_download_types(workspace, value, *, closing, on_stop_requested=None):
     _change_setting(workspace, save_choices, closing=closing, selection=True, on_stop_requested=on_stop_requested)
 
 
+def change_comics(workspace, chosen, series_id=None, *, closing, on_stop_requested=None):
+    from . import comic_selection
+    from .discovery import observed_id
+    from .inventory import Inventory
+    if type(chosen) is not bool or series_id is not None and not observed_id(series_id):
+        raise ArchiveError('Choose a recorded comic and an explicit download choice.')
+
+    def save_choices():
+        with Inventory(workspace.library) as inventory:
+            comic_selection.change(inventory.db, chosen, series_id)
+
+    _change_setting(workspace, save_choices, closing=closing, selection=True, on_stop_requested=on_stop_requested)
+
+
+def change_library_comics(base, chosen, provider=None, series_id=None, *, closing, interrupt=None):
+    """Apply Library checkboxes through each provider's existing pause/change protocol."""
+    from . import sites
+    from .discovery import observed_id
+    from .workspace import Workspace
+    site = sites.find(provider) if isinstance(provider, str) else None
+    if (type(chosen) is not bool or provider is not None and (site is None or not site.available)
+            or series_id is not None and (site is None or not observed_id(series_id))):
+        raise ArchiveError('Choose a provider, a recorded comic and an explicit download choice.')
+    applied = []
+    for selected in ([site] if site is not None else [entry for entry in sites.SITES if entry.available]):
+        workspace = Workspace(id='default', root=sites.folder(Path(base), selected))
+        with LibraryLock(workspace.session / '.account-ui'):
+            callback = interrupt if selected == sites.DEFAULT else None
+            change_comics(workspace, chosen, series_id, closing=closing, on_stop_requested=callback)
+        applied.append(selected.key)
+    return applied
+
+
 def _change_setting(workspace, save_choice, *, closing, selection=False, on_stop_requested=None):
     """on_stop_requested is called once the running step has been asked to stop, as for pause: the phone ends
     the page read its browser is in the middle of, which would otherwise outlast the wait."""

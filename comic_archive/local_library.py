@@ -302,6 +302,21 @@ class LocalWorkspaceRegistry:
             change_download_types(workspace, value, closing=self._closing)
             return self.account_status(owner, workspace_id)
 
+    def choose_comics(self, owner, workspace_id, chosen, series_id=None):
+        from .account_ui import change_comics
+        workspace = self.resolve(owner, workspace_id)
+        with LibraryLock(workspace.session / '.account-ui'):
+            change_comics(workspace, chosen, series_id, closing=self._closing)
+            return self.account_status(owner, workspace_id)
+
+    def choose_library_comics(self, owner, workspace_id, base, chosen, provider=None, series_id=None):
+        from . import sites
+        from .account_ui import change_library_comics
+        self.resolve(owner, workspace_id)
+        if self.project_root not in {sites.folder(Path(base), site) for site in sites.SITES if site.available}:
+            raise ArchiveError('Choose the open working library.')
+        return change_library_comics(base, chosen, provider, series_id, closing=self._closing)
+
     def cloud_signin_status(self, owner, workspace_id):
         self.resolve(owner, workspace_id)
         return self.cloud_signin.status()

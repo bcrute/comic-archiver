@@ -125,7 +125,8 @@ data class CardRow(val name: String, val value: String, val warning: Boolean)
 data class SpeedOption(val key: String, val label: String)
 
 /** One line of the Library's recorded episodes, in the desktop's words: a series under its site, or an episode under its series. */
-data class EpisodeRow(val id: String, val title: String, val status: String, val format: String, val access: String)
+data class EpisodeRow(val id: String, val title: String, val status: String, val format: String, val access: String,
+                      val selected: Boolean? = null)
 
 /** What has been read under one site, or under one of its series. */
 data class EpisodeList(
@@ -137,6 +138,8 @@ data class EpisodeList(
     val loaded: Boolean = false,
     /** What to say when nothing is listed. */
     val empty: String = "",
+    val selectionDefault: Boolean = true,
+    val selectionExceptions: Set<String> = emptySet(),
 ) {
     companion object {
         /** The place of a site's series list, or of one series' episode list. */
@@ -156,11 +159,22 @@ data class EpisodeList(
                 val item = items.optJSONObject(index) ?: return null
                 val words = listOf("id", "title", "status", "format", "access").map { item.opt(it) as? String ?: return null }
                 if (words[0].isBlank()) return null
-                EpisodeRow(words[0], words[1], words[2], words[3], words[4])
+                val chosen = when (val value = item.opt("selected")) {
+                    null, org.json.JSONObject.NULL -> null
+                    is Boolean -> value
+                    else -> return null
+                }
+                EpisodeRow(words[0], words[1], words[2], words[3], words[4], chosen)
+            }
+            val policy = result.optJSONObject("comic_selection")
+            val default = if (policy == null) true else policy.opt("default") as? Boolean ?: return null
+            val exceptions = if (policy == null) emptySet() else {
+                val entries = policy.optJSONArray("exceptions") ?: return null
+                (0 until entries.length()).map { entries.opt(it) as? String ?: return null }.toSet()
             }
             val known = before.rows.map { it.id }.toSet()
             return EpisodeList(before.rows + rows.filter { it.id !in known }, next, loaded = true,
-                empty = result.opt("empty") as? String ?: "")
+                empty = result.opt("empty") as? String ?: "", selectionDefault = default, selectionExceptions = exceptions)
         }
     }
 }

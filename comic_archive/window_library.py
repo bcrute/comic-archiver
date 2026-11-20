@@ -1,4 +1,4 @@
-"""Expandable acquisition indicators; no file browsing or reader controls."""
+"""Expandable comic choices and acquisition indicators; saved files are retained."""
 from . import sites
 from .messages import say
 
@@ -49,6 +49,8 @@ class EpisodeLibrary:
         self.kit, self.pages = kit, pages
         self.generation = 0
         self.initialized = False
+        self.changing = False
+        self.setting_checks = False
         w = kit.w
         self.widget = w.QWidget()
         self.widget.setObjectName('page')
@@ -56,6 +58,13 @@ class EpisodeLibrary:
         box.setContentsMargins(32, 24, 32, 24)
         self.refresh = kit.button(say('library.refresh'), self.reset, 'secondary')
         box.addWidget(kit.row(kit.label('Library', 'pageTitle'), self.refresh))
+        self.check_all = kit.button('Check all', lambda: self.choose(True), 'secondary')
+        self.uncheck_all = kit.button('Uncheck all', lambda: self.choose(False), 'secondary')
+        box.addWidget(kit.row(self.check_all, self.uncheck_all))
+        box.addWidget(kit.label('Choose which comics to download. Unchecking a comic keeps all saved files.', 'muted'))
+        self.notice = kit.label('', 'muted')
+        self.notice.setWordWrap(True)
+        box.addWidget(self.notice)
         box.addWidget(kit.label(say('library.recorded_episodes_expand_a_provider_and'), 'muted', wrap=False))
         box.addWidget(kit.label(say('library.saved_can_include_cloud_storage_this'), 'muted'))
         self.tree = w.QTreeWidget()
@@ -71,7 +80,87 @@ class EpisodeLibrary:
             self.tree.header().setSectionResizeMode(column, w.QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setMinimumWidth(0)
         self.tree.itemExpanded.connect(self.expanded)
+        self.tree.itemChanged.connect(self.changed)
         box.addWidget(self.tree, 1)
+
+    def changed(self, item, column):
+        if self.setting_checks or self.changing or column != 0:
+            return
+        data = item.data(0, self.role)
+        if (not isinstance(data, dict) or 'selected' not in data
+                or not item.flags() & self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable):
+            return
+        chosen = item.checkState(0) == self.kit.q.QtCore.Qt.CheckState.Checked
+        if chosen != data['selected']:
+            self.choose(chosen, data['provider'], data['series_id'])
+
+    def choose(self, chosen, provider=None, series_id=None):
+        if self.changing:
+            return
+        self.changing = True
+        def loading(parent):
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                data = child.data(0, self.role)
+                if isinstance(data, dict) and data.get('state') == 'loading' or loading(child):
+                    return True
+            return False
+        reload_tree = loading(self.tree.invisibleRootItem())
+        if reload_tree:
+            self.generation += 1  # A pre-change index response cannot restore stale checks.
+        self.tree.setEnabled(False)
+        self.refresh.setEnabled(False)
+        self.check_all.setEnabled(False)
+        self.uncheck_all.setEnabled(False)
+        self.notice.setText('Applying comic choices…')
+        actions = self.pages.actions
+
+        def done(value, error):
+            self.changing = False
+            self.tree.setEnabled(True)
+            self.refresh.setEnabled(True)
+            self.check_all.setEnabled(True)
+            self.uncheck_all.setEnabled(True)
+            self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
+                                else 'Comic choices saved. Existing files are kept.')
+            if reload_tree:
+                self.reset()
+            self.refresh_checks()
+
+        self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id), done)
+
+    def refresh_checks(self):
+        """Update loaded rows without losing expansion, pagination or scroll position."""
+        from .comic_selection import includes
+        generation = self.generation
+        actions = self.pages.actions
+
+        def done(values, error):
+            if generation != self.generation:
+                return
+            if error:
+                # A stale checkmark must not masquerade as a successful write.
+                self.reset()
+                self.notice.setText('Choices could not be read. Expand a provider to retry.')
+                return
+            self.setting_checks = True
+            try:
+                def update(parent):
+                    for index in range(parent.childCount()):
+                        child = parent.child(index)
+                        data = child.data(0, self.role)
+                        if isinstance(data, dict) and 'selected' in data:
+                            data['selected'] = includes(values[data['provider']], data['series_id'])
+                            child.setData(0, self.role, data)
+                            child.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if data['selected']
+                                               else self.kit.q.QtCore.Qt.CheckState.Unchecked)
+                        update(child)
+                update(self.tree.invisibleRootItem())
+            finally:
+                self.setting_checks = False
+
+        self.pages.run(lambda: {site.key: actions.episode_inventory(provider=site.key)['comic_selection']
+                               for site in sites.SITES if site.available}, done)
 
     @property
     def role(self):
@@ -134,8 +223,16 @@ class EpisodeLibrary:
                     columns = series_columns(row)
                     summary, kinds = columns[1], row.get('access_kinds', [])
                     series_item = self.item(parent, columns,
-                              {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle', 'summary': summary},
+                              {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle',
+                               'summary': summary, 'selected': row['selected']},
                               expandable=True)
+                    self.setting_checks = True
+                    try:
+                        series_item.setFlags(series_item.flags() | self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                        series_item.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if row['selected']
+                                                  else self.kit.q.QtCore.Qt.CheckState.Unchecked)
+                    finally:
+                        self.setting_checks = False
                     series_item.setToolTip(2, say('library.recorded_format_no_saved_files_are'))
                     series_item.setToolTip(3, ', '.join(label for key, label in ACCESS_LABELS.items() if key in kinds)
                                            or say('library.no_access_classification_is_recorded_yet'))

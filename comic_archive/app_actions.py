@@ -228,6 +228,15 @@ class Actions:
         return self._call('episode_inventory', locked=False, series_id=series_id, offset=offset,
                           failed=say('action.the_episode_list_could_not_be'))
 
+    def choose_comics(self, chosen, provider=None, series_id=None):
+        from .discovery import observed_id
+        site = sites.find(provider) if isinstance(provider, str) else None
+        if (type(chosen) is not bool or provider is not None and (site is None or not site.available)
+                or series_id is not None and (site is None or not observed_id(series_id))):
+            raise Refused('request_unavailable', 'Choose a recorded comic and an explicit download choice.')
+        runtime, _ = self._registry()
+        return self._call('choose_library_comics', runtime.root, chosen, provider=provider, series_id=series_id)
+
     def saved_files(self, **options):
         """A page of the saved-file catalog. Read behind the catalog's own lock: a slow scan does not hold up Pause or Go."""
         return self._call('saved_files', locked=False, failed=UNAVAILABLE, **checked(options))

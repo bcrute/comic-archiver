@@ -26,7 +26,8 @@ class EpisodeIndexTests(unittest.TestCase):
             inventory.observe('43', 'Unenumerated series', [], 'fixture')
 
     def test_uninitialized_library_stays_uninitialized(self):
-        self.assertEqual(page(self.root), {'initialized': False, 'items': [], 'next_offset': None})
+        self.assertEqual(page(self.root), {'initialized': False, 'items': [], 'next_offset': None,
+                                          'comic_selection': {'default': True, 'exceptions': []}})
         self.assertFalse(self.root.exists())
 
     def test_records_include_saved_pending_unavailable_and_unenumerated_series(self):
@@ -36,8 +37,8 @@ class EpisodeIndexTests(unittest.TestCase):
             listing = page(self.root)
             self.assertEqual(listing['items'], [
                 {'id': '42', 'title': 'Series', 'episodes': 3, 'saved': 1, 'formats': [],
-                 'access_kinds': ['free', 'unclassified']},
-                {'id': '43', 'title': 'Unenumerated series', 'episodes': 0, 'saved': 0, 'formats': [], 'access_kinds': []}])
+                 'access_kinds': ['free', 'unclassified'], 'selected': True},
+                {'id': '43', 'title': 'Unenumerated series', 'episodes': 0, 'saved': 0, 'formats': [], 'access_kinds': [], 'selected': True}])
             episodes = page(self.root, '42')['items']
         self.assertEqual([row['status'] for row in episodes], ['archived', 'downloading', 'unavailable'])
         self.assertEqual([row['episode_number'] for row in episodes], [1, 2, 5])

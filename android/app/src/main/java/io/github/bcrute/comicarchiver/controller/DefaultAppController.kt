@@ -294,6 +294,43 @@ class DefaultAppController(
         _state.value = _state.value.copy(episodes = emptyMap())
     }
 
+    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?) {
+        if (!workspaceReady || _state.value.settingsBusy || _state.value.siteBusy || _state.value.libraryBusy) return
+        val target = location
+        val version = siteVersion
+        episodesVersion += 1
+        _state.value = _state.value.copy(settingsBusy = true, settingsNotice = "Applying comic choices…")
+        scope.launch(Dispatchers.IO) {
+            val result = try {
+                val args = JSONObject().put("base_root", target.base.absolutePath).put("chosen", chosen)
+                if (site != null) args.put("site", site)
+                if (seriesId != null) args.put("series_id", seriesId)
+                val envelope = JSONObject(bridge.dispatch("choose_comics", args.toString()))
+                if (envelope.opt("ok") != true) null else envelope.optJSONObject("result")?.optJSONObject("choices")
+            } catch (cancelled: CancellationException) { throw cancelled }
+              catch (_: Exception) { null }
+            withContext(Dispatchers.Main) {
+                if (!current(target, version)) return@withContext
+                val updated = if (result == null) emptyMap() else _state.value.episodes.mapValues { (key, list) ->
+                    val policy = result.optJSONObject(key)
+                    if (policy == null) list.copy(loading = false) else {
+                        val default = policy.opt("default") as? Boolean
+                        val entries = policy.optJSONArray("exceptions")
+                        if (default == null || entries == null) EpisodeList(failed = true)
+                        else {
+                            val exceptions = (0 until entries.length()).map { entries.optString(it) }.toSet()
+                            list.copy(rows = list.rows.map { it.copy(selected = default != (it.id in exceptions)) },
+                                loading = false, selectionDefault = default, selectionExceptions = exceptions)
+                        }
+                    }
+                }
+                _state.value = _state.value.copy(settingsBusy = false, episodes = updated,
+                    settingsNotice = if (result == null) "Could not apply every choice. Review the saved checkboxes and try again."
+                        else "Comic choices saved. Existing files are kept.")
+            }
+        }
+    }
+
     /** Test seams: the email app a log is handed to (false when there is none), and Downloads. */
     internal var sendEmail: (File?) -> Boolean = { SupportLog.email(context, it, SupportLog.version(context)) }
     internal var saveToDownloads: (File) -> String? = { SupportLog.toDownloads(context, it) }

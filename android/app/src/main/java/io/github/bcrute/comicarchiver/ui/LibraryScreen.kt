@@ -68,6 +68,11 @@ fun LibraryScreen(
     onWorkingLibrary: (() -> Unit)? = null,
     showFilesRequested: Boolean = false,
     onFilesRequestConsumed: () -> Unit = {},
+    showComicsRequested: Boolean = false,
+    onComicsRequestConsumed: () -> Unit = {},
+    onChooseComics: (Boolean, String?, String?) -> Unit = { _, _, _ -> },
+    comicChoicesBusy: Boolean = false,
+    comicChoicesNotice: String? = null,
     sites: List<SiteChoice> = emptyList(),
     episodes: Map<String, EpisodeList> = emptyMap(),
     onLoadEpisodes: (String, String?) -> Unit = { _, _ -> },
@@ -78,6 +83,9 @@ fun LibraryScreen(
     BackHandler(enabled = view == "Export") { view = "Files" }
     LaunchedEffect(showFilesRequested) {
         if (showFilesRequested) { view = "Files"; onFilesRequestConsumed() }
+    }
+    LaunchedEffect(showComicsRequested) {
+        if (showComicsRequested) { view = "Episodes"; onComicsRequestConsumed() }
     }
     val viewScroll = rememberLazyListState()
     var previousView by remember { mutableStateOf(view) }
@@ -120,7 +128,8 @@ fun LibraryScreen(
                 ExportPanel(exportState, onPickFolder, onStartExport, onStopExport, actionsEnabled)
             }
             else if (view == "Series") SeriesLibraryScreen(series)
-            else if (view == "Episodes") EpisodeLibraryScreen(sites, episodes, onLoadEpisodes, onRefreshEpisodes)
+            else if (view == "Episodes") EpisodeLibraryScreen(sites, episodes, onLoadEpisodes, onRefreshEpisodes,
+                onChooseComics, comicChoicesBusy, comicChoicesNotice)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {}

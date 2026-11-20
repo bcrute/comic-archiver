@@ -78,6 +78,7 @@ fun ComicArchiverAppRoot(
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Overview") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
+    var showComicsRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
     var signOutSite by rememberSaveable { mutableStateOf<String?>(null) }
     var signOutLibrary by rememberSaveable { mutableStateOf<String?>(null) }
     // A card's Sign out or episode types on a site that is not the one shown: the site is shown first.
@@ -158,6 +159,9 @@ fun ComicArchiverAppRoot(
             title = { Text(say("window.download_choices_for", "name" to name)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    TextButton(onClick = { typesSite = null; showComicsRequested = true; tab = AppTab.LIBRARY }) {
+                        Text("Choose comics in Library…")
+                    }
                     if (types.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
                     else DownloadTypeChoices(types, state.settingsBusy, { chosen ->
                         typesSite = null
@@ -249,8 +253,12 @@ fun ComicArchiverAppRoot(
                                 onWorkingLibrary = if (workingLibraries.enabled) ({ settingsPage = "Libraries"; tab = AppTab.SETTINGS }) else null,
                                 showFilesRequested = showFilesRequested,
                                 onFilesRequestConsumed = { showFilesRequested = false },
+                                showComicsRequested = showComicsRequested,
+                                onComicsRequestConsumed = { showComicsRequested = false },
                                 sites = state.sites, episodes = state.episodes,
                                 onLoadEpisodes = controller::loadEpisodes, onRefreshEpisodes = controller::refreshEpisodes,
+                                onChooseComics = controller::chooseComics, comicChoicesBusy = state.settingsBusy,
+                                comicChoicesNotice = state.settingsNotice,
                             )
                         }
                         AppTab.SETTINGS -> SettingsPages(

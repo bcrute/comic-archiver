@@ -74,7 +74,7 @@ def remember_paid_series(db, series_id=None):
                (series_id,) if series_id is not None else ())
 
 
-def clause(db, alias='e'):
+def _type_clause(db, alias='e'):
     """Fixed SQL over indexed metadata; no file reads and no provider requests."""
     if alias not in ('e', 'episodes'):
         raise ValueError('Unsupported inventory alias.')
@@ -97,6 +97,12 @@ def clause(db, alias='e'):
         parts.append('(' + mark + ' NOT IN ' + sites.sql_list(sites.FREE | sites.UNLOCKED | sites.LIMITED)
                      + ' AND NOT ' + expiry + ')')
     return '(' + ' OR '.join(parts) + ')' if parts else '0'
+
+
+def clause(db, alias='e'):
+    from .comic_selection import clause as comic_clause
+    types, comics = _type_clause(db, alias), comic_clause(db, alias)
+    return types if comics == '1' else comics if types == '1' else f'({types}) AND ({comics})'
 
 
 def selected(db, key):

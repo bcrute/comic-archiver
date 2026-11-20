@@ -1843,7 +1843,7 @@ class Pages:
         self.act(work, done, key=key)
 
     def open_download_choices(self, key):
-        """Type choices only; selecting individual series/episodes comes later."""
+        """Episode types and extras; individual comics are selected on Library."""
         from .download_selection import HELP, LABELS, TYPES
         state = self.of(key)
         if state.busy:
@@ -1862,6 +1862,8 @@ class Pages:
         area = self.kit.scroll(content)
         area.setHorizontalScrollBarPolicy(self.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         box.addWidget(area, 1)
+        choose_comics = self.kit.button('Choose comics in Library…', lambda: (dialog.reject(), self.open('library')), 'secondary')
+        body.addWidget(choose_comics)
         chosen = (state.account or {}).get('download_types', dict.fromkeys(TYPES, True))
         if chosen is None:
             chosen = dict.fromkeys(TYPES, False)
