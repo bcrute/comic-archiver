@@ -115,21 +115,23 @@ class EpisodeLibrary:
         self.notice.setText('Applying comic choices…')
         actions = self.pages.actions
 
-        def done(value, error):
+        def enable():
             self.changing = False
             self.tree.setEnabled(True)
             self.refresh.setEnabled(True)
             self.check_all.setEnabled(True)
             self.uncheck_all.setEnabled(True)
+
+        def done(value, error):
             self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
                                 else 'Comic choices saved. Existing files are kept.')
             if reload_tree:
                 self.reset()
-            self.refresh_checks()
+            self.refresh_checks(enable)
 
         self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id), done)
 
-    def refresh_checks(self):
+    def refresh_checks(self, then=None):
         """Update loaded rows without losing expansion, pagination or scroll position."""
         from .comic_selection import includes
         generation = self.generation
@@ -137,11 +139,15 @@ class EpisodeLibrary:
 
         def done(values, error):
             if generation != self.generation:
+                if then:
+                    then()
                 return
             if error:
                 # A stale checkmark must not masquerade as a successful write.
                 self.reset()
                 self.notice.setText('Choices could not be read. Expand a provider to retry.')
+                if then:
+                    then()
                 return
             self.setting_checks = True
             try:
@@ -158,6 +164,8 @@ class EpisodeLibrary:
                 update(self.tree.invisibleRootItem())
             finally:
                 self.setting_checks = False
+                if then:
+                    then()
 
         self.pages.run(lambda: {site.key: actions.episode_inventory(provider=site.key)['comic_selection']
                                for site in sites.SITES if site.available}, done)

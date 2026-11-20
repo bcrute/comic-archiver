@@ -68,6 +68,15 @@ class AccountUITests(unittest.TestCase):
         self.end_worker()  # Replacing the running app ends its embedded worker.
         self.assertTrue(account_ui.reopen(self.workspace, idle=True))
         self.assertEqual(self.state()['status'], 'stopped')
+        # The replacement worker discards requests with a cancellation receipt
+        # before considering their operation. Exercise that actual queue loop.
+        from comic_archive.worker import run_worker
+        adapter = AccountAdapter()
+        with patch('comic_archive.worker.time.sleep', side_effect=KeyboardInterrupt), patch('builtins.print'):
+            with self.assertRaises(KeyboardInterrupt):
+                run_worker(self.workspace.session, adapter_factory=lambda: adapter)
+        self.assertEqual(adapter.calls, [])
+        self.assertEqual(adapter.downloads, [])
         self.assertEqual(self.waiting_for_go(), ('stopped', []))
         with Inventory(self.workspace.library, read_only=True) as inventory:
             self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': []})
