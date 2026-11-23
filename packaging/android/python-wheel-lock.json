@@ -6,6 +6,6 @@
   "httpx-0.28.1-py3-none-any.whl": "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
   "idna-3.20-py3-none-any.whl": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
   "typing_extensions-4.16.0-py3-none-any.whl": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
-  "zstandard-0.25.0-cp313-cp313-android_24_arm64_v8a.whl": "5c0614dbe3fb9f8239e13df5e1eb3d370522c5e69cc78860d78e0667c856a4af",
-  "zstandard-0.25.0-cp313-cp313-android_24_x86_64.whl": "f3a7d6d6bd7aa72ef57b6ab190c54e19b1383cec86da785be92ee6283c2483ef"
+  "zstandard-0.25.0-cp313-cp313-android_24_arm64_v8a.whl": "6f75dd432968c7f0852080039278e0ad8bf884cdfbb9aba24019334535ce9d65",
+  "zstandard-0.25.0-cp313-cp313-android_24_x86_64.whl": "e973562555370ed17a2291ab94f446b70353ea9a0f62a18b1d67933c31166917"
 }
