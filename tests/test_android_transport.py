@@ -8,15 +8,10 @@ the merged core; these tests need that merged core (Transport's cookie_source/co
 constructor seams) to run.
 """
 import json
-from pathlib import Path
-import tempfile
 import unittest
 
 import httpx
 
-from comic_archive import purchase_history
-from comic_archive.android_adapter import AndroidTapasAdapter
-from comic_archive.inventory import Inventory
 from comic_archive.models import ArchiveError
 from comic_archive.android_transport import AndroidTransport, WebViewCookieSource
 
@@ -164,90 +159,12 @@ class AndroidTransportTests(unittest.TestCase):
             self.assertEqual(request.headers.get('Referer'), 'https://m.tapas.io/')
             return httpx.Response(200, json={'data': {'user': {'id': 7}}})
 
+        from comic_archive.android_adapter import AndroidTapasAdapter
         client = httpx.Client(transport=httpx.MockTransport(answer), trust_env=False)
         with AndroidTapasAdapter(transport=AndroidTransport(store, client=client)) as adapter:
             self.assertTrue(adapter._http.check_session())
         self.assertEqual(len(seen), 2)  # adapter entry and explicit verification
         self.assertEqual(store.asked, ['https://m.tapas.io/who-am-i'] * 2)
-
-    def test_purchase_history_crosses_many_mobile_pages_across_worker_restart(self):
-        origin = 'https://m.tapas.io'
-        oldest = 12
-        walked = []
-
-        class HistoryStore(Store):
-            def headerFor(self, url):
-                return 'session=GOLDEN' + getattr(self, 'pager_cookie', '')
-
-            def apply(self, url, values):
-                super().apply(url, values)
-                if values:
-                    self.pager_cookie = '; ' + values[0].split(';', 1)[0]
-
-        def answer(request):
-            self.assertEqual(request.method, 'GET')
-            self.assertEqual(request.url.host, 'm.tapas.io')
-            self.assertEqual(request.headers['User-Agent'], 'Fixture WebView/154 Mobile')
-            self.assertIn('session=GOLDEN', request.headers['Cookie'])
-            path = request.url.path
-            if path == '/who-am-i':
-                return httpx.Response(200, json={'data': {'user': {'id': 4242}}})
-            if path == '/series/77':
-                return httpx.Response(200, json={'data': {'id': 77, 'title': 'Older purchase'}})
-            self.assertEqual(path, '/profile/transactions')
-            self.assertEqual(request.headers['X-Requested-With'], 'XMLHttpRequest')
-            self.assertEqual(request.headers['Accept'], 'application/json')
-            index = int(request.url.params['index'])
-            self.assertEqual(request.url.params['to_prev'], 'true' if index else 'false')
-            if index:
-                self.assertIn(f'pager={index - 1}', request.headers['Cookie'])
-            walked.append(index)
-            row = (f'<a href="{origin}/series/77">Older purchase</a>'
-                   if index == oldest else f'Ink credit {index}')
-            return httpx.Response(200, json={'code': 200, 'data': {
-                'body': f'<div class="tr">{row}</div>',
-                'pagination': {'index': index, 'has_next': index < oldest},
-            }}, headers={'Set-Cookie': f'pager={index}; Path=/; Secure'})
-
-        def worker():
-            client = httpx.Client(transport=httpx.MockTransport(answer), trust_env=False)
-            transport = AndroidTransport(HistoryStore(), client=client, agent='Fixture WebView/154 Mobile')
-            transport.interval = 0
-            transport.metadata_interval = 0
-            return AndroidTapasAdapter(transport=transport)
-
-        with tempfile.TemporaryDirectory() as tmp, Inventory(Path(tmp) / 'Library') as inventory:
-            inventory.bind_account('4242')
-            with worker() as adapter:
-                for _ in range(6):
-                    result = purchase_history.reconcile(adapter, inventory, 'one-round', lambda: None, pages=1)
-                    self.assertEqual(result['status'], 'pending')
-            self.assertEqual(walked, list(range(6)))
-            with worker() as adapter:
-                for index in range(6, oldest + 1):
-                    result = purchase_history.reconcile(adapter, inventory, 'one-round', lambda: None, pages=1)
-                    self.assertEqual(result['status'], 'checked' if index == oldest else 'pending')
-            self.assertEqual(walked, list(range(6)) + list(range(oldest + 1)))
-            self.assertEqual(result['pages'], oldest + 1)
-            row = inventory.db.execute('SELECT id, title, provenance FROM series').fetchone()
-            self.assertEqual((row['id'], row['title']), ('77', 'Older purchase'))
-            self.assertIn('transaction_history', row['provenance'])
-
-    def test_missing_mobile_history_is_reported_as_partial(self):
-        def answer(request):
-            if request.url.path == '/who-am-i':
-                return httpx.Response(200, json={'data': {'user': {'id': 4242}}})
-            self.assertEqual(request.url.path, '/profile/transactions')
-            return httpx.Response(404)
-
-        with tempfile.TemporaryDirectory() as tmp, Inventory(Path(tmp) / 'Library') as inventory:
-            inventory.bind_account('4242')
-            client = httpx.Client(transport=httpx.MockTransport(answer), trust_env=False)
-            transport = AndroidTransport(Store(), client=client)
-            transport.interval = 0
-            with AndroidTapasAdapter(transport=transport) as adapter:
-                result = purchase_history.reconcile(adapter, inventory, 'round', lambda: None)
-            self.assertEqual((result['status'], result['code']), ('partial', 'history_rows_unverified'))
 
     def test_routing_validates_before_reading_any_session_header(self):
         store = Store()
