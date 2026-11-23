@@ -92,12 +92,16 @@ def private_file(descriptor):
         os.fchmod(descriptor, 0o600)
 
 
-def replace_file(source, target):
+def replace_file(source, target, *, pinned=False):
     """Put one file in the place of another in a single step, as os.replace does."""
+    replace = os.replace
+    if pinned and WINDOWS:
+        from .windows_privacy import replace_pinned_file
+        replace = replace_pinned_file
     deadline = time.monotonic() + REPLACE_WAIT_SECONDS
     while True:
         try:
-            return os.replace(source, target)
+            return replace(source, target)
         except PermissionError:
             # On Linux this is a folder that cannot be written to, and waiting changes nothing.
             if not WINDOWS or time.monotonic() >= deadline:
@@ -119,17 +123,18 @@ def read_text(path, encoding=None):
 
 
 def sync_directory(path):
-    """Have a rename or removal inside this folder reach the disk.
+    """Flush renames or removals inside this folder and report if a flush ran.
 
-    Windows cannot open a folder to flush it; its file system records renames in its own journal.
+    The Windows backend has no verified directory flush for this operation.
     """
     if WINDOWS:
-        return
+        return False
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+    return True
 
 
 def shortened(name, library, before, after):

@@ -18,6 +18,7 @@ from comic_archive import app_runtime, desktop_app, qt_engine, sites, window_sty
 from comic_archive.app_actions import Refused
 from comic_archive.dashboard_model import error_text
 from comic_archive.models import ArchiveError
+from comic_archive.public_destination import private_destination
 
 RUNTIME = app_runtime.Library
 URL = 'http://127.0.0.1:4321/'  # An address on this computer, which no page may reach.
@@ -60,6 +61,9 @@ class Url:
 
     def toString(self):
         return self.text
+
+    def toEncoded(self):
+        return self.text.encode('ascii')
 
     @staticmethod
     def fromLocalFile(path):
@@ -179,6 +183,11 @@ class DesktopAppTests(unittest.TestCase):
         self.state_dir = Mock(return_value=self.state)
         self.logging = Mock(return_value=self.log)
         self.threads = SimpleNamespace(Thread=type('Thread', (InlineThread,), {}), Timer=Mock())
+        self.egress = Mock()
+        self.egress.switches.return_value = ['--disable-quic']
+        egress = patch.object(desktop_app, 'BrowserEgress', return_value=self.egress)
+        egress.start()
+        self.addCleanup(egress.stop)
         for wrapper in [patch.dict(os.environ, home_environment(self.home, self.home / 'state')),
                         patch.dict(sys.modules, fake_qt()),
                         # main turns on the cloud connection check; it stays off for the tests that follow.
@@ -677,8 +686,7 @@ class DesktopAppTests(unittest.TestCase):
 
     def test_sign_in_page_loads_whole_pages_only_over_https(self):
         def allowed(text, main_frame=True):
-            url = Url(text)
-            return desktop_app.signin_navigation(url.scheme(), url.host(), url.path(), main_frame)
+            return desktop_app.signin_navigation(text, main_frame)
         for text in (SIGNIN, 'https://tapas.io/', 'https://accounts.google.com/o/oauth2/auth?x=1', 'https://www.facebook.com/login', 'about:blank'):
             self.assertTrue(allowed(text)); self.assertTrue(allowed(text, main_frame=False))
         for text in ('http://tapas.io/account/signin', URL, 'http://localhost:4321/', 'https://192.168.1.10/',
@@ -691,18 +699,17 @@ class DesktopAppTests(unittest.TestCase):
             self.assertTrue(allowed(text, main_frame=False))
         for text in ('http://tapas.io/', URL, 'file:///etc/passwd', 'chrome://gpu', 'view-source:https://tapas.io/', 'javascript:alert(1)'):
             self.assertFalse(allowed(text, main_frame=False), text)
-        url = Url('about:blank')
-        self.assertFalse(desktop_app.signin_navigation(url.scheme(), url.host(), url.path(), True, True))
+        self.assertFalse(desktop_app.signin_navigation('about:blank', True, True))
 
     def test_private_destinations_include_local_names_and_every_non_public_ip_literal(self):
         for host in ('localhost', 'app.localhost.', 'local', 'printer.local', 'home.arpa', 'router.home.arpa.',
                      '0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1',
                      '192.168.1.10', '224.0.0.1', '255.255.255.255', '::', '[::1]', 'fe80::1', 'fd00::1',
                      '2001:db8::1', '::ffff:192.168.1.10'):
-            self.assertTrue(desktop_app.private_destination(host), host)
+            self.assertTrue(private_destination(host), host)
         for host in ('tapas.io', 'accounts.google.com', 'localhost.example.com', 'printer.local.example.com',
                      '8.8.8.8', '1.1.1.1', '2001:4860:4860::8888', ''):
-            self.assertFalse(desktop_app.private_destination(host), host)
+            self.assertFalse(private_destination(host), host)
 
     def test_only_the_tapas_site_itself_is_asked_who_is_signed_in_and_the_bar_names_the_site_plainly(self):
         self.assertTrue(desktop_app.on_site('https', 'tapas.io'))
@@ -824,10 +831,12 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(self.widgets.QApplication.made, [])
         existing.exec.assert_called_once_with()
 
-    def test_the_engine_is_given_nothing_but_the_windows_own_name(self):
+    def test_the_engine_uses_the_owned_connector_without_inheriting_settings(self):
         self.assertEqual(desktop_app.run(self.q, None), 0)
         app, = self.widgets.QApplication.made
-        self.assertEqual(app.args, (['comic-archiver'],))
+        self.assertEqual(app.args, (['comic-archiver', '--webEngineArgs', *self.egress.switches.return_value],))
+        self.egress.configure_qt.assert_called_once_with(self.network)
+        self.egress.close.assert_called_once_with()
         # Nor the environment, which the downloader and the programs it opens would inherit.
         self.assertNotIn('QTWEBENGINE_DISABLE_SANDBOX', os.environ)
 
@@ -1136,13 +1145,15 @@ class DesktopAppTests(unittest.TestCase):
             shell.where.setText.assert_called_with(shown)
         self.q.QtGui.QDesktopServices.openUrl.assert_not_called()
 
-    def test_sign_in_page_keeps_to_https_cannot_reach_this_computer_and_saves_or_grants_nothing(self):
+    def test_sign_in_checks_written_urls_and_saves_or_grants_nothing(self):
         shell = self.signing_in()
         page = shell.signin_page
+        page.proxyAuthenticationRequired.connect.assert_called_once_with(self.egress.authenticate)
         for text, main_frame, allowed in [(SIGNIN, True, True), ('https://accounts.google.com/o/oauth2/auth', True, True),
                                           ('about:srcdoc', False, True), (URL, True, False), (URL, False, False),
                                           ('https://192.168.1.10/', True, False), ('https://router.local/', True, False),
-                                          ('http://tapas.io/', True, False), ('file:///etc/passwd', True, False), ('chrome://gpu', True, False)]:
+                                          ('http://tapas.io/', True, False), ('file:///etc/passwd', True, False), ('chrome://gpu', True, False),
+                                          ('https://tapas.io:8443/', True, False), ('https://x@tapas.io/', True, False)]:
             self.assertEqual(page.acceptNavigationRequest(Url(text), None, main_frame), allowed, text)
         # Going back through the history never lands on the blank page the panel starts from.
         self.assertFalse(page.acceptNavigationRequest(Url('about:blank'), 'back', True))
@@ -1153,12 +1164,17 @@ class DesktopAppTests(unittest.TestCase):
                               ('ws://127.0.0.1:4321/', True), ('https://192.168.1.10/', True),
                               ('https://169.254.169.254/latest/meta-data/', True), ('https://router.local/', True),
                               ('https://device.home.arpa/', True), ('https://tapas.io/who-am-i', False),
-                              ('https://accounts.google.com/', False), ('https://8.8.8.8/', False)]:
+                              ('https://accounts.google.com/', False), ('https://8.8.8.8/', False),
+                              ('https://accounts.google.com:443/', False), ('http://example.com/', True),
+                              ('https://tapas.io:8443/', True), ('https://x@tapas.io/', True),
+                              ('data:text/plain,inline', False), ('blob:https://tapas.io/page', False)]:
             info = Mock(); info.requestUrl.return_value = Url(text)
             shell.signin_guard.interceptRequest(info)
             self.assertEqual([call.args for call in info.block.call_args_list], [(True,)] if blocked else [], text)
         # A link meant for a new window opens in the same page or not at all.
-        for text, here in (('https://accounts.google.com/popup', True), ('http://example.com/', False), ('javascript:alert(1)', False), (URL, False)):
+        for text, here in (('https://accounts.google.com/popup', True), ('http://example.com/', False),
+                           ('https://tapas.io:8443/', False), ('https://x@tapas.io/', False),
+                           ('javascript:alert(1)', False), (URL, False)):
             request = Mock(); request.requestedUrl.return_value = url = Url(text)
             shell.signin_view.load.reset_mock()
             emit(page.newWindowRequested, request)
@@ -1990,8 +2006,9 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(self.lock.made + self.network.QLocalServer.made, [])
         self.state_dir.assert_not_called(); self.logging.assert_not_called()
         self.assertEqual(list(self.home.iterdir()), [])
-        self.assertEqual([os.environ[name] for name in ('QT_QPA_PLATFORM', 'QT_QUICK_BACKEND', 'QTWEBENGINE_CHROMIUM_FLAGS')],
-                         ['offscreen', 'software', '--disable-gpu'])
+        self.assertEqual([os.environ[name] for name in ('QT_QPA_PLATFORM', 'QT_QUICK_BACKEND')],
+                         ['offscreen', 'software'])
+        self.assertNotIn('QTWEBENGINE_CHROMIUM_FLAGS', os.environ)
         self.assertNotIn('QTWEBENGINE_DISABLE_SANDBOX', os.environ)
         self.widgets.QApplication.made[0].quit.assert_called_once_with()
         self.assertEqual(self.core.QTimer.singleShot.call_args.args[0], desktop_app.SELF_TEST_SECONDS * 1000)
@@ -2006,7 +2023,8 @@ class DesktopAppTests(unittest.TestCase):
                                      (lambda: None, 'dashboard_not_loaded', False)]:
             self.assertEqual(self.self_test(loop), (1, {'ok': False, 'reason': reason, 'signin_cookie': cookie}))
         self.assertEqual(os.environ['QT_QPA_PLATFORM'], 'xcb'); self.assertNotIn('QTWEBENGINE_DISABLE_SANDBOX', os.environ)
-        self.assertEqual([app.args for app in self.widgets.QApplication.made], [(['comic-archiver'],)] * 4)
+        flags = ['comic-archiver', '--webEngineArgs', *self.egress.switches.return_value, '--disable-gpu']
+        self.assertEqual([app.args for app in self.widgets.QApplication.made], [(flags,)] * 4)
         self.runtime.start.side_effect = ArchiveError('PRIVATE_COOKIE')
         # The report says where in the app it happened, not what the error said: here the line that starts the pieces.
         source = Path(desktop_app.__file__).read_text().splitlines()

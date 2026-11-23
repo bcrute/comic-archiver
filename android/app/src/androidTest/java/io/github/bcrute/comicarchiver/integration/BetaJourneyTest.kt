@@ -568,4 +568,102 @@ class BetaJourneyTest {
                 })
         }
     }
+
+    private fun upgradeInventory() =
+        JSONObject(app.fixture().callAttr("upgrade_inventory", app.workspace.root.absolutePath).toString())
+
+    @Test fun prepareActualDownloadForPackageUpgrade() {
+        FixtureSafety.requireEmulator()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            await("cold old app") { !app.controller.state.value.siteBusy &&
+                app.controller.state.value.signIn == SignInState.SignedOut }
+            click("Sign in to Tapas")
+            nativeClick(By.text("Sign in to fixture"), "Fixture sign-in", 20_000)
+            await("old fixture signed in") { app.controller.state.value.signIn is SignInState.SignedIn }
+            allowFixtureConnectionIfHeld()
+            app.fixture().callAttr("release_transfer")
+            startSaving()
+            await("existing CBZ and EPUB committed", 180_000) { exportableCount() == 2 }
+            clickIfPresent(By.text("Pause"), 2_000)
+            await("first download no longer running", 25_000) {
+                val state = app.controller.state.value.download
+                state !is DownloadState.Running && state != DownloadState.Planning
+            }
+            verifyOutputs()
+            val before = originals()
+            app.fixture().callAttr("set_upgrade_pending", true)
+            app.fixture().callAttr("seed_upgrade_episode", app.workspace.root.absolutePath)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { app.controller.go() }
+            await("new episode blocked during its asset transfer", 180_000) {
+                observe().getBoolean("blocked_transfer") && upgradeInventory().optString("9002") == "downloading"
+            }
+            assertTrue(app.controller.state.value.download is DownloadState.Running ||
+                app.controller.state.value.download is DownloadState.Planning)
+            sameOriginals(before)
+            assertTrue(device.takeScreenshot(evidence.resolve("upgrade-active.png")))
+            save("upgrade-ready.json", JSONObject().put("originals", before)
+                .put("pending_status", upgradeInventory().getString("9002"))
+                .put("asset_requests", observe().getInt("asset_requests")))
+            // The fleet installs the new APK here, while the stream is still blocked.
+            SystemClock.sleep(100_000)
+            fail("The package installer did not interrupt the active download.")
+        }
+    }
+
+    @Test fun recoverActualDownloadAfterPackageUpgrade() {
+        FixtureSafety.requireEmulator()
+        val before = JSONObject(evidence.resolve("upgrade-ready.json").readText())
+        assertEquals(FixtureSafety.runToken, before.getString("run_token"))
+        ActivityScenario.launch(MainActivity::class.java).use {
+            await("restored sign-in and workspace") { !app.controller.state.value.siteBusy &&
+                app.controller.state.value.signIn is SignInState.SignedIn }
+            val download = app.controller.state.value.download
+            assertTrue("Upgrade resumed acquisition unexpectedly: $download",
+                download == DownloadState.Held || download == DownloadState.Paused("user"))
+            assertEquals(0, observe().getInt("asset_requests"))
+            assertTrue(upgradeInventory().optString("9002") in setOf("downloading", "queued"))
+            val saved = before.getJSONArray("originals")
+            sameOriginals(saved)
+            fun selected(id: String) = app.fixture().callAttr("upgrade_selected",
+                app.workspace.root.absolutePath, id).toBoolean()
+            fun choose(id: String, wanted: Boolean) {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    app.controller.chooseComics(wanted, "tapas", id)
+                }
+                await("individual choice committed", 25_000) {
+                    !app.controller.state.value.settingsBusy && selected(id) == wanted
+                }
+            }
+            assertTrue(selected("1001"))
+            assertTrue(selected("2002"))
+            choose("1001", false)
+            assertTrue(selected("2002"))
+            sameOriginals(saved)
+            choose("2002", false)
+            assertFalse(selected("1001"))
+            sameOriginals(saved)
+            choose("1001", true)
+            assertFalse(selected("2002"))
+            choose("2002", true)
+            sameOriginals(saved)
+            assertEquals(download, app.controller.state.value.download)
+            assertEquals(0, observe().getInt("asset_requests"))
+            assertTrue(device.takeScreenshot(evidence.resolve("upgrade-held.png")))
+            stage("upgrade_stopped_and_selection_preserved")
+            app.fixture().callAttr("set_upgrade_pending", false)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { app.controller.go() }
+            await("interrupted episode completed", 180_000) {
+                upgradeInventory().optString("9002") == "archived" && exportableCount() == 3
+            }
+            val after = originals()
+            for (i in 0 until saved.length()) {
+                assertTrue((0 until after.length()).any { after.getJSONObject(it).toString() == saved.getJSONObject(i).toString() })
+            }
+            save("upgrade-result.json", JSONObject()
+                .put("preserved_archives", saved.length())
+                .put("comic_and_novel_choices_verified", true)
+                .put("held_without_requests", true)
+                .put("interrupted_episode_completed_after_continue", true))
+        }
+    }
 }

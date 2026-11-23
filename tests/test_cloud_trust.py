@@ -77,7 +77,7 @@ class CloudTrustTests(unittest.TestCase):
         other = self.library(self.home / 'Shared/Comic Archiver', 'OTHER_PRIVATE_KEY')
         self.assertFalse(self.b2(other)['confirmed'])
         target = cloud.confirm(other, 'b2', False)['targets'][0]
-        self.assertEqual((target['enabled'], target['confirmed']), (False, True))
+        self.assertEqual((target['enabled'], target['confirmed']), (False, False))
         self.assertIsNone(cloud.direct_target(other))
         # Turned on again by the person: their own choice.
         self.assertTrue(cloud.enable(other, 'b2', True)['targets'][0]['enabled'])
@@ -86,6 +86,28 @@ class CloudTrustTests(unittest.TestCase):
         with patch.object(cloud_runtime, '_checked', False):
             cloud.enable(third, 'b2', False)
         self.assertTrue(cloud.enable(third, 'b2', True)['targets'][0]['confirmed'])
+
+    def test_only_the_target_the_person_approves_can_be_used(self):
+        first = self.library(self.home / 'First')
+        second = self.library(self.home / 'Second')
+        self.assertFalse(self.b2(second)['confirmed'])
+        cloud.confirm(first, 'b2', False)
+        self.assertIsNone(cloud.direct_target(second))
+        cloud.confirm(first, 'b2', True)
+        self.assertTrue(self.b2(first)['confirmed'])
+        self.assertIsNone(cloud.direct_target(second))
+        cloud.confirm(second, 'b2', True)
+        self.assertIsNotNone(cloud.direct_target(second))
+
+    def test_a_legacy_trust_record_requires_fresh_consent(self):
+        root = self.library(self.home / 'Old')
+        digest = cloud_trust.fingerprint(cloud.settings(root)['targets']['b2'])
+        self.record.parent.mkdir(parents=True, exist_ok=True)
+        self.record.write_text(json.dumps({'schema_version': 1, 'connections': [digest]}))
+        with patch.object(cloud_trust, '_opened', side_effect=AssertionError('Existing record')):
+            self.assertIsNone(cloud.direct_target(root))
+            cloud.confirm(root, 'b2', True)
+            self.assertIsNotNone(cloud.direct_target(root))
 
     def test_a_connection_set_up_or_tested_here_is_used_and_a_copy_of_its_folder_keeps_it(self):
         root = self.home / 'Comic Archiver/Library'

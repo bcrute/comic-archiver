@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -27,10 +28,18 @@ class AndroidCloudTests(unittest.TestCase):
         app_bridge._cloud_cache.update(root=None, controller=None)
         self.assertTrue(self.call('prepare_workspace')['ok'])
         self.wire = B2Wire()
-        real = httpx.Client
-        transport = httpx.MockTransport(self.wire.request)
+        b2_transport = httpx.MockTransport(self.wire.request)
+        b2_http = SimpleNamespace(Client=lambda **kw: httpx.Client(transport=b2_transport, **kw),
+                                  HTTPError=httpx.HTTPError)
+
+        def tapas_identity(request):
+            self.assertEqual((request.method, str(request.url)), ('GET', 'https://tapas.io/who-am-i'))
+            return httpx.Response(200, json={'data': {'user': {'id': 4242}}})
+
         self.addCleanup(patch.stopall)
-        patch('comic_archive.b2_auth.httpx.Client', side_effect=lambda **kw: real(transport=transport, **kw)).start()
+        patch('comic_archive.b2_auth.httpx', b2_http).start()
+        patch('comic_archive.transport.provider_client',
+              side_effect=lambda: httpx.Client(transport=httpx.MockTransport(tapas_identity))).start()
         patch('comic_archive.network.probe', return_value={'connection': 'wifi', 'metered': False}).start()
         patch.object(cloud_runtime, '_android', True).start()
 
@@ -145,9 +154,9 @@ class AndroidCloudTests(unittest.TestCase):
         (self.root / 'net.json').write_text(json.dumps({'connection': 'wifi', 'metered': False}))
         original = worker._run_worker
 
-        def slow_first_status(*args):
+        def slow_first_status(*args, **kwargs):
             time.sleep(0.6)  # The runtime lock is held; status.json is still the old run's "busy".
-            return original(*args)
+            return original(*args, **kwargs)
         try:
             with patch.object(worker, '_run_worker', slow_first_status), \
                     patch('comic_archive.android_download.start'):

@@ -14,7 +14,6 @@ import threading
 import time
 import weakref
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from . import android_session, qt_engine as dom, sites
 from .adapters.tapas import BrowserReadTransport, TapasAdapter
@@ -24,6 +23,8 @@ from .errors import AuthenticationError
 from .fast_import import FAST_INTERVAL, FAST_METADATA_INTERVAL, FAST_WORKERS, FastWorkerSession
 from .models import ArchiveError
 from .pipeline import MetadataPipeline
+from .provider_http import provider_client
+from .public_destination import public_https_url
 from .transport import Transport
 
 _contexts = weakref.WeakSet()
@@ -272,11 +273,7 @@ class AndroidBrowserContext:
         """Called off Main by native interception; no URL/body is returned or logged."""
         try:
             self.check()
-            if not isinstance(url, str) or len(url) > 16384 or not isinstance(method, str):
-                return False
-            parsed = urlsplit(url)
-            if (method not in {'GET', 'HEAD', 'OPTIONS'} or parsed.scheme != 'https'
-                    or not parsed.hostname or parsed.username or parsed.password or parsed.port not in {None, 443}):
+            if not isinstance(method, str) or method not in {'GET', 'HEAD', 'OPTIONS'} or not public_https_url(url):
                 return False
             with self.rules_lock:
                 page_rules = list(self.page.handlers) if self.page is not None else []
@@ -359,11 +356,7 @@ class AndroidBrowserContext:
 
 def _asset_client(fast):
     """The socket boundary is replaceable by disposable-emulator fixtures only."""
-    import httpx
-    if fast:
-        return httpx.Client(timeout=httpx.Timeout(10, connect=30), follow_redirects=False, trust_env=False,
-            limits=httpx.Limits(max_connections=FAST_WORKERS, max_keepalive_connections=FAST_WORKERS))
-    return httpx.Client(timeout=30, follow_redirects=False, trust_env=False)
+    return provider_client(workers=FAST_WORKERS if fast else None)
 
 
 class AndroidBrowserTransport(BrowserReadTransport):

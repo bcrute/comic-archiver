@@ -17,8 +17,8 @@ import tempfile
 import build_linux_app as shared
 
 # Public python-build-standalone artifact checksums, not credentials.
-X86_64_SHA256 = '0fe0c68a7f90458abd13b50a3d8f5f0cb5b2f0a1f33b6ef1445751cf2dc8b36e'
-ARM64_SHA256 = '936217c0e6893f51af939474bee18ecf5e6fe47b986d2c163f19b57c682e4a83'
+X86_64_SHA256 = '85f8e54798e8e6aa58d2253f013d815c5616343cc0d15cbea882fca78bdfeae2'
+ARM64_SHA256 = 'f15ec3d15460dd66c2eb88639b152cd9040e7d1ece11e38bf89e8f53f0171e02'
 PINS = {'x86_64': X86_64_SHA256, 'arm64': ARM64_SHA256}
 BUILD = shared.PROJECT / 'build/macos'
 
@@ -148,7 +148,7 @@ def build():
     requirements = resources/'requirements-frozen.txt'
     requirements.write_text(shared.frozen_requirements(listing, release))
     run([sys.executable, shared.PROJECT/'scripts/audit_bundle.py', requirements,
-         '--output', resources/'dependency-audit.json'])
+         '--output', resources/'dependency-audit.json', '--platform', 'macos'])
     for filename in ('LICENSE', 'THIRD-PARTY-NOTICES.md'):
         shutil.copy2(shared.PROJECT/filename, resources/filename)
     shutil.copy2(shared.PACKAGING/'macos/README_FIRST.txt', resources/'README_FIRST.txt')

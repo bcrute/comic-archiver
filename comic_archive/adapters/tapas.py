@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urljoin
 from ..sites import DEFAULT
+from ..public_destination import browser_request_allowed
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from ..session import browser_api, launch_browser, load_session, save_session
 from ..transport import Transport, asset_url
@@ -31,10 +32,14 @@ def history_data(observation):
 
 def read_only_source_request(route):
     method=getattr(route.request,'method','GET')
-    if isinstance(method,str) and method.upper() not in {'GET','HEAD','OPTIONS'}:
+    if refused_destination(route) or isinstance(method,str) and method.upper() not in {'GET','HEAD','OPTIONS'}:
         finish_route(route,'abort')
     else:
         finish_route(route,'continue_')
+
+
+def refused_destination(route):
+    return not browser_request_allowed(getattr(route.request, 'url', None))
 
 
 # How long a read that got no answer waits before each further try, in seconds.
@@ -70,13 +75,14 @@ class ReadFailed(Exception):
 class BrowserReadTransport:
     """Observed metadata GETs in the normal signed-in browser; HTTPX for images."""
     def __init__(self, page, context, interval=1.0, deadline=None, metrics=None,
-                 metadata_interval=1.0, download_profile='normal', network_guard=None):
+                 metadata_interval=1.0, download_profile='normal', network_guard=None, asset_client=None):
         from ..downloads import validate_request_interval
         validate_request_interval(metadata_interval, download_profile)
         self.metadata_interval = metadata_interval
         self.page = page
         self.network_guard = network_guard
         self.assets = Transport(context.cookies(), interval=interval, metrics=metrics, profile=download_profile,
+                                client=asset_client,
                                 network_guard=network_guard, agent=getattr(context, 'agent', None))
         self.last = 0
         self.last_response = None
@@ -108,6 +114,9 @@ class BrowserReadTransport:
         return False
 
     def read_only_request(self,route):
+        if refused_destination(route):
+            finish_route(route, 'abort')
+            return
         if self.network_guard is not None:
             try: self.network_guard.check()
             except ArchiveError:
@@ -116,6 +125,8 @@ class BrowserReadTransport:
 
     def get(self, url, max_bytes=None, *, reader_json=False):
         if self.network_guard is not None: self.network_guard.check()
+        if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
+            raise RunLimit('The download byte budget is exhausted.')
         if type(reader_json) is not bool:
             raise ArchiveError('Reader response mode must be an explicit boolean.')
         try:
@@ -211,12 +222,6 @@ class BrowserReadTransport:
             self.page.wait_for_timeout(pause * 1000)
         self.last = time.monotonic()
         details = bool(re.fullmatch(r"/series/[A-Za-z0-9_-]{1,100}/info", parsed.path))
-        # The built-in engine cannot hand over a visited page's text; there the details page is read as the reader's is.
-        if details and getattr(self.page, 'navigation_bodies', True) is not False:
-            response = self.page.goto(url, wait_until="domcontentloaded")
-            if canonical_url(self.page.url) != canonical_url(url) or response is None or response.status != 200:
-                raise ArchiveError("Normal browser reader navigation was refused or redirected.")
-            return response.body()
         timeout = self.patience()
         reader = details or bool(re.fullmatch(r'/episode/[0-9]+',parsed.path))
         # The authorized reader's static HTML already carries ordered pages.
@@ -231,7 +236,23 @@ class BrowserReadTransport:
             const response = await fetch(url, {method:'GET', credentials:'same-origin',
                 redirect:'error', headers:{Accept:accept},signal:controller.signal});
             stage = 'answer';
-            const text = await response.text();
+            let text = response.status === 200 ? '' : null;
+            if (text !== null && response.body) {
+                const stream = response.body.getReader();
+                const decoder = new TextDecoder();
+                let size = 0;
+                while (true) {
+                    const {done, value} = await stream.read();
+                    if (done) { text += decoder.decode(); break; }
+                    size += value.byteLength;
+                    if (size > limit) {
+                        text = null;
+                        controller.abort();
+                        break;
+                    }
+                    text += decoder.decode(value, {stream:true});
+                }
+            }
             // Cloudflare documents this fixed marker for Challenge Pages.
             // Only a classification crosses the browser boundary.
             const contentType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
@@ -239,7 +260,7 @@ class BrowserReadTransport:
                 contentType === 'text/html' ? 'html' :
                 contentType === 'application/json' ? 'json' :
                 contentType === 'text/plain' ? 'text' : 'other';
-            return {status:response.status, text:text.length <= limit ? text : null,
+            return {status:response.status, text,
                     source_response_kind:kind,
                     retry_after:response.headers.get('Retry-After')};
             } catch (error) {
@@ -252,11 +273,12 @@ class BrowserReadTransport:
             } finally { clearTimeout(timer); }
         }"""
         if details:
-            # A redirect is answered with status 0, not followed: a page visit that is redirected is refused as well.
+            # A redirect is answered with status 0 without loading the destination.
             script = script.replace("redirect:'error'", "redirect:'manual'")
+        limit = 8388608 if reader else 4194304 if history else 2097152
         arguments = {"url": url, "timeout": timeout,
                'accept':'text/html' if reader and not reader_json else 'application/json',
-               'limit':8388608 if reader else 4194304 if history else 2097152}
+               'limit':min(max_bytes, limit) if max_bytes is not None else limit}
         try:
             value = self.read(script, arguments)
         except Exception as error:
@@ -299,9 +321,10 @@ class BrowserReadTransport:
                 from ..retry_after import retain_retry_after
                 retain_retry_after(refused, value.get('retry_after'))
             raise refused
-        if value['text'] is None:
-            raise ArchiveError('Normal browser metadata exceeds the supported response size; this job has stopped.')
-        return value["text"].encode("utf-8")
+        data = value['text'].encode('utf-8') if value['text'] is not None else None
+        if data is None or len(data) > arguments['limit']:
+            raise MetadataError('Normal browser metadata exceeds the supported response size; this job has stopped.')
+        return data
 
     def close(self):
         try:
@@ -356,6 +379,9 @@ class TapasAdapter:
         return self
 
     def network_request(self, route):
+        if refused_destination(route):
+            finish_route(route, 'abort')
+            return
         try:
             self.network_guard.check()
         except ArchiveError:
@@ -950,21 +976,29 @@ class TapasAdapter:
         if not getattr(self, 'expected_account_id', None):
             self.expected_account_id = self.account_identity()
         http = self.automatic_adapter()
-        index = 0 if cursor is None else cursor['index']
-        url = continuation_url(cursor if cursor is not None else {'contract': 'tapas-transactions-index-v1', 'index': 0})
-        # Tapas keeps the pager's place in the browser session and refuses (HTTP 400) a page asked out of turn,
-        # so a place saved by another session (the app restarted) is reached again from the first page, as the
-        # site's own Older button would.
+        first = {'contract': 'tapas-transactions-index-v1', 'index': 0}
+        cursor = first if cursor is None else cursor
+        continuation_url(cursor)
+        index = cursor['index']
+
+        def walk(start):
+            self._history_walked = None
+            for current in range(start, index + 1):
+                url = continuation_url(first | {'index': current})
+                page = read_page(http.transport.get(url, max_bytes=4 * 1024 * 1024), current)
+                self._history_walked = current
+            return page
+
+        # The saved position can expire even while this browser stays open.
+        # Recover once using the normal pager, starting at its first page.
         walked = getattr(self, '_history_walked', None)
         start = walked + 1 if type(walked) is int and walked < index else 0
-        self._history_walked = None
-        for earlier in range(start, index):
-            read_page(http.transport.get(continuation_url({'contract': 'tapas-transactions-index-v1', 'index': earlier}),
-                                         max_bytes=4 * 1024 * 1024), earlier)
-            self._history_walked = earlier
-        page = read_page(http.transport.get(url, max_bytes=4 * 1024 * 1024), index)
-        self._history_walked = index
-        return page
+        try:
+            return walk(start)
+        except MetadataError as error:
+            if not start or getattr(error, 'source_http_status', None) != 400:
+                raise
+        return walk(0)
 
     def purchase_series_identity(self, url):
         """Resolve a history association through normal metadata, never images."""

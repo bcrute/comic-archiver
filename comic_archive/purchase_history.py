@@ -153,8 +153,10 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                 reason = getattr(error, 'history_reason', None)
                 reason = reason if isinstance(reason, str) and reason in REASONS else 'metadata_unverified'
                 expected_index = 0 if value['cursor'] is None else value['cursor']['index']
-                LOG.info('purchase history: page_read=unverified page_index=%s reason=%s committed_pages=%s',
-                         expected_index, reason, value['pages'])
+                status = getattr(error, 'source_http_status', None)
+                status = status if type(status) is int and 100 <= status <= 599 else None
+                LOG.info('purchase history: page_read=unverified page_index=%s reason=%s http=%s committed_pages=%s',
+                         expected_index, reason, status, value['pages'])
                 value.update(status='partial', code='history_rows_unverified')
                 break
             if not isinstance(page, dict):

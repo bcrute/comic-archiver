@@ -16,6 +16,7 @@ from comic_archive.publication import PublicationStore, import_metadata
 from comic_archive.purge import archive_page, evict_episode
 from comic_archive.storage import DEFAULTS, policy
 from comic_archive.image_profiles import compress_image
+from comic_archive.osdep import WINDOWS
 from test_archive import MemoryAdapter, png
 
 
@@ -54,12 +55,12 @@ class StorageTests(unittest.TestCase):
     def test_original_default_evicts_only_completed_media_and_reuses_archives_on_restart(self):
         archive = self.publish()
         before = archive.read_bytes(), sidecar_path(archive).read_bytes()
-        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
+        self.assertEqual((self.root / '.archive-cache' / digest(png(1))).exists(), WINDOWS)
         adapter = Mock()
         self.publish(adapter=adapter)
         adapter.retrieve.assert_not_called()
         self.assertEqual((archive.read_bytes(), sidecar_path(archive).read_bytes()), before)
-        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
+        self.assertEqual((self.root / '.archive-cache' / digest(png(1))).exists(), WINDOWS)
         self.assertEqual(verify(self.root), [])
 
     def test_quality_switch_affects_new_episodes_and_preserves_existing_full_quality_exports(self):
@@ -96,7 +97,8 @@ class StorageTests(unittest.TestCase):
         store = PublicationStore(self.root)
         try:
             store.remember_page('local', second, second.pages[0], png(1))
-            evict_episode(store, archive, import_metadata(sidecar_path(archive)))
+            with patch('comic_archive.purge.sync_directory', return_value=True):
+                evict_episode(store, archive, import_metadata(sidecar_path(archive)))
         finally:
             store.close()
         self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
@@ -111,8 +113,11 @@ class StorageTests(unittest.TestCase):
         archive = self.publish()
         blob = self.root / '.archive-cache' / digest(png(1))
         seen = []
+        def synced(folder):
+            seen.append((folder, blob.exists()))
+            return True
         with closing(PublicationStore(self.root)) as store, \
-                patch('comic_archive.purge.sync_directory', side_effect=lambda folder: seen.append((folder, blob.exists()))):
+                patch('comic_archive.purge.sync_directory', side_effect=synced):
             evict_episode(store, archive, import_metadata(sidecar_path(archive)))
         self.assertEqual(seen, [(archive.parent, True), (self.root / '.archive-state/provenance', True)])
         self.assertFalse(blob.exists())
@@ -163,7 +168,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(meta['image_profile'], 'small')
         self.assertLess(meta['content_hashes'][0]['size'], len(data))
         self.assertEqual(meta['original_content_hashes'][0]['sha256'], digest(data))
-        self.assertFalse((self.root / '.archive-cache' / digest(data)).exists())
+        self.assertEqual((self.root / '.archive-cache' / digest(data)).exists(), WINDOWS)
         self.assertEqual(verify(self.root, decode_images=True), [])
 
     def test_original_animation_tiny_pages_and_colour_modes_remain_intact(self):

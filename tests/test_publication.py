@@ -259,12 +259,24 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(verify_episode(next(destination.glob('*/*.cbz'))),[])
 
     def test_independent_restore_keeps_the_sidecar_of_an_episode_kept_only_in_the_cloud(self):
+        from uuid import uuid4
         from scripts.offline_restore import restore
-        folder=self.publish();archive=next(folder.glob('*.cbz'));sidecar=sidecar_path(archive);archive.unlink()
-        receipt=self.root/'.archive-state/cloud/outbox/b2'/(json.loads(sidecar.read_text())['export_id']+'.json')
+        folder=self.publish();archive=next(folder.glob('*.cbz'));sidecar=sidecar_path(archive)
+        episode_id = json.loads(sidecar.read_text())['export_id']
+        series = folder / 'series.json'
+        series_id = json.loads(series.read_text())['export_id']
+        library_id, target_id = str(uuid4()), str(uuid4())
+        cloud_state = self.root / '.archive-state/cloud'
+        receipt = cloud_state / 'outbox/b2' / (episode_id + '.json')
         receipt.parent.mkdir(parents=True)
-        record={'state':'verified','eviction_requested':True,'archive':archive.relative_to(self.root).as_posix(),
-                'files':[{'name':'episode.cbz'},{'name':'episode.json','sha256':digest(sidecar.read_bytes())}]}
+        (cloud_state / 'targets.json').write_text(json.dumps({'schema_version': 1, 'library_id': library_id, 'targets': {}}))
+        files = [{'name': name, 'path': path.relative_to(self.root).as_posix(), 'sha256': digest(path.read_bytes())}
+                 for name, path in zip(('episode.cbz', 'episode.json', 'series.json'), (archive, sidecar, series), strict=True)]
+        record = {'state': 'verified', 'eviction_requested': True, 'archive': files[0]['path'], 'files': files,
+                  'library_id': library_id, 'series_id': series_id, 'episode_id': episode_id, 'target_id': target_id,
+                  'remote_root': 'Comic-Archive', 'verified_at': '2026-01-01T00:00:00+00:00',
+                  'version': digest((files[0]['sha256'] + files[1]['sha256']).encode())}
+        archive.unlink()
         receipt.write_text(json.dumps(record))
         report=restore(self.root,self.root.parent/'Restored')
         self.assertEqual((report['archive_count'],report['offloaded_episode_count']),(0,1))
@@ -442,9 +454,9 @@ class PublicationTests(unittest.TestCase):
     def test_a_stop_between_the_private_and_public_metadata_writes_leaves_the_episode_readable(self):
         from comic_archive import publication
         folder=self.publish();sidecar=sidecar_path(next(folder.glob('*.cbz')));real=publication.atomic_json
-        def stopped(path,value):
+        def stopped(path,value,*,pinned=False):
             if path==sidecar: raise OSError('simulated power loss')
-            return real(path,value)
+            return real(path,value,pinned=pinned)
         self.episode=replace(self.episode,title='Chapter renamed upstream')
         with patch.object(publication,'atomic_json',stopped),self.assertRaises(OSError): self.publish()
         self.assertEqual(import_metadata(sidecar)['title'],'Chapter')  # The public file before still reads.

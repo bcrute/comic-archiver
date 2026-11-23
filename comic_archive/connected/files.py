@@ -24,6 +24,10 @@ EXPANDED_MAX = 256 * 1024**2
 METADATA_MAX = 1024**2
 BOOKS_MAX = 10000
 CATALOG_MAX = 8 * 1024**2
+# Space for the book and series tables and their indexes, including long paths.
+INDEX_MAX = 256 * 1024**2
+LEGACY_INDEX_MAX = 2 * INDEX_MAX
+INDEX_RECLAIM_MIN = 1024**2
 FORMAT = "comic-archiver.connected-index/1"
 
 
@@ -289,9 +293,13 @@ def _central_bound(source):
     # zipfile takes the counts, size and offset from a ZIP64 end record instead
     # when its locator sits right before the EOCD, so that record is bounded too.
     end = size - len(tail) + offset
-    if end >= 20 and os.pread(source.fd, 4, end - 20) == b"PK\x06\x07":
-        _, locator_disk, record, disks = struct.unpack("<4sIQI", os.pread(source.fd, 20, end - 20))
+    locator = os.pread(source.fd, 20, end - 20) if end >= 20 else b""
+    _require(end < 20 or len(locator) == 20)
+    if locator.startswith(b"PK\x06\x07"):
+        _, locator_disk, record, disks = struct.unpack("<4sIQI", locator)
         _require(locator_disk == 0 and disks <= 1 and record == end - 76)
+        record_bytes = os.pread(source.fd, 56, record)
+        _require(len(record_bytes) == 56)
         (
             signature,
             _,
@@ -303,7 +311,7 @@ def _central_bound(source):
             total_count,
             central_size,
             central_offset,
-        ) = struct.unpack("<4sQ2H2I4Q", os.pread(source.fd, 56, record))
+        ) = struct.unpack("<4sQ2H2I4Q", record_bytes)
         _require(
             signature == b"PK\x06\x06"
             and disk == 0
@@ -496,6 +504,7 @@ class Index:
                     and not before.st_mode & 0o077
                     and (create or before.st_size > 0)
                 )
+                _require(before.st_size <= LEGACY_INDEX_MAX, "resource_limit")
             finally:
                 os.close(fd)
             self.db = sqlite3.connect(
@@ -505,6 +514,13 @@ class Index:
             _require((before.st_dev, before.st_ino) == (after.st_dev, after.st_ino))
             self.identity = before.st_dev, before.st_ino
             self.db.row_factory = sqlite3.Row
+            page_size = self.db.execute("PRAGMA page_size").fetchone()[0]
+            live_limit = INDEX_MAX // page_size
+            page_count = self.db.execute("PRAGMA page_count").fetchone()[0]
+            _require(page_count * page_size <= LEGACY_INDEX_MAX, "resource_limit")
+            # SQLite cannot set max_page_count below the current size. Allow an
+            # existing large index to reclaim pages before applying the live quota.
+            self.db.execute(f"PRAGMA max_page_count={max(live_limit, page_count)}")
             if before.st_size == 0:
                 self.db.executescript("""CREATE TABLE IF NOT EXISTS metadata(format TEXT NOT NULL, root TEXT NOT NULL,
                     share_id TEXT NOT NULL, revision TEXT NOT NULL);
@@ -528,12 +544,30 @@ class Index:
                     and rows[0]["format"] == FORMAT
                     and rows[0]["root"] == identity
                 )
-        except (OSError, sqlite3.Error, SourceError):
+                self._reclaim_orphan_series(page_size, page_count, live_limit)
+            _require(self.db.execute(f"PRAGMA max_page_count={live_limit}").fetchone()[0] == live_limit,
+                     "resource_limit")
+            self.db.execute("CREATE INDEX IF NOT EXISTS books_by_series ON books(series_id)")
+        except SourceError:
             if hasattr(self, "db"):
                 self.db.close()
+            raise
+        except (OSError, sqlite3.Error) as error:
+            if hasattr(self, "db"):
+                self.db.close()
+            if isinstance(error, sqlite3.Error) and getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL:
+                raise SourceError("resource_limit") from None
             raise SourceError("integrity_failed") from None
         finally:
             os.close(directory)
+
+    def _reclaim_orphan_series(self, page_size, page_count, live_limit):
+        _require(self.db.execute("SELECT count(*) FROM books").fetchone()[0] <= BOOKS_MAX, "resource_limit")
+        # Older writers could leave a series behind when moving its last book.
+        self.db.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM books)")
+        freelist = self.db.execute("PRAGMA freelist_count").fetchone()[0]
+        if page_count > live_limit or (freelist * page_size >= INDEX_RECLAIM_MIN and 2 * freelist >= page_count):
+            self.db.execute("VACUUM")
 
     def close(self):
         self.db.close()
@@ -663,14 +697,23 @@ class Index:
                     "INSERT OR REPLACE INTO books VALUES(?,?,?,?,?,?,?,?,?)",
                     tuple(record.values()),
                 )
+                if moved and moved["series_id"] != series_id:
+                    self.db.execute(
+                        "DELETE FROM series WHERE id=? AND NOT EXISTS "
+                        "(SELECT 1 FROM books WHERE series_id=series.id)",
+                        (moved["series_id"],),
+                    )
                 if prior is None or self._public(prior) != self._public(record):
                     self.db.execute(
                         "UPDATE metadata SET revision=?", (str(uuid.uuid4()),)
                     )
                 source.current()
                 self.db.execute("COMMIT")
-            except BaseException:
-                self.db.execute("ROLLBACK")
+            except BaseException as error:
+                if self.db.in_transaction:
+                    self.db.execute("ROLLBACK")
+                if isinstance(error, sqlite3.Error) and getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL:
+                    raise SourceError("resource_limit") from None
                 raise
             # After the transaction: a book replaced just now is an ordinary refusal, with nothing to roll back.
             return self.describe(book_id, version)

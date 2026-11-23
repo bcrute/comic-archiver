@@ -319,6 +319,56 @@ class PurchasePageTests(unittest.TestCase):
         self.assertEqual(asked, [0])
         self.assertEqual(walk(1), [1])
 
+    def test_expired_pager_position_replays_once_after_committing_sixteen_pages(self):
+        from comic_archive.adapters.tapas_history import invalid
+
+        asked = []
+        position = None
+        refused = {17}
+
+        def answer(url, max_bytes=None):
+            nonlocal position
+            index = int(url.rsplit('=', 1)[1])
+            asked.append(index)
+            if index in refused or (index and position != index - 1):
+                error = invalid('page_refused', 'Tapas refused this purchase-history page.')
+                error.source_http_status = 400
+                raise error
+            position = index
+            return json.dumps({'code': 200, 'data': {'body': self.body,
+                              'pagination': {'index': index, 'has_next': index < 17}}}).encode()
+
+        self.http.transport.get.side_effect = answer
+        cursor = None
+        for index in range(16):
+            page = self.adapter.purchase_history_page(cursor)
+            self.assertEqual(page['page_identity'], f'index:{index}')
+            cursor = page['next_cursor']
+
+        self.assertEqual(asked, list(range(16)))
+        position = None
+        asked.clear()
+        page = self.adapter.purchase_history_page(cursor)
+        self.assertEqual(asked, [16, *range(17)])
+        self.assertEqual(page['page_identity'], 'index:16')
+
+        asked.clear()
+        with self.assertRaises(MetadataError):
+            self.adapter.purchase_history_page(page['next_cursor'])
+        self.assertEqual(asked, [17, *range(18)])
+
+    def test_non_pager_refusal_does_not_replay_from_the_first_page(self):
+        cursor = self.adapter.purchase_history_page()['next_cursor']
+        for status in (403, 429):
+            failure = ArchiveError('Tapas refused this purchase-history page.')
+            failure.source_http_status = status
+            self.http.transport.get.reset_mock(side_effect=True)
+            self.http.transport.get.side_effect = failure
+            self.adapter._history_walked = 0
+            with self.assertRaises(ArchiveError):
+                self.adapter.purchase_history_page(cursor)
+            self.http.transport.get.assert_called_once()
+
     def test_unbound_direct_reader_establishes_identity_once(self):
         self.adapter.expected_account_id = None
         self.adapter.account_identity = Mock(return_value='synthetic-account')

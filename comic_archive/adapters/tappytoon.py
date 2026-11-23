@@ -20,7 +20,7 @@ from ..errors import AccessDenied, AuthenticationError, MetadataError
 from ..expiry import observed_expiration
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
-from ..transport import ExpiredAsset, Transport, asset_url
+from ..transport import ExpiredAsset, Transport, asset_url, metadata_bytes
 from .site_reader import SiteReader
 
 SITE = sites.named('tappytoon')
@@ -39,6 +39,9 @@ NO_LICENSE = b'does not have the license'
 # A series of 100 pages of 100 chapters is far beyond any on the site; a list that long has gone wrong.
 MAX_LIST_PAGES = 100
 MAX_DOCUMENT = 8 * 1024 * 1024
+MAX_LIST_BYTES = 32 * 1024 * 1024
+MAX_PAGE_ROWS = 500
+MAX_LIST_ROWS = 10000
 # The account's own lists, as its library page reads them: where each is, and which field names the series.
 LISTS = {'unlocked': ('/me/unlocked-books', {'category': 'comic', 'sort': 'unlocked_date', 'locale': 'en'}, 'bookId'),
          'subscribed': ('/comics', {'filter': 'favorites', 'category': 'comic', 'sort': 'subscribed_date:desc',
@@ -146,8 +149,8 @@ class TappytoonAdapter(SiteReader):
         that has run out would otherwise read on as a visitor, and find bought chapters locked.
         """
         if self._key is None or renew:
-            data = self.transport.get(KEY_PAGE)
-            found = PAGE_DATA.search(data) if len(data) <= MAX_DOCUMENT else None
+            data = metadata_bytes(self.transport, KEY_PAGE, MAX_DOCUMENT)
+            found = PAGE_DATA.search(data)
             try:
                 state = json.loads(found[1])['props']['initialState']
                 key = state['axios']['headers']['Authorization']
@@ -163,14 +166,20 @@ class TappytoonAdapter(SiteReader):
 
     def api(self, path, query, take_cookies=False, address=None):
         """One answer from Tappytoon's API, as JSON. A key that has run out is renewed once."""
+        return self._parse_api(self._api_bytes(path, query, take_cookies, address))
+
+    def _api_bytes(self, path, query, take_cookies, address, limit=MAX_DOCUMENT):
         url = address or f'{API}{path}?{urlencode(query)}'
         for renew in (False, True):
             try:
-                data = self.transport.get(url, authorization=self.key(renew), take_cookies=take_cookies)
-                break
+                return metadata_bytes(self.transport, url, limit,
+                                      authorization=self.key(renew), take_cookies=take_cookies)
             except ExpiredAsset:
                 if renew:
                     raise
+
+    @staticmethod
+    def _parse_api(data):
         try:
             return json.loads(data)
         except ValueError:
@@ -198,11 +207,18 @@ class TappytoonAdapter(SiteReader):
     def listed(self, path, query):
         """Everything in one of Tappytoon's lists, following its pages."""
         found, address, asked = [], None, set()
+        remaining = MAX_LIST_BYTES
         for _ in range(MAX_LIST_PAGES):
-            value = self.api(path, query, address=address)
+            if not remaining:
+                raise MetadataError('Tappytoon gave a list that exceeds the supported byte limit.')
+            data = self._api_bytes(path, query, False, address, min(remaining, MAX_DOCUMENT))
+            remaining -= len(data)
+            value = self._parse_api(data)
             asked.add(address or f'{API}{path}?{urlencode(query)}')
             if not isinstance(value, list):
                 raise MetadataError('Tappytoon gave a list of an unexpected shape.')
+            if len(value) > MAX_PAGE_ROWS or len(found) + len(value) > MAX_LIST_ROWS:
+                raise MetadataError('Tappytoon gave a list longer than any the app expects.')
             found += value
             following = re.search(r'<([^>]+)>\s*;\s*rel="next"', (self.transport.last_response or {}).get('link', ''))
             if following is None:

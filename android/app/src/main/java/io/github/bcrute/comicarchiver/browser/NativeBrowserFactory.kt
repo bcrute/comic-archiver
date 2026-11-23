@@ -16,6 +16,7 @@ class NativeBrowserFactory(
     private val context: Context,
     private val profile: () -> SiteBrowserProfile,
     private val permitted: () -> Boolean,
+    private val browserReady: () -> Boolean,
     private val boundView: (Context, SiteBrowserProfile) -> WebView = { owner, selected ->
         WebView(owner).also(selected::bind)
     },
@@ -29,7 +30,8 @@ class NativeBrowserFactory(
 
     fun available(): Boolean = try {
         onBrowserMain {
-            IsolatedScriptChannel.available() && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+            browserReady() && IsolatedScriptChannel.available() &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
         }
     } catch (_: Exception) { false }
 

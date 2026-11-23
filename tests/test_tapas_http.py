@@ -2,7 +2,8 @@ import json
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from comic_archive.adapters.tapas_http import TapasHTTPAdapter, access_state
+from comic_archive.adapters.tapas_http import MAX_JSON_BYTES, TapasHTTPAdapter, access_state
+from comic_archive.cancellation import RunCancelled
 from comic_archive.models import ArchiveError, Page, Series
 from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 
@@ -12,6 +13,45 @@ def envelope(value):
 
 
 class TapasHTTPTests(unittest.TestCase):
+    def test_episode_summaries_keep_only_unique_positive_integer_orders(self):
+        transport = Mock()
+        reader = TapasHTTPAdapter(transport=transport)
+        rows = [{'id': i, 'title': 'Episode', 'scene': scene}
+                for i, scene in enumerate((1, 1, 2, None, [], 0), 1)]
+        self.assertEqual([row['order'] for row in reader._episode_summaries(rows)],
+                         [None, None, 2, None, None, None])
+        self.assertEqual(transport.cancel_check.call_count, len(rows))
+
+    def test_scene_lookup_work_grows_one_for_one_with_episode_count(self):
+        scene_lookups = 0
+
+        class Episode(dict):
+            def get(self, key, default=None):
+                nonlocal scene_lookups
+                scene_lookups += key == 'scene'
+                return super().get(key, default)
+
+        self.transport.cancel_check = None
+        for size in (64, 512, 2048, 8192):
+            with self.subTest(episodes=size):
+                scene_lookups = 0
+                rows = (Episode(id=i, title='Episode', scene=i // 2 + 1) for i in range(size))
+                summaries = self.adapter._episode_summaries(rows)
+                self.assertEqual(len(summaries), size)
+                self.assertTrue(all(row['order'] is None for row in summaries))
+                self.assertEqual(scene_lookups, size)
+
+    def test_cancellation_during_scene_processing_exits_before_visiting_the_rest(self):
+        self.transport.cancel_check.side_effect = [None, RunCancelled('Paused')]
+
+        def episodes():
+            for i in (1, 2):
+                yield {'id': i, 'title': 'Episode', 'scene': i}
+            self.fail('The remaining rows should not be visited after cancellation.')
+
+        with self.assertRaises(RunCancelled):
+            self.adapter._episode_summaries(episodes())
+
     def reader_document_responses(self, info=None, html=None, reader_error=None):
         self.responses()
         normal = self.transport.get.side_effect
@@ -134,7 +174,8 @@ class TapasHTTPTests(unittest.TestCase):
             result=self.adapter.inspect_series('42',comic_only=True)
             self.assertTrue(result['complete']);self.assertEqual(len(result['episodes']),1)
             self.assertNotIn('episode_enumeration_skipped',result)
-            self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20')
+            self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20',
+                                                  max_bytes=MAX_JSON_BYTES)
 
     def test_default_series_inspection_still_enumerates_novels_and_invalid_option_stops(self):
         self.transport.get.side_effect=[envelope({'user':{'id':123}}),envelope({'id':42,'title':'S','book':True,'comic':False}),
@@ -157,7 +198,7 @@ class TapasHTTPTests(unittest.TestCase):
             'data_fields':{'user':'dict','library':'list'},'data_truncated':False})
         self.assertNotIn('PRIVATE',json.dumps(self.adapter._session_structure))
         self.assertNotIn('123',json.dumps(self.adapter._session_structure))
-        self.transport.get.assert_called_once_with('https://tapas.io/who-am-i')
+        self.transport.get.assert_called_once_with('https://tapas.io/who-am-i', max_bytes=MAX_JSON_BYTES)
         self.responses(user={'id':0})
         with self.assertRaises(ArchiveError):self.adapter.check_session()
         self.assertEqual(self.adapter._session_structure,{})
@@ -179,7 +220,8 @@ class TapasHTTPTests(unittest.TestCase):
             self.assertEqual(partial['episodes'][0]['access_state'],
                              'unavailable_or_unverified' if change else 'tapas_free')
             self.assertNotIn('PRIVATE', json.dumps(caught.exception.__dict__))
-            self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20')
+            self.transport.get.assert_called_with('https://tapas.io/series/42/episodes?page=1&max_limit=20',
+                                                  max_bytes=MAX_JSON_BYTES)
 
     def test_advisory_scheduling_and_expiry_do_not_veto_complete_reader(self):
         for change in ({'scheduled': True}, {'closing_date': 'PRIVATE_VALUE'}):
@@ -501,6 +543,27 @@ class TapasHTTPTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.transport.get.call_args_list], [
             "https://tapas.io/series/42/episodes?page=1&max_limit=20",
             "https://tapas.io/series/42/episodes?page=2&max_limit=20"])
+
+    def test_canceled_pagination_stops_before_a_second_request(self):
+        first = envelope({'pagination': {'page': 2, 'has_next': True, 'total': 2}, 'episodes': [self.info]})
+        for boundary in (1, 2, 3):
+            with self.subTest(checks_before_cancel=boundary):
+                self.transport.get.reset_mock()
+                self.transport.get.side_effect = [first]
+                self.transport.cancel_check.side_effect = [None] * boundary + [RunCancelled('Paused')]
+                with self.assertRaises(RunCancelled):
+                    self.adapter.enumerate_episodes(42)
+                self.assertEqual(self.transport.get.call_count, 1)
+
+    def test_actual_rows_are_bounded_across_episode_pages(self):
+        self.transport.get.side_effect = [
+            envelope({'pagination': {'page': 2, 'has_next': True, 'total': 2}, 'episodes': [self.info]}),
+            envelope({'pagination': {'page': 3, 'has_next': False, 'total': 2},
+                      'episodes': [self.info | {'id': 82, 'scene': 2}]})]
+        with patch('comic_archive.adapters.tapas_http.LIST_MAX_EPISODES', 1), \
+                self.assertRaisesRegex(MetadataError, 'supported list limit'):
+            self.adapter.enumerate_episodes(42)
+        self.assertEqual(self.transport.get.call_count, 2)
 
     def test_pagination_repeats_missing_items_changed_totals_and_cursors_rejected(self):
         first = {"pagination": {"page": 2, "has_next": True, "total": 2}, "episodes": [self.info]}

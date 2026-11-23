@@ -13,11 +13,11 @@ from dataclasses import replace
 import zstandard
 
 from .archive import Store, atomic_json, digest, image_extension, image_context, safe_name, archive_from_sidecar
-from .archive_paths import directory
+from .archive import expanded_archive_bytes
+from .archive_paths import directory, pinned_publication, staged_archive
 from .models import ArchiveError
 from .osdep import replace_file, shortened, units
 
-MAX_PAGE_BYTES = 100 * 1024 * 1024
 # What follows a title in a name: ' [' with twelve characters of the export id and ']', then the longest
 # ending a file gets while it is written ('.tar.zst.tmp').
 AFTER_TITLE, AFTER_NAME = 15, 12
@@ -110,25 +110,65 @@ class StrictZstdReader:
     """A bounded single frame reader that rejects truncation and trailing frames."""
     def __init__(self, source, maximum):
         self.source, self.maximum, self.total = source, maximum, 0
-        self.decoder = zstandard.ZstdDecompressor(max_window_size=8*1024*1024).decompressobj()
-        self.first_chunk = True
+        self.decoder = zstandard.ZstdDecompressor().decompressobj()
+        self.block_limit = None
+        self.prefix = bytearray()
         self.buffer = bytearray()
+
+    def _input(self, size, *, allow_end=False):
+        data = self.prefix[:size]
+        del self.prefix[:size]
+        while len(data) < size:
+            chunk = self.source.read(size - len(data))
+            if not chunk:
+                if allow_end:
+                    break
+                raise ValueError('Incomplete compressed frame')
+            data.extend(chunk)
+        return data
+
+    def _block(self):
+        if self.block_limit is None:
+            header = self._input(18, allow_end=True)
+            if not header.startswith(b'\x28\xb5\x2f\xfd'):
+                raise ValueError('Invalid Zstandard frame header')
+            header_size = zstandard.frame_header_size(bytes(header))
+            params = zstandard.get_frame_parameters(bytes(header))
+            if params.window_size > 8 * 1024 * 1024:
+                raise ValueError('Compressed window exceeds the supported size')
+            self.block_limit = min(params.window_size, 128 * 1024)
+            self.checksum = params.has_checksum
+            self.prefix = header[header_size:]
+            self.decoder.decompress(bytes(header[:header_size]))
+
+        header = self._input(3)
+        descriptor = int.from_bytes(header, 'little')
+        last = bool(descriptor & 1)
+        kind = (descriptor >> 1) & 3
+        length = descriptor >> 3
+        if kind == 3 or length > self.block_limit:
+            raise ValueError('Invalid compressed block header')
+        if kind != 2 and self.total + length > self.maximum:
+            raise ValueError('Archive exceeds its manifest')
+        block = self._input(1 if kind == 1 else length)
+        if last and self.checksum:
+            block.extend(self._input(4))
+        # One RFC 8878 block can expand to at most 128 KiB. A buffer of arbitrary
+        # compressed bytes could hold many blocks and expand before the size check.
+        data = self.decoder.decompress(bytes(header + block))
+        self.total += len(data)
+        if self.total > self.maximum:
+            raise ValueError('Archive exceeds its manifest')
+        if self.decoder.eof != last:
+            raise ValueError('Incomplete compressed frame')
+        if last and (self.decoder.unused_data or self.prefix or self.source.read(1)):
+            raise ValueError('Unexpected data after compressed frame')
+        return data
 
     def read(self, size=-1):
         if size < 0: raise ValueError('Unbounded archive reads are unsupported')
         while len(self.buffer) < size and not self.decoder.eof:
-            compressed = self.source.read(4096)
-            if not compressed: raise ValueError('Incomplete compressed frame')
-            if self.first_chunk:
-                if zstandard.get_frame_parameters(compressed).window_size > 8*1024*1024:
-                    raise ValueError('Compressed window exceeds the supported size')
-                self.first_chunk = False
-            data = self.decoder.decompress(compressed)
-            self.total += len(data)
-            if self.total > self.maximum: raise ValueError('Archive exceeds its manifest')
-            self.buffer.extend(data)
-            if self.decoder.eof and (self.decoder.unused_data or self.source.read(1)):
-                raise ValueError('Unexpected data after compressed frame')
+            self.buffer.extend(self._block())
         data = bytes(self.buffer[:size])
         del self.buffer[:size]
         return data
@@ -141,13 +181,16 @@ class StrictZstdReader:
 
 def comic_pages(meta):
     pages = meta['content_hashes']
-    if (not isinstance(pages, list) or not pages or len(pages) > 10000
-            or type(meta.get('page_count')) is not int or meta['page_count'] != len(pages)):
+    if (not isinstance(pages, list) or not pages or type(meta.get('page_count')) is not int
+            or meta['page_count'] != len(pages)):
         raise ValueError('Invalid page count')
+    try:
+        expanded_archive_bytes(pages)
+    except ValueError as error:
+        raise ValueError(f'Invalid page manifest: {error}') from None
     width = max(4, len(str(len(pages))))
     for i, page in enumerate(pages, 1):
-        if (not isinstance(page, dict) or type(page.get('size')) is not int
-                or not 0 < page['size'] <= MAX_PAGE_BYTES
+        if (not isinstance(page, dict)
                 or not isinstance(page.get('file'), str)
                 or not re.fullmatch(f'{i:0{width}d}\\.(?:jpg|png|gif|webp)', page['file'])
                 or not isinstance(page.get('sha256'), str) or not re.fullmatch('[0-9a-f]{64}', page['sha256'])):
@@ -188,9 +231,7 @@ def write_compressed_comic(path, metadata, open_page, check=None):
     """Stream originals into a deterministic TAR and a checksummed Zstd frame."""
     pages = comic_pages(metadata)
     temporary = path.with_name(path.name + '.tmp')
-    if any(p.is_symlink() for p in (path, temporary, *path.parents)):
-        raise ArchiveError('Refusing unsafe archive output.')
-    try:
+    with staged_archive(path, temporary):
         with temporary.open('wb') as output:
             with zstandard.ZstdCompressor(level=1, write_checksum=True).stream_writer(output, closefd=False) as compressed:
                 with tarfile.open(fileobj=compressed, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
@@ -203,9 +244,7 @@ def write_compressed_comic(path, metadata, open_page, check=None):
         with temporary.open('rb') as stream:
             if verify_compressed_comic(stream, metadata):
                 raise ArchiveError('New compressed export failed verification; originals are retained.')
-        replace_file(temporary, path)
-    finally:
-        if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
+        replace_file(temporary, path, pinned=True)
 
 
 def _zip_pages(output, pages, open_page, check):
@@ -234,18 +273,14 @@ def write_cbz(path, metadata, open_page, check=None):
     from .archive import verify_episode_contents
     pages = comic_pages(metadata)
     temporary = path.with_name(path.name + '.tmp')
-    if any(p.is_symlink() for p in (path, temporary, *path.parents)):
-        raise ArchiveError('Refusing unsafe CBZ output.')
-    try:
+    with staged_archive(path, temporary):
         with temporary.open('wb') as output:
             _zip_pages(output, pages, open_page, check)
             output.flush(); os.fsync(output.fileno())
         with temporary.open('rb') as source:
             if verify_episode_contents(source, metadata):
                 raise ArchiveError('New CBZ failed verification; original pages are retained.')
-        replace_file(temporary, path)
-    finally:
-        if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
+        replace_file(temporary, path, pinned=True)
 
 
 # An episode bigger than this, held in memory for a direct upload, is saved here instead.
@@ -640,7 +675,8 @@ class PublicationStore(Store):
         private = self.provenance / (export_id + '.json')
         atomic_json(private, provenance_record(self.root, path, value, metadata))
         private.chmod(0o600)
-        atomic_json(path, value)
+        with pinned_publication(path.parent):
+            atomic_json(path, value, pinned=True)
         if not series: names.add(path.name)
         if not series and self._direct is not None and self._direct.data is not None:
             # Held in memory, not saved here: it uploads once the series files are written.

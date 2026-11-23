@@ -5,8 +5,10 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.webkit.ScriptHandler
+import io.github.bcrute.comicarchiver.browser.WebViewEgress
 import io.github.bcrute.comicarchiver.controller.SignInState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -93,6 +95,7 @@ class WebViewSignInEngine(
     private val savedSignIn: (String) -> Boolean = { false },
     private val online: () -> Boolean = { true },
     private val openTimeoutMs: Long = SIGNIN_OPEN_TIMEOUT_MS,
+    private val browserReady: () -> Boolean = { WebViewEgress.ready },
 ) : SignInEngine, SignInVerification {
 
     private val main = Handler(Looper.getMainLooper())
@@ -171,6 +174,7 @@ class WebViewSignInEngine(
     /** Drive the UI-owned WebView through the site's real sign-in page. */
     override fun startSignIn(webView: WebView) {
         if (!hasAuthority) { finish(SignInState.Failed("unsupported_site")); return }
+        if (!browserReady()) { finish(SignInState.Failed("signin_unavailable")); return }
         val site = address ?: throw IllegalStateException("Load a site before signing in.")
         finish(SignInState.SignedOut)
         val connected = try { online() } catch (_: Exception) { true }
@@ -182,6 +186,7 @@ class WebViewSignInEngine(
         webView.settings.saveFormData = false
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
+        webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         store.rememberBrowserUserAgent(webView.settings.userAgentString)
         store.prepare()
         synchronized(this) {

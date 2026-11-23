@@ -185,6 +185,15 @@ class NovelTests(unittest.TestCase):
         self.assertIn('reason=unsupported_tag tag=script', lines)
         self.assertNotIn('PRIVATE_', lines)
 
+        from comic_archive.support_log import site_records
+        records = site_records('Tapas', Path(self.work.name) / 'session', self.root)
+        self.assertIn('=== Tapas: EPUB failure details', records)
+        self.assertIn('series 42 episode 81: reason=unsupported_tag tag=script', records)
+        self.assertNotIn('PRIVATE_', records)
+        with Inventory(self.root) as inventory:
+            inventory.mark('81', 'archived')
+            self.assertNotIn('81', [row['id'] for row in inventory.novel_failures(10)])
+
     def seed(self, legacy=False):
         with Inventory(self.root) as inventory:
             inventory.observe('42', 'Novel', [
@@ -238,6 +247,22 @@ class NovelTests(unittest.TestCase):
                     parser.feed(html)
                     parser.text()
                 self.assertEqual(error.exception.code, 'novel_manifest_incomplete')
+
+    def test_novel_diagnostics_distinguish_missing_unclosed_and_hidden_bodies(self):
+        cases = (
+            ('<div id="episode-81"></div>', 'missing_chapter_body'),
+            ('<div id="episode-81"><div id="epub-81" class="ep-epub-content"><p>Unclosed',
+             'unclosed_chapter_body'),
+            ('<div id="episode-81"><div id="epub-81" class="ep-epub-content" style="display:none">',
+             'hidden_content'),
+        )
+        for markup, reason in cases:
+            with self.subTest(reason=reason):
+                parser = NovelHTML('81')
+                with self.assertRaises(UnsupportedContent) as error:
+                    parser.feed(markup)
+                    parser.text()
+                self.assertEqual(error.exception.novel_reason, reason)
 
     def test_embedded_illustrations_preserve_bytes_and_strikethrough_offline(self):
         from PIL import Image
@@ -598,6 +623,9 @@ class NovelTests(unittest.TestCase):
         for name, (package, metadata, deflate) in cases.items():
             with self.subTest(name):
                 self.assertEqual(self.verify_package(package, metadata, deflate), corrupt)
+        for member in EPUB_FILES[1:]:
+            with self.subTest(member=member):
+                self.assertEqual(self.verify_package(*edited(member, b'?>', b'?><?sample instruction?>')), corrupt)
 
     def test_epub_file_list_rejects_inconsistent_illustration_metadata(self):
         base = [{'file': name, 'size': 1, 'sha256': '0'} for name in EPUB_FILES]

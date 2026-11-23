@@ -2,7 +2,7 @@
 # qualified by the first whole-app fleet build; nothing here is proven until that receipt.
 [versions]
 agp = "8.13.0"
-kotlin = "2.2.20"
+kotlin = "2.4.21"
 chaquopy = "17.1.0"
 activityCompose = "1.9.3"
 core = "1.13.1"

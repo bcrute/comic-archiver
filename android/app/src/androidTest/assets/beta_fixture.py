@@ -18,6 +18,7 @@ _release = threading.Event()
 _blocked = threading.Event()
 _installed = False
 _did_block = False
+_upgrade_pending = False
 _requests = set()
 _asset_requests = 0
 _asset_cookie_leaks = 0
@@ -44,12 +45,13 @@ def png(seed):
 
 PAGES = (png(b'android-beta-page-one'), png(b'android-beta-page-two'))
 ASSETS = tuple(f'https://us-a.tapas.io/pc/integration/{i}.png?signature=FIXTURE' for i in (1, 2))
+UPGRADE_ASSETS = tuple(f'https://us-a.tapas.io/pc/integration/upgrade-{i}.png?signature=FIXTURE' for i in (1, 2))
 NOVEL_TEXT = 'A silver fixture chapter survives a cold restart.'
 
 
 def episode(key, *, novel=False, locked=False):
     return {'id': key, 'title': 'Silver Chapter One' if novel else ('Locked Gate' if locked else 'Golden Open'),
-            'scene': 2 if locked else 1,
+            'scene': 3 if key == 9002 else 2 if locked else 1,
             'must_pay': locked, 'scheduled': False, 'book': novel, 'free': not novel and not locked,
             'unlocked': novel and not locked, 'closing_date': None}
 
@@ -115,17 +117,17 @@ def serve(request):
             _unexpected += 1
             _unexpected_seen.append(f'{request.method} {host}{path}'[:120])
         return httpx.Response(405)
-    if host == 'us-a.tapas.io' and path in {'/pc/integration/1.png', '/pc/integration/2.png'}:
+    if host == 'us-a.tapas.io' and path in {httpx.URL(url).path for url in (*ASSETS, *UPGRADE_ASSETS)}:
         with _lock:
             _asset_requests += 1
             if request.headers.get('Cookie'):
                 _asset_cookie_leaks += 1
                 return httpx.Response(403)
-            block = path.endswith('/1.png') and not _did_block
+            block = path.endswith(('/1.png', '/upgrade-1.png')) and not _did_block
             if block:
                 _did_block = True
         return httpx.Response(200, headers={'Content-Type': 'image/png'},
-                              stream=PageStream(PAGES[0 if path.endswith('/1.png') else 1], block))
+                              stream=PageStream(PAGES[0 if path.endswith(('/1.png', '/upgrade-1.png')) else 1], block))
     if host in {'m.tapas.io', 'tapas.io'}:
         authenticated = any(value.strip() == 'fixture_session=READY'
                             for value in request.headers.get('Cookie', '').split(';'))
@@ -151,19 +153,23 @@ def serve(request):
                 return httpx.Response(200, json={'data': info})
             if path == f'/series/{key}/episodes':
                 episodes = [episode(9100, novel=True)] if key == 2002 else [episode(9001), episode(9003, locked=True)]
+                if key == 1001 and _upgrade_pending:
+                    episodes.append(episode(9002))
                 return httpx.Response(200, json={'data': {'pagination': {'total': len(episodes), 'has_next': False},
                                                          'episodes': episodes}})
             if path in {f'/series/{info["url"]}', f'/series/{info["url"]}/info'}:
                 return httpx.Response(200, html=f'<html><script>var seriesId={key};</script>'
                                       '<div class="js-series-description"><span class="description__body">'
                                       'Offline integration fixture.</span></div></html>')
-        for key in (9001, 9003, 9100):
+        for key in (9001, 9002, 9003, 9100):
             if path == f'/episode/{key}/info':
                 return httpx.Response(200, json={'data': episode(key, novel=key == 9100, locked=key == 9003)})
-        if path == '/episode/9001':
-            images = ''.join(f'<img class="content__img" data-src="{url}">' for url in ASSETS)
+        if path in {'/episode/9001', '/episode/9002'}:
+            key = path.rsplit('/', 1)[-1]
+            urls = UPGRADE_ASSETS if key == '9002' else ASSETS
+            images = ''.join(f'<img class="content__img" data-src="{url}">' for url in urls)
             return httpx.Response(200, html='<script>var seriesId=1001;</script>'
-                                  f'<div id="episode-9001"><article>{images}</article></div>')
+                                  f'<div id="episode-{key}"><article>{images}</article></div>')
         if path == '/episode/9100':
             return httpx.Response(200, html='<script>var seriesId=2002;</script>'
                                   f'<div id="episode-9100"><div id="epub-9100" class="ep-epub-content"><p>{NOVEL_TEXT}</p>'
@@ -341,3 +347,50 @@ def working_library_facts(root):
                        'binding_digest': hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
                        'archived': counts.get('archived', 0),
                        'not_archived': sum(count for status, count in counts.items() if status != 'archived')})
+
+
+
+def set_upgrade_pending(block):
+    global _upgrade_pending, _did_block
+    with _lock:
+        _upgrade_pending = True
+        _did_block = False
+        _transfer_gate.clear()
+        if block:
+            _release.clear()
+        else:
+            _release.set()
+
+
+def upgrade_inventory(root):
+    from pathlib import Path
+    from comic_archive.inventory import Inventory
+
+    with Inventory(Path(root) / 'Library', read_only=True) as inventory:
+        rows = dict(inventory.db.execute('SELECT id,status FROM episodes ORDER BY id'))
+    return json.dumps(rows)
+
+
+
+def seed_upgrade_episode(root):
+    """Record a newly eligible synthetic episode without creating its archive."""
+    from pathlib import Path
+    from comic_archive import sites
+    from comic_archive.inventory import Inventory
+    from comic_archive.locking import wait_for_library
+
+    library = Path(root) / 'Library'
+    with wait_for_library(library, 30), Inventory(library) as inventory:
+        inventory.observe('1001', 'Golden Comic', [{
+            'id': '9002', 'title': 'Golden Open', 'order': 3, 'access_state': sites.DEFAULT.free,
+        }], 'episode_check')
+
+
+
+def upgrade_selected(root, series_id):
+    from pathlib import Path
+    from comic_archive import comic_selection
+    from comic_archive.inventory import Inventory
+
+    with Inventory(Path(root) / 'Library', read_only=True) as inventory:
+        return comic_selection.includes(comic_selection.read(inventory.db), series_id)

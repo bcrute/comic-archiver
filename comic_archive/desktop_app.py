@@ -10,7 +10,6 @@ import argparse
 import contextlib
 import hashlib
 from importlib import metadata
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -28,6 +27,8 @@ from .app_runtime import LOG
 from .models import ArchiveError
 from .dashboard_model import POLL_SECONDS
 from .qt_engine import CookieRecords, common_agent, secure_qt_environment
+from .browser_egress import BrowserEgress
+from .public_destination import browser_request_allowed, public_https_url
 from .tapas_auth import identity
 from .adapters.tappytoon import account as tappytoon_account
 from .adapters.webtoon import USER_INFO, account as webtoon_account
@@ -188,36 +189,23 @@ def version():
         return 'unknown'
 
 
-def signin_navigation(scheme, host, path, main_frame=True, history=False):
+def signin_navigation(url, main_frame=True, history=False):
     """Whether the sign-in page may load an address. A whole page comes over https or not at all.
 
     Stepping back through the page's history never returns to its blank start."""
-    if scheme == 'about' and not host:
-        return (path == 'blank' and not history) or (path == 'srcdoc' and not main_frame)
-    if scheme == 'https' and host and not private_destination(host):
-        return True
-    # Inside a page, sites also build frames from their own data; files and engine pages stay out.
-    return not main_frame and scheme in {'data', 'blob'}
-
-
-def private_destination(host):
-    """A name or address that unambiguously stays off the public Internet.
-
-    The sign-in page may use public identity providers, but it has no reason to
-    contact this computer, another LAN host, or a special-purpose IP address.
-    DNS names are still subject to the web engine's own private-network rules;
-    this catches destinations visible before DNS resolution.
-    """
-    name = host.strip('[]').rstrip('.').lower()
-    if (name == 'localhost' or name.endswith('.localhost') or name == 'local' or name.endswith('.local')
-            or name == 'home.arpa' or name.endswith('.home.arpa')):
-        return True
-    try:
-        address = ipaddress.ip_address(name)
-    except ValueError:
+    scheme, separator, rest = url.partition(':')
+    if not separator:
         return False
-    address = getattr(address, 'ipv4_mapped', None) or address
-    return not address.is_global or address.is_multicast
+    scheme = scheme.lower()
+    if scheme == 'about':
+        path = rest.partition('#')[0].partition('?')[0]
+        return (path == 'blank' and not history) or (path == 'srcdoc' and not main_frame)
+    # Inside a page, sites also build frames from their own data; files and engine pages stay out.
+    return public_https_url(url) or (not main_frame and scheme in {'data', 'blob'})
+
+
+def _encoded_url(url):
+    return bytes(url.toEncoded()).decode('ascii', errors='replace')
 
 
 def on_site(scheme, host, site=sites.DEFAULT):
@@ -336,7 +324,7 @@ def uninstall(q, quiet, report=None, anyway=False):
     from . import uninstall as removal
     box = q.QtWidgets.QMessageBox
     if not quiet:
-        application(q)
+        application(q, browser=False)
         buttons = box.StandardButton
         if box.question(None, APP_NAME, UNINSTALL_ASK, buttons.Yes | buttons.No, buttons.No) != buttons.Yes:
             return UNINSTALL_INCOMPLETE
@@ -422,18 +410,43 @@ def qt():
                            QtWebEngineWidgets=QtWebEngineWidgets, QtWidgets=QtWidgets)
 
 
-def application(q):
+def application(q, *, browser=True, disable_gpu=False):
     global _application
-    app = q.QtWidgets.QApplication.instance() or q.QtWidgets.QApplication([DESKTOP_ID])
+    app = q.QtWidgets.QApplication.instance()
+    if app is None:
+        egress = BrowserEgress() if browser else None
+        try:
+            flags = ['--webEngineArgs', *egress.switches()] if egress is not None else []
+            if disable_gpu and egress is not None:
+                flags.append('--disable-gpu')
+            app = q.QtWidgets.QApplication([DESKTOP_ID, *flags])
+        except BaseException:
+            if egress is not None:
+                egress.close()
+            raise
+        app.browser_egress = egress
     app.setApplicationName(APP_NAME)
     app.setDesktopFileName(DESKTOP_ID)
     if osdep.WINDOWS:
         windows_identity(q, app)
-    # The Tapas sign-in page connects directly, as the downloader's own engine does (qt_engine).
+    # The sign-in page and downloader have their own connector, without ambient proxy settings.
     q.QtNetwork.QNetworkProxyFactory.setUseSystemConfiguration(False)
+    egress = getattr(app, 'browser_egress', None)
+    if browser and egress is not None:
+        try:
+            egress.configure_qt(q.QtNetwork)
+        except BaseException:
+            egress.close()
+            raise
     # Qt objects are torn down in a safe order only while the application outlives them.
     _application = app
     return app
+
+
+def _close_browser(app):
+    egress = getattr(app, 'browser_egress', None)
+    if egress is not None:
+        egress.close()
 
 
 def windows_identity(q, app):
@@ -516,7 +529,7 @@ def close_for_update(q):
 
     An instance from before this request existed does not answer it, and stays open.
     """
-    application(q)
+    application(q, browser=False)
     try:
         state = app_runtime.state_dir()
     except ArchiveError:
@@ -871,16 +884,19 @@ class Shell:
     def make_signin(self):
         """A bar that says where the page comes from, above Tapas's own page."""
         q, core, widgets = self.q, self.q.QtWebEngineCore, self.q.QtWidgets
+        egress = getattr(self.app, 'browser_egress', None)
+        if egress is None:
+            raise ArchiveError('The protected browser connection is unavailable.')
 
         class SignInPage(core.QWebEnginePage):
             def acceptNavigationRequest(self, url, kind, main_frame):
                 back = kind == core.QWebEnginePage.NavigationType.NavigationTypeBackForward
-                return signin_navigation(url.scheme(), url.host(), url.path(), main_frame, back)
+                return signin_navigation(_encoded_url(url), main_frame, back)
 
         class Guard(core.QWebEngineUrlRequestInterceptor):
             def interceptRequest(self, info):
                 # May run off the window's thread: it looks at the request and at nothing else.
-                if private_destination(info.requestUrl().host()):
+                if not browser_request_allowed(_encoded_url(info.requestUrl())):
                     info.block(True)
 
         self.world = int(core.QWebEngineScript.ScriptWorldId.ApplicationWorld)
@@ -889,7 +905,7 @@ class Shell:
         self.signin_profile = core.QWebEngineProfile(self.app)
         # Tapas sees one name for the sign-in and for the downloader that later uses it.
         self.signin_profile.setHttpUserAgent(common_agent(self.signin_profile.httpUserAgent()))
-        # No web page may reach this computer or its network. The profile does not own its interceptor.
+        # Check each written destination before Chromium resolves it. Keep ownership of the interceptor.
         self.signin_guard = Guard(self.signin_profile)
         self.signin_profile.setUrlRequestInterceptor(self.signin_guard)
         self.signin_profile.downloadRequested.connect(lambda item: item.cancel())
@@ -900,6 +916,7 @@ class Shell:
         store.cookieRemoved.connect(self.cookie_removed)
         store.loadAllCookies()
         self.signin_page = SignInPage(self.signin_profile, self.window)
+        self.signin_page.proxyAuthenticationRequired.connect(egress.authenticate)
         self.signin_page.newWindowRequested.connect(self.signin_new_window)
         self.signin_page.permissionRequested.connect(lambda permission: permission.deny())
         self.signin_page.loadingChanged.connect(self.signin_loading)
@@ -1148,7 +1165,7 @@ class Shell:
     def signin_new_window(self, request):
         url = request.requestedUrl()
         # One page at a time: a link meant for another window opens here, anything else is dropped.
-        if self.signin_stage == 'page' and url.scheme() == 'https' and url.host():
+        if self.signin_stage == 'page' and public_https_url(_encoded_url(url)):
             self.signin_view.load(url)
 
     def signin_render_gone(self, status, code):
@@ -1439,6 +1456,7 @@ def run(q, project_root):
         LOG.error('startup failed: %s', app_runtime.describe(error))
         text = failure_text(error, log_path)
     finally:
+        _close_browser(app)
         if shell is not None:
             runtime = shell.runtime  # Another one after the library folder was changed.
         if runtime is not None:
@@ -1465,10 +1483,10 @@ def raised_in(error):
 
 def self_test(q):
     """Show the real pages and build the real sign-in panel: empty temporary library, no downloader, no Tapas."""
-    for name, value in (('QT_QPA_PLATFORM', 'offscreen'), ('QT_QUICK_BACKEND', 'software'),
-                        ('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')):
+    for name, value in (('QT_QPA_PLATFORM', 'offscreen'), ('QT_QUICK_BACKEND', 'software')):
         os.environ.setdefault(name, value)
     results, seen = [], []
+    app = None
 
     def abandon():
         # The event loop itself is stuck, so no orderly exit is possible.
@@ -1481,7 +1499,7 @@ def self_test(q):
         with tempfile.TemporaryDirectory(prefix='comic-archiver-self-test-', ignore_cleanup_errors=True) as temporary:
             runtime = app_runtime.Library(Path(temporary).resolve() / 'library', noted=False)
             try:
-                app = application(q)
+                app = application(q, disable_gpu=True)
 
                 def settle(timed_out=False):
                     """Report once the dashboard and the sign-in cookie have both answered, or time is up."""
@@ -1509,6 +1527,7 @@ def self_test(q):
             finally:
                 runtime.stop(wait_seconds=0)
     finally:
+        _close_browser(app)
         watchdog.cancel()
     report, status = results[0] if results else self_test_result(False, None)
     print(json.dumps(report), flush=True)

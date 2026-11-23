@@ -38,8 +38,8 @@ BUILD = PROJECT / 'build/linux'
 DIST = PROJECT / 'dist'
 APP = 'ComicArchiver'
 # The one Python every build bundles and compiles its modules with; the other build scripts read it from here.
-PYTHON_RELEASE = '3.14.8'
-PBS_TAG = '20261009'
+PYTHON_RELEASE = '3.14.10'
+PBS_TAG = '20261110'
 PBS_BASE = 'https://github.com/astral-sh/python-build-standalone/releases/download/' + PBS_TAG
 # Every file in the tarball carries this time (1 January 2026 UTC), or SOURCE_DATE_EPOCH when that is set.
 ARCHIVE_TIME = 1767225600
@@ -51,7 +51,7 @@ def pbs_name(platform_name):
 
 PBS_NAME = pbs_name('x86_64-unknown-linux-gnu')
 PBS_URL = PBS_BASE + '/' + PBS_NAME.replace('+', '%2B')
-PBS_SHA256 = 'ddc902fd26460f728758c67d80417c1031edf97589f1f162c4ba3aa158a35998'
+PBS_SHA256 = 'c2ff2e97422f5d3896a16e0317fd212ba977bbf2688d93a6f7a03d817506bd30'
 EXTRAS = 'desktop,validation'
 # The license texts that come with no package in the app: Qt's (LGPL-3.0, which builds on GPL-3.0), Python's and
 # those of the libraries built into this Python. They are kept in packaging/licenses; see SOURCES.md there.
@@ -151,7 +151,16 @@ def run(args, *, env=None, cwd=PROJECT, timeout=None, capture=False):
 
 
 def require_audit():
-    """The finished app's packages are audited by this Python: say so before an hour is spent building."""
+    """Check the selected audit input or tool before building."""
+    if __package__:
+        from .audit_bundle import approved_receipt
+    else:
+        from audit_bundle import approved_receipt
+    receipt = approved_receipt()
+    if receipt is not None:
+        if not receipt[0].is_file():
+            raise RuntimeError('The approved desktop audit receipt file is missing.')
+        return
     if importlib.util.find_spec('pip_audit') is None:
         raise RuntimeError('pip-audit is required in the Python that runs this script (the test extra)')
 
@@ -538,7 +547,7 @@ def build():
     listing = run(['uv', 'pip', 'list', '--format', 'freeze', '--python', python], capture=True).stdout
     (app / 'requirements-frozen.txt').write_text(frozen_requirements(listing, release))
     run([sys.executable, PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
-         '--output', app / 'dependency-audit.json'])
+         '--output', app / 'dependency-audit.json', '--platform', 'linux'])
     install_packaging(app, release)
     return app, *make_archive(app, DIST, release)
 

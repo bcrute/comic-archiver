@@ -8,7 +8,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts import android_release
+from scripts import android_release, android_wheelhouse
 
 CHECKS = {'validation', 'mutation', 'qt_engine', 'linux_build', 'windows_build', 'bundle_audits'}
 MAC_CHECKS = {'native_tests', 'qt_engine', 'native_window', 'package_smoke', 'bundle_audit'}
@@ -76,7 +76,7 @@ def check_notes(body):
 
 
 def verify(folder, commit, release, owner, version, *, android_cert=None, android_identity=None,
-           android_build_tools=None):
+           android_build_tools=None, android_wheel_lock_sha256=None):
     evidence = folder / 'release-evidence.json'
     value = read_evidence(folder)
     if (not isinstance(value, dict) or not re.fullmatch(r'[a-f0-9]{40}', commit)
@@ -139,6 +139,8 @@ def verify(folder, commit, release, owner, version, *, android_cert=None, androi
     if SUMS in names:
         check_sums(folder / SUMS, artifacts)
     if android_asset:
+        android_release.check_provenance(value['android'].get('provenance'), artifacts[android_asset]['sha256'],
+                                         android_wheel_lock_sha256)
         if android_build_tools is None:
             raise ValueError('Android SDK Build Tools are required to verify the staged APK.')
         observed = android_release.inspect_apk(folder / android_asset, android_build_tools)
@@ -161,9 +163,10 @@ def main():
     evidence = read_evidence(args.folder)
     identity = (android_release.identity_from_source(project)
                 if isinstance(evidence, dict) and evidence.get('schema_version') == 2 else None)
+    wheel_digest = android_wheelhouse.load_lock(project)[0] if identity is not None else None
     verify(args.folder, args.commit, json.loads(args.release.read_text('utf-8')), args.owner, version,
            android_cert=args.android_cert_sha256, android_identity=identity,
-           android_build_tools=args.android_build_tools)
+           android_build_tools=args.android_build_tools, android_wheel_lock_sha256=wheel_digest)
     print('Fleet evidence and every release asset match the tagged commit.')
 
 

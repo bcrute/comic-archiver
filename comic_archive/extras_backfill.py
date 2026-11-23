@@ -1,5 +1,12 @@
 """Persistent supplemental-content work, independent of archived comic/novel files."""
+from contextlib import ExitStack
+import hashlib
+import os
+import re
+import stat
+
 from . import extras, sites
+from .osdep import NOFOLLOW, NONBLOCK
 
 MAX_ATTEMPTS = 3
 
@@ -57,30 +64,78 @@ def pending(inventory, free_only=False):
     return rows
 
 
-def adopt_existing(inventory, site, row, kinds):
+def _legacy_music(folder, episode_id, tracks, check):
+    if not isinstance(tracks, list) or not 0 < len(tracks) <= extras.MAX_TRACKS:
+        return False
+    filename = re.compile(re.escape(episode_id) + r'\.music-([1-9][0-9]{0,2})\.(?:mp3|m4a|ogg|flac|wav)')
+    identities = set()
+    inputs = []
+    remaining = extras.MAX_TRACKS * extras.MUSIC_BYTES
+    with ExitStack() as stack:
+        # Validate the entire selection before reading any track's contents.
+        for track in tracks:
+            check()
+            if not isinstance(track, dict) or not isinstance(track.get('file'), str):
+                return False
+            match = filename.fullmatch(track['file'])
+            if not match or int(match[1]) > extras.MAX_TRACKS:
+                return False
+            path = folder / track['file']
+            try:
+                before = path.lstat()
+                if (not stat.S_ISREG(before.st_mode)
+                        or getattr(before, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                    return False
+                fd = os.open(path, os.O_RDONLY | NOFOLLOW | NONBLOCK | getattr(os, 'O_BINARY', 0))
+            except OSError:
+                return False
+            stream = stack.enter_context(os.fdopen(fd, 'rb'))
+            opened = os.fstat(stream.fileno())
+            identity = (opened.st_dev, opened.st_ino)
+            if (not stat.S_ISREG(opened.st_mode) or not opened.st_ino or identity in identities
+                    or (before.st_ino and identity != (before.st_dev, before.st_ino))
+                    or not 0 < opened.st_size <= min(extras.MUSIC_BYTES, remaining)):
+                return False
+            identities.add(identity)
+            remaining -= opened.st_size
+            inputs.append((path, stream, opened, track.get('sha256')))
+
+        for path, stream, opened, expected in inputs:
+            digest = hashlib.sha256()
+            remaining = opened.st_size
+            while remaining:
+                check()
+                chunk = stream.read(min(remaining, 64 * 1024))
+                if not chunk:
+                    return False
+                digest.update(chunk)
+                remaining -= len(chunk)
+            after = os.fstat(stream.fileno())
+            if ((after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns)
+                    or digest.hexdigest() != expected):
+                return False
+            try:
+                current = path.lstat()
+            except OSError:
+                return False
+            if (not stat.S_ISREG(current.st_mode)
+                    or getattr(current, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                    or not os.path.samestat(after, current)):
+                return False
+    return True
+
+
+def adopt_existing(inventory, site, row, kinds, check):
     """Recognize extras written by versions which had no per-kind completion receipts."""
-    import hashlib
-    import re
 
     value = extras.saved_value(inventory.root, site, row['series_id'], row['id'])
     known = records(inventory.db, row['id'])
     fields = dict(notes='creator_note', music='music', stats='stats', comments='comments')
     kept = [kind for kind in kinds if (row['id'], kind) not in known and fields[kind] in value]
-    if 'music' in kept:
-        tracks = value['music']
-        valid = isinstance(tracks, list) and bool(tracks)
-        for track in tracks if valid else ():
-            if (not isinstance(track, dict) or not isinstance(track.get('file'), str)
-                    or not re.fullmatch(re.escape(row['id']) + r'\.music-[1-4]\.(mp3|m4a|ogg|flac|wav)', track['file'])):
-                valid = False
-                break
-            path = extras.folder(inventory.root, site, row['series_id']) / track['file']
-            if (path.is_symlink() or not path.is_file() or path.stat().st_size > extras.MUSIC_BYTES
-                    or hashlib.sha256(path.read_bytes()).hexdigest() != track.get('sha256')):
-                valid = False
-                break
-        if not valid:
-            kept.remove('music')
+    if 'music' in kept and not _legacy_music(extras.folder(inventory.root, site, row['series_id']),
+                                              row['id'], value['music'], check):
+        kept.remove('music')
+    check()
     record(inventory.db, row['id'], kept, True)
 
 
@@ -98,7 +153,7 @@ def collect(inventory, adapter, budget, row, free_only=False):
     try:
         budget.check()
         budget.access_check()
-        adopt_existing(inventory, site.key, row, kinds)
+        adopt_existing(inventory, site.key, row, kinds, budget.check)
         kinds = wanted(inventory.db, site.key, row['id'])
         if not kinds:
             return

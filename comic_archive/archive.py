@@ -15,11 +15,30 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .models import ArchiveError, canonical_url, identifier
 from .transport import ExpiredAsset
-from .archive_paths import directory, leads_out
+from .archive_paths import directory, leads_out, pinned_publication, staged_archive
 from .osdep import anchored, hide, linked, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
 from .errors import RunLimit
 LIBRARY_REPORT_MAX_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 10_000
+MAX_MEMBER_BYTES = 100 * 1024 * 1024
+MAX_EXPANDED_ARCHIVE_BYTES = 2 * 1024**3
+MAX_PACKED_ARCHIVE_BYTES = MAX_EXPANDED_ARCHIVE_BYTES + 64 * 1024**2
+
+
+def expanded_archive_bytes(members):
+    """Validate the complete declared payload budget before opening an archive."""
+    if not isinstance(members, list) or not 0 < len(members) <= MAX_ARCHIVE_MEMBERS:
+        raise ValueError('Archive member count exceeds the supported range.')
+    total = 0
+    for member in members:
+        size = member.get('size') if isinstance(member, dict) else None
+        if type(size) is not int or not 0 < size <= MAX_MEMBER_BYTES:
+            raise ValueError('Archive member size exceeds the supported range.')
+        total += size
+        if total > MAX_EXPANDED_ARCHIVE_BYTES:
+            raise ValueError('Expanded archive exceeds the supported size.')
+    return total
 
 
 def digest(data):
@@ -97,7 +116,7 @@ def image_extension(data, *, context=None):
     return extension
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, pinned=False):
     temporary = path.with_suffix(path.suffix + ".tmp")
     if path.is_symlink() or temporary.is_symlink():
         raise ArchiveError("Refusing a symlink in archive output.")
@@ -107,7 +126,10 @@ def atomic_json(path, value):
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
-    replace_file(temporary, path)
+    if pinned:
+        replace_file(temporary, path, pinned=True)
+    else:
+        replace_file(temporary, path)
 
 
 class Store:
@@ -199,7 +221,8 @@ class Store:
         return {k: v for k, v in metadata.items() if k != 'imported_at'}
 
     def publish_metadata(self, path, metadata):
-        atomic_json(path, metadata)
+        with pinned_publication(path.parent):
+            atomic_json(path, metadata, pinned=True)
 
     def novel_entries(self, series, episode, modified):
         from .novels import epub_entries
@@ -208,9 +231,7 @@ class Store:
     def publish_comic(self, path, entries, metadata, check=None):
         temporary = path.with_suffix(path.suffix + '.tmp')
         if callable(check): check()
-        if temporary.is_symlink():
-            raise ArchiveError('Refusing a symlink in archive output.')
-        try:
+        with staged_archive(path, temporary):
             with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_STORED) as z:
                 for name, h, _size in entries:
                     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
@@ -218,9 +239,7 @@ class Store:
                     info.external_attr = 0o644 << 16
                     with (self.cache / h).open('rb') as source, z.open(info, 'w', force_zip64=True) as target:
                         shutil.copyfileobj(source, target)
-            replace_file(temporary, path)
-        finally:
-            if temporary.is_file() and not temporary.is_symlink(): temporary.unlink()
+            replace_file(temporary, path, pinned=True)
 
     def series_folder(self, series):
         row = self.db.execute("SELECT path FROM series_paths WHERE source=? AND series_id=?", (series.source, series.id)).fetchone()
@@ -525,6 +544,11 @@ class Store:
 
     def write_series_metadata(self,series,cover=None,enriched=False):
         folder=self.series_folder(series)
+        with pinned_publication(folder):
+            self._write_series_metadata(folder, series, cover, enriched)
+        return folder
+
+    def _write_series_metadata(self, folder, series, cover, enriched):
         count=self.series_episode_count(series,folder)
         metadata={'schema_version':1,'source':series.source,'source_series_id':series.platform_id or series.id,
                   'title':series.title,'creators':list(series.creators),'description':series.description,
@@ -565,7 +589,7 @@ class Store:
                     raise RunLimit('Insufficient disk space for the cover; episode archives are retained.')
                 with temporary.open('wb') as output:
                     output.write(cover); output.flush(); os.fsync(output.fileno())
-                replace_file(temporary, target)
+                replace_file(temporary, target, pinned=True)
             metadata.update(cover_file=name,cover_sha256=digest(cover),cover_size=len(cover))
         if enriched:
             metadata.update(metadata_source='authenticated_series_page',metadata_imported_at=datetime.now(timezone.utc).isoformat())
@@ -576,7 +600,6 @@ class Store:
                 if (other.name != name and other.suffix in {'.jpg', '.png', '.gif', '.webp'}
                         and other.is_file() and not linked(other)):
                     other.unlink()
-        return folder
 
     def archive(self, manifest, adapter, refresh=False, progress=print, download_workers=1):
         from .downloads import adapter_profile, validate_download_workers
@@ -649,8 +672,9 @@ class Store:
                     pass
             if self.publishes_here() and shutil.disk_usage(self.root).free < sum(size for _, _, size in entries) + self.min_free_bytes + 1024 * 1024:
                 raise RunLimit("Insufficient free disk space to publish the archive; original pages remain cached.")
-            self.publish_comic(cbz, entries, metadata, check)
-            self.publish_metadata(sidecar, metadata)
+            with pinned_publication(cbz.parent):
+                self.publish_comic(cbz, entries, metadata, check)
+                self.publish_metadata(sidecar, metadata)
             progress(f"Episode {episode.id}: archive and JSON saved")
         self.write_series_metadata(series)
         return folder
@@ -698,11 +722,9 @@ class Store:
         if shutil.disk_usage(self.root).free < sum(map(len, entries.values())) + self.min_free_bytes + 1024 * 1024:
             raise RunLimit('Insufficient free disk space to publish the EPUB; its queue is retained.')
         temporary = path.with_suffix('.epub.tmp')
-        if temporary.is_symlink():
-            raise ArchiveError('Refusing a symlink in novel output.')
         if callable(check):
             check()
-        try:
+        with staged_archive(path, temporary):
             with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_STORED) as z:
                 for name, data in entries.items():
                     entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
@@ -712,11 +734,8 @@ class Store:
                 if verify_episode_contents(stream, metadata):
                     raise ArchiveError('New novel export failed verification; its queue is retained.')
             sync_file(temporary)
-            replace_file(temporary, path)
+            replace_file(temporary, path, pinned=True)
             self.publish_metadata(sidecar, metadata)
-        finally:
-            if temporary.is_file() and not temporary.is_symlink():
-                temporary.unlink()
         progress(f'Episode {episode.id}: EPUB and JSON saved')
 
 
@@ -785,6 +804,7 @@ def verify_episode_contents(archive, meta, *, image_decoder=None):
         if meta.get('format') == 'epub':
             from .novels import EPUB_FILES, MAX_TEXT_BYTES, MAX_ILLUSTRATION_BYTES, epub_files, verify_epub
             hashes = meta['content_hashes']
+            expanded_archive_bytes(hashes)
             expected = epub_files(meta)
             if [item['file'] for item in hashes] != expected:
                 return ['Invalid EPUB file manifest']
@@ -802,6 +822,7 @@ def verify_episode_contents(archive, meta, *, image_decoder=None):
                 verify_epub(z, meta)
             return []
         pages = meta["content_hashes"]
+        expanded_archive_bytes(pages)
         expected = [p["file"] for p in pages]
         if not expected or len(set(expected)) != len(expected) or meta["page_count"] != len(pages):
             return ["Invalid page count or duplicate pages"]
@@ -810,7 +831,7 @@ def verify_episode_contents(archive, meta, *, image_decoder=None):
                 return ["Archive page order or membership differs from metadata"]
             for i, p in enumerate(pages, 1):
                 info = z.getinfo(p["file"])
-                if info.file_size != p["size"] or info.file_size > 100 * 1024 * 1024:
+                if info.file_size != p["size"]:
                     return ["Page size mismatch"]
                 data = z.read(p["file"])
                 width = max(4, len(str(len(pages))))

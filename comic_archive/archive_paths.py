@@ -1,10 +1,11 @@
 """Output path checks shared by archive publication and process locks."""
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 import threading
 
 from .errors import LibraryMoved
+from . import osdep
 from .models import ArchiveError
 from .osdep import linked
 
@@ -48,7 +49,35 @@ def leads_out(path, inside):
     return any(linked(part) for part in (path, *path.parents) if inside in part.parents)
 
 
-def directory(path, inside=None):
+@contextmanager
+def pinned_publication(parent):
+    """Keep the whole Windows output path in place until publication completes."""
+    if not osdep.WINDOWS:
+        yield
+        return
+    from .windows_privacy import pin_publication_directory
+    parent = Path(parent).absolute()
+    if '..' in parent.parts:
+        raise ArchiveError('Archive output path must not traverse parent directories.')
+    with ExitStack() as handles:
+        for folder in (*reversed(parent.parents), parent):
+            handles.enter_context(pin_publication_directory(folder))
+        yield
+
+
+@contextmanager
+def staged_archive(path, temporary):
+    with pinned_publication(path.parent):
+        if any(p.is_symlink() for p in (path, temporary, *path.parents)) or linked(temporary) or linked(path):
+            raise ArchiveError('Refusing a link in archive output.')
+        try:
+            yield
+        finally:
+            if temporary.is_file() and not linked(temporary):
+                temporary.unlink()
+
+
+def directory(path, inside=None, *, mode=0o777):
     """Make a folder the app writes in; inside names the library folder it must not be led out of."""
     if any(p.is_symlink() for p in (path, *path.parents)) or (inside is not None and leads_out(path, inside)):
         raise ArchiveError("Refusing a symlink in archive output.")
@@ -58,5 +87,5 @@ def directory(path, inside=None):
             folders = list(_kept)
         if any((absolute == folder or folder in absolute.parents) and not folder.is_dir() for folder in folders):
             raise LibraryMoved()
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(mode=mode, parents=True, exist_ok=True)
     return path

@@ -1298,7 +1298,7 @@ def qt_loop():
         QWebEngineSettings=SimpleNamespace(UnknownUrlSchemePolicy=SimpleNamespace(DisallowUnknownUrlSchemes='disallow')))
     loop = Loop()
     loop.q = SimpleNamespace(QtWebEngineCore=core, QtWebEngineWidgets=SimpleNamespace(QWebEngineView=QtThing))
-    loop.app, loop.surfaces = Mock(), []
+    loop.app, loop.surfaces, loop.egress = Mock(), [], Mock()
     return loop
 
 
@@ -1377,6 +1377,12 @@ class SurfaceRefusalTests(unittest.TestCase):
         info = SimpleNamespace(resourceType=broken, requestUrl=lambda: SimpleNamespace(toEncoded=lambda: b'https://tapas.io/'),
                                requestMethod=lambda: b'GET')
         self.assertTrue(self.refuses(lambda request: self.fail('the context was asked'), info))
+
+    def test_written_https_boundary_precedes_context_permission(self):
+        guard = Mock(return_value=False)
+        self.assertTrue(self.refuses(guard, self.info(url=b'http://images.example.com/')))
+        self.assertTrue(self.refuses(guard, self.info(url=b'https://images.example.com:8443/')))
+        guard.assert_not_called()
 
     def test_service_workers_are_refused_only_when_asked_and_without_asking_the_context(self):
         worker = self.info('ResourceTypeServiceWorker', b'https://tapas.io/sw.js', b'GET')

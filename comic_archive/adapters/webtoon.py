@@ -21,7 +21,7 @@ from .. import sites
 from ..errors import AccessDenied, AuthenticationError, MetadataError
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
-from ..transport import ExpiredAsset, Transport, asset_url
+from ..transport import ExpiredAsset, Transport, asset_url, metadata_bytes
 from ..webtoon_gateway import MobileAPI, PAGE_SIZE as MOBILE_PAGE_SIZE
 from .site_reader import SiteReader
 
@@ -37,6 +37,8 @@ EPISODES = 10 ** 6
 PAGE_SIZE = 100
 # A series of 1000 pages of 100 episodes is far beyond any on the site; a list that long has gone wrong.
 MAX_LIST_PAGES = 1000
+MAX_LIST_ROWS = 10000
+MAX_LIST_BYTES = 32 * 1024 * 1024
 # How long a series' list, read to find one episode's page, stands for the next episode it does not show.
 LIST_KEPT_SECONDS = 600
 MAX_DOCUMENT = 4 * 1024 * 1024
@@ -432,7 +434,7 @@ class WebtoonAdapter(SiteReader):
     def account_identity(self):
         """The signed-in account, as Webtoon's own pages name it. Once one is seen, it must stay the same: a
         sign-in that has run out would otherwise read on as a visitor."""
-        data = self.transport.get(HOME + USER_INFO)
+        data = metadata_bytes(self.transport, HOME + USER_INFO, MAX_DOCUMENT)
         try:
             named = account(json.loads(data))
         except ValueError:
@@ -471,7 +473,7 @@ class WebtoonAdapter(SiteReader):
             if callable(on_page):
                 on_page(result)
             return result
-        page = parsed(self.transport.get(HOME + SUBSCRIPTIONS))
+        page = parsed(metadata_bytes(self.transport, HOME + SUBSCRIPTIONS, MAX_DOCUMENT))
         if page.subscriptions is None:
             raise MetadataError('Webtoon gave a subscriptions page without its list.')
         found = {}
@@ -495,14 +497,21 @@ class WebtoonAdapter(SiteReader):
         """Every episode the website shows in a series, in Webtoon's order: (number, title, page address)."""
         title_no, canvas = split_series(key)
         found, cursor = [], None
+        remaining = MAX_LIST_BYTES
         for _ in range(MAX_LIST_PAGES):
+            if not remaining:
+                raise MetadataError('Webtoon gave an episode list that exceeds the supported byte limit.')
             query = {'pageSize': PAGE_SIZE} | ({'cursor': cursor} if cursor is not None else {})
-            data = self.transport.get(LIST_API.format(kind='canvas' if canvas else 'webtoon', title=title_no) + '?' + urlencode(query))
+            address = LIST_API.format(kind='canvas' if canvas else 'webtoon', title=title_no) + '?' + urlencode(query)
+            data = metadata_bytes(self.transport, address, min(remaining, MAX_DOCUMENT))
+            remaining -= len(data)
             try:
                 result = json.loads(data)['result']
                 episodes, after = result['episodeList'], result['nextCursor']
                 if not isinstance(episodes, list) or type(after) is not int:
                     raise TypeError
+                if len(episodes) > PAGE_SIZE or len(found) + len(episodes) > MAX_LIST_ROWS:
+                    raise MetadataError('Webtoon gave an episode list longer than any the app expects.')
                 for item in episodes:
                     number, title, link = item['episodeNo'], item['episodeTitle'], item['viewerLink']
                     if not isinstance(title, str) or not title.strip() or not isinstance(link, str):
@@ -585,7 +594,7 @@ class WebtoonAdapter(SiteReader):
             raise MetadataError('Webtoon shows no episodes of this series.')
         language, genre, slug = urlsplit(links[0]).path.split('/')[1:4]
         url = f'{HOME}/{language}/{genre}/{slug}/list?title_no={title_no}'
-        return parsed(self.transport.get(url))
+        return parsed(metadata_bytes(self.transport, url, MAX_DOCUMENT))
 
     def series_metadata(self, key):
         _, canvas = split_series(key)
@@ -658,7 +667,7 @@ class WebtoonAdapter(SiteReader):
             if identity in self._known_mobile_episodes:
                 return self._capture_mobile(identity)
         try:
-            page = parsed(self.transport.get(url))
+            page = parsed(metadata_bytes(self.transport, url, MAX_DOCUMENT))
         except ExpiredAsset as error:
             if canvas or not self.mobile_available() or getattr(error, 'source_http_status', None) not in {404, 410}:
                 raise

@@ -66,23 +66,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // The owner's release key, only when scripts/android_feasibility.py --phase release-apk
-    // materializes it job-private: Gradle receives the store's path and the path of a file
-    // holding its password, never the password itself. Without them a release APK stays
-    // unsigned, which no release check accepts.
-    signingConfigs {
-        providers.gradleProperty("releaseKeystore").orNull?.let { store ->
-            val password = file(providers.gradleProperty("releaseKeystorePasswordFile").get()).readText()
-            create("release") {
-                storeFile = file(store)
-                storeType = "pkcs12"
-                storePassword = password
-                keyAlias = "comic-archiver"
-                keyPassword = password
-            }
-        }
-    }
-
     buildTypes {
         debug {
             // One managed debug signing identity for fleet builds: scripts/android_feasibility.py
@@ -102,7 +85,6 @@ android {
             }
         }
         release {
-            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
         }
     }
@@ -153,30 +135,24 @@ chaquopy {
         // the host's own default python3 (3.14) must never be picked up implicitly.
         providers.gradleProperty("buildPython").orNull?.let { buildPython(it) }
         pip {
-            // When the build network can only reach an allowlisted mirror, it arrives as
-            // -PpipIndexUrl=... and replaces pip's index entirely: Chaquopy omits its own
-            // chaquo.com repository exactly when a user --index-url is present
-            // (pip_install.py in 17.1.0), and the pinned zstandard wheels still come from
-            // --find-links below.
-            providers.gradleProperty("pipIndexUrl").orNull?.let { options("--index-url", it) }
-            // zstandard is a cp313 Android wheel, not a pure-Python requirement: Chaquopy
-            // does not cross-build native sdsts. The wheels are built on the fleet from the
-            // pinned 0.25.0 sdist with cibuildwheel (packaging/android/zstandard-wheel/),
-            // and the wheel directory arrives here as -PzstandardWheels=... The exact
-            // requirement plus --find-links means pip resolves to those wheels only; the
-            // Chaquopy repository (which stops at 0.23) is never consulted and the floor
-            // is never downgraded.
-            install("httpx>=0.27,<1")
-            // A build without the wheel directory fails here rather than silently shipping
-            // an APK with no zstandard in it.
-            val wheelDir = providers.gradleProperty("zstandardWheels")
-            if (!wheelDir.isPresent) {
-                throw GradleException(
-                    "zstandardWheels must name the cibuildwheel cp313 Android wheel directory " +
-                    "(see packaging/android/zstandard-wheel/RECIPE.md)")
+            val lockedWheels = providers.gradleProperty("lockedPythonWheels").orNull
+            if (lockedWheels != null) {
+                options("--no-index", "--no-cache-dir", "--find-links", lockedWheels)
+                install("-r", file("$lockedWheels/requirements.txt").absolutePath)
+            } else {
+                // Development builds use the configured index and the retained cp313 Android wheels.
+                // Chaquopy omits its own repository when a custom --index-url is present.
+                providers.gradleProperty("pipIndexUrl").orNull?.let { options("--index-url", it) }
+                install("httpx>=0.27,<1")
+                val wheelDir = providers.gradleProperty("zstandardWheels")
+                if (!wheelDir.isPresent) {
+                    throw GradleException(
+                        "zstandardWheels must name the cibuildwheel cp313 Android wheel directory " +
+                        "(see packaging/android/zstandard-wheel/RECIPE.md)")
+                }
+                options("--find-links", wheelDir.get())
+                install("zstandard==0.25.0")
             }
-            options("--find-links", wheelDir.get())
-            install("zstandard==0.25.0")
         }
     }
     sourceSets {
@@ -210,6 +186,22 @@ tasks.matching { it.name.endsWith("PythonSources") }.configureEach {
 }
 
 dependencies {
+    // AGP resolves lint in a detached configuration. The constraint belongs to the
+    // lint tool's metadata so it follows that configuration without changing app dependencies.
+    val buildToolPins = rootProject.file("gradle/build-tool-pins.txt").readLines()
+    components {
+        withModule("com.android.tools.lint:lint-gradle") {
+            allVariants {
+                withDependencyConstraints {
+                    buildToolPins.forEach { pin ->
+                        add(pin) {
+                            version { strictly(pin.substringAfterLast(':')) }
+                        }
+                    }
+                }
+            }
+        }
+    }
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core)

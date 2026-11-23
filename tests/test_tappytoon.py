@@ -117,7 +117,13 @@ def reader(answers, adapter=TappytoonAdapter):
     return adapter(transport=Transport(client=client, site=sites.named('tappytoon'))), client
 
 
-@patch('comic_archive.transport.time.sleep')
+def check_budget_without_waiting(transport, seconds):
+    # The sync tests exercise cancellation but use no real network pacing.
+    # Mocking sleep alone makes the polling loop spin against the real clock.
+    transport._check_budget()
+
+
+@patch.object(Transport, '_wait', autospec=True, side_effect=check_budget_without_waiting)
 class TappytoonTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

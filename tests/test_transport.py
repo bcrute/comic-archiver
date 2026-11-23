@@ -1,8 +1,9 @@
+import gzip
 import unittest
 from unittest.mock import patch
 
 from test_transport_session import Client, Response
-from comic_archive.errors import NetworkUnavailable, RunLimit
+from comic_archive.errors import NetworkUnavailable, ResponseLimit, RunLimit
 from comic_archive.models import ArchiveError
 from comic_archive.transport import ExpiredAsset, Transport, asset_url
 
@@ -23,6 +24,40 @@ class Clock:
 
 
 class TransportLimitTests(unittest.TestCase):
+    def test_gzip_response_is_read_from_raw_chunks_with_a_decoded_byte_limit(self):
+        import httpx
+
+        text = b'The authorized series metadata arrived in two pieces.'
+        compressed = gzip.compress(text)
+
+        class Body(httpx.SyncByteStream):
+            def __iter__(self):
+                yield compressed[:20]
+                yield compressed[20:]
+
+        def respond(request):
+            self.assertEqual(request.headers['accept-encoding'], 'gzip, identity')
+            return httpx.Response(200, headers={'Content-Encoding': 'gzip'}, stream=Body())
+
+        for limit in (len(text), len(text) - 1):
+            with self.subTest(limit=limit), httpx.Client(transport=httpx.MockTransport(respond)) as client:
+                transport = Transport(client=client)
+                url = 'https://tapas.io/series/42'
+                if limit == len(text):
+                    self.assertEqual(transport.get(url, max_bytes=limit), text)
+                else:
+                    with self.assertRaises(ResponseLimit):
+                        transport.get(url, max_bytes=limit)
+
+    def test_unnegotiated_content_encoding_is_refused_without_reading_the_body(self):
+        class Unread(Response):
+            def iter_bytes(self):
+                raise AssertionError('The unnegotiated response body must not be decoded.')
+
+        response = Unread(headers={'Content-Encoding': 'br'})
+        with self.assertRaisesRegex(ArchiveError, 'unsupported content encoding'):
+            Transport(client=Client([response])).get('https://tapas.io/series/42')
+
     def test_a_retry_uses_rotated_or_deleted_cookies_even_when_the_response_body_breaks(self):
         import httpx
 

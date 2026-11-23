@@ -4,6 +4,7 @@ The trusted certificate comes from release-owner configuration, never the draft.
 Runtime/device results remain owner attestations bound to the exact APK hash;
 SDK inspection cannot manufacture missing acceptance evidence.
 """
+from datetime import date
 import io
 import re
 import subprocess
@@ -14,6 +15,9 @@ CHECKS = {'build', 'jvm', 'native_integration', 'real_comic_novel', 'saf_recover
           'lifecycle_network', 'retained_signer_update', 'release_hygiene',
           'dependency_audit', 'license_audit', 'zip_alignment', 'page_size_16k'}
 PLATFORMS = {'desktop', 'android'}
+PROVENANCE_DIGESTS = {'signed_apk_sha256', 'unsigned_apk_sha256', 'preparation_receipt_sha256',
+                      'python_wheel_lock_sha256', 'gradle_verification_sha256', 'inventory_sha256',
+                      'snapshot_sha256'}
 # Sign-in needs WebView features (isolated script worlds, profiles) that only WebViews far
 # newer than Chrome 139 have, and Chrome 139 onward requires Android 10. An older phone
 # could install the app but never sign in, so it is not supported.
@@ -44,10 +48,10 @@ def identity_from_source(project):
     return identity
 
 
-def tool_output(argv):
+def tool_output(argv, *, env=None):
     try:
         result = subprocess.run([str(a) for a in argv], capture_output=True, text=True,
-                                check=False, timeout=90)
+                                check=False, timeout=90, env=env)
     except (OSError, subprocess.SubprocessError) as error:
         raise ValueError('Android SDK release verification is unavailable.') from error
     if result.returncode:
@@ -55,9 +59,10 @@ def tool_output(argv):
     return result.stdout
 
 
-def inspect_apk(path, build_tools):
+def inspect_apk(path, build_tools, *, run=None):
     """Verify actual signature/alignment, then read compiled manifest/ABI identity."""
-    signature = tool_output([build_tools / 'apksigner', 'verify', '--verbose', '--print-certs', path])
+    run = tool_output if run is None else run
+    signature = run([build_tools / 'apksigner', 'verify', '--verbose', '--print-certs', path])
     certificates = re.findall(r'^(Signer #\d+|V[123] Signer:) certificate SHA-256 digest: ([a-f0-9]{64})\s*$',
                               signature, re.M)
     labels = [label for label, _ in certificates]
@@ -66,7 +71,13 @@ def inspect_apk(path, build_tools):
             or any(label.startswith('Signer #') and label != 'Signer #1' for label in labels)
             or (counts and counts != ['1'])):
         raise ValueError('Android release must have exactly the original approved signer.')
-    badging = tool_output([build_tools / 'aapt2', 'dump', 'badging', path])
+    return inspect_apk_payload(path, build_tools, run=run) | {'certificate_sha256': certificates[0][1]}
+
+
+def inspect_apk_payload(path, build_tools, *, run=None):
+    """Read the compiled manifest and verify the archive alignment."""
+    run = tool_output if run is None else run
+    badging = run([build_tools / 'aapt2', 'dump', 'badging', path])
     lines = badging.splitlines()
     packages = [line for line in lines if line.startswith('package: ')]
     if len(packages) != 1:
@@ -90,8 +101,8 @@ def inspect_apk(path, build_tools):
     if ('application-debuggable' in lines or any(line.startswith(('testOnly=', 'instrumentation:')) for line in lines)
             or re.search(r"versionCodeMajor='(?!0')[^']+'", packages[0])):
         raise ValueError('Debug, test and unexpected version-code builds cannot be published.')
-    tool_output([build_tools / 'zipalign', '-c', '-P', '16', '-v', '4', path])
-    return identity | {'certificate_sha256': certificates[0][1]}
+    run([build_tools / 'zipalign', '-c', '-P', '16', '-v', '4', path])
+    return identity
 
 
 def check_evidence(value, commit, version, identity, certificate):
@@ -146,6 +157,23 @@ def check_evidence(value, commit, version, identity, certificate):
     if android.get('artifact') != asset:
         raise ValueError('Android evidence must name the exact universal release APK.')
     return asset
+
+
+def check_provenance(provenance, apk_sha256, wheel_lock_sha256):
+    """Bind the owner-attested signing record to the staged APK and the tag's wheel lock."""
+    if (not isinstance(provenance, dict) or set(provenance) != PROVENANCE_DIGESTS | {'snapshot_date'}
+            or any(not isinstance(provenance[key], str) or not re.fullmatch(r'[a-f0-9]{64}', provenance[key])
+                   for key in PROVENANCE_DIGESTS)):
+        raise ValueError('Android release evidence must include the isolated signing and advisory provenance.')
+    captured = provenance['snapshot_date']
+    try:
+        valid_date = isinstance(captured, str) and date.fromisoformat(captured).isoformat() == captured
+    except ValueError:
+        valid_date = False
+    if (not valid_date or provenance['signed_apk_sha256'] != apk_sha256
+            or provenance['unsigned_apk_sha256'] == apk_sha256
+            or provenance['python_wheel_lock_sha256'] != wheel_lock_sha256):
+        raise ValueError('The signing or advisory provenance differs from this Android release.')
 
 
 def license_problems(apk, project):

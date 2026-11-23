@@ -4,20 +4,36 @@ import hashlib
 import time
 import logging
 import threading
+import zlib
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 from .models import ArchiveError
 from . import sites
-from .errors import AssetReadUnavailable, NetworkUnavailable, RunLimit
+from .errors import AssetReadUnavailable, MetadataError, NetworkUnavailable, ResponseLimit, RunLimit
 from .downloads import validate_request_interval
+from .provider_http import provider_client
 from .transfer_metrics import TransferMetrics, network_failure_code
 from .webtoon_gateway import AGENT as WEBTOON_AGENT, gateway_route, session_cookie
 # How much of a refused request's answer is kept with its error.
 REFUSAL_BYTES = 4096
+MAX_PAGE_BYTES = 100 * 1024 * 1024
+DECODE_CHUNK = 64 * 1024
 # Answers that say the way to the server is down (a gateway's, or the CDN's own 520-530),
 # not that this one request is at fault: the job is held to resume rather than the episode failed.
 OUTAGE_STATUSES = frozenset({502, 503, 504, *range(520, 531)})
+
+
+def metadata_bytes(transport, url, limit, **options):
+    """Read a provider document within its own limit, independently of the job budget."""
+    message = 'Provider metadata exceeds the supported size.'
+    try:
+        data = transport.get(url, max_bytes=limit, **options)
+    except ResponseLimit:
+        raise MetadataError(message) from None
+    if len(data) > limit:
+        raise MetadataError(message)
+    return data
 
 
 class _NoClientCookies(DefaultCookiePolicy):
@@ -51,6 +67,10 @@ def protect_http_logs():
 
 
 class ExpiredAsset(ArchiveError):
+    pass
+
+
+class _ContentEncodingError(ArchiveError):
     pass
 
 
@@ -90,10 +110,9 @@ class Transport:
         self.site = site
         if client is None:
             try:
-                import httpx
+                client = provider_client()
             except ImportError:
                 raise ArchiveError("Install httpx to retrieve remote pages.") from None
-            client = httpx.Client(timeout=30, follow_redirects=False, trust_env=False)
         protect_http_logs()
         self.client = client
         # HTTPX otherwise retains every response's Set-Cookie independently of our
@@ -177,7 +196,7 @@ class Transport:
         if mobile_route is None:
             asset_url(url, self.site)
         host = urlsplit(url).hostname
-        headers = {"Referer": self.site.referer}
+        headers = {"Referer": self.site.referer, "Accept-Encoding": "gzip, identity"}
         if type(reader_json) is not bool:
             raise ArchiveError('Reader response mode must be an explicit boolean.')
         if reader_json:
@@ -310,6 +329,36 @@ class Transport:
                 error.retry_after_seconds = delay
         raise error
 
+    def _body_chunks(self, response, limit):
+        coding = response.headers.get('content-encoding', response.headers.get('Content-Encoding', ''))
+        coding = coding.strip().lower()
+        if coding in ('', 'identity'):
+            yield from response.iter_bytes()
+            return
+        if coding != 'gzip':
+            raise _ContentEncodingError('Provider response uses an unsupported content encoding.')
+        decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        remaining = limit
+        wire_bytes = 0
+        try:
+            for raw in response.iter_raw():
+                self._check_budget()
+                wire_bytes += len(raw)
+                if wire_bytes > limit + DECODE_CHUNK:
+                    raise ResponseLimit('Encoded provider response exceeds the download byte budget.')
+                while raw:
+                    if decoder.eof:
+                        decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                    chunk = decoder.decompress(raw, min(DECODE_CHUNK, remaining + 1))
+                    raw = decoder.unused_data if decoder.eof else decoder.unconsumed_tail
+                    remaining -= len(chunk)
+                    if chunk:
+                        yield chunk
+            if not decoder.eof:
+                raise _ContentEncodingError('Provider response has an incomplete gzip body.')
+        except zlib.error:
+            raise _ContentEncodingError('Provider response has an invalid gzip body.') from None
+
     def _request(self, url, headers, max_bytes, attempt, take_cookies=False):
         # Only CDN assets enter these metrics, never same-origin account JSON.
         measured = not self.site.account_host(urlsplit(url).hostname) and gateway_route(url, self.site) is None
@@ -367,11 +416,15 @@ class Transport:
                         error.source_http_status = response.status_code
                         # The start of what the site said, for its reader to tell a refusal it expects from a fault.
                         answer = bytearray()
-                        for chunk in response.iter_bytes():
-                            answer.extend(chunk)
-                            if len(answer) >= REFUSAL_BYTES:
-                                break
-                        error.source_answer = bytes(answer[:REFUSAL_BYTES])
+                        try:
+                            for chunk in self._body_chunks(response, REFUSAL_BYTES):
+                                self._check_budget()
+                                answer.extend(chunk[:REFUSAL_BYTES - len(answer)])
+                                if len(answer) == REFUSAL_BYTES:
+                                    break
+                        except (ResponseLimit, _ContentEncodingError):
+                            pass
+                        error.source_answer = bytes(answer)
                         raise error
                     if take_cookies:
                         values = response.headers.get_list('set-cookie')
@@ -383,13 +436,15 @@ class Transport:
                                 self.cookie_sink(url, values)
                         else:
                             self._take_cookies(values, response_host)
-                    for chunk in response.iter_bytes():
+                    limit = min(max_bytes, MAX_PAGE_BYTES) if max_bytes is not None else MAX_PAGE_BYTES
+                    for chunk in self._body_chunks(response, limit):
                         self._check_budget()
-                        data.extend(chunk)
-                        if max_bytes is not None and len(data) > max_bytes:
-                            raise RunLimit("The next page exceeds the remaining download byte budget.")
-                        if len(data) > 100 * 1024 * 1024:
+                        size = len(data) + len(chunk)
+                        if max_bytes is not None and size > max_bytes:
+                            raise ResponseLimit("The next page exceeds the remaining download byte budget.")
+                        if size > MAX_PAGE_BYTES:
                             raise ArchiveError("Page exceeds the 100 MiB limit.")
+                        data.extend(chunk)
                     self._check_budget()
                     return bytes(data)
             except _RetryRequest:

@@ -18,7 +18,6 @@ MESSAGE = ('This location cannot keep sign-in information private. Choose a libr
            'that supports Windows access permissions.')
 LOG = logging.getLogger('comic_archive.desktop')
 _protected = set()
-_plain_noted = False
 DWORD, HANDLE, POINTER = ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p
 
 
@@ -28,10 +27,20 @@ class FileInformation(ctypes.Structure):
                 ('index_high', DWORD), ('index_low', DWORD)]
 
 
+class _RenameInformation(ctypes.Structure):
+    _fields_ = [('replace', ctypes.c_ubyte), ('directory', HANDLE), ('length', DWORD),
+                ('name', ctypes.c_uint16 * 1)]
+
+
+class _IoStatusBlock(ctypes.Structure):
+    _fields_ = [('status_or_pointer', POINTER), ('information', ctypes.c_size_t)]
+
+
 @lru_cache(maxsize=1)
 def _api():
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     security = ctypes.WinDLL('advapi32', use_last_error=True)
+    ntdll = ctypes.WinDLL('ntdll')
     def bind(library, name, result, *arguments):
         function = getattr(library, name)
         function.restype, function.argtypes = result, list(arguments)
@@ -42,6 +51,10 @@ def _api():
         'free': bind(kernel, 'LocalFree', HANDLE, HANDLE),
         'open': bind(kernel, 'CreateFileW', HANDLE, ctypes.c_wchar_p, DWORD, DWORD, POINTER, DWORD, DWORD, HANDLE),
         'info': bind(kernel, 'GetFileInformationByHandle', ctypes.c_int, HANDLE, POINTER),
+        'type': bind(kernel, 'GetFileType', DWORD, HANDLE),
+        'set_file_info': bind(ntdll, 'NtSetInformationFile', ctypes.c_int32, HANDLE, POINTER,
+                              POINTER, DWORD, DWORD),
+        'status_to_error': bind(ntdll, 'RtlNtStatusToDosError', DWORD, ctypes.c_int32),
         'volume': bind(kernel, 'GetVolumeInformationByHandleW', ctypes.c_int, HANDLE, POINTER, DWORD, POINTER, POINTER, POINTER, POINTER, DWORD),
         'token': bind(security, 'OpenProcessToken', ctypes.c_int, HANDLE, DWORD, POINTER),
         'user': bind(security, 'GetTokenInformation', ctypes.c_int, HANDLE, DWORD, POINTER, DWORD, POINTER),
@@ -96,6 +109,82 @@ def _refuse(reason):
     raise PrivateStorageError(MESSAGE)
 
 
+@contextmanager
+def pin_publication_directory(path):
+    """Hold a plain Windows directory open without sharing write or delete access."""
+    from .osdep import extended_path
+    api = _api()
+    read_dir_and_attributes, share_read, open_existing = 0x81, 1, 3
+    directory_no_follow = 0x02200000  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
+    handle = api['open'](str(extended_path(path)), read_dir_and_attributes, share_read,
+                         None, open_existing, directory_no_follow, None)
+    if handle in (None, HANDLE(-1).value):
+        raise ArchiveError('Could not hold the archive folder in place. Saved pages are retained.')
+    try:
+        info = FileInformation()
+        if (not api['info'](handle, ctypes.byref(info))
+                or not info.attributes & 0x10 or info.attributes & 0x400):
+            raise ArchiveError('Refusing an archive folder that is not a regular directory.')
+        yield
+    finally:
+        api['close'](handle)
+
+
+def replace_pinned_file(source, target):
+    """Rename a file within its held directory without reopening the destination parent."""
+    from .osdep import extended_path
+    if source.parent != target.parent or target.name in ('', '.', '..'):
+        raise ValueError('Pinned replacements must stay within one directory.')
+    api = _api()
+    delete_and_attributes, share_all, open_existing, open_reparse = 0x10080, 7, 3, 0x00200000
+    handle = api['open'](str(extended_path(source.absolute())), delete_and_attributes, share_all,
+                         None, open_existing, open_reparse, None)
+    if handle in (None, HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = FileInformation()
+        _check(api['info'](handle, ctypes.byref(info)))
+        if info.attributes & 0x410:
+            raise ArchiveError('Refusing a link or directory in archive output.')
+        name = target.name.encode('utf-16-le')
+        offset = _RenameInformation.name.offset
+        payload = ctypes.create_string_buffer(ctypes.sizeof(_RenameInformation) + len(name))
+        rename = _RenameInformation.from_buffer(payload)
+        rename.replace, rename.length = 1, len(name)
+        ctypes.memmove(ctypes.addressof(payload) + offset, name, len(name))
+        # The native API uses the source directory for a basename and null RootDirectory.
+        # SetFileInformationByHandle resolves the basename against the process directory.
+        status = _IoStatusBlock()
+        result = api['set_file_info'](handle, ctypes.byref(status), payload, len(payload),
+                                      10)  # FileRenameInformation
+        if result < 0:
+            raise ctypes.WinError(api['status_to_error'](result))
+    finally:
+        api['close'](handle)
+
+
+def open_pinned_read(path):
+    """Transfer an ordinary Windows file handle to the caller as a binary descriptor."""
+    from msvcrt import open_osfhandle
+    from .osdep import extended_path
+
+    api = _api()
+    read, share_read, open_existing = 0x80000000, 1, 3
+    no_follow = 0x02200000  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
+    handle = api['open'](str(extended_path(path.absolute())), read, share_read,
+                         None, open_existing, no_follow, None)
+    if handle in (None, HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = FileInformation()
+        if api['type'](handle) != 1 or not api['info'](handle, ctypes.byref(info)) or info.attributes & 0x410:
+            raise ArchiveError('Worker queue files must be ordinary disk files.')
+        return open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        api['close'](handle)
+        raise
+
+
 def _secure(path, directory):
     api = _api()
     from .osdep import extended_path
@@ -116,13 +205,7 @@ def _secure(path, directory):
         flags = DWORD()
         _check(api['volume'](handle, None, 0, None, None, ctypes.byref(flags), None, 0))
         if not flags.value & 0x8:  # FILE_PERSISTENT_ACLS: FAT/exFAT silently ignore security descriptors.
-            # A drive that keeps no permissions has none to set, and none that let another account in or keep
-            # it out. A library there works as it did before the app set permissions at all.
-            global _plain_noted
-            if not _plain_noted:
-                _plain_noted = True
-                LOG.info('Windows private storage: this drive keeps no access permissions; none are set')
-            return
+            _refuse('persistent_acls_unavailable')
         with _descriptor(directory) as descriptor:
             present, defaulted, dacl = ctypes.c_int(), ctypes.c_int(), POINTER()
             _check(api['dacl'](descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)))

@@ -304,6 +304,39 @@ class WorkingLibraryCaptureTest {
         failure(LibraryCaptureFailure.PRIVATE_COPY) { capture.recover(root, WorkingLibraryCapture.source(tree)) }
     }
 
+    @Test fun packedLimitsApplyToAllArchiveFormatsBeforeOpeningAProviderStream() {
+        val limit = WorkingLibraryCapture.MAX_PACKED_ARCHIVE
+        for (suffix in listOf(".cbz", ".epub", ".tar.zst")) {
+            val f = fixture()
+            val original = f.documents.records.getValue(f.archive).copy(name = "chapter$suffix")
+            val capture = capturer(f.documents)
+            f.documents.records[f.archive] = original.copy(bytes = limit)
+            val plan = capture.scan(tree, "tapas")
+            assertEquals(limit, plan.files.single { it.document.id == f.archive }.maximum)
+            f.documents.records[f.archive] = original.copy(bytes = limit + 1)
+            failure(LibraryCaptureFailure.INCOMPLETE) { capture.scan(tree, "tapas") }
+            assertTrue(f.documents.opens.isEmpty())
+        }
+    }
+
+    @Test fun aValidLegacyCaptureRecoversOfflineWithTheNewPackedLimit() {
+        val f = fixture(); val capture = capturer(f.documents); val root = root()
+        val result = capture.capture(capture.scan(tree, "tapas"), root)
+        val stateFile = root.resolve("capture-v1.json")
+        val state = JSONObject(stateFile.readText())
+        val files = state.getJSONObject("plan").getJSONArray("files")
+        val archive = (0 until files.length()).map { files.getJSONObject(it) }.single { it.getString("path").endsWith(".cbz") }
+        archive.put("maximum", 1024L * 1024 * 1024 * 1024)
+        stateFile.writeText(state.toString())
+        f.documents.available = false
+        val recovered = capture.recover(root, WorkingLibraryCapture.source(tree))!!
+        assertEquals(result.bytes, recovered.bytes)
+        assertEquals(WorkingLibraryCapture.MAX_PACKED_ARCHIVE, recovered.plan.files.single { it.path.endsWith(".cbz") }.maximum)
+        archive.getJSONObject("document").put("bytes", WorkingLibraryCapture.MAX_PACKED_ARCHIVE + 1)
+        stateFile.writeText(state.toString())
+        failure(LibraryCaptureFailure.PRIVATE_COPY) { capture.recover(root, WorkingLibraryCapture.source(tree)) }
+    }
+
     @Test fun recoveryRejectsAnExtraFileWrongSourceOrAnEscapingJournalPath() {
         val f = fixture(); val capture = capturer(f.documents); val root = root()
         val result = capture.capture(capture.scan(tree, "tapas"), root)

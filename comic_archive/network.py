@@ -1,8 +1,11 @@
 """Local transfer policy. Network identity and credentials never leave the device."""
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -19,15 +22,42 @@ class NetworkPolicyHold(ArchiveError):
     """A policy pause, never a source refusal or an automatic network retry."""
 
 
-def _path(root):
-    """The connection rule: the library folder's, which every site shares, or the library's own when it is not linked."""
+def _local_path(scope):
+    from .state_paths import state_location
+    try:
+        entry = scope.lstat()
+    except FileNotFoundError:
+        return None
+    if (not stat.S_ISDIR(entry.st_mode)
+            or getattr(entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+        raise ArchiveError('Choose a regular library folder for connection settings.')
+    key = json.dumps([os.path.normcase(str(scope)), entry.st_dev, entry.st_ino]).encode()
+    return state_location() / 'network-policies' / (hashlib.sha256(key).hexdigest() + '.json')
+
+
+def _path(root, *, create=False):
+    """Share the local connection rule across the sites linked to this library folder."""
     from .shared import folder
+    root = safe_root(root)
     shared = folder(root)
-    return shared / 'network-policy.json' if shared else safe_root(root) / '.archive-state/network-policy.json'
+    if sys.platform == 'android':
+        # Only the app-private workspace uses this location. The portable working-library
+        # importer does not copy the network policy file or the original shared link.
+        return (shared or root / '.archive-state') / 'network-policy.json'
+    scope = shared or root
+    if create:
+        directory(scope)
+    return _local_path(scope)
 
 
 def policy(root):
     path = _path(root)
+    return _read(path)
+
+
+def _read(path):
+    if path is None:
+        return {'schema_version': 1, 'wifi_only': True}
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ArchiveError('Network settings must not be symlinked.')
     if not path.exists():
@@ -49,33 +79,50 @@ def configure(root, wifi_only):
         raise ArchiveError('Wi-Fi only must be an explicit boolean.')
     root = safe_root(root)
     # Independent of the import writer lock so a running transfer can be held.
-    path = _path(root)
-    directory(path.parent).chmod(0o700)
+    path = _path(root, create=True)
     value = {'schema_version': 1, 'wifi_only': wifi_only}
-    atomic_json(path, value)
-    path.chmod(0o600)
+    _save(path, value)
     return status(root)
 
 
+def _save(path, value):
+    from .windows_privacy import folder as protect
+    if path is None or path.is_symlink():
+        raise ArchiveError('Connection settings location is unavailable.')
+    directory(path.parent).chmod(0o700)
+    protect(path.parent)
+    atomic_json(path, value)
+    path.chmod(0o600)
+
+
 def join(root, shared):
-    """A library linked to the shared settings for the first time brings its connection rule, if they have none."""
-    own, path = safe_root(root) / '.archive-state/network-policy.json', shared / 'network-policy.json'
-    if own.is_file() and not path.exists():
-        atomic_json(path, policy(root))
-        path.chmod(0o600)
+    """Carry forward an explicit local choice when linking on the same device."""
+    root = safe_root(root)
+    if sys.platform == 'android':
+        own, path = root / '.archive-state/network-policy.json', shared / 'network-policy.json'
+    else:
+        own, path = _local_path(root), _local_path(shared)
+    if own is not None and path is not None and own.is_file() and not path.exists():
+        _save(path, _read(own))
 
 
-def _command(*args):
-    result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+_SYSTEM_PATH = '/usr/sbin:/usr/bin:/sbin:/bin'
+
+
+def _command(name, *args):
+    executable = shutil.which(name, path=_SYSTEM_PATH)
+    if executable is None or not os.path.isabs(executable):
+        raise FileNotFoundError(name)
+    result = subprocess.run((executable, *args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, timeout=2, check=False,
-                            env=dict(os.environ, LC_ALL='C'))
+                            env={'PATH': _SYSTEM_PATH, 'LC_ALL': 'C'})
     if result.returncode or len(result.stdout) > 65536:
         raise ValueError
     return result.stdout.decode('utf-8', errors='strict').strip()
 
 
 def probe(root=None):
-    """Require every default-route interface to be unmetered.
+    """Require an unmetered route without ambiguous egress.
 
     Unknown platforms, VPN routes, absent metering and conflicting routes hold.
     Do not report addresses, SSIDs, connection names or interface identifiers.

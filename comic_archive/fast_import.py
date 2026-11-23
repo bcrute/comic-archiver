@@ -11,6 +11,7 @@ from .adapters.tapas import BrowserReadTransport, TapasAdapter
 from .adapters.tapas_http import TapasHTTPAdapter
 from .models import ArchiveError
 from .pipeline import MetadataPipeline
+from .provider_http import provider_client
 
 FAST_INTERVAL = 1 / 128
 # Every request to tapas.io itself, apart from the images: 48 a minute. Downloads that kept to about 50 a minute
@@ -65,14 +66,10 @@ class FastBrowserAdapter(TapasAdapter):
             self.context.route('**/*', self.network_read_only_request)
             self._read_only_context_installed = True
         if self.transport is None:
-            import httpx
             self.transport = BrowserReadTransport(self.page, self.context, interval=FAST_INTERVAL,
                 metadata_interval=FAST_METADATA_INTERVAL, download_profile='fast',
                 deadline=getattr(self, 'deadline', None), metrics=getattr(self, 'asset_metrics', None),
-                network_guard=getattr(self, 'network_guard', None))
-            self.transport.assets.client.close()
-            self.transport.assets.client = httpx.Client(timeout=httpx.Timeout(10, connect=30), follow_redirects=False, trust_env=False,
-                limits=httpx.Limits(max_connections=FAST_WORKERS, max_keepalive_connections=FAST_WORKERS))
+                network_guard=getattr(self, 'network_guard', None), asset_client=provider_client(workers=FAST_WORKERS))
         self.transport.deadline = getattr(self, 'deadline', None)
         self.transport.cancel_check = getattr(self, 'cancel_check', None)
         self.transport.assets.interval = FAST_INTERVAL

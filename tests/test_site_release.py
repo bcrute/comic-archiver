@@ -107,6 +107,20 @@ class SiteReleaseTests(unittest.TestCase):
                                                                       '2026-11-19T00:00:00Z', prerelease=True)])
         self.assertEqual(code, 0, error)
 
+    def test_android_release_requires_a_valid_tag_and_its_own_apk(self):
+        valid = beta()
+        malformed = dict(beta('9.0.0-beta1', '2026-11-22T10:00:00Z'), tag_name='v9.0.0 beta1')
+        mismatched = release('9.0.1', ['ComicArchiver-9.0.0-android-universal.apk'],
+                             published='2026-11-23T10:00:00Z')
+        self.assertEqual(self.run_site(release(NEWEST), [valid, malformed, mismatched]), (0, ''))
+        self.assertIn('Version 0.5.1-beta1', self.page('android.html'))
+        self.assertIsNone(json.loads(self.page('version.json'))['android'])
+
+    def test_invalid_preview_version_is_rejected_before_output(self):
+        with self.assertRaisesRegex(site_release.SiteError, 'Invalid version'):
+            site_release.build(self.out, NEWEST, android='1.0.0/preview')
+        self.assertFalse(self.out.exists())
+
     def test_download_sizes_follow_the_selected_release_assets(self):
         latest = release(NEWEST)
         sizes = [123_400_000, 165_000_000, 202_500_000, 476_100_000, 400, 1000]

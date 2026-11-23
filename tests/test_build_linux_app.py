@@ -436,7 +436,7 @@ class OrchestrationTests(WorkspaceCase):
         self.assertEqual(self.run.call_args_list[0].args[0][:5], ['uv', 'pip', 'list', '--format', 'freeze'])
         audit = self.run.call_args.args[0]
         self.assertEqual(audit[1:], [PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
-                                    '--output', app / 'dependency-audit.json'])
+                                    '--output', app / 'dependency-audit.json', '--platform', 'linux'])
         with tarfile.open(archive) as package:
             names = set(package.getnames())
             frozen = package.extractfile(f'{app.name}/requirements-frozen.txt').read().decode()
@@ -752,6 +752,14 @@ class LauncherBehaviourTests(WorkspaceCase):
         self.assertEqual(self.record.read_text().splitlines(),
                          ['1', 'unset', '1', 'unset',
                           '-m', 'comic_archive.desktop_app', '--project-root', 'a b'])
+
+    def test_launcher_keeps_only_absolute_path_entries_with_system_fallback(self):
+        app = self.install()
+        script(app / 'python/bin/python3', '#!/bin/sh\nprintf "%s\\n" "$PATH" > "$RECORD"\n')
+        self.path = f'relative::.:{self.fakebin}:another-relative:'
+        self.assertEqual(self.launch(app, '--version').returncode, 0)
+        self.assertEqual(self.record.read_text().strip(),
+                         f'{self.fakebin}:/usr/sbin:/usr/bin:/sbin:/bin')
 
     def test_registers_a_menu_entry_with_absolute_paths_and_repairs_a_stale_one(self):
         app = self.install()

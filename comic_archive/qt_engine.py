@@ -26,6 +26,9 @@ import threading
 import time
 from types import SimpleNamespace
 
+from .browser_egress import BrowserEgress
+from .public_destination import browser_request_allowed
+
 VIEWPORT = (1280, 720)
 DEFAULT_TIMEOUT = 30000
 # Seconds between looks at the page while waiting for it.
@@ -281,6 +284,7 @@ class Loop:
         self.headless = self.failure = self.q = self.app = self.bridge = self.tick = self.work = None
         self.interrupted = self.forced = self.over = self.ended = False
         self.surfaces = []
+        self.egress = None
 
     def run(self):
         previous = signal.signal(signal.SIGINT, self.interrupt)
@@ -303,6 +307,8 @@ class Loop:
             if self.forced:
                 raise KeyboardInterrupt
         finally:
+            if self.egress is not None:
+                self.egress.close()
             signal.signal(signal.SIGINT, previous)
 
     def interrupt(self, *_):
@@ -336,10 +342,12 @@ class Loop:
             arguments += ['-platform', 'offscreen']
             switches.append('--disable-gpu')
         # Never '--no-sandbox': the engine starts without it wherever this has been tried, and pages are web content.
-        self.app = _application = QtWidgets.QApplication(arguments + switches + self.arguments)
+        self.egress = BrowserEgress()
+        self.app = _application = QtWidgets.QApplication(arguments + switches + self.egress.switches() + self.arguments)
         self.app.setQuitOnLastWindowClosed(False)
-        # The sign-in window connects directly, and the session it saved belongs to that route.
+        # Chromium uses the application-owned connector. Ignore ambient system proxy settings.
         QtNetwork.QNetworkProxyFactory.setUseSystemConfiguration(False)
+        self.egress.configure_qt(QtNetwork)
 
         class Bridge(QtCore.QObject):
             run = QtCore.Signal(object)
@@ -545,6 +553,7 @@ class Surface:
         store.cookieAdded.connect(self.cookie_added)
         store.cookieRemoved.connect(self.cookie_removed)
         self.page = Quiet(self.profile, loop.app)
+        self.page.proxyAuthenticationRequired.connect(loop.egress.authenticate)
         self.page.permissionRequested.connect(lambda permission: permission.deny())
         self.page.renderProcessTerminated.connect(self.lost)
         self.page.loadingChanged.connect(self.loading)
@@ -566,6 +575,8 @@ class Surface:
                 return True
             request = Request(bytes(info.requestUrl().toEncoded()).decode('ascii', 'replace'),
                               bytes(info.requestMethod()).decode('ascii', 'replace'), RESOURCE_KINDS.get(kind, 'other'))
+            if not browser_request_allowed(request.url):
+                return True
             refused = bool(self.decide(request))
         except Exception as error:
             # A rule that fails has not allowed the request.

@@ -42,9 +42,22 @@ class BrowserTransportTests(unittest.TestCase):
             transport.get('https://tapas.io/series/42')
         guard.check.side_effect = None
         route = Mock()
+        route.request.url = 'https://tapas.io/series/42'
         adapter.network_request(route)
         route.fallback.assert_called_once()
         route.abort.assert_not_called()
+
+    @patch('comic_archive.adapters.tapas.Transport')
+    def test_hidden_browser_refuses_nonstandard_https_authorities(self, assets):
+        transport = BrowserReadTransport(Mock(), Mock())
+        for url, allowed in (('https://tapas.io/series/42', True), ('https://tapas.io:443/series/42', True),
+                             ('https://tapas.io:8443/series/42', False), ('http://tapas.io/series/42', False),
+                             ('https://reader@tapas.io/series/42', False)):
+            route = Mock()
+            route.request.url, route.request.method = url, 'GET'
+            transport.read_only_request(route)
+            self.assertEqual(route.continue_.called, allowed)
+            self.assertEqual(route.abort.called, not allowed)
 
     def test_images_are_fetched_under_the_name_the_browser_has_and_under_none_when_it_has_no_name(self):
         for context, agent in ((Mock(agent=CHROME), CHROME), (Mock(), None), (SimpleNamespace(), None)):
@@ -97,33 +110,29 @@ class BrowserTransportTests(unittest.TestCase):
 
     @patch('comic_archive.adapters.tapas.Transport')
     def test_series_page_reads_use_the_normal_site_first_and_refuse_redirects_and_errors(self, assets):
-        page = Mock(url='about:blank')
-        landing = {'url': None}
+        page = Mock(url='about:blank', navigation_bodies=True)
         response = Mock(status=200)
-        response.body.return_value = b'<html>series</html>'
 
         def goto(url, **kwargs):
-            page.url = landing['url'] or url
+            page.url = url
             return response
         page.goto.side_effect = goto
+        page.evaluate.return_value = {'status': 200, 'text': '<html>series</html>'}
         transport = BrowserReadTransport(page, Mock())
         info = 'https://tapas.io/series/my-comic/info'
         self.assertEqual(transport.get(info), b'<html>series</html>')
-        self.assertEqual([call.args[0] for call in page.goto.call_args_list], ['https://tapas.io/', info])
-        page.evaluate.assert_not_called()
-        landing['url'] = 'https://tapas.io/account/signin'
-        with self.assertRaisesRegex(ArchiveError, 'refused or redirected'):
+        self.assertEqual([call.args[0] for call in page.goto.call_args_list], ['https://tapas.io/'])
+        response.body.assert_not_called()
+        for status in (0, 403):
+            page.evaluate.return_value = {'status': status, 'text': None}
+            with self.subTest(status=status), self.assertRaisesRegex(ArchiveError, f'HTTP {status}'):
+                transport.get(info)
+        page.evaluate.return_value = None
+        with self.assertRaisesRegex(ArchiveError, 'unsupported shape'):
             transport.get(info)
-        landing['url'] = None
-        response.status = 403
-        with self.assertRaisesRegex(ArchiveError, 'refused or redirected'):
-            transport.get(info)
-        response.status = 200
-        page.url = info
-        page.goto.side_effect = None
-        page.goto.return_value = None
-        with self.assertRaisesRegex(ArchiveError, 'refused or redirected'):
-            transport.get(info)
+        page.evaluate.return_value = {'status': 200, 'text': 'éé'}
+        with self.assertRaisesRegex(MetadataError, 'response size'):
+            transport.get(info, max_bytes=3)
 
     @patch('comic_archive.adapters.tapas.Transport')
     def test_series_page_reads_on_the_built_in_engine_use_the_page_request_and_never_visit_the_page(self, assets):
@@ -147,13 +156,13 @@ class BrowserTransportTests(unittest.TestCase):
             transport.get(info)
 
     @patch('comic_archive.adapters.tapas.Transport')
-    def test_a_page_that_does_not_say_otherwise_has_its_series_page_visited_as_before(self, assets):
+    def test_a_page_without_a_navigation_body_capability_still_streams_series_details(self, assets):
         page = Mock(spec=['url', 'goto', 'evaluate', 'route', 'wait_for_timeout'], url='https://tapas.io/')
         info = 'https://tapas.io/series/my-comic/info'
-        page.goto.side_effect = lambda url, **kwargs: setattr(page, 'url', url) or Mock(status=200, **{'body.return_value': b'<html></html>'})
+        page.evaluate.return_value = {'status': 200, 'text': '<html></html>'}
         self.assertEqual(BrowserReadTransport(page, Mock()).get(info), b'<html></html>')
-        self.assertEqual([call.args[0] for call in page.goto.call_args_list], [info])
-        page.evaluate.assert_not_called()
+        self.assertEqual(page.evaluate.call_args.args[1]['url'], info)
+        page.goto.assert_not_called()
 
     @patch('comic_archive.adapters.tapas.Transport')
     def test_failed_guard_installation_is_classified_safely_even_when_cleanup_fails_too(self, assets):

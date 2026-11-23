@@ -283,7 +283,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                         val maximum = when {
                             entry.name.endsWith(".json") -> MAX_JSON
                             entry.name in COVERS -> 10L * 1024 * 1024
-                            entry.name.endsWith(".cbz") || entry.name.endsWith(".epub") || entry.name.endsWith(".tar.zst") -> MAX_ARCHIVE
+                            portableArchive(entry.name) -> MAX_PACKED_ARCHIVE
                             entry.name.endsWith(".tmp") || entry.name.endsWith(".part") -> fail(LibraryCaptureFailure.CHANGED)
                             else -> fail(LibraryCaptureFailure.INCOMPLETE)
                         }
@@ -328,6 +328,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
             JSONObject().put("v", 1).put("plan", planJson(plan)).put("stable", false)
                 .also { write(atomic, it) }
         }
+        upgradeArchiveLimits(state.getJSONObject("plan"))
         validateState(state, plan)
         state.put("stable", false); write(atomic, state)
         val workspace = root.resolve("workspace").also { privateDirectory(it) }
@@ -342,7 +343,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
             cancellation.check()
             val path = target(workspace, file.path)
             val saved = completed.optJSONObject(file.path)
-            if (saved != null && path.isFile && sameFact(hashPrivate(path, cancellation) { size ->
+            if (saved != null && path.isFile && sameFact(hashPrivate(path, saved.getLong("size"), cancellation) { size ->
                     progress(WorkingCaptureProgress(WorkingCapturePhase.CHECKING_COPY, count, plan.files.size,
                         Math.addExact(copied, size), plan.knownBytes, plan.unknownSizes))
                 }, saved)) {
@@ -427,7 +428,9 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
         cancellation: LibraryCaptureCancellation = LibraryCaptureCancellation()): CapturedWorkingLibrary? = guarded(cancellation) {
         safe(root)
         val state = read(AtomicFile(root.resolve(STATE)))
-        val plan = parsePlan(state.getJSONObject("plan"))
+        val savedPlan = state.getJSONObject("plan")
+        upgradeArchiveLimits(savedPlan)
+        val plan = parsePlan(savedPlan)
         if (source(plan.tree) != expectedSource) fail(LibraryCaptureFailure.PRIVATE_COPY)
         validateState(state, plan)
         if (!state.getBoolean("stable")) return@guarded null
@@ -438,9 +441,10 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
         safe(workspace)
         var bytes = 0L
         for (file in plan.files) {
-            val observed = hashPrivate(target(workspace, file.path), cancellation)
-            if (!sameFact(observed, completed.getJSONObject(file.path))) fail(LibraryCaptureFailure.PRIVATE_COPY)
-            bytes = Math.addExact(bytes, completed.getJSONObject(file.path).getLong("size"))
+            val saved = completed.getJSONObject(file.path)
+            val observed = hashPrivate(target(workspace, file.path), saved.getLong("size"), cancellation)
+            if (!sameFact(observed, saved)) fail(LibraryCaptureFailure.PRIVATE_COPY)
+            bytes = Math.addExact(bytes, saved.getLong("size"))
         }
         verifyWorkspace(workspace, plan)
         room(root, Math.addExact(bytes, scratchBytes(databases, completed)))
@@ -476,17 +480,21 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
             !documents.current(tree, file.document, cancellation)) fail(LibraryCaptureFailure.CHANGED)
         return fact(total, hex(hash.digest()))
     }
-    private fun hashPrivate(file: File, cancellation: LibraryCaptureCancellation, progress: (Long) -> Unit = {}): JSONObject {
+    private fun hashPrivate(file: File, size: Long, cancellation: LibraryCaptureCancellation,
+        progress: (Long) -> Unit = {}): JSONObject {
         safe(file)
+        if (file.length() != size) fail(LibraryCaptureFailure.PRIVATE_COPY)
         val hash = MessageDigest.getInstance("SHA-256")
         var total = 0L
         file.inputStream().use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
                 cancellation.check()
-                val count = input.read(buffer)
+                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), size - total + 1).toInt())
                 if (count < 0) break
-                hash.update(buffer, 0, count); total = Math.addExact(total, count.toLong())
+                total = Math.addExact(total, count.toLong())
+                if (total > size) fail(LibraryCaptureFailure.PRIVATE_COPY)
+                hash.update(buffer, 0, count)
                 progress(total)
             }
         }
@@ -502,6 +510,17 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
             plan.files.sortedBy { it.path }.forEach { put(JSONObject().put("path", it.path)
                 .put("document", documentJson(it.document)).put("maximum", it.maximum)) }
         })
+    private fun upgradeArchiveLimits(plan: JSONObject) {
+        val files = plan.getJSONArray("files")
+        if (files.length() > MAX_FILES) fail(LibraryCaptureFailure.PRIVATE_COPY)
+        for (index in 0 until files.length()) {
+            val file = files.getJSONObject(index)
+            val maximum = file.opt("maximum") as? Number ?: fail(LibraryCaptureFailure.PRIVATE_COPY)
+            if (portableArchive(file.string("path")) && maximum.toDouble() == LEGACY_ARCHIVE.toDouble())
+                file.put("maximum", MAX_PACKED_ARCHIVE)
+        }
+    }
+
     private fun parsePlan(value: JSONObject): WorkingCapturePlan {
         if (fields(value) != setOf("tree", "site", "root", "folders", "files")) fail(LibraryCaptureFailure.PRIVATE_COPY)
         val tree = Uri.parse(value.string("tree")); source(tree)
@@ -545,8 +564,12 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
             if (fields(item) != setOf("path", "document", "maximum")) fail(LibraryCaptureFailure.PRIVATE_COPY)
             val document = bound(item); valid(document, false)
             val maximum = item.opt("maximum") as? Number ?: fail(LibraryCaptureFailure.PRIVATE_COPY)
-            if (maximum.toLong() !in 1..MAX_ARCHIVE || maximum.toDouble() != maximum.toLong().toDouble()) fail(LibraryCaptureFailure.PRIVATE_COPY)
-            parsedFiles.add(WorkingCaptureFile(path(item), document, maximum.toLong()))
+            val relative = path(item)
+            val sizeLimit = maximum.toLong()
+            if (sizeLimit !in 1..MAX_PACKED_ARCHIVE || maximum.toDouble() != sizeLimit.toDouble() ||
+                (document.bytes ?: 0L) > sizeLimit || portableArchive(relative) && sizeLimit != MAX_PACKED_ARCHIVE)
+                fail(LibraryCaptureFailure.PRIVATE_COPY)
+            parsedFiles.add(WorkingCaptureFile(relative, document, sizeLimit))
         }
         return WorkingCapturePlan(tree, site, root, parsedFolders, parsedFiles)
     }
@@ -665,11 +688,14 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
         private const val MAX_JSON = 16L * 1024 * 1024
         private const val MAX_CLOUD_JSON = 1024L * 1024
         private const val MAX_DATABASE = 128L * 1024 * 1024
-        private const val MAX_ARCHIVE = 1024L * 1024 * 1024 * 1024
+        // Packed payload plus container overhead. Match the shared verifier's input policy.
+        internal const val MAX_PACKED_ARCHIVE = 2L * 1024 * 1024 * 1024 + 64L * 1024 * 1024
+        private const val LEGACY_ARCHIVE = 1024L * 1024 * 1024 * 1024
         private val DATABASES = setOf("inventory.sqlite3", "inventory.sqlite3-wal", "inventory.sqlite3-shm", "inventory.sqlite3-journal")
         private val COVERS = setOf("cover.jpg", "cover.png", "cover.gif", "cover.webp")
         private val UUID = Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")
         private val HASH = Regex("[a-f0-9]{64}")
+        private fun portableArchive(name: String) = name.endsWith(".cbz") || name.endsWith(".epub") || name.endsWith(".tar.zst")
         fun source(tree: Uri): WorkingLibrarySource = try {
             if (tree.scheme != "content" || tree.authority?.matches(Regex("[A-Za-z0-9._-]+")) != true ||
                 tree.toString().length > 16384 || !DocumentsContract.isTreeUri(tree)) fail(LibraryCaptureFailure.ACCESS)

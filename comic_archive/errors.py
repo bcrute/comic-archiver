@@ -54,6 +54,10 @@ class RunLimit(ArchiveError):
     pass
 
 
+class ResponseLimit(RunLimit):
+    """One response exceeded the byte limit supplied by its caller."""
+
+
 class NetworkUnavailable(ArchiveError):
     pass
 

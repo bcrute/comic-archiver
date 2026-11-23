@@ -26,18 +26,22 @@ WORKER_LOG_BYTES = 1024 * 1024  # The downloader's log starts afresh past this w
 WORKER_LOGS_KEPT = 2  # keeping this many before it.
 CRASH_NAME = 'crash.log'
 CRASH_BYTES = 64 * 1024
-# What one saved file holds of each part: together a few megabytes at most, under any mail service's limit.
-APP_LOG_BYTES = 512 * 1024
-DOWNLOADER_BYTES = 512 * 1024
-UNSAVED = 5000
-STEPS = 300
-LIMIT = 4 * 1024 * 1024
+# Support attachments quote a recent excerpt from each local log.
+APP_LOG_BYTES = 24 * 1024
+DOWNLOADER_BYTES = 24 * 1024
+EXPORTED_CRASH_BYTES = 8 * 1024
+UNSAVED = 40
+NOVEL_FAILURES = 15
+STEPS = 40
+LIMIT = 128 * 1024
+SHORTENED = '(shortened: the start of this part is left out)'
 CODE = re.compile(r'[a-z][a-z0-9_]{0,47}')
 NUMBER = re.compile(r'[0-9A-Za-z_.-]{1,64}')  # A site's own id for a series or an episode.
 MOMENT = re.compile(r'[0-9T:.+Z-]{1,40}')
-# The browser engine's routine complaints, hundreds an hour, that say nothing about a download.
+# Routine browser and per-page messages omitted from support excerpts.
 NOISE = re.compile(r'handshake failed; returned -1|QVulkanInstance: Failed to initialize Vulkan'
                    r'|Fontconfig error: Cannot load default config file')
+PAGE_READY = re.compile(r'^(?:[0-9-]{10} [0-9:]{8} )?Episode [0-9]+: page [0-9]+/[0-9]+ ready$')
 LINE = re.compile(r'[^\n]*\n|[^\n]+')
 _hooked = False
 _crashes = None
@@ -180,31 +184,50 @@ def _read(path, size):
 
 
 def _tail(paths, limit, folders=()):
-    """The end of the files, read oldest first, as text: at most limit characters, from the start of a line.
+    """The end of the files, read oldest first, as text: at most limit UTF-8 bytes, from the start of a line.
 
     Nothing is read through a link, in the files or in the folders named: the saved file is sent to someone,
     and a link could make it hold the sign-in instead of a log.
     """
     if any(linked(folder) for folder in folders):
         return ''
-    data = b''.join(_read(path, 4 * limit) for path in paths)  # Enough bytes for limit characters.
-    return _end(data.decode('utf-8', errors='replace'), limit)
+    data = b''.join(_read(path, limit + 1) for path in paths)
+    return _end(data.decode('utf-8', errors='replace').encode('utf-8'), limit).decode('utf-8')
 
 
-def _end(text, limit):
-    """The last limit characters of text, from the start of a line."""
-    if len(text) <= limit:
+def _end(data, limit):
+    """The last complete lines that fit in limit bytes of UTF-8 data."""
+    if limit <= 0:
+        return b''
+    if len(data) <= limit:
+        return data
+    start = len(data) - limit
+    if data[start - 1] != 10:
+        newline = data.find(b'\n', start)
+        start = len(data) if newline < 0 else newline + 1
+    return data[start:]
+
+
+def _log_excerpt(text, limit):
+    data = text.encode('utf-8')
+    if len(data) <= limit:
         return text
-    text = text[-limit:]
-    return text[text.find('\n') + 1:]
+    marker = SHORTENED + '\n'
+    return marker[:limit] + _end(data, limit - len(marker)).decode('utf-8')
 
 
 def _quiet(text):
-    """text without the browser engine's routine complaints, saying how many were left out."""
+    """Remove routine browser and page progress lines and report how many were omitted."""
     lines = text.splitlines()
     kept = [line for line in lines if not NOISE.search(line)]
     dropped = len(lines) - len(kept)
-    return '\n'.join(kept + ([f'({dropped} routine messages from the browser engine left out)'] if dropped else []))
+    useful = [line for line in kept if not PAGE_READY.fullmatch(line)]
+    progress = len(kept) - len(useful)
+    if dropped:
+        useful.append(f'({dropped} routine messages from the browser engine left out)')
+    if progress:
+        useful.append(f'({progress} routine page progress lines left out)')
+    return '\n'.join(useful)
 
 
 def _word(value):
@@ -227,6 +250,51 @@ def _unsaved(library):
     return (lines or ['None']) + ([f'(only the first {UNSAVED} are listed)'] if len(rows) > UNSAVED else [])
 
 
+# Extract only the fixed fields printed by older versions of the worker.
+NOVEL_FAILURE_LINE = re.compile(
+    r'(?:[0-9-]{10} [0-9:]{8} )?Episode (?P<id>[0-9]{1,20}) of series (?P<series_id>[0-9]{1,20}): '
+    r'not saved, novel_manifest_incomplete(?: reason=(?P<reason>[a-z_]{1,48}))?'
+    r'(?: tag=(?P<tag>[a-z_]{1,48}))? \(UnsupportedContent(?P<location>[^\r\n]{0,512})\)\.')
+NOVEL_LOCATION = re.compile(r'(?: at | < )(novels\.py:[0-9]{1,6})(?= < |$)')
+
+
+def _novel_failures(library, logs, folders):
+    if not (library / '.archive-state/inventory.sqlite3').is_file():
+        return []
+    from .inventory import Inventory
+    from .novels import NOVEL_REASONS, DIAGNOSTIC_TAGS
+    with Inventory(library, read_only=True) as inventory:
+        rows = inventory.novel_failures(NOVEL_FAILURES + 1)
+    shown = rows[:NOVEL_FAILURES]
+    missing = {(row['series_id'], row['id']): row for row in shown if row['recorded_at'] is None}
+    if missing and not any(linked(folder) for folder in folders):
+        for path in reversed(logs):
+            for line in reversed(_read(path, WORKER_LOG_BYTES).decode('utf-8', errors='replace').splitlines()):
+                match = NOVEL_FAILURE_LINE.fullmatch(line)
+                if match:
+                    row = missing.pop((match['series_id'], match['id']), None)
+                    if row is not None:
+                        row.update(reason=match['reason'], tag=match['tag'])
+                        location = NOVEL_LOCATION.search(match['location'])
+                        if location:
+                            row['location'] = location[1]
+                if not missing:
+                    break
+            if not missing:
+                break
+
+    lines = []
+    for row in shown:
+        reason = row['reason'] if row['reason'] in NOVEL_REASONS else 'unrecorded'
+        tag = f" tag={row['tag']}" if row['tag'] in DIAGNOSTIC_TAGS else ''
+        parser = f" parser={row['location']}" if row.get('location') else ''
+        lines.append(f"series {_plain(row['series_id'], NUMBER)} episode {_plain(row['id'], NUMBER)}: "
+                     f"reason={reason}{tag}{parser}")
+    if len(rows) > NOVEL_FAILURES:
+        lines.append(f'(only {NOVEL_FAILURES} failures are listed)')
+    return lines
+
+
 def _counts(row, keys):
     return ', '.join(f'{key} {row[key]}' for key in keys if type(row.get(key)) is int)
 
@@ -247,6 +315,8 @@ def _steps(session, library):
     lines = [now, f"Tries: {tries}, episodes waiting {state['episodes_waiting']}"]
     if isinstance(state['audit'], dict):
         lines.append('Last check: ' + _counts(state['audit'], sorted(state['audit'])))
+    if len(steps) == STEPS:
+        lines.append(f'(showing up to {STEPS} recent steps)')
     for step in steps:
         ended = (f"{_word(step['outcome'])} at {_plain(step['finished_at'], MOMENT)}" if step['finished_at']
                  else 'out' if step['published_at'] else 'not sent yet')
@@ -268,17 +338,22 @@ def site_records(name, session, library):
     session, library = Path(session), Path(library)
     worker = session / 'worker' / 'background.log'
     logs = [worker.with_name(f'{worker.name}.{n}') for n in range(WORKER_LOGS_KEPT, 0, -1)] + [worker]
-    return '\n'.join([f'=== {name}: episodes not saved', *_part(_unsaved, library),
-                      '', f'=== {name}: the download’s last steps, oldest first', *_part(_steps, session, library),
-                      '', f'=== {name}: the downloader’s log',
-                      _end(_quiet(_tail(logs, 4 * DOWNLOADER_BYTES, (session, worker.parent))), DOWNLOADER_BYTES)])
+    folders = (session, worker.parent)
+    excerpt = _quiet(_tail(logs, 8 * DOWNLOADER_BYTES, folders))
+    failures = _part(_novel_failures, library, logs, folders)
+    sections = [f'=== {name}: episodes not saved', *_part(_unsaved, library),
+                '', f'=== {name}: the download’s last steps, oldest first', *_part(_steps, session, library),
+                '', f'=== {name}: the downloader’s log', _log_excerpt(excerpt, DOWNLOADER_BYTES)]
+    if failures:
+        sections.extend(['', f'=== {name}: EPUB failure details', *failures])
+    return '\n'.join(sections)
 
 
 def app_log(folder, name='desktop.log'):
     """The app's log, oldest first, and what Python wrote when the app last crashed, if it has."""
     folder = Path(folder)
     text = _tail([folder / f'{name}.2', folder / f'{name}.1', folder / name], APP_LOG_BYTES)
-    crash = _tail([folder / CRASH_NAME], CRASH_BYTES)
+    crash = _tail([folder / CRASH_NAME], EXPORTED_CRASH_BYTES)
     return text + (f'\n=== Where the app was when it last stopped suddenly\n{crash}' if crash.strip() else '')
 
 
@@ -315,22 +390,21 @@ def scrub(text, libraries, home=None):
     return text
 
 
-SHORTENED = '(shortened: the start of this part is left out)'
-
-
 def _fit(parts, limit):
-    """parts as they fit in limit characters together: each too long for its share loses its start, never its
-    end, where the newest lines are; its first line, which names it, stays."""
-    fitted, room = list(parts), limit
-    order = sorted(range(len(parts)), key=lambda index: len(parts[index]))
+    """Fit the scrubbed sections in a shared UTF-8 byte budget."""
+    fitted, room = [part.encode('utf-8') for part in parts], max(0, limit)
+    order = sorted(range(len(fitted)), key=lambda index: len(fitted[index]))
+    marker = ('\n' + SHORTENED + '\n').encode('utf-8')
     for place, index in enumerate(order):
         share = room // (len(order) - place)
-        if len(parts[index]) > share:
-            head, _, body = parts[index].partition('\n')
-            head = f'{head[:share]}\n{SHORTENED}\n'
-            fitted[index] = (head + (_end(body, share - len(head)) if share > len(head) else ''))[:max(share, 0)]
+        if len(fitted[index]) > share:
+            head, _, body = fitted[index].partition(b'\n')
+            prefix = head + marker
+            fitted[index] = prefix[:share] + _end(body, share - len(prefix))
+            # The header may itself have exceeded the budget.
+            fitted[index] = fitted[index].decode('utf-8', errors='ignore').encode('utf-8')
         room -= len(fitted[index])
-    return fitted
+    return [part.decode('utf-8') for part in fitted]
 
 
 def bundle(details, sites, app_text, libraries, now=None, device='computer', home=None):
@@ -350,7 +424,7 @@ def save(folder, text, now=None):
     for number in range(1, 100):
         path = folder / (f'{name}.txt' if number == 1 else f'{name} ({number}).txt')
         try:
-            with open(path, 'x', encoding='utf-8') as file:
+            with open(path, 'x', encoding='utf-8', newline='\n') as file:
                 file.write(text)
             return path
         except FileExistsError:

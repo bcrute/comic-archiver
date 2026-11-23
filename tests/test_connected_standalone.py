@@ -157,6 +157,21 @@ class StandaloneTests(unittest.TestCase):
                     self.index.register_standalone(target.name, "Series")
                 opening.assert_not_called()
 
+    def test_incomplete_zip64_reads_are_rejected_as_source_errors(self):
+        target = self.archive()
+        self.zip64_end(target)
+        pread = os.pread
+        for short_size in (20, 56):
+            with self.subTest(read_size=short_size):
+                def read(fd, size, offset):
+                    data = pread(fd, size, offset)
+                    return data[:-1] if size == short_size else data
+
+                with patch("comic_archive.connected.files.os.pread", side_effect=read):
+                    with self.assertRaises(SourceError):
+                        self.index.register_standalone(target.name, "Series")
+        self.assertEqual(self.index.register_standalone(target.name, "Series")["title"], "My issue")
+
     def test_replacement_invalidates_live_pin_and_changes_version_not_identity(self):
         target = self.archive()
         first = self.index.register_standalone(target.name, "Series")

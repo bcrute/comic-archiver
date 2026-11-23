@@ -22,6 +22,28 @@ class NativeSignInCommitTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private fun store() = WebViewCookieStore(setOf("m.tapas.io"))
 
+    @Test fun signInCannotLoadUntilTheBrowserProxyIsReady() {
+        var ready = false
+        val loaded = mutableListOf<String>()
+        val surface = object : WebView(context) {
+            override fun loadUrl(url: String) { loaded.add(url) }
+        }
+        try {
+            val engine = WebViewSignInEngine(store(), browserReady = { ready })
+            engine.load("tapas")
+            engine.startSignIn(surface)
+            assertTrue(loaded.isEmpty())
+            assertEquals(SignInState.Failed("signin_unavailable"), engine.state.value)
+
+            ready = true
+            engine.startSignIn(surface)
+            assertEquals(1, loaded.size)
+            engine.cancelSignIn()
+        } finally {
+            surface.destroy()
+        }
+    }
+
     @Test fun aCancelledOrExpiredAnswerNeverReachesTheCommitHook() {
         val committed = mutableListOf<Long>()
         val engine = WebViewSignInEngine(store(), timeoutMs = 1_000,

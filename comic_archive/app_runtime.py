@@ -18,7 +18,7 @@ from .local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from .windows_privacy import PrivateStorageError
 from .models import ArchiveError
 from .session import load_session, store_session
-from .state_paths import leads_elsewhere, private_folder
+from .state_paths import leads_elsewhere, private_folder, state_location
 from .storage import safe_root
 from .support_log import describe
 from .worker import WORKER_VERSION
@@ -45,9 +45,7 @@ def default_root():
 
 def state_dir():
     """Private per-user folder for the app log and the single-instance lock."""
-    name, default = ('LOCALAPPDATA', 'AppData/Local') if WINDOWS else ('XDG_STATE_HOME', '.local/state')
-    base = Path(os.environ.get(name) or '')
-    folder = (base if base.is_absolute() else Path.home() / default) / 'comic-archiver'
+    folder = state_location(windows=WINDOWS)
     try:
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     except OSError:

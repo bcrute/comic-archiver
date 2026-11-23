@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -896,8 +897,10 @@ def child(engine, out):
                 from comic_archive import qt_engine
                 accept_certificates()
                 # Every name leads to the stand-in, so nothing can leave this computer.
-                qt_engine.serve(lambda: exercise(engine, project),
-                                arguments=[f'--host-resolver-rules=MAP * 127.0.0.1:{port}', '--ignore-certificate-errors'])
+                with patch.object(qt_engine.BrowserEgress, 'configure_qt'):
+                    qt_engine.serve(lambda: exercise(engine, project),
+                                    arguments=[f'--host-resolver-rules=MAP * 127.0.0.1:{port}',
+                                               '--ignore-certificate-errors'])
                 note(f'certificate questions Qt put to the script: {len(ACCEPTED)}')
             else:
                 through_proxy(tunnel(port))

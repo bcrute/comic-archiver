@@ -132,6 +132,8 @@ class Inventory:
                     CREATE TABLE IF NOT EXISTS episode_expirations (
                         episode_id TEXT PRIMARY KEY, expires_at TEXT NOT NULL);
                     CREATE TABLE IF NOT EXISTS download_paid_series (series_id TEXT PRIMARY KEY);
+                    CREATE TABLE IF NOT EXISTS novel_failures (
+                        episode_id TEXT PRIMARY KEY, reason TEXT, tag TEXT, recorded_at TEXT NOT NULL);
                 """)
                 if not self.db.execute("SELECT 1 FROM settings WHERE key='download_paid_series_seeded'").fetchone():
                     from .download_selection import remember_paid_series
@@ -421,7 +423,7 @@ class Inventory:
         except (ValueError, KeyError, TypeError, AttributeError):
             raise MetadataError("Discovery report has an unsupported schema.") from None
 
-    def mark(self, key, status, error=None, path=None, attempted=False):
+    def mark(self, key, status, error=None, path=None, attempted=False, *, novel_failure=None):
         relative = path.relative_to(self.root).as_posix() if path is not None else None
         signature = file_signature(path) if path is not None and path.is_file() and status == "archived" else None
         self.db.execute("""UPDATE episodes SET status=?, error_code=?,
@@ -433,6 +435,13 @@ class Inventory:
                             (key, after.isoformat()))
         elif status not in {'queued','failed','downloading'}:
             self.db.execute('DELETE FROM asset_deferrals WHERE episode_id=?', (key,))
+        if novel_failure is not None and status == 'unsupported' and error == 'novel_manifest_incomplete':
+            self.db.execute('INSERT INTO novel_failures VALUES (?, ?, ?, ?) '
+                            'ON CONFLICT(episode_id) DO UPDATE SET reason=excluded.reason, tag=excluded.tag, '
+                            'recorded_at=excluded.recorded_at',
+                            (key, novel_failure.get('reason'), novel_failure.get('tag'), timestamp()))
+        elif status == 'archived':
+            self.db.execute('DELETE FROM novel_failures WHERE episode_id=?', (key,))
         self.db.commit()
 
     def portable_archive_path(self,relative):
@@ -924,6 +933,16 @@ class Inventory:
         return [dict(row) for row in self.db.execute("""SELECT series_id,id,status,error_code,attempts,access_state,observed_at
             FROM episodes WHERE status IN ('queued','failed','downloading','unsupported')
             ORDER BY status,error_code,series_id,episode_order,id LIMIT ?""", (limit,))]
+
+    def novel_failures(self, limit):
+        fields = 'NULL AS reason, NULL AS tag, NULL AS recorded_at'
+        join = ''
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='novel_failures'").fetchone():
+            fields = 'f.reason, f.tag, f.recorded_at'
+            join = 'LEFT JOIN novel_failures f ON f.episode_id=e.id'
+        return [dict(row) for row in self.db.execute(f'''SELECT e.id, e.series_id, {fields}
+            FROM episodes e {join} WHERE e.status='unsupported' AND e.error_code='novel_manifest_incomplete'
+            ORDER BY recorded_at DESC, e.observed_at DESC, e.id LIMIT ?''', (limit,))]
 
     def episode_type_counts(self):
         """Recorded episode types, using the index without opening saved files."""

@@ -120,6 +120,47 @@ class SupportLogTests(unittest.TestCase):
         self.assertNotIn('Private', text)
         self.assertNotIn('episode 82', text)
 
+    def test_the_export_keeps_the_recent_worker_error_and_skips_page_progress(self):
+        workspace = self.site()
+        worker = workspace.session / 'worker'
+        worker.mkdir(parents=True)
+        (worker / 'background.log').write_text(
+            '2026-11-04 10:45:14 Episode 81: page 12/20 ready\n' * 2000
+            + 'old note ' + 'x' * 34000 + '\n'
+            + '2026-11-04 10:45:15 Episode 81: image read failed after retries.\n',
+            encoding='utf-8')
+        records = support_log.site_records('Tapas', workspace.session, workspace.library)
+        excerpt = records.split('=== Tapas: the downloader’s log\n')[1]
+        self.assertLessEqual(len(excerpt.encode('utf-8')), support_log.DOWNLOADER_BYTES)
+        self.assertIn(support_log.SHORTENED, excerpt)
+        self.assertIn('image read failed after retries', excerpt)
+        self.assertIn('2000 routine page progress lines left out', excerpt)
+        self.assertNotIn('page 12/20 ready', excerpt)
+        self.assertIn('episodes not saved', records)
+        self.assertIn('last steps', records)
+
+    def test_legacy_epub_failures_are_recovered_from_rotated_logs_beyond_recent_excerpt(self):
+        workspace = self.site()
+        with Inventory(workspace.library) as inventory:
+            inventory.mark('81', 'unsupported', 'novel_manifest_incomplete')
+            inventory.db.execute('DROP TABLE novel_failures')
+            inventory.db.commit()
+        worker = workspace.session / 'worker'
+        worker.mkdir(parents=True)
+        (worker / 'background.log.1').write_text(
+            '2026-11-04 10:45:14 Episode 81 of series 42: not saved, novel_manifest_incomplete '
+            'reason=unsupported_tag tag=iframe (UnsupportedContent at novels.py:172 < PRIVATE_FILENAME:1).\n'
+            '2026-11-04 10:45:15 Episode 123 of series 42: not saved, novel_manifest_incomplete '
+            'reason=hidden_content (UnsupportedContent at novels.py:88).\n',
+            encoding='utf-8')
+        (worker / 'background.log').write_text('Unrelated newer worker output\n' * 10000, encoding='utf-8')
+        records = support_log.site_records('Tapas', workspace.session, workspace.library)
+        self.assertIn('=== Tapas: EPUB failure details', records)
+        self.assertIn('series 42 episode 81: reason=unsupported_tag tag=iframe parser=novels.py:172', records)
+        self.assertNotIn('PRIVATE_FILENAME', records)
+        self.assertNotIn('episode 123', records)
+        self.assertLessEqual(len(support_log.bundle('details', [records], '', []).encode('utf-8')), support_log.LIMIT)
+
     def test_a_downloaders_log_reached_through_a_link_is_left_out(self):
         # A library folder from elsewhere could link its log to the sign-in saved beside it.
         workspace = self.site()
@@ -200,6 +241,21 @@ class SupportLogTests(unittest.TestCase):
         self.assertEqual((first.name, second.name), ('Comic Archiver log 2026-11-04 10.45.14.txt',
                                                      'Comic Archiver log 2026-11-04 10.45.14 (2).txt'))
         self.assertEqual(first.read_text(encoding='utf-8'), 'é')
+
+    def test_saved_attachment_limit_counts_utf8_bytes_across_all_sites(self):
+        sites = [f'=== {name}\n' + '古い情報 😀\n' * 10000 + f'Newest error for {name}'
+                 for name in ('Tapas', 'Webtoon', 'Tappytoon')]
+        text = support_log.bundle('Comic Archiver support details', sites,
+                                  '古い情報 😀\n' * 10000 + 'Newest app error', [], home=self.home)
+        path = support_log.save(self.home / 'Downloads', text)
+        self.assertLessEqual(path.stat().st_size, 128 * 1024)
+        self.assertGreater(path.stat().st_size, 120 * 1024)
+        saved = path.read_bytes().decode('utf-8')
+        self.assertIn('Comic Archiver support details', saved)
+        for name in ('Tapas', 'Webtoon', 'Tappytoon'):
+            self.assertIn(f'=== {name}\n{support_log.SHORTENED}', saved)
+            self.assertIn(f'Newest error for {name}', saved)
+        self.assertTrue(saved.endswith('Newest app error'))
 
     def test_an_error_nothing_caught_is_logged_by_class_and_places_never_its_text(self):
         before, thread_before = Mock(), Mock()

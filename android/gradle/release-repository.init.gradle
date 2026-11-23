@@ -1,0 +1,25 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+def repository = new File(System.getenv('RELEASE_MAVEN_REPOSITORY')).toURI()
+def useStagedMaven = { entry ->
+    // Gradle adds non-Maven wrappers around the plugin repositories after
+    // the underlying Maven URLs have already been set in beforeSettings.
+    if (entry instanceof MavenArtifactRepository) {
+        entry.url = repository
+        // Gradle may verify module metadata without retaining a verified POM.
+        entry.metadataSources {
+            gradleMetadata()
+            mavenPom()
+        }
+    }
+}
+
+gradle.beforeSettings { settings ->
+    settings.buildscript.repositories.all(useStagedMaven)
+    settings.pluginManagement.repositories.all(useStagedMaven)
+    settings.dependencyResolutionManagement.repositories.all(useStagedMaven)
+}
+gradle.beforeProject { project ->
+    project.buildscript.repositories.all(useStagedMaven)
+    project.repositories.all(useStagedMaven)
+}

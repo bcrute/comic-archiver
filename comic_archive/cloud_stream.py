@@ -14,7 +14,7 @@ import uuid
 
 from .archive import digest, image_extension
 from .models import ArchiveError
-from .osdep import WINDOWS, anchored, hidden
+from .osdep import WINDOWS, anchored, hidden, replace_file
 from .errors import RunLimit
 from .network import NetworkPolicyHold, wait_process
 
@@ -323,7 +323,7 @@ class StreamingEpisode:
         if self.stream_error is None:
             self.record.update(state='uploaded', sha256=self.sha.hexdigest())
             _write(self.receipt, self.record)
-        self.temporary.replace(self.archive)
+        replace_file(self.temporary, self.archive, pinned=True)
 
     def close(self):
         with self.condition:

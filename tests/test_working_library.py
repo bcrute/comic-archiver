@@ -445,6 +445,24 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assert_refused()
         self.assertEqual(outside.read_bytes(), before)
 
+    def test_packed_archive_limit_refuses_before_hashing_or_creating_the_destination(self):
+        _, archive, _, _ = self.publish()
+        size = archive.stat().st_size
+        open_path = Path.open
+
+        def guard(path, *args, **kwargs):
+            self.assertNotEqual(path, archive, 'An oversized archive was opened.')
+            return open_path(path, *args, **kwargs)
+
+        with patch('comic_archive.working_library.MAX_PACKED_ARCHIVE_BYTES', size - 1), \
+                patch.object(Path, 'open', autospec=True, side_effect=guard):
+            self.assert_refused()
+        self.assertFalse(self.output.exists())
+        with patch('comic_archive.working_library.MAX_PACKED_ARCHIVE_BYTES', size):
+            result = prepare_snapshot(self.source, self.output)
+        self.assertEqual(result.sites[0].episodes, 1)
+        self.assertEqual(next(self.output.rglob('*.cbz')).read_bytes(), archive.read_bytes())
+
     def test_existing_destination_and_overlapping_roots_are_not_overwritten(self):
         self.publish()
         self.output.mkdir(); sentinel = self.output / 'keep'; sentinel.write_text('retained')
@@ -467,6 +485,7 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'cancelled')
         self.assertEqual(self.hashes(self.source), before)
         self.assertFalse((self.output / RECEIPT).exists())
+        self.assertEqual(list(self.output.rglob('*.cbz')), [])
 
     def test_source_mutation_after_copy_refuses_to_publish_a_receipt(self):
         _, archive, _, _ = self.publish()

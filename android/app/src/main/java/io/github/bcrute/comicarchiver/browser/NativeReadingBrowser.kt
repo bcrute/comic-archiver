@@ -8,6 +8,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.webkit.ConsoleMessage
 import android.webkit.GeolocationPermissions
+import android.webkit.HttpAuthHandler
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
@@ -20,6 +21,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.chaquo.python.PyObject
+import io.github.bcrute.comicarchiver.signin.PrivateDestination
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicLong
@@ -52,6 +54,10 @@ class NativeReadingBrowser internal constructor(
             }
             override fun shouldOverrideUrlLoading(browser: WebView, request: WebResourceRequest): Boolean =
                 closed || request.method !in setOf("GET", "HEAD", "OPTIONS") || !readingUrl(request.url)
+
+            override fun onReceivedHttpAuthRequest(browser: WebView, handler: HttpAuthHandler, host: String, realm: String) {
+                if (closed) handler.cancel() else WebViewEgress.authenticate(handler, host, realm)
+            }
 
             override fun onPageStarted(browser: WebView, address: String, icon: Bitmap?) {
                 scripts.navigationStarted()
@@ -102,8 +108,8 @@ class NativeReadingBrowser internal constructor(
 
     private fun allow(request: WebResourceRequest): Boolean {
         val uri = request.url
-        if (closed || request.method !in setOf("GET", "HEAD", "OPTIONS") || uri.scheme != "https" ||
-            uri.userInfo != null || uri.port !in setOf(-1, 443) || uri.host.isNullOrEmpty()) return false
+        if (closed || request.method !in setOf("GET", "HEAD", "OPTIONS") ||
+            !PrivateDestination.allowsHttps(uri.toString())) return false
         val selected = rules ?: return false
         return try {
             val admitted = selected.callAttr("allowRequest", uri.toString(), request.method,
@@ -192,8 +198,8 @@ class NativeReadingBrowser internal constructor(
 
     companion object {
         internal const val ORIGIN = "https://tapas.io"
-        private fun readingUrl(uri: Uri): Boolean = uri.scheme == "https" && uri.host == "tapas.io" &&
-            uri.userInfo == null && uri.port in setOf(-1, 443)
+        private fun readingUrl(uri: Uri): Boolean = uri.host == "tapas.io" &&
+            PrivateDestination.allowsHttps(uri.toString())
 
         private fun motionEvent(down: Long, now: Long, action: Int, x: Float, y: Float,
                                 touch: Boolean = false, deltaX: Float = 0f, deltaY: Float = 0f): MotionEvent {

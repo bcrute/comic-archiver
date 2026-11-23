@@ -467,12 +467,13 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             code = getattr(error,'code',None)
                             if not isinstance(code,str) or code not in UNSUPPORTED_REASONS:
                                 code = 'content_unsupported'
-                            inventory.mark(key, "unsupported", code)
-                            summary["unsupported_episode_ids"].append(key)
-                            details = ''
+                            diagnostic = None
                             if code == 'novel_manifest_incomplete':
                                 from .novels import novel_diagnostics
-                                details = ''.join(f' {name}={value}' for name, value in novel_diagnostics(error).items())
+                                diagnostic = novel_diagnostics(error)
+                            inventory.mark(key, "unsupported", code, novel_failure=diagnostic)
+                            summary["unsupported_episode_ids"].append(key)
+                            details = ''.join(f' {name}={value}' for name, value in (diagnostic or {}).items())
                             print(f"Episode {key} of series {current['series_id']}: not saved, {code}{details} ({describe(error)}).",
                                   flush=True)
                             if code=='reader_manifest_incomplete':

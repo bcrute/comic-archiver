@@ -1,4 +1,6 @@
 """Where the app keeps its private state beside a library."""
+import os
+import stat
 from pathlib import Path
 
 from . import osdep, sites, windows_privacy
@@ -11,6 +13,26 @@ SESSION_NAME = '.comic-session'
 # by someone else, and would have the app read, write or delete somewhere else.
 INSIDE = (SESSION_NAME, SESSION_NAME + '/worker', SESSION_NAME + '/worker/requests', SESSION_NAME + '/worker/responses',
           '.comic-web', 'Library', 'Library/.archive-state', 'Library/.archive-state/cloud')
+
+
+def state_location(*, windows=osdep.WINDOWS):
+    """Locate per-user settings outside the library without creating a directory."""
+    name, default = ('LOCALAPPDATA', 'AppData/Local') if windows else ('XDG_STATE_HOME', '.local/state')
+    base = Path(os.environ.get(name) or '')
+    return (base if base.is_absolute() else Path.home() / default) / 'comic-archiver'
+
+
+def queue_directory_identity(path):
+    return queue_entry_identity(path.lstat())
+
+
+def queue_entry_identity(entry):
+    if (not stat.S_ISDIR(entry.st_mode)
+            or getattr(entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+        raise ArchiveError('The worker needs regular directories for its queue.')
+    if os.name == 'posix' and (entry.st_uid != os.geteuid() or entry.st_mode & 0o022):
+        raise ArchiveError('The worker needs queue folders writable only by this user.')
+    return entry.st_dev, entry.st_ino
 
 
 def private_path(root, kind):

@@ -10,9 +10,9 @@ import time
 import traceback
 import os
 import secrets
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime, timezone
-WORKER_VERSION = 83
+WORKER_VERSION = 87
 ADMISSION_WAIT_SECONDS = 10
 from pathlib import Path
 from . import sites
@@ -22,26 +22,31 @@ from .models import ArchiveError, identifier
 from .osdep import linked
 from .errors import AuthenticationError
 from .support_log import describe
+from .state_paths import queue_directory_identity
+from .queue_directory import open_queue
+
+
+def status_fields(value):
+    return value | {"worker_version": WORKER_VERSION, "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
 def private_json(path, value):
     if path.name == "status.json" and path.parent.name == "worker" and isinstance(value, dict):
-        value = value | {"worker_version": WORKER_VERSION,
-                         "updated_at": datetime.now(timezone.utc).isoformat()}
+        value = status_fields(value)
     atomic_json(path, value)
     path.chmod(0o600)
 
 
-def discard_request(path):
+def discard_request(queue, name):
     """Remove one consumed request file; a file that cannot be removed must not stop the worker.
 
     A request left behind is retried after the next restart, where its published response
     (when one exists) has the worker remove it again instead of repeating the task.
     """
     try:
-        path.unlink()
+        queue.unlink(name)
     except OSError:
-        print(f"Could not remove worker request {path.name}; it is retried after the next restart.", flush=True)
+        print(f"Could not remove worker request {name}; it is retried after the next restart.", flush=True)
 
 
 def execute(adapter, request, *, fast_session=None, audit_progress=None, library=None):
@@ -248,10 +253,15 @@ def run_worker(session, preferred="firefox", headless=False, interval=1.0, adapt
     if any(linked(Path(session)/name) for name in ('','worker','worker/requests','worker/responses')):
         raise ArchiveError('A folder the worker reads its tasks from is a link; the worker does not start.')
     # One process consumes each private queue; separate user workers remain independent.
-    root=directory(Path(session)/'worker')
+    session = Path(session).absolute()
+    directory(session, mode=0o700)
+    session_identity = queue_directory_identity(session)
+    with open_queue(session, session_identity) as queue:
+        root, root_identity = queue.directory('worker')
     # The site's folder holds the library and this queue; if it moves, the worker stops rather than make it again.
-    with kept(Path(session).absolute().parent), _runtime_lock(LibraryLock(root/'.runtime')):
-        return _run_worker(session,preferred,headless,interval,adapter_factory,fast_session_factory)
+    with kept(session.parent), _runtime_lock(LibraryLock(root/'.runtime')):
+        return _run_worker(session, preferred, headless, interval, adapter_factory, fast_session_factory,
+                           identities={session: session_identity, root: root_identity})
 
 
 @contextmanager
@@ -309,26 +319,75 @@ def controller_ticks():
 
 
 def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adapter_factory=None,
-                fast_session_factory=None):
-    place = Path(session).absolute().parent
-    # Named whole, not found through the folder the process runs from: several workers may share one process.
+                fast_session_factory=None, *, identities):
+    root = session / "worker"
+    for folder, identity in identities.items():
+        if queue_directory_identity(folder) != identity:
+            raise ArchiveError('The worker queue changed during startup.')
+    with ExitStack() as queues:
+        control = queues.enter_context(open_queue(root, identities[root], private=True))
+        requests, request_identity = control.directory('requests')
+        responses, response_identity = control.directory('responses')
+        identities.update({requests: request_identity, responses: response_identity})
+        pending = queues.enter_context(open_queue(requests, request_identity, private=True))
+        results = queues.enter_context(open_queue(responses, response_identity, private=True))
+        return _serve_worker(session, preferred, headless, interval, adapter_factory, fast_session_factory,
+                             identities, control, pending, results)
+
+
+def _serve_worker(session, preferred, headless, interval, adapter_factory, fast_session_factory,
+                  identities, control, pending, results):
+    place = session.parent
+    # Several workers can share one process without sharing a current directory.
     library = place / 'Library'
-    root = directory(session / "worker")
-    root.chmod(0o700)
-    requests = directory(root / "requests")
-    responses = directory(root / "responses")
-    requests.chmod(0o700)
-    responses.chmod(0o700)
-    status = root / "status.json"
     worker_id = secrets.token_hex(16)
     worker_fields = {"worker_version": WORKER_VERSION, "worker_id": worker_id,
                      "headless": headless, "pid": os.getpid()}
     startup_complete = False
     last_error = None
+    queue_changed = False
+
+    def moved():
+        nonlocal queue_changed
+        if queue_changed:
+            return True
+        if not place.is_dir():
+            print('The library folder was renamed, moved or deleted; the worker stops.', flush=True)
+            queue_changed = True
+        elif any(linked(folder) for folder in identities):
+            print('A folder the worker reads its tasks from became a link; the worker stops.', flush=True)
+            queue_changed = True
+        else:
+            try:
+                queue_changed = any(queue_directory_identity(folder) != identity for folder, identity in identities.items())
+            except (OSError, ArchiveError):
+                queue_changed = True
+            if queue_changed:
+                print('The worker queue changed ownership, permissions or directory; the worker stops.', flush=True)
+        return queue_changed
+
     def publish(value):
-        private_json(status, worker_fields | value)
-    from .background import drain_requested
+        if not moved():
+            control.write('status.json', status_fields(worker_fields | value))
+
+    def progress(fields, task_id):
+        if not moved():
+            control.write('progress.json', fields | {'task_id': task_id})
+
+    def draining():
+        try:
+            value = json.loads(control.read('drain.json', 16384))
+        except FileNotFoundError:
+            return False
+        except (OSError, ValueError, RecursionError):
+            raise ArchiveError('Worker control state is invalid; no process was stopped.') from None
+        if not isinstance(value, dict):
+            raise ArchiveError('Worker control state is invalid; no process was stopped.')
+        return value.get('worker_id') == worker_id
+
     try:
+        if moved():
+            return
         publish({"state": "starting"})
         site = sites.of_session(session)
         if adapter_factory is not None:
@@ -342,6 +401,8 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
             fast_source = (FastWorkerSession(session, preferred, headless=headless)
                            if site == sites.DEFAULT else nullcontext())
         with adapter_source as adapter, fast_source as fast_session:
+            if moved():
+                return
             publish({"state": "ready"})
             startup_complete = True
             print(f"Browser worker v{WORKER_VERSION} ready. Stop with stop-worker or Ctrl+C.", flush=True)
@@ -350,71 +411,61 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
             print("Comic images may show broken icons in this browser: originals download separately into compressed archives. No scrolling is needed for automatic imports.", flush=True)
             failing = set()
 
-            def moved():
-                # Nothing more can be saved or answered there, and nothing is made again in its old place. A task
-                # that ended meanwhile is left queued in the folder, to run again when it is opened.
-                if not place.is_dir():
-                    print('The library folder was renamed, moved or deleted; the worker stops.', flush=True)
-                    return True
-                # A queue folder swapped for a link would have requests read and removed somewhere else.
-                if any(linked(folder) for folder in (session, root, requests, responses)):
-                    print('A folder the worker reads its tasks from became a link; the worker stops.', flush=True)
-                    return True
-                return False
             while True:
                 if moved():
                     return
-                if drain_requested(root, worker_id):
+                if draining():
                     return
                 for name, tick in controller_ticks():
                     # Each controller holds itself on a failure it expects; anything else must not stop the queue.
                     try:
+                        if moved():
+                            return
                         tick(session, library)
                         failing.discard(name)
                     except Exception as error:
                         if name not in failing:
                             failing.add(name)
                             print(f"The {name} controller failed ({describe(error)}); queued tasks continue.", flush=True)
-                for file in sorted(requests.glob("*.json")):
-                    if file.is_symlink():
+                if moved():
+                    return
+                for name in pending.requests():
+                    if moved():
+                        return
+                    if not pending.ordinary(name):
                         continue
                     # One wrongly named request must not stop the worker or the
                     # tasks behind it; a name is not task content, so it is dropped.
                     try:
-                        task_id = identifier(file.stem)
+                        task_id = identifier(Path(name).stem)
                     except ArchiveError:
-                        print(f"Ignoring worker request with an invalid name: {file.name}", flush=True)
-                        discard_request(file)
+                        print(f"Ignoring worker request with an invalid name: {name}", flush=True)
+                        discard_request(pending, name)
                         continue
-                    response = responses / f"{task_id}.json"
-                    if response.exists():
-                        discard_request(file)
+                    response = f"{task_id}.json"
+                    if results.entry(response) is not None:
+                        discard_request(pending, name)
                         continue
                     print(f"Starting task {task_id}", flush=True)
                     try:
-                        if file.stat().st_size > 16384:
-                            raise ArchiveError("Worker request is too large.")
-                        # Read the bytes once and check their actual length: the file may
-                        # change between the size check above and the read.
-                        data = file.read_bytes()
-                        if len(data) > 16384:
-                            raise ArchiveError("Worker request is too large.")
+                        data = pending.read(name, 16384)
                         request = json.loads(data)
                         if not isinstance(request, dict):
                             raise ArchiveError("Worker request must be an object.")
                         from .task_cancellation import queued_stop_requested, cancelled_result
                         with admission(session):
-                            if drain_requested(root, worker_id):
+                            if moved() or draining():
                                 return
                             stopped=(bool(re.fullmatch(r'job-[a-f0-9]{24}',task_id))
                                      and queued_stop_requested(session,task_id))
                             if not stopped and callable(getattr(adapter, 'begin_task', None)):
                                 adapter.begin_task()
                             publish({"state": "busy", "task_id": task_id})
+                        if moved():
+                            return
                         result = (cancelled_result(library,request.get('operation'))
                                   if stopped else execute(adapter, request, fast_session=fast_session, library=library,
-                                      audit_progress=lambda fields, task_id=task_id: private_json(root / 'progress.json',
-                                                                                fields | {'task_id': task_id})))
+                                      audit_progress=lambda fields, task_id=task_id: progress(fields, task_id)))
                         value = {"task_id": task_id, "status": "ok", "result": result}
                     except ArchiveError as error:
                         value = {"task_id": task_id, "status": "error", "error": str(error),
@@ -435,20 +486,23 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
                     if moved():
                         return
                     try:
-                        private_json(response, value)
+                        results.write(response, value)
                     except (OSError, TypeError, ValueError):
                         # A result that cannot be saved still ends its task, so it is not run again.
                         value = {"task_id": task_id, "status": "error", 'error_code': 'job_failed',
                                  "error": "Worker could not save the task result."}
                         try:
-                            private_json(response, value)
+                            if not moved():
+                                results.write(response, value)
                         except OSError:
                             pass
                     if value["status"] == "error":
                         print(f"Task {task_id} failed: {value['error']}", flush=True)
                     else:
                         print(f"Task {task_id} completed.", flush=True)
-                    discard_request(file)
+                    if moved():
+                        return
+                    discard_request(pending, name)
                     publish({"state": "ready"})
                 time.sleep(0.5)
     except ArchiveError:
@@ -457,7 +511,10 @@ def _run_worker(session, preferred="firefox", headless=False, interval=1.0, adap
         raise
     finally:
         # A status that went with a moved folder stays as it was: the runtime lock tells the window it has stopped.
-        if place.is_dir():
+        if not moved():
             publish({"state": "stopped", **({"last_error_code":last_error} if last_error else {})})
-            if drain_requested(root, worker_id):
-                (root / 'drain.json').unlink(missing_ok=True)
+            if draining():
+                try:
+                    control.unlink('drain.json')
+                except FileNotFoundError:
+                    pass

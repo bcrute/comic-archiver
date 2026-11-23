@@ -22,7 +22,7 @@ from urllib.parse import quote
 import uuid
 
 from . import cloud, cloud_history, sites
-from .archive import (archive_from_sidecar, atomic_json, directory,
+from .archive import (MAX_PACKED_ARCHIVE_BYTES, archive_from_sidecar, atomic_json, directory,
                       sidecar_path, verify_episode_contents, verify_series)
 from .discovery import observed_id
 from .inventory import Inventory
@@ -107,18 +107,22 @@ def _poll(check):
         check()
 
 
-def _hash(path, check):
+def _hash(path, check, maximum=None):
     _safe(path)
     before = path.stat()
-    if not stat.S_ISREG(before.st_mode):
+    if not stat.S_ISREG(before.st_mode) or maximum is not None and before.st_size > maximum:
         raise LibraryImportError()
     value = hashlib.sha256()
+    remaining = before.st_size
     with path.open('rb') as stream:
-        while block := stream.read(1024 * 1024):
+        while block := stream.read(min(remaining + 1, 1024 * 1024)):
             _poll(check)
+            remaining -= len(block)
+            if remaining < 0:
+                raise LibraryImportError('changed')
             value.update(block)
     after = path.stat()
-    if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+    if remaining or (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
         raise LibraryImportError('changed')
     return {'size': after.st_size, 'sha256': value.hexdigest()}
 
@@ -127,14 +131,11 @@ def _inputs(snapshot, check):
     """Whitelist inputs; sessions, caches, settings links and jobs are not data to adopt."""
     result = {}
 
-    def add(path, maximum=None):
+    def add(path, maximum):
         _poll(check)
-        _safe(path)
-        if maximum is not None and path.stat().st_size > maximum:
-            raise LibraryImportError()
         if len(result) >= MAX_FILES:
             raise LibraryImportError()
-        result[path.relative_to(snapshot).as_posix()] = _hash(path, check)
+        result[path.relative_to(snapshot).as_posix()] = _hash(path, check, maximum)
 
     found = False
     for site in sites.SITES:
@@ -154,9 +155,12 @@ def _inputs(snapshot, check):
                 raise LibraryImportError()
             result[folder.relative_to(snapshot).as_posix()] = {'directory': True}
             for path in _children(folder):
-                if (path.name.endswith(('.cbz', '.epub', '.tar.zst', '.json'))
-                        or path.name in {'cover.jpg', 'cover.png', 'cover.gif', 'cover.webp'}):
-                    add(path, MAX_JSON if path.suffix == '.json' else None)
+                if path.name.endswith(('.cbz', '.epub', '.tar.zst')):
+                    add(path, MAX_PACKED_ARCHIVE_BYTES)
+                elif path.suffix == '.json':
+                    add(path, MAX_JSON)
+                elif path.name in {'cover.jpg', 'cover.png', 'cover.gif', 'cover.webp'}:
+                    add(path, 10 * 1024**2)
                 elif path.name.endswith(('.tmp', '.part')):
                     raise LibraryImportError('changed')
         state = root / '.archive-state'
@@ -215,8 +219,18 @@ def _account(root, scratch, check):
         if path.exists():
             _copy(path, Path(str(local) + suffix), check)
     with closing(sqlite3.connect(f"file:{quote(str(local), safe='/')}?mode=ro", uri=True, timeout=2)) as db:
-        db.execute('PRAGMA query_only=ON')
         db.execute('PRAGMA trusted_schema=OFF')
+        db.execute('PRAGMA query_only=ON')
+        db.execute('PRAGMA cell_size_check=ON')
+        db.execute('PRAGMA mmap_size=0')
+        # The portable inventory only supplies ordinary table rows. Python 3.11
+        # has no connection-config API; the table check and authorizer still apply.
+        setconfig = getattr(db, 'setconfig', None)
+        if setconfig is not None:
+            for name in ('SQLITE_DBCONFIG_ENABLE_VIEW', 'SQLITE_DBCONFIG_ENABLE_TRIGGER'):
+                option = getattr(sqlite3, name, None)
+                if option is not None:
+                    setconfig(option, False)
         calls = 0
 
         def budget():
@@ -251,16 +265,29 @@ def _account(root, scratch, check):
         return binding, archived
 
 
-def _copy(source, target, check):
+def _copy(source, target, check, maximum=None):
     _safe(source); _safe(target)
+    remaining = source.stat().st_size
+    if maximum is not None and remaining > maximum:
+        raise LibraryImportError()
     directory(target.parent).chmod(0o700)
     with source.open('rb') as reader, target.open('xb') as writer:
-        os.chmod(target, 0o600)
-        while data := reader.read(1024 * 1024):
-            _poll(check)
-            writer.write(data)
-        writer.flush()
-        os.fsync(writer.fileno())
+        try:
+            os.chmod(target, 0o600)
+            while data := reader.read(min(remaining + 1, 1024 * 1024)):
+                _poll(check)
+                remaining -= len(data)
+                if remaining < 0:
+                    raise LibraryImportError('changed')
+                writer.write(data)
+            if remaining:
+                raise LibraryImportError('changed')
+            writer.flush()
+            os.fsync(writer.fileno())
+        except BaseException:
+            writer.close()
+            target.unlink(missing_ok=True)
+            raise
 
 
 def _metadata(sidecar, site, *, series=False):
@@ -337,6 +364,8 @@ class _CheckedReader:
 
 
 def _verify(path, metadata, check):
+    if path.stat().st_size > MAX_PACKED_ARCHIVE_BYTES:
+        raise LibraryImportError()
     with path.open('rb') as stream:
         problems = verify_episode_contents(_CheckedReader(stream, check), metadata)
         _poll(check)
@@ -468,7 +497,7 @@ def _site(source, target, site, inputs, scratch, check):
                                      (destination.relative_to(target).as_posix(), site.key, series.id, episode.id))
                     store.db.commit()
                 if local:
-                    _copy(archive, destination, check)
+                    _copy(archive, destination, check, MAX_PACKED_ARCHIVE_BYTES)
                 _publish_metadata(target, sidecar_path(destination), sidecar, public, metadata, export_id, check)
                 for provider, record in receipts:
                     rebased = record | {'archive': destination.relative_to(target).as_posix()}
@@ -510,7 +539,8 @@ def _output_files(destination, check, *, location_marker=False):
                 continue
             if len(result) >= MAX_FILES:
                 raise LibraryImportError()
-            result[path.relative_to(destination).as_posix()] = _hash(path, check)
+            maximum = MAX_PACKED_ARCHIVE_BYTES if name.endswith(('.cbz', '.epub', '.tar.zst')) else None
+            result[path.relative_to(destination).as_posix()] = _hash(path, check, maximum)
     return dict(sorted(result.items()))
 
 

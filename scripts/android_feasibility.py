@@ -54,9 +54,13 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 try:
-    from scripts import android_release
+    from scripts import android_advisories, android_dependency_graph, android_offline, android_release, android_wheelhouse
 except ImportError:  # Run as scripts/android_feasibility.py, with scripts/ on the path.
+    import android_advisories
+    import android_dependency_graph
+    import android_offline
     import android_release
+    import android_wheelhouse
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SDIST_DIR = REPO / "packaging/android/zstandard-wheel"
@@ -82,16 +86,15 @@ CIBW_CACHE = TOOLS_DIR / "cibw-cache"
 DEBUG_KEYSTORE_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_B64"
 DEBUG_CERT_SHA256_ENV = "COMIC_ARCHIVER_DEBUG_KEYSTORE_CERT_SHA256"
 DEBUG_KEYSTORE = TOOLS_DIR / "debug-signing/debug.keystore"
-# The owner's release key reaches only a release-apk job, from a one-off private fleet
-# config, never the shared one: the store and its password are materialized as 0600 job
-# files, Gradle gets their paths, and both are deleted before the job ends. Nothing is
-# ever generated on this path; a missing or different key fails the job.
+# The release key is injected only into the standalone signing job. Its private
+# copies are deleted on exit. A missing or changed key fails the job.
 RELEASE_KEYSTORE_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_B64"
 RELEASE_PASSWORD_ENV = "COMIC_ARCHIVER_RELEASE_KEYSTORE_PASSWORD"  # noqa: S105 - the variable's name, not a password
 RELEASE_CERT_SHA256_ENV = "COMIC_ARCHIVER_RELEASE_CERT_SHA256"
+RELEASE_SIGNING_ENV = (RELEASE_KEYSTORE_ENV, RELEASE_PASSWORD_ENV, RELEASE_CERT_SHA256_ENV)
 RELEASE_ALIAS = "comic-archiver"
 RELEASE_SIGNING_DIR = TOOLS_DIR / "release-signing"
-RELEASE_APK = REPO / "android/app/build/outputs/apk/release/app-release.apk"
+SIGNING_SANDBOX = pathlib.Path("/usr/bin/bwrap")
 SELF_IDENTITY = "comic-archiver/android-selfcheck/1"
 SELF_TAG = "ComicArchiverSelfcheck"
 APP_ACTIVITY = "io.github.bcrute.comicarchiver/.MainActivity"
@@ -123,6 +126,7 @@ def route = { repository ->
     }
 }
 gradle.beforeSettings { settings ->
+    settings.buildscript.repositories.all(route)
     settings.pluginManagement.repositories.all(route)
     settings.dependencyResolutionManagement.repositories.all(route)
 }
@@ -881,8 +885,7 @@ def phase_release_signing(tools, env=None, runner=run_tool, directory=None):
     if not java or not (pathlib.Path(java).parent / "keytool").is_file():
         record("release_signing", "pending", reason="no pinned JDK keytool available")
         return None
-    values = [(env.get(name) or "").strip() for name in
-              (RELEASE_KEYSTORE_ENV, RELEASE_PASSWORD_ENV, RELEASE_CERT_SHA256_ENV)]
+    values = [(env.get(name) or "").strip() for name in RELEASE_SIGNING_ENV]
     if not all(values):
         record("release_signing", "failed",
                reason="the release key, its password and its certificate must all be injected")
@@ -1258,10 +1261,6 @@ def _gradle_invocation(paths, task, wheels):
     # without it AGP's default per-user debug keystore behavior applies unchanged.
     if paths.get("debug_keystore"):
         argv.append(f"-PdebugKeystore={paths['debug_keystore']}")
-    # Likewise the release key: its path and its password file's path, never the password.
-    if paths.get("release_keystore"):
-        argv.extend([f"-PreleaseKeystore={paths['release_keystore']}",
-                     f"-PreleaseKeystorePasswordFile={paths['release_password_file']}"])
     if mirror:
         init = TOOLS_DIR / "ci-package-mirror.init.gradle"
         init.parent.mkdir(parents=True, exist_ok=True)
@@ -1724,91 +1723,280 @@ def development_apk(wheels):
     return code
 
 
-def release_apk():
-    """Build the release APK signed with the owner's key, from the pinned wheel source.
+def _release_report(artifacts, name, required, code, success):
+    report.update(selected_required_phases=list(required), tests_run=False,
+                  verdict={0: success, 1: "failed", 3: "pending"}[code])
+    text = json.dumps(report, indent=2)
+    (REPO / name).write_text(text + "\n")
+    (artifacts / name).write_text(text + "\n")
+    print(text)
 
-    The finished APK must pass the publisher's own inspection: exactly the expected
-    signer, the tagged source's identity, nothing debuggable or test-only, and 16 KB
-    zip alignment. The job's copy of the key is deleted however the build ends.
-    Device, suite and matrix evidence are separate checks.
-    """
-    required = ("provision", "release_signing", "preflight", "sdist", "wheels", "release_apk")
+
+def _file_sha256(path):
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def _extract_verified_archive(archive, destination, digest, extractor, label):
+    # Work from a private copy so later edits to the input cannot affect extraction.
+    staged = destination.with_suffix(".archive")
+    shutil.copyfile(archive, staged)
+    if _file_sha256(staged) != digest:
+        raise ValueError(f"The {label} archive differs from its approved SHA-256.")
+    if not extractor(staged, destination):
+        raise ValueError(f"The approved {label} archive could not be extracted.")
+    staged.unlink()
+
+
+def _toolchain_root(destination, required, label):
+    roots = [root for root in destination.iterdir()
+             if (root / required).is_file() and (root / required).resolve().is_relative_to(destination)]
+    if len(roots) != 1:
+        raise ValueError(f"The approved {label} archive has an unexpected directory layout.")
+    return roots[0]
+
+
+def _stage_build_toolchain(work, inputs, sdk_sha256):
+    if not isinstance(sdk_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", sdk_sha256):
+        raise ValueError("An independently approved build SDK SHA-256 is required.")
+    tools = work / "tools"
+    tools.mkdir()
+    jdk_sha256 = PINS["jdk"]["sha256"]
+    gradle_sha256 = PINS["gradle"]["sha256"]
+    python_sha256 = PINS["host_python"]["sha256"]
+    for name, filename, digest, extractor in (
+        ("jdk", "jdk.tar.gz", jdk_sha256, _extract_tar_data),
+        ("gradle", "gradle.zip", gradle_sha256, _extract_zip_data),
+        ("python", "python.tar.gz", python_sha256, _extract_tar_data),
+        ("sdk", "sdk.tar", sdk_sha256, _extract_tar_data),
+    ):
+        _extract_verified_archive(inputs / filename, tools / name, digest, extractor, f"build {name}")
+    return (
+        _toolchain_root(tools / "jdk", "bin/java", "build JDK"),
+        _toolchain_root(tools / "gradle", "bin/gradle", "build Gradle"),
+        _toolchain_root(tools / "python", "bin/python3.13", "build CPython"),
+        tools / "sdk",
+        {"jdk_sha256": jdk_sha256, "gradle_sha256": gradle_sha256,
+         "python_sha256": python_sha256, "sdk_sha256": sdk_sha256},
+    )
+
+
+def prepare_release_apk(wheelhouse, inputs, gradle_sha256, sdk_sha256, advisory_snapshot, advisory_sha256):
+    """Build and inspect the unsigned artifact in a job with no release key."""
+    required = ("python_wheel_lock", "build_toolchain", "gradle_verification", "dependency_inventory", "dependency_advisories",
+                "release_prepare")
     artifacts = REPO.parent / "artifacts"
     artifacts.mkdir(exist_ok=True)
     code = 1
     try:
-        tools = phase_provision()
-        if report["phases"].get("provision", {}).get("status") != "passed":
-            code = _verdict(required)
-            return code
-        signing = phase_release_signing(tools)
-        if signing is None:
-            code = _verdict(required)
-            return code
-        ready, paths = phase_preflight(tools)
-        wheels = phase_wheels(paths, phase_sdist()) if ready else None
-        if wheels is None:
-            code = _verdict(required)
-            return code
-        paths["release_keystore"], paths["release_password_file"] = signing
-        env, argv, _, _ = _gradle_invocation(paths, "assembleRelease", wheels)
-        result = run_tool(argv, timeout=3600, env_extra=env, keep_bytes=8000)
-        remove_release_signing()
-        if result["returncode"] != 0 or not RELEASE_APK.is_file():
-            failed = re.findall(r"> Task :(\S+) FAILED", result["tail"])
-            record("release_apk", "failed", returncode=result["returncode"],
-                   classification=f"task_failed:{failed[-1]}" if failed else None, tail=result["tail"])
-            code = _verdict(required)
-            return code
-        installed = sorted(tool for tool in (pathlib.Path(paths["sdk"]) / "build-tools").iterdir()
-                           if (tool / "apksigner").is_file() and (tool / "aapt2").is_file())
-        java_bin = pathlib.Path(paths["java"]).parent
-        os.environ.update(JAVA_HOME=str(java_bin.parent), PATH=f"{java_bin}:{os.environ['PATH']}")
-        try:
-            identity = android_release.inspect_apk(RELEASE_APK, installed[-1])
-        except (ValueError, IndexError) as error:
-            record("release_apk", "failed", reason=str(error)[:400] or "no SDK build tools to inspect it")
-            code = _verdict(required)
-            return code
-        expected = dict(android_release.identity_from_source(REPO),
-                        certificate_sha256=report["phases"]["release_signing"]["cert_sha256"])
-        if identity != expected:
-            record("release_apk", "failed", reason="the APK differs from the tagged source or approved signer",
-                   observed=identity, expected=expected)
-            code = _verdict(required)
-            return code
-        problems = android_release.license_problems(RELEASE_APK, REPO)
-        if problems:
-            record("release_apk", "failed", reason="the APK lacks license texts it must carry", license_problems=problems)
-            code = _verdict(required)
-            return code
-        target = artifacts / f"ComicArchiver-{identity['version_name']}-android-universal.apk"
-        shutil.copyfile(RELEASE_APK, target)
-        record("release_apk", "passed", identity=identity, artifact=str(target), apk_bytes=target.stat().st_size,
-               apk_sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+        if any(name in os.environ for name in RELEASE_SIGNING_ENV):
+            raise ValueError("Run release-prepare without signing variables.")
+        lock_digest, approved_wheels, versions = android_wheelhouse.load_lock(REPO)
+        with tempfile.TemporaryDirectory(prefix="android-build-") as directory:
+            work = pathlib.Path(directory)
+            wheels = work / "wheels"
+            android_wheelhouse.stage_wheels(wheelhouse, wheels, approved_wheels, versions)
+            record("python_wheel_lock", "passed", sha256=lock_digest, wheels=approved_wheels, distributions=versions)
+            jdk, gradle, python, sdk_path, toolchain_proof = _stage_build_toolchain(work, inputs, sdk_sha256)
+            record("build_toolchain", "passed", **toolchain_proof)
+            prefix, assemble, unsigned, build_tools, verification_digest, verified_modules = (
+                android_offline.release_workspace(REPO, work, inputs, gradle_sha256, wheels, SIGNING_SANDBOX,
+                                                  jdk=jdk, gradle=gradle, python=python, sdk=sdk_path))
+            result = run_tool([*prefix, *assemble], timeout=3600, keep_bytes=8000)
+            if result["returncode"] != 0 or not unsigned.is_file():
+                failed = re.findall(r"> Task :(\S+) FAILED", result["tail"])
+                record("release_prepare", "failed", returncode=result["returncode"],
+                       classification=f"task_failed:{failed[-1]}" if failed else None, tail=result["tail"])
+                return code
+            record("gradle_verification", "passed", sha256=verification_digest)
+
+            def sdk(argv):
+                return android_release.tool_output([*prefix, *argv])
+
+            aligned = work / "aligned.apk"
+            sdk([build_tools / "zipalign", "-P", "16", "4", unsigned, aligned])
+            identity = android_release.inspect_apk_payload(aligned, build_tools, run=sdk)
+            if identity != android_release.identity_from_source(REPO):
+                raise ValueError("The unsigned APK differs from the tagged source.")
+            android_wheelhouse.verify_apk_packages(aligned, versions)
+            problems = android_release.license_problems(aligned, REPO)
+            if problems:
+                record("release_prepare", "failed", license_problems=problems)
+                return code
+            apk_digest = _file_sha256(aligned)
+            inventory = android_dependency_graph.build_inventory(
+                work / android_offline.GRADLE_INVENTORY, verified_modules, versions,
+                wheel_sha256=lock_digest, gradle_sha256=verification_digest, apk_sha256=apk_digest)
+            content, inventory_digest = android_dependency_graph.inventory_bytes(inventory)
+            inventory_name = f"android-dependencies-{inventory_digest}.json"
+            target = artifacts / "android-release-unsigned.apk"
+            with tempfile.TemporaryDirectory(dir=artifacts) as output:
+                dependency_file = pathlib.Path(output) / inventory_name
+                dependency_file.write_bytes(content)
+                inventory_path = artifacts / inventory_name
+                dependency_file.replace(inventory_path)
+                record("dependency_inventory", "passed", artifact=inventory_name, sha256=inventory_digest)
+                advisory = android_advisories.scan(inventory_path, inventory_digest, apk_digest,
+                                                   advisory_snapshot, advisory_sha256)
+                if advisory["findings"]:
+                    record("dependency_advisories", "failed", **advisory)
+                    return code
+                record("dependency_advisories", "passed", **advisory)
+                staged = pathlib.Path(output) / target.name
+                shutil.copyfile(aligned, staged)
+                staged.replace(target)
+        record("release_prepare", "passed", identity=identity, artifact=target.name,
+               apk_bytes=target.stat().st_size, apk_sha256=apk_digest)
         code = _verdict(required)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, subprocess.TimeoutExpired, zipfile.BadZipFile) as error:
+        record("release_prepare", "failed", reason=str(error)[:400])
+    finally:
+        _release_report(artifacts, "android-release-prepare.json", required, code, "unsigned_apk_ready")
+    return code
+
+
+def _stage_signing_tools(private, jdk_archive, sdk_archive, sdk_sha256):
+    if not re.fullmatch(r"[a-f0-9]{64}", sdk_sha256):
+        raise ValueError("An independently approved SDK Build Tools SHA-256 is required.")
+    tools = private / "tools"
+    tools.mkdir()
+    jdk_sha256 = PINS["jdk"]["sha256"]
+    for archive, name, digest, extract in (
+        (jdk_archive, "jdk", jdk_sha256, _extract_tar_data),
+        (sdk_archive, "sdk", sdk_sha256, _extract_zip_data),
+    ):
+        _extract_verified_archive(archive, tools / name, digest, extract, f"signing {name}")
+    java = _toolchain_root(tools / "jdk", "bin/java", "signing JDK") / "bin/java"
+    build_tools = _toolchain_root(tools / "sdk", "apksigner", "signing SDK")
+    if not all(tool.is_file() and tool.resolve().is_relative_to(tools)
+               for tool in (java, java.with_name("keytool"), build_tools / "zipalign",
+                            build_tools / "apksigner", build_tools / "aapt2")):
+        raise ValueError("The approved archives do not contain the required signing tools.")
+    return java, build_tools, jdk_sha256
+
+
+def release_apk(apk, expected_sha256, jdk_archive, sdk_archive, sdk_sha256, preparation, preparation_sha256):
+    """Sign an independently approved APK using tools already staged in the signing job."""
+    required = ("signing_toolchain", "preparation_approval", "release_signing", "release_apk")
+    artifacts = REPO.parent / "artifacts"
+    artifacts.mkdir(exist_ok=True)
+    secrets = {name: os.environ.pop(name, "") for name in RELEASE_SIGNING_ENV}
+    code = 1
+    try:
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+            raise ValueError("An independently approved unsigned APK digest is required.")
+        if not SIGNING_SANDBOX.is_file():
+            raise ValueError("The signing job needs a networkless SDK sandbox.")
+        # Copy first so verification and signing use the same job-private bytes.
+        with tempfile.TemporaryDirectory(prefix="android-release-") as directory:
+            private = pathlib.Path(directory)
+            unsigned = private / "unsigned.apk"
+            signed = private / "signed.apk"
+            shutil.copyfile(apk, unsigned)
+            if _file_sha256(unsigned) != expected_sha256:
+                raise ValueError("The unsigned APK digest differs from the approved artifact.")
+            java, build_tools, jdk_sha256 = _stage_signing_tools(private, jdk_archive, sdk_archive, sdk_sha256)
+            record("signing_toolchain", "passed", jdk_sha256=jdk_sha256, sdk_build_tools_sha256=sdk_sha256)
+            jdk = java.parent.parent
+            env = {"JAVA_HOME": str(jdk), "PATH": f"{java.parent}:/usr/bin:/bin", "HOME": directory,
+                   "TMPDIR": directory, "LC_ALL": "C.UTF-8"}
+            sandbox = [SIGNING_SANDBOX, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL"]
+            for path in ("/usr", "/bin", "/lib", "/lib64"):
+                if pathlib.Path(path).is_dir():
+                    sandbox.extend(("--ro-bind", path, path))
+            sandbox.extend(("--proc", "/proc", "--dev", "/dev", "--bind", directory, directory,
+                            "--ro-bind", str(private / "tools"), str(private / "tools"),
+                            "--chdir", directory, "--"))
+
+            def sdk(argv):
+                return android_release.tool_output([*sandbox, *argv], env=env)
+
+            def keytool(argv, timeout):
+                try:
+                    output = sdk(argv)
+                except ValueError:
+                    return {"returncode": 1, "tail": ""}
+                return {"returncode": 0, "tail": output}
+
+            expected = android_release.identity_from_source(REPO)
+            if android_release.inspect_apk_payload(unsigned, build_tools, run=sdk) != expected:
+                raise ValueError("The unsigned APK differs from the tagged source.")
+            lock_digest, _, versions = android_wheelhouse.load_lock(REPO)
+            approval = android_advisories.verify_preparation(preparation, preparation_sha256, expected_sha256,
+                                                            lock_digest, expected)
+            record("preparation_approval", "passed", sha256=preparation_sha256, **approval)
+            android_wheelhouse.verify_apk_packages(unsigned, versions)
+            problems = android_release.license_problems(unsigned, REPO)
+            if problems:
+                record("release_apk", "failed", license_problems=problems)
+                return code
+            signing = phase_release_signing({"java": java}, env=secrets, runner=keytool,
+                                            directory=private / "key")
+            if signing is None:
+                code = _verdict(required)
+                return code
+            store, password = signing
+            # apksigner reads consecutive lines when both passwords share one file.
+            key_password = pathlib.Path(password).with_name("key.pass")
+            _write_private_file(key_password, pathlib.Path(password).read_bytes())
+            sdk([build_tools / "apksigner", "sign", "--ks", store, "--ks-type", "PKCS12",
+                 "--ks-key-alias", RELEASE_ALIAS, "--ks-pass", f"file:{password}",
+                 "--key-pass", f"file:{key_password}", "--pass-encoding", "utf-8",
+                 "--v4-signing-enabled", "false", "--out", signed, unsigned])
+            remove_release_signing(private / "key")
+            identity = android_release.inspect_apk(signed, build_tools, run=sdk)
+            expected = expected | {"certificate_sha256": report["phases"]["release_signing"]["cert_sha256"]}
+            if identity != expected:
+                raise ValueError("The signed APK differs from the tagged source or approved signer.")
+            problems = android_release.license_problems(signed, REPO)
+            if problems:
+                record("release_apk", "failed", license_problems=problems)
+                return code
+            target = artifacts / f"ComicArchiver-{identity['version_name']}-android-universal.apk"
+            with tempfile.TemporaryDirectory(dir=artifacts) as work:
+                staged = pathlib.Path(work) / target.name
+                shutil.copyfile(signed, staged)
+                staged.replace(target)
+            signed_sha256 = _file_sha256(target)
+            provenance = {"signed_apk_sha256": signed_sha256, "unsigned_apk_sha256": expected_sha256,
+                          "preparation_receipt_sha256": preparation_sha256, "python_wheel_lock_sha256": lock_digest,
+                          **approval}
+            record("release_apk", "passed", identity=identity, artifact=str(target), apk_bytes=target.stat().st_size,
+                   apk_sha256=signed_sha256, unsigned_apk_sha256=expected_sha256,
+                   python_wheel_lock_sha256=lock_digest, provenance=provenance)
+            code = _verdict(required)
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
         record("release_apk", "failed", reason=str(error)[:400])
     finally:
-        remove_release_signing()
-        report.update(selected_required_phases=list(required), tests_run=False,
-                      verdict={0: "release_apk_ready", 1: "failed", 3: "pending"}[code])
-        text = json.dumps(report, indent=2)
-        (REPO / "android-release.json").write_text(text + "\n")
-        (artifacts / "android-release.json").write_text(text + "\n")
-        print(text)
+        _release_report(artifacts, "android-release.json", required, code, "release_apk_ready")
     return code
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", default="dev-apk",
-                        choices=["dev-apk", "release-apk", "device-matrix", "all", "preflight", "sdist"],
-                        help="dev-apk builds for phone work; release-apk signs with the injected owner key; "
+                        choices=["dev-apk", "release-prepare", "release-apk", "device-matrix", "all", "preflight", "sdist"],
+                        help="dev-apk builds for phone work; release-prepare builds an unsigned APK; "
+                             "release-apk signs an approved unsigned APK in a separate job; "
                              "device-matrix runs a release APK on the matrix's emulators; "
                              "all runs final qualification after parity")
-    parser.add_argument("--wheels", type=pathlib.Path, help="Retained Android wheels (required for dev-apk)")
-    parser.add_argument("--apk", type=pathlib.Path, help="The inspected release APK (required for device-matrix)")
+    parser.add_argument("--wheels", type=pathlib.Path,
+                        help="Retained Android dev wheels or the complete locked release wheelhouse")
+    parser.add_argument("--apk", type=pathlib.Path, help="An approved unsigned APK or an inspected matrix APK")
+    parser.add_argument("--apk-sha256", help="Approved unsigned APK SHA-256 (release-apk)")
+    parser.add_argument("--signing-jdk-archive", type=pathlib.Path, help="Local pinned JDK tar archive (release-apk)")
+    parser.add_argument("--signing-build-tools-archive", type=pathlib.Path,
+                        help="Local Android SDK Build Tools ZIP (release-apk)")
+    parser.add_argument("--signing-build-tools-sha256", help="Independently approved SDK Build Tools SHA-256")
+    parser.add_argument("--preparation-receipt", type=pathlib.Path, help="Approved unsigned build receipt (release-apk)")
+    parser.add_argument("--preparation-receipt-sha256", help="Independently approved unsigned build receipt SHA-256")
+    parser.add_argument("--release-inputs", type=pathlib.Path,
+                        help="Local toolchain archives, Gradle cache and verification metadata (release-prepare)")
+    parser.add_argument("--release-sdk-sha256", help="Independently approved SHA-256 of sdk.tar (release-prepare)")
+    parser.add_argument("--gradle-verification-sha256", help="Approved SHA-256 of Gradle verification metadata")
+    parser.add_argument("--advisory-snapshot", type=pathlib.Path,
+                        help="Pre-staged dated Maven and PyPI advisory databases and scanner (release-prepare)")
+    parser.add_argument("--advisory-snapshot-sha256", help="Approved SHA-256 of the advisory snapshot manifest")
     args = parser.parse_args()
     if args.phase == "device-matrix":
         if args.apk is None:
@@ -1819,7 +2007,22 @@ def main():
             from android_device_matrix import run as device_matrix
         return device_matrix(args.apk.resolve(strict=True))
     if args.phase == "release-apk":
-        return release_apk()
+        if not all((args.apk, args.apk_sha256, args.signing_jdk_archive, args.signing_build_tools_archive,
+                    args.signing_build_tools_sha256,
+                    args.preparation_receipt, args.preparation_receipt_sha256)):
+            parser.error("release-apk needs --apk, --apk-sha256, --signing-jdk-archive, "
+                         "--signing-build-tools-archive, --signing-build-tools-sha256, "
+                         "--preparation-receipt and --preparation-receipt-sha256")
+        return release_apk(args.apk, args.apk_sha256, args.signing_jdk_archive, args.signing_build_tools_archive,
+                           args.signing_build_tools_sha256,
+                           args.preparation_receipt, args.preparation_receipt_sha256)
+    if args.phase == "release-prepare":
+        if not all((args.wheels, args.release_inputs, args.gradle_verification_sha256, args.release_sdk_sha256,
+                    args.advisory_snapshot, args.advisory_snapshot_sha256)):
+            parser.error("release-prepare needs --wheels, --release-inputs, --gradle-verification-sha256, --release-sdk-sha256, "
+                         "--advisory-snapshot and --advisory-snapshot-sha256")
+        return prepare_release_apk(args.wheels.resolve(), args.release_inputs.resolve(), args.gradle_verification_sha256,
+                                   args.release_sdk_sha256, args.advisory_snapshot.resolve(), args.advisory_snapshot_sha256)
     if args.phase == "dev-apk":
         if args.wheels is None:
             parser.error("dev-apk needs --wheels; full qualification requires explicit --phase all after parity")

@@ -476,6 +476,7 @@ class TapasTests(unittest.TestCase):
         page.route.assert_called_once_with('**/*',transport.read_only_request)
         for method in ('GET','HEAD','OPTIONS'):
             route=Mock();route.request.method=method
+            route.request.url='https://tapas.io/series/42'
             transport.read_only_request(route)
             route.continue_.assert_called_once();route.abort.assert_not_called()
         self.assertEqual(transport.blocked_mutations,0)
@@ -490,6 +491,7 @@ class TapasTests(unittest.TestCase):
         adapter.context.unroute.assert_not_called()
         for method,denied in (('POST',True),('GET',False)):
             route=Mock();route.request.method=method
+            route.request.url='https://tapas.io/series/42'
             adapter.network_read_only_request(route)
             if denied:route.abort.assert_called_once();route.continue_.assert_not_called()
             else:route.continue_.assert_called_once();route.abort.assert_not_called()
@@ -509,6 +511,7 @@ class TapasTests(unittest.TestCase):
         transport=BrowserReadTransport(Mock(),Mock())
         for handler in (read_only_source_request,transport.read_only_request):
             route=Mock();route.request.method='POST'
+            route.request.url='https://tapas.io/series/42'
             route.abort.side_effect=RuntimeError('Route.abort: Route is already handled!')
             handler(route)
             route.abort.assert_called_once()
@@ -518,6 +521,7 @@ class TapasTests(unittest.TestCase):
     def test_unexpected_callback_failure_is_sanitized_and_assets_close_after_cleanup_failure(self,assets):
         page=Mock();transport=BrowserReadTransport(page,Mock())
         route=Mock();route.request.method='POST'
+        route.request.url='https://tapas.io/series/42'
         route.abort.side_effect=RuntimeError('Unexpected Route is already handled! PRIVATE_COOKIE https://example.test/?session=PRIVATE')
         with self.assertRaises(ArchiveError) as error:
             transport.read_only_request(route)

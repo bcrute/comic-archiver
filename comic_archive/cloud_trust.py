@@ -2,8 +2,8 @@
 
 A library folder can come from another computer, or from someone else, with a connection to a bucket that is not
 the person's own in it. New episodes go to a connection only once it was set up here, or the person said to use it.
-Each is noted by a digest of its name and connection file, never the keys themselves, so a library folder moved or
-copied on this computer keeps its connection.
+Each is noted by a digest of its target identity, remote name and connection file. Moving or copying the same
+library keeps its connection without sharing trust with separately configured targets.
 """
 import hashlib
 import json
@@ -13,6 +13,7 @@ from . import osdep
 from .models import ArchiveError
 
 RECORD = 'cloud-connections.json'
+SCHEMA = 2
 DIGEST = re.compile(r'[0-9a-f]{64}')
 # Larger than any connection file the app writes.
 LIMIT = 64 * 1024
@@ -20,14 +21,17 @@ LIMIT = 64 * 1024
 
 def fingerprint(target):
     """The digest that names one connection; None when its file cannot be read."""
-    from .cloud import _config
+    from .cloud import _config, valid_export_id
     try:
+        identity = target['target_id']
+        if not valid_export_id(identity):
+            return None
         with _config(target['config']).open('rb') as stream:
             data = stream.read(LIMIT + 1)
         name = target['remote'].encode()
     except (ArchiveError, OSError, KeyError, TypeError, ValueError, AttributeError):
         return None
-    return hashlib.sha256(name + b'\0' + data).hexdigest() if len(data) <= LIMIT else None
+    return hashlib.sha256(identity.encode('ascii') + b'\0' + name + b'\0' + data).hexdigest() if len(data) <= LIMIT else None
 
 
 def _read(folder):
@@ -38,14 +42,16 @@ def _read(folder):
         return None
     except (OSError, ValueError):
         return set()  # Nothing known: the person is asked again.
-    noted = value.get('connections') if isinstance(value, dict) else None
+    # Old records did not distinguish approvals from declines. An existing old
+    # record must never trigger first-install discovery of previously opened libraries.
+    noted = value.get('connections') if isinstance(value, dict) and value.get('schema_version') == SCHEMA else None
     return {digest for digest in noted if isinstance(digest, str) and DIGEST.fullmatch(digest)} if isinstance(noted, list) else set()
 
 
 def _write(folder, digests):
     # Not locked: two noted at the same moment may keep one, and the person is asked about the other again.
     try:
-        (folder / (RECORD + '.new')).write_text(json.dumps({'schema_version': 1, 'connections': sorted(digests)}),
+        (folder / (RECORD + '.new')).write_text(json.dumps({'schema_version': SCHEMA, 'connections': sorted(digests)}),
                                                 encoding='utf-8')
         osdep.replace_file(folder / (RECORD + '.new'), folder / RECORD)
     except OSError:

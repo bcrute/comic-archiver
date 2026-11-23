@@ -195,6 +195,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
     def setUp(self):
         super().setUp()
         self.certificate = 'c' * 64
+        self.wheel_lock = 'e' * 64
         self.identity = {'package_id': 'io.github.bcrute.comicarchiver', 'version_name': self.version,
                          'version_code': 1, 'min_sdk': 29, 'target_sdk': 36,
                          'abis': ['arm64-v8a', 'x86_64']}
@@ -205,6 +206,15 @@ class AndroidReleaseGateTests(ReleaseGateTests):
         self.value.update(schema_version=2, channel='beta', platforms=['desktop', 'android'],
                           android=self.identity | {
                               'artifact': self.apk, 'commit': self.commit, 'certificate_sha256': self.certificate,
+                              'provenance': {
+                                  'signed_apk_sha256': release.digest(path),
+                                  'unsigned_apk_sha256': '1' * 64,
+                                  'preparation_receipt_sha256': '2' * 64,
+                                  'python_wheel_lock_sha256': self.wheel_lock,
+                                  'gradle_verification_sha256': '3' * 64,
+                                  'inventory_sha256': '4' * 64,
+                                  'snapshot_sha256': '5' * 64,
+                                  'snapshot_date': '2026-11-01'},
                               'checks': dict.fromkeys(android_release.CHECKS, True),
                               'tests': {'tests_run': 300, 'failures': 0, 'errors': 0, 'skipped': []},
                               'device_matrix': [
@@ -238,6 +248,7 @@ class AndroidReleaseGateTests(ReleaseGateTests):
 
     def verify(self, metadata=None, **kwargs):
         options = {'android_cert': self.certificate, 'android_identity': self.identity,
+                   'android_wheel_lock_sha256': self.wheel_lock,
                    'android_build_tools': Path('/sdk/build-tools/37.0.0')}
         options.update(kwargs)
         return release.verify(self.folder, self.commit, self.release if metadata is None else metadata,
@@ -253,6 +264,27 @@ class AndroidReleaseGateTests(ReleaseGateTests):
                 with self.assertRaises(ValueError):
                     self.verify()
                 self.value['checks'][name] = True
+
+    def test_publication_requires_matching_isolated_signing_and_advisory_provenance(self):
+        proof = self.value['android'].pop('provenance')
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'provenance'):
+            self.verify()
+        for key, value in (
+                ('signed_apk_sha256', '0' * 64),
+                ('unsigned_apk_sha256', proof['signed_apk_sha256']),
+                ('python_wheel_lock_sha256', '0' * 64),
+                ('gradle_verification_sha256', 'unverified'),
+                ('preparation_receipt_sha256', None),
+                ('inventory_sha256', None),
+                ('snapshot_sha256', None),
+                ('snapshot_date', '2026-11-31')):
+            with self.subTest(key=key):
+                self.value['android']['provenance'] = proof | {key: value}
+                self.save()
+                with self.assertRaisesRegex(ValueError, 'provenance'):
+                    self.verify()
+        self.tool.assert_not_called()
 
     def test_requires_every_android_gate_and_unskipped_suites(self):
         original = copy.deepcopy(self.value)

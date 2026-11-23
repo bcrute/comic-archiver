@@ -161,7 +161,8 @@ class WebtoonTests(unittest.TestCase):
         images = [headers for url, headers in client.calls if url.startswith(IMAGES)]
         self.assertEqual(len(images), 6)
         # The pictures need Webtoon's address as referer; nothing else about the reader is sent.
-        self.assertEqual({tuple(sorted(headers.items())) for headers in images}, {(('Referer', 'https://www.webtoons.com/'),)})
+        self.assertEqual({tuple(sorted(headers.items())) for headers in images},
+                         {(('Accept-Encoding', 'gzip, identity'), ('Referer', 'https://www.webtoons.com/'))})
 
     @patch('builtins.print')
     def test_old_exhausted_padded_jpegs_save_in_parallel_without_changing_original_bytes(self, output, sleep):

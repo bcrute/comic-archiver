@@ -462,18 +462,31 @@ class CatalogWatcherTests(DiscoveryFixture, unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_join_retains_real_io_owner_until_sqlite_lock_releases(self):
         watcher = CatalogWatcher({self.index.share_id: self.index})
-        entered = threading.Event()
+        entered, write_allowed, attempting_sql = threading.Event(), threading.Event(), threading.Event()
         register = Index.register_completed
+
+        def saw_statement(statement):
+            if statement == "BEGIN IMMEDIATE":
+                attempting_sql.set()
 
         def observed(index, *args):
             entered.set()
-            return register(index, *args)
+            if not write_allowed.wait(8):
+                raise RuntimeError("The test did not release the SQLite writer.")
+            index.db.set_trace_callback(saw_statement)
+            try:
+                return register(index, *args)
+            finally:
+                index.db.set_trace_callback(None)
 
-        self.index.db.execute("BEGIN IMMEDIATE")  # Real kernel/SQLite contention.
         with patch.object(Index, "register_completed", observed):
             watcher.start()
             try:
-                await self.wait_for(entered.is_set)
+                await self.wait_for(lambda: entered.is_set() or watcher.error)
+                self.assertIsNone(watcher.error)
+                self.index.db.execute("BEGIN IMMEDIATE")  # Block publication after the watcher has opened its index.
+                write_allowed.set()
+                await self.wait_for(attempting_sql.is_set)
                 with patch("comic_archive.connected.discovery.JOIN_SECONDS", 0.001):
                     with self.assertRaises(SourceError):
                         await watcher.close()
@@ -481,7 +494,9 @@ class CatalogWatcherTests(DiscoveryFixture, unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(watcher.thread.is_alive())
                 self.assertIsNotNone(watcher.owned[0][0].fd)
             finally:
-                self.index.db.execute("ROLLBACK")
+                if self.index.db.in_transaction:
+                    self.index.db.execute("ROLLBACK")
+                write_allowed.set()
                 await watcher.close()
         self.assertTrue(watcher.joined)
         self.assertFalse(watcher.thread.is_alive())

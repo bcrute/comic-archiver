@@ -40,10 +40,10 @@ BUILD = PROJECT / 'build/windows'
 DIST = PROJECT / 'dist'
 APP = common.APP
 PYTHON_RELEASE = common.PYTHON_RELEASE
-PYTHON_NAME = f'python-{PYTHON_RELEASE}-embed-amd64.zip'
+PYTHON_NAME = f'python-{PYTHON_RELEASE}-embeddable-amd64.zip'
 PYTHON_URL = f'https://www.python.org/ftp/python/{PYTHON_RELEASE}/{PYTHON_NAME}'
-# Published at https://www.python.org/downloads/release/python-3148/.
-PYTHON_SHA256 = 'a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310'
+# Published in the python.org Windows release manifest for this exact embedded build.
+PYTHON_SHA256 = 'b553e7dac884469b40e0740bb527271c3378f700b427e0485835f1bb6424361c'
 PYTHON_VERSION = '3.14'
 PYTHON_STEM = 'python' + PYTHON_VERSION.replace('.', '')
 PLATFORM = 'x86_64-pc-windows-msvc'
@@ -372,7 +372,7 @@ def build():
     collect_licenses(app)
     (app / 'requirements-frozen.txt').write_text(common.frozen_requirements(installed(app), release))
     common.run([sys.executable, common.PROJECT / 'scripts/audit_bundle.py', app / 'requirements-frozen.txt',
-                '--output', app / 'dependency-audit.json'])
+                '--output', app / 'dependency-audit.json', '--platform', 'windows'])
     install_packaging(app, release)
     return app, *make_archive(app, DIST, release)
 

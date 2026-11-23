@@ -3,17 +3,18 @@ from pathlib import Path
 import re
 import tarfile
 import zipfile
-import zstandard
 
 from .archive import digest, sidecar_path, verify_episode
 from .models import ArchiveError
 from .osdep import anchored, disk_bytes, sync_directory
-from .publication import import_metadata, StrictZstdReader, comic_pages
 
 HASH = re.compile(r'[a-f0-9]{64}')
 
 
 def archive_page(root, record, expected_hash):
+    import zstandard
+    from .publication import import_metadata, StrictZstdReader, comic_pages
+
     relative, name, size = record
     path = Path(relative)
     if anchored(path) or '..' in path.parts or len(path.parts) != 2 or path.parts[0].startswith('.'):
@@ -63,8 +64,8 @@ def evict_episode(store, path, metadata):
     # The archive and its records were renamed into place. Until their folders reach the disk a power loss can
     # undo that, and the originals removed below would then be the only copy; for an expired rental, the last.
     for folder in dict.fromkeys((path.parent, getattr(store, 'provenance', None))):
-        if folder is not None:
-            sync_directory(folder)
+        if folder is not None and not sync_directory(folder):
+            return 0
     hashes = {p['sha256'] for p in metadata['content_hashes']}
     raw = metadata.get('original_content_hashes', [])
     hashes.update(p['sha256'] for p in raw)

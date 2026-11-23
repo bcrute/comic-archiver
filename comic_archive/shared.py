@@ -162,7 +162,7 @@ def link(library, shared):
     """Link a site's library to the library folder's shared settings, once.
 
     A library linked for the first time brings what it already set up: its cloud connections become the
-    shared ones if there are none yet, and its connection rule too. If the shared settings already have
+    shared ones if there are none yet, and any connection rule set on this device. If the shared settings already have
     a cloud connection and this library has its own, it keeps its own, so neither is lost.
     """
     library, shared = safe_root(library), safe_root(shared)

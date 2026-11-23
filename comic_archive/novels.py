@@ -24,7 +24,10 @@ TABLE_SPANS = {'td': {'colspan', 'rowspan'}, 'th': {'colspan', 'rowspan'},
 NOVEL_REASONS = frozenset({'unsupported_tag', 'hidden_content', 'table_span_invalid',
                          'illustration_source_unsupported', 'illustration_source_ambiguous',
                          'illustration_count_limit', 'illustration_size_limit',
-                         'illustration_base64_invalid', 'illustration_format_incomplete'})
+                         'illustration_base64_invalid', 'illustration_format_incomplete',
+                         'reader_scope_mismatch', 'duplicate_chapter_body', 'reader_depth_limit',
+                         'unbalanced_chapter_markup', 'missing_chapter_body', 'ambiguous_episode_scope',
+                         'unclosed_chapter_body', 'invalid_chapter_fragment'})
 DIAGNOSTIC_TAGS = frozenset({'script', 'style', 'iframe', 'object', 'embed', 'svg', 'math',
                             'audio', 'video', 'form', 'input', 'button', 'textarea', 'select', 'a', 'other'})
 MAX_ILLUSTRATION_BYTES = 10 * 1024 * 1024
@@ -85,7 +88,7 @@ def safe_style(value):
         if sep and item in STYLES.get(key, ()):
             result.append(f'{key}: {item}')
         elif key in {'display', 'visibility', 'opacity'} and item in {'none', 'hidden', '0'}:
-            raise incomplete()
+            raise incomplete('hidden_content')
     return '; '.join(result)
 
 
@@ -109,7 +112,7 @@ def validate_fragment(fragment, illustrations=()):
     if not isinstance(fragment, str) or len(fragment.encode('utf-8')) > MAX_TEXT_BYTES:
         raise ArchiveError('Novel text exceeds the supported size.')
     try:
-        root = ET.fromstring('<div>' + fragment + '</div>')
+        root = passive_xml('<div>' + fragment + '</div>')
         names = illustration_names(illustrations)
         observed = []
         if not ''.join(root.itertext()).strip() and not names:
@@ -159,14 +162,14 @@ class NovelHTML(HTMLParser):
             self.episode_count += 1
         if attrs.get('id') == 'epub-' + self.episode_id:
             if not scoped or tag != 'div' or 'ep-epub-content' not in attrs.get('class', '').split():
-                raise incomplete()
+                raise incomplete('reader_scope_mismatch')
             self.body_count += 1
             if self.body_count != 1 or self.body_depth is not None:
-                raise incomplete()
+                raise incomplete('duplicate_chapter_body')
             self.body_depth = len(self.stack)
             safe_style(attrs.get('style'))
             if 'hidden' in attrs:
-                raise incomplete()
+                raise incomplete('hidden_content')
         elif self.body_depth is not None:
             if tag not in TEXT_TAGS | {'img'}:
                 raise incomplete('unsupported_tag', tag)
@@ -212,7 +215,7 @@ class NovelHTML(HTMLParser):
                        'meta', 'param', 'source', 'track', 'wbr'}:
             self.stack.append((tag, scoped))
         if len(self.stack) > 128:
-            raise incomplete()
+            raise incomplete('reader_depth_limit')
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -223,7 +226,7 @@ class NovelHTML(HTMLParser):
         tag = NORMALIZED_TAGS.get(tag, tag)
         if self.body_depth is not None:
             if not self.stack or self.stack[-1][0] != tag:
-                raise incomplete()
+                raise incomplete('unbalanced_chapter_markup')
             if len(self.stack) - 1 == self.body_depth:
                 self.body_depth = None
                 self.closed = True
@@ -239,13 +242,17 @@ class NovelHTML(HTMLParser):
             self.parts.append(xml_text(data, quote=False))
 
     def text(self):
-        if self.episode_count != 1 or self.body_count != 1 or not self.closed or self.body_depth is not None:
-            raise incomplete()
+        if self.body_count == 0:
+            raise incomplete('missing_chapter_body')
+        if self.episode_count != 1:
+            raise incomplete('ambiguous_episode_scope')
+        if not self.closed or self.body_depth is not None:
+            raise incomplete('unclosed_chapter_body')
         fragment = ''.join(self.parts)
         try:
             validate_fragment(fragment, tuple(self.illustrations))
         except ArchiveError:
-            raise incomplete() from None
+            raise incomplete('invalid_chapter_fragment') from None
         if self.legacy_fonts or self.tables:
             logging.getLogger('comic_archive.download').info(
                 'novel markup: legacy_fonts_normalized=%s tables_preserved=%s chapter_complete=true',
@@ -290,6 +297,18 @@ def epub_files(meta):
     return [*EPUB_FILES, *names]
 
 
+class _PassiveXML(ET.TreeBuilder):
+    def pi(self, target, text):
+        raise ValueError('Processing instructions are unsupported.')
+
+    def doctype(self, name, public_id, system_id):
+        raise ValueError('Document type declarations are unsupported.')
+
+
+def passive_xml(data):
+    return ET.fromstring(data, parser=ET.XMLParser(target=_PassiveXML()))
+
+
 def verify_epub(z, meta):
     """Check fixed package structure and passive text after file hashes match."""
     expected = epub_files(meta)
@@ -307,7 +326,7 @@ def verify_epub(z, meta):
         data = z.read(name)
         if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
             raise ValueError
-        roots[name] = ET.fromstring(data)
+        roots[name] = passive_xml(data)
     container = roots['META-INF/container.xml']
     rootfiles = container.findall('.//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile')
     if len(rootfiles) != 1 or rootfiles[0].get('full-path') != 'EPUB/package.opf':

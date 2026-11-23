@@ -1,7 +1,10 @@
 package io.github.bcrute.comicarchiver.signin
 
+import java.net.URI
+import java.net.URISyntaxException
+
 /**
- * The desktop sign-in window's rule for where a sign-in page may send a request: public
+ * The sign-in and provider reader rule for where a page may send a request: public
  * identity providers are fine, but the page has no reason to reach this phone, another
  * device on the local network or a special-purpose address. Names are judged as written,
  * before any lookup; nothing here asks the network a question.
@@ -10,17 +13,31 @@ object PrivateDestination {
     private val QUAD = Regex("""\d{1,3}(\.\d{1,3}){3}""")
     private val NUMBER = Regex("""\d+|0x[0-9a-f]*""")
 
+    fun allowsHttps(url: String): Boolean {
+        if (url.length > 16384 || '\\' in url || url.any { it <= ' ' }) return false
+        val address = try { URI(url).parseServerAuthority() } catch (_: URISyntaxException) { return false }
+        val host = address.host ?: return false
+        return address.scheme.equals("https", ignoreCase = true) && address.rawUserInfo == null &&
+            !address.rawAuthority.endsWith(':') && (address.port == -1 || address.port == 443) && !matches(host)
+    }
+
+    fun allowsResource(url: String): Boolean = when (url.substringBefore(':', "").lowercase()) {
+        "data", "blob" -> true
+        "about" -> url.substringAfter(':').substringBefore('#').substringBefore('?') in setOf("blank", "srcdoc")
+        else -> allowsHttps(url)
+    }
+
     fun matches(host: String?): Boolean {
         val name = (host ?: return false).trim().removePrefix("[").removeSuffix("]").trimEnd('.').lowercase()
-        if (name == "localhost" || name.endsWith(".localhost") || name == "local" || name.endsWith(".local") ||
+        if ('%' in name || name == "localhost" || name.endsWith(".localhost") || name == "local" || name.endsWith(".local") ||
             name == "home.arpa" || name.endsWith(".home.arpa")) return true
         // A literal is parsed here, never handed to anything that could look it up; one
         // that does not parse is refused.
         return when {
             ':' in name -> v6(name)?.let(::privateV6) ?: true
             QUAD.matches(name) -> v4(name)?.let(::privateV4) ?: true
-            // No public name ends in a number: an address written another way is refused.
-            else -> NUMBER.matches(name.substringAfterLast('.'))
+            // Refuse DNS search suffixes and addresses written another way.
+            else -> (name.isNotEmpty() && '.' !in name) || NUMBER.matches(name.substringAfterLast('.'))
         }
     }
 

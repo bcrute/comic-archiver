@@ -7,6 +7,7 @@ import com.chaquo.python.android.AndroidPlatform
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
 import io.github.bcrute.comicarchiver.browser.NativeBrowserFactory
+import io.github.bcrute.comicarchiver.browser.WebViewEgress
 
 /**
  * Process-wide Python bootstrap (native line). Starts the embedded runtime once and
@@ -39,6 +40,7 @@ object PythonRuntime {
                         .callAttr("enable_android_cloud")
                     Python.getInstance().getModule("app_bridge")
                         .callAttr("set_browser_seam", browser)
+                    if (browser != null) WebViewEgress.install()
                     seamsRegistered = true
                 }
             }

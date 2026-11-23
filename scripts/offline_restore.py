@@ -5,11 +5,18 @@ Zstandard is required for tar.zst; Pillow is optional for --decode-images.
 Never copies private state, sessions or cache files.
 """
 import argparse
+from contextlib import ExitStack, contextmanager, nullcontext
+import ctypes
+from datetime import datetime
 import hashlib
+from functools import lru_cache
 import io
 import json
+from itertools import islice
+import os
 from pathlib import Path
 import shutil
+import stat
 import tempfile
 import tarfile
 import zipfile
@@ -20,6 +27,36 @@ import re
 # Standalone copy of comic_archive/image_formats.py: this script must work without
 # an installed application. Exercise both copies with the same format corpus.
 import zlib
+
+
+# Keep the per-archive policy in step with comic_archive.archive. This script
+# also runs on its own, so it carries the small budget check with it.
+MAX_ARCHIVE_MEMBERS = 10_000
+MAX_MEMBER_BYTES = 100 * 1024 * 1024
+MAX_EXPANDED_ARCHIVE_BYTES = 2 * 1024**3
+MAX_RESTORE_EXPANDED_BYTES = 2 * 1024**4
+MAX_PACKED_ARCHIVE_BYTES = MAX_EXPANDED_ARCHIVE_BYTES + 64 * 1024**2
+MAX_RESTORE_PACKED_BYTES = 2 * 1024**4
+MAX_SIDECAR_BYTES = 16 * 1024**2
+EXPORT_ID = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
+SHA256 = re.compile(r'[0-9a-f]{64}')
+ARCHIVE_FORMATS = {'cbz': '.cbz', 'epub': '.epub', 'tar.zst': '.tar.zst'}
+COVER_NAMES = {'cover.jpg', 'cover.png', 'cover.gif', 'cover.webp'}
+WINDOWS = os.name == 'nt'
+
+
+def expanded_archive_bytes(members):
+    if not isinstance(members, list) or not 0 < len(members) <= MAX_ARCHIVE_MEMBERS:
+        raise ValueError('Archive member count exceeds the supported range.')
+    total = 0
+    for member in members:
+        size = member.get('size') if isinstance(member, dict) else None
+        if type(size) is not int or not 0 < size <= MAX_MEMBER_BYTES:
+            raise ValueError('Archive member size exceeds the supported range.')
+        total += size
+        if total > MAX_EXPANDED_ARCHIVE_BYTES:
+            raise ValueError('Expanded archive exceeds the supported size.')
+    return total
 
 
 class ImageStructureError(ValueError):
@@ -239,29 +276,70 @@ def image_stream_extension(data):
     return inspect_image_structure(data)[0]
 
 class FrameReader:
+    """Standalone copy of the app's bounded single-frame Zstandard reader."""
     def __init__(self, source, maximum):
         import zstandard
-        self.source,self.maximum,self.total=source,maximum,0
-        self.decoder=zstandard.ZstdDecompressor(max_window_size=8*1024*1024).decompressobj()
-        self.first_chunk=True
-        self.buffer=bytearray()
+        self.source, self.maximum, self.total = source, maximum, 0
+        self.decoder = zstandard.ZstdDecompressor().decompressobj()
+        self.block_limit = None
+        self.prefix = bytearray()
+        self.buffer = bytearray()
 
-    def read(self,size=-1):
-        if size<0: raise ValueError('Unbounded archive read.')
-        while len(self.buffer)<size and not self.decoder.eof:
-            raw=self.source.read(4096)
-            if not raw: raise ValueError('Incomplete compressed frame.')
-            if self.first_chunk:
-                import zstandard
-                if zstandard.get_frame_parameters(raw).window_size>8*1024*1024:
-                    raise ValueError('Compressed window exceeds supported size.')
-                self.first_chunk=False
-            data=self.decoder.decompress(raw);self.total+=len(data)
-            if self.total>self.maximum: raise ValueError('Archive exceeds manifest.')
-            self.buffer.extend(data)
-            if self.decoder.eof and (self.decoder.unused_data or self.source.read(1)):
-                raise ValueError('Unexpected trailing compressed data.')
-        data=bytes(self.buffer[:size]);del self.buffer[:size]
+    def _input(self, size, *, allow_end=False):
+        data = self.prefix[:size]
+        del self.prefix[:size]
+        while len(data) < size:
+            chunk = self.source.read(size - len(data))
+            if not chunk:
+                if allow_end:
+                    break
+                raise ValueError('Incomplete compressed frame')
+            data.extend(chunk)
+        return data
+
+    def _block(self):
+        if self.block_limit is None:
+            import zstandard
+            header = self._input(18, allow_end=True)
+            if not header.startswith(b'\x28\xb5\x2f\xfd'):
+                raise ValueError('Invalid Zstandard frame header')
+            header_size = zstandard.frame_header_size(bytes(header))
+            params = zstandard.get_frame_parameters(bytes(header))
+            if params.window_size > 8 * 1024 * 1024:
+                raise ValueError('Compressed window exceeds the supported size')
+            self.block_limit = min(params.window_size, 128 * 1024)
+            self.checksum = params.has_checksum
+            self.prefix = header[header_size:]
+            self.decoder.decompress(bytes(header[:header_size]))
+
+        header = self._input(3)
+        descriptor = int.from_bytes(header, 'little')
+        last = bool(descriptor & 1)
+        kind = (descriptor >> 1) & 3
+        length = descriptor >> 3
+        if kind == 3 or length > self.block_limit:
+            raise ValueError('Invalid compressed block header')
+        if kind != 2 and self.total + length > self.maximum:
+            raise ValueError('Archive exceeds its manifest')
+        block = self._input(1 if kind == 1 else length)
+        if last and self.checksum:
+            block.extend(self._input(4))
+        data = self.decoder.decompress(bytes(header + block))
+        self.total += len(data)
+        if self.total > self.maximum:
+            raise ValueError('Archive exceeds its manifest')
+        if self.decoder.eof != last:
+            raise ValueError('Incomplete compressed frame')
+        if last and (self.decoder.unused_data or self.prefix or self.source.read(1)):
+            raise ValueError('Unexpected data after compressed frame')
+        return data
+
+    def read(self, size=-1):
+        if size < 0: raise ValueError('Unbounded archive reads are unsupported')
+        while len(self.buffer) < size and not self.decoder.eof:
+            self.buffer.extend(self._block())
+        data = bytes(self.buffer[:size])
+        del self.buffer[:size]
         return data
 
     def finish(self):
@@ -273,36 +351,298 @@ def sidecar(path):
     return path.with_name(path.name[:-8]+'.json') if path.name.endswith('.tar.zst') else path.with_suffix('.json')
 
 
-def offloaded(source, metadata_path):
-    """An episode uploaded and then removed here, by the library's own verified receipt for these exact metadata bytes."""
+DWORD = ctypes.c_uint32
+HANDLE = ctypes.c_void_p
+
+
+class _WindowsFileInformation(ctypes.Structure):
+    _fields_ = [('attributes', DWORD), ('times', DWORD * 6), ('volume', DWORD),
+                ('size_high', DWORD), ('size_low', DWORD), ('links', DWORD),
+                ('index_high', DWORD), ('index_low', DWORD)]
+
+
+@lru_cache(maxsize=1)
+def _windows_file_api():
+    from msvcrt import open_osfhandle
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+
+    def bind(name, result, *arguments):
+        function = getattr(kernel, name)
+        function.restype, function.argtypes = result, list(arguments)
+        return function
+
+    return {'open': bind('CreateFileW', HANDLE, ctypes.c_wchar_p, DWORD, DWORD, ctypes.c_void_p,
+                         DWORD, DWORD, HANDLE),
+            'info': bind('GetFileInformationByHandle', ctypes.c_int, HANDLE, ctypes.c_void_p),
+            'type': bind('GetFileType', DWORD, HANDLE),
+            'close': bind('CloseHandle', ctypes.c_int, HANDLE), 'descriptor': open_osfhandle}
+
+
+def _windows_name(path):
+    text = str(path)
+    prefix = '\\\\?\\'
+    if text.startswith(prefix):
+        return text
+    return prefix + ('UNC\\' + text[2:] if text.startswith('\\\\') else text)
+
+
+def _open_windows_entry(path, *, directory):
+    api = _windows_file_api()
+    read_attributes, read_data, share_read, open_existing = 0x80, 0x80000000, 1, 3
+    no_follow = 0x02200000  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
+    handle = api['open'](_windows_name(path), read_attributes if directory else read_data,
+                         share_read, None, open_existing, no_follow, None)
+    if handle in (None, HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
     try:
-        episode = json.loads(metadata_path.read_text())
-        export_id = episode['export_id']
-        if not isinstance(export_id, str) or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', export_id):
-            return False
-        archive = metadata_path.with_suffix({'epub': '.epub', 'tar.zst': '.tar.zst'}.get(episode.get('format'), '.cbz'))
-        if archive.exists() or archive.is_symlink():
-            return False
-        relative = archive.relative_to(source).as_posix()
-        digest = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
-        state = source / '.archive-state/cloud'
-        for path in [*state.glob('outbox/*/' + export_id + '.json'), *state.glob('history/*/' + export_id + '/*.json')]:
-            if path.is_symlink() or path.stat().st_size > 1024**2:
-                continue
-            record = json.loads(path.read_text())
-            if not isinstance(record, dict):
-                continue
-            files = record.get('files')
-            if (record.get('state') == 'verified' and record.get('eviction_requested') is True
-                    and record.get('archive') == relative and isinstance(files, list) and len(files) >= 2
-                    and isinstance(files[1], dict) and files[1].get('sha256') == digest):
-                return True
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        info = _WindowsFileInformation()
+        if (api['type'](handle) != 1 or not api['info'](handle, ctypes.byref(info))
+                or info.attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                or bool(info.attributes & stat.FILE_ATTRIBUTE_DIRECTORY) != directory):
+            raise ValueError('Refusing a link or non-disk entry in the restore source.')
+        return handle
+    except BaseException:
+        api['close'](handle)
+        raise
+
+
+@contextmanager
+def _hold_windows_directory(directory):
+    directory = directory.absolute()
+    if '..' in directory.parts:
+        raise ValueError('Invalid restore source path.')
+    close = _windows_file_api()['close']
+    with ExitStack() as held:
+        for folder in (*reversed(directory.parents), directory):
+            held.callback(close, _open_windows_entry(folder, directory=True))
+        yield
+
+
+def _source_parts(source, path):
+    parts = path.relative_to(source).parts
+    if any(part in {'.', '..'} for part in parts):
+        raise ValueError('Invalid restore source path.')
+    return parts
+
+
+def source_entry(source, path):
+    """Check the selected source and each component before visiting the leaf."""
+    parts = _source_parts(source, path)
+    hold = _hold_windows_directory(path.parent) if WINDOWS else nullcontext()
+    with hold:
+        return _source_entry(source, parts)
+
+
+def _source_entry(source, parts):
+    entry = source
+    result = entry.lstat()
+    for part in (*parts, None):
+        if (stat.S_ISLNK(result.st_mode)
+                or getattr(result, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError('Refusing a link or reparse point in the restore source.')
+        if part is None:
+            return result
+        if not stat.S_ISDIR(result.st_mode):
+            raise ValueError('Invalid restore source path.')
+        entry /= part
+        result = entry.lstat()
+
+
+def source_glob(source, directory, pattern, limit=None):
+    parts = _source_parts(source, directory)
+    hold = _hold_windows_directory(directory) if WINDOWS else nullcontext()
+    with hold:
+        if not stat.S_ISDIR(_source_entry(source, parts).st_mode):
+            raise ValueError('Restore source must be a directory.')
+        return list(islice(directory.glob(pattern), limit))
+
+
+def open_source_fd(source, path, flags):
+    """Use directory-relative no-follow opens on platforms that provide them."""
+    if os.open not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY'):
+        return os.open(path, flags)
+    *parents, name = _source_parts(source, path)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory = os.open(source, directory_flags)
+    try:
+        for parent in parents:
+            child = os.open(parent, directory_flags, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        return os.open(name, flags, dir_fd=directory)
+    finally:
+        os.close(directory)
+
+
+@contextmanager
+def open_source(source, path):
+    if WINDOWS:
+        _source_parts(source, path)
+        api = _windows_file_api()
+        with _hold_windows_directory(path.parent):
+            handle = _open_windows_entry(path, directory=False)
+            try:
+                descriptor = api['descriptor'](handle, os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+            except BaseException:
+                api['close'](handle)
+                raise
+            with os.fdopen(descriptor, 'rb') as stream:
+                yield stream, os.fstat(descriptor).st_size
+        return
+    before = source_entry(source, path)
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError('Restore source must be a regular file.')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
+    flags |= getattr(os, 'O_NONBLOCK', 0)
+    with os.fdopen(open_source_fd(source, path, flags), 'rb') as stream:
+        current = os.fstat(stream.fileno())
+        if not stat.S_ISREG(current.st_mode) or not os.path.samestat(before, current):
+            raise ValueError('Restore source changed before reading.')
+        yield stream, current.st_size
+
+
+def read_source(source, path, limit):
+    with open_source(source, path) as (stream, size):
+        if size > limit:
+            raise ValueError('Restore source file exceeds its size limit.')
+        data = stream.read(limit + 1)
+        if len(data) != size:
+            raise ValueError('Restore source file changed while reading.')
+        return data
+
+
+def copy_archive(source, path, destination, limit):
+    with open_source(source, path) as (stream, size):
+        if size > limit:
+            raise ValueError('Packed archives exceed the restore disk budget.')
+        if size > shutil.disk_usage(destination.parent).free:
+            raise ValueError('Insufficient space to stage the restored archive.')
+        remaining = size
+        with destination.open('xb') as output:
+            while remaining:
+                chunk = stream.read(min(remaining, 1024 * 1024))
+                if not chunk:
+                    raise ValueError('Restore source file became shorter while copying.')
+                output.write(chunk)
+                remaining -= len(chunk)
+            if stream.read(1):
+                raise ValueError('Restore source file grew while copying.')
+        return size
+
+
+def checked_receipt(record, library_id, series_id, episode_id, relative, archive_format, sidecar_hash):
+    """Match the historical receipt provenance used by the working-library importer."""
+    if (not isinstance(record, dict) or record.get('state') != 'verified'
+            or record.get('eviction_requested') is not True or record.get('library_id') != library_id
+            or record.get('series_id') != series_id or record.get('episode_id') != episode_id
+            or record.get('archive') != relative or record.get('remote_root') != 'Comic-Archive'):
         return False
-    return False
+    target_id = record.get('target_id')
+    if not isinstance(target_id, str) or not EXPORT_ID.fullmatch(target_id):
+        return False
+    try:
+        if datetime.fromisoformat(record['verified_at']).tzinfo is None:
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    archive = Path(relative)
+    names = ['episode.' + archive_format, 'episode.json', 'series.json']
+    paths = [relative, sidecar(archive).as_posix(), (archive.parent / 'series.json').as_posix()]
+    files = record.get('files')
+    if not isinstance(files, list) or len(files) not in {3, 4} or any(not isinstance(item, dict) for item in files):
+        return False
+    if len(files) == 4:
+        cover = files[3].get('name')
+        if not isinstance(cover, str) or cover not in COVER_NAMES:
+            return False
+        names.append(cover)
+        paths.append((archive.parent / cover).as_posix())
+    for item, name, path in zip(files, names, paths, strict=True):
+        checksum = item.get('sha256')
+        if item.get('name') != name or item.get('path') != path or not isinstance(checksum, str) or not SHA256.fullmatch(checksum):
+            return False
+    version = hashlib.sha256((files[0]['sha256'] + files[1]['sha256']).encode('ascii')).hexdigest()
+    return files[1]['sha256'] == sidecar_hash and record.get('version') == version
+
+
+def offloaded_metadata(source, metadata_path, series_id):
+    """Return the exact sidecar bytes bound to a verified local eviction receipt."""
+    try:
+        raw = read_source(source, metadata_path, MAX_SIDECAR_BYTES)
+        episode = json.loads(raw)
+        export_id = episode['export_id']
+        archive_format = episode['format']
+        if (episode.get('schema_version') != 2 or not isinstance(export_id, str) or not EXPORT_ID.fullmatch(export_id)
+                or not isinstance(series_id, str) or not EXPORT_ID.fullmatch(series_id)
+                or archive_format not in ARCHIVE_FORMATS
+                or episode.get('content_type') != ('novel' if archive_format == 'epub' else 'comic')):
+            return None
+        archive = metadata_path.with_suffix(ARCHIVE_FORMATS[archive_format])
+        try:
+            source_entry(source, archive)
+        except FileNotFoundError:
+            pass
+        else:
+            return None
+        relative = archive.relative_to(source).as_posix()
+        digest = hashlib.sha256(raw).hexdigest()
+        state = source / '.archive-state/cloud'
+        targets = json.loads(read_source(source, state / 'targets.json', 1024**2))
+        library_id = targets.get('library_id')
+        if targets.get('schema_version') != 1 or not isinstance(library_id, str) or not EXPORT_ID.fullmatch(library_id):
+            return None
+        paths = [state / 'outbox' / 'b2' / (export_id + '.json')]
+        history = state / 'history' / 'b2' / export_id
+        try:
+            if stat.S_ISDIR(source_entry(source, history).st_mode):
+                paths.extend(source_glob(source, history, '*.json', 4096))
+        except FileNotFoundError:
+            pass
+        for path in paths:
+            try:
+                record = json.loads(read_source(source, path, 1024**2))
+            except FileNotFoundError:
+                continue
+            if checked_receipt(record, library_id, series_id, export_id, relative, archive_format, digest):
+                if path.parent == history and path.name != f"{record['target_id']}-{record['version']}.json":
+                    continue
+                return raw
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return None
 
 
 def restore(source, destination, decode=False):
+    source = source.absolute()
+    hold = _hold_windows_directory(source) if WINDOWS else nullcontext()
+    with hold:
+        source_entry(source, source)
+        physical = source.resolve(strict=True)
+        return _restore_staged(source if WINDOWS else physical, physical, destination, decode)
+
+
+def _restore_staged(source, physical, destination, decode):
+    destination = destination.absolute()
+    resolved = destination.resolve()
+    if resolved == physical or physical in resolved.parents:
+        raise ValueError('Restore destination must be separate from the source library.')
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.comic-restore-', dir=destination.parent) as work:
+        staging = Path(work)
+        report = _restore(source, staging, decode)
+        # Reserve a fresh destination without replacing any existing directory.
+        destination.mkdir()
+        for item in staging.iterdir():
+            if item.name != 'restore-report.json':
+                item.rename(destination / item.name)
+        (staging / 'restore-report.json').rename(destination / 'restore-report.json')
+        return report
+
+
+def _restore(source, destination, decode):
     image_module = None
     if decode:
         from PIL import Image
@@ -317,63 +657,75 @@ def restore(source, destination, decode=False):
             with image_module.open(io.BytesIO(data)) as image:
                 for frame in ImageSequence.Iterator(image):
                     frame.load()
-    source = source.resolve(strict=True)
-    destination = destination.resolve()
-    if destination == source or source in destination.parents:
-        raise ValueError('Restore destination must be separate from the source library.')
-    destination.mkdir(parents=True, exist_ok=False)
     report = {'archive_count':0,'series_count':0,'image_count':0,'cover_count':0,
               'novel_chapter_count':0,'novel_character_count':0,'offloaded_episode_count':0,
               'original_image_bytes':0,'images_decoded':decode,
               'application_imported':False,'cache_or_session_copied':False}
-    for series_path in sorted(source.glob('*/series.json')):
-        if series_path.parent.name.startswith('.'):
+    remaining = MAX_RESTORE_EXPANDED_BYTES
+    packed_remaining = MAX_RESTORE_PACKED_BYTES
+
+    def write_small(path, data):
+        nonlocal packed_remaining
+        if len(data) > packed_remaining:
+            raise ValueError('Packed archives and metadata exceed the restore disk budget.')
+        packed_remaining -= len(data)
+        path.write_bytes(data)
+
+    for directory in sorted(source_glob(source, source, '*')):
+        if directory.name.startswith('.') or not stat.S_ISDIR(source_entry(source, directory).st_mode):
             continue
-        if series_path.is_symlink() or series_path.parent.is_symlink():
-            raise ValueError('Refusing a symlinked series export.')
-        folder = destination / series_path.parent.name
+        series_path = directory / 'series.json'
+        try:
+            raw_series = read_source(source, series_path, MAX_SIDECAR_BYTES)
+        except FileNotFoundError:
+            continue
+        folder = destination / directory.name
         folder.mkdir()
-        shutil.copy2(series_path, folder / 'series.json')
-        series = json.loads((folder / 'series.json').read_text())
+        write_small(folder / 'series.json', raw_series)
+        series = json.loads(raw_series)
         report['series_count'] += 1
         cover = series.get('cover_file')
         if cover is not None:
-            if not isinstance(cover,str) or cover not in {'cover.jpg','cover.png','cover.webp','cover.gif'}:
+            if not isinstance(cover,str) or cover not in COVER_NAMES:
                 raise ValueError('Invalid cover filename.')
             path = series_path.parent / cover
-            if path.is_symlink():
-                raise ValueError('Refusing a symlinked cover.')
-            shutil.copy2(path, folder / cover)
-            data = (folder / cover).read_bytes()
+            data = read_source(source, path, 10 * 1024**2)
             if len(data) != series['cover_size'] or hashlib.sha256(data).hexdigest() != series['cover_sha256']:
                 raise ValueError('Restored cover does not match its metadata.')
             check_image(data, Path(cover).suffix)
+            write_small(folder / cover, data)
             report['cover_count'] += 1
-        episode_paths = sorted([*series_path.parent.glob('*.cbz'), *series_path.parent.glob('*.epub'), *series_path.parent.glob('*.tar.zst')])
+        episode_paths = sorted(path for pattern in ('*.cbz', '*.epub', '*.tar.zst')
+                               for path in source_glob(source, directory, pattern))
         local = {sidecar(path) for path in episode_paths}
         # Uploaded, then removed from the library: its metadata is restored alone; the archive is in the cloud.
-        remote = [path for path in sorted(series_path.parent.glob('*.json'))
-                  if path.name != 'series.json' and path not in local and offloaded(source, path)]
-        if len(episode_paths) + len(remote) != series['episode_count']:
-            raise ValueError('Series episode count does not match its portable exports.')
-        for metadata_path in remote:
-            if metadata_path.is_symlink():
-                raise ValueError('Refusing a symlinked episode export.')
-            shutil.copy2(metadata_path, folder / metadata_path.name)
+        remote_count = 0
+        for metadata_path in sorted(source_glob(source, directory, '*.json')):
+            if metadata_path == series_path or metadata_path in local:
+                continue
+            raw = offloaded_metadata(source, metadata_path, series.get('export_id'))
+            if raw is None:
+                continue
+            write_small(folder / metadata_path.name, raw)
+            remote_count += 1
             report['offloaded_episode_count'] += 1
+        if len(episode_paths) + remote_count != series['episode_count']:
+            raise ValueError('Series episode count does not match its portable exports.')
         for archive_path in episode_paths:
             metadata_path = sidecar(archive_path)
-            if archive_path.is_symlink() or metadata_path.is_symlink():
-                raise ValueError('Refusing a symlinked episode export.')
-            copied = folder / archive_path.name
-            shutil.copy2(archive_path,copied)
-            shutil.copy2(metadata_path,sidecar(copied))
-            episode = json.loads(sidecar(copied).read_text())
+            raw = read_source(source, metadata_path, MAX_SIDECAR_BYTES)
+            episode = json.loads(raw)
             hashes = episode['content_hashes']
+            remaining -= expanded_archive_bytes(hashes)
+            if remaining < 0:
+                raise ValueError('Expanded archives exceed the budget for one restore.')
+            copied = folder / archive_path.name
+            packed_remaining -= copy_archive(source, archive_path, copied,
+                                             min(MAX_PACKED_ARCHIVE_BYTES, packed_remaining))
+            write_small(sidecar(copied), raw)
             if archive_path.name.endswith('.tar.zst'):
                 if (episode.get('format')!='tar.zst' or type(episode.get('page_count')) is not int
-                        or not 0<episode['page_count']<=10000 or len(hashes)!=episode['page_count']
-                        or any(type(p.get('size')) is not int or not 0<p['size']<=100*1024**2 for p in hashes)):
+                        or len(hashes)!=episode['page_count']):
                     raise ValueError('Invalid restored compressed comic manifest.')
                 body_size=sum(512+((p['size']+511)//512)*512 for p in hashes)
                 maximum=((body_size+1024+10239)//10240)*10240
@@ -462,7 +814,6 @@ def restore(source, destination, decode=False):
                 for position,(member,page) in enumerate(zip(members,hashes,strict=True),1):
                     if (Path(member.filename).name != member.filename
                             or Path(member.filename).stem != f'{position:04d}'
-                            or not 0 < member.file_size <= 100*1024**2
                             or member.file_size != page['size']):
                         raise ValueError('Invalid restored CBZ page name/size.')
                     data = archive.read(member)
@@ -491,10 +842,10 @@ def main():
         if args.decode_images and error.name=='PIL':
             print('Image decoding requires Pillow. Use a Python with Pillow installed, or omit --decode-images to check page order, sizes and hashes.')
         else:
-            print('Offline restore failed (ModuleNotFoundError). The partial destination is retained.')
+            print('Offline restore failed (ModuleNotFoundError).')
         return 1
     except Exception as error:
-        print(f'Offline restore failed ({type(error).__name__}). The partial destination is retained.')
+        print(f'Offline restore failed ({type(error).__name__}).')
         return 1
     print(json.dumps(report | {'destination':str(destination)},indent=2))
     return 0

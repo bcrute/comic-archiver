@@ -10,6 +10,8 @@ from comic_archive.models import ArchiveError
 from comic_archive.errors import LibraryBusy
 from comic_archive.locking import LibraryLock
 from comic_archive.fast_import import FAST_WORKERS
+from comic_archive.queue_directory import open_queue
+from comic_archive.state_paths import queue_directory_identity
 from comic_archive.worker import execute, private_json, run_worker, _embedded_reader, _EmbeddedFastUnavailable
 
 
@@ -25,6 +27,40 @@ class RecordingAdapter:
 
 
 class WorkerTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, 'O_PATH') and os.geteuid() != 0, 'Requires Linux and an unprivileged user')
+    def test_queue_can_start_below_a_search_only_parent(self):
+        with tempfile.TemporaryDirectory() as work:
+            parent = Path(work).resolve() / 'search-only'
+            folder = parent / 'queue'
+            folder.mkdir(parents=True)
+            identity = queue_directory_identity(folder)
+            parent.chmod(0o100)
+            try:
+                with self.assertRaises(PermissionError):
+                    os.listdir(parent)
+                with open_queue(folder, identity, private=True) as queue:
+                    queue.write('status.json', {'state': 'ready'})
+                    self.assertEqual(queue.requests(), ['status.json'])
+                    self.assertEqual(json.loads(queue.read('status.json', 16384)), {'state': 'ready'})
+            finally:
+                parent.chmod(0o700)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX directory descriptors')
+    def test_queue_file_operations_use_the_same_open_directory_descriptor(self):
+        with tempfile.TemporaryDirectory() as work:
+            folder = Path(work).resolve()
+            with open_queue(folder, queue_directory_identity(folder)) as queue:
+                with patch('comic_archive.queue_directory.os.replace', wraps=os.replace) as replace:
+                    queue.write('status.json', {'state': 'ready'})
+                self.assertEqual(json.loads(queue.read('status.json', 16384)), {'state': 'ready'})
+                self.assertEqual(queue.requests(), ['status.json'])
+                self.assertEqual(replace.call_args.kwargs, {'src_dir_fd': queue.fd, 'dst_dir_fd': queue.fd})
+                self.assertEqual(replace.call_args.args[1], 'status.json')
+                with patch('comic_archive.queue_directory.os.unlink', wraps=os.unlink) as unlink:
+                    queue.unlink('status.json')
+                unlink.assert_called_once_with('status.json', dir_fd=queue.fd)
+                self.assertEqual(list(folder.iterdir()), [])
+
     def test_embedded_startup_does_not_enter_a_network_reader_and_owns_its_close(self):
         calls = []
         class Reader:
@@ -516,10 +552,13 @@ class WorkerTests(unittest.TestCase):
             library=Path(work)/'Comic Archiver';session=library/'session';(session/'worker/requests').mkdir(parents=True)
             def renamed(*_):
                 if library.exists():library.rename(Path(work)/'Renamed')
-            with patch('builtins.print'),patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
+            with patch('builtins.print') as output,patch('comic_archive.worker.TapasAdapter',return_value=RecordingAdapter()), \
                     patch('comic_archive.download_control.worker_tick',side_effect=renamed), \
-                    patch('comic_archive.worker.time.sleep',side_effect=[None,KeyboardInterrupt]):
+                    patch('comic_archive.worker.time.sleep',side_effect=KeyboardInterrupt) as sleep:
                 self.assertIsNone(run_worker(session,'firefox'))
+            sleep.assert_not_called()
+            self.assertIn('The library folder was renamed, moved or deleted; the worker stops.',
+                          [call.args[0] for call in output.call_args_list if call.args])
             self.assertFalse(library.exists())
 
     def test_a_result_that_cannot_be_saved_ends_its_task_with_a_fixed_error(self):

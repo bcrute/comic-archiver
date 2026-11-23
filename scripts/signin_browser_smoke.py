@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from urllib.parse import urlsplit
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -109,7 +110,11 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        result = qt_engine.serve(lambda: exercise('http://127.0.0.1:' + str(server.server_port), server))
+        origin = f'http://127.0.0.1:{server.server_port}'
+        allowed = qt_engine.browser_request_allowed
+        with patch.object(qt_engine, 'browser_request_allowed',
+                          lambda url: url.startswith(origin + '/') or allowed(url)):
+            result = qt_engine.serve(lambda: exercise(origin, server))
     finally:
         server.shutdown()
         server.server_close()

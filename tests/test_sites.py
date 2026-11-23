@@ -121,7 +121,8 @@ class SiteDownloadTests(unittest.TestCase):
         client = Client([Response(), Response()])
         webtoon = Transport(self.COOKIES, client=client, site=WEBTOON)
         webtoon.get('https://webtoon-phinf.pstatic.net/2020/a.png')
-        self.assertEqual(client.calls[0][1], {'Referer': 'https://www.webtoons.com/'})
+        self.assertEqual(client.calls[0][1], {'Referer': 'https://www.webtoons.com/',
+                                              'Accept-Encoding': 'gzip, identity'})
         for site, url in ((WEBTOON, 'https://content-repository-cdn.tappytoon.com/a.jpg'), (WEBTOON, 'http://webtoon-phinf.pstatic.net/a.png'),
                           (TAPPYTOON, 'https://webtoon-phinf.pstatic.net/a.png'), (TAPPYTOON, 'https://tappytoon.com.example.com/a.jpg'),
                           (sites.DEFAULT, 'https://www.tappytoon.com/a.jpg')):

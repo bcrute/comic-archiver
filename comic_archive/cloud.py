@@ -495,7 +495,8 @@ def confirm(root, provider, use):
         if not use and target['enabled']:
             target['enabled'] = False
             _save(root, value, provider)
-        trust(target)  # Asked once: either way, it is the person's choice from now on.
+        if use:
+            trust(target)
     return status(root)
 
 

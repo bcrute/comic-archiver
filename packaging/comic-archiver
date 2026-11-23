@@ -1,5 +1,19 @@
 #!/bin/sh
 # Comic Archiver launcher: runs the Python bundled in this folder.
+# Desktop launches can inherit a PATH containing relative or empty entries.
+# Resolve helpers independently of the current folder.
+remaining_path=${PATH-}
+PATH=
+while [ -n "$remaining_path" ]; do
+    path_entry=${remaining_path%%:*}
+    case $path_entry in
+        /*) PATH=${PATH:+$PATH:}$path_entry ;;
+    esac
+    [ "$remaining_path" != "$path_entry" ] || break
+    remaining_path=${remaining_path#*:}
+done
+export PATH="${PATH:+$PATH:}/usr/sbin:/usr/bin:/sbin:/bin"
+
 self=$(readlink -f -- "$0" 2>/dev/null) || self=$0
 here=$(cd -- "$(dirname -- "$self")" && pwd -P) || exit 1
 unset PYTHONPATH PYTHONHOME QTWEBENGINE_DISABLE_SANDBOX QTWEBENGINE_CHROMIUM_FLAGS QTWEBENGINE_REMOTE_DEBUGGING QTWEBENGINEPROCESS_PATH

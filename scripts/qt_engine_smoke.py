@@ -20,10 +20,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from comic_archive import qt_engine  # noqa: E402
+from comic_archive.adapters import tapas  # noqa: E402
 from comic_archive.adapters.tapas import read_only_source_request  # noqa: E402
 
 SEEN = []
@@ -623,7 +625,12 @@ def main():
     origin = f'http://127.0.0.1:{server.server_address[1]}'
     check('work without the engine needs no Qt', qt_engine.serve(lambda: 5) == 5)
     try:
-        check('the work ran to its end', qt_engine.serve(lambda: work(origin)) == 'finished')
+        allowed = qt_engine.browser_request_allowed
+        def fixture_allowed(url):
+            return isinstance(url, str) and (url.startswith(origin + '/') or allowed(url))
+        with patch.object(qt_engine, 'browser_request_allowed', fixture_allowed), \
+             patch.object(tapas, 'browser_request_allowed', fixture_allowed):
+            check('the work ran to its end', qt_engine.serve(lambda: work(origin)) == 'finished')
     except Exception as error:
         check('the work ran to its end', False, f'{type(error).__name__}: {error}')
     server.shutdown()

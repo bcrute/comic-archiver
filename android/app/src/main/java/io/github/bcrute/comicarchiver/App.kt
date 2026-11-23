@@ -22,6 +22,7 @@ import io.github.bcrute.comicarchiver.controller.SiteChoice
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.browser.NativeBrowserFactory
+import io.github.bcrute.comicarchiver.browser.WebViewEgress
 import io.github.bcrute.comicarchiver.export.SafExportRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +68,8 @@ open class App : Application() {
             // it is the one shown, its sign-in must still stand.
             { controller.isSaving("tapas") && ((selectedKey ?: initialSiteKey) != "tapas" ||
                 (signInEngine.state.value as? SignInState.SignedIn)?.site == "tapas") },
-            { owner, selected -> createReadingSurface(owner, selected.key) })
+            browserReady = ::browserConnectionReady,
+            boundView = { owner, selected -> createReadingSurface(owner, selected.key) })
     }
     @Volatile private var selectedKey: String? = null
 
@@ -89,6 +91,8 @@ open class App : Application() {
     fun browserProfile(key: String): SiteBrowserProfile = profiles.open(key)
 
     protected open fun signInAvailable(key: String): Boolean = key == "tapas" || profiles.supportsIsolatedSites()
+
+    protected open fun browserConnectionReady(): Boolean = WebViewEgress.ready
 
     protected open fun cookieStoreForSite(key: String): WebViewCookieStore = profiles.open(key).cookies
 
@@ -135,6 +139,7 @@ open class App : Application() {
         lateinit var engine: WebViewSignInEngine
         engine = WebViewSignInEngine(
             cookieStore,
+            browserReady = ::browserConnectionReady,
             // Only a phone with no network at all is told so at once; one whose network may or may not
             // reach the internet is given the page's own time limit.
             online = {

@@ -13,7 +13,7 @@ from .archive import atomic_json
 from .archive_paths import directory
 from .locking import LibraryLock
 from .models import ArchiveError
-from .state_paths import SESSION_NAME
+from .state_paths import SESSION_NAME, queue_directory_identity
 
 
 def root(session, create=False):
@@ -25,7 +25,10 @@ def root(session, create=False):
     if any(p.is_symlink() for p in (result, *result.parents)) or osdep.junction(result):
         raise ArchiveError("Worker paths must not be symlinked.")
     if create:
-        directory(result).chmod(0o700)
+        directory(session, mode=0o700)
+        queue_directory_identity(session)
+        directory(result, mode=0o700)
+        queue_directory_identity(result)
     return result
 
 

@@ -132,6 +132,17 @@ packaged uninstall command in a separate synthetic home, checking that sign-in
 and cloud-key files are removed while a saved episode stays. Run it through the fleet's
 macOS profile. The native window check is `python scripts/macos_native_probe.py`;
 it retains a screenshot and worker-identity results in the job's artifact folder.
+
+The Linux, macOS and Windows packagers normally query PyPI during the dependency
+audit. They can also use the JSON from `scripts/desktop_advisories.py`, run on a
+Linux build machine with the approved dated OSV snapshot. Retain the scanner
+output, independently approve its SHA-256, and provide its local path and that
+digest through `COMIC_ARCHIVER_DESKTOP_AUDIT_RECEIPT` and
+`COMIC_ARCHIVER_DESKTOP_AUDIT_RECEIPT_SHA256` when running the packager. The
+packager checks the receipt against all three current manifests and the exact
+dependencies it installed. Missing approvals, findings, or mismatches stop
+packaging.
+
 For a source checkout, prepare the native connection-cost helper with
 `python scripts/build_macos_app.py --prepare-native` on the build machine before
 running the app. The bundle includes this helper. It asks Apple's Network

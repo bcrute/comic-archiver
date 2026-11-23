@@ -1,21 +1,35 @@
+import ctypes
+from ipaddress import ip_network
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, home_environment
 from comic_archive.models import ArchiveError
-from comic_archive.network import NetworkGuard, NetworkPolicyHold, configure, policy, probe, status, wait_process
+from comic_archive.network import NetworkGuard, NetworkPolicyHold, _path, configure, policy, probe, status, wait_process
 from comic_archive.transport import Transport
+
+
+def windows_route(prefix, index, gateway=None):
+    from comic_archive.network_windows import _Route
+    network = ip_network(prefix)
+    family = socket.AF_INET if network.version == 4 else socket.AF_INET6
+    packed = socket.inet_pton(family, gateway) if gateway else bytes(network.max_prefixlen // 8)
+    return _Route(family, index, index + 100, network, packed, 0, 0)
 
 
 class NetworkTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / 'Library'
+        self.state = self.root.parent / 'device-settings'
+        environment = patch.dict(os.environ, home_environment(self.root.parent, self.state))
+        environment.start(); self.addCleanup(environment.stop)
 
     def test_default_wifi_only_is_readonly_and_unknown_connection_is_held(self):
         with patch('comic_archive.network.probe', return_value={'connection': 'unknown', 'metered': None}):
@@ -39,7 +53,7 @@ class NetworkTests(unittest.TestCase):
             guard = NetworkGuard(self.root); guard.check()
             configure(self.root, True)
             with self.assertRaises(NetworkPolicyHold): guard.check()
-        path = self.root / '.archive-state/network-policy.json'
+        path = _path(self.root)
         self.assertEqual(path.stat().st_mode & 0o777, PRIVATE_FILE)
         for value in (None, 1, 'false'):
             with self.assertRaises(ArchiveError): configure(self.root, value)
@@ -49,6 +63,46 @@ class NetworkTests(unittest.TestCase):
             with self.assertRaises(ArchiveError): policy(self.root)
         path.unlink(); path.symlink_to(self.root/'missing')
         with self.assertRaises(ArchiveError): policy(self.root)
+
+    def test_copied_settings_do_not_authorize_metered_downloads(self):
+        portable = self.root / '.archive-state/network-policy.json'
+        portable.parent.mkdir(parents=True)
+        portable.write_text(json.dumps({'schema_version': 1, 'wifi_only': False}))
+        with patch('comic_archive.network.probe', return_value={'connection': 'cellular', 'metered': True}):
+            guard = NetworkGuard(self.root)
+            with self.assertRaises(NetworkPolicyHold):
+                guard.check()
+            configure(self.root, False)
+            guard.check()
+            with patch.dict(os.environ, home_environment(self.root.parent, self.root.parent / 'another-device')):
+                with self.assertRaises(NetworkPolicyHold):
+                    guard.check()
+            self.root.rename(self.root.with_name('Previous-library'))
+            self.root.mkdir()
+            with self.assertRaises(NetworkPolicyHold):
+                guard.check()
+
+    def test_join_uses_local_consent_for_all_providers_and_ignores_portable_settings(self):
+        from comic_archive import network, shared
+        sibling = self.root.parent / 'Webtoon' / 'Library'
+        common = self.root.parent / '.comic-shared'
+        for root in (self.root, sibling):
+            portable = root / '.archive-state/network-policy.json'
+            portable.parent.mkdir(parents=True)
+            portable.write_text(json.dumps({'schema_version': 1, 'wifi_only': False}))
+        common.mkdir()
+        (common / 'network-policy.json').write_text(json.dumps({'schema_version': 1, 'wifi_only': False}))
+        network.join(self.root, common)
+        shared._write(self.root, {'schema_version': 1, 'folder': str(common), 'cloud': 'shared'})
+        self.assertTrue(policy(self.root)['wifi_only'])
+        with patch('comic_archive.network.probe', return_value={'connection': 'cellular', 'metered': True}):
+            configure(self.root, False)
+            configure(sibling, True)
+            network.join(sibling, common)
+            shared._write(sibling, {'schema_version': 1, 'folder': str(common), 'cloud': 'shared'})
+            self.assertFalse(policy(sibling)['wifi_only'])
+            configure(sibling, True)
+            self.assertTrue(policy(self.root)['wifi_only'])
 
     def test_guard_rechecks_route_and_does_not_expose_connection_identifiers(self):
         with patch('comic_archive.network.probe', side_effect=[{'connection':'wifi','metered':False}, {'connection':'cellular','metered':True}]) as observed:
@@ -112,11 +166,110 @@ class NetworkTests(unittest.TestCase):
             # Only Windows can answer; the Windows job asks it. Here: what it should say is that answer.
             self.assertEqual(network_windows.classify(6, network_windows.UNRESTRICTED), {'connection': 'wired', 'metered': False})
             return
-        self.assertIn(network_windows._adapter_kind(), network_windows.KINDS)
-        cost = network_windows._cost()
-        self.assertIs(type(cost), int)
-        self.assertTrue(cost & network_windows.UNRESTRICTED)
         self.assertEqual(network_windows.probe(), {'connection': 'wired', 'metered': False})
+
+    def test_windows_mixed_default_adapters_hold_before_accepting_any_cost(self):
+        from comic_archive import network_windows as windows
+        for routes in (
+            {windows_route('0.0.0.0/0', 7), windows_route('::/0', 12)},
+            {windows_route('0.0.0.0/0', 7), windows_route('0.0.0.0/0', 12)},
+        ):
+            with self.subTest(routes=routes), patch.object(windows, '_routes', return_value=routes), \
+                    patch.object(windows, '_cost') as cost:
+                self.assertEqual(windows.probe(), windows.UNKNOWN)
+                cost.assert_not_called()
+
+    def test_windows_reads_a_bounded_route_table_and_frees_it(self):
+        from comic_archive import network_windows as windows
+
+        class Table(ctypes.Structure):
+            _fields_ = [('count', ctypes.c_uint32), ('rows', windows._ForwardRow * 6)]
+
+        expected = {windows_route('0.0.0.0/0', 7, '192.168.1.1'), windows_route('::/0', 12, 'fc00::1'),
+                    windows_route('192.0.2.0/24', 8)}
+        local = {windows_route('192.168.2.0/24', 8), windows_route('fe80::/64', 8)}
+        expired = windows_route('0.0.0.0/0', 9)
+        table = Table(count=6)
+        for row, route in zip(table.rows, [*expected, *local, expired], strict=True):
+            row.prefix.address = windows._route_address(route.family, str(route.prefix.network_address))
+            row.prefix.length = route.prefix.prefixlen
+            row.next_hop = windows._route_address(route.family, socket.inet_ntop(route.family, route.gateway))
+            row.index, row.luid, row.valid_lifetime = route.index, route.luid, 0 if route == expired else 300
+        native = Mock()
+        pointer = ctypes.POINTER(windows._ForwardTable)
+
+        def read(family, output):
+            self.assertEqual(family, socket.AF_UNSPEC)
+            ctypes.cast(output, ctypes.POINTER(pointer))[0] = ctypes.cast(ctypes.pointer(table), pointer)
+            return 0
+
+        native.GetIpForwardTable2.side_effect = read
+        with patch.object(ctypes, 'WinDLL', return_value=native, create=True):
+            self.assertEqual(windows._routes(), expected)
+            native.FreeMibTable.assert_called_once()
+            table.count = 16385
+            self.assertEqual(windows._routes(), frozenset())
+            self.assertEqual(native.FreeMibTable.call_count, 2)
+
+    def test_windows_requires_matching_route_and_cost_for_each_family(self):
+        from comic_archive import network_windows as windows
+        routes = {windows_route('0.0.0.0/0', 7), windows_route('::/0', 7)}
+        for costs, expected in (
+            ((windows.UNRESTRICTED, windows.FIXED), {'connection': 'wifi', 'metered': True}),
+            ((windows.UNRESTRICTED, None), windows.UNKNOWN),
+            ((windows.UNRESTRICTED, windows.UNRESTRICTED), {'connection': 'wifi', 'metered': False}),
+        ):
+            with self.subTest(costs=costs), patch.object(windows, '_routes', return_value=routes), \
+                    patch.object(windows, '_adapter_kind', return_value=71) as route, \
+                    patch.object(windows, '_cost', side_effect=costs) as cost:
+                self.assertEqual(windows.probe(), expected)
+                self.assertEqual([call.args[0].family for call in cost.call_args_list],
+                                 [socket.AF_INET, socket.AF_INET6])
+                self.assertEqual([call.args for call in cost.call_args_list],
+                                 [(call.args[0],) for call in route.call_args_list])
+        with patch.object(windows, '_routes', return_value=routes), \
+                patch.object(windows, '_adapter_kind', side_effect=[None, 71]), \
+                patch.object(windows, '_cost', return_value=windows.UNRESTRICTED):
+            self.assertEqual(windows.probe(), windows.UNKNOWN)
+
+    def test_windows_gateway_change_holds_until_a_stable_snapshot(self):
+        from comic_archive import network_windows as windows
+        old = {windows_route('0.0.0.0/0', 7, '192.168.1.1')}
+        new = {windows_route('0.0.0.0/0', 7, '192.168.1.2')}
+        with patch.object(windows, '_routes', side_effect=[old, new, new, new]), \
+                patch.object(windows, '_adapter_kind', return_value=6), \
+                patch.object(windows, '_cost', return_value=windows.UNRESTRICTED):
+            self.assertEqual(windows.probe(), windows.UNKNOWN)
+            self.assertEqual(windows.probe(), {'connection': 'wired', 'metered': False})
+
+    def test_windows_holds_when_a_specific_route_could_take_a_different_path(self):
+        from comic_archive import network_windows as windows
+        default = windows_route('0.0.0.0/0', 7, '192.168.1.1')
+        for alternate in (
+            windows_route('192.0.2.0/24', 12),
+            windows_route('192.0.2.0/24', 7, '192.168.1.2'),
+            windows_route('2001:db8::/32', 7),
+        ):
+            with self.subTest(route=alternate), patch.object(windows, '_routes', return_value={default, alternate}), \
+                    patch.object(windows, '_cost') as cost:
+                self.assertEqual(windows.probe(), windows.UNKNOWN)
+                cost.assert_not_called()
+
+    def test_running_guard_holds_and_resumes_when_windows_egress_changes(self):
+        from comic_archive import network_windows as windows
+        default = windows_route('0.0.0.0/0', 7, '192.168.1.1')
+        alternate = windows_route('192.0.2.0/24', 12)
+        stable, mixed = {default}, {default, alternate}
+        guard = NetworkGuard(self.root)
+        with patch('comic_archive.network.probe', side_effect=lambda _root: windows.probe()), \
+                patch.object(windows, '_routes', side_effect=[stable, stable, mixed, stable, stable]), \
+                patch.object(windows, '_adapter_kind', return_value=6), \
+                patch.object(windows, '_cost', return_value=windows.UNRESTRICTED):
+            guard.check()
+            guard._checked -= 2
+            with self.assertRaises(NetworkPolicyHold): guard.check()
+            guard._checked -= 2
+            guard.check()
 
     def test_windows_adapter_kinds_and_costs_give_the_answers_the_connection_rule_works_with(self):
         from comic_archive.network_windows import classify
@@ -144,7 +297,7 @@ class NetworkTests(unittest.TestCase):
     def test_settings_file_over_4096_bytes_is_invalid_even_when_its_content_is_valid(self):
         with patch('comic_archive.network.probe', return_value={'connection': 'wifi', 'metered': False}):
             configure(self.root, False)
-        path = self.root / '.archive-state/network-policy.json'
+        path = _path(self.root)
         path.write_text(json.dumps({'schema_version': 1, 'wifi_only': False}) + ' ' * 5000)
         with self.assertRaises(ArchiveError): policy(self.root)
         with self.assertRaises(ArchiveError): NetworkGuard(self.root).check()
@@ -162,11 +315,17 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(refusals, [])
 
     def test_probe_commands_return_trimmed_text_and_failures_make_the_route_unknown(self):
-        from comic_archive.network import _command
-        with patch('comic_archive.network.subprocess.run', return_value=Mock(returncode=0, stdout=b' wifi\n')):
+        from comic_archive.network import _SYSTEM_PATH, _command
+        nmcli = str(self.root / 'nmcli')
+        with patch('comic_archive.network.shutil.which', return_value=nmcli) as locate, \
+                patch('comic_archive.network.subprocess.run', return_value=Mock(returncode=0, stdout=b' wifi\n')) as run:
             self.assertEqual(_command('nmcli'), 'wifi')
+            locate.assert_called_once_with('nmcli', path=_SYSTEM_PATH)
+            self.assertEqual(run.call_args.args[0], (nmcli,))
+            self.assertEqual(run.call_args.kwargs['env']['PATH'], _SYSTEM_PATH)
         for result in (Mock(returncode=1, stdout=b'[]'), Mock(returncode=0, stdout=b'x' * 65537)):
-            with patch('comic_archive.network.subprocess.run', return_value=result):
+            with patch('comic_archive.network.shutil.which', return_value=str(self.root / 'ip')), \
+                    patch('comic_archive.network.subprocess.run', return_value=result):
                 with self.assertRaises(ValueError): _command('ip')
 
     def test_a_failed_or_oversized_nmcli_answer_makes_the_route_unknown_instead_of_unmetered_wifi(self):
@@ -174,12 +333,13 @@ class NetworkTests(unittest.TestCase):
 
         def route_with(nmcli_returncode, nmcli_output):
             def run(args, **options):
-                if args[0] == 'ip':
+                if args[0] == str(self.root / 'ip'):
                     return Mock(returncode=0, stdout=b'[]' if '-6' in args else b'[{"dev":"wlan0"}]')
                 return Mock(returncode=nmcli_returncode, stdout=nmcli_output)
             return run
 
-        with patch('comic_archive.network.sys.platform', 'linux'):
+        with patch('comic_archive.network.sys.platform', 'linux'), \
+                patch('comic_archive.network.shutil.which', side_effect=lambda name, **_: str(self.root / name)):
             with patch('comic_archive.network.subprocess.run', route_with(0, healthy)):
                 self.assertEqual(probe(), {'connection': 'wifi', 'metered': False})
             for returncode, output in ((1, healthy), (0, healthy + b'\n' * 70000)):

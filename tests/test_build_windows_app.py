@@ -41,7 +41,7 @@ class PinnedDownloadTests(WorkspaceCase):
         version = re.match(r'cpython-([0-9.]+)\+', build.common.PBS_NAME).group(1)
         self.assertEqual(build.PYTHON_RELEASE, version)
         self.assertTrue(build.PYTHON_RELEASE.startswith(build.PYTHON_VERSION + '.'))
-        self.assertEqual(build.PYTHON_NAME, f'python-{version}-embed-amd64.zip')
+        self.assertEqual(build.PYTHON_NAME, f'python-{version}-embeddable-amd64.zip')
         self.assertEqual(build.PYTHON_URL, f'https://www.python.org/ftp/python/{version}/{build.PYTHON_NAME}')
         self.assertEqual(len(build.PYTHON_SHA256), 64); int(build.PYTHON_SHA256, 16)
 

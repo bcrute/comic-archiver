@@ -7,9 +7,27 @@ import org.junit.Test
 /** The same names and addresses the desktop sign-in window's rule is tested with. */
 class PrivateDestinationTest {
     @Test
+    fun browserResourcesRequirePublicHttpsOnTheDefaultPortOrAnInlineDocument() {
+        for (url in listOf("https://tapas.io/", "https://accounts.google.com:443/signin",
+            "https://[2606:4700:4700::1111]/")) {
+            assertTrue(url, PrivateDestination.allowsHttps(url))
+            assertTrue(url, PrivateDestination.allowsResource(url))
+        }
+        for (url in listOf("https://tapas.io:8443/", "https://tapas.io:/", "https://name@tapas.io/",
+            "http://tapas.io/", "https://device.local/", "https:///missing", "blob")) {
+            assertFalse(url, PrivateDestination.allowsHttps(url))
+            assertFalse(url, PrivateDestination.allowsResource(url))
+        }
+        for (url in listOf("data:text/plain,inline", "blob:https://tapas.io/page", "about:srcdoc")) {
+            assertFalse(url, PrivateDestination.allowsHttps(url))
+            assertTrue(url, PrivateDestination.allowsResource(url))
+        }
+    }
+
+    @Test
     fun localNamesAndEveryNonPublicAddressArePrivateAsOnTheDesktop() {
         for (host in listOf("localhost", "app.localhost.", "local", "printer.local", "home.arpa",
-            "router.home.arpa.", "0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.169.254",
+            "router.home.arpa.", "printer", "0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.169.254",
             "172.16.0.1", "192.168.1.10", "224.0.0.1", "255.255.255.255", "::", "[::1]", "fe80::1",
             "fd00::1", "2001:db8::1", "::ffff:192.168.1.10", "LOCALHOST", "192.0.2.7", "198.18.0.1",
             "198.51.100.4", "203.0.113.9", "240.0.0.1", "ff02::1", "2002:c0a8:1::1", "64:ff9b::7f00:1"))

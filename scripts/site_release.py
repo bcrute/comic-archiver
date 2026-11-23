@@ -36,7 +36,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / 'website'
 CHANGES = SITE / 'changes'
 NOTES = ROOT / 'packaging' / 'release-notes.md'
-VERSION = re.compile(r'\d+\.\d+\.\d+(?:-[a-z]+\d+)?')
+STABLE_VERSION = r'[0-9]+\.[0-9]+\.[0-9]+'
+VERSION = re.compile(STABLE_VERSION + r'(?:-[a-z]+[0-9]+)?')
 ANDROID = '-android-universal.apk'
 DOWNLOAD = re.compile(r'https://github\.com/bcrute/comic-archiver/releases/download/v([^/"]+)/([^"#?]+)')
 TOKEN = re.compile(r'\{[a-z_]+\}')
@@ -192,18 +193,24 @@ def assets(release):
     return {item['name'] for item in release.get('assets', [])}
 
 
+def android_version(release):
+    tag = release.get('tag_name')
+    if not isinstance(tag, str) or not tag.startswith('v') or not VERSION.fullmatch(tag[1:]):
+        return None
+    version = tag[1:]
+    return version if f'ComicArchiver-{version}{ANDROID}' in assets(release) else None
+
+
 def android_release(releases):
     """The newest published release with the Android app in it, or None."""
-    found = [item for item in releases if not item.get('draft') and any(
-        name.endswith(ANDROID) for name in assets(item))]
+    found = [item for item in releases if not item.get('draft') and android_version(item) is not None]
     return max(found, key=lambda item: item['published_at'], default=None)
 
 
 def version_manifest(desktop, releases):
     """Only published stable versions; Android may have a different latest release."""
     candidates = [r for r in releases if not r.get('draft') and not r.get('prerelease')
-                  and re.fullmatch(r'v\d+\.\d+\.\d+', r.get('tag_name', ''))
-                  and any(name.endswith(ANDROID) for name in assets(r))]
+                  and (version := android_version(r)) is not None and re.fullmatch(STABLE_VERSION, version)]
     android = max(candidates, key=lambda r: order(r['tag_name'][1:]), default=None)
     return {'schema_version': 1, 'desktop': desktop,
             'android': android['tag_name'][1:] if android else None}
@@ -221,9 +228,12 @@ def size_suffix(release_sizes, version, filename):
 def build(out, version, released=None, android=None, offered=None, folder=SITE, release_sizes=None):
     """Write the site to out. released is the release's date: for a preview, its changes file's date or today.
     offered is {version: set of file names} when every download link must be checked."""
+    if (not isinstance(version, str) or not VERSION.fullmatch(version)
+            or (android is not None and (not isinstance(android, str) or not VERSION.fullmatch(android)))):
+        raise SiteError('Invalid version for site generation.')
     entries = changes(folder / 'changes')
     released = released or entries.get(version, (None,))[0] or datetime.date.today().isoformat()
-    values = {'{version}': version, '{released}': day(released),
+    values = {'{version}': html.escape(version), '{released}': day(released),
               '{changelog}': changelog(entries, version, released)}
     for token, suffix in (('windows_size', 'windows-x86_64-setup.exe'), ('windows_zip_size', 'windows-x86_64.zip'),
                           ('linux_size', 'linux-x86_64.tar.gz'), ('mac_size', 'macos-x86_64.zip')):
@@ -232,7 +242,7 @@ def build(out, version, released=None, android=None, offered=None, folder=SITE, 
     if any('{roadmap}' in page.read_text(encoding='utf-8') for page in folder.glob('*.html')):
         values['{roadmap}'] = roadmap(version, folder / 'roadmap.json')
     if android:
-        values['{android_version}'] = android
+        values['{android_version}'] = html.escape(android)
     out = Path(out)
     if out.exists():
         shutil.rmtree(out)
@@ -283,7 +293,10 @@ def main(argv=None):
             release = json.loads(Path(args.release).read_text(encoding='utf-8'))
             if release.get('draft') or release.get('prerelease'):
                 raise SiteError(f"{release.get('tag_name')} is not a published full release")
-            version = release['tag_name'].removeprefix('v')
+            tag = release.get('tag_name')
+            if not isinstance(tag, str) or not re.fullmatch('v' + STABLE_VERSION, tag):
+                raise SiteError('Invalid published desktop release version.')
+            version = tag[1:]
             offered = {version: assets(release)}
             release_sizes = {version: {item['name']: item.get('size') for item in release.get('assets', [])}}
             android = None
@@ -292,7 +305,7 @@ def main(argv=None):
                 published_releases = json.loads(Path(args.releases).read_text(encoding='utf-8'))
                 found = android_release(published_releases)
                 if found:
-                    android = found['tag_name'].removeprefix('v')
+                    android = android_version(found)
                     offered[android] = assets(found)
                     release_sizes[android] = {item['name']: item.get('size') for item in found.get('assets', [])}
             out = build(args.out, version, release['published_at'], android, offered, release_sizes=release_sizes)

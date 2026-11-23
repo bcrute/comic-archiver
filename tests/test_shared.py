@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -7,7 +8,7 @@ import uuid
 from contextlib import closing
 from unittest.mock import patch
 
-from support import PRIVATE_FILE
+from support import PRIVATE_FILE, home_environment
 from comic_archive import cloud, network, shared
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore
@@ -23,6 +24,8 @@ class SharedSettingsTests(unittest.TestCase):
         self.top = Path(temporary.name)
         self.tapas, self.other = self.top / 'Library', self.top / 'Webtoon/Library'
         self.store = self.top / '.comic-shared'
+        environment = patch.dict(os.environ, home_environment(self.top, self.top / 'device-settings'))
+        environment.start(); self.addCleanup(environment.stop)
         FakeTransfer.files = {}; FakeTransfer.fail_provider = None; FakeTransfer.fail_delete = False; FakeTransfer.fail_upload = False
         transfer = patch.object(cloud, 'Transfer', FakeTransfer); transfer.start(); self.addCleanup(transfer.stop)
 
@@ -285,7 +288,7 @@ class SharedSettingsTests(unittest.TestCase):
         self.assertIsNone(shared.folder(self.tapas))
         self.assertEqual(network.policy(self.tapas), {'schema_version': 1, 'wifi_only': True})
         network.configure(self.tapas, False)
-        self.assertTrue((self.tapas / '.archive-state/network-policy.json').is_file())
+        self.assertTrue(network._path(self.tapas).is_file())
 
     def test_the_connection_rule_is_one_for_every_site_and_a_site_brings_its_own_choice_when_first_linked(self):
         network.configure(self.other, False)
@@ -296,7 +299,7 @@ class SharedSettingsTests(unittest.TestCase):
         self.assertFalse(network.policy(self.tapas)['wifi_only'])
         network.configure(self.tapas, True)
         self.assertTrue(network.policy(self.other)['wifi_only'])
-        self.assertEqual(stat.S_IMODE((self.store / 'network-policy.json').stat().st_mode), PRIVATE_FILE)
+        self.assertEqual(stat.S_IMODE(network._path(self.tapas).stat().st_mode), PRIVATE_FILE)
         with patch('comic_archive.network.probe', return_value={'connection': 'cellular', 'metered': True}):
             with self.assertRaises(network.NetworkPolicyHold):
                 network.NetworkGuard(self.other).check()
@@ -323,6 +326,7 @@ class SharedSettingsTests(unittest.TestCase):
         (outside / 'cloud').mkdir(parents=True)
         (outside / 'network-policy.json').write_text(json.dumps({'schema_version': 1, 'wifi_only': False}))
         link = self.tapas / shared.LINK
+        link.parent.mkdir(parents=True, exist_ok=True)
         link.write_text(json.dumps({'schema_version': 1, 'folder': str(outside), 'cloud': 'shared'}))
         self.assertEqual((shared.folder(self.tapas), shared.cloud_folder(self.tapas), shared.cloud_mode(self.tapas)),
                          (None, None, None))

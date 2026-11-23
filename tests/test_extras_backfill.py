@@ -1,9 +1,10 @@
 import hashlib
 import json
+import os
 import unittest
 from unittest.mock import Mock, patch
 
-from comic_archive import extras
+from comic_archive import extras, extras_backfill
 from comic_archive.cancellation import RunCancelled
 from comic_archive.errors import AuthenticationError, NetworkUnavailable
 from comic_archive.inventory import Inventory
@@ -235,6 +236,46 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(missing.read_bytes(), MP3)
         self.assertEqual(self.adapter.retrieve_extra.call_count, 1)
         self.assertEqual(self.queue(), [])
+
+    def legacy_tracks(self, contents):
+        folder = extras.folder(self.root, 'tapas', '42')
+        folder.mkdir(parents=True, exist_ok=True)
+        tracks = []
+        for index, data in enumerate(contents, 1):
+            name = f'81.music-{index}.mp3'
+            (folder / name).write_bytes(data)
+            tracks.append({'file': name, 'sha256': hashlib.sha256(data).hexdigest()})
+        record = {'schema_version': 1, 'site': 'tapas', 'series': '42', 'episode': '81',
+                  'creator_note': 'Original note', 'music': tracks}
+        (folder / '81.json').write_text(json.dumps(record), encoding='utf-8')
+        return folder, tracks
+
+    def test_legacy_music_refuses_duplicate_file_identity_and_track_limit_before_hashing(self):
+        folder, tracks = self.legacy_tracks((MP3, MP3))
+        with patch.object(extras, 'MAX_TRACKS', 1), patch('comic_archive.extras_backfill.hashlib.sha256') as digest:
+            self.assertFalse(extras_backfill._legacy_music(folder, '81', tracks, Mock()))
+            digest.assert_not_called()
+        same_file = folder / tracks[1]['file']
+        same_file.unlink()
+        os.link(folder / tracks[0]['file'], same_file)
+        with Inventory(self.root) as inventory, patch('comic_archive.extras_backfill.hashlib.sha256') as digest:
+            extras_backfill.adopt_existing(inventory, 'tapas', {'id': '81', 'series_id': '42'}, ['music', 'notes'], Mock())
+            digest.assert_not_called()
+            self.assertEqual(extras_backfill.records(inventory.db, '81'), {('81', 'notes'): (1, 0)})
+
+    def test_legacy_music_checks_bytes_and_cancellation_between_chunks(self):
+        folder, tracks = self.legacy_tracks((b'a' * (128 * 1024 + 1),))
+        with patch.object(extras, 'MUSIC_BYTES', 65536), patch('comic_archive.extras_backfill.hashlib.sha256') as digest:
+            self.assertFalse(extras_backfill._legacy_music(folder, '81', tracks, Mock()))
+            digest.assert_not_called()
+        check = Mock(side_effect=[None, None, RunCancelled('held')])
+        with Inventory(self.root) as inventory:
+            row = {'id': '81', 'series_id': '42'}
+            with self.assertRaises(RunCancelled):
+                extras_backfill.adopt_existing(inventory, 'tapas', row, ['music', 'notes'], check)
+            self.assertEqual(extras_backfill.records(inventory.db, '81'), {})
+            extras_backfill.adopt_existing(inventory, 'tapas', row, ['music', 'notes'], Mock())
+            self.assertEqual(extras_backfill.records(inventory.db, '81'), {('81', 'music'): (1, 0), ('81', 'notes'): (1, 0)})
 
     def test_later_extras_are_collected_before_an_unfinished_comic_backlog(self):
         self.saved()

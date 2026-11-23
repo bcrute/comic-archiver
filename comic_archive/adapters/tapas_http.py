@@ -8,11 +8,17 @@ from urllib.parse import urlencode, urlsplit
 from ..sites import DEFAULT
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from ..session import load_session
-from ..transport import Transport, asset_url
+from ..transport import Transport, asset_url, metadata_bytes
 from .reader import ReaderHTML, ordered_sources, safe_primitives, json_shape
 from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from ..expiry import observed_expiration
 from .pagination import EpisodeCountMismatch
+
+MAX_JSON_BYTES = 2 * 1024 * 1024
+MAX_LIST_BYTES = 32 * 1024 * 1024
+LIST_PAGE_SIZE = 20
+LIST_MAX_PAGES = 500
+LIST_MAX_EPISODES = 10_000
 
 
 def unsupported(message, code):
@@ -82,9 +88,10 @@ class TapasHTTPAdapter:
         self.transport.close()
 
     def json_get(self, path):
-        data = self.transport.get(f"https://tapas.io{path}")
-        if len(data) > 2 * 1024 * 1024:
-            raise ArchiveError("Tapas metadata exceeds the supported size.")
+        return self._parse_json(metadata_bytes(self.transport, f"https://tapas.io{path}", MAX_JSON_BYTES))
+
+    @staticmethod
+    def _parse_json(data):
         try:
             response = json.loads(data)
             result = response["data"]
@@ -152,11 +159,9 @@ class TapasHTTPAdapter:
             'tapas metadata: episode=%s stage=episode_info http_status=%s fallback=website_reader_document',
             key, metadata_status)
         try:
-            raw = self.transport.get(url, max_bytes=8 * 1024 * 1024, reader_json=True)
+            raw = metadata_bytes(self.transport, url, 8 * 1024 * 1024, reader_json=True)
         except ArchiveError as error:
             self._reader_missing(key, error, metadata_status)
-        if len(raw) > 8 * 1024 * 1024:
-            raise MetadataError('Tapas reader document exceeds the supported size.')
         try:
             response = json.loads(raw)
             data = response['data']
@@ -208,9 +213,7 @@ class TapasHTTPAdapter:
         if not isinstance(slug,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',slug):
             raise MetadataError('Series metadata has no verified public slug.')
         url=f'https://tapas.io/series/{slug}/info'
-        raw=self.transport.get(url)
-        if len(raw)>8*1024*1024:
-            raise MetadataError('Series metadata HTML exceeds the supported size.')
+        raw = metadata_bytes(self.transport, url, 8 * 1024 * 1024)
         try:
             details=series_details(raw.decode('utf-8'),info['id'])
         except UnicodeError:
@@ -239,9 +242,7 @@ class TapasHTTPAdapter:
         if key.isdigit():
             platform_id = int(key)
         else:
-            html = self.transport.get(f"https://tapas.io/series/{key}/info")
-            if len(html) > 8 * 1024 * 1024:
-                raise MetadataError("Series page exceeds the supported size.")
+            html = metadata_bytes(self.transport, f"https://tapas.io/series/{key}/info", 8 * 1024 * 1024)
             try:
                 html = html.decode("utf-8")
             except UnicodeError:
@@ -264,29 +265,54 @@ class TapasHTTPAdapter:
             self.verified_slugs[slug] = str(platform_id)
         return info
 
+    def _check_cancel(self):
+        cancel = getattr(self.transport, 'cancel_check', None)
+        if callable(cancel):
+            cancel()
+
     def enumerate_episodes(self, platform_id, strict_order=True):
         if type(platform_id) is not int or platform_id < 1:
             raise ArchiveError("Episode enumeration needs an observed numeric series ID.")
         episodes = {}
+        scenes = set()
+        ordering_verified = True
         page = 1
         total = None
-        for _ in range(500):
-            query = urlencode({"page": page, "max_limit": 20})
-            data = self.json_get(f"/series/{platform_id}/episodes?{query}")
+        remaining = MAX_LIST_BYTES
+        for _ in range(LIST_MAX_PAGES):
+            self._check_cancel()
+            if not remaining:
+                raise MetadataError('Tapas gave a list that exceeds the supported byte limit.')
+            query = urlencode({"page": page, "max_limit": LIST_PAGE_SIZE})
+            document = metadata_bytes(self.transport, f"https://tapas.io/series/{platform_id}/episodes?{query}",
+                                      min(remaining, MAX_JSON_BYTES))
+            remaining -= len(document)
+            self._check_cancel()
+            data = self._parse_json(document)
             pagination = data.get("pagination")
             items = data.get("episodes")
             if not isinstance(pagination, dict) or not isinstance(items, list):
                 raise ArchiveError("Tapas episode pagination has an unexpected structure.")
+            if len(items) > LIST_PAGE_SIZE:
+                raise MetadataError("Tapas gave an episode page longer than the requested limit.")
+            if len(episodes) + len(items) > LIST_MAX_EPISODES:
+                raise MetadataError("Tapas gave more episodes than the supported list limit.")
             count = pagination.get("total")
             if type(count) is not int or count < 0 or (total is not None and count != total):
                 raise ArchiveError("Series episode count changed during enumeration; try again.")
             total = count
             for item in items:
+                self._check_cancel()
                 if not isinstance(item, dict) or type(item.get("id")) is not int or item["id"] < 1:
                     raise ArchiveError("Tapas episode list contains an invalid episode ID.")
                 if item["id"] in episodes:
                     raise ArchiveError("Tapas pagination repeated an episode; completeness is unverified.")
                 episodes[item["id"]] = item
+                scene = item.get("scene")
+                if type(scene) is int and scene > 0 and scene not in scenes:
+                    scenes.add(scene)
+                else:
+                    ordering_verified = False
             more, next_page = pagination.get("has_next"), pagination.get("page")
             # Tapas says there is more but gives no usable way on: an empty page, or a page number that does not
             # advance. The list ends here for this series, as when it ends short; other series are not held up.
@@ -302,14 +328,14 @@ class TapasHTTPAdapter:
                     error=EpisodeCountMismatch(platform_id,len(episodes),total)
                     error.partial_episode_summaries=self._episode_summaries(list(episodes.values()))
                     raise error
-                result = list(episodes.values())
-                if any(type(item.get("scene")) is not int or item["scene"] < 1 for item in result) or len({item["scene"] for item in result}) != len(result):
+                if not ordering_verified:
                     if strict_order:
                         raise ArchiveError("Episode orders are invalid or ambiguous.")
-                    return result
-                return sorted(result, key=lambda item: item["scene"])
+                    return list(episodes.values())
+                self._check_cancel()
+                return sorted(episodes.values(), key=lambda item: item["scene"])
             page = next_page
-        raise ArchiveError("Series pagination exceeds the conservative 500-page limit.")
+        raise ArchiveError(f"Series pagination exceeds the conservative {LIST_MAX_PAGES}-page limit.")
 
     def inspect_series(self, key, strict_order=True, comic_only=False):
         if type(strict_order) is not bool or type(comic_only) is not bool:
@@ -350,13 +376,21 @@ class TapasHTTPAdapter:
                 "episodes": summaries}
 
     def _episode_summaries(self,episodes):
-        scenes = [item.get("scene") for item in episodes]
+        first_by_scene = {}
         summaries = []
         for item in episodes:
+            self._check_cancel()
             reason=None
             access = access_state(item)
             scene = item.get("scene")
-            order = scene if type(scene) is int and scene > 0 and scenes.count(scene) == 1 else None
+            order = None
+            if type(scene) is int and scene > 0:
+                first = first_by_scene.get(scene)
+                if first is None:
+                    first_by_scene[scene] = len(summaries)
+                    order = scene
+                else:
+                    summaries[first]["order"] = None
             summaries.append({"id": str(item["id"]), "title": title_of(item),
                               "order": order, "source_scene": scene if type(scene) is int else None, "access_state": access,
                               'authorization_reason':reason,
@@ -388,7 +422,7 @@ class TapasHTTPAdapter:
             raise unsupported("Episode order is unverified; its reader will not be retrieved.",'order_unverified')
         self.stage = "reader_html"
         try:
-            html_bytes = self.transport.get(url) if reader_html is None else reader_html
+            html_bytes = metadata_bytes(self.transport, url, 8 * 1024 * 1024) if reader_html is None else reader_html
         except ArchiveError as error:
             if getattr(error, 'source_http_status', None) in {404, 410}:
                 self._reader_missing(match[1], error)
