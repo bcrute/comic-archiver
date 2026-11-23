@@ -4,6 +4,10 @@ name: Website
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Exact release ref to deploy
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -27,6 +31,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - name: Make the site from the newest release and the newest Android release
         env:
           GH_TOKEN: ${{ github.token }}
