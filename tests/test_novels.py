@@ -20,7 +20,7 @@ from comic_archive.inventory import Inventory
 from comic_archive.jobs import archive_discovered, sync, DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Series
 from comic_archive.novels import EPUB_FILES, NovelHTML, epub_entries, epub_files
-from scripts.offline_restore import restore
+from scripts.offline_restore import passive_xml, restore
 from test_archive import jpeg
 
 
@@ -591,6 +591,14 @@ class NovelTests(unittest.TestCase):
         self.assertIn(b'<dc:creator>Writer</dc:creator>', entries['EPUB/package.opf'])
         self.assertIn(b'<h1>Chapter</h1>', entries['EPUB/chapter.xhtml'])
         self.assertIn('<p>First second.</p>', self.fragment_of(HTML.replace('First &amp; second.', 'First\x08 &#8;second.')))
+
+    def test_standalone_xml_parser_permits_declarations_but_refuses_other_instructions(self):
+        declaration = b'<?xml version="1.0" encoding="UTF-8"?>'
+        self.assertEqual(passive_xml(declaration + b'<p>Saved text.</p>').text, 'Saved text.')
+        for document in (declaration + b'<?extension value?><p/>',
+                         declaration + b'<p><?extension value?></p>'):
+            with self.subTest(document=document), self.assertRaisesRegex(ValueError, 'Processing instructions'):
+                passive_xml(document)
 
     def test_epub_with_correct_hashes_but_altered_structure_or_metadata_fails_verification(self):
         corrupt = ['Unreadable, incomplete or corrupt archive/metadata']

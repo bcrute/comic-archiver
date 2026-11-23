@@ -21,7 +21,7 @@ class SessionRestoreTest {
         settings.userAgentString = "test-browser-agent"
     }
     private fun engine(saved: Boolean = false, onRestore: () -> Unit = {}) = WebViewSignInEngine(
-        WebViewCookieStore(setOf("m.tapas.io")), onRestore = onRestore, savedSignIn = { saved },
+        WebViewCookieStore(setOf("m.tapas.io")), onRestore = onRestore, savedSignIn = { saved }, browserReady = { true },
     ).also { it.load("tapas") }
 
     @Test fun aSavedSignInThatCouldNotBeCheckedStaysAndCommitsNothing() {
@@ -46,7 +46,7 @@ class SessionRestoreTest {
     @Test fun aSignInToAnotherAccountIsRefusedAndNotKeptInTheBrowser() {
         var clears = 0
         val engine = WebViewSignInEngine(WebViewCookieStore(setOf("m.tapas.io"),
-            clearProfile = { clears++; it(true) })).also { it.load("tapas") }
+            clearProfile = { clears++; it(true) }), browserReady = { true }).also { it.load("tapas") }
         val view = surface()
         // A saved sign-in found to be another account's is refused; the browser is left alone.
         engine.restoreSignIn(view)

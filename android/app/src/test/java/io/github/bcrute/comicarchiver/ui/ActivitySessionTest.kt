@@ -486,6 +486,7 @@ class LifecycleTestApp : App() {
     override val bridge: PythonBridge get() = fake
     override val signInSites get() = WebViewSignInEngine.BETA_SITES
     override fun startRuntime() {}
+    override fun browserConnectionReady() = true
     override fun selectRuntimeCookieStore(store: io.github.bcrute.comicarchiver.signin.WebViewCookieStore, siteKey: String) {}
     override fun startNetworkWriter(target: io.github.bcrute.comicarchiver.runtime.SiteWorkspace) {}
     override fun deactivateRuntimeCookieStore() {}

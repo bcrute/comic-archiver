@@ -642,6 +642,22 @@ def _restore_staged(source, physical, destination, decode):
         return report
 
 
+# Keep these parsing restrictions aligned with comic_archive.novels. The
+# standalone recovery script must also work without an installed archiver.
+class _PassiveXML(ET.TreeBuilder):
+    def pi(self, target, text):
+        raise ValueError('Processing instructions are unsupported.')
+
+    def doctype(self, name, public_id, system_id):
+        raise ValueError('Document type declarations are unsupported.')
+
+
+def passive_xml(data):
+    if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
+        raise ValueError('Unsupported restored EPUB XML.')
+    return ET.fromstring(data, parser=ET.XMLParser(target=_PassiveXML()))  # noqa: S314 - parser refuses DTDs and PIs
+
+
 def _restore(source, destination, decode):
     image_module = None
     if decode:
@@ -769,6 +785,8 @@ def _restore(source, destination, decode):
                         raise ValueError('Invalid restored EPUB membership or mimetype.')
                     if archive.getinfo('mimetype').compress_type != zipfile.ZIP_STORED:
                         raise ValueError('Restored EPUB mimetype must be uncompressed.')
+                    chapter = None
+                    chapter_data = b''
                     for item in hashes:
                         member = archive.getinfo(item['file'])
                         cap = 10*1024**2 if item['file'] in images else 3*1024**2
@@ -783,11 +801,11 @@ def _restore(source, destination, decode):
                             report['image_count'] += 1
                             report['original_image_bytes'] += len(data)
                         elif item['file'] != 'mimetype':
-                            if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
-                                raise ValueError('Unsupported restored EPUB XML.')
-                            ET.fromstring(data)  # noqa: S314 - DOCTYPE and ENTITY are refused just above
-                    chapter = ET.fromstring(archive.read('EPUB/chapter.xhtml')).find(  # noqa: S314 - checked in the loop above
-                        '{http://www.w3.org/1999/xhtml}body/{http://www.w3.org/1999/xhtml}div')
+                            document = passive_xml(data)
+                            if item['file'] == 'EPUB/chapter.xhtml':
+                                chapter_data = data
+                                chapter = document.find(
+                                    '{http://www.w3.org/1999/xhtml}body/{http://www.w3.org/1999/xhtml}div')
                     if chapter is None or not ''.join(chapter.itertext()).strip() and not images:
                         raise ValueError('Restored EPUB chapter is empty.')
                     characters = len(''.join(chapter.itertext()))
@@ -796,7 +814,7 @@ def _restore(source, destination, decode):
                     references = [node.get('src') for node in chapter.iter('{http://www.w3.org/1999/xhtml}img')]
                     if references != [name.removeprefix('EPUB/') for name in images]:
                         raise ValueError('Restored illustration references differ from manifest.')
-                    text = archive.read('EPUB/chapter.xhtml').split(b'<div id="chapter">', 1)[1].removesuffix(b'</div></body></html>')
+                    text = chapter_data.split(b'<div id="chapter">', 1)[1].removesuffix(b'</div></body></html>')
                     if len(text) != episode['text_size'] or hashlib.sha256(text).hexdigest() != episode['text_sha256']:
                         raise ValueError('Restored chapter text hash differs from JSON.')
                     report['novel_chapter_count'] += 1

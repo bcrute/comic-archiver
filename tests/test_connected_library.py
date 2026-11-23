@@ -9,6 +9,7 @@ import unittest
 import uuid
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from comic_archive.connected.files import Index, SharedRoot, SourceError
 
@@ -138,6 +139,70 @@ class ConnectedLibraryTests(unittest.TestCase):
         copy.with_suffix(".json").write_bytes(renamed.with_suffix(".json").read_bytes())
         independent = self.index.register_completed("series/copy.cbz", "Series")
         self.assertNotEqual(moved["book_id"], independent["book_id"])
+
+    def test_moving_a_book_keeps_only_referenced_series(self):
+        stationary = self.book("series/stays.cbz")
+        stationary_record = self.index.register_completed("series/stays.cbz", "Series")
+        target = self.book()
+        record = self.index.register_completed("series/issue.cbz", "Series")
+        initial_pages = self.index.db.execute("PRAGMA page_count").fetchone()[0]
+        for number in range(256):
+            relative = f"other-{number}/issue.cbz"
+            destination = self.library / relative
+            destination.parent.mkdir()
+            target.rename(destination)
+            target.with_suffix(".json").rename(destination.with_suffix(".json"))
+            target = destination
+            moved = self.index.register_completed(relative, "Moved series")
+            self.assertEqual(moved["book_id"], record["book_id"])
+            self.assertEqual(moved["content_version"], record["content_version"])
+            ids = {row["id"] for row in self.index.db.execute("SELECT id FROM series")}
+            self.assertEqual(ids, {stationary_record["series_id"], moved["series_id"]})
+            if number + 1 in (1, 16, 64, 256):
+                self.assertLessEqual(self.index.db.execute("PRAGMA page_count").fetchone()[0], initial_pages + 4)
+        self.assertTrue(stationary.is_file())
+        revision, share = self.index.revision, self.index.share_id
+        # A previously used version could leave many empty series behind. Keep
+        # this fixture large enough to measure the one-time compaction.
+        self.index.db.executemany("INSERT INTO series VALUES(?,?)", (
+            (f"previous-{number}/" + "long-folder/" * 10 + "collection", str(uuid.uuid4()))
+            for number in range(4096)
+        ))
+        legacy_pages = self.index.db.execute("PRAGMA page_count").fetchone()[0]
+        self.assertGreater(legacy_pages, initial_pages + 4)
+        reopened = Index(self.index.path, self.root, create=False)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.db.execute("SELECT count(*) FROM series").fetchone()[0], 2)
+        self.assertEqual(reopened.describe(moved["book_id"], moved["content_version"]), moved)
+        self.assertEqual(reopened.revision, revision)
+        self.assertEqual(reopened.share_id, share)
+        self.assertEqual(reopened.describe(stationary_record["book_id"], stationary_record["content_version"]),
+                         stationary_record)
+        self.assertLessEqual(reopened.db.execute("PRAGMA page_count").fetchone()[0], initial_pages + 4)
+
+    def test_sqlite_quota_preserves_the_last_committed_catalog(self):
+        self.book()
+        first = self.index.register_completed("series/issue.cbz", "Series")
+        page_size = self.index.db.execute("PRAGMA page_size").fetchone()[0]
+        page_count = self.index.db.execute("PRAGMA page_count").fetchone()[0]
+        with patch("comic_archive.connected.files.INDEX_MAX", page_size * page_count):
+            bounded = Index(self.index.path, self.root, create=False)
+        self.addCleanup(bounded.close)
+        self.assertEqual(bounded.db.execute("PRAGMA max_page_count").fetchone()[0], page_count)
+        for number in range(50):
+            relative = f"another-series-{number}/issue.cbz"
+            self.book(relative)
+            revision = bounded.revision
+            try:
+                bounded.register_completed(relative, "Title " * 80)
+            except SourceError as error:
+                self.assertEqual(error.code, "resource_limit")
+                self.assertEqual(bounded.revision, revision)
+                self.assertEqual(bounded.describe(first["book_id"], first["content_version"]), first)
+                self.assertIsNone(bounded.db.execute("SELECT id FROM series WHERE relative=?", (f"another-series-{number}",)).fetchone())
+                break
+        else:
+            self.fail("The configured SQLite quota did not stop index growth.")
 
     def test_traversal_symlink_private_state_and_hardlink_are_refused(self):
         target = self.book()

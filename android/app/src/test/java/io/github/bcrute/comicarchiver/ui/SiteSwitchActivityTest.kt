@@ -420,6 +420,7 @@ open class SwitchTestApp : App() {
             name = "Tappytoon", workspaceFolder = "Tappytoon"))
     private val stores = mutableMapOf<String, WebViewCookieStore>()
     override fun startRuntime() {}
+    override fun browserConnectionReady() = true
     override fun selectRuntimeCookieStore(store: WebViewCookieStore, siteKey: String) {}
     override fun deactivateRuntimeCookieStore() {}
     override fun startNetworkWriter(target: SiteWorkspace) {}

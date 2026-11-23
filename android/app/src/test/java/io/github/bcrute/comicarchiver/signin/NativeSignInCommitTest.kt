@@ -46,7 +46,7 @@ class NativeSignInCommitTest {
 
     @Test fun aCancelledOrExpiredAnswerNeverReachesTheCommitHook() {
         val committed = mutableListOf<Long>()
-        val engine = WebViewSignInEngine(store(), timeoutMs = 1_000,
+        val engine = WebViewSignInEngine(store(), browserReady = { true }, timeoutMs = 1_000,
             onVerified = { _, token -> committed.add(token); true })
         val surface = WebView(context)
         engine.load("tapas")
@@ -66,7 +66,7 @@ class NativeSignInCommitTest {
     @Test fun onlyTheCurrentSuccessfulVerificationCanCommitOnce() {
         val committed = mutableListOf<Pair<String, Long>>()
         val attempts = mutableListOf<Pair<Long, Boolean>>()
-        val engine = WebViewSignInEngine(store(),
+        val engine = WebViewSignInEngine(store(), browserReady = { true },
             onAttempt = { _, token, _, active -> attempts.add(token to active) },
             onVerified = { key, token -> committed.add(key to token); true })
         val surface = WebView(context)
@@ -83,7 +83,7 @@ class NativeSignInCommitTest {
     }
 
     @Test fun failedCoreCommitNeverAuthenticatesTheNativeUi() {
-        val engine = WebViewSignInEngine(store(), onVerified = { _, _ -> false })
+        val engine = WebViewSignInEngine(store(), browserReady = { true }, onVerified = { _, _ -> false })
         val surface = WebView(context)
         engine.load("tapas")
         engine.startSignIn(surface)
@@ -93,7 +93,7 @@ class NativeSignInCommitTest {
     }
 
     @Test fun originContainsNoLoginCodePasswordOrPrivatePath() {
-        val engine = WebViewSignInEngine(store())
+        val engine = WebViewSignInEngine(store(), browserReady = { true })
         val surface = WebView(context)
         engine.load("tapas")
         engine.startSignIn(surface)
@@ -107,7 +107,7 @@ class NativeSignInCommitTest {
     }
 
     @Test fun theSurfaceStaysHiddenUntilItsPageIsReadyToDraw() {
-        val engine = WebViewSignInEngine(store())
+        val engine = WebViewSignInEngine(store(), browserReady = { true })
         val surface = WebView(context)
         engine.load("tapas")
         engine.startSignIn(surface)
@@ -125,7 +125,7 @@ class NativeSignInCommitTest {
     }
 
     @Test fun anOldSurfaceCannotFailOrSettleTheReplacementAttempt() {
-        val engine = WebViewSignInEngine(store())
+        val engine = WebViewSignInEngine(store(), browserReady = { true })
         val old = WebView(context)
         engine.load("tapas")
         engine.startSignIn(old)
@@ -182,7 +182,7 @@ class NativeSignInCommitTest {
     @Test fun expiredWorkerAuthenticationReopensTheSignInRouteWithoutClearingCookies() {
         var cleared = false
         val engine = WebViewSignInEngine(WebViewCookieStore(setOf("m.tapas.io"),
-            clearProfile = { cleared = true; it(true) }))
+            clearProfile = { cleared = true; it(true) }), browserReady = { true })
         val surface = WebView(context)
         engine.load("tapas")
         engine.startSignIn(surface)
