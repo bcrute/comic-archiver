@@ -1898,8 +1898,7 @@ class Pages:
 
     def clear_episode_list(self, key):
         if self.can_clear_episode_list(key):
-            self.shell.set_episode_list_cleared(self.of(key).workspace_id, key, True)
-            self.library.list_completed()
+            self.library.clear_list(key)
             self.open_download_library(key)
 
     def open_download_choices(self, key):

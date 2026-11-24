@@ -230,6 +230,12 @@ class EpisodeLibrary:
         state = self.pages.states.get(provider)
         return bool(state and state.workspace_id and self.pages.shell.episode_list_cleared(state.workspace_id, provider))
 
+    def clear_list(self, provider):
+        state = self.pages.states[provider]
+        self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, True)
+        self.requested_lists.pop(provider, None)
+        self.list_completed()
+
     def request_episode_lists(self, *, provider=None):
         targets = self.list_targets(tuple(self.listing_states()), provider=provider)
         self.requested_lists.update(targets)
@@ -290,8 +296,8 @@ class EpisodeLibrary:
             self.refresh_view()
 
     def list_completed(self, provider=None):
-        if provider is not None and self.is_list_cleared(provider):
-            state = self.pages.states[provider]
+        state = self.pages.states.get(provider)
+        if state is not None and self.requested_lists.get(provider) is state and self.is_list_cleared(provider):
             self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, False)
         self.list_refresh_pending = True
         self.refresh_completed_lists()
