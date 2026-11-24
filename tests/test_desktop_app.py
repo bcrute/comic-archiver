@@ -210,6 +210,17 @@ class DesktopAppTests(unittest.TestCase):
         shell.open()
         return shell
 
+    def test_a_cleared_list_is_remembered_for_only_its_library_and_provider(self):
+        app = desktop_app.application(self.q)
+        first = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertTrue(first.set_episode_list_cleared('library-one', 'tapas', True))
+        reopened = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertTrue(reopened.episode_list_cleared('library-one', 'tapas'))
+        self.assertFalse(reopened.episode_list_cleared('library-one', 'webtoon'))
+        self.assertFalse(reopened.episode_list_cleared('library-two', 'tapas'))
+        self.assertTrue(reopened.set_episode_list_cleared('library-one', 'tapas', False))
+        self.assertFalse(first.episode_list_cleared('library-one', 'tapas'))
+
     def test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen_in_the_computers_own_dialog(self):
         shell = self.opened(); shell.load()
         pages = shell.pages

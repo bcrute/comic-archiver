@@ -232,9 +232,11 @@ class EpisodeLibrary:
 
     def clear_list(self, provider):
         state = self.pages.states[provider]
-        self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, True)
+        if not self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, True):
+            return False
         self.requested_lists.pop(provider, None)
         self.list_completed()
+        return True
 
     def request_episode_lists(self, *, provider=None):
         targets = self.list_targets(tuple(self.listing_states()), provider=provider)

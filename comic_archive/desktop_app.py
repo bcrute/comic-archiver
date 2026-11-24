@@ -579,8 +579,6 @@ class Shell:
 
     def __init__(self, q, app, runtime, log_path=None, probe=None):
         self.q, self.app, self.runtime, self.log_path, self.probe = q, app, runtime, log_path, probe
-        self.list_settings = q.QtCore.QSettings(str(app_runtime.state_dir() / 'episode-lists.ini'),
-                                                q.QtCore.QSettings.Format.IniFormat)
         self.phase = 'starting'
         self.pages = None
         self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
@@ -712,15 +710,27 @@ class Shell:
     def chosen_site(self):
         return self.runtime.site.key
 
+    def _cleared_list_marker(self, workspace, provider):
+        key = hashlib.sha256(f'{workspace}/{provider}'.encode('utf-8')).hexdigest()
+        return app_runtime.state_dir() / f'cleared-episodes-{key}'
+
     def episode_list_cleared(self, workspace, provider):
-        return self.list_settings.value(f'{workspace}/{provider}', False, type=bool)
+        try:
+            return self._cleared_list_marker(workspace, provider).is_file()
+        except (ArchiveError, OSError):
+            return False
 
     def set_episode_list_cleared(self, workspace, provider, cleared):
-        key = f'{workspace}/{provider}'
-        if cleared:
-            self.list_settings.setValue(key, True)
-        else:
-            self.list_settings.remove(key)
+        try:
+            marker = self._cleared_list_marker(workspace, provider)
+            if cleared:
+                marker.touch(mode=0o600)
+            else:
+                marker.unlink(missing_ok=True)
+        except (ArchiveError, OSError):
+            LOG.warning('The episode list preference could not be saved.')
+            return False
+        return True
 
     def theme_apply(self):
         """Give the window the look chosen in its header: the computer's own, or always light or dark."""

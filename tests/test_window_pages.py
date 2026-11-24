@@ -249,6 +249,7 @@ class Shell:
 
     def set_episode_list_cleared(self, workspace, provider, cleared):
         self.cleared_lists[workspace, provider] = cleared
+        return True
 
     def open_sites(self):
         return list(self.open)

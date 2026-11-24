@@ -1898,8 +1898,11 @@ class Pages:
 
     def clear_episode_list(self, key):
         if self.can_clear_episode_list(key):
-            self.library.clear_list(key)
-            self.open_download_library(key)
+            if self.library.clear_list(key):
+                self.open_download_library(key)
+            else:
+                self.of(key).message = dashboard_model.Message('Could not clear the episode list. Try again.', True)
+                self.render()
 
     def open_download_choices(self, key):
         """Episode types and extras; individual comics are selected on Library."""
