@@ -71,13 +71,14 @@ class EpisodeLibrary:
         self.tree.setAccessibleName(say('library.library_episode_status'))
         self.tree.setAccessibleDescription(saved_note)
         self.tree.setColumnCount(4)
-        self.tree.setHeaderLabels(['Provider / series / episode', say('dashboard.status'), say('library.format'), say('library.access')])
+        self.tree.setHeaderLabels(['', say('dashboard.status'), say('library.format'), say('library.access')])
+        self.tree.headerItem().setData(0, kit.q.QtCore.Qt.ItemDataRole.AccessibleTextRole,
+                                       'Provider / series / episode')
         self.tree.setUniformRowHeights(True)
         self.tree.setWordWrap(False)
         self.tree.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setSelectionMode(w.QAbstractItemView.SelectionMode.SingleSelection)
         table_header = self.tree.header()
-        table_header.setObjectName('episodeLibraryHeader')
         table_header.setStretchLastSection(False)
         table_header.setSectionResizeMode(0, w.QHeaderView.ResizeMode.Stretch)
         for column in (1, 2, 3):
@@ -90,7 +91,10 @@ class EpisodeLibrary:
         box.addWidget(self.notice)
 
     def header_checkbox(self, header):
-        qt = self.kit.q.QtCore.Qt
+        from shiboken6 import isValid
+
+        core = self.kit.q.QtCore
+        qt = core.Qt
         choose = self.choose
 
         class AllSeries(self.kit.w.QCheckBox):
@@ -98,24 +102,28 @@ class EpisodeLibrary:
                 # Mixed behaves like unchecked. Show the result after it is read back.
                 choose(self.checkState() != qt.CheckState.Checked)
 
-        checkbox = AllSeries(header.viewport())
+            @core.Slot()
+            def align_to_header(self):
+                if not isValid(header):
+                    return  # The tree can emit geometry changes while closing.
+                size = self.sizeHint()
+                left = header.sectionViewportPosition(0) + 7
+                self.setGeometry(left, (header.viewport().height() - size.height()) // 2,
+                                 size.width(), size.height())
+                self.setVisible(left >= 0 and left + size.width() <= header.sectionSize(0) - header.offset())
+
+        checkbox = AllSeries('check/uncheck all', header.viewport())
         checkbox.setObjectName('allSeries')
-        checkbox.setAccessibleName('Select all series for download')
-        checkbox.setToolTip('Include or exclude all series across all providers. Saved files are kept.')
+        scope = 'Include or exclude all series across all providers. Saved files are kept.'
+        checkbox.setAccessibleDescription(scope)
+        checkbox.setToolTip(scope)
         checkbox.setTristate(True)
         checkbox.setEnabled(False)
 
-        def position():
-            size = checkbox.sizeHint()
-            left = header.sectionViewportPosition(0) + 7
-            checkbox.setGeometry(left, (header.viewport().height() - size.height()) // 2,
-                                 size.width(), size.height())
-            checkbox.setVisible(left >= 0 and left + size.width() <= header.sectionSize(0) - header.offset())
-
-        header.geometriesChanged.connect(position)
-        header.sectionResized.connect(position)
-        self.tree.horizontalScrollBar().valueChanged.connect(position)
-        position()
+        header.geometriesChanged.connect(checkbox.align_to_header)
+        header.sectionResized.connect(checkbox.align_to_header)
+        self.tree.horizontalScrollBar().valueChanged.connect(checkbox.align_to_header)
+        checkbox.align_to_header()
         return checkbox
 
     def changed(self, item, column):

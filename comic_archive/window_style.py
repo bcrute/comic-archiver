@@ -163,8 +163,9 @@ QTreeWidget { background: %(surface)s; color: %(text)s; border: 1px solid %(bord
 QTreeWidget::item { padding: 5px 8px; }
 QHeaderView::section { background: %(surface)s; color: %(muted)s; font-size: 13px; font-weight: 600; padding: 8px;
                        border: none; border-bottom: 1px solid %(border)s; }
-QHeaderView#episodeLibraryHeader::section:first { padding-left: 34px; }
-QCheckBox#allSeries { padding: 3px; border: 1px solid transparent; border-radius: 4px; }
+QCheckBox#allSeries { color: %(text)s; font-size: 13px; font-weight: 600;
+                      padding: 3px; border: 1px solid transparent; border-radius: 4px; }
+QCheckBox#allSeries:disabled { color: %(disabled-text)s; }
 QCheckBox#allSeries:focus { border-color: %(focus)s; }
 QCheckBox#allSeries::indicator:indeterminate {
     border-color: %(accent)s;
