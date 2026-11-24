@@ -204,8 +204,7 @@ def keep_awake(running):
     """
     if sys.platform == 'darwin' and not WINDOWS:
         from .macos import keep_awake as mac_keep_awake
-        mac_keep_awake(running)
-        return
+        return mac_keep_awake(running)
     if not WINDOWS:
         return
     import ctypes
@@ -214,9 +213,9 @@ def keep_awake(running):
         kernel = ctypes.WinDLL('kernel32')
         kernel.SetThreadExecutionState.restype = ctypes.c_uint32
         kernel.SetThreadExecutionState.argtypes = (ctypes.c_uint32,)
-        kernel.SetThreadExecutionState(continuous | (system_required if running else 0))
+        return bool(kernel.SetThreadExecutionState(continuous | (system_required if running else 0)))
     except (AttributeError, OSError):
-        pass
+        return False
 
 
 def extended_path(path):

@@ -253,7 +253,7 @@ class WindowsMarkTests(unittest.TestCase):
             osdep.keep_awake(False)
             self.assertEqual([call.args for call in kernel.SetThreadExecutionState.call_args_list], [(0x80000001,), (0x80000000,)])
             kernel.SetThreadExecutionState.side_effect = OSError('refused')
-            osdep.keep_awake(True)  # Asking is all the app can do.
+            self.assertFalse(osdep.keep_awake(True))
         kernel.reset_mock(side_effect=True)
         with patch.object(osdep, 'WINDOWS', False):
             osdep.keep_awake(True)

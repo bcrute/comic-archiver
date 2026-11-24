@@ -42,7 +42,7 @@ def keep_awake(running):
                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                       stderr=subprocess.DEVNULL)
         except OSError:
-            pass  # Best effort, as on the other desktop platforms.
+            return False
     elif not running and _awake is not None:
         process, _awake = _awake, None
         # On the window's thread: it ends at once when asked, and is never waited on for long.
@@ -54,7 +54,8 @@ def keep_awake(running):
                 process.kill()
                 process.wait(timeout=AWAKE_END_SECONDS)
             except (OSError, subprocess.TimeoutExpired):
-                pass
+                return False
+    return True
 
 
 def runs_command(pid, words):

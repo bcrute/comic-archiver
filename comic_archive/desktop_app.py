@@ -1434,8 +1434,10 @@ class Shell:
 
     def stay_awake(self, running):
         if running != self.awake:
-            LOG.info('the computer is %s', 'kept awake for the download' if running else 'free to sleep again')
-            osdep.keep_awake(running)
+            if osdep.keep_awake(running) is False:
+                LOG.warning('Could not %s.', 'prevent sleep during downloads' if running else 'release the sleep assertion')
+            else:
+                LOG.debug('the computer is %s', 'kept awake for the download' if running else 'free to sleep again')
             self.awake = running
 
     def quit(self):

@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .osdep import NOFOLLOW, NONBLOCK, WINDOWS, drive, linked, open_log
@@ -45,6 +45,21 @@ PAGE_READY = re.compile(r'^(?:[0-9-]{10} [0-9:]{8} )?Episode [0-9]+: page [0-9]+
 TASK_CHATTER = re.compile(r'^(?:[0-9-]{10} [0-9:]{8} )?'
                           r'(?:Starting task job-[a-f0-9]{24}|Task job-[a-f0-9]{24} completed\.'
                           r'|INFO download: step job-[a-f0-9]{24} \([a-z]+\) sent)$')
+TASK_COUNT = r'(?:(?:pages|bytes|episodes|series_checked) [0-9]+|progressed)'
+TASK_COUNTS = rf'(?:: {TASK_COUNT}(?:, {TASK_COUNT})*)?'
+SUCCESSFUL_TASK = re.compile(r'^[0-9-]{10} [0-9:]{8} INFO download: step '
+                             rf'(job-[a-f0-9]{{24}}) \([a-z]+\) ended ok finished{TASK_COUNTS}$')
+APP_TIME = r'[0-9-]{10} [0-9:]{8},[0-9]{3}'
+SLOW_READ = re.compile(rf'^(?P<time>{APP_TIME}) INFO Slow library read site=(?P<site>Tapas|Webtoon|Tappytoon) '
+                       r'operation=(?P<operation>[a-z_]+) seconds=(?P<seconds>[0-9]+\.[0-9]{3})$')
+SLEEP_CHATTER = re.compile(rf'^{APP_TIME} INFO the computer is (?:kept awake for the download|free to sleep again)$')
+CHOICE_CYCLE = re.compile(
+    rf'^(?P<started>{APP_TIME}) INFO download: running at (?P<stage>[a-z]+) -> stopped at (?P=stage)'
+    r' \(changing download choices\)\n'
+    rf'(?:(?P<outcome>{APP_TIME} INFO download: step job-[a-f0-9]{{24}} \([a-z]+\) ended ok '
+    rf'(?P<result>cancelled|finished){TASK_COUNTS})\n)?'
+    rf'(?P<ended>{APP_TIME}) INFO download: stopped at (?P=stage) -> running at (?P=stage)'
+    r' \(download choices changed\)(?:\n|$)', re.MULTILINE)
 LINE = re.compile(r'[^\n]*\n|[^\n]+')
 _hooked = False
 _crashes = None
@@ -219,8 +234,8 @@ def _log_excerpt(text, limit):
     return marker[:limit] + _end(data, limit - len(marker)).decode('utf-8')
 
 
-def _quiet(text):
-    """Remove routine browser and page progress lines and report how many were omitted."""
+def _quiet(text, recorded_steps=()):
+    """Drop routine worker chatter and successful results covered by the structured task history."""
     lines = text.splitlines()
     kept = [line for line in lines if not NOISE.search(line)]
     dropped = len(lines) - len(kept)
@@ -228,13 +243,80 @@ def _quiet(text):
     progress = len(kept) - len(without_pages)
     useful = [line for line in without_pages if not TASK_CHATTER.fullmatch(line)]
     tasks = len(without_pages) - len(useful)
+    recorded = {step['task_id'] for step in recorded_steps if step['finished_at'] and step['outcome'] == 'ok'}
+    unique = [line for line in useful
+              if not ((finished := SUCCESSFUL_TASK.fullmatch(line)) and finished[1] in recorded)]
+    duplicates = len(useful) - len(unique)
+    useful = unique
     if dropped:
         useful.append(f'({dropped} routine messages from the browser engine left out)')
     if progress:
         useful.append(f'({progress} routine page progress lines left out)')
     if tasks:
         useful.append(f'({tasks} routine task start, dispatch and completion lines left out)')
+    if duplicates:
+        useful.append(f'({duplicates} successful task endings already listed in task history left out)')
     return '\n'.join(useful)
+
+
+def _quiet_app(text):
+    """Keep the slowest repeat read and the outcomes of complete checkbox pause/resume cycles."""
+    slow_reads = {}
+    kept = []
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip('\r\n')
+        if SLEEP_CHATTER.fullmatch(content):
+            continue
+        slow = SLOW_READ.fullmatch(content)
+        if slow:
+            key = slow['site'], slow['operation']
+            count, peak, peak_line = slow_reads.get(key, (0, -1, ''))
+            seconds = float(slow['seconds'])
+            slow_reads[key] = (count + 1, seconds, line) if seconds > peak else (count + 1, peak, peak_line)
+            continue
+        kept.append(line)
+    compact = _quiet_choice_cycles(''.join(kept))
+    if not slow_reads:
+        return compact
+    readings = ''.join(line if count == 1 else f'{line.rstrip()} (slowest of {count} occurrences)\n'
+                       for count, _, line in slow_reads.values())
+    return compact.rstrip('\n') + ('\n' if compact else '') + readings
+
+
+def _quiet_choice_cycles(text):
+    output = []
+    burst = []
+    end = 0
+
+    def flush():
+        first, last = burst[0], burst[-1]
+        cancelled = sum(cycle['result'] == 'cancelled' for cycle in burst)
+        output.append(f"{first['started']} INFO Saved download choices and resumed {len(burst)} time(s) "
+                      f"at {first['stage']} through {last['ended']}; {cancelled} running task(s) cancelled for changes.\n")
+        output.extend(cycle['outcome'] + '\n' for cycle in burst if cycle['outcome'] and (
+            cycle['result'] == 'finished' or re.search(r'\bepisodes [1-9]', cycle['outcome'])))
+        burst.clear()
+
+    for cycle in CHOICE_CYCLE.finditer(text):
+        between = text[end:cycle.start()]
+        if burst and (between or burst[-1]['stage'] != cycle['stage']
+                      or not _nearby(burst[-1]['ended'], cycle['started'])):
+            flush()
+        if between:
+            output.append(between)
+        burst.append(cycle)
+        end = cycle.end()
+    if burst:
+        flush()
+    output.append(text[end:])
+    return ''.join(output)
+
+
+def _nearby(earlier, later):
+    try:
+        return timedelta() <= datetime.fromisoformat(later) - datetime.fromisoformat(earlier) <= timedelta(minutes=1)
+    except ValueError:
+        return False
 
 
 def _word(value):
@@ -326,8 +408,17 @@ def _steps(record):
         ended = (f"{_word(step['outcome'])} at {_plain(step['finished_at'], MOMENT)}" if step['finished_at']
                  else 'out' if step['published_at'] else 'not sent yet')
         done = _counts(step, ('episodes', 'pages', 'bytes', 'series_checked'))
+        elapsed = ''
+        if step['finished_at'] and step['published_at']:
+            try:
+                seconds = (datetime.fromisoformat(step['finished_at']) -
+                           datetime.fromisoformat(step['published_at'])).total_seconds()
+                if seconds >= 0:
+                    elapsed = f'; elapsed {seconds:.1f}s'
+            except (ValueError, TypeError):
+                pass
         lines.append(f"{_plain(step['reserved_at'], MOMENT)} {_plain(step['task_id'], NUMBER)} {_word(step['kind'])}: "
-                     f"{ended}{'; ' + done if done else ''}{'; progressed' if step['progressed'] else ''}")
+                     f"{ended}{elapsed}{'; ' + done if done else ''}{'; progressed' if step['progressed'] else ''}")
     return lines
 
 
@@ -382,7 +473,6 @@ def site_records(name, session, library):
     worker = session / 'worker' / 'background.log'
     logs = [worker.with_name(f'{worker.name}.{n}') for n in range(WORKER_LOGS_KEPT, 0, -1)] + [worker]
     folders = (session, worker.parent)
-    excerpt = _quiet(_tail(logs, 8 * DOWNLOADER_BYTES, folders))
     failures = _part(_novel_failures, library, logs, folders)
     record = None
     try:
@@ -391,6 +481,7 @@ def site_records(name, session, library):
         steps = [f'Could not be read: {describe(error)}']
     else:
         steps = _part(_steps, record)
+    excerpt = _quiet(_tail(logs, 8 * DOWNLOADER_BYTES, folders), record[1] if record else ())
     sections = [f'=== {name}: episodes not saved', *_part(_unsaved, library),
                 '', f'=== {name}: the download’s last steps, oldest first', *steps,
                 '', f'=== {name}: the downloader’s log', _log_excerpt(excerpt, DOWNLOADER_BYTES)]
@@ -406,9 +497,10 @@ def site_records(name, session, library):
 
 
 def app_log(folder, name='desktop.log'):
-    """The app's log, oldest first, and what Python wrote when the app last crashed, if it has."""
+    """Recent app activity, summarized slow reads and the last crash, if any."""
     folder = Path(folder)
-    text = _tail([folder / f'{name}.2', folder / f'{name}.1', folder / name], APP_LOG_BYTES)
+    text = _quiet_app(_tail([folder / f'{name}.2', folder / f'{name}.1', folder / name], 8 * APP_LOG_BYTES))
+    text = _end(text.encode('utf-8'), APP_LOG_BYTES).decode('utf-8')
     crash = _tail([folder / CRASH_NAME], EXPORTED_CRASH_BYTES)
     return text + (f'\n=== Where the app was when it last stopped suddenly\n{crash}' if crash.strip() else '')
 

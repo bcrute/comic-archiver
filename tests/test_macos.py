@@ -44,6 +44,8 @@ class MacTests(unittest.TestCase):
             macos.keep_awake(False)
             launch.return_value.kill.assert_called_once_with()
             self.assertEqual([call.kwargs for call in launch.return_value.wait.call_args_list], [{'timeout': 0.5}] * 2)
+            launch.side_effect = OSError('refused')
+            self.assertFalse(macos.keep_awake(True))
 
     def test_only_exact_arguments_identify_a_worker(self):
         with patch.object(macos.psutil, 'Process') as process:

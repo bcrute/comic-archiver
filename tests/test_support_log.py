@@ -238,7 +238,7 @@ class SupportLogTests(unittest.TestCase):
             'Now: held/archive_incomplete at verify since 2026-11-04T10:00:00+00:00',
             'Tries: idle_waits 0, network_waits 2, source_probes 0, failed_retries 1, episodes waiting 0',
             'Last check: missing_recorded_accessible_episode_count 50',
-            f"2026-11-04T09:00:00+00:00 job-{'a' * 24} download: ok at 2026-11-04T09:10:00+00:00; episodes 2, pages 30, "
+            f"2026-11-04T09:00:00+00:00 job-{'a' * 24} download: ok at 2026-11-04T09:10:00+00:00; elapsed 599.0s; episodes 2, pages 30, "
             'bytes 9000; progressed',
             f"2026-11-04T09:11:00+00:00 job-{'b' * 24} audit: not sent yet"])
 
@@ -252,6 +252,45 @@ class SupportLogTests(unittest.TestCase):
         (self.home / 'desktop.log').write_text('x' * 50 + '\nlast line\n')
         with patch.object(support_log, 'APP_LOG_BYTES', 20):
             self.assertTrue(support_log.app_log(self.home).startswith('last line\n'))
+
+    def test_support_compacts_routine_app_events_and_keeps_outliers_and_failed_resumes(self):
+        time = '2026-11-04 10:45:'
+        task = 'job-' + 'b' * 24
+        log = (
+            f'{time}00,000 INFO download: running at series -> stopped at series (changing download choices)\n'
+            f'{time}01,000 INFO download: step {task} (series) ended ok cancelled: pages 0, episodes 0\n'
+            f'{time}02,000 INFO download: stopped at series -> running at series (download choices changed)\n'
+            f'{time}03,000 INFO Slow library read site=Tapas operation=choose_library_comics seconds=1.100\n'
+            f'{time}04,000 INFO the computer is kept awake for the download\n'
+            f'{time}05,000 INFO download: running at series -> stopped at series (changing download choices)\n'
+            f'{time}06,000 INFO download: stopped at series -> running at series (download choices changed)\n'
+            f'{time}07,000 INFO Slow library read site=Tapas operation=choose_library_comics seconds=27.300\n'
+            f'{time}08,000 INFO download: running at series -> stopped at series (changing download choices)\n'
+            f'{time}09,000 WARNING Could not prevent sleep during downloads.\n'
+            f'{time}10,000 INFO download: step {task} (series) ended error source_refused\n'
+        )
+        (self.home / 'desktop.log').write_text(log)
+        text = support_log.app_log(self.home)
+        self.assertIn('Saved download choices and resumed 2 time(s)', text)
+        self.assertIn('1 running task(s) cancelled for changes', text)
+        self.assertEqual(text.count('(changing download choices)'), 1)
+        self.assertIn('seconds=27.300 (slowest of 2 occurrences)', text)
+        self.assertNotIn('seconds=1.100', text)
+        self.assertNotIn('the computer is kept awake', text)
+        self.assertIn('Could not prevent sleep', text)
+        self.assertIn('ended error source_refused', text)
+
+    def test_worker_excerpt_only_deduplicates_clean_successes_in_task_history(self):
+        first, second = ('job-' + letter * 24 for letter in 'ab')
+        prefix = '2026-11-04 10:45:14 INFO download: step'
+        excerpt = support_log._quiet(
+            f'{prefix} {first} (series) ended ok finished: pages 0, progressed\n'
+            f'{prefix} {first} (series) ended ok paused network_unavailable\n'
+            f'{prefix} {second} (series) ended ok finished: pages 0\n',
+            [{'task_id': first, 'finished_at': 'known', 'outcome': 'ok'}])
+        self.assertNotIn(f'{first} (series) ended ok finished', excerpt)
+        self.assertIn(f'{first} (series) ended ok paused network_unavailable', excerpt)
+        self.assertIn(f'{second} (series) ended ok finished', excerpt)
 
     def test_one_file_holds_it_all_named_for_when_it_was_saved_and_never_too_large(self):
         when = datetime(2026, 11, 4, 10, 45, 14, tzinfo=timezone.utc)
