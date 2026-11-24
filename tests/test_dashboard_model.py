@@ -415,6 +415,22 @@ class CardSummaryTests(unittest.TestCase):
                     self.assertNotIn('688', str(summary))
                     self.assertNotIn('estimated', str(summary))
 
+    def test_episode_list_card_distinguishes_cataloguing_from_downloading(self):
+        s = state(account=account(phase='series', list_only=True), saved_at=[(NOW - 60, 0), (NOW, 300_000)])
+        s.status['estimate'] = {'waiting_episodes': 10, 'seconds': 3600, 'left_bytes': 480_000_000}
+        for phase in ('lists', 'series'):
+            with self.subTest(phase=phase):
+                s.account['phase'] = phase
+                v = model.view(s, NOW)
+                shown = fields(model.card_summary(s, v))
+                self.assertEqual(shown['Status'][0], 'Getting episode list')
+                self.assertEqual([shown[name][0] for name in ('Time left', 'Space', 'Download speed')], ['—'] * 3)
+                self.assertEqual(action(v), ('pause', 'Pause', True))
+        s.account.update(status='stopped', episode_list_ready=True, episode_list_partial=True)
+        v = model.view(s, NOW)
+        self.assertEqual(fields(model.card_summary(s, v))['Status'][0], 'Partial episode list ready')
+        self.assertEqual(action(v), ('go', 'Start', True))
+
     def test_simple_cards_keep_real_errors_and_incomplete_completion_visible(self):
         cases = [
             (state(account=account(status='stopped')), 'Paused'),

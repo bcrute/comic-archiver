@@ -428,6 +428,38 @@ class EpisodeLibraryTests(PagesCase):
         self.assertIn('Tappytoon: Sign in', page.list_notice.text())
         self.assertIn('Webtoon: Pause downloads', page.list_notice.text())
 
+    def test_get_episode_lists_can_add_a_provider_after_sign_in(self):
+        self.shell.open = list(self.sites)
+        status = self.actions.reading['status']
+        status['session_configured'] = False
+        self.open('library')
+        page = self.pages.library
+        page.get_list.click()
+        self.assertIn('Tapas: Sign in', page.list_notice.text())
+        self.assertFalse(page.get_list.isEnabled())
+
+        self.pages.go_to('dashboard')
+        self.assertEqual(self.fields('webtoon')['Status'], 'Getting episode list')
+        self.actions.reading['site_auth'] = {'status': 'connected'}
+        status.update(session_configured=True, worker={'reported_state': 'starting'})
+        self.pages.poll_site('tapas')
+        self.pages.go_to('library')
+        self.assertFalse(page.get_list.isEnabled())
+        # One list can finish before Tapas is ready. The other remains active.
+        self.sites['webtoon'].account(status='stopped', episode_list_ready=True)
+        self.pages.poll_site('webtoon')
+        status['worker'] = {'reported_state': 'ready'}
+        self.pages.poll_site('tapas')
+        self.assertEqual(self.actions.named('get_episode_list'), [])
+        self.assertIn('Tapas: Ready to get episode list', page.list_notice.text())
+        self.assertTrue(page.get_list.isEnabled())
+        page.get_list.click()
+        self.assertFalse(page.get_list.isEnabled())
+        self.assertIn('Webtoon: List ready', page.list_notice.text())
+        for actions in self.sites.values():
+            self.assertEqual(len(actions.named('get_episode_list')), 1)
+            self.assertEqual(actions.named('go'), [])
+
     def test_list_completion_refreshes_after_current_library_work(self):
         self.open('library')
         page = self.pages.library

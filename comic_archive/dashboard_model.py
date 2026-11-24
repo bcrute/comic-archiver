@@ -518,6 +518,8 @@ def card_summary(s=None, v=None):
             label, tone = say('dashboard.waiting'), 'working'
         elif v['live_waiting']:
             text, label = say('dashboard.waiting_for_an_update'), say('dashboard.waiting')
+        elif account.get('list_only'):
+            text, label = say('dashboard.getting_episode_list'), say('dashboard.checking_series')
         elif account.get('phase') == 'verify':
             text = label = say('dashboard.finishing')
         else:
@@ -538,6 +540,10 @@ def card_summary(s=None, v=None):
         elif facts[say('dashboard.status')]['value'] == say('dashboard.done'):
             facts[say('dashboard.status')].update(value=say('dashboard.this_run_is_complete'))
     estimate = (s.status or {}).get('estimate') or {}
+    if running and account.get('list_only'):
+        for name in (say('dashboard.time_left'), say('dashboard.space'), say('dashboard.download_speed')):
+            facts[name].update(value=NONE, tip='', warning=False)
+        estimate = {}
     if account.get('status') == 'finished' or (account.get('status') == 'held' and account.get('code') == 'archive_incomplete'):
         facts[say('dashboard.time_left')].update(value=NONE, tip='')
         facts[say('dashboard.space')].update(value=NONE, tip='', warning=False)
@@ -630,6 +636,8 @@ def view(s, now):
     else:
         v['action'], v['action_enabled'] = 'go', v['go_enabled']
         v['action_text'] = say('dashboard.continue') if account_status in ('stopped', 'held') else say('dashboard.start')
+        if account.get('list_only'):
+            v['action_text'] = say('dashboard.start')
     v['allow_visible'] = network_held
     v['allow_enabled'] = not s.busy
     locked = running or batch_running
@@ -743,7 +751,8 @@ def view(s, now):
                   'series': say('dashboard.checking_series_and_downloading'), 'archive': say('dashboard.downloading_episodes'),
                   'verify': say('dashboard.finishing_download')}
         step = '' if list_phase else step_progress(progress).rstrip('.')
-        row(say('dashboard.step'), ' | '.join(part for part in (phases.get(account.get('phase'), say('dashboard.downloading')), step) if part))
+        phase = say('dashboard.getting_episode_list') if account.get('list_only') else phases.get(account.get('phase'), say('dashboard.downloading'))
+        row(say('dashboard.step'), ' | '.join(part for part in (phase, step) if part))
         if list_phase:
             matching = (progress.get('status') == 'running' and progress.get('phase') == 'account_list'
                         and progress.get('category') == lists.get('current'))
@@ -844,8 +853,13 @@ def heading(s, worker, running, signing_in, batch_running, needs_login, disconne
                       'archive': (say('downloads.saving_your_episodes'), say('dashboard.downloading')), 'verify': (say('dashboard.finishing_download'), say('dashboard.finishing')),
                       'existing_backlog': (say('dashboard.finishing_saved_downloads'), say('dashboard.downloading'))}
             (title, label), tone = phases.get(account.get('phase'), (say('notification.title'), say('downloads.working'))), 'working'
+            if account.get('list_only'):
+                title, label = say('dashboard.getting_episode_list'), say('dashboard.checking_series')
             if waiting:
                 title, label, tone = say('dashboard.waiting_for_a_progress_update'), say('dashboard.waiting'), 'warning'
+        elif account.get('status') == 'stopped' and account.get('episode_list_ready'):
+            title = say('dashboard.partial_episode_list') if account.get('episode_list_partial') else say('dashboard.episode_list_ready')
+            label, tone = say('downloads.ready'), 'success'
         elif account.get('status') == 'held' and account.get('code') == 'archive_incomplete':
             title, label, tone = say('dashboard.completion_needs_attention'), say('dashboard.needs_attention'), 'warning'
         elif account.get('status') in ('held', 'stopped'):

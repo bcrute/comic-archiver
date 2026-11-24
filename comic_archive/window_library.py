@@ -205,24 +205,31 @@ class EpisodeLibrary:
             can_list = bool(state and not state.busy and signed_in and ready and not running)
             yield site, state, account, can_list
 
+    def list_targets(self, listings):
+        """Add newly ready providers before refreshing providers already requested in this library."""
+        eligible = {site.key: state for site, state, _, can_list in listings if can_list}
+        new = {key: state for key, state in eligible.items() if self.requested_lists.get(key) is not state}
+        if new:
+            return new
+        active = any((account.get('list_only') and account.get('status') == 'running')
+                     or (state is not None and self.requested_lists.get(site.key) is state and state.busy)
+                     for site, state, account, _ in listings)
+        return {} if active else eligible
+
     def request_episode_lists(self):
-        listings = tuple(self.listing_states())
-        self.requested_lists = {site.key: state for site, state, _, can_list in listings if can_list}
-        for site, _, _, can_list in listings:
-            if can_list:
-                self.pages.get_episode_list(site.key)
+        targets = self.list_targets(self.listing_states())
+        self.requested_lists.update(targets)
+        for key in targets:
+            self.pages.get_episode_list(key)
         self.update_listing()
 
     def update_listing(self):
         listings = tuple(self.listing_states())
-        active = any((account.get('list_only') and account.get('status') == 'running')
-                     or (state is not None and self.requested_lists.get(site.key) is state and state.busy)
-                     for site, state, account, _ in listings)
-        eligible = any(can_list for _, _, _, can_list in listings)
-        self.get_list.setEnabled(eligible and not self.changing and not active)
+        targets = self.list_targets(listings)
+        self.get_list.setEnabled(bool(targets) and not self.changing)
         self.get_list.setToolTip(
-            'Fetch titles and availability from all signed-in providers without downloading files.'
-            if eligible or active else 'Sign in or pause downloads on the Dashboard, then try again.')
+            'Fetch titles and availability from ready providers without downloading files.'
+            if targets else 'Providers that are already fetching will continue. Sign in or pause downloads to add another provider.')
         requested = bool(self.requested_lists) and any(
             state is not None and self.requested_lists.get(site.key) is state
             for site, state, _, _ in listings)
@@ -246,6 +253,8 @@ class EpisodeLibrary:
                     detail = 'Stopped. See Dashboard.'
                 else:
                     detail = 'Paused'
+            elif requested and can_list and self.requested_lists.get(site.key) is not state:
+                detail = 'Ready to get episode list'
             elif requested and not can_list:
                 status = (state.status or {}) if state is not None else {}
                 if not status.get('session_configured'):
