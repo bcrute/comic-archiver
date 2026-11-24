@@ -450,21 +450,33 @@ class SiteCard:
         menu = w.QMenu(self.selection)
         menu.setObjectName('downloadMenu')
         menu.setToolTipsVisible(True)
-        fetch_list = menu.addAction('Get episode list only', lambda: pages.open_download_library(key, fetch_list=True))
+        modes = kit.q.QtGui.QActionGroup(menu)
+        files = menu.addAction('Episode files', lambda: pages.set_episode_list_only(key, False))
+        list_only = menu.addAction('Episode list only', lambda: pages.set_episode_list_only(key, True))
+        for mode in (files, list_only):
+            mode.setCheckable(True)
+            modes.addAction(mode)
+        menu.addSeparator()
         choose_comics = menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
         clear_list = menu.addAction('Clear episode list', lambda: pages.clear_episode_list(key))
         menu.addSeparator()
         menu.addAction('Download settings…', lambda: pages.open_download_choices(key))
 
         def update_download_menu():
-            fetch_list.setEnabled(pages.library.can_request_episode_list(key))
-            status = pages.of(key).status or {}
+            state = pages.of(key)
+            running = (state.account or {}).get('status') == 'running'
+            current = pages.episode_list_only(key)
+            files.setChecked(current is False)
+            list_only.setChecked(current is True)
+            for mode in (files, list_only):
+                mode.setEnabled(bool(state.workspace_id and not state.busy and not running))
+                mode.setToolTip('Pause this provider before changing its download mode.' if running else '')
+            status = state.status or {}
             has_episodes = (dashboard_model.number(status.get('episode_count')) > 0
                             and not pages.library.is_list_cleared(key))
             choose_comics.setEnabled(has_episodes)
-            choose_comics.setToolTip('' if has_episodes else 'Get this provider’s episode list first.')
+            choose_comics.setToolTip('' if has_episodes else 'Select Episode list only, then press Start.')
             clear_list.setEnabled(pages.can_clear_episode_list(key))
-            running = (pages.of(key).account or {}).get('status') == 'running'
             clear_list.setToolTip('Pause this provider before clearing.' if running
                                   else 'Remove the retrieved list from Library. Saved files and download choices are kept.')
 
@@ -635,6 +647,8 @@ class SiteCard:
         from .window_art import icon
         from .window_style import card_colours
         text, tip = dashboard_model.download_choice(s.account if s is not None else None)
+        if self.pages.episode_list_only(self.key):
+            text, tip = 'Download: Episode list only', 'Start fetches titles and availability for this provider.'
         self.selection.setText(text)
         self.selection.setToolTip(tip)
         set_enabled(self.selection, s is not None and not s.busy)
@@ -1761,14 +1775,23 @@ class Pages:
         self.account_act(actions.sign_out, signed_out, key=key)
 
     def go(self, key=None):
-        s = self.of(key or self.chosen)
+        key = key or self.chosen
+        s = self.of(key)
+        mode = self.episode_list_only(key)
+        if mode is None:
+            s.message = dashboard_model.Message('Could not read the download mode. Try again.', True)
+            self.render()
+            return
+        if mode:
+            self.library.request_episode_lists(provider=key)
+            return
 
         def started(value):
             s.received_account(value, self.now())
             # A fast failure can arrive before Go returns, with no running refresh in between.
             s.download_started()
             s.offline = False
-        self.account_act(self.actions_for(key or self.chosen).go, started, key=key)
+        self.account_act(self.actions_for(key).go, started, key=key)
 
     def get_episode_list(self, key):
         state = self.of(key)
@@ -1883,11 +1906,24 @@ class Pages:
             s.message = dashboard_model.Message(error, True) if error else None
         self.act(work, done, key=key)
 
-    def open_download_library(self, key, *, fetch_list=False):
+    def episode_list_only(self, key):
+        state = self.states.get(key)
+        if state is not None and state.workspace_id:
+            return self.shell.episode_list_only(state.workspace_id, key)
+        return None
+
+    def set_episode_list_only(self, key, enabled):
+        state = self.of(key)
+        if state.workspace_id and not state.busy and (state.account or {}).get('status') != 'running':
+            if self.shell.set_episode_list_only(state.workspace_id, key, enabled):
+                state.message = None
+            else:
+                state.message = dashboard_model.Message('Could not save the download mode. Try again.', True)
+            self.render()
+
+    def open_download_library(self, key):
         self.go_to('library')
         self.library.show_provider(key)
-        if fetch_list:
-            self.library.request_episode_lists(provider=key)
 
     def can_clear_episode_list(self, key):
         state = self.of(key)

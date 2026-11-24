@@ -243,6 +243,14 @@ class Shell:
         self.calls, self.held, self.is_dark, self.answer = [], None, False, True
         self.open, self.chosen, self.opens = ['tapas'], 'tapas', False
         self.cleared_lists = {}
+        self.list_modes = {}
+
+    def episode_list_only(self, workspace, provider):
+        return self.list_modes.get((workspace, provider), False)
+
+    def set_episode_list_only(self, workspace, provider, enabled):
+        self.list_modes[workspace, provider] = enabled
+        return True
 
     def episode_list_cleared(self, workspace, provider):
         return self.cleared_lists.get((workspace, provider), False)
@@ -791,10 +799,10 @@ class DashboardTests(PagesCase):
         self.open()
         button = self.dashboard.cards['webtoon'].selection
         menu = button.menu()
-        choices = ('Get episode list only', 'Choose comics in Library', 'Download settings…')
+        choices = ('Choose comics in Library', 'Download settings…')
         self.assertEqual(tuple(item.text() for item in menu.actions() if not item.isSeparator()),
-                         (*choices[:2], 'Clear episode list', choices[2]))
-        for shortcut in (choices[1], choices[0], choices[2]):
+                         ('Episode files', 'Episode list only', choices[0], 'Clear episode list', choices[1]))
+        for shortcut in choices:
             with self.subTest(shortcut=shortcut):
                 self.pages.go_to('dashboard')
                 settle()
@@ -804,10 +812,10 @@ class DashboardTests(PagesCase):
                 action = next(item for item in menu.actions() if item.text() == shortcut)
                 self.assertTrue(action.isEnabled())
                 menu.setActiveAction(action)
-                if shortcut == choices[1] and (folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS')):
+                if shortcut == choices[0] and (folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS')):
                     from pathlib import Path
                     self.assertTrue(menu.grab().save(str(Path(folder) / 'download-menu.png')))
-                if shortcut == choices[2]:
+                if shortcut == choices[1]:
                     def close_settings():
                         dialog = APP.activeModalWidget()
                         if dialog is not None:
@@ -815,7 +823,7 @@ class DashboardTests(PagesCase):
                             dialog.reject()
                     QtCore.QTimer.singleShot(0, self.window, close_settings)
                 QtTest.QTest.keyClick(menu, QtCore.Qt.Key.Key_Return)
-                if shortcut == choices[2]:
+                if shortcut == choices[1]:
                     self.assertEqual(dialogs, ['What to download from Webtoon'])
                     self.assertEqual(self.pages.route, 'dashboard')
                 else:
@@ -823,12 +831,10 @@ class DashboardTests(PagesCase):
                     tree = self.pages.library.tree
                     self.assertEqual(tree.currentItem().text(0), 'Webtoon')
                     self.assertTrue(tree.currentItem().isExpanded())
-                self.assertEqual(len(actions.named('get_episode_list')), int(shortcut != choices[1]))
                 for provider in self.sites.values():
                     self.assertEqual(provider.named('download_types'), [])
                     self.assertEqual(provider.named('go'), [])
-                self.assertEqual(self.actions.named('get_episode_list'), [])
-                self.assertEqual(self.sites['tappytoon'].named('get_episode_list'), [])
+                    self.assertEqual(provider.named('get_episode_list'), [])
 
     def test_download_menu_explains_that_choosing_comics_needs_episodes(self):
         status = self.actions.reading['status']
@@ -837,13 +843,13 @@ class DashboardTests(PagesCase):
         settle()
         button = self.card.selection
         menu = button.menu()
-        choose = menu.actions()[1]
+        choose = next(item for item in menu.actions() if item.text() == 'Choose comics in Library')
         menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
         self.assertFalse(choose.isEnabled())
         point = menu.actionGeometry(choose).center()
         event = QtGui.QHelpEvent(QtCore.QEvent.Type.ToolTip, point, menu.mapToGlobal(point))
         QtCore.QCoreApplication.sendEvent(menu, event)
-        self.assertEqual(QtWidgets.QToolTip.text(), 'Get this provider’s episode list first.')
+        self.assertEqual(QtWidgets.QToolTip.text(), 'Select Episode list only, then press Start.')
         QtWidgets.QToolTip.hideText()
         menu.close()
 
@@ -856,6 +862,40 @@ class DashboardTests(PagesCase):
             self.assertTrue(choose.isEnabled())
         finally:
             menu.close()
+
+    def test_episode_list_only_is_saved_per_provider_and_used_by_start_all(self):
+        self.shell.open = ['tapas', 'webtoon']
+        self.open()
+        webtoon = self.sites['webtoon']
+        button = self.dashboard.cards['webtoon'].selection
+        menu = button.menu()
+        files, list_only = menu.actions()[:2]
+        settle()
+        menu.aboutToShow.emit()
+        self.assertTrue(files.isChecked())
+        list_only.trigger()
+        self.assertEqual(self.pages.route, 'dashboard')
+        self.assertEqual(button.text(), 'Download: Episode list only')
+        self.assertEqual(webtoon.named('get_episode_list'), [])
+        self.assertEqual(webtoon.named('go'), [])
+
+        self.open()
+        self.dashboard.go_all.click()
+        self.assertEqual(len(self.actions.named('go')), 1)
+        self.assertEqual(webtoon.named('go'), [])
+        self.assertEqual(len(webtoon.named('get_episode_list')), 1)
+        self.assertEqual(self.pages.route, 'dashboard')
+        menu.aboutToShow.emit()
+        self.assertTrue(list_only.isChecked())
+        self.assertFalse(files.isEnabled())
+
+        webtoon.account(status='stopped', episode_list_ready=True)
+        self.pages.poll_site('webtoon')
+        menu.aboutToShow.emit()
+        files.trigger()
+        self.assertEqual(button.text(), 'Download: All types')
+        self.dashboard.cards['webtoon'].action.click()
+        self.assertEqual(len(webtoon.named('go')), 1)
 
     def test_clear_episode_list_keeps_saved_rows_and_restores_the_list_after_fetch(self):
         self.actions.reading['status'].update(episode_count=2, series_count=1)

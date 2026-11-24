@@ -223,9 +223,6 @@ class EpisodeLibrary:
                      for site, state, account, _ in listings)
         return {} if active else eligible
 
-    def can_request_episode_list(self, provider):
-        return any(site.key == provider and can_list for site, _, _, can_list in self.listing_states())
-
     def is_list_cleared(self, provider):
         state = self.pages.states.get(provider)
         return bool(state and state.workspace_id and self.pages.shell.episode_list_cleared(state.workspace_id, provider))

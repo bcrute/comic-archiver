@@ -222,6 +222,17 @@ class DesktopAppTests(unittest.TestCase):
         self.assertTrue(reopened.set_episode_list_cleared('library-one', 'tapas', False))
         self.assertFalse(first.episode_list_cleared('library-one', 'tapas'))
 
+    def test_episode_list_only_is_saved_independently_of_clearing_the_list(self):
+        self.state.mkdir(parents=True)
+        app = desktop_app.application(self.q)
+        first = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertFalse(first.episode_list_only('library-one', 'tapas'))
+        self.assertTrue(first.set_episode_list_only('library-one', 'tapas', True))
+        reopened = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertTrue(reopened.episode_list_only('library-one', 'tapas'))
+        self.assertFalse(reopened.episode_list_only('library-one', 'webtoon'))
+        self.assertFalse(reopened.episode_list_cleared('library-one', 'tapas'))
+
     def test_the_dashboard_can_have_the_library_folder_opened_or_another_one_chosen_in_the_computers_own_dialog(self):
         shell = self.opened(); shell.load()
         pages = shell.pages

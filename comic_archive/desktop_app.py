@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import platform
 import signal
+import stat
 import sys
 import tempfile
 import threading
@@ -710,20 +711,35 @@ class Shell:
     def chosen_site(self):
         return self.runtime.site.key
 
-    def _cleared_list_marker(self, workspace, provider):
+    def _episode_list_marker(self, workspace, provider, preference):
         key = hashlib.sha256(f'{workspace}/{provider}'.encode('utf-8')).hexdigest()
-        return app_runtime.state_dir() / f'cleared-episodes-{key}'
+        return app_runtime.state_dir() / f'{preference}-{key}'
 
     def episode_list_cleared(self, workspace, provider):
         try:
-            return self._cleared_list_marker(workspace, provider).is_file()
+            return self._episode_list_marker(workspace, provider, 'cleared-episodes').is_file()
         except (ArchiveError, OSError):
             return False
 
     def set_episode_list_cleared(self, workspace, provider, cleared):
+        return self._set_episode_list_marker(workspace, provider, 'cleared-episodes', cleared)
+
+    def episode_list_only(self, workspace, provider):
         try:
-            marker = self._cleared_list_marker(workspace, provider)
-            if cleared:
+            marker = self._episode_list_marker(workspace, provider, 'episode-list-only')
+            return True if stat.S_ISREG(marker.stat().st_mode) else None
+        except FileNotFoundError:
+            return False
+        except (ArchiveError, OSError):
+            return None
+
+    def set_episode_list_only(self, workspace, provider, enabled):
+        return self._set_episode_list_marker(workspace, provider, 'episode-list-only', enabled)
+
+    def _set_episode_list_marker(self, workspace, provider, preference, enabled):
+        try:
+            marker = self._episode_list_marker(workspace, provider, preference)
+            if enabled:
                 marker.touch(mode=0o600)
             else:
                 marker.unlink(missing_ok=True)
