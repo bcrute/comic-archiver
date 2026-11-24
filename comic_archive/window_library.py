@@ -218,7 +218,7 @@ class EpisodeLibrary:
         return {} if active else eligible
 
     def request_episode_lists(self):
-        targets = self.list_targets(self.listing_states())
+        targets = self.list_targets(tuple(self.listing_states()))
         self.requested_lists.update(targets)
         for key in targets:
             self.pages.get_episode_list(key)
