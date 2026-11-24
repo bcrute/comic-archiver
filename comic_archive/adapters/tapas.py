@@ -981,11 +981,16 @@ class TapasAdapter:
         continuation_url(cursor)
         index = cursor['index']
 
-        def walk(start):
+        def walk(start, *, replay=False):
             self._history_walked = None
             for current in range(start, index + 1):
                 url = continuation_url(first | {'index': current})
-                page = read_page(http.transport.get(url, max_bytes=4 * 1024 * 1024), current)
+                try:
+                    page = read_page(http.transport.get(url, max_bytes=4 * 1024 * 1024), current)
+                except ArchiveError as error:
+                    error.history_request_page = current
+                    error.history_replayed = replay
+                    raise
                 self._history_walked = current
             return page
 
@@ -998,7 +1003,7 @@ class TapasAdapter:
         except MetadataError as error:
             if not start or getattr(error, 'source_http_status', None) != 400:
                 raise
-        return walk(0)
+        return walk(0, replay=True)
 
     def purchase_series_identity(self, url):
         """Resolve a history association through normal metadata, never images."""

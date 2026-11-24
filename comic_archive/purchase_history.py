@@ -8,7 +8,7 @@ import json
 import logging
 import re
 
-from .errors import AuthenticationError, MetadataError
+from .errors import AuthenticationError, MetadataError, NetworkUnavailable
 from .inventory import timestamp
 from .models import ArchiveError
 
@@ -18,6 +18,45 @@ LINK = re.compile(r'https://tapas\.io/(?:series/[A-Za-z0-9_-]{1,100}(?:/info)?|e
 MAX_PAGES = 10000
 CODES = {None, 'history_reader_unavailable', 'history_view_unverified', 'history_rows_unverified',
          'history_page_repeated', 'history_continuation_unverified', 'history_association_unresolved'}
+DIAGNOSTIC_REASONS = {'metadata_unverified', 'page_records_unverified', 'page_identity_unverified',
+                      'unexpected_page_result', 'account_scope_unverified', 'page_index_mismatch',
+                      'page_repeated', 'continuation_unverified', 'authentication_required',
+                      'network_unavailable', 'request_failed'}
+
+
+def _diagnostic_fields(value):
+    """Only fixed reason codes and bounded numbers are safe in a support attachment."""
+    from .adapters.tapas_history import REASONS
+    if not isinstance(value, dict) or not isinstance(value.get('reason'), str):
+        return {}
+    if value['reason'] not in DIAGNOSTIC_REASONS | REASONS:
+        return {}
+    result = {'reason': value['reason']}
+    for name, low, high in (('page_index', 0, MAX_PAGES - 1), ('request_page_index', 0, MAX_PAGES - 1),
+                            ('http_status', 100, 599), ('response_code', 100, 599)):
+        number = value.get(name)
+        if type(number) is int and low <= number <= high:
+            result[name] = number
+    if type(value.get('pager_replayed')) is bool:
+        result['pager_replayed'] = value['pager_replayed']
+    recorded = value.get('recorded_at')
+    if isinstance(recorded, str) and re.fullmatch(r'[0-9T:.+Z-]{20,40}', recorded):
+        result['recorded_at'] = recorded
+    return result
+
+
+def _record_failure(value, reason, error=None):
+    cursor = value.get('cursor')
+    detail = {'reason': reason, 'page_index': 0 if cursor is None else cursor['index'],
+              'request_page_index': getattr(error, 'history_request_page', None),
+              'http_status': getattr(error, 'source_http_status', None),
+              'response_code': getattr(error, 'history_response_code', None),
+              'pager_replayed': getattr(error, 'history_replayed', None), 'recorded_at': timestamp()}
+    value['last_failure'] = _diagnostic_fields(detail)
+
+
+def support_diagnostic(inventory):
+    return _diagnostic_fields(state(inventory).get('last_failure'))
 
 
 def continuation_url(cursor):
@@ -91,10 +130,13 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
     if value and value.get('binding') != binding[0]:
         raise AuthenticationError('Purchase-history progress belongs to another account.')
     if value.get('round') != round_id:
+        previous_failure = _diagnostic_fields(value.get('last_failure'))
         inventory.db.execute('DELETE FROM purchase_history_pages')
         inventory.db.execute('UPDATE purchase_history_links SET resolved=0 WHERE binding=? AND resolved<0', (binding[0],))
         value = {'version': 1, 'binding': binding[0], 'round': round_id, 'status': 'pending',
                  'cursor': None, 'pages': 0, 'discovered': 0, 'unresolved': 0}
+        if previous_failure:
+            value['last_failure'] = previous_failure
         value['discovered'] = inventory.db.execute('SELECT COUNT(*) FROM purchase_history_links WHERE binding=?',
                                                   (binding[0],)).fetchone()[0]
         save(inventory, value)
@@ -157,14 +199,25 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                 status = status if type(status) is int and 100 <= status <= 599 else None
                 LOG.info('purchase history: page_read=unverified page_index=%s reason=%s http=%s committed_pages=%s',
                          expected_index, reason, status, value['pages'])
+                _record_failure(value, reason, error)
                 value.update(status='partial', code='history_rows_unverified')
                 break
+            except ArchiveError as error:
+                reason = ('authentication_required' if isinstance(error, AuthenticationError)
+                          else 'network_unavailable' if isinstance(error, NetworkUnavailable) else 'request_failed')
+                _record_failure(value, reason, error)
+                save(inventory, value)
+                raise
             if not isinstance(page, dict):
+                _record_failure(value, 'unexpected_page_result')
                 value.update(status='partial', code='history_rows_unverified')
                 break
             if page.get('authenticated') is not True:
+                _record_failure(value, 'authentication_required')
+                save(inventory, value)
                 raise AuthenticationError('Purchase history could not verify the signed-in account.')
             if page.get('scope_verified') is not True:
+                _record_failure(value, 'account_scope_unverified')
                 value.update(status='partial', code='history_view_unverified')
                 break
             found, identifiers = page.get('links'), page.get('record_ids')
@@ -177,21 +230,25 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                          len(identifiers) if isinstance(identifiers, list) else -1,
                          len(found) if isinstance(found, list) else -1,
                          page.get('empty_verified') is True, value['pages'])
+                _record_failure(value, 'page_records_unverified')
                 value.update(status='partial', code='history_rows_unverified')
                 break
             page_identity = page.get('page_identity')
             if not isinstance(page_identity, str) or not re.fullmatch(r'index:(?:0|[1-9][0-9]{0,3})', page_identity):
                 LOG.info('purchase history: page_read=unverified reason=page_identity_unverified committed_pages=%s',
                          value['pages'])
+                _record_failure(value, 'page_identity_unverified')
                 value.update(status='partial', code='history_rows_unverified')
                 break
             expected_index = 0 if value['cursor'] is None else value['cursor']['index']
             if page_identity != f'index:{expected_index}':
+                _record_failure(value, 'page_index_mismatch')
                 value.update(status='partial', code='history_page_repeated')
                 break
             fingerprint = hashlib.sha256(json.dumps([page_identity, identifiers]).encode()).hexdigest()
             if inventory.db.execute('SELECT 1 FROM purchase_history_pages WHERE round_id=? AND fingerprint=?',
                                     (round_id, fingerprint)).fetchone():
+                _record_failure(value, 'page_repeated')
                 value.update(status='partial', code='history_page_repeated')
                 break
             cursor = page.get('next_cursor')
@@ -213,6 +270,8 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
             inventory.db.execute('INSERT INTO purchase_history_pages VALUES (?,?)', (round_id, fingerprint))
             inserted = inventory.db.executemany('INSERT OR IGNORE INTO purchase_history_links(binding,url) VALUES (?,?)',
                                                 [(binding[0], url) for url in found]).rowcount
+            if page.get('boundary_verified') is not True and cursor is None:
+                _record_failure(value, 'continuation_unverified')
             value.update(cursor=cursor, pages=value['pages'] + 1)
             value['unresolved_rows'] = value.get('unresolved_rows', 0) + missing
             pages_read += 1

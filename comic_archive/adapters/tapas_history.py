@@ -91,6 +91,7 @@ def read_page(raw, index):
         raise AuthenticationError('Tapas requires a fresh browser login to read purchase history.')
     if answer['code'] != 200:
         error = ArchiveError('Tapas refused the normal purchase-history read.')
+        error.history_response_code = answer['code']
         if answer['code'] in {403, 429, 502, 503, 504}:
             error.source_http_status = answer['code']
         raise error

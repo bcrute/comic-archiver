@@ -42,6 +42,9 @@ MOMENT = re.compile(r'[0-9T:.+Z-]{1,40}')
 NOISE = re.compile(r'handshake failed; returned -1|QVulkanInstance: Failed to initialize Vulkan'
                    r'|Fontconfig error: Cannot load default config file')
 PAGE_READY = re.compile(r'^(?:[0-9-]{10} [0-9:]{8} )?Episode [0-9]+: page [0-9]+/[0-9]+ ready$')
+TASK_CHATTER = re.compile(r'^(?:[0-9-]{10} [0-9:]{8} )?'
+                          r'(?:Starting task job-[a-f0-9]{24}|Task job-[a-f0-9]{24} completed\.'
+                          r'|INFO download: step job-[a-f0-9]{24} \([a-z]+\) sent)$')
 LINE = re.compile(r'[^\n]*\n|[^\n]+')
 _hooked = False
 _crashes = None
@@ -221,12 +224,16 @@ def _quiet(text):
     lines = text.splitlines()
     kept = [line for line in lines if not NOISE.search(line)]
     dropped = len(lines) - len(kept)
-    useful = [line for line in kept if not PAGE_READY.fullmatch(line)]
-    progress = len(kept) - len(useful)
+    without_pages = [line for line in kept if not PAGE_READY.fullmatch(line)]
+    progress = len(kept) - len(without_pages)
+    useful = [line for line in without_pages if not TASK_CHATTER.fullmatch(line)]
+    tasks = len(without_pages) - len(useful)
     if dropped:
         useful.append(f'({dropped} routine messages from the browser engine left out)')
     if progress:
         useful.append(f'({progress} routine page progress lines left out)')
+    if tasks:
+        useful.append(f'({tasks} routine task start, dispatch and completion lines left out)')
     return '\n'.join(useful)
 
 
@@ -333,6 +340,43 @@ def _part(read, *args):
         return [f'Could not be read: {describe(error)}']
 
 
+def _account_lists(session, library):
+    from . import download_control, sites
+    record = download_control.history(session, library, limit=0)
+    if record is None:
+        return []
+    state, _ = record
+    rows = {row['category']: row for row in state['account_lists'] if row['category'] in sites.LISTS}
+    if not rows:
+        return []
+    lines = [f"Pass started: {_plain(state['round_started_at'], MOMENT)}"]
+    for category in download_control.lists(session):
+        row = rows.get(category, {})
+        read_at = _plain(row.get('read_at'), MOMENT)
+        if read_at == '-':
+            lines.append(f'{category}: not checked in this pass')
+            continue
+        result = 'complete' if row.get('complete') == 1 else 'partial'
+        count = row.get('observed_series_count')
+        count_text = f', {count} series observed' if type(count) is int and count >= 0 else ''
+        lines.append(f'{category}: {result}{count_text}, checked {read_at}')
+    return lines
+
+
+def _history_failure(library):
+    from .inventory import Inventory
+    from .purchase_history import support_diagnostic
+    if not (library / '.archive-state' / 'inventory.sqlite3').is_file():
+        return []
+    with Inventory(library, read_only=True) as inventory:
+        failure = support_diagnostic(inventory)
+    if not failure:
+        return []
+    reason = failure.pop('reason')
+    return [f"Last incomplete purchase-history read: {reason}",
+            ', '.join(f'{key}={value}' for key, value in failure.items())]
+
+
 def site_records(name, session, library):
     """One site's part of a saved log: its episodes not saved, its download's last steps and its downloader's log."""
     session, library = Path(session), Path(library)
@@ -346,6 +390,12 @@ def site_records(name, session, library):
                 '', f'=== {name}: the downloader’s log', _log_excerpt(excerpt, DOWNLOADER_BYTES)]
     if failures:
         sections.extend(['', f'=== {name}: EPUB failure details', *failures])
+    discovery = _part(_account_lists, session, library)
+    if name.casefold() == 'tapas':
+        discovery.extend(_part(_history_failure, library))
+    # Keep these structured results at the end, which survives the export's shared byte budget.
+    if discovery:
+        sections.extend(['', f'=== {name}: account discovery', *discovery])
     return '\n'.join(sections)
 
 

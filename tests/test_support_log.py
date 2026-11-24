@@ -139,6 +139,41 @@ class SupportLogTests(unittest.TestCase):
         self.assertIn('episodes not saved', records)
         self.assertIn('last steps', records)
 
+    def test_discovery_results_survive_log_rotation_and_duplicate_task_lines_are_omitted(self):
+        from comic_archive import download_control, purchase_history
+
+        workspace = self.site()
+        worker = workspace.session / 'worker'
+        (worker / 'requests').mkdir(parents=True)
+        (worker / 'responses').mkdir()
+        download_control.start(workspace.session, workspace.library)
+        checked = '2026-11-04T10:45:14+00:00'
+        with download_control._connect(worker) as db:
+            db.execute('UPDATE lists SET read_at=?, complete=1, observed_series_count=9 WHERE category=?',
+                       (checked, 'subscribed'))
+        with Inventory(workspace.library) as inventory:
+            purchase_history.save(inventory, {
+                'version': 1, 'round': 'round', 'binding': 'a' * 64, 'status': 'partial',
+                'code': 'history_rows_unverified', 'pages': 1, 'discovered': 53, 'unresolved': 0,
+                'last_failure': {'reason': 'row_balance', 'page_index': 1, 'request_page_index': 0,
+                                 'pager_replayed': True, 'recorded_at': checked, 'body': 'PRIVATE BODY',
+                                 'http_status': 'PRIVATE URL'},
+            })
+        task = 'job-' + 'a' * 24
+        (worker / 'background.log.1').write_text('old worker text without the history failure\n' * 7000)
+        (worker / 'background.log').write_text(f'Starting task {task}\nINFO download: step {task} (series) sent\n'
+                                               f'Task {task} completed.\nStep ended with a useful error\n')
+        records = support_log.site_records('Tapas', workspace.session, workspace.library)
+        text = support_log.bundle('details', [records], 'x\n' * 90000, [])
+        self.assertIn('subscribed: complete, 9 series observed', text)
+        self.assertIn('updated: not checked in this pass', text)
+        self.assertIn('Last incomplete purchase-history read: row_balance', text)
+        self.assertIn('page_index=1, request_page_index=0, pager_replayed=True', text)
+        self.assertNotIn('PRIVATE', text)
+        self.assertNotIn('Starting task', text)
+        self.assertIn('3 routine task start, dispatch and completion lines left out', text)
+        self.assertIn('Step ended with a useful error', text)
+
     def test_legacy_epub_failures_are_recovered_from_rotated_logs_beyond_recent_excerpt(self):
         workspace = self.site()
         with Inventory(workspace.library) as inventory:

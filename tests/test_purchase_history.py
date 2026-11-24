@@ -189,12 +189,24 @@ class PurchaseHistoryTests(unittest.TestCase):
         from comic_archive.adapters.tapas_history import invalid
         refused = invalid('page_refused', 'Tapas refused a purchase-history page (HTTP 400).')
         refused.source_http_status = 400
+        refused.history_request_page = 0
+        refused.history_replayed = True
         self.adapter.purchase_history_page.side_effect = refused
         with self.store() as inventory:
             with self.assertLogs('comic_archive.download', level='INFO') as captured:
                 result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
             self.assertEqual((result['status'], result['code']), ('partial', 'history_rows_unverified'))
             self.assertIn('reason=page_refused', '\n'.join(captured.output))
+            diagnostic = purchase_history.support_diagnostic(inventory)
+            self.assertEqual(diagnostic['reason'], 'page_refused')
+            self.assertEqual(diagnostic['http_status'], 400)
+            self.assertEqual(diagnostic['request_page_index'], 0)
+            self.assertTrue(diagnostic['pager_replayed'])
+        self.adapter.purchase_history_page.side_effect = None
+        self.adapter.purchase_history_page.return_value = self.page([self.first], ['a'], boundary=True)
+        with self.store() as inventory:
+            purchase_history.reconcile(self.adapter, inventory, 'next-round', lambda: None)
+            self.assertEqual(purchase_history.support_diagnostic(inventory), diagnostic)
 
     def test_skipped_or_invalid_continuation_retains_candidates_without_following(self):
         for cursor in (self.cursor | {'index': 2}, self.cursor | {'index': 10000}, {'action': 'buy'}):
@@ -353,9 +365,11 @@ class PurchasePageTests(unittest.TestCase):
         self.assertEqual(page['page_identity'], 'index:16')
 
         asked.clear()
-        with self.assertRaises(MetadataError):
+        with self.assertRaises(MetadataError) as caught:
             self.adapter.purchase_history_page(page['next_cursor'])
         self.assertEqual(asked, [17, *range(18)])
+        self.assertEqual(caught.exception.history_request_page, 17)
+        self.assertTrue(caught.exception.history_replayed)
 
     def test_non_pager_refusal_does_not_replay_from_the_first_page(self):
         cursor = self.adapter.purchase_history_page()['next_cursor']

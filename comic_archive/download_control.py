@@ -1225,6 +1225,9 @@ def history(session, library=Path('Library'), limit=300):
         return None
     try:
         value = _state(db)
+        if value is not None:
+            value['account_lists'] = [dict(row) for row in db.execute(
+                'SELECT category, read_at, complete, observed_series_count FROM lists')]
         steps = [dict(row) for row in db.execute(
             'SELECT * FROM (SELECT task_id, kind, reserved_at, published_at, finished_at, outcome, pages, bytes, episodes, '
             'series_checked, progressed FROM tasks ORDER BY reserved_at DESC LIMIT ?) ORDER BY reserved_at', (limit,))]
