@@ -217,7 +217,7 @@ class FakeActions:
 
     def get_episode_list(self):
         self.record('get_episode_list')
-        return {'status': 'running', 'list_only': True}
+        return self.account(status='running', list_only=True, episode_list_ready=False)
 
     def library_comic_choices(self):
         policies = getattr(self, 'comic_policies', {})
@@ -396,16 +396,52 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
-    def test_get_episode_list_uses_the_selected_provider_without_starting_downloads(self):
+    def test_get_episode_lists_starts_every_provider_without_a_selection_or_downloads(self):
+        self.shell.open = list(self.sites)
+        self.shell.chosen = 'webtoon'
         self.open('library')
         page = self.pages.library
-        page.tree.setCurrentItem(page.tree.topLevelItem(0))
-        self.assertIn('Tapas', page.get_list.text())
+        page.tree.setCurrentItem(None)
+        self.assertIsNone(page.tree.currentItem())
+        self.assertEqual(page.get_list.text(), 'Get episode lists')
         self.assertTrue(page.get_list.isEnabled())
         page.get_list.click()
+        self.assertFalse(page.get_list.isEnabled())
+        for key, actions in self.sites.items():
+            self.assertEqual(len(actions.named('get_episode_list')), 1)
+            self.assertEqual(actions.named('go'), [])
+            self.assertIn(f'{SITES[key]}: Getting episode list', page.list_notice.text())
+
+    def test_get_episode_lists_explains_which_providers_could_not_start(self):
+        self.shell.open = list(self.sites)
+        self.sites['tappytoon'].reading['status']['session_configured'] = False
+        self.sites['webtoon'].account(status='running', phase='archive')
+        self.open('library')
+        page = self.pages.library
+        page.tree.setCurrentItem(page.tree.topLevelItem(1))
+        self.actions.refused['get_episode_list'] = 'Please try again'
+        page.get_list.click()
         self.assertEqual(len(self.actions.named('get_episode_list')), 1)
-        self.assertEqual(self.actions.named('go'), [])
-        self.assertIn('Getting the episode list', page.list_notice.text())
+        self.assertEqual(self.sites['tappytoon'].named('get_episode_list'), [])
+        self.assertEqual(self.sites['webtoon'].named('get_episode_list'), [])
+        self.assertIn('Tapas: Please try again', page.list_notice.text())
+        self.assertIn('Tappytoon: Sign in', page.list_notice.text())
+        self.assertIn('Webtoon: Pause downloads', page.list_notice.text())
+
+    def test_list_completion_refreshes_after_current_library_work(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        page.get_list.click()
+        page.set_busy(True)
+        self.actions.account(status='stopped', episode_list_ready=True, episode_list_partial=True)
+        self.pages.poll_site('tapas')
+        self.assertIn('Tapas: Partial list', page.list_notice.text())
+        self.assertTrue(page.list_refresh_pending)
+        page.set_busy(False)
+        self.assertFalse(page.list_refresh_pending)
+        self.assertTrue(page.tree.topLevelItem(0).isExpanded())
 
     def test_unchecking_an_episode_updates_the_series_and_global_mixed_states(self):
         self.open('library')

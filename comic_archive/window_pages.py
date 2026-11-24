@@ -1593,8 +1593,8 @@ class Pages:
             elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
                 self.settings.forget_keys()
             self.render()
-            if self.route == 'library' and not list_was_ready and (s.account or {}).get('episode_list_ready'):
-                self.library.refresh_view()
+            if not list_was_ready and (s.account or {}).get('episode_list_ready'):
+                self.library.list_completed()
             if error is None:
                 self.confirm_cloud(key)
                 if s.library_refresh:
@@ -1750,6 +1750,8 @@ class Pages:
 
         def started(value):
             state.received_account(value, self.now())
+            if self.states.get(key) is state and (state.account or {}).get('episode_list_ready'):
+                self.library.list_completed()
             self.poll_soon(key)
 
         self.account_act(self.actions_for(key).get_episode_list, started, key=key)

@@ -55,7 +55,8 @@ class EpisodeLibrary:
         self.setting_checks = False
         self.reading_checks = False
         self.selection_ready = False
-        self.requested_list = None
+        self.requested_lists = {}
+        self.list_refresh_pending = False
         w = kit.w
         self.widget = w.QWidget()
         self.widget.setObjectName('page')
@@ -64,7 +65,7 @@ class EpisodeLibrary:
         box.setSpacing(8)
         self.refresh = kit.button(say('library.refresh'), self.refresh_view)
         self.refresh.setObjectName('toolbarAction')
-        self.get_list = kit.button('Get episode list', self.request_episode_list)
+        self.get_list = kit.button('Get episode lists', self.request_episode_lists)
         self.get_list.setObjectName('toolbarAction')
         self.get_list.setEnabled(False)
         header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
@@ -98,7 +99,6 @@ class EpisodeLibrary:
         self.tree.setMinimumWidth(0)
         self.tree.itemExpanded.connect(self.expanded)
         self.tree.itemChanged.connect(self.changed)
-        self.tree.currentItemChanged.connect(self.update_listing)
         box.addWidget(self.tree, 1)
         box.addWidget(self.notice)
 
@@ -189,44 +189,84 @@ class EpisodeLibrary:
         self.refresh.setEnabled(not busy)
         self.selection.setEnabled(not busy and self.selection_ready and not self.reading_checks)
         self.update_listing()
+        if not busy:
+            self.refresh_completed_lists()
 
-    def list_provider(self):
-        key = self.row_key(self.tree.currentItem())
-        return key[0] if key is not None else self.pages.chosen
+    def listing_states(self):
+        for site in sites.SITES:
+            if not site.available:
+                continue
+            state = self.pages.states.get(site.key)
+            status = (state.status or {}) if state is not None else {}
+            account = (state.account or {}) if state is not None else {}
+            signed_in = bool(status.get('session_configured'))
+            ready = (status.get('worker') or {}).get('reported_state') == 'ready'
+            running = account.get('status') == 'running'
+            can_list = bool(state and not state.busy and signed_in and ready and not running)
+            yield site, state, account, can_list
 
-    def request_episode_list(self):
-        self.requested_list = self.list_provider()
-        self.pages.get_episode_list(self.requested_list)
+    def request_episode_lists(self):
+        listings = tuple(self.listing_states())
+        self.requested_lists = {site.key: state for site, state, _, can_list in listings if can_list}
+        for site, _, _, can_list in listings:
+            if can_list:
+                self.pages.get_episode_list(site.key)
+        self.update_listing()
 
     def update_listing(self):
-        key = self.list_provider()
-        site = sites.find(key)
-        state = self.pages.states.get(key)
-        status = (state.status or {}) if state is not None else {}
-        account = (state.account or {}) if state is not None else {}
-        signed_in = bool(status.get('session_configured'))
-        ready = (status.get('worker') or {}).get('reported_state') == 'ready'
-        running = account.get('status') == 'running'
-        name = site.name if site is not None else 'this provider'
-        self.get_list.setText(f'Get {name} episode list')
-        self.get_list.setEnabled(bool(state and not state.busy and not self.changing and signed_in and ready and not running))
-        self.get_list.setToolTip(f'Fetch episode titles and availability from {name} without downloading files.'
-                                 if signed_in else f'Sign in to {name} on the Dashboard first.')
-        text = ''
-        if account.get('list_only'):
-            if running:
-                text = f'Getting the episode list from {name}…'
-            elif account.get('episode_list_ready'):
-                text = (f'{name} returned a partial episode list. You can review the episodes it provided.'
-                        if account.get('episode_list_partial') else f'{name} episode list is ready. Choose what to download.')
-            elif account.get('status') == 'held':
-                text = f'Getting the {name} episode list stopped. See Dashboard for details.'
-            else:
-                text = f'Getting the {name} episode list is paused.'
-        if key == self.requested_list and state is not None and state.message and state.message.error:
-            text = state.message.text
+        listings = tuple(self.listing_states())
+        active = any((account.get('list_only') and account.get('status') == 'running')
+                     or (state is not None and self.requested_lists.get(site.key) is state and state.busy)
+                     for site, state, account, _ in listings)
+        eligible = any(can_list for _, _, _, can_list in listings)
+        self.get_list.setEnabled(eligible and not self.changing and not active)
+        self.get_list.setToolTip(
+            'Fetch titles and availability from all signed-in providers without downloading files.'
+            if eligible or active else 'Sign in or pause downloads on the Dashboard, then try again.')
+        requested = bool(self.requested_lists) and any(
+            state is not None and self.requested_lists.get(site.key) is state
+            for site, state, _, _ in listings)
+        messages = []
+        for site, state, account, can_list in listings:
+            detail = ''
+            if state is not None and self.requested_lists.get(site.key) is state:
+                if state.busy:
+                    detail = 'Starting episode list…'
+                elif state.message and state.message.error:
+                    detail = state.message.text
+            if detail:
+                messages.append(f'{site.name}: {detail}')
+                continue
+            if account.get('list_only'):
+                if account.get('status') == 'running':
+                    detail = 'Getting episode list…'
+                elif account.get('episode_list_ready'):
+                    detail = 'Partial list' if account.get('episode_list_partial') else 'List ready'
+                elif account.get('status') == 'held':
+                    detail = 'Stopped. See Dashboard.'
+                else:
+                    detail = 'Paused'
+            elif requested and not can_list:
+                status = (state.status or {}) if state is not None else {}
+                if not status.get('session_configured'):
+                    detail = 'Sign in on the Dashboard'
+                elif account.get('status') == 'running':
+                    detail = 'Pause downloads to get the list'
+                else:
+                    detail = 'Busy. Try again when ready.'
+            if detail:
+                messages.append(f'{site.name}: {detail}')
+        text = '  ·  '.join(messages)
         self.list_notice.setText(text)
         self.list_notice.setVisible(bool(text))
+
+    def refresh_completed_lists(self):
+        if self.list_refresh_pending and self.widget.isVisible() and not self.changing:
+            self.refresh_view()
+
+    def list_completed(self):
+        self.list_refresh_pending = True
+        self.refresh_completed_lists()
 
     def rows(self):
         iterator = self.kit.w.QTreeWidgetItemIterator(self.tree)
@@ -244,6 +284,7 @@ class EpisodeLibrary:
         """Reload open branches and their loaded pages, then restore the browsing position."""
         if self.changing:
             return
+        self.list_refresh_pending = False
         scopes = {}
         for item in self.rows():
             key = self.row_key(item)
@@ -403,6 +444,7 @@ class EpisodeLibrary:
             self.reset(load_header=False)
         if not self.selection_ready and not self.reading_checks and not self.changing:
             self.refresh_checks()
+        self.refresh_completed_lists()
 
     def reset(self, *, load_header=True):
         self.generation += 1
