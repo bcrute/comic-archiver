@@ -1,4 +1,6 @@
 """Expandable comic choices and acquisition indicators; saved files are retained."""
+from html import escape
+
 from . import sites
 from .messages import say
 
@@ -238,6 +240,8 @@ class EpisodeLibrary:
                       & ~self.kit.q.QtCore.Qt.ItemFlag.ItemIsEditable)
         if data is not None:
             item.setData(0, self.role, data)
+            if 'episode_id' in data or 'selected' in data:
+                item.setToolTip(0, '<qt>' + escape(columns[0]) + '</qt>')
         if expandable:
             item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         return item
