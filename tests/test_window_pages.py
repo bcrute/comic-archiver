@@ -772,8 +772,9 @@ class DashboardTests(PagesCase):
         from PySide6 import QtTest
 
         self.shell.open = list(self.sites)
-        self.open()
         actions = self.sites['webtoon']
+        actions.reading['status']['episode_count'] = 60
+        self.open()
         button = self.dashboard.cards['webtoon'].selection
         menu = button.menu()
         choices = ('Get episode list only', 'Choose comics in Library', 'Download settings…')
@@ -813,6 +814,33 @@ class DashboardTests(PagesCase):
                     self.assertEqual(provider.named('go'), [])
                 self.assertEqual(self.actions.named('get_episode_list'), [])
                 self.assertEqual(self.sites['tappytoon'].named('get_episode_list'), [])
+
+    def test_download_menu_explains_that_choosing_comics_needs_episodes(self):
+        status = self.actions.reading['status']
+        status.update(series_count=3, episode_count=0, episodes_by_status={})
+        self.open()
+        settle()
+        button = self.card.selection
+        menu = button.menu()
+        choose = menu.actions()[1]
+        menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+        self.assertFalse(choose.isEnabled())
+        point = menu.actionGeometry(choose).center()
+        event = QtGui.QHelpEvent(QtCore.QEvent.Type.ToolTip, point, menu.mapToGlobal(point))
+        QtCore.QCoreApplication.sendEvent(menu, event)
+        self.assertEqual(QtWidgets.QToolTip.text(), 'Get this provider’s episode list first.')
+        QtWidgets.QToolTip.hideText()
+        menu.close()
+
+        status.update(episode_count=1, episodes_by_status={'queued': 1})
+        self.actions.account(status='running', list_only=True, episode_list_ready=False)
+        self.pages.poll_site('tapas')
+        settle()
+        menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+        try:
+            self.assertTrue(choose.isEnabled())
+        finally:
+            menu.close()
 
     def test_download_choices_offer_the_sites_extras_after_the_types_and_save_them_together(self):
         self.actions.reading['account']['download_extras'] = dict(notes=False, music=True, stats=False, comments=False)

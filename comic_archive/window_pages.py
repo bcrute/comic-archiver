@@ -449,11 +449,20 @@ class SiteCard:
         self.selection.setAccessibleName(say('window.download_choices_for', name=name))
         menu = w.QMenu(self.selection)
         menu.setObjectName('downloadMenu')
+        menu.setToolTipsVisible(True)
         fetch_list = menu.addAction('Get episode list only', lambda: pages.open_download_library(key, fetch_list=True))
-        menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
+        choose_comics = menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
         menu.addSeparator()
         menu.addAction('Download settings…', lambda: pages.open_download_choices(key))
-        menu.aboutToShow.connect(lambda: fetch_list.setEnabled(pages.library.can_request_episode_list(key)))
+
+        def update_download_menu():
+            fetch_list.setEnabled(pages.library.can_request_episode_list(key))
+            status = pages.of(key).status or {}
+            has_episodes = dashboard_model.number(status.get('episode_count')) > 0
+            choose_comics.setEnabled(has_episodes)
+            choose_comics.setToolTip('' if has_episodes else 'Get this provider’s episode list first.')
+
+        menu.aboutToShow.connect(update_download_menu)
         self.selection.setMenu(menu)
         box.addWidget(self.selection)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
