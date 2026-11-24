@@ -768,6 +768,39 @@ class DashboardTests(PagesCase):
             self.assertEqual(len(self.actions.named('download_types')), before + int(accept))
         self.assertEqual(self.actions.named('download_types')[-1][1], (choices,))
 
+    def test_download_dialog_shortcuts_open_the_right_provider_in_library(self):
+        self.shell.open = list(self.sites)
+        self.open()
+        actions = self.sites['webtoon']
+        for shortcut in ('chooseComicsInLibrary', 'getProviderEpisodeList'):
+            with self.subTest(shortcut=shortcut):
+                self.pages.go_to('dashboard')
+                clicked = []
+
+                def pick():
+                    dialog = APP.activeModalWidget()
+                    button = dialog.findChild(QtWidgets.QPushButton, shortcut)
+                    if button is None or not button.isEnabled():
+                        dialog.reject()
+                        return
+                    dialog.findChild(QtWidgets.QCheckBox, 'downloadType_bought').setChecked(False)
+                    clicked.append(True)
+                    button.click()
+
+                QtCore.QTimer.singleShot(0, self.window, pick)
+                self.dashboard.cards['webtoon'].selection.click()
+                self.assertEqual(clicked, [True])
+                self.assertEqual(self.pages.route, 'library')
+                tree = self.pages.library.tree
+                self.assertEqual(tree.currentItem().text(0), 'Webtoon')
+                self.assertTrue(tree.currentItem().isExpanded())
+                self.assertEqual(len(actions.named('get_episode_list')), int(shortcut == 'getProviderEpisodeList'))
+                for provider in self.sites.values():
+                    self.assertEqual(provider.named('download_types'), [])
+                    self.assertEqual(provider.named('go'), [])
+                self.assertEqual(self.actions.named('get_episode_list'), [])
+                self.assertEqual(self.sites['tappytoon'].named('get_episode_list'), [])
+
     def test_download_choices_offer_the_sites_extras_after_the_types_and_save_them_together(self):
         self.actions.reading['account']['download_extras'] = dict(notes=False, music=True, stats=False, comments=False)
         self.open()

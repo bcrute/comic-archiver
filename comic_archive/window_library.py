@@ -205,9 +205,11 @@ class EpisodeLibrary:
             can_list = bool(state and not state.busy and signed_in and ready and not running)
             yield site, state, account, can_list
 
-    def list_targets(self, listings):
+    def list_targets(self, listings, *, provider=None):
         """Add newly ready providers before refreshing providers already requested in this library."""
         eligible = {site.key: state for site, state, _, can_list in listings if can_list}
+        if provider is not None:
+            return {provider: eligible[provider]} if provider in eligible else {}
         new = {site.key: state for site, state, account, can_list in listings
                if can_list and self.requested_lists.get(site.key) is not state and not account.get('episode_list_ready')}
         if new:
@@ -217,8 +219,11 @@ class EpisodeLibrary:
                      for site, state, account, _ in listings)
         return {} if active else eligible
 
-    def request_episode_lists(self):
-        targets = self.list_targets(tuple(self.listing_states()))
+    def can_request_episode_list(self, provider):
+        return any(site.key == provider and can_list for site, _, _, can_list in self.listing_states())
+
+    def request_episode_lists(self, *, provider=None):
+        targets = self.list_targets(tuple(self.listing_states()), provider=provider)
         self.requested_lists.update(targets)
         for key in targets:
             self.pages.get_episode_list(key)
@@ -455,6 +460,16 @@ class EpisodeLibrary:
         if not self.selection_ready and not self.reading_checks and not self.changing:
             self.refresh_checks()
         self.refresh_completed_lists()
+
+    def show_provider(self, provider):
+        for index in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(index)
+            if self.row_key(item) == (provider, None, None):
+                item.setExpanded(True)
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                self.tree.setFocus()
+                return
 
     def reset(self, *, load_header=True):
         self.generation += 1

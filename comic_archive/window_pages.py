@@ -1878,8 +1878,21 @@ class Pages:
         area = self.kit.scroll(content)
         area.setHorizontalScrollBarPolicy(self.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         box.addWidget(area, 1)
-        choose_comics = self.kit.button('Choose comics in Library…', lambda: (dialog.reject(), self.open('library')), 'secondary')
-        body.addWidget(choose_comics)
+        after_dialog = None
+
+        def visit_library(*, fetch_list=False):
+            nonlocal after_dialog
+            after_dialog = 'fetch_list' if fetch_list else 'choose_comics'
+            dialog.reject()
+
+        choose_comics = self.kit.button('Choose comics in Library', visit_library, 'secondary')
+        choose_comics.setObjectName('chooseComicsInLibrary')
+        fetch_list = self.kit.button('Get episode list only', lambda: visit_library(fetch_list=True), 'secondary')
+        fetch_list.setObjectName('getProviderEpisodeList')
+        fetch_list.setEnabled(self.library.can_request_episode_list(key))
+        fetch_list.setToolTip('Fetch titles and availability without downloading files.' if fetch_list.isEnabled()
+                              else 'Wait for this provider to be signed in and idle.')
+        body.addWidget(self.kit.row(choose_comics, fetch_list, spacing=8))
         chosen = (state.account or {}).get('download_types', dict.fromkeys(TYPES, True))
         if chosen is None:
             chosen = dict.fromkeys(TYPES, False)
@@ -1950,6 +1963,11 @@ class Pages:
         dialog.resize(width, min(height, dialog.screen().availableGeometry().height() - 80))
         if dialog.exec() == self.q.QtWidgets.QDialog.DialogCode.Accepted:
             self.download_types({kind: check.isChecked() for kind, check in (*checks.items(), *extra_checks.items())}, key)
+        elif after_dialog is not None:
+            self.go_to('library')
+            self.library.show_provider(key)
+            if after_dialog == 'fetch_list':
+                self.library.request_episode_lists(provider=key)
         dialog.deleteLater()
 
     def download_types(self, value, key):
