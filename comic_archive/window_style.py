@@ -111,6 +111,11 @@ QPushButton[kind="go"] { min-width: 96px; }
 QPushButton[kind="downloadChoice"] { color: %(text)s; background: transparent; border: none; text-align: left;
                                     min-height: 22px; padding: 2px 0; font-size: 12px; }
 QPushButton[kind="downloadChoice"]:hover { color: %(accent)s; }
+QMenu#downloadMenu { background: %(surface)s; color: %(text)s; border: 1px solid %(border)s; padding: 4px; }
+QMenu#downloadMenu::item { padding: 8px 18px; }
+QMenu#downloadMenu::item:selected { background: %(notice)s; color: %(accent)s; }
+QMenu#downloadMenu::item:disabled { color: %(disabled-text)s; }
+QMenu#downloadMenu::separator { height: 1px; background: %(border)s; margin: 4px 8px; }
 QPushButton#toolbarAction { min-height: 30px; padding: 5px 16px; font-size: 15px; font-weight: 500; border-radius: 8px;
                            background: transparent; color: %(text)s; border-color: %(muted)s; }
 QPushButton#toolbarAction:hover { background: %(notice)s; border-color: %(accent)s; }

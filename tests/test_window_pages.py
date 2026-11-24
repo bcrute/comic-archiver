@@ -758,7 +758,7 @@ class DashboardTests(PagesCase):
             timeout.start(3000)
             QtCore.QTimer.singleShot(0, self.window, answer)
             try:
-                self.card.selection.click()
+                self.pages.open_download_choices('tapas')
             finally:
                 timeout.stop()
                 timeout.deleteLater()
@@ -768,33 +768,53 @@ class DashboardTests(PagesCase):
             self.assertEqual(len(self.actions.named('download_types')), before + int(accept))
         self.assertEqual(self.actions.named('download_types')[-1][1], (choices,))
 
-    def test_download_dialog_shortcuts_open_the_right_provider_in_library(self):
+    def test_download_menu_has_three_actions_and_opens_the_right_provider_in_library(self):
+        from PySide6 import QtTest
+
         self.shell.open = list(self.sites)
         self.open()
         actions = self.sites['webtoon']
-        for shortcut in ('chooseComicsInLibrary', 'getProviderEpisodeList'):
+        button = self.dashboard.cards['webtoon'].selection
+        menu = button.menu()
+        choices = ('Get episode list only', 'Choose comics in Library', 'Download settings…')
+        self.assertEqual(tuple(item.text() for item in menu.actions() if not item.isSeparator()), choices)
+        for shortcut in (choices[1], choices[0], choices[2]):
             with self.subTest(shortcut=shortcut):
                 self.pages.go_to('dashboard')
                 clicked = []
+                dialogs = []
 
                 def pick():
-                    dialog = APP.activeModalWidget()
-                    button = dialog.findChild(QtWidgets.QPushButton, shortcut)
-                    if button is None or not button.isEnabled():
-                        dialog.reject()
+                    action = next(item for item in menu.actions() if item.text() == shortcut)
+                    if not menu.isVisible() or not action.isEnabled():
+                        menu.close()
                         return
-                    dialog.findChild(QtWidgets.QCheckBox, 'downloadType_bought').setChecked(False)
-                    clicked.append(True)
-                    button.click()
+                    if shortcut == choices[2]:
+                        def close_settings():
+                            dialog = APP.activeModalWidget()
+                            if dialog is not None:
+                                dialogs.append(dialog.windowTitle())
+                                dialog.reject()
+                        QtCore.QTimer.singleShot(0, self.window, close_settings)
+                    if shortcut == choices[1] and (folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS')):
+                        from pathlib import Path
+                        menu.grab().save(str(Path(folder) / 'download-menu.png'))
+                    clicked.append(shortcut)
+                    menu.setActiveAction(action)
+                    QtTest.QTest.keyClick(menu, QtCore.Qt.Key.Key_Return)
 
                 QtCore.QTimer.singleShot(0, self.window, pick)
-                self.dashboard.cards['webtoon'].selection.click()
-                self.assertEqual(clicked, [True])
-                self.assertEqual(self.pages.route, 'library')
-                tree = self.pages.library.tree
-                self.assertEqual(tree.currentItem().text(0), 'Webtoon')
-                self.assertTrue(tree.currentItem().isExpanded())
-                self.assertEqual(len(actions.named('get_episode_list')), int(shortcut == 'getProviderEpisodeList'))
+                button.showMenu()
+                self.assertEqual(clicked, [shortcut])
+                if shortcut == choices[2]:
+                    self.assertEqual(dialogs, ['What to download from Webtoon'])
+                    self.assertEqual(self.pages.route, 'dashboard')
+                else:
+                    self.assertEqual(self.pages.route, 'library')
+                    tree = self.pages.library.tree
+                    self.assertEqual(tree.currentItem().text(0), 'Webtoon')
+                    self.assertTrue(tree.currentItem().isExpanded())
+                self.assertEqual(len(actions.named('get_episode_list')), int(shortcut != choices[1]))
                 for provider in self.sites.values():
                     self.assertEqual(provider.named('download_types'), [])
                     self.assertEqual(provider.named('go'), [])
@@ -829,7 +849,7 @@ class DashboardTests(PagesCase):
                 APP.activeModalWidget().reject()
 
         QtCore.QTimer.singleShot(0, self.window, answer)
-        self.card.selection.click()
+        self.pages.open_download_choices('tapas')
         settle()
         self.assertEqual(errors, [])
         self.assertEqual(seen[0], ['downloadType'] * 4 + ['downloadExtra'] * 4)
@@ -878,9 +898,7 @@ class DashboardTests(PagesCase):
                                 self.assertTrue(area.viewport().rect().contains(
                                     QtCore.QRect(top, label.size())), label.text())
                             buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-                            shortcuts = [dialog.findChild(QtWidgets.QPushButton, name) for name in
-                                         ('chooseComicsInLibrary', 'getProviderEpisodeList')]
-                            for button in shortcuts + buttons.buttons():
+                            for button in buttons.buttons():
                                 top = button.mapTo(dialog, QtCore.QPoint(0, 0))
                                 self.assertTrue(dialog.rect().contains(QtCore.QRect(top, button.size())))
                                 self.assertGreaterEqual(button.height(), button.sizeHint().height())

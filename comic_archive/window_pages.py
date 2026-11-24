@@ -445,8 +445,16 @@ class SiteCard:
         self.message = kit.single_line('')
         reserved(self.message)
         box.addWidget(self.message)
-        self.selection = kit.button(say('window.download_all_types'), lambda: pages.open_download_choices(key), 'downloadChoice')
+        self.selection = kit.button(say('window.download_all_types'), kind='downloadChoice')
         self.selection.setAccessibleName(say('window.download_choices_for', name=name))
+        menu = w.QMenu(self.selection)
+        menu.setObjectName('downloadMenu')
+        fetch_list = menu.addAction('Get episode list only', lambda: pages.open_download_library(key, fetch_list=True))
+        menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
+        menu.addSeparator()
+        menu.addAction('Download settings…', lambda: pages.open_download_choices(key))
+        menu.aboutToShow.connect(lambda: fetch_list.setEnabled(pages.library.can_request_episode_list(key)))
+        self.selection.setMenu(menu)
         box.addWidget(self.selection)
         # One button for what can be done now: Sign in, Start, Continue or Pause.
         self.doing = 'signin'
@@ -1858,6 +1866,12 @@ class Pages:
             s.message = dashboard_model.Message(error, True) if error else None
         self.act(work, done, key=key)
 
+    def open_download_library(self, key, *, fetch_list=False):
+        self.go_to('library')
+        self.library.show_provider(key)
+        if fetch_list:
+            self.library.request_episode_lists(provider=key)
+
     def open_download_choices(self, key):
         """Episode types and extras; individual comics are selected on Library."""
         from .download_selection import HELP, LABELS, TYPES
@@ -1878,22 +1892,6 @@ class Pages:
         area = self.kit.scroll(content)
         area.setHorizontalScrollBarPolicy(self.q.QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         box.addWidget(area, 1)
-        after_dialog = None
-
-        def visit_library(*, fetch_list=False):
-            nonlocal after_dialog
-            after_dialog = 'fetch_list' if fetch_list else 'choose_comics'
-            dialog.reject()
-
-        choose_comics = self.kit.button('Choose comics in Library', visit_library, 'secondary')
-        choose_comics.setObjectName('chooseComicsInLibrary')
-        fetch_list = self.kit.button('Get episode list only', lambda: visit_library(fetch_list=True), 'secondary')
-        fetch_list.setObjectName('getProviderEpisodeList')
-        fetch_list.setEnabled(self.library.can_request_episode_list(key))
-        fetch_list.setToolTip('Fetch titles and availability without downloading files.' if fetch_list.isEnabled()
-                              else 'Wait for this provider to be signed in and idle.')
-        shortcuts = self.kit.row(choose_comics, fetch_list, spacing=8)
-        box.insertWidget(0, shortcuts)
         chosen = (state.account or {}).get('download_types', dict.fromkeys(TYPES, True))
         if chosen is None:
             chosen = dict.fromkeys(TYPES, False)
@@ -1953,22 +1951,17 @@ class Pages:
         box.addWidget(buttons)
         # Native dialogs can inherit their styled fonts after the initial size
         # calculation. Measure the wrapped content after polishing; on a short
-        # screen the choices can scroll while the shortcuts and footer stay visible.
+        # screen the choices can scroll while Save and Cancel stay visible.
         dialog.ensurePolished()
         margins = box.contentsMargins()
         width = max(dialog.minimumWidth(), box.minimumSize().width())
         content_width = width - margins.left() - margins.right()
         height = max(body.totalHeightForWidth(content_width), body.minimumSize().height())
-        height += shortcuts.sizeHint().height() + buttons.sizeHint().height()
-        height += margins.top() + margins.bottom() + 2 * box.spacing()
+        height += buttons.sizeHint().height()
+        height += margins.top() + margins.bottom() + box.spacing()
         dialog.resize(width, min(height, dialog.screen().availableGeometry().height() - 80))
         if dialog.exec() == self.q.QtWidgets.QDialog.DialogCode.Accepted:
             self.download_types({kind: check.isChecked() for kind, check in (*checks.items(), *extra_checks.items())}, key)
-        elif after_dialog is not None:
-            self.go_to('library')
-            self.library.show_provider(key)
-            if after_dialog == 'fetch_list':
-                self.library.request_episode_lists(provider=key)
         dialog.deleteLater()
 
     def download_types(self, value, key):
