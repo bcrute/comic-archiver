@@ -878,7 +878,9 @@ class DashboardTests(PagesCase):
                                 self.assertTrue(area.viewport().rect().contains(
                                     QtCore.QRect(top, label.size())), label.text())
                             buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-                            for button in buttons.buttons():
+                            shortcuts = [dialog.findChild(QtWidgets.QPushButton, name) for name in
+                                         ('chooseComicsInLibrary', 'getProviderEpisodeList')]
+                            for button in shortcuts + buttons.buttons():
                                 top = button.mapTo(dialog, QtCore.QPoint(0, 0))
                                 self.assertTrue(dialog.rect().contains(QtCore.QRect(top, button.size())))
                                 self.assertGreaterEqual(button.height(), button.sizeHint().height())

@@ -1892,7 +1892,8 @@ class Pages:
         fetch_list.setEnabled(self.library.can_request_episode_list(key))
         fetch_list.setToolTip('Fetch titles and availability without downloading files.' if fetch_list.isEnabled()
                               else 'Wait for this provider to be signed in and idle.')
-        body.addWidget(self.kit.row(choose_comics, fetch_list, spacing=8))
+        shortcuts = self.kit.row(choose_comics, fetch_list, spacing=8)
+        box.insertWidget(0, shortcuts)
         chosen = (state.account or {}).get('download_types', dict.fromkeys(TYPES, True))
         if chosen is None:
             chosen = dict.fromkeys(TYPES, False)
@@ -1952,14 +1953,14 @@ class Pages:
         box.addWidget(buttons)
         # Native dialogs can inherit their styled fonts after the initial size
         # calculation. Measure the wrapped content after polishing; on a short
-        # screen only the descriptions scroll, leaving both actions reachable.
+        # screen the choices can scroll while the shortcuts and footer stay visible.
         dialog.ensurePolished()
         margins = box.contentsMargins()
         width = max(dialog.minimumWidth(), box.minimumSize().width())
         content_width = width - margins.left() - margins.right()
         height = max(body.totalHeightForWidth(content_width), body.minimumSize().height())
-        height += buttons.sizeHint().height()
-        height += margins.top() + margins.bottom() + box.spacing()
+        height += shortcuts.sizeHint().height() + buttons.sizeHint().height()
+        height += margins.top() + margins.bottom() + 2 * box.spacing()
         dialog.resize(width, min(height, dialog.screen().availableGeometry().height() - 80))
         if dialog.exec() == self.q.QtWidgets.QDialog.DialogCode.Accepted:
             self.download_types({kind: check.isChecked() for kind, check in (*checks.items(), *extra_checks.items())}, key)
