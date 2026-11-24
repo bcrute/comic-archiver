@@ -9,7 +9,10 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import shutil
+import stat
+import struct
 import sys
 import tarfile
 import tempfile
@@ -21,6 +24,15 @@ X86_64_SHA256 = '85f8e54798e8e6aa58d2253f013d815c5616343cc0d15cbea882fca78bdfeae
 ARM64_SHA256 = 'f15ec3d15460dd66c2eb88639b152cd9040e7d1ece11e38bf89e8f53f0171e02'
 PINS = {'x86_64': X86_64_SHA256, 'arm64': ARM64_SHA256}
 BUILD = shared.PROJECT / 'build/macos'
+MACH_CPU = {0x01000007: 'x86_64', 0x0100000C: 'arm64'}
+THIN_MACH = {b'\xce\xfa\xed\xfe': '<', b'\xcf\xfa\xed\xfe': '<',
+             b'\xfe\xed\xfa\xce': '>', b'\xfe\xed\xfa\xcf': '>'}
+FAT_MACH = {b'\xca\xfe\xba\xbe': '>', b'\xca\xfe\xba\xbf': '>',
+            b'\xbe\xba\xfe\xca': '<', b'\xbf\xba\xfe\xca': '<'}
+OPTIONAL_QT = ('Qt3D', 'QtQuick3D', 'QtDesigner', 'QtGraphs')
+OPTIONAL_PLUGINS = ('assetimporters', 'designer', 'geometryloaders', 'qmllint', 'qmltooling',
+                    'renderers', 'renderplugins', 'sceneparsers')
+FRAMEWORK_LOAD = re.compile(r'/([A-Za-z0-9_]+)\.framework/')
 
 
 def environment(**extra):
@@ -105,6 +117,95 @@ def icon(resources):
     del application
 
 
+def mach_architectures(path):
+    with path.open('rb') as stream:
+        header = stream.read(8)
+    if len(header) < 8:
+        return ()
+    magic = header[:4]
+    if magic in THIN_MACH:
+        cpu, = struct.unpack(THIN_MACH[magic] + 'I', header[4:])
+        return (MACH_CPU.get(cpu, f'cpu-{cpu:x}'),)
+    if magic in FAT_MACH and 1 <= struct.unpack(FAT_MACH[magic] + 'I', header[4:])[0] <= 16:
+        return tuple(run(['xcrun', 'lipo', '-archs', path], capture=True).stdout.split())
+    return ()
+
+
+def bundle_size(folder):
+    return sum(path.stat().st_size for path in folder.rglob('*') if not path.is_symlink() and path.is_file())
+
+
+def keep_architecture(folder, arch):
+    binaries = []
+    thinned = 0
+    for path in sorted(folder.rglob('*')):
+        if path.is_symlink() or not path.is_file():
+            continue
+        arches = mach_architectures(path)
+        if not arches:
+            continue
+        binaries.append(path)
+        if arches == (arch,):
+            continue
+        if arch not in arches:
+            raise RuntimeError(f'{path.relative_to(folder)} has no {arch} slice: {arches}')
+        # A Mach-O slice retains its own embedded signature. Preserve the file
+        # mode and layout so nested framework and helper signatures can be verified.
+        with tempfile.TemporaryDirectory(prefix='.thin-', dir=path.parent) as temporary:
+            output = Path(temporary) / path.name
+            run(['xcrun', 'lipo', path, '-thin', arch, '-output', output])
+            if mach_architectures(output) != (arch,):
+                raise RuntimeError(f'Unexpected architecture after thinning {path.name}.')
+            output.chmod(stat.S_IMODE(path.stat().st_mode))
+            output.replace(path)
+        thinned += 1
+    return binaries, thinned
+
+
+def framework_loads(binaries):
+    """Read LC_LOAD_DYLIB paths with the platform tool, including weak links."""
+    needs = {}
+    for index in range(0, len(binaries), 32):
+        batch = binaries[index:index+32]
+        names = {str(path) + ':': path for path in batch}
+        current = None
+        for line in run(['xcrun', 'otool', '-L', *batch], capture=True).stdout.splitlines():
+            if line in names:
+                current = names[line]
+                needs[current] = set()
+            elif current is not None and line.startswith('\t'):
+                needs[current].update(FRAMEWORK_LOAD.findall(line))
+        if any(path not in needs for path in batch):
+            raise RuntimeError('Could not determine the linked Qt frameworks for every bundled binary.')
+    return needs
+
+
+def prune_qt(qt, binaries):
+    """Remove optional Qt families only when retained Mach-O files do not link them."""
+    candidates = {path.stem: path for path in (qt/'Qt/lib').glob('*.framework')
+                  if path.stem.startswith(OPTIONAL_QT)}
+    plugins = [qt/'Qt/plugins'/kind for kind in OPTIONAL_PLUGINS]
+    plugins = [path for path in plugins if path.is_dir()]
+    owners = {}
+    for binary in binaries:
+        framework = next((parent.stem for parent in binary.parents if parent.suffix == '.framework'), None)
+        owners[binary] = binary.name.split('.', 1)[0] if binary.parent == qt else framework
+    loads = framework_loads([path for path in binaries if not any(plugin in path.parents for plugin in plugins)])
+    omitted = set(candidates)
+    while omitted:
+        referenced = {name for path, linked in loads.items() if owners[path] not in omitted for name in linked}
+        kept = omitted & referenced
+        if not kept:
+            break
+        omitted -= kept
+    for name in sorted(omitted):
+        shutil.rmtree(candidates[name])
+        (qt/f'{name}.abi3.so').unlink(missing_ok=True)
+    for plugin in plugins:
+        shutil.rmtree(plugin)
+    return sorted(omitted)
+
+
 def build():
     arch = architecture()
     shared.require_audit()
@@ -137,10 +238,18 @@ def build():
     # The wheel went in without its dependencies: the pinned packages must be all it asks for.
     run([python, '-m', 'pip', 'check'])
     build_network_probe(shared.site_packages(resources)/'comic_archive/native')
-    # Omit development-only Qt resources without altering framework/helper layout or signatures.
     qt = shared.site_packages(resources)/'PySide6'
-    for relative in ('include', 'typesystems', 'glue', 'Qt/qml'):
+    original_size = bundle_size(resources)
+    for relative in ('include', 'typesystems', 'glue', 'Qt/qml', 'Qt/metatypes'):
         shutil.rmtree(qt/relative, ignore_errors=True)
+    for stub in qt.glob('*.pyi'):
+        stub.unlink()
+    binaries, thinned = keep_architecture(resources, arch)
+    after_thinning = bundle_size(resources)
+    removed = prune_qt(qt, binaries)
+    print(json.dumps({'target_architecture': arch, 'thinned_binaries': thinned, 'removed_qt_frameworks': removed,
+                      'input_bytes': original_size, 'thinned_bytes': after_thinning,
+                      'trimmed_bytes': bundle_size(resources)}), flush=True)
     shared.drop_entry_scripts(resources)
     shared.compile_bytecode(python, resources, resources/'python/lib')
     shared.collect_licenses(resources)
