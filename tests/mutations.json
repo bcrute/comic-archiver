@@ -2626,8 +2626,8 @@
  {
   "id": "clock-ignores-go-after-pause",
   "source": "comic_archive/local_library.py",
-  "old": "            self.working_since = int(time.time())\n            start(workspace)",
-  "new": "            start(workspace)",
+  "old": "            self.working_since = int(time.time())\n            if list_only:",
+  "new": "            if list_only:",
   "test_file": "test_account_ui.py",
   "test": "test_the_clock_counts_the_present_stretch_of_work_not_the_time_since_the_run_first_began"
  },
@@ -4834,7 +4834,7 @@
  {
   "id": "dc-version-checked",
   "source": "comic_archive/download_control.py",
-  "old": "elif version != SCHEMA_VERSION or ",
+  "old": "elif version not in (1, SCHEMA_VERSION) or ",
   "new": "elif ",
   "test_file": "test_download_control.py",
   "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
@@ -6746,7 +6746,7 @@
  {
   "id": "series-batch-makes-new-queue-wait",
   "source": "comic_archive/jobs.py",
-  "old": "ready = scan_only and not refresh_lists and inventory.has_selected_pending()",
+  "old": "ready = scan_only and not all_series and not refresh_lists and inventory.has_selected_pending()",
   "new": "ready = False",
   "test_file": "test_jobs.py",
   "test": "test_controller_scan_yields_new_candidates_then_resumes_without_rechecking_saved_series"
@@ -10762,7 +10762,7 @@
  {
   "id": "comic-excluded-gap-still-holds",
   "source": "comic_archive/inventory.py",
-  "old": "if not includes(chosen, row['series_id']):",
+  "old": "if chosen is not None and not includes(chosen, row['series_id']):",
   "new": "if False:",
   "test_file": "test_comic_selection.py",
   "test": "test_scan_limit_applies_after_selection_and_excluded_gaps_do_not_hold_completion"
@@ -10770,10 +10770,26 @@
  {
   "id": "comic-checkbox-readback-race",
   "source": "comic_archive/window_library.py",
-  "old": "            self.refresh_checks(enable)",
-  "new": "            enable()\n            self.refresh_checks()",
+  "old": "            if reload_tree:\n                self.reset(load_header=False)\n            self.refresh_checks(lambda: self.set_busy(False))",
+  "new": "            if reload_tree:\n                self.reset(load_header=False)\n            self.set_busy(False)\n            self.refresh_checks()",
   "test_file": "test_window_pages.py",
   "test": "test_choices_stay_disabled_until_the_saved_checkmarks_are_read_back"
+ },
+ {
+  "id": "catalogue-allows-archive-before-go",
+  "source": "comic_archive/download_control.py",
+  "old": "list_only = bool(value['list_only'])",
+  "new": "list_only = False",
+  "test_file": "test_download_control.py",
+  "test": "test_get_list_never_queues_an_archive_before_explicit_go"
+ },
+ {
+  "id": "episode-overrides-ignored-by-downloads",
+  "source": "comic_archive/comic_selection.py",
+  "old": "if alias in {'e', 'episodes'} and _episode_table(db):",
+  "new": "if False:",
+  "test_file": "test_comic_selection.py",
+  "test": "test_episode_choices_override_series_defaults_and_control_real_acquisition"
  },
  {
   "id": "comic-upgrade-worker-not-replaced",
