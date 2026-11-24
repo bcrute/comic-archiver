@@ -51,6 +51,16 @@ class SiteReleaseTests(unittest.TestCase):
     def page(self, name):
         return (self.out / name).read_text(encoding='utf-8')
 
+    def test_download_selection_guide_is_linked_and_covers_both_platforms(self):
+        self.assertEqual(self.run_site(release(NEWEST)), (0, ''))
+        for page in ('howto.html', 'guide.html'):
+            self.assertIn('href="choose-downloads.html"', self.page(page))
+        guide = self.page('choose-downloads.html')
+        self.assertIn('<h1>How to pick what to download</h1>', guide)
+        for section in ('desktop', 'android'):
+            self.assertIn(f'href="#{section}"', guide)
+            self.assertIn(f'id="{section}"', guide)
+
     def test_the_published_site_takes_its_version_date_and_links_from_the_release(self):
         code, error = self.run_site(release(NEWEST), [beta('0.5.1-beta0', '2026-11-01T00:00:00Z'), release(NEWEST),
                                                       beta(), dict(beta('0.5.1-beta2', '2026-11-22T10:00:00Z'),

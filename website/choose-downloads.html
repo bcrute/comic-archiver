@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to pick what to download — Comic Archiver</title>
+<meta name="description" content="How to fetch episode lists and choose which comics, novels and episodes to download in Comic Archiver.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="icon.svg" alt="">Comic Archiver</a>
+    <nav aria-label="Site">
+      <a href="guide.html">Features</a>
+      <a href="howto.html">Getting started</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+    <div class="theme-pick">
+      <button class="theme" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Theme: System" title="Theme: System">
+        <svg class="system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+        <svg class="light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg class="dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <div class="theme-menu" hidden>
+        <button type="button" data-choice="system" aria-pressed="true"><svg  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>System</button>
+        <button type="button" data-choice="light" aria-pressed="false"><svg  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light</button>
+        <button type="button" data-choice="dark" aria-pressed="false"><svg  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>Dark</button>
+      </div>
+    </div>
+    <a class="btn primary small" href="download.html">Download</a>
+  </div>
+</header>
+
+<main>
+<div class="page-head">
+  <div class="wrap">
+    <h1>How to pick what to download</h1>
+    <p class="lede">Choose the series or episodes you want to save, then start the download when you’re ready.</p>
+    <nav aria-label="On this page"><a href="#desktop">Desktop</a> · <a href="#android">Android</a></nav>
+  </div>
+</div>
+<div class="content">
+  <div class="wrap">
+    <section class="block" id="desktop">
+      <h2>On desktop</h2>
+      <ol class="steps">
+        <li><strong>Get episode lists.</strong> Sign in to the providers you use on the <b>Dashboard</b>. Open <b>Library</b> and click <b>Get episode lists</b>. The app checks titles and availability from signed-in providers that are ready. It shows each provider’s progress while it builds the list. You start file downloads separately in step 3.</li>
+        <li><strong>Choose what to include.</strong> Expand a provider to see its series, then expand a series to pick individual episodes. Checking a series includes all its episodes and replaces any individual choices for that series.</li>
+        <li><strong>Start saving.</strong> Go back to the <b>Dashboard</b> and choose <b>Start</b> or <b>Continue</b> for the provider you want. <b>Start all</b> starts every ready provider with its saved choices.</li>
+      </ol>
+      <h3>Reading the header checkbox</h3>
+      <p>The checkbox at the top of the Library applies to every provider in the working library. A check mark means everything is included and the action is <b>Uncheck all</b>. A dash means the selection is mixed. A dash or an empty box offers <b>Check all</b>. Newly discovered series follow the last choice you made with this checkbox.</p>
+      <div class="note">
+        <p><strong>Signed in to another provider?</strong> Click <b>Get episode lists</b> again once that provider is ready. Other list fetches can keep running. If the provider is downloading files, pause it on the <b>Dashboard</b> first. If a provider returns a partial list, you can choose from the episodes it found.</p>
+      </div>
+    </section>
+    <section class="block" id="android">
+      <h2>On Android</h2>
+      <ol class="steps">
+        <li>Open <b>Library</b> and tap <b>Episodes</b>.</li>
+        <li>Expand a provider and use the checkboxes to choose whole series. <b>Check all</b> and <b>Uncheck all</b> apply to all providers in this working library.</li>
+        <li>Open <b>Downloads</b> and tap <b>Start</b> or <b>Continue</b> when you’re ready to save your choices.</li>
+      </ol>
+    </section>
+    <section class="block" id="saved-choices">
+      <h2>What happens to your files and choices</h2>
+      <ul>
+        <li>Unchecking a series or episode keeps its saved CBZ and EPUB files and extras.</li>
+        <li>Your choices are saved for each provider in the current working library. New libraries start with everything checked.</li>
+        <li>The episode types you enabled for that provider still apply, and your account must have access to each episode. <a href="howto.html#episode-extras">Extras have their own settings</a>.</li>
+        <li>Applying a choice briefly pauses a running download, then it continues with the new choices. Paused downloads stay paused until you start them.</li>
+      </ul>
+      <p class="next"><a href="howto.html">Back to Getting started</a></p>
+    </section>
+  </div>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="foot" aria-label="Footer">
+      <a href="download.html">Download</a>
+      <a href="guide.html">Features</a>
+      <a href="howto.html">Getting started</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="contact.html">Contact</a>
+      <a href="https://github.com/bcrute/comic-archiver">GitHub</a>
+      <a href="https://github.com/bcrute/comic-archiver/blob/main/LICENSE">License</a>
+    </nav>
+    <p class="copy">© 2026 Ben Crute · MIT license · Not affiliated with Tapas, Tappytoon or Webtoon.</p>
+  </div>
+</footer>
+</body>
+</html>

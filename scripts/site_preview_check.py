@@ -93,7 +93,7 @@ def main():
                                         local = args.site / target.path
                                         if not local.exists():
                                             raise RuntimeError('Broken local link: ' + file.name + ': ' + link)
-                                if width in (320, 375, 1440) and file.name in ('index.html', 'download.html'):
+                                if width in (320, 375, 1440) and file.name in ('index.html', 'download.html', 'choose-downloads.html'):
                                     if file.name == 'index.html':
                                         page.locator('.shot img:visible').scroll_into_view_if_needed()
                                         page.locator('.shot img:visible').evaluate('el => el.decode()')
