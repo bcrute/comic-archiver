@@ -42,7 +42,7 @@ class ActionsTests(unittest.TestCase):
         with patch('comic_archive.episode_index.page', return_value={'initialized': False, 'items': []}) as read:
             self.assertFalse(self.actions.episode_inventory(provider='tappytoon')['initialized'])
         from pathlib import Path
-        read.assert_called_once_with(Path('/chosen folder/Tappytoon/Library'), series_id=None, offset=0)
+        read.assert_called_once_with(Path('/chosen folder/Tappytoon/Library'), series_id=None, offset=0, saved_only=False)
         self.registry.resolve.assert_called_once_with(LOCAL_OWNER, LIBRARY)
         with self.assertRaises(Refused):
             self.actions.episode_inventory(provider='../other-library')
