@@ -460,6 +460,18 @@ class EpisodeLibraryTests(PagesCase):
             self.assertEqual(len(actions.named('get_episode_list')), 1)
             self.assertEqual(actions.named('go'), [])
 
+    def test_get_episode_lists_resumes_missing_lists_after_reopening(self):
+        self.shell.open = list(self.sites)
+        self.sites['webtoon'].account(status='stopped', list_only=True, episode_list_ready=True)
+        self.sites['tappytoon'].account(status='stopped', phase='series', list_only=True)
+        self.open('library')
+        page = self.pages.library
+        page.get_list.click()
+        self.assertFalse(page.get_list.isEnabled())
+        self.assertEqual(self.sites['webtoon'].named('get_episode_list'), [])
+        self.assertEqual(len(self.sites['tappytoon'].named('get_episode_list')), 1)
+        self.assertEqual(len(self.actions.named('get_episode_list')), 1)
+
     def test_list_completion_refreshes_after_current_library_work(self):
         self.open('library')
         page = self.pages.library

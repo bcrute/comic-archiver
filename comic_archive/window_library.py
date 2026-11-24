@@ -208,7 +208,8 @@ class EpisodeLibrary:
     def list_targets(self, listings):
         """Add newly ready providers before refreshing providers already requested in this library."""
         eligible = {site.key: state for site, state, _, can_list in listings if can_list}
-        new = {key: state for key, state in eligible.items() if self.requested_lists.get(key) is not state}
+        new = {site.key: state for site, state, account, can_list in listings
+               if can_list and self.requested_lists.get(site.key) is not state and not account.get('episode_list_ready')}
         if new:
             return new
         active = any((account.get('list_only') and account.get('status') == 'running')
