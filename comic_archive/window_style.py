@@ -115,14 +115,6 @@ QPushButton#toolbarAction { min-height: 30px; padding: 5px 16px; font-size: 15px
                            background: transparent; color: %(text)s; border-color: %(muted)s; }
 QPushButton#toolbarAction:hover { background: %(notice)s; border-color: %(accent)s; }
 QPushButton#toolbarAction:disabled { color: %(disabled-text)s; border-color: %(border)s; }
-QPushButton#toolbarAction[menuAction="true"] { padding-right: 32px; }
-QPushButton#toolbarAction[menuAction="true"]::menu-indicator {
-    image: url("%(arrow)s"); width: 16px; height: 16px; subcontrol-origin: padding;
-    subcontrol-position: right center; right: 10px;
-}
-QMenu#librarySelectionMenu { background: %(surface)s; border: 1px solid %(border)s; padding: 4px; }
-QMenu#librarySelectionMenu::item { color: %(text)s; padding: 6px 12px; }
-QMenu#librarySelectionMenu::item:selected { background: %(notice)s; color: %(text)s; }
 QPushButton[kind="link"] { min-height: 0; padding: 0; border: none; background: transparent; color: %(accent)s;
                            font-weight: 400; text-decoration: underline; text-align: left; }
 QPushButton[kind="link"]:hover { color: %(button-hover)s; background: transparent; }
@@ -171,6 +163,14 @@ QTreeWidget { background: %(surface)s; color: %(text)s; border: 1px solid %(bord
 QTreeWidget::item { padding: 5px 8px; }
 QHeaderView::section { background: %(surface)s; color: %(muted)s; font-size: 13px; font-weight: 600; padding: 8px;
                        border: none; border-bottom: 1px solid %(border)s; }
+QHeaderView#episodeLibraryHeader::section:first { padding-left: 34px; }
+QCheckBox#allSeries { padding: 3px; border: 1px solid transparent; border-radius: 4px; }
+QCheckBox#allSeries:focus { border-color: %(focus)s; }
+QCheckBox#allSeries::indicator:indeterminate {
+    border-color: %(accent)s;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 %(surface)s, stop:0.42 %(surface)s,
+        stop:0.43 %(accent)s, stop:0.57 %(accent)s, stop:0.58 %(surface)s, stop:1 %(surface)s);
+}
 QScrollBar:vertical, QScrollBar:horizontal { background: %(page)s; }
 '''
 

@@ -228,6 +228,17 @@ class Actions:
         return self._call('episode_inventory', locked=False, series_id=series_id, offset=offset,
                           failed=say('action.the_episode_list_could_not_be'))
 
+    def library_comic_choices(self):
+        """Read every provider's policy in the current working library."""
+        from pathlib import Path
+        from .episode_index import comic_choices
+
+        runtime, registry = self._registry()
+        registry.resolve(LOCAL_OWNER, registry.workspace_id)
+        root = Path(runtime.root)
+        return {site.key: comic_choices(sites.folder(root, site) / 'Library')
+                for site in sites.SITES if site.available}
+
     def choose_comics(self, chosen, provider=None, series_id=None):
         from .discovery import observed_id
         site = sites.find(provider) if isinstance(provider, str) else None

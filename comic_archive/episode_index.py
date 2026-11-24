@@ -9,6 +9,16 @@ from .download_selection import access_kind
 PAGE_SIZE = 200
 
 
+def comic_choices(root):
+    """Read the saved download policy without paging the episode inventory."""
+    from .comic_selection import read
+
+    if not (root / '.archive-state' / 'inventory.sqlite3').is_file():
+        return {'default': True, 'exceptions': []}
+    with Inventory(root, read_only=True) as inventory:
+        return read(inventory.db)
+
+
 def recorded_format(path):
     """Use an existing index path suffix; never open or inspect the file."""
     if not isinstance(path, str):

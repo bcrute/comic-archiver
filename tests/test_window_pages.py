@@ -213,6 +213,11 @@ class FakeActions:
                 policy['exceptions'] = [] if chosen == policy['default'] else [series_id]
         return keys
 
+    def library_comic_choices(self):
+        policies = getattr(self, 'comic_policies', {})
+        return {key: policies.get(key, {'default': True, 'exceptions': []})
+                for key in ('tapas', 'webtoon', 'tappytoon')}
+
     def saved_files(self, **options):
         self.record('saved_files', **options)
         if options.get('summary'):
@@ -441,13 +446,26 @@ class EpisodeLibraryTests(PagesCase):
         provider = page.tree.topLevelItem(0)
         provider.setExpanded(True)
         series = provider.child(0)
-        include, exclude = page.selection.menu().actions()
-        exclude.trigger()
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
+        page.selection.click()
         self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Unchecked)
-        include.trigger()
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Unchecked)
+        page.selection.click()
         self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
         self.assertEqual(len(self.actions.named('choose_comics')), 2)
         self.assertEqual(self.actions.named('go'), [])
+
+    def test_header_checkbox_reads_mixed_policy_before_expanding_any_provider(self):
+        self.actions.comic_policies = {'tapas': {'default': True, 'exceptions': ['42']}}
+        self.open('library')
+        page = self.pages.library
+        self.assertEqual(self.actions.named('episode_inventory'), [])
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+        page.selection.click()
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(self.actions.named('choose_comics'),
+                         [('choose_comics', (True,), {'provider': None, 'series_id': None})])
 
     def test_expand_reads_index_lazily_and_dashboard_renders_do_not_rebuild_or_poll_it(self):
         self.open('library')

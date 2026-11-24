@@ -51,6 +51,8 @@ class EpisodeLibrary:
         self.initialized = False
         self.changing = False
         self.setting_checks = False
+        self.reading_checks = False
+        self.selection_ready = False
         w = kit.w
         self.widget = w.QWidget()
         self.widget.setObjectName('page')
@@ -59,20 +61,8 @@ class EpisodeLibrary:
         box.setSpacing(8)
         self.refresh = kit.button(say('library.refresh'), self.reset)
         self.refresh.setObjectName('toolbarAction')
-        self.selection = kit.button('Download selection')
-        self.selection.setObjectName('toolbarAction')
-        self.selection.setProperty('menuAction', True)
-        scope = 'Change download selection across all providers'
-        self.selection.setToolTip(scope)
-        self.selection.setAccessibleDescription(scope)
-        menu = w.QMenu(self.selection)
-        menu.setObjectName('librarySelectionMenu')
-        menu.addAction('Include all series', lambda: self.choose(True))
-        menu.addAction('Exclude all series', lambda: self.choose(False))
-        self.selection.setMenu(menu)
         header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
         header.layout().addWidget(self.refresh)
-        header.layout().addWidget(self.selection)
         box.addWidget(header)
         box.addWidget(kit.label('Check a series to include it in downloads. Unchecking keeps saved files.', 'muted'))
         saved_note = say('library.saved_can_include_cloud_storage_this')
@@ -86,14 +76,47 @@ class EpisodeLibrary:
         self.tree.setWordWrap(False)
         self.tree.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setSelectionMode(w.QAbstractItemView.SelectionMode.SingleSelection)
-        self.tree.header().setSectionResizeMode(0, w.QHeaderView.ResizeMode.Stretch)
+        table_header = self.tree.header()
+        table_header.setObjectName('episodeLibraryHeader')
+        table_header.setStretchLastSection(False)
+        table_header.setSectionResizeMode(0, w.QHeaderView.ResizeMode.Stretch)
         for column in (1, 2, 3):
-            self.tree.header().setSectionResizeMode(column, w.QHeaderView.ResizeMode.ResizeToContents)
+            table_header.setSectionResizeMode(column, w.QHeaderView.ResizeMode.ResizeToContents)
+        self.selection = self.header_checkbox(table_header)
         self.tree.setMinimumWidth(0)
         self.tree.itemExpanded.connect(self.expanded)
         self.tree.itemChanged.connect(self.changed)
         box.addWidget(self.tree, 1)
         box.addWidget(self.notice)
+
+    def header_checkbox(self, header):
+        qt = self.kit.q.QtCore.Qt
+        choose = self.choose
+
+        class AllSeries(self.kit.w.QCheckBox):
+            def nextCheckState(self):
+                # Mixed behaves like unchecked. Show the result after it is read back.
+                choose(self.checkState() != qt.CheckState.Checked)
+
+        checkbox = AllSeries(header.viewport())
+        checkbox.setObjectName('allSeries')
+        checkbox.setAccessibleName('Select all series for download')
+        checkbox.setToolTip('Include or exclude all series across all providers. Saved files are kept.')
+        checkbox.setTristate(True)
+        checkbox.setEnabled(False)
+
+        def position():
+            size = checkbox.sizeHint()
+            left = header.sectionViewportPosition(0) + 7
+            checkbox.setGeometry(left, (header.viewport().height() - size.height()) // 2,
+                                 size.width(), size.height())
+            checkbox.setVisible(left >= 0 and left + size.width() <= header.sectionSize(0) - header.offset())
+
+        header.geometriesChanged.connect(position)
+        header.sectionResized.connect(position)
+        self.tree.horizontalScrollBar().valueChanged.connect(position)
+        position()
+        return checkbox
 
     def changed(self, item, column):
         if self.setting_checks or self.changing or column != 0:
@@ -130,13 +153,13 @@ class EpisodeLibrary:
             self.changing = False
             self.tree.setEnabled(True)
             self.refresh.setEnabled(True)
-            self.selection.setEnabled(True)
+            self.selection.setEnabled(self.selection_ready)
 
         def done(value, error):
             self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
                                 else 'Comic choices saved. Existing files are kept.')
             if reload_tree:
-                self.reset()
+                self.reset(load_header=False)
             self.refresh_checks(enable)
 
         self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id), done)
@@ -145,17 +168,19 @@ class EpisodeLibrary:
         """Update loaded rows without losing expansion, pagination or scroll position."""
         from .comic_selection import includes
         generation = self.generation
-        actions = self.pages.actions
+        self.reading_checks = True
+        self.selection.setEnabled(False)
 
         def done(values, error):
             if generation != self.generation:
                 if then:
                     then()
                 return
+            self.reading_checks = False
             if error:
                 # A stale checkmark must not masquerade as a successful write.
-                self.reset()
-                self.notice.setText('Choices could not be read. Expand a provider to retry.')
+                self.reset(load_header=False)
+                self.notice.setText('Choices could not be read. Choose Refresh to retry.')
                 if then:
                     then()
                 return
@@ -172,13 +197,22 @@ class EpisodeLibrary:
                                                else self.kit.q.QtCore.Qt.CheckState.Unchecked)
                         update(child)
                 update(self.tree.invisibleRootItem())
+                states = self.kit.q.QtCore.Qt.CheckState
+                defaults = {value['default'] for value in values.values()}
+                if len(defaults) != 1 or any(value['exceptions'] for value in values.values()):
+                    state = states.PartiallyChecked
+                else:
+                    state = states.Checked if True in defaults else states.Unchecked
+                self.selection.setCheckState(state)
+                self.selection_ready = True
             finally:
                 self.setting_checks = False
                 if then:
                     then()
+                else:
+                    self.selection.setEnabled(self.selection_ready and not self.changing)
 
-        self.pages.run(lambda: {site.key: actions.episode_inventory(provider=site.key)['comic_selection']
-                               for site in sites.SITES if site.available}, done)
+        self.pages.run(self.pages.actions.library_comic_choices, done)
 
     @property
     def role(self):
@@ -196,10 +230,15 @@ class EpisodeLibrary:
 
     def show(self):
         if not self.initialized or self.available != tuple(self.pages.open_keys()):
-            self.reset()
+            self.reset(load_header=False)
+        if not self.selection_ready and not self.reading_checks and not self.changing:
+            self.refresh_checks()
 
-    def reset(self):
+    def reset(self, *, load_header=True):
         self.generation += 1
+        self.reading_checks = self.selection_ready = False
+        self.selection.setEnabled(False)
+        self.selection.setCheckState(self.kit.q.QtCore.Qt.CheckState.Unchecked)
         self.tree.clear()
         self.initialized = True
         self.available = tuple(self.pages.open_keys())
@@ -208,6 +247,8 @@ class EpisodeLibrary:
                 continue
             data = {'provider': site.key, 'series_id': None, 'offset': 0, 'state': 'idle'}
             self.item(self.tree, [site.name, say('library.expand_to_view'), '—', '—'], data, expandable=True)
+        if load_header and self.widget.isVisible() and not self.changing:
+            self.refresh_checks()
 
     def expanded(self, item):
         data = item.data(0, self.role)
