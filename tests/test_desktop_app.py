@@ -211,6 +211,7 @@ class DesktopAppTests(unittest.TestCase):
         return shell
 
     def test_a_cleared_list_is_remembered_for_only_its_library_and_provider(self):
+        self.state.mkdir(parents=True)
         app = desktop_app.application(self.q)
         first = desktop_app.Shell(self.q, app, self.runtime)
         self.assertTrue(first.set_episode_list_cleared('library-one', 'tapas', True))
