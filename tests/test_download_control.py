@@ -133,6 +133,8 @@ class Controller(unittest.TestCase):
 
     def test_get_list_never_queues_an_archive_before_explicit_go(self):
         self.pending_episode()
+        with Inventory(self.library) as inventory:
+            inventory.scan_candidates(all_series=True)
         dc.start(self.session, self.library, list_only=True)
         for category in TAPAS_LISTS:
             _, request = self.published()
@@ -142,6 +144,15 @@ class Controller(unittest.TestCase):
             self.assertTrue(request['args']['all_series'])
             self.ok(counted(refresh={'reading_lists': [{'category': category, 'complete': True,
                                                         'observed_series_count': 1}]}))
+        _, request = self.published()
+        self.assertEqual(request['operation'], 'sync')
+        self.assertFalse(request['args']['refresh_lists'])
+        self.assertTrue(request['args']['scan_only'])
+        self.assertTrue(request['args']['all_series'])
+        with Inventory(self.library) as inventory:
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1, 'successful_series_checks': 1}))
         with patch('comic_archive.purchase_history.pending', return_value=False):
             self.tick()
         self.assertEqual(self.requests(), [])
@@ -152,6 +163,24 @@ class Controller(unittest.TestCase):
         self.go()
         _, request = self.published()
         self.assertEqual(request['operation'], 'archive_discovered')
+
+    def test_schema_one_migration_preserves_download_progress_and_defaults_to_downloading(self):
+        self.go()
+        self.read_lists(lists=TAPAS_LISTS[:1])
+        self.tick()
+        with sqlite3.connect(self.queue / dc.STATE_FILE) as connection:
+            connection.execute('ALTER TABLE state DROP COLUMN list_only')
+            connection.execute('PRAGMA user_version = 1')
+        self.assertEqual(self.state()['list_only'], 0)
+        self.assertIsNotNone(self.lists()[TAPAS_LISTS[0]]['read_at'])
+        self.assertEqual(self.state()['status'], 'running')
+
+    def test_get_list_does_not_replace_an_active_download(self):
+        task, _ = self.downloading()
+        with self.assertRaises(dc.LibraryBusy):
+            dc.start(self.session, self.library, list_only=True)
+        self.assertEqual(self.requests(), [task])
+        self.assertEqual(self.state()['list_only'], 0)
 
     def downloading(self):
         """Go with an episode waiting: the first step is a download."""
