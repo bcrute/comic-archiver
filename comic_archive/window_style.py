@@ -115,6 +115,14 @@ QPushButton#toolbarAction { min-height: 30px; padding: 5px 16px; font-size: 15px
                            background: transparent; color: %(text)s; border-color: %(muted)s; }
 QPushButton#toolbarAction:hover { background: %(notice)s; border-color: %(accent)s; }
 QPushButton#toolbarAction:disabled { color: %(disabled-text)s; border-color: %(border)s; }
+QPushButton#toolbarAction[menuAction="true"] { padding-right: 32px; }
+QPushButton#toolbarAction[menuAction="true"]::menu-indicator {
+    image: url("%(arrow)s"); width: 16px; height: 16px; subcontrol-origin: padding;
+    subcontrol-position: right center; right: 10px;
+}
+QMenu#librarySelectionMenu { background: %(surface)s; border: 1px solid %(border)s; padding: 4px; }
+QMenu#librarySelectionMenu::item { color: %(text)s; padding: 6px 12px; }
+QMenu#librarySelectionMenu::item:selected { background: %(notice)s; color: %(text)s; }
 QPushButton[kind="link"] { min-height: 0; padding: 0; border: none; background: transparent; color: %(accent)s;
                            font-weight: 400; text-decoration: underline; text-align: left; }
 QPushButton[kind="link"]:hover { color: %(button-hover)s; background: transparent; }

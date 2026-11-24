@@ -56,19 +56,30 @@ class EpisodeLibrary:
         self.widget.setObjectName('page')
         box = w.QVBoxLayout(self.widget)
         box.setContentsMargins(32, 24, 32, 24)
-        self.refresh = kit.button(say('library.refresh'), self.reset, 'secondary')
-        box.addWidget(kit.row(kit.label('Library', 'pageTitle'), self.refresh))
-        self.check_all = kit.button('Check all', lambda: self.choose(True), 'secondary')
-        self.uncheck_all = kit.button('Uncheck all', lambda: self.choose(False), 'secondary')
-        box.addWidget(kit.row(self.check_all, self.uncheck_all))
-        box.addWidget(kit.label('Choose which comics to download. Unchecking a comic keeps all saved files.', 'muted'))
-        self.notice = kit.label('', 'muted')
-        self.notice.setWordWrap(True)
-        box.addWidget(self.notice)
-        box.addWidget(kit.label(say('library.recorded_episodes_expand_a_provider_and'), 'muted', wrap=False))
-        box.addWidget(kit.label(say('library.saved_can_include_cloud_storage_this'), 'muted'))
+        box.setSpacing(8)
+        self.refresh = kit.button(say('library.refresh'), self.reset)
+        self.refresh.setObjectName('toolbarAction')
+        self.selection = kit.button('Download selection')
+        self.selection.setObjectName('toolbarAction')
+        self.selection.setProperty('menuAction', True)
+        scope = 'Change download selection across all providers'
+        self.selection.setToolTip(scope)
+        self.selection.setAccessibleDescription(scope)
+        menu = w.QMenu(self.selection)
+        menu.setObjectName('librarySelectionMenu')
+        menu.addAction('Include all series', lambda: self.choose(True))
+        menu.addAction('Exclude all series', lambda: self.choose(False))
+        self.selection.setMenu(menu)
+        header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
+        header.layout().addWidget(self.refresh)
+        header.layout().addWidget(self.selection)
+        box.addWidget(header)
+        box.addWidget(kit.label('Check a series to include it in downloads. Unchecking keeps saved files.', 'muted'))
+        saved_note = say('library.saved_can_include_cloud_storage_this')
+        self.notice = kit.label(saved_note, 'muted')
         self.tree = w.QTreeWidget()
         self.tree.setAccessibleName(say('library.library_episode_status'))
+        self.tree.setAccessibleDescription(saved_note)
         self.tree.setColumnCount(4)
         self.tree.setHeaderLabels(['Provider / series / episode', say('dashboard.status'), say('library.format'), say('library.access')])
         self.tree.setUniformRowHeights(True)
@@ -82,6 +93,7 @@ class EpisodeLibrary:
         self.tree.itemExpanded.connect(self.expanded)
         self.tree.itemChanged.connect(self.changed)
         box.addWidget(self.tree, 1)
+        box.addWidget(self.notice)
 
     def changed(self, item, column):
         if self.setting_checks or self.changing or column != 0:
@@ -110,8 +122,7 @@ class EpisodeLibrary:
             self.generation += 1  # A pre-change index response cannot restore stale checks.
         self.tree.setEnabled(False)
         self.refresh.setEnabled(False)
-        self.check_all.setEnabled(False)
-        self.uncheck_all.setEnabled(False)
+        self.selection.setEnabled(False)
         self.notice.setText('Applying comic choices…')
         actions = self.pages.actions
 
@@ -119,8 +130,7 @@ class EpisodeLibrary:
             self.changing = False
             self.tree.setEnabled(True)
             self.refresh.setEnabled(True)
-            self.check_all.setEnabled(True)
-            self.uncheck_all.setEnabled(True)
+            self.selection.setEnabled(True)
 
         def done(value, error):
             self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
