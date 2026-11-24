@@ -341,6 +341,9 @@ def status(workspace, since=None):
     for key in ('lists', 'retry', 'go_after_seconds'):
         if key in state:
             result[key] = state[key]
+    if state.get('list_only') is True:
+        result.update(list_only=True, episode_list_ready=state.get('episode_list_ready') is True,
+                      episode_list_partial=state.get('episode_list_partial') is True)
     if isinstance(state.get('audit'), dict):
         result['audit'] = {key: state['audit'][key] for key in download_control.AUDIT_KEYS
                            if type(state['audit'].get(key)) is int and state['audit'][key] >= 0}

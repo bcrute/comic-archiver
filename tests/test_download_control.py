@@ -145,7 +145,8 @@ class Controller(unittest.TestCase):
         with patch('comic_archive.purchase_history.pending', return_value=False):
             self.tick()
         self.assertEqual(self.requests(), [])
-        account = dc.status(self.session, self.library)
+        account = account_ui.status(self.workspace)
+        self.assertTrue(account['list_only'])
         self.assertTrue(account['episode_list_ready'])
         self.assertEqual(account['status'], 'stopped')
         self.go()
