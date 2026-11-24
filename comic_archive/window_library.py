@@ -61,13 +61,14 @@ class EpisodeLibrary:
         box = w.QVBoxLayout(self.widget)
         box.setContentsMargins(32, 24, 32, 24)
         box.setSpacing(8)
-        self.refresh = kit.button(say('library.refresh'), self.reset)
+        self.refresh = kit.button(say('library.refresh'), self.refresh_view)
         self.refresh.setObjectName('toolbarAction')
         header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
         header.layout().addWidget(self.refresh)
         box.addWidget(header)
         box.addWidget(kit.label('Check a series to include it in downloads. Unchecking keeps saved files.', 'muted'))
         saved_note = say('library.saved_can_include_cloud_storage_this')
+        self.saved_note = saved_note
         self.notice = kit.label(saved_note, 'muted')
         self.tree = w.QTreeWidget()
         self.tree.setAccessibleName(say('library.library_episode_status'))
@@ -148,7 +149,8 @@ class EpisodeLibrary:
     def choose(self, chosen, provider=None, series_id=None):
         if self.changing:
             return
-        self.changing = True
+        self.set_busy(True)
+
         def loading(parent):
             for index in range(parent.childCount()):
                 child = parent.child(index)
@@ -159,26 +161,111 @@ class EpisodeLibrary:
         reload_tree = loading(self.tree.invisibleRootItem())
         if reload_tree:
             self.generation += 1  # A pre-change index response cannot restore stale checks.
-        self.tree.setEnabled(False)
-        self.refresh.setEnabled(False)
-        self.selection.setEnabled(False)
         self.notice.setText('Applying comic choices…')
         actions = self.pages.actions
-
-        def enable():
-            self.changing = False
-            self.tree.setEnabled(True)
-            self.refresh.setEnabled(True)
-            self.selection.setEnabled(self.selection_ready)
 
         def done(value, error):
             self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
                                 else 'Comic choices saved. Existing files are kept.')
             if reload_tree:
                 self.reset(load_header=False)
-            self.refresh_checks(enable)
+            self.refresh_checks(lambda: self.set_busy(False))
 
         self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id), done)
+
+    def set_busy(self, busy):
+        self.changing = busy
+        self.tree.setEnabled(not busy)
+        self.refresh.setEnabled(not busy)
+        self.selection.setEnabled(not busy and self.selection_ready and not self.reading_checks)
+
+    def rows(self):
+        iterator = self.kit.w.QTreeWidgetItemIterator(self.tree)
+        while (item := iterator.value()) is not None:
+            yield item
+            iterator += 1
+
+    def row_key(self, item):
+        data = item.data(0, self.role) if item is not None else None
+        if isinstance(data, dict) and not data.get('offset', 0):
+            return data['provider'], data.get('series_id'), data.get('episode_id')
+        return None
+
+    def refresh_view(self):
+        """Reload open branches and their loaded pages, then restore the browsing position."""
+        if self.changing:
+            return
+        scopes = {}
+        for item in self.rows():
+            key = self.row_key(item)
+            parent = item.parent()
+            if key is not None and key[2] is None and item.isExpanded() and (parent is None or parent.isExpanded()):
+                scopes[key] = item.data(0, self.role).get('loaded_offset', 0)
+        current = self.row_key(self.tree.currentItem())
+        column = max(0, self.tree.currentColumn())
+        anchor = self.row_key(self.tree.itemAt(1, 1))
+        scroll = self.tree.verticalScrollBar()
+        previous_scroll = scroll.value()
+        generation = self.generation
+        actions = self.pages.actions
+        self.set_busy(True)
+        self.notice.setText('Refreshing the Library…')
+
+        def read():
+            result = {}
+            for key, limit in scopes.items():
+                provider, series, _ = key
+                offset = 0
+                items = []
+                while True:
+                    value = actions.episode_inventory(provider=provider, series_id=series, offset=offset)
+                    items.extend(value['items'])
+                    following = value['next_offset']
+                    if following is None or not offset < following <= limit:
+                        result[key] = dict(value, items=items, loaded_offset=offset)
+                        break
+                    offset = following
+            return result
+
+        def done(values, error):
+            if generation != self.generation:
+                self.set_busy(False)
+                if self.widget.isVisible():
+                    self.show()
+                return
+            if error:
+                self.notice.setText('Could not refresh the Library. Try Refresh again.')
+                self.set_busy(False)
+                return
+            self.reset(load_header=False)
+            blocked = self.tree.blockSignals(True)
+            try:
+                for index in range(self.tree.topLevelItemCount()):
+                    provider = self.tree.topLevelItem(index)
+                    value = values.get(self.row_key(provider))
+                    if value is None:
+                        continue
+                    self.populate(provider, provider.data(0, self.role), value)
+                    provider.setExpanded(True)
+                    for row in range(provider.childCount()):
+                        series = provider.child(row)
+                        value = values.get(self.row_key(series))
+                        if value is not None:
+                            self.populate(series, series.data(0, self.role), value)
+                            series.setExpanded(True)
+                restored = {self.row_key(item): item for item in self.rows()}
+                if current is not None and current in restored:
+                    self.tree.setCurrentItem(restored[current], column)
+                if anchor is not None and anchor in restored:
+                    self.tree.scrollToItem(restored[anchor], self.kit.w.QAbstractItemView.ScrollHint.PositionAtTop)
+                else:
+                    scroll.setValue(previous_scroll)
+            finally:
+                self.tree.blockSignals(blocked)
+            self.notice.setText(self.saved_note)
+            self.refresh_checks(lambda: self.set_busy(False))
+
+        self.pages.run(read, done)
 
     def refresh_checks(self, then=None):
         """Update loaded rows without losing expansion, pagination or scroll position."""
@@ -287,49 +374,55 @@ class EpisodeLibrary:
                 item.setText(1, say('library.could_not_read_retry'))
                 item.setToolTip(1, say('library.collapse_and_expand_to_retry_when'))
                 return
-            data['state'] = 'loaded'
-            item.setData(0, self.role, data)
-            more = data['offset'] > 0
-            parent = item.parent() if more else item
-            existing = [parent.child(index).data(0, self.role) for index in range(parent.childCount())]
-            if data['series_id'] is None:
-                identifiers = {entry.get('series_id') for entry in existing if isinstance(entry, dict) and entry.get('offset') == 0}
-                for row in value['items']:
-                    if row['id'] in identifiers:
-                        continue
-                    columns = series_columns(row)
-                    summary, kinds = columns[1], row.get('access_kinds', [])
-                    series_item = self.item(parent, columns,
-                              {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle',
-                               'summary': summary, 'selected': row['selected']},
-                              expandable=True)
-                    self.setting_checks = True
-                    try:
-                        series_item.setFlags(series_item.flags() | self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                        series_item.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if row['selected']
-                                                  else self.kit.q.QtCore.Qt.CheckState.Unchecked)
-                    finally:
-                        self.setting_checks = False
-                    series_item.setToolTip(2, say('library.recorded_format_no_saved_files_are'))
-                    series_item.setToolTip(3, ', '.join(label for key, label in ACCESS_LABELS.items() if key in kinds)
-                                           or say('library.no_access_classification_is_recorded_yet'))
-            else:
-                identifiers = {entry.get('episode_id') for entry in existing if isinstance(entry, dict)}
-                for row in value['items']:
-                    if row['id'] in identifiers:
-                        continue
-                    self.item(parent, episode_columns(row),
-                              {'provider': data['provider'], 'series_id': data['series_id'],
-                               'episode_id': row['id'], 'state': 'leaf'})
-            following = value['next_offset']
-            if following is not None:
-                self.item(parent, [say('library.more_series') if data['series_id'] is None else say('library.more_episodes'), say('library.expand_to_load'), '—', '—'],
-                          dict(data, offset=following, state='idle'), expandable=True)
-            if more:
-                parent.takeChild(parent.indexOfChild(item))
-            else:
-                item.setText(1, data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value))
-                if not value['items']:
-                    item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)
+            self.populate(item, data, value)
 
         self.pages.run(lambda: actions.episode_inventory(series_id=data['series_id'], offset=data['offset'], provider=data['provider']), done)
+
+    def populate(self, item, data, value):
+        data['state'] = 'loaded'
+        item.setData(0, self.role, data)
+        more = data['offset'] > 0
+        parent = item.parent() if more else item
+        parent_data = parent.data(0, self.role)
+        parent_data['loaded_offset'] = value.get('loaded_offset', data['offset'])
+        parent.setData(0, self.role, parent_data)
+        existing = [parent.child(index).data(0, self.role) for index in range(parent.childCount())]
+        if data['series_id'] is None:
+            identifiers = {entry.get('series_id') for entry in existing if isinstance(entry, dict) and entry.get('offset') == 0}
+            for row in value['items']:
+                if row['id'] in identifiers:
+                    continue
+                columns = series_columns(row)
+                summary, kinds = columns[1], row.get('access_kinds', [])
+                series_item = self.item(parent, columns,
+                          {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle',
+                           'summary': summary, 'selected': row['selected']},
+                          expandable=True)
+                self.setting_checks = True
+                try:
+                    series_item.setFlags(series_item.flags() | self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                    series_item.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if row['selected']
+                                              else self.kit.q.QtCore.Qt.CheckState.Unchecked)
+                finally:
+                    self.setting_checks = False
+                series_item.setToolTip(2, say('library.recorded_format_no_saved_files_are'))
+                series_item.setToolTip(3, ', '.join(label for key, label in ACCESS_LABELS.items() if key in kinds)
+                                       or say('library.no_access_classification_is_recorded_yet'))
+        else:
+            identifiers = {entry.get('episode_id') for entry in existing if isinstance(entry, dict)}
+            for row in value['items']:
+                if row['id'] in identifiers:
+                    continue
+                self.item(parent, episode_columns(row),
+                          {'provider': data['provider'], 'series_id': data['series_id'],
+                           'episode_id': row['id'], 'state': 'leaf'})
+        following = value['next_offset']
+        if following is not None:
+            self.item(parent, [say('library.more_series') if data['series_id'] is None else say('library.more_episodes'), say('library.expand_to_load'), '—', '—'],
+                      dict(data, offset=following, state='idle'), expandable=True)
+        if more:
+            parent.takeChild(parent.indexOfChild(item))
+        else:
+            item.setText(1, data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value))
+            if not value['items']:
+                item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)

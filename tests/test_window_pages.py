@@ -390,6 +390,39 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
+    def test_refresh_restores_open_rows_and_the_current_episode(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        series = provider.child(0)
+        series.setExpanded(True)
+        page.tree.setCurrentItem(series.child(1))
+
+        page.refresh.click()
+
+        provider = page.tree.topLevelItem(0)
+        series = provider.child(0)
+        self.assertTrue(provider.isExpanded())
+        self.assertTrue(series.isExpanded())
+        self.assertEqual(series.childCount(), 2)
+        self.assertEqual(page.tree.currentItem(), series.child(1))
+        self.assertEqual(self.actions.named('choose_comics'), [])
+
+    def test_failed_refresh_keeps_the_open_rows(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        self.actions.refused['episode_inventory'] = 'PRIVATE refusal'
+
+        page.refresh.click()
+
+        self.assertEqual(page.tree.topLevelItem(0), provider)
+        self.assertTrue(provider.isExpanded())
+        self.assertIn('Could not refresh', page.notice.text())
+        self.assertNotIn('PRIVATE', page.notice.text())
+
     def test_choices_stay_disabled_until_the_saved_checkmarks_are_read_back(self):
         self.open('library')
         page = self.pages.library
