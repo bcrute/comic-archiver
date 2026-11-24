@@ -796,7 +796,7 @@ def _move_old(session, library, root):
         value = {'status': 'stopped', 'code': None, 'stage': 'lists', 'round_started_at': now,
                  'stretch_started_at': now, 'wait_until': None, 'go_after': None, 'idle_waits': 0, 'network_waits': 0,
                  'source_probes': 0, 'source_delay': MIN_SOURCE_DELAY, 'source_episode': None, 'failed_retries': 0,
-                 'episodes_waiting': 0, 'audit': None, 'trimmed_at': None}
+                 'episodes_waiting': 0, 'audit': None, 'list_only': 0, 'trimmed_at': None}
         try:
             if _instant(export['started_at']) <= _now():
                 value['round_started_at'] = export['started_at']

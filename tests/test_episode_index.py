@@ -37,11 +37,13 @@ class EpisodeIndexTests(unittest.TestCase):
             listing = page(self.root)
             self.assertEqual(listing['items'], [
                 {'id': '42', 'title': 'Series', 'episodes': 3, 'saved': 1, 'formats': [],
-                 'access_kinds': ['free', 'unclassified'], 'selected': True},
-                {'id': '43', 'title': 'Unenumerated series', 'episodes': 0, 'saved': 0, 'formats': [], 'access_kinds': [], 'selected': True}])
+                 'access_kinds': ['free', 'unclassified'], 'selected': True, 'mixed': False},
+                {'id': '43', 'title': 'Unenumerated series', 'episodes': 0, 'saved': 0, 'formats': [],
+                 'access_kinds': [], 'selected': True, 'mixed': False}])
             episodes = page(self.root, '42')['items']
         self.assertEqual([row['status'] for row in episodes], ['archived', 'downloading', 'unavailable'])
         self.assertEqual([row['episode_number'] for row in episodes], [1, 2, 5])
+        self.assertTrue(all(row['selected'] for row in episodes))
         self.assertTrue(all('archive_path' not in row and 'source_url' not in row for row in episodes))
         # Opening an Inventory writer would reset this downloading row. This view must not.
         with Inventory(self.root, read_only=True) as inventory:
