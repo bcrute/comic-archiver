@@ -102,6 +102,11 @@ class EpisodeLibrary:
                 # Mixed behaves like unchecked. Show the result after it is read back.
                 choose(self.checkState() != qt.CheckState.Checked)
 
+            @core.Slot(qt.CheckState)
+            def describe_next_click(self, state):
+                self.setText('Uncheck all' if state == qt.CheckState.Checked else 'Check all')
+                self.align_to_header()
+
             @core.Slot()
             def align_to_header(self):
                 if not isValid(header):
@@ -112,13 +117,14 @@ class EpisodeLibrary:
                                  size.width(), size.height())
                 self.setVisible(left >= 0 and left + size.width() <= header.sectionSize(0) - header.offset())
 
-        checkbox = AllSeries('check/uncheck all', header.viewport())
+        checkbox = AllSeries('Check all', header.viewport())
         checkbox.setObjectName('allSeries')
         scope = 'Include or exclude all series across all providers. Saved files are kept.'
         checkbox.setAccessibleDescription(scope)
         checkbox.setToolTip(scope)
         checkbox.setTristate(True)
         checkbox.setEnabled(False)
+        checkbox.checkStateChanged.connect(checkbox.describe_next_click)
 
         header.geometriesChanged.connect(checkbox.align_to_header)
         header.sectionResized.connect(checkbox.align_to_header)

@@ -447,12 +447,15 @@ class EpisodeLibraryTests(PagesCase):
         provider.setExpanded(True)
         series = provider.child(0)
         self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(page.selection.text(), 'Uncheck all')
         page.selection.click()
         self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Unchecked)
         self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(page.selection.text(), 'Check all')
         page.selection.click()
         self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.Checked)
         self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(page.selection.text(), 'Uncheck all')
         self.assertEqual(len(self.actions.named('choose_comics')), 2)
         self.assertEqual(self.actions.named('go'), [])
 
@@ -462,6 +465,7 @@ class EpisodeLibraryTests(PagesCase):
         page = self.pages.library
         self.assertEqual(self.actions.named('episode_inventory'), [])
         self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertEqual(page.selection.text(), 'Check all')
         page.selection.click()
         self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.Checked)
         self.assertEqual(self.actions.named('choose_comics'),
