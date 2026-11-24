@@ -556,7 +556,7 @@ class EpisodeLibraryTests(PagesCase):
             self.pages.render()
         self.assertTrue(series.isExpanded())
         self.assertEqual(len(self.actions.named('episode_inventory')), 2)
-        self.assertEqual(series.child(0).data(0, QtCore.Qt.ItemDataRole.CheckStateRole), None)
+        self.assertEqual(series.child(0).checkState(0), QtCore.Qt.CheckState.Checked)
 
     def test_more_episodes_append_to_the_same_series_and_replace_the_paging_row(self):
         original = self.actions.episode_inventory
