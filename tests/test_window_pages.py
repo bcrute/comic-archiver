@@ -781,9 +781,9 @@ class DashboardTests(PagesCase):
         for shortcut in (choices[1], choices[0], choices[2]):
             with self.subTest(shortcut=shortcut):
                 self.pages.go_to('dashboard')
+                settle()
                 dialogs = []
                 menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
-                settle()
                 self.assertTrue(menu.isVisible())
                 action = next(item for item in menu.actions() if item.text() == shortcut)
                 self.assertTrue(action.isEnabled())
