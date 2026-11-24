@@ -200,18 +200,24 @@ class FakeActions:
             {'id': '82', 'title': 'Second', 'episode_number': 2, 'status': 'queued', 'access_state': 'tapas_limited', 'format': None, 'access_kind': 'limited'}],
             'next_offset': None}
 
-    def choose_comics(self, chosen, provider=None, series_id=None):
-        self.record('choose_comics', chosen, provider=provider, series_id=series_id)
+    def choose_comics(self, chosen, provider=None, series_id=None, **options):
+        self.record('choose_comics', chosen, provider=provider, series_id=series_id, **options)
         if not hasattr(self, 'comic_policies'):
             self.comic_policies = {}
         keys = [provider] if provider is not None else ['tapas', 'webtoon', 'tappytoon']
         for key in keys:
             policy = self.comic_policies.setdefault(key, {'default': True, 'exceptions': []})
-            if series_id is None:
+            if options.get('episode_id'):
+                policy.setdefault('episode_choices', {})[options['episode_id']] = (series_id, chosen)
+            elif series_id is None:
                 self.comic_policies[key] = {'default': chosen, 'exceptions': []}
             else:
                 policy['exceptions'] = [] if chosen == policy['default'] else [series_id]
         return keys
+
+    def get_episode_list(self):
+        self.record('get_episode_list')
+        return {'status': 'running', 'list_only': True}
 
     def library_comic_choices(self):
         policies = getattr(self, 'comic_policies', {})
@@ -390,6 +396,32 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
+    def test_get_episode_list_uses_the_selected_provider_without_starting_downloads(self):
+        self.open('library')
+        page = self.pages.library
+        page.tree.setCurrentItem(page.tree.topLevelItem(0))
+        self.assertIn('Tapas', page.get_list.text())
+        self.assertTrue(page.get_list.isEnabled())
+        page.get_list.click()
+        self.assertEqual(len(self.actions.named('get_episode_list')), 1)
+        self.assertEqual(self.actions.named('go'), [])
+        self.assertIn('Getting the episode list', page.list_notice.text())
+
+    def test_unchecking_an_episode_updates_the_series_and_global_mixed_states(self):
+        self.open('library')
+        page = self.pages.library
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        series = provider.child(0)
+        series.setExpanded(True)
+        first, second = series.child(0), series.child(1)
+        second.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(first.checkState(0), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(second.checkState(0), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(series.checkState(0), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertEqual(page.selection.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertEqual(self.actions.named('go'), [])
+
     def test_refresh_restores_open_rows_and_the_current_episode(self):
         self.open('library')
         page = self.pages.library

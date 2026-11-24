@@ -591,7 +591,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             if isinstance(assets,Transport):assets.metrics=previous_transport_metrics
 
 
-def sync(adapter, output=Path("Library"), report=None, categories=None, include_history=False,history_pages=100,history_resume=False,scan_limit=None,refresh_lists=True,scan_only=False,metadata_speed='normal', history_round=None, **options):
+def sync(adapter, output=Path("Library"), report=None, categories=None, include_history=False,history_pages=100,history_resume=False,scan_limit=None,refresh_lists=True,scan_only=False,metadata_speed='normal', history_round=None, all_series=False, **options):
     """Refresh observed lists and watched series, reserving time to archive.
 
     Bounded runs spend at most half their time on metadata. Successful series
@@ -601,6 +601,8 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
     from .discovery import CATEGORIES
     if type(scan_only) is not bool:
         raise ArchiveError('Scan-only mode must be an explicit boolean.')
+    if type(all_series) is not bool or all_series and not scan_only:
+        raise ArchiveError('Reading all series requires metadata-only mode.')
     from .fast_import import validate_speed, FAST_METADATA_INTERVAL, relative_policy
     validate_speed(metadata_speed)
     if metadata_speed != 'normal' and not scan_only:
@@ -710,7 +712,7 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                                   'boundary_observed': library.get('boundary_observed') is True,
                                   'complete': library.get('complete') is True,
                                   'observed_series_count': len(library['series'])})
-        candidates = inventory.scan_candidates(scan_limit)
+        candidates = inventory.scan_candidates(scan_limit, all_series=all_series)
         scan_counts['series_check_target_count'] = len(candidates)
         set_aside_streak = []
         def series_checkpoint(series_id, held=False):
@@ -723,7 +725,7 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             # The controller drains candidates before its next series step.
             # Return committed discoveries instead of making their queue wait
             # behind the rest of this metadata batch, including partial lists.
-            ready = scan_only and not refresh_lists and inventory.has_selected_pending()
+            ready = scan_only and not all_series and not refresh_lists and inventory.has_selected_pending()
             if ready:
                 logging.getLogger('comic_archive.download').info(
                     'scan yield: reason=download_candidates_ready checked=%s target=%s held=%s',
@@ -813,11 +815,11 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
             raise history_skipped[0]
         from .purchase_history import pending as history_pending
         if not history_pending(inventory):
-            inventory.finish_scan_cycle()
+            inventory.finish_scan_cycle(all_series=all_series)
     def refresh(inventory, budget, run_id):
         # Establish the persistent cycle before list pagination can exhaust
         # its window; newly observed series then contribute to remaining work.
-        inventory.scan_candidates()
+        inventory.scan_candidates(all_series=all_series)
         history_pages_before = 0
         if history_round is not None:
             from .purchase_history import state as history_state
@@ -854,7 +856,7 @@ def sync(adapter, output=Path("Library"), report=None, categories=None, include_
                 kept = history_summary(inventory)
                 kept['pages_read'] = max(0, kept.get('pages', 0) - history_pages_before)
                 purchase_check.update(kept)
-        scan_status=inventory.status()
+        scan_status=inventory.status(all_series=all_series)
         result.update(scan_counts)
         if purchase_check:
             result['purchase_history'] = purchase_check

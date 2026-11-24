@@ -131,6 +131,27 @@ class Controller(unittest.TestCase):
             inventory.observe('42', 'Fixture', [{'id': key, 'title': 'One', 'order': 1, 'access_state': 'tapas_free'}],
                               'fixture')
 
+    def test_get_list_never_queues_an_archive_before_explicit_go(self):
+        self.pending_episode()
+        dc.start(self.session, self.library, list_only=True)
+        for category in TAPAS_LISTS:
+            _, request = self.published()
+            self.assertEqual(request['operation'], 'sync')
+            self.assertEqual(request['args']['categories'], [category])
+            self.assertTrue(request['args']['scan_only'])
+            self.assertTrue(request['args']['all_series'])
+            self.ok(counted(refresh={'reading_lists': [{'category': category, 'complete': True,
+                                                        'observed_series_count': 1}]}))
+        with patch('comic_archive.purchase_history.pending', return_value=False):
+            self.tick()
+        self.assertEqual(self.requests(), [])
+        account = dc.status(self.session, self.library)
+        self.assertTrue(account['episode_list_ready'])
+        self.assertEqual(account['status'], 'stopped')
+        self.go()
+        _, request = self.published()
+        self.assertEqual(request['operation'], 'archive_discovered')
+
     def downloading(self):
         """Go with an episode waiting: the first step is a download."""
         self.pending_episode()

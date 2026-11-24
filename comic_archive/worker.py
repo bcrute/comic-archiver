@@ -96,7 +96,10 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
         from .audit import check_completion
         return check_completion(library)
     if operation in {"archive_discovered", "sync"}:
-        if upload_first:
+        all_series = args.get('all_series', False)
+        if type(all_series) is not bool or all_series and (operation != 'sync' or args.get('scan_only') is not True):
+            raise ArchiveError('Reading all series requires metadata-only mode.')
+        if upload_first and not all_series:
             from .cloud import upload_pending
             from .network import NetworkPolicyHold
             from .cloud_errors import safe_code
@@ -128,6 +131,7 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
         if operation == "sync":
             allowed.add('metadata_speed')
             allowed.add('scan_only')
+            allowed.add('all_series')
             allowed.add("categories")
             allowed.add('refresh_lists')
             allowed.add('include_history')

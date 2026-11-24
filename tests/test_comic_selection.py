@@ -138,6 +138,34 @@ class ComicSelectionTests(unittest.TestCase):
         self.assertEqual(adapter.downloads, [])
         self.assertTrue(check_completion(self.root)['completion_check_passed'])
 
+    def test_get_list_reads_episodes_of_unchecked_series_without_capturing_assets(self):
+        adapter = AccountAdapter()
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Known', [], 'fixture')
+            comics.change(inventory.db, False)
+        result = sync(adapter, self.root, refresh_lists=False, scan_only=True, all_series=True)
+        self.assertTrue(result['scan_only'])
+        self.assertTrue(page(self.root, series_id='42')['items'])
+        self.assertFalse(any(row['selected'] for row in page(self.root, series_id='42')['items']))
+        self.assertEqual(adapter.downloads, [])
+        self.assertFalse(any(isinstance(call, tuple) and call[0] == 'capture' for call in adapter.calls))
+
+    def test_episode_choices_override_series_defaults_and_control_real_acquisition(self):
+        adapter = AccountAdapter()
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Comic', [episode(), episode('82') | {'order': 2}], 'fixture')
+            comics.change(inventory.db, False, '42')
+            comics.change_episode(inventory.db, True, '42', '81')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+        self.assertTrue(page(self.root)['items'][0]['mixed'])
+        self.assertEqual([row['selected'] for row in page(self.root, series_id='42')['items']], [True, False])
+        self.assertEqual(archive_discovered(adapter, self.root)['archived_episode_ids'], ['81'])
+        self.assertNotIn(('capture', '82'), adapter.calls)
+        with Inventory(self.root) as inventory:
+            comics.change(inventory.db, True, '42')
+            self.assertEqual(comics.episode_choices(inventory.db), {})
+            self.assertEqual([row['id'] for row in inventory.pending()], ['82'])
+
     def test_scan_limit_applies_after_selection_and_excluded_gaps_do_not_hold_completion(self):
         with Inventory(self.root) as inventory:
             for key in ('42', '43', '44'):

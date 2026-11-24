@@ -11,12 +11,12 @@ PAGE_SIZE = 200
 
 def comic_choices(root):
     """Read the saved download policy without paging the episode inventory."""
-    from .comic_selection import read
+    from .comic_selection import episode_choices, read
 
     if not (root / '.archive-state' / 'inventory.sqlite3').is_file():
-        return {'default': True, 'exceptions': []}
+        return {'default': True, 'exceptions': [], 'episode_choices': {}}
     with Inventory(root, read_only=True) as inventory:
-        return read(inventory.db)
+        return read(inventory.db) | {'episode_choices': episode_choices(inventory.db)}
 
 
 def recorded_format(path):
@@ -64,13 +64,19 @@ def page(root, series_id=None, offset=0, limit=PAGE_SIZE):
                 ORDER BY episode_order IS NULL,episode_order,id LIMIT ? OFFSET ?''',
                 (series_id, limit + 1, offset)).fetchall()
         items = [dict(row) for row in rows[:limit]]
-        from .comic_selection import includes, read
+        from .comic_selection import episode_choices, includes, includes_episode, read
         chosen = read(inventory.db)
+        selected_episodes = episode_choices(inventory.db)
         if series_id is None:
+            mixed_series = {series for series, _ in selected_episodes.values()}
             for item in items:
                 item['selected'] = includes(chosen, item['id'])
+                item['mixed'] = item['id'] in mixed_series
                 for field in ('formats', 'access_kinds'):
                     item[field] = sorted(item[field].split(',')) if item[field] else []
+        else:
+            for item in items:
+                item['selected'] = includes_episode(chosen, selected_episodes, series_id, item['id'])
         return {'initialized': True, 'items': items,
                 'next_offset': offset + limit if len(rows) > limit else None,
                 'comic_selection': chosen}

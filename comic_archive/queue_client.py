@@ -39,6 +39,7 @@ def submit_job(session, operation, options=None,*,_task_id=None):
         if options.get('metadata_speed', 'normal') != 'normal' and options.get('scan_only') is not True:
             raise ArchiveError('Named metadata pacing requires scan-only mode.')
         allowed.add('scan_only')
+        allowed.add('all_series')
         allowed.add("categories")
         allowed.add('refresh_lists')
         allowed.add('include_history')
@@ -48,6 +49,8 @@ def submit_job(session, operation, options=None,*,_task_id=None):
         allowed.add('scan_limit')
     if (set(options) - allowed or type(options.get("free_only", False)) is not bool
             or type(options.get('scan_only',False)) is not bool
+            or type(options.get('all_series', False)) is not bool
+            or (options.get('all_series') and not options.get('scan_only'))
             or type(options.get('include_history',False)) is not bool
             or type(options.get('history_resume',False)) is not bool
             or (options.get('history_resume') and not options.get('include_history'))

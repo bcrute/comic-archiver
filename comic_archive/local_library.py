@@ -264,7 +264,7 @@ class LocalWorkspaceRegistry:
         from .account_ui import status
         return status(self.resolve(owner, workspace_id), since=self.working_since)
 
-    def start_account(self, owner, workspace_id):
+    def start_account(self, owner, workspace_id, *, list_only=False):
         from .errors import LibraryBusy
         from .account_ui import start
         workspace = self.resolve(owner, workspace_id)
@@ -272,13 +272,18 @@ class LocalWorkspaceRegistry:
             if self.site_signin.status()['status'] == 'running' or self.cloud_signin.status()['status'] == 'running':
                 raise LibraryBusy('Complete browser sign-in before downloading.')
             if self.account_status(owner, workspace_id).get('status') == 'running':
+                if list_only:
+                    raise LibraryBusy('Pause this provider before getting its episode list.')
                 return self.account_status(owner, workspace_id)
             info = self.status(owner, workspace_id)
             if not info['session_configured'] or (info['worker'] or {}).get('reported_state') != 'ready':
                 raise ArchiveError('Connect Tapas and start the downloader before downloading.')
             self._prepare_desktop_download(owner, workspace_id)
             self.working_since = int(time.time())
-            start(workspace)
+            if list_only:
+                start(workspace, list_only=True)
+            else:
+                start(workspace)
             return self.account_status(owner, workspace_id)
 
     def choose_speed(self, owner, workspace_id, value):
@@ -309,13 +314,14 @@ class LocalWorkspaceRegistry:
             change_comics(workspace, chosen, series_id, closing=self._closing)
             return self.account_status(owner, workspace_id)
 
-    def choose_library_comics(self, owner, workspace_id, base, chosen, provider=None, series_id=None):
+    def choose_library_comics(self, owner, workspace_id, base, chosen, provider=None, series_id=None, episode_id=None):
         from . import sites
         from .account_ui import change_library_comics
         self.resolve(owner, workspace_id)
         if self.project_root not in {sites.folder(Path(base), site) for site in sites.SITES if site.available}:
             raise ArchiveError('Choose the open working library.')
-        return change_library_comics(base, chosen, provider, series_id, closing=self._closing)
+        options = {'episode_id': episode_id} if episode_id is not None else {}
+        return change_library_comics(base, chosen, provider, series_id, closing=self._closing, **options)
 
     def cloud_signin_status(self, owner, workspace_id):
         self.resolve(owner, workspace_id)

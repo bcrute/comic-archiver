@@ -55,6 +55,7 @@ class EpisodeLibrary:
         self.setting_checks = False
         self.reading_checks = False
         self.selection_ready = False
+        self.requested_list = None
         w = kit.w
         self.widget = w.QWidget()
         self.widget.setObjectName('page')
@@ -63,10 +64,17 @@ class EpisodeLibrary:
         box.setSpacing(8)
         self.refresh = kit.button(say('library.refresh'), self.refresh_view)
         self.refresh.setObjectName('toolbarAction')
+        self.get_list = kit.button('Get episode list', self.request_episode_list)
+        self.get_list.setObjectName('toolbarAction')
+        self.get_list.setEnabled(False)
         header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
         header.layout().addWidget(self.refresh)
+        header.layout().addWidget(self.get_list)
         box.addWidget(header)
-        box.addWidget(kit.label('Check a series to include it in downloads. Unchecking keeps saved files.', 'muted'))
+        box.addWidget(kit.label('Check a series or episode to include it in downloads. Unchecking keeps saved files.', 'muted'))
+        self.list_notice = kit.label('', 'muted')
+        self.list_notice.hide()
+        box.addWidget(self.list_notice)
         saved_note = say('library.saved_can_include_cloud_storage_this')
         self.saved_note = saved_note
         self.notice = kit.label(saved_note, 'muted')
@@ -90,6 +98,7 @@ class EpisodeLibrary:
         self.tree.setMinimumWidth(0)
         self.tree.itemExpanded.connect(self.expanded)
         self.tree.itemChanged.connect(self.changed)
+        self.tree.currentItemChanged.connect(self.update_listing)
         box.addWidget(self.tree, 1)
         box.addWidget(self.notice)
 
@@ -143,10 +152,10 @@ class EpisodeLibrary:
                 or not item.flags() & self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable):
             return
         chosen = item.checkState(0) == self.kit.q.QtCore.Qt.CheckState.Checked
-        if chosen != data['selected']:
-            self.choose(chosen, data['provider'], data['series_id'])
+        if chosen != data['selected'] or data.get('mixed'):
+            self.choose(chosen, data['provider'], data['series_id'], data.get('episode_id'))
 
-    def choose(self, chosen, provider=None, series_id=None):
+    def choose(self, chosen, provider=None, series_id=None, episode_id=None):
         if self.changing:
             return
         self.set_busy(True)
@@ -171,13 +180,53 @@ class EpisodeLibrary:
                 self.reset(load_header=False)
             self.refresh_checks(lambda: self.set_busy(False))
 
-        self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id), done)
+        options = {'episode_id': episode_id} if episode_id is not None else {}
+        self.pages.run(lambda: actions.choose_comics(chosen, provider=provider, series_id=series_id, **options), done)
 
     def set_busy(self, busy):
         self.changing = busy
         self.tree.setEnabled(not busy)
         self.refresh.setEnabled(not busy)
         self.selection.setEnabled(not busy and self.selection_ready and not self.reading_checks)
+        self.update_listing()
+
+    def list_provider(self):
+        key = self.row_key(self.tree.currentItem())
+        return key[0] if key is not None else self.pages.chosen
+
+    def request_episode_list(self):
+        self.requested_list = self.list_provider()
+        self.pages.get_episode_list(self.requested_list)
+
+    def update_listing(self):
+        key = self.list_provider()
+        site = sites.find(key)
+        state = self.pages.states.get(key)
+        status = (state.status or {}) if state is not None else {}
+        account = (state.account or {}) if state is not None else {}
+        signed_in = bool(status.get('session_configured'))
+        ready = (status.get('worker') or {}).get('reported_state') == 'ready'
+        running = account.get('status') == 'running'
+        name = site.name if site is not None else 'this provider'
+        self.get_list.setText(f'Get {name} episode list')
+        self.get_list.setEnabled(bool(state and not state.busy and not self.changing and signed_in and ready and not running))
+        self.get_list.setToolTip(f'Fetch episode titles and availability from {name} without downloading files.'
+                                 if signed_in else f'Sign in to {name} on the Dashboard first.')
+        text = ''
+        if account.get('list_only'):
+            if running:
+                text = f'Getting the episode list from {name}…'
+            elif account.get('episode_list_ready'):
+                text = (f'{name} returned a partial episode list. You can review the episodes it provided.'
+                        if account.get('episode_list_partial') else f'{name} episode list is ready. Choose what to download.')
+            elif account.get('status') == 'held':
+                text = f'Getting the {name} episode list stopped. See Dashboard for details.'
+            else:
+                text = f'Getting the {name} episode list is paused.'
+        if key == self.requested_list and state is not None and state.message and state.message.error:
+            text = state.message.text
+        self.list_notice.setText(text)
+        self.list_notice.setVisible(bool(text))
 
     def rows(self):
         iterator = self.kit.w.QTreeWidgetItemIterator(self.tree)
@@ -269,7 +318,7 @@ class EpisodeLibrary:
 
     def refresh_checks(self, then=None):
         """Update loaded rows without losing expansion, pagination or scroll position."""
-        from .comic_selection import includes
+        from .comic_selection import includes, includes_episode
         generation = self.generation
         self.reading_checks = True
         self.selection.setEnabled(False)
@@ -289,20 +338,23 @@ class EpisodeLibrary:
                 return
             self.setting_checks = True
             try:
-                def update(parent):
-                    for index in range(parent.childCount()):
-                        child = parent.child(index)
-                        data = child.data(0, self.role)
-                        if isinstance(data, dict) and 'selected' in data:
-                            data['selected'] = includes(values[data['provider']], data['series_id'])
-                            child.setData(0, self.role, data)
-                            child.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if data['selected']
-                                               else self.kit.q.QtCore.Qt.CheckState.Unchecked)
-                        update(child)
-                update(self.tree.invisibleRootItem())
+                episodes = {key: policy.get('episode_choices', {}) for key, policy in values.items()}
+                mixed_series = {key: {series for series, _ in override.values()} for key, override in episodes.items()}
+                for row in self.rows():
+                    data = row.data(0, self.role)
+                    if not isinstance(data, dict) or 'selected' not in data:
+                        continue
+                    provider, series = data['provider'], data['series_id']
+                    if 'episode_id' in data:
+                        data['selected'] = includes_episode(values[provider], episodes[provider], series, data['episode_id'])
+                    else:
+                        data['selected'] = includes(values[provider], series)
+                        data['mixed'] = series in mixed_series[provider]
+                    row.setData(0, self.role, data)
+                    self.paint_check(row, data)
                 states = self.kit.q.QtCore.Qt.CheckState
                 defaults = {value['default'] for value in values.values()}
-                if len(defaults) != 1 or any(value['exceptions'] for value in values.values()):
+                if len(defaults) != 1 or any(value['exceptions'] for value in values.values()) or any(episodes.values()):
                     state = states.PartiallyChecked
                 else:
                     state = states.Checked if True in defaults else states.Unchecked
@@ -331,7 +383,20 @@ class EpisodeLibrary:
                 item.setToolTip(0, '<qt>' + escape(columns[0]) + '</qt>')
         if expandable:
             item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        if data is not None and 'selected' in data:
+            previous = self.setting_checks
+            self.setting_checks = True
+            try:
+                item.setFlags(item.flags() | self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                self.paint_check(item, data)
+            finally:
+                self.setting_checks = previous
         return item
+
+    def paint_check(self, row, data):
+        states = self.kit.q.QtCore.Qt.CheckState
+        state = states.Checked if data['selected'] else states.Unchecked
+        row.setCheckState(0, states.PartiallyChecked if data.get('mixed') else state)
 
     def show(self):
         if not self.initialized or self.available != tuple(self.pages.open_keys()):
@@ -396,15 +461,8 @@ class EpisodeLibrary:
                 summary, kinds = columns[1], row.get('access_kinds', [])
                 series_item = self.item(parent, columns,
                           {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle',
-                           'summary': summary, 'selected': row['selected']},
+                           'summary': summary, 'selected': row['selected'], 'mixed': row.get('mixed', False)},
                           expandable=True)
-                self.setting_checks = True
-                try:
-                    series_item.setFlags(series_item.flags() | self.kit.q.QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                    series_item.setCheckState(0, self.kit.q.QtCore.Qt.CheckState.Checked if row['selected']
-                                              else self.kit.q.QtCore.Qt.CheckState.Unchecked)
-                finally:
-                    self.setting_checks = False
                 series_item.setToolTip(2, say('library.recorded_format_no_saved_files_are'))
                 series_item.setToolTip(3, ', '.join(label for key, label in ACCESS_LABELS.items() if key in kinds)
                                        or say('library.no_access_classification_is_recorded_yet'))
@@ -415,11 +473,12 @@ class EpisodeLibrary:
                     continue
                 self.item(parent, episode_columns(row),
                           {'provider': data['provider'], 'series_id': data['series_id'],
-                           'episode_id': row['id'], 'state': 'leaf'})
+                           'episode_id': row['id'], 'state': 'leaf', 'selected': row.get('selected', data.get('selected', True))})
         following = value['next_offset']
         if following is not None:
+            more_data = {key: data[key] for key in ('provider', 'series_id')}
             self.item(parent, [say('library.more_series') if data['series_id'] is None else say('library.more_episodes'), say('library.expand_to_load'), '—', '—'],
-                      dict(data, offset=following, state='idle'), expandable=True)
+                      dict(more_data, offset=following, state='idle'), expandable=True)
         if more:
             parent.takeChild(parent.indexOfChild(item))
         else:

@@ -570,10 +570,10 @@ class Inventory:
         self.db.execute("INSERT INTO settings VALUES ('last_completed_scan',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (timestamp(),))
         self.db.commit()
 
-    def scan_candidates(self,limit=None):
+    def scan_candidates(self,limit=None, *, all_series=False):
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ArchiveError('Series scan limit must be a positive integer.')
-        retry = self._completion_retry_candidates()
+        retry = None if all_series else self._completion_retry_candidates()
         if retry is not None:
             return retry if limit is None else retry[:limit]
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
@@ -589,7 +589,7 @@ class Inventory:
             started = cycle[0]
             observation_time(started)
         since = self.db.execute("SELECT value FROM settings WHERE key='scan_rules_since'").fetchone()
-        held={gap['source_series_id'] for gap in self.scan_gaps() if gap['observed_at']>=started}
+        held={gap['source_series_id'] for gap in self.scan_gaps(all_series=all_series) if gap['observed_at']>=started}
         # Discover episodes in never-checked series before revisiting old
         # catalogue refusals. Keep recovery priority among previously scanned
         # series and retain the current round's completed/held checkpoints.
@@ -602,9 +602,10 @@ class Inventory:
                 WHERE e.series_id=s.id AND e.status='unavailable') THEN 1 ELSE 2 END,
                 COALESCE(scans.observed_at,''),s.id''',(started,SET_ASIDE,since[0] if since else ''))
             if row['id'] not in held]
-        from .comic_selection import includes, read
-        chosen = read(self.db)
-        rows = [row for row in rows if includes(chosen, row['id'])]
+        if not all_series:
+            from .comic_selection import includes, read
+            chosen = read(self.db)
+            rows = [row for row in rows if includes(chosen, row['id'])]
         return rows if limit is None else rows[:limit]
 
     def _completion_retry_candidates(self):
@@ -651,16 +652,16 @@ class Inventory:
             'scope=recorded_gaps saved_files_retained=true', len(keys), retried, failed)
         return len(keys), retried + failed
 
-    def scan_gaps(self):
+    def scan_gaps(self, *, all_series=False):
         # Read-only dashboards can open a pre-upgrade inventory while its old
         # worker is active. Its next writer creates this additive table.
         if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='series_scan_gaps'").fetchone():
             return []
         from .comic_selection import includes, read
-        chosen = read(self.db)
+        chosen = None if all_series else read(self.db)
         result=[]
         for row in self.db.execute('SELECT * FROM series_scan_gaps ORDER BY series_id'):
-            if not includes(chosen, row['series_id']):
+            if chosen is not None and not includes(chosen, row['series_id']):
                 continue
             if (observed_id(row['series_id']) and row['code']=='unsupported_novel_series'
                     and row['observed_count'] is None and row['reported_count'] is None):
@@ -762,8 +763,8 @@ class Inventory:
         self.db.execute('DELETE FROM series_scan_gaps WHERE series_id=?',(key,))
         self.db.commit()
 
-    def finish_scan_cycle(self):
-        retry = self._completion_retry_candidates()
+    def finish_scan_cycle(self, *, all_series=False):
+        retry = None if all_series else self._completion_retry_candidates()
         if retry is not None:
             if retry:
                 return False
@@ -773,10 +774,10 @@ class Inventory:
         cycle = self.db.execute("SELECT value FROM settings WHERE key='scan_cycle_started'").fetchone()
         if cycle is None:
             return False
-        remaining=len(self.scan_candidates())
+        remaining=len(self.scan_candidates(all_series=all_series))
         if remaining:
             return False
-        if self.scan_gaps():
+        if self.scan_gaps(all_series=all_series):
             self.db.execute("INSERT INTO settings VALUES ('last_attempted_scan',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(timestamp(),))
         else:
             self.completed_scan()
@@ -974,7 +975,7 @@ class Inventory:
             types[kind]['saved' if status == 'archived' else 'waiting'] += count
         return counts, unsupported, types
 
-    def status(self):
+    def status(self, *, all_series=False):
         counts, unsupported, types = self._episode_summary()
         from .download_selection import clause, read
         selection = clause(self.db)
@@ -990,11 +991,11 @@ class Inventory:
         from .comic_selection import clause as comic_clause, includes, read as comic_choices
         comics = comic_choices(self.db)
         series_selection = comic_clause(self.db, 's')
-        gaps=self.scan_gaps()
+        gaps=self.scan_gaps(all_series=all_series)
         held={gap['source_series_id'] for gap in gaps if cycle and gap['observed_at']>=since}
-        remaining = sum(row['id'] not in held and includes(comics, row['id']) for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
+        remaining = sum(row['id'] not in held and (all_series or includes(comics, row['id'])) for row in self.db.execute('''SELECT s.id FROM series s LEFT JOIN series_scans scans ON scans.series_id=s.id
             WHERE scans.observed_at IS NULL OR scans.observed_at < ?''',(since,))) if cycle else 0
-        retry = self._completion_retry_candidates()
+        retry = None if all_series else self._completion_retry_candidates()
         if retry is not None:
             remaining = len(retry)
         now=observation_time(timestamp())

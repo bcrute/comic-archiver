@@ -1587,11 +1587,14 @@ class Pages:
                 # A change finished since this was asked for, and what it left is newer: read again, show nothing old.
                 self.poll_site(key, then)
                 return
+            list_was_ready = (s.account or {}).get('episode_list_ready')
             if error is not None:
                 s.refresh_failed()
             elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
                 self.settings.forget_keys()
             self.render()
+            if self.route == 'library' and not list_was_ready and (s.account or {}).get('episode_list_ready'):
+                self.library.refresh_view()
             if error is None:
                 self.confirm_cloud(key)
                 if s.library_refresh:
@@ -1662,6 +1665,8 @@ class Pages:
         self.drawn_from = drawing
         self.header.show(self.route, dark)
         self.dashboard.show(s, sites, views, everything)
+        if self.route == 'library':
+            self.library.update_listing()
         if self.route.startswith('settings/'):
             self.settings.show(s, v, self.route.partition('/')[2], sites, views)
 
@@ -1739,6 +1744,15 @@ class Pages:
             s.download_started()
             s.offline = False
         self.account_act(self.actions_for(key or self.chosen).go, started, key=key)
+
+    def get_episode_list(self, key):
+        state = self.of(key)
+
+        def started(value):
+            state.received_account(value, self.now())
+            self.poll_soon(key)
+
+        self.account_act(self.actions_for(key).get_episode_list, started, key=key)
 
     def pause(self, key=None):
         s = self.of(key or self.chosen)

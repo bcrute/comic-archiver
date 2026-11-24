@@ -27,7 +27,7 @@ from .support_log import DOWNLOAD_LOG, describe
 LOG = logging.getLogger(DOWNLOAD_LOG)
 LOG.addHandler(logging.NullHandler())
 STATE_FILE = 'download.sqlite3'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STATUSES = ('running', 'waiting', 'held', 'stopped', 'finished')
 STAGES = ('lists', 'series', 'archive', 'verify', 'finished')
 # A hold is something the person must fix; each has its reason on its site card (dashboard_model.held_reason).
@@ -86,6 +86,7 @@ CREATE TABLE state (
   failed_retries INTEGER NOT NULL DEFAULT 0 CHECK (failed_retries >= 0),
   episodes_waiting INTEGER NOT NULL DEFAULT 0 CHECK (episodes_waiting >= 0),
   audit TEXT,
+  list_only INTEGER NOT NULL DEFAULT 0 CHECK (list_only IN (0, 1)),
   trimmed_at TEXT,
   updated_at TEXT NOT NULL,
   CHECK ((status = 'held') = (code IS NOT NULL AND code IN {tuple(sorted(HOLDS))}) OR status = 'waiting'),
@@ -192,8 +193,14 @@ def _connect(root, *, create=False):
         version = db.execute('PRAGMA user_version').fetchone()[0]
         if version == 0 and not db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
             db.executescript('BEGIN;' + SCHEMA + 'COMMIT;')
-        elif version != SCHEMA_VERSION or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+        elif version not in (1, SCHEMA_VERSION) or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise Damaged()
+        elif version == 1:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('PRAGMA user_version').fetchone()[0] == 1:
+                db.execute('ALTER TABLE state ADD COLUMN list_only INTEGER NOT NULL DEFAULT 0 CHECK (list_only IN (0, 1))')
+                db.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
+            db.commit()
         return db
     except Damaged:
         db.close()
@@ -244,7 +251,8 @@ def _save(db, value, why=None):
                'stretch_started_at=:stretch_started_at, wait_until=:wait_until, go_after=:go_after, '
                'idle_waits=:idle_waits, network_waits=:network_waits, source_probes=:source_probes, '
                'source_delay=:source_delay, source_episode=:source_episode, failed_retries=:failed_retries, '
-               'episodes_waiting=:episodes_waiting, audit=:audit, trimmed_at=:trimmed_at, updated_at=:updated_at '
+               'episodes_waiting=:episodes_waiting, audit=:audit, list_only=:list_only, '
+               'trimmed_at=:trimmed_at, updated_at=:updated_at '
                'WHERE id=1', value)
 
 
@@ -264,18 +272,18 @@ def _outstanding(db):
     return value
 
 
-def _inventory(library):
+def _inventory(library, *, all_series=False):
     """What the library has waiting: episodes to save and the round's series still to check."""
     if not (Path(library) / '.archive-state/inventory.sqlite3').is_file():
         return {'pending': 0, 'remaining': 0}  # Nothing saved or found yet: the first list read makes the record.
     with Inventory(library, read_only=True) as inventory:
-        status = inventory.status()
+        status = inventory.status(all_series=True) if all_series else inventory.status()
         from .purchase_history import pending
         from .comic_selection import read
         scope = read(inventory.db)
         none_selected = not scope['default'] and not scope['exceptions']
         return {'pending': len(inventory.pending()),
-                'remaining': status['scan_remaining_series_count'] + int(not none_selected and pending(inventory)),
+                'remaining': status['scan_remaining_series_count'] + int((all_series or not none_selected) and pending(inventory)),
                 'none_selected': none_selected}
 
 
@@ -524,7 +532,8 @@ def _settle(db, value, task, response, session):
 
 def _next(db, value, session, library):
     """Reserve the next step, or move the round on; what the library has waiting decides which."""
-    waiting = _inventory(library)
+    list_only = bool(value['list_only'])
+    waiting = _inventory(library, all_series=True) if list_only else _inventory(library)
     value['episodes_waiting'] = waiting['pending']
     read = {row['category'] for row in db.execute('SELECT category FROM lists WHERE read_at IS NOT NULL')}
     unread = [c for c in lists(session) if c not in read]
@@ -540,7 +549,18 @@ def _next(db, value, session, library):
         value['stage'] = 'verify'
     options, speed = _pace(session)
     discovery = ({'history_round': value['round_started_at']}
-                 if sites.of_session(Path(session)).key == 'tapas' and not waiting.get('none_selected') else {})
+                 if sites.of_session(Path(session)).key == 'tapas' and (list_only or not waiting.get('none_selected')) else {})
+    if list_only:
+        discovery['all_series'] = True
+        if value['stage'] == 'lists':
+            _reserve(db, 'list', 'sync', LIST_READ | {'categories': [unread[0]]} | discovery)
+        elif value['stage'] == 'series':
+            _reserve(db, 'series', 'sync', SERIES_CHECK | {'metadata_speed': speed} | discovery)
+        else:
+            # The next Go is separate and explicit. No reader or transfer job
+            # can be reserved by a discovery-only round.
+            value.update(status='stopped', stage='archive', code=None, source_episode=None)
+        return
     if value['source_episode'] is not None:
         _reserve(db, 'probe', 'archive_discovered', options | {'limit': 1, 'retry_episode_id': value['source_episode']})
     elif waiting['pending']:
@@ -909,14 +929,16 @@ def _completion_retry(library):
         return inventory.prepare_completion_retry()
 
 
-def start(session, library=Path('Library')):
+def start(session, library=Path('Library'), *, list_only=False):
     """Go: continue from wherever the download stopped, start a new round after a finished one, or begin."""
     def go(db, value, root):
-        _outstanding(db)  # A step that cannot be read damages the record as much as the rest: Go sets it aside.
+        outstanding = _outstanding(db)  # A damaged step is part of the controller record.
+        if list_only and (outstanding is not None or value is not None and value['status'] in ('running', 'waiting')):
+            raise LibraryBusy('Pause this provider and wait for the current step before getting its episode list.')
         now = _stamp()
         if value is None:
-            db.execute('INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at) '
-                       "VALUES (1, 'running', 'lists', ?, ?, ?)", (now, now, now))
+            db.execute('INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at, list_only) '
+                       "VALUES (1, 'running', 'lists', ?, ?, ?, ?)", (now, now, now, int(list_only)))
             db.executemany('INSERT INTO lists (category) VALUES (?)', [(c,) for c in lists(session)])
             LOG.info('download: begun (Go)')
             return
@@ -924,10 +946,11 @@ def start(session, library=Path('Library')):
         if value['status'] in ('running', 'waiting'):
             LOG.info(f"download: Go while already {value['status']}")
             return
-        if value['status'] == 'finished':
+        resume_list = value['list_only'] and value['stage'] in ('lists', 'series')
+        if value['status'] == 'finished' or list_only and not resume_list:
             value.update(stage='lists', round_started_at=now, audit=None)
             db.execute('UPDATE lists SET read_at=NULL, complete=NULL, observed_series_count=NULL')
-        elif value['code'] == 'archive_incomplete':
+        elif not list_only and value['code'] == 'archive_incomplete':
             value['audit'] = None  # Audited again from where it stopped; the last counts no longer stand.
             if _outstanding(db) is None:
                 gaps, episodes = _completion_retry(library)
@@ -936,6 +959,7 @@ def start(session, library=Path('Library')):
                 elif episodes:
                     value['stage'] = 'archive'
         value.update(status='running', code=None, wait_until=None, stretch_started_at=now, idle_waits=0,
+                     list_only=int(list_only), source_episode=None if list_only else value['source_episode'],
                      network_waits=0, source_probes=0, failed_retries=0)
         if value['go_after'] and _now() < _instant(value['go_after']):
             # The site's own wait still runs; Go cannot cut it short, only start when it ends. It is kept, so a
@@ -1147,10 +1171,15 @@ def status(session, library=Path('Library')):
     categories = lists(session)
     read = [c for c in categories if c in rows and rows[c]['read_at'] is not None]
     stage = value['stage']
-    result['phase'] = ('existing_backlog' if stage == 'lists' and not read and value['episodes_waiting'] else stage)
+    result['phase'] = ('existing_backlog' if stage == 'lists' and not read and value['episodes_waiting']
+                       and not value['list_only'] else stage)
     if task is not None and task['kind'] in ('download', 'probe') and result['phase'] != 'existing_backlog':
         result['phase'] = 'archive'
     result['lists'] = {'checked': len(read), 'total': len(categories)}
+    if value['list_only']:
+        result['list_only'] = True
+        result['episode_list_ready'] = stage == 'archive' and value['status'] == 'stopped'
+        result['episode_list_partial'] = any(rows[category]['complete'] != 1 for category in read)
     if stage == 'lists' and len(read) < len(categories):
         result['lists']['current'] = next(c for c in categories if c not in read)
     if value['status'] == 'held':
@@ -1176,6 +1205,8 @@ def status(session, library=Path('Library')):
         try:
             with Inventory(library, read_only=True) as inventory:
                 purchase = summary(inventory)
+                if result.get('episode_list_ready') and inventory.scan_gaps(all_series=True):
+                    result['episode_list_partial'] = True
         except (ArchiveError, sqlite3.DatabaseError):
             purchase = {'status': 'partial', 'code': 'history_checkpoint_unreadable'}
         if purchase:
