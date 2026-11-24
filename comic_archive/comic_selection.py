@@ -68,7 +68,8 @@ def clause(db, alias='e'):
         identifiers = ','.join("'" + key + "'" for key in value['exceptions'])
         fallback = f"{alias}.{column} {'NOT IN' if value['default'] else 'IN'} ({identifiers})"
     if alias in {'e', 'episodes'} and _episode_table(db):
-        return ('COALESCE((SELECT choice.chosen FROM comic_episode_choices choice '
+        # The aliases are fixed and the fallback comes from the validated policy above.
+        return ('COALESCE((SELECT choice.chosen FROM comic_episode_choices choice '  # noqa: S608
                 f'WHERE choice.episode_id={alias}.id), ({fallback}))')
     return fallback
 
@@ -95,7 +96,9 @@ def change_episode(db, chosen, series_id, episode_id):
         else:
             db.execute('INSERT INTO comic_episode_choices VALUES (?,?) '
                        'ON CONFLICT(episode_id) DO UPDATE SET chosen=excluded.chosen', (episode_id, int(chosen)))
-        _invalidate_completion(db)
+        # This episode is already indexed. Recheck completion without asking
+        # the provider to enumerate its series again.
+        db.execute("DELETE FROM settings WHERE key='completion_retry'")
 
 
 def change(db, chosen, series_id=None):
