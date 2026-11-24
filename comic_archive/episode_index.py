@@ -29,7 +29,7 @@ def recorded_format(path):
     return None
 
 
-def page(root, series_id=None, offset=0, limit=PAGE_SIZE):
+def page(root, series_id=None, offset=0, limit=PAGE_SIZE, *, saved_only=False):
     """No provider calls, directory enumeration, reconciliation or archive reads."""
     if (type(offset) is not int or not 0 <= offset <= 1_000_000
             or type(limit) is not int or not 1 <= limit <= PAGE_SIZE
@@ -53,16 +53,18 @@ def page(root, series_id=None, offset=0, limit=PAGE_SIZE):
                 COALESCE(SUM(e.status='archived'),0) AS saved,
                 GROUP_CONCAT(DISTINCT recorded_format(e.archive_path)) AS formats,
                 GROUP_CONCAT(DISTINCT recorded_access(e.access_state,e.id)) AS access_kinds FROM series s
-                LEFT JOIN episodes e ON e.series_id=s.id GROUP BY s.id
-                ORDER BY s.title COLLATE NOCASE,s.id LIMIT ? OFFSET ?''', (limit + 1, offset)).fetchall()
+                LEFT JOIN episodes e ON e.series_id=s.id AND (?=0 OR e.status='archived')
+                WHERE ?=0 OR e.id IS NOT NULL GROUP BY s.id
+                ORDER BY s.title COLLATE NOCASE,s.id LIMIT ? OFFSET ?''',
+                (saved_only, saved_only, limit + 1, offset)).fetchall()
         else:
             if inventory.db.execute('SELECT 1 FROM series WHERE id=?', (series_id,)).fetchone() is None:
                 raise ArchiveError('This series is no longer recorded in the library.')
             rows = inventory.db.execute('''SELECT id,title,episode_order AS episode_number,status,access_state,
                 recorded_format(archive_path) AS format,recorded_access(access_state,id) AS access_kind
-                FROM episodes WHERE series_id=?
+                FROM episodes WHERE series_id=? AND (?=0 OR status='archived')
                 ORDER BY episode_order IS NULL,episode_order,id LIMIT ? OFFSET ?''',
-                (series_id, limit + 1, offset)).fetchall()
+                (series_id, saved_only, limit + 1, offset)).fetchall()
         items = [dict(row) for row in rows[:limit]]
         from .comic_selection import episode_choices, includes, includes_episode, read
         chosen = read(inventory.db)

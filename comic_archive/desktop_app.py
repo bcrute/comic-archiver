@@ -579,6 +579,8 @@ class Shell:
 
     def __init__(self, q, app, runtime, log_path=None, probe=None):
         self.q, self.app, self.runtime, self.log_path, self.probe = q, app, runtime, log_path, probe
+        self.list_settings = q.QtCore.QSettings(str(app_runtime.state_dir() / 'episode-lists.ini'),
+                                                q.QtCore.QSettings.Format.IniFormat)
         self.phase = 'starting'
         self.pages = None
         self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
@@ -709,6 +711,16 @@ class Shell:
 
     def chosen_site(self):
         return self.runtime.site.key
+
+    def episode_list_cleared(self, workspace, provider):
+        return self.list_settings.value(f'{workspace}/{provider}', False, type=bool)
+
+    def set_episode_list_cleared(self, workspace, provider, cleared):
+        key = f'{workspace}/{provider}'
+        if cleared:
+            self.list_settings.setValue(key, True)
+        else:
+            self.list_settings.remove(key)
 
     def theme_apply(self):
         """Give the window the look chosen in its header: the computer's own, or always light or dark."""

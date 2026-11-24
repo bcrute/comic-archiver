@@ -16,7 +16,7 @@ if os.name == 'nt' and os.environ.get('WINDIR'):
     os.environ.setdefault('QT_QPA_FONTDIR', os.path.join(os.environ['WINDIR'], 'Fonts'))
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-from comic_archive import app_actions, dashboard_model, license_texts, storage_model, window_pages, window_style  # noqa: E402
+from comic_archive import app_actions, dashboard_model, license_texts, storage_model, window_library, window_pages, window_style  # noqa: E402
 
 Q = SimpleNamespace(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets)
 NOW = 1_000_000.0
@@ -185,11 +185,12 @@ class FakeActions:
         self.record('cloud_cleanup', test_id)
         return {'task_id': TASK}
 
-    def episode_inventory(self, series_id=None, offset=0, provider=None):
+    def episode_inventory(self, series_id=None, offset=0, provider=None, **options):
         from comic_archive.comic_selection import includes
-        self.record('episode_inventory', series_id=series_id, offset=offset, provider=provider)
+        self.record('episode_inventory', series_id=series_id, offset=offset, provider=provider, **options)
+        saved_only = options.get('saved_only', False)
         if series_id is None:
-            return {'initialized': True, 'items': [{'id': '42', 'title': 'Sample series', 'episodes': 2, 'saved': 1,
+            return {'initialized': True, 'items': [{'id': '42', 'title': 'Sample series', 'episodes': 1 if saved_only else 2, 'saved': 1,
                                                          'formats': ['CBZ'], 'access_kinds': ['free', 'limited'],
                                                          'selected': includes(
                                                              getattr(self, 'comic_policies', {}).get(provider, {'default': True, 'exceptions': []}), '42')}],
@@ -197,7 +198,8 @@ class FakeActions:
                     'comic_selection': getattr(self, 'comic_policies', {}).get(provider, {'default': True, 'exceptions': []})}
         return {'initialized': True, 'items': [
             {'id': '81', 'title': 'First', 'episode_number': 1, 'status': 'archived', 'access_state': 'tapas_free', 'format': 'CBZ', 'access_kind': 'free'},
-            {'id': '82', 'title': 'Second', 'episode_number': 2, 'status': 'queued', 'access_state': 'tapas_limited', 'format': None, 'access_kind': 'limited'}],
+            *([] if saved_only else [{'id': '82', 'title': 'Second', 'episode_number': 2, 'status': 'queued',
+                                     'access_state': 'tapas_limited', 'format': None, 'access_kind': 'limited'}])],
             'next_offset': None}
 
     def choose_comics(self, chosen, provider=None, series_id=None, **options):
@@ -240,6 +242,13 @@ class Shell:
     def __init__(self):
         self.calls, self.held, self.is_dark, self.answer = [], None, False, True
         self.open, self.chosen, self.opens = ['tapas'], 'tapas', False
+        self.cleared_lists = {}
+
+    def episode_list_cleared(self, workspace, provider):
+        return self.cleared_lists.get((workspace, provider), False)
+
+    def set_episode_list_cleared(self, workspace, provider, cleared):
+        self.cleared_lists[workspace, provider] = cleared
 
     def open_sites(self):
         return list(self.open)
@@ -396,6 +405,10 @@ class HelperTests(unittest.TestCase):
 
 
 class EpisodeLibraryTests(PagesCase):
+    def test_zero_episode_series_says_nothing_has_been_listed_yet(self):
+        row = {'title': 'New series', 'episodes': 0, 'saved': 0}
+        self.assertEqual(window_library.series_columns(row)[1], 'No episodes listed yet')
+
     def test_get_episode_lists_starts_every_provider_without_a_selection_or_downloads(self):
         self.shell.open = list(self.sites)
         self.shell.chosen = 'webtoon'
@@ -624,7 +637,7 @@ class EpisodeLibraryTests(PagesCase):
         provider.setExpanded(True)
         self.assertEqual(len(self.actions.named('episode_inventory')), 1)
         series = provider.child(0)
-        self.assertEqual(series.text(1), '1 / 2 saved')
+        self.assertEqual(series.text(1), '1 saved · 2 listed')
         series.setExpanded(True)
         self.assertEqual([series.child(i).text(1) for i in range(2)], ['Saved', 'Pending'])
         self.assertEqual(series.text(2), 'CBZ')
@@ -768,7 +781,7 @@ class DashboardTests(PagesCase):
             self.assertEqual(len(self.actions.named('download_types')), before + int(accept))
         self.assertEqual(self.actions.named('download_types')[-1][1], (choices,))
 
-    def test_download_menu_has_three_actions_and_opens_the_right_provider_in_library(self):
+    def test_download_menu_opens_the_right_provider_in_library(self):
         from PySide6 import QtTest
 
         self.shell.open = list(self.sites)
@@ -778,7 +791,8 @@ class DashboardTests(PagesCase):
         button = self.dashboard.cards['webtoon'].selection
         menu = button.menu()
         choices = ('Get episode list only', 'Choose comics in Library', 'Download settings…')
-        self.assertEqual(tuple(item.text() for item in menu.actions() if not item.isSeparator()), choices)
+        self.assertEqual(tuple(item.text() for item in menu.actions() if not item.isSeparator()),
+                         (*choices[:2], 'Clear episode list', choices[2]))
         for shortcut in (choices[1], choices[0], choices[2]):
             with self.subTest(shortcut=shortcut):
                 self.pages.go_to('dashboard')
@@ -841,6 +855,39 @@ class DashboardTests(PagesCase):
             self.assertTrue(choose.isEnabled())
         finally:
             menu.close()
+
+    def test_clear_episode_list_keeps_saved_rows_and_restores_the_list_after_fetch(self):
+        self.actions.reading['status'].update(episode_count=2, series_count=1)
+        self.actions.account(status='stopped', list_only=True, episode_list_ready=True)
+        self.open()
+        settle()
+        button = self.card.selection
+        menu = button.menu()
+        menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+        clear = next(item for item in menu.actions() if item.text() == 'Clear episode list')
+        self.assertTrue(clear.isEnabled())
+        menu.close()
+        clear.trigger()
+        page = self.pages.library
+        self.assertEqual(self.pages.route, 'library')
+        self.assertIn('Tapas: List cleared', page.list_notice.text())
+        self.open('library')
+        provider = page.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        series = provider.child(0)
+        series.setExpanded(True)
+        self.assertEqual(series.text(1), '1 saved')
+        self.assertEqual(series.childCount(), 1)
+        self.assertEqual(series.child(0).text(1), 'Saved')
+        self.assertFalse(self.actions.named('choose_comics'))
+        page.get_list.click()
+        self.assertTrue(page.is_list_cleared('tapas'))
+        self.actions.account(status='stopped', episode_list_ready=True)
+        self.pages.poll_site('tapas')
+        self.assertFalse(page.is_list_cleared('tapas'))
+        series = page.tree.topLevelItem(0).child(0)
+        self.assertEqual(series.text(1), '1 saved · 2 listed')
+        self.assertEqual(series.childCount(), 2)
 
     def test_download_choices_offer_the_sites_extras_after_the_types_and_save_them_together(self):
         self.actions.reading['account']['download_extras'] = dict(notes=False, music=True, stats=False, comments=False)

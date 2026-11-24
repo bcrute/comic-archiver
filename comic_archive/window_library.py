@@ -27,9 +27,12 @@ def episode_type(mark):
     return ACCESS_LABELS[access_kind(mark)]
 
 
-def series_columns(row):
+def series_columns(row, *, saved_only=False):
     """A recorded series as the Library lists it: title, saved of recorded, format, access."""
-    return [' '.join(row['title'].splitlines()), f"{row['saved']:,} / {row['episodes']:,} saved",
+    summary = f"{row['saved']:,} saved"
+    if not saved_only:
+        summary = f"{summary} · {row['episodes']:,} listed" if row['episodes'] else 'No episodes listed yet'
+    return [' '.join(row['title'].splitlines()), summary,
             format_summary(row.get('formats', [])), access_summary(row.get('access_kinds', []))]
 
 
@@ -210,8 +213,9 @@ class EpisodeLibrary:
         eligible = {site.key: state for site, state, _, can_list in listings if can_list}
         if provider is not None:
             return {provider: eligible[provider]} if provider in eligible else {}
-        new = {site.key: state for site, state, account, can_list in listings
-               if can_list and self.requested_lists.get(site.key) is not state and not account.get('episode_list_ready')}
+        new = {site.key: state for site, state, account, can_list in listings if can_list and (
+            self.is_list_cleared(site.key) or
+            self.requested_lists.get(site.key) is not state and not account.get('episode_list_ready'))}
         if new:
             return new
         active = any((account.get('list_only') and account.get('status') == 'running')
@@ -221,6 +225,10 @@ class EpisodeLibrary:
 
     def can_request_episode_list(self, provider):
         return any(site.key == provider and can_list for site, _, _, can_list in self.listing_states())
+
+    def is_list_cleared(self, provider):
+        state = self.pages.states.get(provider)
+        return bool(state and state.workspace_id and self.pages.shell.episode_list_cleared(state.workspace_id, provider))
 
     def request_episode_lists(self, *, provider=None):
         targets = self.list_targets(tuple(self.listing_states()), provider=provider)
@@ -250,7 +258,9 @@ class EpisodeLibrary:
             if detail:
                 messages.append(f'{site.name}: {detail}')
                 continue
-            if account.get('list_only'):
+            if self.is_list_cleared(site.key) and not (account.get('list_only') and account.get('status') == 'running'):
+                detail = 'List cleared'
+            elif account.get('list_only'):
                 if account.get('status') == 'running':
                     detail = 'Getting episode list…'
                 elif account.get('episode_list_ready'):
@@ -279,7 +289,10 @@ class EpisodeLibrary:
         if self.list_refresh_pending and self.widget.isVisible() and not self.changing:
             self.refresh_view()
 
-    def list_completed(self):
+    def list_completed(self, provider=None):
+        if provider is not None and self.is_list_cleared(provider):
+            state = self.pages.states[provider]
+            self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, False)
         self.list_refresh_pending = True
         self.refresh_completed_lists()
 
@@ -313,6 +326,7 @@ class EpisodeLibrary:
         previous_scroll = scroll.value()
         generation = self.generation
         actions = self.pages.actions
+        saved_only = {key[0]: self.is_list_cleared(key[0]) for key in scopes}
         self.set_busy(True)
         self.notice.setText('Refreshing the Library…')
 
@@ -323,7 +337,8 @@ class EpisodeLibrary:
                 offset = 0
                 items = []
                 while True:
-                    value = actions.episode_inventory(provider=provider, series_id=series, offset=offset)
+                    options = {'saved_only': True} if saved_only[provider] else {}
+                    value = actions.episode_inventory(provider=provider, series_id=series, offset=offset, **options)
                     items.extend(value['items'])
                     following = value['next_offset']
                     if following is None or not offset < following <= limit:
@@ -508,7 +523,9 @@ class EpisodeLibrary:
                 return
             self.populate(item, data, value)
 
-        self.pages.run(lambda: actions.episode_inventory(series_id=data['series_id'], offset=data['offset'], provider=data['provider']), done)
+        options = {'saved_only': True} if self.is_list_cleared(data['provider']) else {}
+        self.pages.run(lambda: actions.episode_inventory(series_id=data['series_id'], offset=data['offset'],
+                                                         provider=data['provider'], **options), done)
 
     def populate(self, item, data, value):
         data['state'] = 'loaded'
@@ -524,7 +541,7 @@ class EpisodeLibrary:
             for row in value['items']:
                 if row['id'] in identifiers:
                     continue
-                columns = series_columns(row)
+                columns = series_columns(row, saved_only=self.is_list_cleared(data['provider']))
                 summary, kinds = columns[1], row.get('access_kinds', [])
                 series_item = self.item(parent, columns,
                           {'provider': data['provider'], 'series_id': row['id'], 'offset': 0, 'state': 'idle',
@@ -549,6 +566,10 @@ class EpisodeLibrary:
         if more:
             parent.takeChild(parent.indexOfChild(item))
         else:
-            item.setText(1, data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value))
+            if data['series_id'] is None and self.is_list_cleared(data['provider']):
+                text = 'Saved episodes only' if value['items'] else 'List cleared'
+            else:
+                text = data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value)
+            item.setText(1, text)
             if not value['items']:
                 item.setChildIndicatorPolicy(self.kit.w.QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)

@@ -452,15 +452,21 @@ class SiteCard:
         menu.setToolTipsVisible(True)
         fetch_list = menu.addAction('Get episode list only', lambda: pages.open_download_library(key, fetch_list=True))
         choose_comics = menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
+        clear_list = menu.addAction('Clear episode list', lambda: pages.clear_episode_list(key))
         menu.addSeparator()
         menu.addAction('Download settings…', lambda: pages.open_download_choices(key))
 
         def update_download_menu():
             fetch_list.setEnabled(pages.library.can_request_episode_list(key))
             status = pages.of(key).status or {}
-            has_episodes = dashboard_model.number(status.get('episode_count')) > 0
+            has_episodes = (dashboard_model.number(status.get('episode_count')) > 0
+                            and not pages.library.is_list_cleared(key))
             choose_comics.setEnabled(has_episodes)
             choose_comics.setToolTip('' if has_episodes else 'Get this provider’s episode list first.')
+            clear_list.setEnabled(pages.can_clear_episode_list(key))
+            running = (pages.of(key).account or {}).get('status') == 'running'
+            clear_list.setToolTip('Pause this provider before clearing.' if running
+                                  else 'Remove the retrieved list from Library. Saved files and download choices are kept.')
 
         menu.aboutToShow.connect(update_download_menu)
         self.selection.setMenu(menu)
@@ -650,6 +656,8 @@ class SiteCard:
             set_visible(self.signout, False)
             return
         summary = dashboard_model.card_summary(s, v)
+        if (s.account or {}).get('episode_list_ready') and self.pages.library.is_list_cleared(self.key):
+            next(row for row in summary['rows'] if row['name'] == say('dashboard.status'))['value'] = 'List cleared'
         self._appearance(summary['appearance'])
         self.pill.setText(dashboard_model.pill(summary['state']))
         tone(self.pill, 'tone', summary['tone'])
@@ -1609,9 +1617,9 @@ class Pages:
                 s.refresh_failed()
             elif app_actions.received(s, value, self.now(), task) and key == self.chosen:
                 self.settings.forget_keys()
-            self.render()
             if not list_was_ready and (s.account or {}).get('episode_list_ready'):
-                self.library.list_completed()
+                self.library.list_completed(key)
+            self.render()
             if error is None:
                 self.confirm_cloud(key)
                 if s.library_refresh:
@@ -1768,7 +1776,7 @@ class Pages:
         def started(value):
             state.received_account(value, self.now())
             if self.states.get(key) is state and (state.account or {}).get('episode_list_ready'):
-                self.library.list_completed()
+                self.library.list_completed(key)
             self.poll_soon(key)
 
         self.account_act(self.actions_for(key).get_episode_list, started, key=key)
@@ -1880,6 +1888,19 @@ class Pages:
         self.library.show_provider(key)
         if fetch_list:
             self.library.request_episode_lists(provider=key)
+
+    def can_clear_episode_list(self, key):
+        state = self.of(key)
+        status = state.status or {}
+        return bool(state.workspace_id and not state.busy and not self.library.is_list_cleared(key)
+                    and (state.account or {}).get('status') != 'running'
+                    and (dashboard_model.number(status.get('episode_count')) or dashboard_model.number(status.get('series_count'))))
+
+    def clear_episode_list(self, key):
+        if self.can_clear_episode_list(key):
+            self.shell.set_episode_list_cleared(self.of(key).workspace_id, key, True)
+            self.library.list_completed()
+            self.open_download_library(key)
 
     def open_download_choices(self, key):
         """Episode types and extras; individual comics are selected on Library."""

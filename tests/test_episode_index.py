@@ -68,6 +68,14 @@ class EpisodeIndexTests(unittest.TestCase):
         self.assertEqual((chapter['format'], chapter['access_kind']), ('EPUB', 'limited'))
         self.assertNotIn('archive_path', chapter)
 
+    def test_saved_only_view_keeps_archives_and_leaves_episode_inventory_intact(self):
+        self.seed()
+        series = page(self.root, limit=1, saved_only=True)
+        self.assertIsNone(series['next_offset'])
+        self.assertEqual([(row['id'], row['saved']) for row in series['items']], [('42', 1)])
+        self.assertEqual([row['id'] for row in page(self.root, '42', saved_only=True)['items']], ['81'])
+        self.assertEqual(len(page(self.root, '42')['items']), 3)
+
     def test_pagination_is_bounded_and_does_not_invent_or_duplicate_episodes(self):
         self.seed()
         first = page(self.root, '42', limit=2)

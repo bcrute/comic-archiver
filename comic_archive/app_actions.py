@@ -208,7 +208,7 @@ class Actions:
             raise Refused('request_unavailable', error_text('request_unavailable'))
         return self._call('task', task_id)
 
-    def episode_inventory(self, series_id=None, offset=0, provider=None):
+    def episode_inventory(self, series_id=None, offset=0, provider=None, *, saved_only=False):
         """One local index page, without blocking acquisition controls."""
         from .discovery import observed_id
         site = sites.find(provider) if provider is not None else None
@@ -224,7 +224,8 @@ class Actions:
                 from pathlib import Path
                 from .episode_index import page
                 registry.resolve(LOCAL_OWNER, registry.workspace_id)
-                return page(sites.folder(Path(runtime.root), site) / 'Library', series_id=series_id, offset=offset)
+                return page(sites.folder(Path(runtime.root), site) / 'Library', series_id=series_id,
+                            offset=offset, saved_only=saved_only)
             except Exception as error:
                 LOG.warning('Episode index unavailable site=%s reason=%s', site.key, described(error))
                 raise Refused('request_unavailable', say('action.the_episode_list_could_not_be')) from None
