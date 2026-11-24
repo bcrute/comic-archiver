@@ -306,9 +306,7 @@ def _counts(row, keys):
     return ', '.join(f'{key} {row[key]}' for key in keys if type(row.get(key)) is int)
 
 
-def _steps(session, library):
-    from . import download_control
-    record = download_control.history(session, library, STEPS)
+def _steps(record):
     if record is None:
         return ['No download yet']
     state, steps = record
@@ -340,9 +338,8 @@ def _part(read, *args):
         return [f'Could not be read: {describe(error)}']
 
 
-def _account_lists(session, library):
+def _account_lists(session, record):
     from . import download_control, sites
-    record = download_control.history(session, library, limit=0)
     if record is None:
         return []
     state, _ = record
@@ -379,18 +376,27 @@ def _history_failure(library):
 
 def site_records(name, session, library):
     """One site's part of a saved log: its episodes not saved, its download's last steps and its downloader's log."""
+    from . import download_control
+
     session, library = Path(session), Path(library)
     worker = session / 'worker' / 'background.log'
     logs = [worker.with_name(f'{worker.name}.{n}') for n in range(WORKER_LOGS_KEPT, 0, -1)] + [worker]
     folders = (session, worker.parent)
     excerpt = _quiet(_tail(logs, 8 * DOWNLOADER_BYTES, folders))
     failures = _part(_novel_failures, library, logs, folders)
+    record = None
+    try:
+        record = download_control.history(session, library, STEPS)
+    except Exception as error:
+        steps = [f'Could not be read: {describe(error)}']
+    else:
+        steps = _part(_steps, record)
     sections = [f'=== {name}: episodes not saved', *_part(_unsaved, library),
-                '', f'=== {name}: the download’s last steps, oldest first', *_part(_steps, session, library),
+                '', f'=== {name}: the download’s last steps, oldest first', *steps,
                 '', f'=== {name}: the downloader’s log', _log_excerpt(excerpt, DOWNLOADER_BYTES)]
     if failures:
         sections.extend(['', f'=== {name}: EPUB failure details', *failures])
-    discovery = _part(_account_lists, session, library)
+    discovery = _part(_account_lists, session, record)
     if name.casefold() == 'tapas':
         discovery.extend(_part(_history_failure, library))
     # Keep these structured results at the end, which survives the export's shared byte budget.

@@ -233,8 +233,7 @@ class SupportLogTests(unittest.TestCase):
                  {'task_id': 'job-' + 'b' * 24, 'kind': 'audit', 'reserved_at': '2026-11-04T09:11:00+00:00',
                   'published_at': None, 'finished_at': None, 'outcome': None, 'pages': None, 'bytes': None,
                   'episodes': None, 'series_checked': None, 'progressed': None}]
-        with patch('comic_archive.download_control.history', return_value=(state, steps)):
-            lines = support_log._steps(Path('s'), Path('l'))
+        lines = support_log._steps((state, steps))
         self.assertEqual(lines, [
             'Now: held/archive_incomplete at verify since 2026-11-04T10:00:00+00:00',
             'Tries: idle_waits 0, network_waits 2, source_probes 0, failed_retries 1, episodes waiting 0',
