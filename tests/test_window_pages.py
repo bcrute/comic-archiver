@@ -781,31 +781,24 @@ class DashboardTests(PagesCase):
         for shortcut in (choices[1], choices[0], choices[2]):
             with self.subTest(shortcut=shortcut):
                 self.pages.go_to('dashboard')
-                clicked = []
                 dialogs = []
-
-                def pick():
-                    action = next(item for item in menu.actions() if item.text() == shortcut)
-                    if not menu.isVisible() or not action.isEnabled():
-                        menu.close()
-                        return
-                    if shortcut == choices[2]:
-                        def close_settings():
-                            dialog = APP.activeModalWidget()
-                            if dialog is not None:
-                                dialogs.append(dialog.windowTitle())
-                                dialog.reject()
-                        QtCore.QTimer.singleShot(0, self.window, close_settings)
-                    if shortcut == choices[1] and (folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS')):
-                        from pathlib import Path
-                        menu.grab().save(str(Path(folder) / 'download-menu.png'))
-                    clicked.append(shortcut)
-                    menu.setActiveAction(action)
-                    QtTest.QTest.keyClick(menu, QtCore.Qt.Key.Key_Return)
-
-                QtCore.QTimer.singleShot(0, self.window, pick)
-                button.showMenu()
-                self.assertEqual(clicked, [shortcut])
+                menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+                settle()
+                self.assertTrue(menu.isVisible())
+                action = next(item for item in menu.actions() if item.text() == shortcut)
+                self.assertTrue(action.isEnabled())
+                menu.setActiveAction(action)
+                if shortcut == choices[1] and (folder := os.environ.get('COMIC_LAYOUT_ARTIFACTS')):
+                    from pathlib import Path
+                    self.assertTrue(menu.grab().save(str(Path(folder) / 'download-menu.png')))
+                if shortcut == choices[2]:
+                    def close_settings():
+                        dialog = APP.activeModalWidget()
+                        if dialog is not None:
+                            dialogs.append(dialog.windowTitle())
+                            dialog.reject()
+                    QtCore.QTimer.singleShot(0, self.window, close_settings)
+                QtTest.QTest.keyClick(menu, QtCore.Qt.Key.Key_Return)
                 if shortcut == choices[2]:
                     self.assertEqual(dialogs, ['What to download from Webtoon'])
                     self.assertEqual(self.pages.route, 'dashboard')
