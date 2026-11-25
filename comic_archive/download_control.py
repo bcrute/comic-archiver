@@ -892,10 +892,19 @@ def _end_unrun(session, library, root, task_id):
         pass
 
 
+def _controller_lock(root):
+    # Reopening a fresh library or changing settings can precede the first worker.
+    # Create its private parents explicitly before the lock creates its own files.
+    from .archive_paths import directory
+    directory(root.parent, mode=0o700)
+    directory(root, mode=0o700)
+    return wait_for_library(root / '.download-state', 5)
+
+
 def _transaction(session, library, action, *, create=False, require_queue=True):
     """Run one change under the record's lock. With `create` (Go), a damaged record is set aside and begun anew."""
     root = _root(session, library, require_queue=require_queue)
-    with wait_for_library(root / '.download-state', 5):
+    with _controller_lock(root):
         _move_old(session, library, root)
         for attempt in range(2):
             try:
@@ -979,7 +988,7 @@ def change_speed(session, library, save, wait, can_resume, *, selection=False):
     durable stop is committed before cancellation; interruption or failure leaves it paused.
     """
     root = _root(session, library, require_queue=False)
-    with wait_for_library(root / '.download-state', 5):
+    with _controller_lock(root):
         def stop(db, value, root):
             if value is None:
                 return None

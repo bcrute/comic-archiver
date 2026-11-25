@@ -195,6 +195,27 @@ class Controller(unittest.TestCase):
         android_download.start(self.workspace)
         self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
 
+    def test_first_signin_can_start_worker_after_opening_library_or_changing_speed(self):
+        import threading
+        from comic_archive import background
+        for operation in ('reopen', 'speed'):
+            with self.subTest(operation=operation):
+                fresh = Workspace('default', self.project / operation)
+                fresh.session.mkdir(mode=0o700, parents=True)
+                mask = os.umask(0o002)
+                try:
+                    if operation == 'reopen':
+                        dc.reopen(fresh.session, fresh.library)
+                    else:
+                        account_ui.change_speed(fresh, 'medium', closing=threading.Event())
+                    root = background.root(fresh.session, create=True)
+                finally:
+                    os.umask(mask)
+                for folder in (fresh.session, root):
+                    self.assertTrue(folder.is_dir())
+                    if os.name == 'posix':
+                        self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+
     def test_tappytoon_phone_list_mode_finishes_without_downloading_until_file_mode_and_start(self):
         self.check_android_list_mode('tappytoon', ['unlocked', 'subscribed', 'recent'])
 
