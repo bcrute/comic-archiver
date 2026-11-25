@@ -1,5 +1,6 @@
 """User-selected scope survives reruns without deleting or restoring excluded books."""
 import json
+from itertools import combinations
 from pathlib import Path
 import tempfile
 import unittest
@@ -52,6 +53,25 @@ class DownloadSelectionTests(unittest.TestCase):
                 # Permanent purchase evidence survives a later public-free label.
                 inventory.record_access('82', site.free, expires_at=None)
                 self.assertEqual({row['id'] for row in inventory.pending()}, {'81', '82'})
+
+    def test_every_tappytoon_selection_persists_and_queues_exactly_its_episodes(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'Purchased series', [
+                episode('81', 'tappytoon_unlocked'), episode('82', 'tappytoon_free', 2)], 'fixture')
+            inventory.observe('43', 'Other series', [
+                episode('91', 'tappytoon_free'), episode('92', 'tappytoon_limited', 2),
+                episode('93', 'tappytoon_readable', 3)], 'fixture')
+        eligible = {'bought': {'81', '82'}, 'free': {'82', '91'}, 'limited': {'92'}, 'unclassified': {'93'}}
+        for size in range(1, len(eligible) + 1):
+            for enabled in combinations(eligible, size):
+                with self.subTest(enabled=enabled):
+                    chosen = choices(*enabled)
+                    with Inventory(self.root) as inventory:
+                        selection.save(inventory.db, chosen)
+                    with Inventory(self.root, read_only=True) as inventory:
+                        self.assertEqual(selection.read(inventory.db), chosen)
+                        self.assertEqual({row['id'] for row in inventory.pending()},
+                                         set().union(*(eligible[key] for key in enabled)))
 
     def test_limited_and_unknown_types_are_separate_and_neither_implies_a_purchase(self):
         with Inventory(self.root) as inventory:

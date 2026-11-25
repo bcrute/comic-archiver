@@ -4,6 +4,7 @@ Nothing here opens a library, signs in anywhere or starts a downloader: the libr
 and the window's own steps (sites, folders, the theme, the browser) are recorded by Shell.
 """
 import copy
+from itertools import product
 import os
 from types import SimpleNamespace
 import unittest
@@ -868,6 +869,55 @@ class DashboardTests(PagesCase):
         series = page.tree.topLevelItem(0).child(0)
         self.assertEqual(series.text(1), '1 saved · 2 listed')
         self.assertEqual(series.childCount(), 2)
+
+    def test_tappytoon_settings_round_trip_every_checkbox_combination(self):
+        labels = {'bought': 'Paid / unlocked', 'free': 'Free', 'limited': 'Limited unlocks',
+                  'unclassified': 'Unknown type'}
+        previous = dict.fromkeys(labels, True)
+        self.shell.open = ['tapas', 'tappytoon', 'webtoon']
+        actions = self.sites['tappytoon']
+        actions.account(status='running', phase='archive', download_extras={})
+        self.open()
+        menu = self.dashboard.cards['tappytoon'].selection.menu()
+        settings = next(action for action in menu.actions() if action.text() == 'Download settings…')
+
+        for values in product((True, False), repeat=4):
+            with self.subTest(values=values):
+                desired = dict(zip(labels, values, strict=True))
+                errors = []
+                before = len(actions.named('download_types'))
+
+                def choose():
+                    dialog = APP.activeModalWidget()
+                    try:
+                        checks = {check.text(): check for check in dialog.findChildren(QtWidgets.QCheckBox)}
+                        self.assertEqual(set(checks), set(labels.values()))
+                        for key, label in labels.items():
+                            self.assertEqual(checks[label].isChecked(), previous[key])
+                            if checks[label].isChecked() != desired[key]:
+                                checks[label].click()
+                        buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+                        save = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save)
+                        self.assertEqual(save.isEnabled(), any(values))
+                        if any(values):
+                            save.click()
+                        else:
+                            buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).click()
+                    except Exception as error:
+                        errors.append(repr(error))
+                        if dialog is not None:
+                            dialog.reject()
+
+                QtCore.QTimer.singleShot(0, self.window, choose)
+                settings.trigger()
+                settle()
+                self.assertEqual(errors, [])
+                self.assertEqual(len(actions.named('download_types')), before + int(any(values)))
+                if any(values):
+                    previous = desired
+                self.assertEqual(actions.named('download_types')[-1][1], (previous,))
+        for key in ('tapas', 'webtoon'):
+            self.assertFalse(self.sites[key].named('download_types'))
 
     def test_tappytoon_download_menu_saves_only_the_free_checkbox_change(self):
         self.shell.open = ['tapas', 'tappytoon', 'webtoon']
