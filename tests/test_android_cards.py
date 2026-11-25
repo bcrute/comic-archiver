@@ -289,7 +289,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
             dict(zip(('title', 'status', 'format', 'access'), window_library.series_columns(row), strict=True), id=row['id'], selected=True)
             for row in recorded]})
         self.assertEqual([(row['title'], row['status']) for row in listed['result']['items']],
-                         [('Series name', '1 / 3 saved'), ('Unenumerated series', '0 / 0 saved')])
+                         [('Series name', '1 saved · 3 listed'), ('Unenumerated series', 'No episodes listed yet')])
         episodes = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')['result']
         self.assertEqual(episodes['items'], [
             dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row), strict=True), id=row['id'])
@@ -308,7 +308,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
                     {'id': '7', 'title': 'One', 'episodes': 2, 'saved': 2, 'formats': ['CBZ'], 'access_kinds': ['free'], 'selected': True}]}) as read:
             first = self.call('episode_inventory', base_root=str(self.root), site='tapas', offset=0)['result']
         self.assertEqual(first['next_offset'], 200)
-        self.assertEqual(first['items'], [{'id': '7', 'title': 'One', 'status': '2 / 2 saved', 'format': 'CBZ', 'access': 'Free', 'selected': True}])
+        self.assertEqual(first['items'], [{'id': '7', 'title': 'One', 'status': '2 saved · 2 listed', 'format': 'CBZ', 'access': 'Free', 'selected': True}])
         self.assertEqual(read.call_args.kwargs, {'series_id': None, 'offset': 0})
         with patch('comic_archive.episode_index.page',
                    return_value={'initialized': True, 'next_offset': None, 'items': [],
