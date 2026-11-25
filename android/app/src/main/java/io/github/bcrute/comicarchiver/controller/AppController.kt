@@ -45,7 +45,8 @@ interface AppController {
     /** Forget every list read for the Library, so each is read again when opened. */
     fun refreshEpisodes() {}
     /** Select future acquisitions; saved files are never deleted by this action. */
-    fun chooseComics(chosen: Boolean, site: String? = null, seriesId: String? = null) {}
+    fun listPreference(site: String, action: String) {}
+    fun chooseComics(chosen: Boolean, site: String? = null, seriesId: String? = null, episodeId: String? = null) {}
     fun loadCatalog(query: CatalogQuery, refresh: Boolean = false)
     fun openSavedFile(id: String)
     fun setTheme(value: AppTheme)

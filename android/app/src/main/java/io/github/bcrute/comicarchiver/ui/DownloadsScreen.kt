@@ -67,6 +67,7 @@ fun DownloadsScreen(
     onSignOut: (String) -> Unit = {},
     onSpeed: (String, String) -> Unit = { _, _ -> },
     onDownloadChoices: (String) -> Unit = {},
+    onListAction: (String, String) -> Unit = { _, _ -> },
     onGoAll: () -> Unit = {},
     onPauseAll: () -> Unit = {},
     onOpenLibrary: () -> Unit = {},
@@ -109,7 +110,7 @@ fun DownloadsScreen(
         }
         state.notice?.let { NoticeCard(it, onDismiss = onDismissNotice) }
         state.cards.forEach { card ->
-            SiteCardView(card, onSignIn, onGo, onPause, onSignOut, onSpeed, onDownloadChoices)
+            SiteCardView(card, onSignIn, onGo, onPause, onSignOut, onSpeed, onDownloadChoices, onListAction)
         }
         Text(say("window.estimates_adjust_as_episodes_are_discovered"),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -153,6 +154,7 @@ private fun SiteCardView(
     onSignOut: (String) -> Unit,
     onSpeed: (String, String) -> Unit,
     onDownloadChoices: (String) -> Unit,
+    onListAction: (String, String) -> Unit,
 ) {
     val c = cardColors(card.appearance, MaterialTheme.colorScheme.background.luminance() < 0.5f)
     val rule = c.text.copy(alpha = 0.27f)
@@ -191,11 +193,34 @@ private fun SiteCardView(
                 modifier = Modifier.testTag("card-status-${card.site}"))
             if (card.message.isNotBlank()) Text(card.message, color = if (card.messageError) error else c.text,
                 modifier = Modifier.testTag("card-message-${card.site}").semantics { liveRegion = LiveRegionMode.Polite })
-            TextButton(onClick = { onDownloadChoices(card.site) }, enabled = card.selectionEnabled,
+            var menu by remember(card.site) { mutableStateOf(false) }
+            Box {
+            TextButton(onClick = { menu = true }, enabled = card.selectionEnabled,
                 colors = ButtonDefaults.textButtonColors(contentColor = c.text),
                 modifier = Modifier.testTag("card-types-${card.site}")
                     .semantics { contentDescription = say("window.download_choices_for", "name" to card.name) }) {
                 Text(card.selection, fontWeight = FontWeight.Bold)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                for ((key, label) in listOf("files" to "Episode files", "list" to "Episode list only",
+                    "choose" to "Choose comics in Library", "clear" to "Clear episode list", "settings" to "Download settings…")) {
+                    val enabled = when (key) {
+                        "choose" -> card.hasEpisodes
+                        "clear" -> card.hasList && card.action != CardAction.PAUSE
+                        "settings" -> true
+                        else -> card.action != CardAction.PAUSE
+                    }
+                    DropdownMenuItem(text = { Column {
+                        Text(label)
+                        if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
+                            style = MaterialTheme.typography.bodySmall)
+                    } }, leadingIcon = if (key == (if (card.listOnly) "list" else "files")) ({ Text("✓") }) else null,
+                        enabled = enabled, onClick = {
+                            menu = false
+                            if (key == "settings") onDownloadChoices(card.site) else onListAction(card.site, key)
+                        })
+                }
+            }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(

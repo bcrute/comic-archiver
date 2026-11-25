@@ -104,7 +104,8 @@ private fun AppState.siteCard(choice: SiteChoice, controls: Boolean): SiteCardUi
             ?: if (restoring) say("signin.checking_saved_sign_in") else "",
         messageError = failed != null || card?.statusError == true,
         selection = card?.selection?.takeIf { it.isNotBlank() } ?: say("window.download_all_types"),
-        selectionEnabled = controls,
+        selectionEnabled = controls && !settingsBusy,
+        listOnly = card?.listOnly == true, hasEpisodes = card?.hasEpisodes == true, hasList = card?.hasList == true,
         action = action,
         actionText = when (action) {
             CardAction.SIGN_IN -> if (checking && !restoring) say("dashboard.signing_in_2") else say("dashboard.sign_in")

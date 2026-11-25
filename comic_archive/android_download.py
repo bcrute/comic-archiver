@@ -33,7 +33,45 @@ def start(workspace, *, browser_factory=None):
     if not (workspace.session / account_ui.SPEED_FILE).exists():
         account_ui.choose_speed(workspace, speed)
     account_ui.repair_android_list_reads(workspace)
-    account_ui.start(workspace)
+    if list_only(workspace):
+        account_ui.start(workspace, list_only=True)
+        hidden = workspace.session / 'episode-list-cleared'
+        if hidden.exists():
+            hidden.replace(workspace.session / 'episode-list-refreshing')
+    else:
+        account_ui.start(workspace)
+
+
+def list_only(workspace):
+    try:
+        (workspace.session / 'episode-list-only').stat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def list_hidden(workspace, account=None):
+    refreshing = workspace.session / 'episode-list-refreshing'
+    if refreshing.is_file() and account and account.get('episode_list_ready'):
+        refreshing.unlink(missing_ok=True)
+    return refreshing.is_file() or (workspace.session / 'episode-list-cleared').is_file()
+
+
+def change_list(workspace, action):
+    from .locking import LibraryLock
+    with LibraryLock(workspace.session / '.account-ui'):
+        if account_ui.status(workspace).get('status') == 'running':
+            raise ArchiveError('Pause this provider before changing its episode list.')
+        mode = workspace.session / 'episode-list-only'
+        if action == 'list':
+            mode.touch(mode=0o600)
+        elif action == 'files':
+            mode.unlink(missing_ok=True)
+        elif action == 'clear':
+            (workspace.session / 'episode-list-cleared').touch(mode=0o600)
+            (workspace.session / 'episode-list-refreshing').unlink(missing_ok=True)
+        else:
+            raise ArchiveError('Choose an episode list action.')
 
 
 def status(workspace):

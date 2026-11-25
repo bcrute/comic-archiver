@@ -77,6 +77,7 @@ data class SiteCardUi(
     val speed: String,
     val speedEnabled: Boolean,
     val speeds: List<SpeedOption>,
+    val listOnly: Boolean = false, val hasEpisodes: Boolean = false, val hasList: Boolean = false,
 )
 
 /** What the sign-in screen renders, derived from `AppState` by [toSignInScreenUi]. */

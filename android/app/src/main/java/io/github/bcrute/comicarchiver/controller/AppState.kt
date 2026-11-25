@@ -70,7 +70,7 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                     val action: String = "", val actionText: String = "", val actionEnabled: Boolean = false,
                     val signOut: Boolean = false, val signOutEnabled: Boolean = false,
                     val speed: String = "", val speedEnabled: Boolean = false, val speeds: List<SpeedOption> = emptyList(),
-                    val selection: String = "") {
+                    val selection: String = "", val listOnly: Boolean = false, val hasEpisodes: Boolean = false, val hasList: Boolean = false, val bulk: String = "") {
     companion object {
         /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
         fun parse(envelope: org.json.JSONObject): List<SiteCard>? {
@@ -114,7 +114,7 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                                 speed.opt("label") as? String ?: return@mapNotNull null)
                         }
                     },
-                    card.opt("selection") as? String ?: "")
+                    card.opt("selection") as? String ?: "", card.optBoolean("list_only"), card.optBoolean("has_episodes"), card.optBoolean("has_list"), card.optString("bulk"))
             }
         }
     }
@@ -127,7 +127,7 @@ data class SpeedOption(val key: String, val label: String)
 
 /** One line of the Library's recorded episodes, in the desktop's words: a series under its site, or an episode under its series. */
 data class EpisodeRow(val id: String, val title: String, val status: String, val format: String, val access: String,
-                      val selected: Boolean? = null)
+                      val selected: Boolean? = null, val mixed: Boolean = false)
 
 /** What has been read under one site, or under one of its series. */
 data class EpisodeList(
@@ -165,7 +165,7 @@ data class EpisodeList(
                     is Boolean -> value
                     else -> return null
                 }
-                EpisodeRow(words[0], words[1], words[2], words[3], words[4], chosen)
+                EpisodeRow(words[0], words[1], words[2], words[3], words[4], chosen, item.opt("mixed") == true)
             }
             val policy = result.optJSONObject("comic_selection")
             val default = if (policy == null) true else policy.opt("default") as? Boolean ?: return null

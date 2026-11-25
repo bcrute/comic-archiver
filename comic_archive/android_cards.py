@@ -7,7 +7,7 @@ phone is decided here: its downloader starts with the download, and nothing resu
 import sqlite3
 import time
 
-from . import android_session, sites, worker_host
+from . import android_download, android_session, sites, worker_host
 from .dashboard_model import SPEED_NAMES, SPEEDS, State, card_summary, download_choice, pill, view
 from .local_library import LOCAL_OWNER
 from .models import ArchiveError
@@ -55,7 +55,13 @@ class Cards:
             s.refreshed(now)
         v = view(s, now)
         summary = card_summary(s, v)
-        return {'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
+        status = s.status or {}
+        policy = status.get('comic_selection', {'default': True, 'exceptions': []})
+        bulk = ('mixed' if policy['exceptions'] or status.get('has_episode_choices') else
+                'on' if policy['default'] else 'off') if s.loaded else ''
+        hidden = android_download.list_hidden(workspace, s.account)
+        mode = android_download.list_only(workspace)
+        return {'bulk': bulk, 'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
                 'appearance': summary['appearance'], 'message': s.message.text if s.message else '',
                 # The download's own word for where it is, so the phone can tell a card read before a press of
                 # Start or Pause from one read after it.
@@ -71,7 +77,12 @@ class Cards:
                 'speed': v['speed'] if v['speed_visible'] and s.account is not None else '',
                 'speed_enabled': bool(v['speed_visible'] and v['speed_enabled']),
                 'speeds': [{'key': key, 'label': SPEED_NAMES[key]} for key in SPEEDS],
-                'selection': download_choice(s.account if s.loaded else None)[0],
+                'selection': ('Download: Episode list only' if mode
+                              else download_choice(s.account if s.loaded else None)[0]),
+                'list_only': mode,
+                'has_episodes': bool((s.status or {}).get('episode_count')) and not hidden,
+                'has_list': bool((s.status or {}).get('episode_count') or (s.status or {}).get('series_count'))
+                            and not hidden,
                 # What Settings lists for the site: its download issues, and saved and pending by episode type.
                 'issues': [{'reason': row['reason'], 'count': row['count']} for row in v['not_downloaded']],
                 'types': [{'label': row['label'], 'saved': row['saved'], 'waiting': row['waiting']}

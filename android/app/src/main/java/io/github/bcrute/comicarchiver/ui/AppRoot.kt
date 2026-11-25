@@ -78,7 +78,8 @@ fun ComicArchiverAppRoot(
     var tab by rememberSaveable { mutableStateOf(AppTab.SAVING) }
     var settingsPage by rememberSaveable { mutableStateOf("Overview") }
     var showFilesRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
-    var showComicsRequested by rememberSaveable(state.site, state.libraryId) { mutableStateOf(false) }
+    var comicsProvider by rememberSaveable(state.libraryId) { mutableStateOf<String?>(null) }
+    var showComicsRequested by rememberSaveable(state.libraryId) { mutableStateOf(false) }
     var signOutSite by rememberSaveable { mutableStateOf<String?>(null) }
     var signOutLibrary by rememberSaveable { mutableStateOf<String?>(null) }
     // A card's Sign out or episode types on a site that is not the one shown: the site is shown first.
@@ -159,9 +160,6 @@ fun ComicArchiverAppRoot(
             title = { Text(say("window.download_choices_for", "name" to name)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    TextButton(onClick = { typesSite = null; showComicsRequested = true; tab = AppTab.LIBRARY }) {
-                        Text("Choose comics in Library…")
-                    }
                     if (types.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
                     else DownloadTypeChoices(types, state.settingsBusy, { chosen ->
                         typesSite = null
@@ -222,6 +220,13 @@ fun ComicArchiverAppRoot(
                                     typesSite = key
                                     if (key == state.site) controller.refreshSettings() else controller.selectSite(key)
                                 },
+                                onListAction = { site, action ->
+                                    if (action == "choose") {
+                                        comicsProvider = site
+                                        showComicsRequested = true
+                                        tab = AppTab.LIBRARY
+                                    } else controller.listPreference(site, action)
+                                },
                                 onGoAll = controller::goAll,
                                 onPauseAll = controller::pauseAll,
                                 onOpenLibrary = { showFilesRequested = true; tab = AppTab.LIBRARY },
@@ -255,7 +260,7 @@ fun ComicArchiverAppRoot(
                                 onFilesRequestConsumed = { showFilesRequested = false },
                                 showComicsRequested = showComicsRequested,
                                 onComicsRequestConsumed = { showComicsRequested = false },
-                                sites = state.sites, episodes = state.episodes,
+                                sites = state.sites, episodes = state.episodes, initialProvider = comicsProvider, bulkChoices = state.siteCards.associate { it.site to it.bulk },
                                 onLoadEpisodes = controller::loadEpisodes, onRefreshEpisodes = controller::refreshEpisodes,
                                 onChooseComics = controller::chooseComics, comicChoicesBusy = state.settingsBusy,
                                 comicChoicesNotice = state.comicChoicesNotice,

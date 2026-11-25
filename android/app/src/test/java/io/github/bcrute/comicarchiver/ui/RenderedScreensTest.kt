@@ -316,6 +316,7 @@ class RenderedScreensTest {
     @Test fun aCardsEpisodeTypesAreChosenFromTheCardAndTheSignInPageTakesTheTabOnlyWhileOpen() {
         show()
         compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
+        compose.onNodeWithText("Download settings…").performClick()
         compose.onNodeWithText("Download choices for Tapas").assertIsDisplayed()
         compose.onNodeWithContentDescription("Free").performClick()
         compose.onNodeWithText("Save choices").performClick()
@@ -635,20 +636,22 @@ class RenderedScreensTest {
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsOn().performClick()
         assertEquals(listOf(Triple(false, "tapas", "42")), controller.comicChanges)
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsOff()
-        compose.onNodeWithTag("comics-check-all").performClick()
+        compose.onNodeWithTag("comics-toggle-all").performClick()
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsOn()
-        compose.onNodeWithTag("comics-uncheck-all").performClick()
+        compose.onNodeWithTag("comics-toggle-all").performClick()
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsOff()
         compose.onNodeWithText("1 / 2 saved").assertExists()
         assertEquals(0, controller.goCalls)
         controller.state.value = controller.state.value.copy(settingsBusy = true)
-        compose.onNodeWithTag("comics-check-all").assertIsNotEnabled()
+        compose.onNodeWithTag("comics-toggle-all").assertIsNotEnabled()
         compose.onNodeWithTag("select-episodes-tapas/42").assertIsNotEnabled()
     }
 
     @Test
     @Config(qualifiers = "w360dp-h640dp")
     fun comicBulkChoicesStayWholeAndTappableWithDoubleSizeText() {
+        controller.state.value = controller.state.value.copy(sites = listOf(SiteChoice("tapas", "Tapas", true)),
+            episodes = mapOf("tapas" to EpisodeList(loaded = true, selectionDefault = false)))
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
                 MaterialTheme {
@@ -677,7 +680,7 @@ class RenderedScreensTest {
         compose.onNodeWithTag("episodes-tapas").performClick()
         assertEquals(0, controller.episodeLoads.size)
         compose.runOnIdle { controller.state.value = controller.state.value.copy(workspaceReady = false, episodes = emptyMap()) }
-        compose.onNodeWithTag("comics-check-all").assertIsNotEnabled()
+        compose.onNodeWithTag("comics-toggle-all").assertIsNotEnabled()
         assertEquals(0, controller.episodeLoads.size)
         compose.runOnIdle { controller.state.value = controller.state.value.copy(workspaceReady = true) }
         compose.waitForIdle()
@@ -1478,11 +1481,12 @@ private class ScreenController : AppController {
     }
     val episodeLoads = mutableListOf<Pair<String, String?>>()
     val comicChanges = mutableListOf<Triple<Boolean, String?, String?>>()
-    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?) {
+    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?, episodeId: String?) {
         comicChanges.add(Triple(chosen, site, seriesId))
         state.value = state.value.copy(episodes = state.value.episodes.mapValues { (key, list) ->
             if (key.contains('/') || site != null && site != key) list
-            else list.copy(rows = list.rows.map { row ->
+            else list.copy(selectionDefault = if (seriesId == null) chosen else list.selectionDefault,
+                selectionExceptions = if (seriesId == null) emptySet() else setOf(seriesId), rows = list.rows.map { row ->
                 if (seriesId == null || row.id == seriesId) row.copy(selected = chosen) else row
             })
         })

@@ -260,7 +260,10 @@ class DefaultAppController(
         } catch (cancelled: CancellationException) { throw cancelled }
           catch (_: Exception) { null }
         withContext(Dispatchers.Main) {
-            if (current(target, version) && cards != null) _state.value = _state.value.copy(siteCards = cards)
+            if (current(target, version) && cards != null) {
+                if (cards.any { card -> card.hasEpisodes && _state.value.siteCards.any { it.site == card.site && !it.hasEpisodes } }) refreshEpisodes()
+                _state.value = _state.value.copy(siteCards = cards)
+            }
         }
     }
     /** Raised when the lists are forgotten, so an answer still on its way is dropped. */
@@ -294,7 +297,29 @@ class DefaultAppController(
         _state.value = _state.value.copy(episodes = emptyMap())
     }
 
-    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?) {
+    override fun listPreference(site: String, action: String) {
+        if (!workspaceReady || _state.value.siteBusy || _state.value.settingsBusy || _state.value.libraryBusy) return
+        val target = location
+        val version = siteVersion
+        _state.value = _state.value.copy(settingsBusy = true)
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                val args = JSONObject().put("base_root", target.base.absolutePath).put("site", site).put("action", action)
+                try { JSONObject(bridge.dispatch("list_preference", args.toString())).optBoolean("ok") }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { false }
+            }
+            if (!current(target, version)) return@launch
+            if (saved) {
+                if (action == "clear") refreshEpisodes()
+                withContext(Dispatchers.IO) { readSiteCards(target, version) }
+            }
+            if (current(target, version)) _state.value = _state.value.copy(settingsBusy = false,
+                notice = if (saved) null else Notice(BetaCodes.JOB_FAILED, "Could not change the episode list. Pause the provider and try again."))
+        }
+    }
+
+    override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?, episodeId: String?) {
         if (!workspaceReady || _state.value.settingsBusy || _state.value.siteBusy || _state.value.libraryBusy) return
         val target = location
         val version = siteVersion
@@ -305,6 +330,7 @@ class DefaultAppController(
                 val args = JSONObject().put("base_root", target.base.absolutePath).put("chosen", chosen)
                 if (site != null) args.put("site", site)
                 if (seriesId != null) args.put("series_id", seriesId)
+                if (episodeId != null) args.put("episode_id", episodeId)
                 val envelope = JSONObject(bridge.dispatch("choose_comics", args.toString()))
                 if (envelope.opt("ok") != true) null else envelope.optJSONObject("result")?.optJSONObject("choices")
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -312,14 +338,21 @@ class DefaultAppController(
             withContext(Dispatchers.Main) {
                 if (!current(target, version)) return@withContext
                 val updated = if (result == null) emptyMap() else _state.value.episodes.mapValues { (key, list) ->
-                    val policy = result.optJSONObject(key)
+                    val provider = key.substringBefore('/')
+                    val series = key.substringAfter('/', "")
+                    val policy = result.optJSONObject(provider)
                     if (policy == null) list.copy(loading = false) else {
                         val default = policy.opt("default") as? Boolean
                         val entries = policy.optJSONArray("exceptions")
                         if (default == null || entries == null) EpisodeList(failed = true)
                         else {
                             val exceptions = (0 until entries.length()).map { entries.optString(it) }.toSet()
-                            list.copy(rows = list.rows.map { it.copy(selected = default != (it.id in exceptions)) },
+                            val overrides = policy.optJSONObject("episodes") ?: JSONObject()
+                            val mixed = overrides.keys().asSequence().map { overrides.getJSONArray(it).getString(0) }.toSet()
+                            list.copy(rows = list.rows.map { row ->
+                                if (series.isEmpty()) row.copy(selected = default != (row.id in exceptions), mixed = row.id in mixed)
+                                else row.copy(selected = overrides.optJSONArray(row.id)?.getBoolean(1) ?: (default != (series in exceptions)))
+                            },
                                 loading = false, selectionDefault = default, selectionExceptions = exceptions)
                         }
                     }
@@ -327,6 +360,7 @@ class DefaultAppController(
                 _state.value = _state.value.copy(settingsBusy = false, episodes = updated,
                     comicChoicesNotice = if (result == null) "Could not apply every choice. Review the saved checkboxes and try again."
                         else "Comic choices saved. Existing files are kept.")
+                withContext(Dispatchers.IO) { readSiteCards(target, version) }
             }
         }
     }

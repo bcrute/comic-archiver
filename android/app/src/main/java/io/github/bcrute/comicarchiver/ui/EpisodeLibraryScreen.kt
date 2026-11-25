@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,11 +45,11 @@ import io.github.bcrute.comicarchiver.words.say
 @OptIn(ExperimentalLayoutApi::class)
 fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList>,
                          onLoad: (String, String?) -> Unit, onRefresh: () -> Unit,
-                         onChooseComics: (Boolean, String?, String?) -> Unit = { _, _, _ -> },
-                         changing: Boolean = false, notice: String? = null) {
+                         onChooseComics: (Boolean, String?, String?, String?) -> Unit = { _, _, _, _ -> },
+                         changing: Boolean = false, notice: String? = null, initialProvider: String? = null, bulkChoices: Map<String, String> = emptyMap()) {
     // Places opened on screen, by the same key as their lists.
-    var opened by rememberSaveable { mutableStateOf(listOf<String>()) }
-    LaunchedEffect(opened, lists, changing) {
+    var opened by rememberSaveable(initialProvider) { mutableStateOf(listOfNotNull(initialProvider)) }
+    LaunchedEffect(opened, lists, changing, sites) {
         if (!changing) opened.filter { lists[it]?.let { value -> !value.loaded && !value.loading && !value.failed } != false }.forEach { key ->
             val parts = key.split('/', limit = 2)
             onLoad(parts[0], parts.getOrNull(1))
@@ -71,12 +73,22 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                     Text(say("app.library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     OutlinedButton(onClick = { opened = emptyList(); onRefresh() }, enabled = !changing) { Text(say("library.refresh")) }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedButton(onClick = { onChooseComics(true, null, null) }, enabled = !changing,
-                        modifier = Modifier.testTag("comics-check-all")) { Text("Check all") }
-                    OutlinedButton(onClick = { onChooseComics(false, null, null) }, enabled = !changing,
-                        modifier = Modifier.testTag("comics-uncheck-all")) { Text("Uncheck all") }
+                val policies = sites.filter { it.enabled }.map { site ->
+                    val policy = bulkChoices[site.key]
+                    if (!policy.isNullOrEmpty()) policy else lists[site.key]?.takeIf { it.loaded }?.let {
+                        if (it.selectionExceptions.isNotEmpty() || it.rows.any { row -> row.mixed }) "mixed"
+                        else if (it.selectionDefault) "on" else "off"
+                    }
+                }
+                val ready = policies.isNotEmpty() && policies.none { it == null }
+                val all = ready && policies.all { it == "on" }
+                val none = ready && policies.all { it == "off" }
+                val bulk = if (all) ToggleableState.On else if (none) ToggleableState.Off else ToggleableState.Indeterminate
+                Row(Modifier.testTag("comics-toggle-all").triStateToggleable(bulk, enabled = ready && !changing,
+                    role = Role.Checkbox, onClick = { onChooseComics(!all, null, null, null) }),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    TriStateCheckbox(state = bulk, onClick = null)
+                    Text(if (all) "Uncheck all" else "Check all")
                 }
                 Text("Choose which comics to download. Unchecking keeps saved files.", style = MaterialTheme.typography.bodySmall)
                 if (notice != null) Text(notice, style = MaterialTheme.typography.bodySmall,
@@ -102,14 +114,15 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                 item(key = seriesKey) {
                     EpisodeLine(row.title, placeStatus(episodes, row.status, row.status), "${row.format} · ${row.access}",
                         1, seriesOpen, "episodes-$seriesKey", onToggle = { toggle(site.key, row.id) },
-                        selected = row.selected, enabled = !changing,
-                        onSelected = { onChooseComics(it, site.key, row.id) })
+                        selected = row.selected, mixed = row.mixed, enabled = !changing,
+                        onSelected = { onChooseComics(it, site.key, row.id, null) })
                 }
                 if (!seriesOpen || episodes == null) return@forEach
                 episodes.rows.forEach { episode ->
                     item(key = "$seriesKey/${episode.id}") {
                         EpisodeLine(episode.title, episode.status, "${episode.format} · ${episode.access}", 2, null,
-                            "episode-$seriesKey/${episode.id}", null)
+                            "episode-$seriesKey/${episode.id}", null, selected = episode.selected, enabled = !changing,
+                            onSelected = { onChooseComics(it, site.key, row.id, episode.id) })
                     }
                 }
                 more(episodes, "$seriesKey/more", say("library.more_episodes"), 2) { onLoad(site.key, row.id) }
@@ -141,14 +154,15 @@ private fun LazyListScope.more(list: EpisodeList, key: String, label: String, de
 /** One line of the tree. A site or a series opens and closes; an episode only says what is recorded. */
 @Composable
 private fun EpisodeLine(title: String, status: String, detail: String?, depth: Int, open: Boolean?, tag: String,
-                        onToggle: (() -> Unit)?, selected: Boolean? = null, enabled: Boolean = true,
+                        onToggle: (() -> Unit)?, selected: Boolean? = null, mixed: Boolean = false, enabled: Boolean = true,
                         onSelected: (Boolean) -> Unit = {}) {
     val place = if (onToggle == null) Modifier else Modifier
         .clickable(role = Role.Button, onClick = onToggle)
         .semantics { stateDescription = if (open == true) say("library.expanded") else say("library.collapsed") }
     Row(Modifier.fillMaxWidth().then(place).padding(start = (16 * depth).dp, top = 8.dp, bottom = 8.dp).testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (selected != null) Checkbox(checked = selected, onCheckedChange = onSelected, enabled = enabled,
+        if (selected != null) TriStateCheckbox(state = if (mixed) ToggleableState.Indeterminate else ToggleableState(selected),
+            onClick = { onSelected(mixed || !selected) }, enabled = enabled,
             modifier = Modifier.testTag("select-$tag").semantics { contentDescription = "Download $title" })
         if (open != null) Text(if (open) "▾" else "▸")
         Column(Modifier.weight(1f)) {

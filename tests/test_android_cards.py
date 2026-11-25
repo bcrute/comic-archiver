@@ -292,7 +292,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
                          [('Series name', '1 saved · 3 listed'), ('Unenumerated series', 'No episodes listed yet')])
         episodes = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')['result']
         self.assertEqual(episodes['items'], [
-            dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row), strict=True), id=row['id'])
+            dict(zip(('title', 'status', 'format', 'access'), window_library.episode_columns(row), strict=True), id=row['id'], selected=True)
             for row in page(library, series_id='42')['items']])
         self.assertEqual([(row['title'], row['status'], row['access']) for row in episodes['items']],
                          [('1 · Episode 1', 'Saved', 'Free'), ('2 · Episode 2', 'Not saved', 'Unknown type'),
@@ -337,6 +337,27 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertFalse(failed['ok'])
         self.assertNotIn('PRIVATE', json.dumps(failed))
 
+    def test_list_mode_clear_and_completed_refresh_keep_saved_files_and_provider_scope(self):
+        from comic_archive import android_download
+        from comic_archive.workspace import Workspace
+        workspace = Workspace(id="default", root=self.root)
+        self.seed(workspace.library)
+        args = dict(base_root=str(self.root), site='tapas')
+        self.assertTrue(self.call('list_preference', **args, action='list')['ok'])
+        self.assertTrue(android_download.list_only(workspace))
+        self.assertFalse(self.call('list_preference', base_root=str(self.root.parent), site='tapas', action='files')['ok'])
+        self.assertTrue(self.call('list_preference', **args, action='clear')['ok'])
+        rows = self.call('episode_inventory', **args, series_id='42')['result']['items']
+        self.assertEqual([row['id'] for row in rows], ['81'])
+        with patch('comic_archive.account_ui.start') as start:
+            android_download.start(workspace)
+        start.assert_called_once_with(workspace, list_only=True)
+        self.assertTrue(android_download.list_hidden(workspace, {'episode_list_ready': False}))
+        self.assertFalse(android_download.list_hidden(workspace, {'episode_list_ready': True}))
+        self.assertEqual(len(self.call('episode_inventory', **args, series_id='42')['result']['items']), 3)
+        self.assertTrue(self.call('list_preference', **args, action='files')['ok'])
+        self.assertFalse(android_download.list_only(workspace))
+
     def test_choose_comics_updates_only_future_acquisitions_and_never_starts_a_worker(self):
         self.seed(self.root / 'Library')
         saved = self.root / 'Library' / 'saved.cbz'
@@ -348,6 +369,12 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertEqual([row['selected'] for row in rows], [False, True])
         self.assertEqual(saved.read_bytes(), b'original comic')
         self.assertFalse(list((self.root / '.comic-session/worker/requests').glob('*.json')))
+        picked = self.call('choose_comics', base_root=str(self.root), site='tapas', series_id='42',
+                           episode_id='82', chosen=True)
+        self.assertEqual(picked['result']['choices']['tapas']['episodes'], {'82': ['42', True]})
+        self.assertTrue(self.call('episode_inventory', base_root=str(self.root), site='tapas')['result']['items'][0]['mixed'])
+        episodes = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')
+        self.assertEqual([row['selected'] for row in episodes['result']['items']], [False, True, False])
         all_off = self.call('choose_comics', base_root=str(self.root), chosen=False)
         self.assertTrue(all_off['ok'], all_off)
         self.assertEqual(set(all_off['result']['choices']), {'tapas', 'webtoon', 'tappytoon'})

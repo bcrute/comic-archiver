@@ -70,12 +70,13 @@ fun LibraryScreen(
     onFilesRequestConsumed: () -> Unit = {},
     showComicsRequested: Boolean = false,
     onComicsRequestConsumed: () -> Unit = {},
-    onChooseComics: (Boolean, String?, String?) -> Unit = { _, _, _ -> },
+    onChooseComics: (Boolean, String?, String?, String?) -> Unit = { _, _, _, _ -> },
     comicChoicesBusy: Boolean = false,
     comicChoicesNotice: String? = null,
     sites: List<SiteChoice> = emptyList(),
     episodes: Map<String, EpisodeList> = emptyMap(),
     onLoadEpisodes: (String, String?) -> Unit = { _, _ -> },
+    initialProvider: String? = null, bulkChoices: Map<String, String> = emptyMap(),
     onRefreshEpisodes: () -> Unit = {},
 ) {
     var view by rememberSaveable { mutableStateOf("Files") }
@@ -129,7 +130,7 @@ fun LibraryScreen(
             }
             else if (view == "Series") SeriesLibraryScreen(series)
             else if (view == "Episodes") EpisodeLibraryScreen(sites, episodes, onLoadEpisodes, onRefreshEpisodes,
-                onChooseComics, comicChoicesBusy || !actionsEnabled, comicChoicesNotice)
+                onChooseComics, comicChoicesBusy || !actionsEnabled, comicChoicesNotice, initialProvider, bulkChoices)
             else if (view == "Folder") FolderLibraryScreen(folderState, onFolderLoad, onOpenFolder,
                 onCloseFolder, onFolderQuery, onOpenFolderFile)
             else SavedFilesScreen(catalog, onCatalogQuery, onOpenFile) {}

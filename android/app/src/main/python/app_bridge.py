@@ -32,7 +32,7 @@ OPS = frozenset({"ping", "prepare_workspace", "worker_status", "worker_start", "
                  "export_status", "signin_probe", "signin_restore", "signout_record",
                  "settings", "configure_settings", "file_catalog", "file_open", "cloud_status", "cloud_action",
                  "signin_attempt", "signin_commit", "portable_catalog", "open_site", "all_sites",
-                 "site_cards", "episode_inventory", "choose_comics", "support_start", "support_details", "support_save"})
+                 "list_preference", "site_cards", "episode_inventory", "choose_comics", "support_start", "support_details", "support_save"})
 # worker_stop, signin_probe and signout_record are native-line extensions of the frozen §2
 # op list, flagged for review: the drain, the settle-time probe and the sign-out record leg
 # have no §2 name yet, and the beta cannot run without them.
@@ -1140,6 +1140,24 @@ def _support_save(args):
     return {"name": path.name}
 
 
+def _list_preference(args):
+    base = _path_arg(args, "base_root")
+    site = args.get("site")
+    if set(args) != {"base_root", "site", "action"} or not isinstance(site, str):
+        raise _BridgeError("bad_request", "Choose a provider and a download mode.")
+
+    def change(ArchiveError):
+        from comic_archive import android_download
+        from comic_archive.workspace import Workspace
+        with _workspace_lock:
+            roots = [root for root, kept in _open.items() if kept == {"base": base, "site_key": site}]
+            if _workspace['base'] != base or len(roots) != 1:
+                raise ArchiveError("Choose the open working library.")
+            android_download.change_list(Workspace(id="default", root=roots[0]), args["action"])
+        return {}
+    return _core(change)
+
+
 def _episode_inventory(args):
     """One page of a site's recorded episodes, as the desktop's Library page lists them.
 
@@ -1167,7 +1185,10 @@ def _episode_inventory(args):
         if not roots:
             raise ArchiveError("The episode list could not be read. Retry when the library is available.")
         try:
-            value = page(Workspace(id="default", root=roots[0]).library, series_id=series, offset=offset)
+            from comic_archive.android_download import list_hidden
+            workspace = Workspace(id="default", root=roots[0])
+            hidden = list_hidden(workspace)
+            value = page(workspace.library, series_id=series, offset=offset, **({'saved_only': True} if hidden else {}))
         except (OSError, sqlite3.Error):
             raise ArchiveError("The episode list could not be read. Retry when the library is available.") from None
         columns = words.series_columns if series is None else words.episode_columns
@@ -1175,19 +1196,20 @@ def _episode_inventory(args):
         for row in value["items"]:
             title, status, form, access = columns(row)
             item = {"id": str(row["id"]), "title": title, "status": status, "format": form, "access": access}
-            if series is None:
-                item['selected'] = row['selected']
+            item['selected'] = row['selected']
+            if row.get('mixed'):
+                item['mixed'] = True
             items.append(item)
         return {"items": items, "next_offset": value["next_offset"],
                 'comic_selection': value['comic_selection'],
-                "empty": "" if items or offset else words.empty_text(value)}
+                "empty": "" if items or offset else ("List cleared" if hidden else words.empty_text(value))}
 
     return _core(read)
 
 
 def _choose_comics(args):
     base = _path_arg(args, 'base_root')
-    if not set(args) <= {'base_root', 'chosen', 'site', 'series_id'} or type(args.get('chosen')) is not bool:
+    if not set(args) <= {'base_root', 'chosen', 'site', 'series_id', 'episode_id'} or type(args.get('chosen')) is not bool:
         raise _BridgeError('bad_request', 'Choose a recorded comic and an explicit download choice.')
 
     def change(ArchiveError):
@@ -1196,13 +1218,16 @@ def _choose_comics(args):
             if _workspace['base'] != base:
                 raise ArchiveError('Choose the open working library.')
         applied = change_library_comics(base, args['chosen'], args.get('site'), args.get('series_id'),
-                                       closing=_never_closing, interrupt=_interrupt_browser)
+                                       closing=_never_closing, interrupt=_interrupt_browser, episode_id=args.get('episode_id'))
         from comic_archive import comic_selection, sites
         from comic_archive.inventory import Inventory
         choices = {}
         for key in applied:
             with Inventory(sites.folder(base, sites.find(key)) / 'Library', read_only=True) as inventory:
                 choices[key] = comic_selection.read(inventory.db)
+                overrides = comic_selection.episode_choices(inventory.db)
+                if overrides:
+                    choices[key]['episodes'] = overrides
         return {'applied': applied, 'choices': choices}
     return _core(change)
 
@@ -1246,6 +1271,7 @@ HANDLERS = {"ping": _ping,
             "library_listing": _library_listing,
             "all_sites": _all_sites,
             "site_cards": _site_cards,
+            "list_preference": _list_preference,
             "episode_inventory": _episode_inventory,
             "choose_comics": _choose_comics,
             "support_start": _support_start,
