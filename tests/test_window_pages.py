@@ -418,6 +418,10 @@ class EpisodeLibraryTests(PagesCase):
         row = {'title': 'New series', 'episodes': 0, 'saved': 0}
         self.assertEqual(window_library.series_columns(row)[1], 'No episodes listed yet')
 
+    def test_library_series_shows_saved_and_listed_counts_in_that_order(self):
+        row = {'title': 'Comic', 'episodes': 12, 'saved': 3}
+        self.assertEqual(window_library.series_columns(row)[1], '3 saved · 12 listed')
+
     def test_library_toolbar_only_offers_refresh(self):
         self.open('library')
         buttons = self.pages.library.widget.findChildren(QtWidgets.QPushButton, 'toolbarAction')
@@ -864,6 +868,36 @@ class DashboardTests(PagesCase):
         series = page.tree.topLevelItem(0).child(0)
         self.assertEqual(series.text(1), '1 saved · 2 listed')
         self.assertEqual(series.childCount(), 2)
+
+    def test_tappytoon_download_menu_saves_only_the_free_checkbox_change(self):
+        self.shell.open = ['tapas', 'tappytoon', 'webtoon']
+        self.sites['tappytoon'].account(status='running', phase='archive', download_extras={})
+        self.open()
+        card = self.dashboard.cards['tappytoon']
+        errors = []
+
+        def choose():
+            dialog = APP.activeModalWidget()
+            try:
+                self.assertIsNotNone(dialog)
+                self.assertIn('Tappytoon', dialog.windowTitle())
+                dialog.findChild(QtWidgets.QCheckBox, 'downloadType_free').click()
+                buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+                buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save).click()
+            except Exception as error:
+                errors.append(repr(error))
+                if dialog is not None:
+                    dialog.reject()
+
+        QtCore.QTimer.singleShot(0, self.window, choose)
+        next(action for action in card.selection.menu().actions() if action.text() == 'Download settings…').trigger()
+        settle()
+        self.assertEqual(errors, [])
+        choices = dict(bought=True, free=False, limited=True, unclassified=True)
+        self.assertEqual(self.sites['tappytoon'].named('download_types')[-1][1], (choices,))
+        self.assertFalse(self.sites['tapas'].named('download_types'))
+        self.assertFalse(self.sites['webtoon'].named('download_types'))
+        self.assertEqual(card.selection.text(), 'Download: 3 types')
 
     def test_download_choices_offer_the_sites_extras_after_the_types_and_save_them_together(self):
         self.actions.reading['account']['download_extras'] = dict(notes=False, music=True, stats=False, comments=False)

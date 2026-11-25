@@ -291,7 +291,7 @@ def standard_instead(q, folder):
     return box.question(None, APP_NAME, text, buttons.Yes | buttons.No, buttons.No) == buttons.Yes
 
 
-def find_library(q, parent, folder, text):
+def find_library(q, parent, folder, text, *, still_missing=None):
     """Asked when the library folder opened before is gone: where is it now? The library chosen, or None."""
     widgets = q.QtWidgets
     box, buttons = widgets.QMessageBox, widgets.QMessageBox.StandardButton
@@ -304,7 +304,7 @@ def find_library(q, parent, folder, text):
             return None
         root = app_runtime.library_root(chosen)
         # Anything else would be a second, empty library, saving everything again.
-        if app_runtime.is_library(root):
+        if app_runtime.is_library(root) and (root != folder or still_missing is None or not still_missing()):
             return root
         box.information(parent, APP_NAME, NOT_A_LIBRARY)
 
@@ -1386,7 +1386,7 @@ class Shell:
         self.signin_clock.stop()
         self.show_notice(LIBRARY_GONE_NOTICE.format(folder=folder))
         self.show(self.notice)
-        root = find_library(self.q, self.window, folder, LIBRARY_GONE)
+        root = find_library(self.q, self.window, folder, LIBRARY_GONE, still_missing=self.runtime.vanished)
         if root is not None and self.phase == 'failed':
             self.relocate(root)
 
@@ -1425,7 +1425,8 @@ class Shell:
             runtime = self.runtime
 
             def check():
-                vanished, value = runtime.vanished(), runtime.busy()
+                vanished = runtime.vanished()
+                value = None if vanished else runtime.busy()
                 if runtime is self.runtime:
                     self.busy_seen, self.vanished_seen = value, vanished
             self.checker = threading.Thread(target=check, daemon=True)

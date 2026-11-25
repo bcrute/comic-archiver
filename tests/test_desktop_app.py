@@ -456,7 +456,9 @@ class DesktopAppTests(unittest.TestCase):
             self.box.question.assert_not_called(); self.assertEqual(shell.phase, 'open')
             # Renamed: the next look sees it, and the one after acts on it.
             self.runtime.vanished.return_value = True
+            self.runtime.busy.reset_mock()
             emit(shell.awake_clock.timeout)
+            self.runtime.busy.assert_not_called()
             self.box.question.assert_not_called()
             self.box.question.return_value = self.box.StandardButton.Yes
             # A folder that holds no library would be a second, empty one: asked again.
@@ -482,6 +484,20 @@ class DesktopAppTests(unittest.TestCase):
         self.box.question.assert_called_once(); dialog.assert_not_called(); move.assert_not_called()
         self.assertEqual(shell.phase, 'failed')
         shell.notice.setText.assert_called_with(f'{desktop_app.LIBRARY_GONE_NOTICE.format(folder=root)}\n\nDetails are saved in:\n{self.log}')
+
+    def test_library_recovery_refuses_the_same_folder_while_provider_storage_is_missing(self):
+        shell = self.opened()
+        shell.load()
+        root = self.runtime.root = self.home / 'Comic Archiver'
+        (root / 'Tapas/Library/.archive-state').mkdir(parents=True)
+        self.runtime.vanished.return_value = True
+        self.box.question.return_value = self.box.StandardButton.Yes
+        self.widgets.QFileDialog.getExistingDirectory.side_effect = [str(root), '']
+        with patch('comic_archive.desktop_app.app_runtime.move') as move, self.assertLogs('comic_archive.desktop', 'WARNING'):
+            shell.library_gone()
+        move.assert_not_called()
+        self.assertEqual(shell.phase, 'failed')
+        self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.NOT_A_LIBRARY)
 
     def test_a_library_folder_renamed_while_the_app_was_closed_is_found_again_and_never_made_in_its_old_place(self):
         standard, renamed = self.home / 'Comic Archiver', self.home / 'Renamed'

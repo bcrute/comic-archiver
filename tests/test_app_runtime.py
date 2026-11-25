@@ -174,6 +174,20 @@ class AppRuntimeTests(unittest.TestCase):
         self.runtime.stop(0)
         self.assertFalse(self.root.exists())
 
+    def test_provider_storage_can_disappear_while_the_selected_library_still_exists(self):
+        self.runtime.start()
+        for folder in (self.runtime.folder, self.runtime.session, self.runtime.folder.parent):
+            with self.subTest(part=folder.name):
+                moved = folder.with_name(folder.name + '-moved')
+                folder.rename(moved)
+                try:
+                    self.assertTrue(self.root.is_dir())
+                    self.assertTrue(self.runtime.vanished())
+                    self.assertFalse(folder.exists())
+                finally:
+                    moved.rename(folder)
+                self.assertFalse(self.runtime.vanished())
+
     def test_a_library_folder_renamed_while_closed_is_not_made_again_but_a_new_one_is_made_as_ever(self):
         self.runtime.start(); self.runtime.stop(0)
         self.root.rename(self.home / 'Renamed')

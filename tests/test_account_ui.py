@@ -193,6 +193,26 @@ class AccountUITests(unittest.TestCase):
         with Inventory(self.workspace.library, read_only=True) as inventory:
             self.assertEqual(inventory.pending(), [])
 
+    def test_unchecking_only_free_during_a_tappytoon_download_preserves_other_types_and_files(self):
+        (self.workspace.session/'site').write_text('tappytoon\n')
+        task, _ = self.running_batch(access='tappytoon_free')
+        saved = self.workspace.library/'kept.cbz'
+        saved.write_bytes(b'existing archive')
+        with Inventory(self.workspace.library) as inventory:
+            inventory.observe('43', 'Paid series', [
+                {'id': '82', 'title': 'Owned', 'order': 1, 'access_state': 'tappytoon_unlocked'},
+                {'id': '83', 'title': 'Companion', 'order': 2, 'access_state': 'tappytoon_free'},
+                {'id': '84', 'title': 'Rental', 'order': 3, 'access_state': 'tappytoon_limited'},
+            ], 'fixture')
+        choices = dict(bought=True, free=False, limited=True, unclassified=True)
+        with patch.object(account_ui.time, 'sleep', side_effect=lambda _: self.cancelled_batch(task)):
+            changed = self.actions.download_types(choices)
+        self.assertEqual((changed['status'], changed['download_types']), ('running', choices))
+        self.assertEqual(saved.read_bytes(), b'existing archive')
+        self.assertIsNone(self.outstanding())
+        with Inventory(self.workspace.library, read_only=True) as inventory:
+            self.assertEqual({row['id'] for row in inventory.pending()}, {'82', '83', '84'})
+
     def test_failed_type_change_keeps_old_preferences_and_stays_paused(self):
         from comic_archive.download_selection import TYPES
         task, _ = self.running_batch()
@@ -617,11 +637,11 @@ class AccountUITests(unittest.TestCase):
         self.assertEqual((request['args']['download_workers'],request['args']['request_interval']),(4,0.5))
         self.assertEqual(request['args']['speed'],'medium')
 
-    def running_batch(self):
+    def running_batch(self, *, access='tapas_free'):
         """A download batch the downloader has started: published request, busy worker, recorded run."""
         library=self.workspace.library
         with Inventory(library) as inventory:
-            inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':'tapas_free'}],'fixture')
+            inventory.observe('42','Fixture',[{'id':'81','title':'One','order':1,'access_state':access}],'fixture')
         self.registry.start_account(LOCAL_OWNER,self.workspace.id)
         self.tick()
         task=self.outstanding()

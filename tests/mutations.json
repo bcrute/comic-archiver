@@ -4466,7 +4466,7 @@
  {
   "id": "moved-library-any-folder-taken",
   "source": "comic_archive/desktop_app.py",
-  "old": "        if app_runtime.is_library(root):\n            return root\n",
+  "old": "        if app_runtime.is_library(root) and (root != folder or still_missing is None or not still_missing()):\n            return root\n",
   "new": "        if True:\n            return root\n",
   "test_file": "test_desktop_app.py",
   "test": "test_a_library_folder_renamed_while_open_stops_the_window_and_asks_where_it_is_now"
@@ -9562,10 +9562,10 @@
  {
   "id": "library-series-saved-count-swapped",
   "source": "comic_archive/window_library.py",
-  "old": "f\"{row['saved']:,} / {row['episodes']:,} saved\"",
-  "new": "f\"{row['episodes']:,} / {row['saved']:,} saved\"",
-  "test_file": "test_android_cards.py",
-  "test": "test_a_sites_series_and_a_series_episodes_are_listed_as_on_the_desktop"
+  "old": "f\"{summary} \u00b7 {row['episodes']:,} listed\"",
+  "new": "f\"{row['episodes']:,} saved \u00b7 {row['saved']:,} listed\"",
+  "test_file": "test_window_pages.py",
+  "test": "test_library_series_shows_saved_and_listed_counts_in_that_order"
  },
  {
   "id": "library-episode-number-dropped",
@@ -10530,16 +10530,16 @@
  {
   "id": "history-walk-replayed-page-not-remembered",
   "source": "comic_archive/adapters/tapas.py",
-  "old": "                self._history_walked = current\n",
-  "new": "",
+  "old": "                self._history_walked = current\n            return page\n",
+  "new": "            return page\n",
   "test_file": "test_purchase_history.py",
   "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
  },
  {
   "id": "history-walk-place-kept-after-a-refusal",
   "source": "comic_archive/adapters/tapas.py",
-  "old": "        def walk(start):\n            self._history_walked = None\n",
-  "new": "        def walk(start):\n",
+  "old": "        def walk(start, *, replay=False):\n            self._history_walked = None\n",
+  "new": "        def walk(start, *, replay=False):\n",
   "test_file": "test_purchase_history.py",
   "test": "test_a_place_saved_by_another_session_is_reached_again_from_the_first_page"
  },
@@ -10798,5 +10798,77 @@
   "new": "WORKER_VERSION = 82",
   "test_file": "test_app_runtime.py",
   "test": "test_a_running_054_worker_is_replaced_before_it_can_ignore_comic_choices"
+ },
+ {
+  "id": "desktop-detect-only-top-level-library-removal",
+  "source": "comic_archive/app_runtime.py",
+  "old": "return any(path is not None and not present(path) for path in (self.root, self.folder, self.session))",
+  "new": "return self.root is not None and not present(self.root)",
+  "test_file": "test_app_runtime.py",
+  "test": "test_provider_storage_can_disappear_while_the_selected_library_still_exists"
+ },
+ {
+  "id": "desktop-keep-polling-a-missing-library",
+  "source": "comic_archive/desktop_app.py",
+  "old": "value = None if vanished else runtime.busy()",
+  "new": "value = runtime.busy()",
+  "test_file": "test_desktop_app.py",
+  "test": "test_a_library_folder_renamed_while_open_stops_the_window_and_asks_where_it_is_now"
+ },
+ {
+  "id": "desktop-reopen-missing-provider-storage",
+  "source": "comic_archive/desktop_app.py",
+  "old": "if app_runtime.is_library(root) and (root != folder or still_missing is None or not still_missing()):",
+  "new": "if app_runtime.is_library(root):",
+  "test_file": "test_desktop_app.py",
+  "test": "test_library_recovery_refuses_the_same_folder_while_provider_storage_is_missing"
+ },
+ {
+  "id": "tappytoon-download-settings-go-to-tapas",
+  "source": "comic_archive/window_pages.py",
+  "old": "menu.addAction('Download settings\u2026', lambda: pages.open_download_choices(key))",
+  "new": "menu.addAction('Download settings\u2026', lambda: pages.open_download_choices('tapas'))",
+  "test_file": "test_window_pages.py",
+  "test": "test_tappytoon_download_menu_saves_only_the_free_checkbox_change"
+ },
+ {
+  "id": "tappytoon-keep-excluded-free-only-episodes",
+  "source": "comic_archive/download_selection.py",
+  "old": "if chosen['free']:\n        parts.append(free)",
+  "new": "if True:\n        parts.append(free)",
+  "test_file": "test_account_ui.py",
+  "test": "test_unchecking_only_free_during_a_tappytoon_download_preserves_other_types_and_files"
+ },
+ {
+  "id": "history-retry-leaves-unverified-cursor-terminal",
+  "source": "comic_archive/purchase_history.py",
+  "old": "value.get('status') == 'partial' and value.get('code') == 'history_rows_unverified'",
+  "new": "value.get('status') == 'checked' and value.get('code') == 'history_rows_unverified'",
+  "test_file": "test_purchase_history.py",
+  "test": "test_unverified_page_is_retried_from_the_saved_cursor_by_the_next_worker"
+ },
+ {
+  "id": "history-lose-browser-pager-recovery",
+  "source": "comic_archive/purchase_history.py",
+  "old": "browser_page = getattr(adapter, 'purchase_history_browser_page', None)",
+  "new": "browser_page = None",
+  "test_file": "test_purchase_history.py",
+  "test": "test_browser_pager_is_used_only_after_the_indexed_read_returns_the_wrong_page_twice"
+ },
+ {
+  "id": "history-reject-optional-cell-end-tags",
+  "source": "comic_archive/adapters/tapas_history.py",
+  "old": "self._close_table_tags(CELLS if tag in CELLS else CELLS | {'tr'})",
+  "new": "pass",
+  "test_file": "test_purchase_history.py",
+  "test": "test_optional_table_end_tags_preserve_separate_history_rows"
+ },
+ {
+  "id": "history-accept-repeated-transaction-page-as-complete",
+  "source": "comic_archive/purchase_history.py",
+  "old": "value['repeated_rows_seen'] = True",
+  "new": "value['repeated_rows_seen'] = False",
+  "test_file": "test_purchase_history.py",
+  "test": "test_persistent_repeated_rows_leave_coverage_partial_but_older_pages_are_read"
  }
 ]

@@ -430,8 +430,8 @@ class Runtime:
         LOG.info('the library is open: %s', support_log.place(root))
 
     def vanished(self):
-        """True once the open library folder was renamed, moved or deleted; nothing in it is made again."""
-        return self.root is not None and not present(self.root)
+        """The open library or its provider's storage is no longer present."""
+        return any(path is not None and not present(path) for path in (self.root, self.folder, self.session))
 
     def _serve(self, registry, session, state):
         """Read this site's own library from now on."""
