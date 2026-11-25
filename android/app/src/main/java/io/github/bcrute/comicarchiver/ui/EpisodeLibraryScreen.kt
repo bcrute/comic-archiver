@@ -73,7 +73,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                 }
                 val policies = sites.filter { it.enabled }.map { site ->
                     val policy = bulkChoices[site.key]
-                    if (!policy.isNullOrEmpty()) policy else lists[site.key]?.takeIf { it.loaded }?.let {
+                    if (!policy.isNullOrEmpty()) policy else lists[site.key]?.takeIf { it.loaded && it.nextOffset == null && !it.failed }?.let {
                         if (it.selectionExceptions.isNotEmpty() || it.rows.any { row -> row.mixed }) "mixed"
                         else if (it.selectionDefault) "on" else "off"
                     }

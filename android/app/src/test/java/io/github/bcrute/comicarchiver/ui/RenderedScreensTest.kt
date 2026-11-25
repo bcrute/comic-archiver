@@ -769,6 +769,18 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun aPartialPageCannotStandInForTheWholeLibrarysSelection() {
+        controller.state.value = controller.state.value.copy(sites = listOf(SiteChoice("tapas", "Tapas", true)),
+            episodes = mapOf("tapas" to EpisodeList(loaded = true, nextOffset = 200)))
+        show()
+        episodes()
+        compose.onNodeWithTag("comics-toggle-all").assertIsNotEnabled()
+        val summary = SiteCard("tapas", "Tapas", "", "", "", "", emptyList(), bulk = "mixed")
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(siteCards = listOf(summary)) }
+        compose.onNodeWithText("Check all").assertIsEnabled().performClick()
+        assertEquals(listOf(Triple(true, null, null)), controller.comicChanges)
+    }
+
     @Test fun anOpenComicListWaitsForTheWorkspaceAndReloadsWhenItBecomesReady() {
         controller.state.value = controller.state.value.copy(
             sites = listOf(SiteChoice("tapas", "Tapas", true)),
