@@ -87,6 +87,47 @@ class PurchaseHistoryTests(unittest.TestCase):
             self.assertEqual((result['status'], result['code']), ('partial', 'history_page_repeated'))
             self.assertEqual(inventory.db.execute('SELECT COUNT(*) FROM series').fetchone()[0], 1)
 
+    def test_rows_repeated_under_a_new_index_are_retried_at_the_same_cursor(self):
+        ids = {'transaction_fingerprint': 'a' * 64}
+        self.adapter.purchase_history_page.side_effect = [
+            self.page([self.first], ['a'], cursor=self.cursor) | ids,
+            self.page([self.first], ['a'], boundary=True, index=1) | ids,
+            self.page([self.older], ['b'], boundary=True, index=1) | {'transaction_fingerprint': 'b' * 64},
+        ]
+        with self.store() as inventory:
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=2)
+            self.assertEqual((result['status'], result['pages']), ('partial', 1))
+            self.assertTrue(purchase_history.pending(inventory))
+        with self.store() as inventory:
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+            self.assertEqual((result['status'], result['pages'], result['series_added']), ('checked', 2, 1))
+        self.assertEqual([call.args[0] for call in self.adapter.purchase_history_page.call_args_list],
+                         [None, self.cursor, self.cursor])
+
+    def test_persistent_repeated_rows_leave_coverage_partial_but_older_pages_are_read(self):
+        page_two = self.cursor | {'index': 2}
+        ids = {'transaction_fingerprint': 'a' * 64}
+        repeated = self.page([self.first], ['a'], cursor=page_two, index=1) | ids
+        self.adapter.purchase_history_page.side_effect = [
+            self.page([self.first], ['a'], cursor=self.cursor) | ids,
+            repeated, repeated,
+            self.page([self.older], ['b'], boundary=True, index=2),
+        ]
+        with self.store() as inventory:
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+            self.assertEqual(result['pages'], 1)
+        with self.store() as inventory:
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.assertEqual((result['status'], result['pages']), ('pending', 2))
+        with self.store() as inventory:
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None)
+            self.assertEqual((result['status'], result['code'], result['pages'], result['series_added']),
+                             ('partial', 'history_page_repeated', 3, 1))
+            self.assertEqual(purchase_history.support_diagnostic(inventory)['reason'], 'page_rows_repeated')
+            self.assertFalse(purchase_history.pending(inventory))
+        self.assertEqual([call.args[0] for call in self.adapter.purchase_history_page.call_args_list],
+                         [None, self.cursor, self.cursor, page_two])
+
     def test_missing_cursor_is_partial_and_does_not_retry_in_the_same_round(self):
         self.adapter.purchase_history_page.return_value = self.page([self.first], ['a'])
         with self.store() as inventory:
@@ -336,6 +377,17 @@ class PurchasePageTests(unittest.TestCase):
         page = self.adapter.purchase_history_page()
         self.assertEqual(page['links'], ['https://tapas.io/series/first', 'https://tapas.io/series/older'])
         self.assertEqual(len(page['record_ids']), 2)
+
+    def test_only_a_complete_set_of_distinct_server_transaction_ids_identifies_a_page(self):
+        data = self.answer['data']
+        for rows in ([], [{'id': True}], [{'id': 0}], [{'id': 51}, {'id': 52}], [None]):
+            with self.subTest(rows=rows):
+                data['transactions'] = rows
+                self.assertNotIn('transaction_fingerprint', self.adapter.purchase_history_page())
+        data['transactions'] = [{'id': 51}]
+        first = self.adapter.purchase_history_page()['transaction_fingerprint']
+        data['transactions'] = [{'id': 52}]
+        self.assertNotEqual(first, self.adapter.purchase_history_page()['transaction_fingerprint'])
 
     def test_foreign_and_action_links_are_never_content_associations(self):
         self.answer['data']['body'] = ('<div class="tr">Unlocked episode'

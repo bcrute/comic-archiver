@@ -151,4 +151,11 @@ def read_page(raw, index):
         result['record_ids'].append(hashlib.sha256(identity.encode()).hexdigest())
         links.update(row_links)
     result['links'] = sorted(links)
+    # Identical visible rows can represent separate purchases. Only a complete
+    # set of server transaction IDs can identify the same transactions.
+    transactions = data.get('transactions')
+    if isinstance(transactions, list) and len(transactions) == len(parser.rows) and transactions:
+        ids = [row.get('id') if isinstance(row, dict) else None for row in transactions]
+        if all(type(key) is int and key > 0 for key in ids) and len(set(ids)) == len(ids):
+            result['transaction_fingerprint'] = hashlib.sha256(json.dumps(sorted(ids)).encode()).hexdigest()
     return result

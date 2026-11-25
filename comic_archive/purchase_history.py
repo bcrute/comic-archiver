@@ -20,7 +20,7 @@ CODES = {None, 'history_reader_unavailable', 'history_view_unverified', 'history
          'history_page_repeated', 'history_continuation_unverified', 'history_association_unresolved'}
 DIAGNOSTIC_REASONS = {'metadata_unverified', 'page_records_unverified', 'page_identity_unverified',
                       'unexpected_page_result', 'account_scope_unverified', 'page_index_mismatch',
-                      'page_repeated', 'continuation_unverified', 'authentication_required',
+                      'page_repeated', 'page_rows_repeated', 'continuation_unverified', 'authentication_required',
                       'network_unavailable', 'request_failed'}
 
 
@@ -87,6 +87,7 @@ def state(inventory):
                 or any(type(value.get(key)) is not int or value[key] < 0 for key in ('pages', 'discovered', 'unresolved'))
                 or type(value.get('unresolved_rows', 0)) is not int or value.get('unresolved_rows', 0) < 0
                 or type(value.get('page_retry_exhausted', False)) is not bool
+                or type(value.get('repeated_rows_seen', False)) is not bool
                 or value.get('terminal_status') not in {None, 'partial', 'checked'} or value.get('code') not in CODES):
             raise ValueError
         if value.get('cursor') is not None:
@@ -283,6 +284,19 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                 _record_failure(value, 'page_repeated')
                 value.update(status='partial', code='history_page_repeated')
                 break
+            transactions = page.get('transaction_fingerprint')
+            receipt = (f'transactions:{transactions}' if isinstance(transactions, str)
+                       and re.fullmatch(r'[a-f0-9]{64}', transactions) else None)
+            if receipt and inventory.db.execute(
+                    'SELECT 1 FROM purchase_history_pages WHERE round_id=? AND fingerprint=?',
+                    (round_id, receipt)).fetchone():
+                if value['status'] != 'partial':
+                    _unverified_page(value, 'page_rows_repeated')
+                    break
+                # Coverage is incomplete, but a verified continuation can
+                # still lead to genuine older pages.
+                value['repeated_rows_seen'] = True
+                _record_failure(value, 'page_rows_repeated')
             cursor = page.get('next_cursor')
             if cursor is not None:
                 try:
@@ -300,6 +314,8 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
             # Inbox and page acknowledgement share a commit. A crash during
             # resolution can repeat an idempotent association, never lose a page.
             inventory.db.execute('INSERT INTO purchase_history_pages VALUES (?,?)', (round_id, fingerprint))
+            if receipt:
+                inventory.db.execute('INSERT OR IGNORE INTO purchase_history_pages VALUES (?,?)', (round_id, receipt))
             inserted = inventory.db.executemany('INSERT OR IGNORE INTO purchase_history_links(binding,url) VALUES (?,?)',
                                                 [(binding[0], url) for url in found]).rowcount
             if page.get('boundary_verified') is not True and cursor is None:
@@ -310,7 +326,10 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
             pages_read += 1
             value['discovered'] += inserted
             if page.get('boundary_verified') is True and cursor is None:
-                value.update(status='checked', code=None)
+                if value.get('repeated_rows_seen'):
+                    value.update(status='partial', code='history_page_repeated')
+                else:
+                    value.update(status='checked', code=None)
             elif cursor is None or value['pages'] >= MAX_PAGES:
                 value.update(status='partial', code='history_continuation_unverified')
             if value['status'] != 'pending':
