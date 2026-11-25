@@ -26,6 +26,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -210,11 +212,14 @@ private fun SiteCardView(
                             "settings" -> true
                             else -> card.action != CardAction.PAUSE
                         }
+                        val mode = key == "list" || key == "files"
+                        if (key == "choose" || key == "settings") HorizontalDivider()
                         DropdownMenuItem(text = { Column {
                             Text(label)
                             if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
                                 style = MaterialTheme.typography.bodySmall)
-                        } }, leadingIcon = if (key == (if (card.listOnly) "list" else "files")) ({ Text("✓") }) else null,
+                        } }, leadingIcon = if (mode) ({ RadioButton(selected = card.listOnly == (key == "list"),
+                            enabled = enabled, onClick = null) }) else null,
                             enabled = enabled, onClick = {
                                 menu = false
                                 if (key == "settings") onDownloadChoices(card.site) else onListAction(card.site, key)

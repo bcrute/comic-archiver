@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -81,8 +82,9 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                 val all = ready && policies.all { it == "on" }
                 val none = ready && policies.all { it == "off" }
                 val bulk = if (all) ToggleableState.On else if (none) ToggleableState.Off else ToggleableState.Indeterminate
-                Row(Modifier.testTag("comics-toggle-all").triStateToggleable(bulk, enabled = ready && !changing,
+                Row(Modifier.heightIn(min = 48.dp).testTag("comics-toggle-all").triStateToggleable(bulk, enabled = ready && !changing,
                     role = Role.Checkbox, onClick = { onChooseComics(!all, null, null, null) }),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     TriStateCheckbox(state = bulk, onClick = null)
                     Text(if (all) "Uncheck all" else "Check all")
