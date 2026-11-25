@@ -68,12 +68,8 @@ class EpisodeLibrary:
         box.setSpacing(8)
         self.refresh = kit.button(say('library.refresh'), self.refresh_view)
         self.refresh.setObjectName('toolbarAction')
-        self.get_list = kit.button('Get episode lists', self.request_episode_lists)
-        self.get_list.setObjectName('toolbarAction')
-        self.get_list.setEnabled(False)
         header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
         header.layout().addWidget(self.refresh)
-        header.layout().addWidget(self.get_list)
         box.addWidget(header)
         box.addWidget(kit.label('Check a series or episode to include it in downloads. Unchecking keeps saved files.', 'muted'))
         self.list_notice = kit.label('', 'muted')
@@ -195,34 +191,6 @@ class EpisodeLibrary:
         if not busy:
             self.refresh_completed_lists()
 
-    def listing_states(self):
-        for site in sites.SITES:
-            if not site.available:
-                continue
-            state = self.pages.states.get(site.key)
-            status = (state.status or {}) if state is not None else {}
-            account = (state.account or {}) if state is not None else {}
-            signed_in = bool(status.get('session_configured'))
-            ready = (status.get('worker') or {}).get('reported_state') == 'ready'
-            running = account.get('status') == 'running'
-            can_list = bool(state and not state.busy and signed_in and ready and not running)
-            yield site, state, account, can_list
-
-    def list_targets(self, listings, *, provider=None):
-        """Add newly ready providers before refreshing providers already requested in this library."""
-        eligible = {site.key: state for site, state, _, can_list in listings if can_list}
-        if provider is not None:
-            return {provider: eligible[provider]} if provider in eligible else {}
-        new = {site.key: state for site, state, account, can_list in listings if can_list and (
-            self.is_list_cleared(site.key) or
-            self.requested_lists.get(site.key) is not state and not account.get('episode_list_ready'))}
-        if new:
-            return new
-        active = any((account.get('list_only') and account.get('status') == 'running')
-                     or (state is not None and self.requested_lists.get(site.key) is state and state.busy)
-                     for site, state, account, _ in listings)
-        return {} if active else eligible
-
     def is_list_cleared(self, provider):
         state = self.pages.states.get(provider)
         return bool(state and state.workspace_id and self.pages.shell.episode_list_cleared(state.workspace_id, provider))
@@ -235,25 +203,18 @@ class EpisodeLibrary:
         self.list_completed()
         return True
 
-    def request_episode_lists(self, *, provider=None):
-        targets = self.list_targets(tuple(self.listing_states()), provider=provider)
-        self.requested_lists.update(targets)
-        for key in targets:
-            self.pages.get_episode_list(key)
-        self.update_listing()
+    def request_episode_list(self, provider):
+        state = self.pages.states[provider]
+        self.requested_lists[provider] = state
+        self.pages.get_episode_list(provider)
 
     def update_listing(self):
-        listings = tuple(self.listing_states())
-        targets = self.list_targets(listings)
-        self.get_list.setEnabled(bool(targets) and not self.changing)
-        self.get_list.setToolTip(
-            'Fetch titles and availability from ready providers without downloading files.'
-            if targets else 'Providers that are already fetching will continue. Sign in or pause downloads to add another provider.')
-        requested = bool(self.requested_lists) and any(
-            state is not None and self.requested_lists.get(site.key) is state
-            for site, state, _, _ in listings)
         messages = []
-        for site, state, account, can_list in listings:
+        for site in sites.SITES:
+            if not site.available:
+                continue
+            state = self.pages.states.get(site.key)
+            account = (state.account or {}) if state is not None else {}
             detail = ''
             if state is not None and self.requested_lists.get(site.key) is state:
                 if state.busy:
@@ -274,16 +235,6 @@ class EpisodeLibrary:
                     detail = 'Stopped. See Dashboard.'
                 else:
                     detail = 'Paused'
-            elif requested and can_list and self.requested_lists.get(site.key) is not state:
-                detail = 'Ready to get episode list'
-            elif requested and not can_list:
-                status = (state.status or {}) if state is not None else {}
-                if not status.get('session_configured'):
-                    detail = 'Sign in on the Dashboard'
-                elif account.get('status') == 'running':
-                    detail = 'Pause downloads to get the list'
-                else:
-                    detail = 'Busy. Try again when ready.'
             if detail:
                 messages.append(f'{site.name}: {detail}')
         text = '  ·  '.join(messages)

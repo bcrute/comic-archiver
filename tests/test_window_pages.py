@@ -418,88 +418,20 @@ class EpisodeLibraryTests(PagesCase):
         row = {'title': 'New series', 'episodes': 0, 'saved': 0}
         self.assertEqual(window_library.series_columns(row)[1], 'No episodes listed yet')
 
-    def test_get_episode_lists_starts_every_provider_without_a_selection_or_downloads(self):
-        self.shell.open = list(self.sites)
-        self.shell.chosen = 'webtoon'
+    def test_library_toolbar_only_offers_refresh(self):
         self.open('library')
-        page = self.pages.library
-        page.tree.setCurrentItem(None)
-        self.assertIsNone(page.tree.currentItem())
-        self.assertEqual(page.get_list.text(), 'Get episode lists')
-        self.assertTrue(page.get_list.isEnabled())
-        page.get_list.click()
-        self.assertFalse(page.get_list.isEnabled())
-        for key, actions in self.sites.items():
-            self.assertEqual(len(actions.named('get_episode_list')), 1)
-            self.assertEqual(actions.named('go'), [])
-            self.assertIn(f'{SITES[key]}: Getting episode list', page.list_notice.text())
-
-    def test_get_episode_lists_explains_which_providers_could_not_start(self):
-        self.shell.open = list(self.sites)
-        self.sites['tappytoon'].reading['status']['session_configured'] = False
-        self.sites['webtoon'].account(status='running', phase='archive')
-        self.open('library')
-        page = self.pages.library
-        page.tree.setCurrentItem(page.tree.topLevelItem(1))
-        self.actions.refused['get_episode_list'] = 'Please try again'
-        page.get_list.click()
-        self.assertEqual(len(self.actions.named('get_episode_list')), 1)
-        self.assertEqual(self.sites['tappytoon'].named('get_episode_list'), [])
-        self.assertEqual(self.sites['webtoon'].named('get_episode_list'), [])
-        self.assertIn('Tapas: Please try again', page.list_notice.text())
-        self.assertIn('Tappytoon: Sign in', page.list_notice.text())
-        self.assertIn('Webtoon: Pause downloads', page.list_notice.text())
-
-    def test_get_episode_lists_can_add_a_provider_after_sign_in(self):
-        self.shell.open = list(self.sites)
-        status = self.actions.reading['status']
-        status['session_configured'] = False
-        self.open('library')
-        page = self.pages.library
-        page.get_list.click()
-        self.assertIn('Tapas: Sign in', page.list_notice.text())
-        self.assertFalse(page.get_list.isEnabled())
-
-        self.pages.go_to('dashboard')
-        self.assertEqual(self.fields('webtoon')['Status'], 'Getting episode list')
-        self.actions.reading['site_auth'] = {'status': 'connected'}
-        status.update(session_configured=True, worker={'reported_state': 'starting'})
-        self.pages.poll_site('tapas')
-        self.pages.go_to('library')
-        self.assertFalse(page.get_list.isEnabled())
-        # One list can finish before Tapas is ready. The other remains active.
-        self.sites['webtoon'].account(status='stopped', episode_list_ready=True)
-        self.pages.poll_site('webtoon')
-        status['worker'] = {'reported_state': 'ready'}
-        self.pages.poll_site('tapas')
-        self.assertEqual(self.actions.named('get_episode_list'), [])
-        self.assertIn('Tapas: Ready to get episode list', page.list_notice.text())
-        self.assertTrue(page.get_list.isEnabled())
-        page.get_list.click()
-        self.assertFalse(page.get_list.isEnabled())
-        self.assertIn('Webtoon: List ready', page.list_notice.text())
-        for actions in self.sites.values():
-            self.assertEqual(len(actions.named('get_episode_list')), 1)
-            self.assertEqual(actions.named('go'), [])
-
-    def test_get_episode_lists_resumes_missing_lists_after_reopening(self):
-        self.shell.open = list(self.sites)
-        self.sites['webtoon'].account(status='stopped', list_only=True, episode_list_ready=True)
-        self.sites['tappytoon'].account(status='stopped', phase='series', list_only=True)
-        self.open('library')
-        page = self.pages.library
-        page.get_list.click()
-        self.assertFalse(page.get_list.isEnabled())
-        self.assertEqual(self.sites['webtoon'].named('get_episode_list'), [])
-        self.assertEqual(len(self.sites['tappytoon'].named('get_episode_list')), 1)
-        self.assertEqual(len(self.actions.named('get_episode_list')), 1)
+        buttons = self.pages.library.widget.findChildren(QtWidgets.QPushButton, 'toolbarAction')
+        self.assertEqual(buttons, [self.pages.library.refresh])
 
     def test_list_completion_refreshes_after_current_library_work(self):
-        self.open('library')
+        self.open()
+        self.card.selection.menu().actions()[1].trigger()
+        self.card.action.click()
+        self.pages.go_to('library')
         page = self.pages.library
         provider = page.tree.topLevelItem(0)
         provider.setExpanded(True)
-        page.get_list.click()
+        self.assertIn('Tapas: Getting episode list', page.list_notice.text())
         page.set_busy(True)
         self.actions.account(status='stopped', episode_list_ready=True, episode_list_partial=True)
         self.pages.poll_site('tapas')
@@ -921,8 +853,11 @@ class DashboardTests(PagesCase):
         self.assertEqual(series.childCount(), 1)
         self.assertEqual(series.child(0).text(1), 'Saved')
         self.assertFalse(self.actions.named('choose_comics'))
-        page.get_list.click()
+        self.pages.go_to('dashboard')
+        menu.actions()[1].trigger()
+        self.card.action.click()
         self.assertTrue(page.is_list_cleared('tapas'))
+        self.pages.go_to('library')
         self.actions.account(status='stopped', episode_list_ready=True)
         self.pages.poll_site('tapas')
         self.assertFalse(page.is_list_cleared('tapas'))

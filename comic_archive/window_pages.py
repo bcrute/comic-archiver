@@ -1783,7 +1783,8 @@ class Pages:
             self.render()
             return
         if mode:
-            self.library.request_episode_lists(provider=key)
+            if dashboard_model.view(s, self.now())['go_enabled']:
+                self.library.request_episode_list(key)
             return
 
         def started(value):

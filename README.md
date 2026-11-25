@@ -125,11 +125,10 @@ mixed series. Unknown values stay explicit. The list reads the local inventory.
 Saved can include cloud storage, and an unlisted episode may simply not have
 been discovered yet. **Refresh** updates the indicators and keeps open rows in view.
 
-On desktop, click **Get episode lists** to fetch titles and availability from
-all signed-in providers that are ready, without downloading files. The Library
-shows progress for each provider. After signing in to another provider, click
-the button again to add it to the current fetch. If a provider is downloading,
-pause it on the Dashboard first. When a list is ready, expand a
+On desktop, go to a signed-in provider on the Dashboard. Open **Download**,
+select **Episode list only**, then press **Start** to fetch titles and availability.
+Pause active file downloads for that provider before switching modes. When the
+list is ready, open **Library** and expand a
 series to check or uncheck individual episodes. Checking or unchecking the whole
 series replaces its individual choices. The table header checkbox applies to
 every provider in this working library, including future discoveries. A dash
