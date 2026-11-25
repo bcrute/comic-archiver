@@ -837,7 +837,7 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls.count(('capture', '81')), 0)
 
     @patch('builtins.print')
-    def test_paged_history_recovers_an_owned_episode_missed_by_lists_and_preserves_existing_archives(self, output):
+    def test_history_retry_recovers_a_title_missed_by_lists_and_preserves_existing_archives(self, output):
         from comic_archive.adapters.tapas_history import read_page
         import hashlib
         # The ordinary discovery pass has no trace of the older series.
@@ -870,7 +870,7 @@ class JobTests(unittest.TestCase):
                     '<div class="td amount txt-r">Amount</div></div>')
             pages.append(read_page(json.dumps({'code': 200, 'data': {'body': body,
                 'pagination': {'index': index, 'has_next': index == 0}}}).encode(), index))
-        self.adapter.purchase_history_page = Mock(side_effect=pages)
+        self.adapter.purchase_history_page = Mock(side_effect=[pages[0], MetadataError('Unverified page'), pages[1]])
         self.adapter.purchase_series_identity = lambda url: {'source_series_id': '43' if url.endswith('/older') else '42', 'title': 'Title'}
         self.adapter.inspect_series = inspect_series
         self.adapter.capture_automatic = capture_episode
@@ -881,7 +881,13 @@ class JobTests(unittest.TestCase):
         first = sync(self.adapter, self.root, history_round='one-start', scan_only=True)
         self.assertEqual(first['refresh']['purchase_history']['status'], 'pending')
         second = sync(self.adapter, self.root, history_round='one-start', scan_only=True, refresh_lists=False)
-        self.assertEqual(second['refresh']['purchase_history']['status'], 'checked')
+        self.assertEqual(second['refresh']['purchase_history']['status'], 'partial')
+        self.assertEqual(second['refresh']['purchase_history']['pages'], 1)
+        self.assertNotIn(('capture', '84'), self.adapter.calls)
+        retry = sync(self.adapter, self.root, history_round='one-start', scan_only=True, refresh_lists=False)
+        self.assertEqual(retry['refresh']['purchase_history']['status'], 'checked',
+                         'The same-round retry must fetch the previously unverified page.')
+        self.assertEqual(retry['refresh']['purchase_history']['pages'], 2)
         saved = archive_discovered(self.adapter, self.root)
         self.assertEqual(saved['archived_episode_ids'], ['84'])
         self.assertEqual(verify(self.root), [])
@@ -890,7 +896,7 @@ class JobTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
         # Further chunks in this round reuse the completed discovery checkpoint.
         sync(self.adapter, self.root, history_round='one-start', scan_only=True, refresh_lists=False)
-        self.assertEqual(self.adapter.purchase_history_page.call_count, 2)
+        self.assertEqual(self.adapter.purchase_history_page.call_count, 3)
         self.assertEqual(self.adapter.calls.count(('capture', '84')), 1)
 
     @patch('builtins.print')
