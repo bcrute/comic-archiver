@@ -483,6 +483,9 @@ class SiteCard:
         menu.aboutToShow.connect(update_download_menu)
         self.selection.setMenu(menu)
         box.addWidget(self.selection)
+        self.list_note = kit.label(say('dashboard.episode_list_duration'))
+        box.addWidget(self.list_note)
+        self.list_note.hide()
         # One button for what can be done now: Sign in, Start, Continue or Pause.
         self.doing = 'signin'
         acts = {'signin': pages.signin, 'go': pages.go, 'pause': pages.pause}
@@ -647,7 +650,9 @@ class SiteCard:
         from .window_art import icon
         from .window_style import card_colours
         text, tip = dashboard_model.download_choice(s.account if s is not None else None)
-        if self.pages.episode_list_only(self.key):
+        list_mode = self.pages.episode_list_only(self.key)
+        set_visible(self.list_note, bool(list_mode))
+        if list_mode:
             text, tip = 'Download: Episode list only', 'Start fetches titles and availability for this provider.'
         self.selection.setText(text)
         self.selection.setToolTip(tip)

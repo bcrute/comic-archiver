@@ -252,6 +252,7 @@
  "dashboard.for_wi_fi_or_a_wired": "For Wi-Fi or a wired connection",
  "dashboard.free": "Free",
  "dashboard.free_on_this_disk": " {value} free on this disk.",
+ "dashboard.episode_list_duration": "Listing episodes can take hours for a large library. You can pause and download episodes already listed.",
  "dashboard.getting_episode_list": "Getting episode list",
  "dashboard.h_m": "{value}h {value2}m",
  "dashboard.incomplete_content": "Incomplete content",

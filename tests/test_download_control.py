@@ -164,6 +164,19 @@ class Controller(unittest.TestCase):
         _, request = self.published()
         self.assertEqual(request['operation'], 'archive_discovered')
 
+    def test_switching_a_paused_partial_list_to_files_saves_known_episodes_first(self):
+        dc.start(self.session, self.library, list_only=True)
+        self.assertEqual(self.published()[1]['args']['categories'], [TAPAS_LISTS[0]])
+        self.pending_episode()
+        self.ok(counted(refresh={'reading_lists': [{'category': TAPAS_LISTS[0], 'complete': True,
+                                                    'observed_series_count': 1}]}))
+        dc.request_stop(self.session, self.library)
+        self.tick()
+        self.go()
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        self.assertIsNotNone(self.lists()[TAPAS_LISTS[0]]['read_at'])
+        self.assertIsNone(self.lists()[TAPAS_LISTS[1]]['read_at'])
+
     def check_android_list_mode(self, site, categories):
         from comic_archive import android_download
         (self.session / 'site').write_text(site + '\n')

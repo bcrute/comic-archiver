@@ -230,6 +230,7 @@ private fun SiteCardView(
                     }
                 }
             }
+            if (card.listOnly) Text(say("dashboard.episode_list_duration"), style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {

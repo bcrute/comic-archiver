@@ -810,7 +810,11 @@ class DashboardTests(PagesCase):
         settle()
         menu.aboutToShow.emit()
         self.assertTrue(files.isChecked())
+        note = self.dashboard.cards['webtoon'].list_note
+        self.assertTrue(note.isHidden())
         list_only.trigger()
+        self.assertFalse(note.isHidden())
+        self.assertIn('can take hours', note.text())
         self.assertEqual(self.pages.route, 'dashboard')
         self.assertEqual(button.text(), 'Download: Episode list only')
         self.assertEqual(webtoon.named('get_episode_list'), [])

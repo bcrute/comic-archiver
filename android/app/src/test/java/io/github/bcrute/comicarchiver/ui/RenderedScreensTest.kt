@@ -380,6 +380,15 @@ class RenderedScreensTest {
         assertEquals("tapas" to "files", controller.listChanges.last())
     }
 
+    @Test fun listDurationHintFollowsTheSelectedMode() {
+        val card = SiteCard("tapas", "Tapas", "", "", "", "", emptyList(), listOnly = true)
+        controller.state.value = controller.state.value.copy(siteCards = listOf(card))
+        show()
+        compose.onNodeWithText("Listing episodes can take hours", substring = true).performScrollTo().assertExists()
+        compose.runOnIdle { controller.state.value = controller.state.value.copy(siteCards = listOf(card.copy(listOnly = false))) }
+        compose.onNodeWithText("Listing episodes can take hours", substring = true).assertDoesNotExist()
+    }
+
     @Test fun choosingComicsOpensTheClickedProvidersEpisodesAndPreservesTheirIdentity() {
         val card = SiteCard("tappytoon", "Tappytoon", "", "", "", "", emptyList(),
             hasEpisodes = true, hasList = true, bulk = "mixed")
