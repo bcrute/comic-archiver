@@ -1674,6 +1674,14 @@ class Pages:
     def tick(self):
         """The clocks' second. The window is drawn again only when what it would show has changed: drawn every
         second regardless, a list under the pointer or a field being typed in was remade under the person."""
+        now = self.now()
+        for key in self.open_keys():
+            state = self.states.get(key)
+            if (state and state.pause_refresh_until > now and not state.offline
+                    and (state.account or {}).get('status') == 'stopped'
+                    and dashboard_model.worker_state(state, now) == 'busy'
+                    and now - state.refreshed_at >= 2):
+                self.poll_site(key, timed=True)
         self.render(changed=True)
 
     def render(self, changed=False):
@@ -1814,6 +1822,8 @@ class Pages:
         s = self.of(key or self.chosen)
 
         def paused(value):
+            # Pause acknowledges cancellation before the provider worker finishes its current request.
+            s.pause_refresh_until = self.now() + 30
             s.received_account(value, self.now())
             s.refreshed(self.now())
             self.poll_soon(key)

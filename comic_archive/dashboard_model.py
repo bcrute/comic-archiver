@@ -351,6 +351,7 @@ class State:
     offline: bool = False
     network_saving: bool = False
     account_at: float = 0  # When the account's state arrived, to count on from.
+    pause_refresh_until: float = 0
     refreshed_at: float = 0
     connected_at: float = 0
     start_read: float = 0  # The sign-in (its connected_at) whose downloader was looked at once its time was up.
@@ -681,6 +682,8 @@ def view(s, now):
                           say('dashboard.finish_signing_in_to_well_detect', site=site) if signing_in
                           else auth_messages.get(str(site_auth.get('code')).removeprefix('signin_'), auth_messages['failed'])
                           if site_auth.get('status') == 'error' else '')
+    if not v['signin_status'] and account_status == 'stopped' and worker == 'busy':
+        v['signin_status'] = say('dashboard.finishing_the_current_step')
     v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
     v['settings_status'] = s.message.text if s.message else ''
     v['settings_status_error'] = bool(s.message and s.message.error)

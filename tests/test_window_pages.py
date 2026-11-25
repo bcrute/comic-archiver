@@ -1584,6 +1584,28 @@ class DashboardTests(PagesCase):
         settle()
         self.assertEqual(len(self.actions.named('poll')), polls + 1)
 
+    def test_pause_then_switch_to_files_enables_start_as_soon_as_the_worker_is_ready(self):
+        self.open()
+        self.pages.set_episode_list_only('tapas', True)
+        self.actions.account(status='running', list_only=True)
+        self.actions.reading['status']['worker'] = {'reported_state': 'busy'}
+        self.pages.poll_site('tapas')
+        self.card.action.click()
+        settle()
+        self.pages.set_episode_list_only('tapas', False)
+        self.assertFalse(self.card.action.isEnabled())
+        self.assertEqual(self.card.message.text(), 'Finishing the current step')
+        self.actions.reading['status']['worker'] = {'reported_state': 'ready'}
+        count = len(self.actions.named('poll'))
+        self.clock[0] += 2
+        self.pages.tick()
+        self.assertTrue(self.card.action.isEnabled())
+        self.assertEqual(self.card.message.text(), '')
+        self.clock[0] += 3
+        self.pages.tick()
+        self.assertEqual(len(self.actions.named('poll')), count + 1)
+        self.assertFalse(self.actions.named('go'))
+
     def test_signing_in_is_offered_when_needed_and_says_where_to_finish(self):
         self.actions.reading['status']['session_configured'] = False
         self.open()
