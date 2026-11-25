@@ -363,6 +363,8 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertTrue(self.call('list_preference', **args, action='clear')['ok'])
         rows = self.call('episode_inventory', **args, series_id='42')['result']['items']
         self.assertEqual([row['id'] for row in rows], ['81'])
+        for folder in ('requests', 'responses'):
+            (workspace.session / 'worker' / folder).mkdir(parents=True, exist_ok=True)
         with patch('comic_archive.account_ui.start') as start:
             android_download.start(workspace)
         start.assert_called_once_with(workspace, list_only=True)
