@@ -68,7 +68,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(say("app.library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    OutlinedButton(onClick = { opened = emptyList(); onRefresh() }, enabled = !changing) { Text(say("library.refresh")) }
+                    OutlinedButton(onClick = onRefresh, enabled = !changing) { Text(say("library.refresh")) }
                 }
                 val policies = sites.filter { it.enabled }.map { site ->
                     val policy = bulkChoices[site.key]

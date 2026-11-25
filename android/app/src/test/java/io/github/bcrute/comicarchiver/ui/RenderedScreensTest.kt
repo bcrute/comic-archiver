@@ -379,6 +379,28 @@ class RenderedScreensTest {
         assertEquals("tapas" to "files", controller.listChanges.last())
     }
 
+    @Test fun choosingComicsOpensTheClickedProvidersEpisodesAndPreservesTheirIdentity() {
+        val card = SiteCard("tappytoon", "Tappytoon", "", "", "", "", emptyList(),
+            hasEpisodes = true, hasList = true, bulk = "mixed")
+        controller.state.value = controller.state.value.copy(
+            sites = listOf(SiteChoice("tapas", "Tapas", true), SiteChoice("tappytoon", "Tappytoon", true)),
+            siteCards = listOf(card), episodes = mapOf(
+                "tappytoon" to EpisodeList(listOf(EpisodeRow("42", "Chosen comic", "1 saved · 2 listed", "CBZ", "Mixed", true, true)), loaded = true),
+                "tappytoon/42" to EpisodeList(listOf(EpisodeRow("81", "Owned episode", "Saved", "CBZ", "Paid", false)), loaded = true)))
+        show()
+        compose.onNodeWithTag("card-types-tappytoon").performScrollTo().performClick()
+        compose.onNodeWithText("Clear episode list").performClick()
+        assertEquals(listOf("tappytoon" to "clear"), controller.listChanges)
+        compose.onNodeWithTag("card-types-tappytoon").performScrollTo().performClick()
+        compose.onNodeWithText("Choose comics in Library").performClick()
+        compose.onNodeWithTag("nav-library").assertIsSelected()
+        compose.onNodeWithTag("episodes-tappytoon/42").performClick()
+        compose.onNodeWithTag("select-episode-tappytoon/42/81").assertIsOff().performClick()
+        assertEquals("81", controller.changedEpisode)
+        assertEquals(Triple(true, "tappytoon", "42"), controller.comicChanges.single())
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun pendingListPreferenceDisablesBothWaysToStart() {
         controller.state.value = controller.state.value.copy(settingsBusy = true)
         show()
@@ -759,9 +781,8 @@ class RenderedScreensTest {
         assertEquals(listOf<Pair<String, String?>>("webtoon" to null), controller.episodeLoads)
         compose.onNodeWithText("Refresh").performClick()
         assertEquals(1, controller.episodeRefreshes)
-        compose.onNode(hasTestTag("episodes-tapas") and hasText("Expand to view")).assertExists()
-        compose.onNodeWithTag("episodes-tapas").performClick()
-        assertEquals(listOf<Pair<String, String?>>("webtoon" to null, "tapas" to null), controller.episodeLoads)
+        compose.onNode(hasTestTag("episodes-tapas") and hasText("Loading…")).assertExists()
+        assertEquals(listOf<Pair<String, String?>>("webtoon" to null, "tapas" to null, "webtoon" to null), controller.episodeLoads)
     }
 
     @Test fun speedCanBeChangedWhileSavingAsOnTheDesktop() {
@@ -1537,8 +1558,10 @@ private class ScreenController : AppController {
     val episodeLoads = mutableListOf<Pair<String, String?>>()
     val listChanges = mutableListOf<Pair<String, String>>()
     override fun listPreference(site: String, action: String) { listChanges.add(site to action) }
+    var changedEpisode: String? = null
     val comicChanges = mutableListOf<Triple<Boolean, String?, String?>>()
     override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?, episodeId: String?) {
+        changedEpisode = episodeId
         comicChanges.add(Triple(chosen, site, seriesId))
         state.value = state.value.copy(episodes = state.value.episodes.mapValues { (key, list) ->
             if (key.contains('/') || site != null && site != key) list
