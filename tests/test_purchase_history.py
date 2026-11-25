@@ -245,6 +245,21 @@ class PurchaseHistoryTests(unittest.TestCase):
             purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
         self.assertEqual(self.adapter.purchase_history_page.call_count, 2)
 
+    def test_browser_pager_is_used_only_after_the_indexed_read_returns_the_wrong_page_twice(self):
+        from comic_archive.adapters.tapas_history import invalid
+        mismatch = invalid('pagination_index_mismatch', 'Wrong page')
+        self.adapter.purchase_history_page.side_effect = [self.page([self.first], ['a'], cursor=self.cursor),
+                                                          mismatch, mismatch]
+        self.adapter.purchase_history_browser_page = Mock(
+            return_value=self.page([self.older], ['b'], boundary=True, index=1))
+        with self.store() as inventory:
+            for _ in range(2):
+                purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.adapter.purchase_history_browser_page.assert_not_called()
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.assertEqual((result['status'], result['pages'], result['series_added']), ('checked', 2, 1))
+            self.adapter.purchase_history_browser_page.assert_called_once_with(self.cursor)
+
     def test_skipped_or_invalid_continuation_retains_candidates_without_following(self):
         for cursor in (self.cursor | {'index': 2}, self.cursor | {'index': 10000}, {'action': 'buy'}):
             with self.subTest(cursor=cursor), self.store() as inventory:
@@ -297,19 +312,30 @@ class PurchasePageTests(unittest.TestCase):
         self.assertEqual(len(page['record_ids']), 3)
 
     def test_wrong_index_unknown_shape_and_malformed_rows_are_refused(self):
-        cases = [None, {}, {'index': 1, 'has_next': False}, {'index': True, 'has_next': False},
-                 {'index': 0, 'has_next': 0}]
+        cases = [None, {}, {'index': True, 'has_next': False}, {'index': 0, 'has_next': 0}]
         for pagination in cases:
             with self.subTest(pagination=pagination), self.assertRaises(MetadataError) as caught:
                 self.answer['data']['pagination'] = pagination
                 self.adapter.purchase_history_page()
             self.assertEqual(caught.exception.history_reason, 'pagination_shape')
+        self.answer['data']['pagination'] = {'index': 1, 'has_next': False}
+        with self.assertRaises(MetadataError) as caught:
+            self.adapter.purchase_history_page()
+        self.assertEqual(caught.exception.history_reason, 'pagination_index_mismatch')
         self.answer['data']['pagination'] = {'index': 0, 'has_next': False}
         for body in ('<div class="tr">incomplete', '<div class="tr"><span>mismatch</div>',
                      '<div class="tr"><div class="tr">nested</div></div>', '<div class="tr">'+('x'*16385)+'</div>'):
             with self.subTest(body=body[:60]), self.assertRaises(MetadataError):
                 self.answer['data']['body'] = body
                 self.adapter.purchase_history_page()
+
+    def test_optional_table_end_tags_preserve_separate_history_rows(self):
+        self.answer['data']['body'] = (
+            '<table><tbody><tr><td>Unlocked<td><a href="/series/first">First</a>'
+            '<tr><td>Unlocked<td><a href="/series/older">Older</a></table>')
+        page = self.adapter.purchase_history_page()
+        self.assertEqual(page['links'], ['https://tapas.io/series/first', 'https://tapas.io/series/older'])
+        self.assertEqual(len(page['record_ids']), 2)
 
     def test_foreign_and_action_links_are_never_content_associations(self):
         self.answer['data']['body'] = ('<div class="tr">Unlocked episode'

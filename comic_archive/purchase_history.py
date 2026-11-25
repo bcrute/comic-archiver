@@ -37,8 +37,9 @@ def _diagnostic_fields(value):
         number = value.get(name)
         if type(number) is int and low <= number <= high:
             result[name] = number
-    if type(value.get('pager_replayed')) is bool:
-        result['pager_replayed'] = value['pager_replayed']
+    for name in ('pager_replayed', 'browser_pager_attempted'):
+        if type(value.get(name)) is bool:
+            result[name] = value[name]
     recorded = value.get('recorded_at')
     if isinstance(recorded, str) and re.fullmatch(r'[0-9T:.+Z-]{20,40}', recorded):
         result['recorded_at'] = recorded
@@ -51,7 +52,9 @@ def _record_failure(value, reason, error=None):
               'request_page_index': getattr(error, 'history_request_page', None),
               'http_status': getattr(error, 'source_http_status', None),
               'response_code': getattr(error, 'history_response_code', None),
-              'pager_replayed': getattr(error, 'history_replayed', None), 'recorded_at': timestamp()}
+              'pager_replayed': getattr(error, 'history_replayed', None),
+              'browser_pager_attempted': getattr(error, 'history_browser_attempted', None),
+              'recorded_at': timestamp()}
     value['last_failure'] = _diagnostic_fields(detail)
 
 
@@ -109,6 +112,24 @@ def _unverified_page(value, reason, error=None):
     # written by older versions. A second unverified read ends this round.
     value.update(page_retry_exhausted=value['status'] == 'partial',
                  status='partial', code='history_rows_unverified')
+
+
+def _read_history_page(adapter, value):
+    try:
+        return adapter.purchase_history_page(value['cursor'])
+    except MetadataError as error:
+        browser_page = getattr(adapter, 'purchase_history_browser_page', None)
+        if (value['status'] != 'partial' or not callable(browser_page)
+                or getattr(error, 'history_reason', None) != 'pagination_index_mismatch'):
+            raise
+        try:
+            page = browser_page(value['cursor'])
+        except MetadataError:
+            page = None
+        if page is not None:
+            return page
+        error.history_browser_attempted = True
+        raise
 
 
 def summary(inventory):
@@ -204,7 +225,7 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
         for _ in range(pages):
             check()
             try:
-                page = adapter.purchase_history_page(value['cursor'])
+                page = _read_history_page(adapter, value)
             except MetadataError as error:
                 from .adapters.tapas_history import REASONS
                 reason = getattr(error, 'history_reason', None)

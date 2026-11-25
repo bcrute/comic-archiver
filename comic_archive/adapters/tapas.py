@@ -1,4 +1,5 @@
 """Experimental normal-reader capture. No guessed private API or unlock request."""
+import json
 import re
 import time
 from pathlib import Path
@@ -807,7 +808,7 @@ class TapasAdapter:
             except Exception:result['restore_succeeded']=False
             self.page.remove_listener('response',observation.on_response)
 
-    def inspect_account_navigation(self):
+    def inspect_account_navigation(self, *, navigation_only=False):
         """Read actual account links and history markup, without action clicks."""
         automatic=self.automatic_adapter()
         automatic.check_session()
@@ -923,6 +924,8 @@ class TapasAdapter:
                                     return chain;
                                 }""",{'x':bounds['x']+bounds['width']/2,'y':bounds['y']+bounds['height']/2})
                         break
+            if navigation_only:
+                return {'history_clicked': history_clicked}
             raw = self.page.locator('a[href*="/series/"],a[href*="/episode/"]').evaluate_all("els=>els.map(e=>e.href)")
             public_links = sorted({canonical_url(u) for u in raw if re.fullmatch(r'https://tapas\.io/(?:series/[A-Za-z0-9_-]{1,100}(?:/info)?|episode/[0-9]+)',u)})
             return {'authenticated':True, 'complete':False, 'visited_paths':visited,
@@ -1005,6 +1008,64 @@ class TapasAdapter:
                                         getattr(error, 'history_response_code', None)):
                 raise
         return walk(0, replay=True)
+
+    def purchase_history_browser_page(self, cursor):
+        """Try the site's Older control when indexed reads return the wrong page twice."""
+        from ..purchase_history import continuation_url
+        from .tapas_history import read_page
+
+        if cursor is not None:
+            continuation_url(cursor)
+        index = cursor['index'] if cursor is not None else 0
+        # Reserve most of a download step for list and series work. This path
+        # starts at the visible history tab and must visit each preceding page.
+        if index >= 10:
+            return None
+        path = '/profile/transactions'
+        observation = ReaderObservation()
+        state = {'observation': observation, 'advance_clicked': False}
+        self._history_walked = None
+
+        def observe(response):
+            url = urlsplit(response.url)
+            request = response.request
+            if (url.scheme == 'https' and url.netloc == 'tapas.io' and url.path == path
+                    and request.method == 'GET' and request.resource_type in {'fetch', 'xhr'}):
+                observation.on_response(response)
+
+        self.page.on('response', observe)
+        try:
+            if not self.inspect_account_navigation(navigation_only=True)['history_clicked']:
+                return None
+            for current in range(index + 1):
+                advanced = True
+                if current:
+                    state['previous_index'] = current - 1
+                    observation.library_values.pop(path, None)
+                    advanced = self._advance_history(state)
+                status = observation.history_status
+                if (current == 0 < index and status is None
+                        and self.page.locator('.tp-table.transactions .js-next-page.disabled').count() == 1):
+                    # The opening page can already be rendered when the tab opens.
+                    continue
+                if status == 401:
+                    raise AuthenticationError('Tapas requires a fresh login before account history can continue.')
+                if status in {403, 429, 502, 503, 504}:
+                    error_type = NetworkUnavailable if status in {502, 503, 504} else ArchiveError
+                    error = error_type('Tapas did not allow the normal purchase-history page to continue.')
+                    error.source_http_status = status
+                    raise error
+                answer = observation.library_values.get(path)
+                if not advanced or status != 200 or answer is None:
+                    return None
+                result = read_page(json.dumps(answer).encode(), current)
+                if current == index:
+                    self._history_walked = current
+                    return result
+                if result['next_cursor'] is None:
+                    return None
+        finally:
+            self.page.remove_listener('response', observe)
 
     def purchase_series_identity(self, url):
         """Resolve a history association through normal metadata, never images."""

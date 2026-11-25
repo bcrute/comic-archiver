@@ -15,7 +15,8 @@ from ..models import ArchiveError
 
 LIMIT = 4 * 1024 * 1024
 REASONS = frozenset({'row_structure', 'row_balance', 'row_size', 'response_size', 'response_encoding',
-                     'response_shape', 'pagination_shape', 'row_incomplete', 'row_empty', 'page_refused'})
+                     'response_shape', 'pagination_shape', 'pagination_index_mismatch',
+                     'row_incomplete', 'row_empty', 'page_refused'})
 
 
 def invalid(reason, message):
@@ -25,6 +26,8 @@ def invalid(reason, message):
 
 
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
+CELLS = {'td', 'th'}
+SECTIONS = {'thead', 'tbody', 'tfoot'}
 CONTENT = re.compile(r'/(?:series/[A-Za-z0-9_-]{1,100}(?:/info)?|episode/[1-9][0-9]{0,19})')
 
 
@@ -37,6 +40,10 @@ class HistoryRows(HTMLParser):
         self.rows = []
 
     def handle_starttag(self, tag, attrs):
+        if tag in CELLS | SECTIONS | {'tr'}:
+            self._close_table_tags(CELLS if tag in CELLS else CELLS | {'tr'})
+            if tag in SECTIONS:
+                self._close_table_tags(SECTIONS)
         attrs = dict(attrs)
         is_row = tag == 'tr' or 'tr' in (attrs.get('class') or '').split()
         if is_row:
@@ -63,8 +70,21 @@ class HistoryRows(HTMLParser):
     def handle_endtag(self, tag):
         if tag in VOID:
             return
+        if tag in SECTIONS | {'tr', 'table'}:
+            self._close_table_tags(CELLS)
+        if tag in SECTIONS | {'table'}:
+            self._close_table_tags({'tr'})
+        if tag == 'table':
+            self._close_table_tags(SECTIONS)
         if not self.stack or self.stack[-1] != tag:
             raise invalid('row_balance', 'History rows have an unbalanced structure.')
+        self._finish_tag()
+
+    def _close_table_tags(self, tags):
+        while self.stack and self.stack[-1] in tags:
+            self._finish_tag()
+
+    def _finish_tag(self):
         self.stack.pop()
         if self.row is not None and len(self.stack) == self.row['depth']:
             self.rows.append(self.row)
@@ -99,9 +119,11 @@ def read_page(raw, index):
     data = answer.get('data')
     pagination = data.get('pagination') if isinstance(data, dict) else None
     if (not isinstance(pagination, dict) or type(pagination.get('index')) is not int
-            or pagination['index'] != index or type(pagination.get('has_next')) is not bool
+            or type(pagination.get('has_next')) is not bool
             or not isinstance(data.get('body'), str)):
         raise invalid('pagination_shape', 'History pagination did not confirm the requested page and boundary.')
+    if pagination['index'] != index:
+        raise invalid('pagination_index_mismatch', 'Tapas returned a different history page from the one requested.')
     body = data['body']
     parser = HistoryRows()
     parser.feed(body)
