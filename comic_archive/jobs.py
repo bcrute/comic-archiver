@@ -1,4 +1,5 @@
 """Reusable jobs for CLI, a private website or a worker; no purchase actions."""
+import json
 import math
 import logging
 import shutil
@@ -453,7 +454,11 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             inventory.mark(key,'queued','asset_read_unavailable')
                             summary['deferred_asset_episode_ids'].append(key)
                             consecutive_asset_failures += 1
-                            print(f'Episode {key}: image read failed after retries; cached pages retained for a bounded retry after cooldown.',flush=True)
+                            failure = {'episode': key, 'page': error.page_order, 'page_count': error.page_count,
+                                       'reason': error.network_failure_code, 'attempts': list(error.attempts)}
+                            summary.setdefault('deferred_asset_failures', []).append(failure)
+                            print(f'Episode {key}: image read failed after retries; cached pages retained. '
+                                  + json.dumps(failure, separators=(',', ':')), flush=True)
                             if (consecutive_asset_failures >= MAX_CONSECUTIVE_ASSET_FAILURES
                                     or len(summary['deferred_asset_episode_ids']) >= MAX_DEFERRED_ASSET_FAILURES):
                                 raise

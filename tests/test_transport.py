@@ -175,8 +175,33 @@ class TransportLimitTests(unittest.TestCase):
                 with self.assertRaises(NetworkUnavailable) as error:
                     transport.get(url)
                 self.assertIs(isinstance(error.exception, AssetReadUnavailable), image)
+                if image:
+                    attempts = error.exception.attempts
+                    self.assertEqual(len(attempts), 3)
+                    for reading in attempts:
+                        self.assertEqual(reading['failure'], 'read_timeout')
+                        self.assertIsNone(reading['http_status'])
+                        self.assertEqual(reading['received_bytes'], 0)
+                        self.assertGreaterEqual(reading['elapsed_ms'], 0)
                 # Account reads stay out of the image figures.
                 self.assertEqual(transport.metrics.snapshot()['requests'], 3 if image else 0)
+
+    def test_failed_image_attempts_distinguish_a_server_reply_from_a_partial_body(self):
+        import httpx
+        from comic_archive.errors import AssetReadUnavailable
+
+        class BrokenBody(Response):
+            def iter_bytes(self):
+                yield b'first chunk'
+                raise httpx.ReadError('private signed address')
+
+        transport = Transport(client=Client([Response(503), BrokenBody(), BrokenBody()]))
+        with patch.object(transport, '_wait'), self.assertRaises(AssetReadUnavailable) as raised:
+            transport.get('https://cdn.tapas.io/page.jpg?private=signature')
+        attempts = raised.exception.attempts
+        self.assertEqual([(a['failure'], a['http_status'], a['received_bytes']) for a in attempts],
+                         [('http_error', 503, 0), ('read_error', 200, 11), ('read_error', 200, 11)])
+        self.assertNotIn('private', str(attempts))
 
     def test_the_job_deadline_cuts_a_long_server_pause_short_instead_of_sleeping_through_it(self):
         clock = Clock()

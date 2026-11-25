@@ -52,6 +52,12 @@ class AssetDeferralTests(unittest.TestCase):
         self.assertEqual(first['archived_episode_ids'],['82'])
         self.assertEqual(first['deferred_asset_episode_ids'],['81'])
         self.assertEqual(first['downloaded_pages'],3)
+        self.assertEqual(first['deferred_asset_failures'], [
+            {'episode': '81', 'page': 2, 'page_count': 2, 'reason': 'read_timeout', 'attempts': []}])
+        lines = [call.args[0] for call in output.call_args_list if call.args and 'image read failed' in str(call.args[0])]
+        self.assertEqual(len(lines), 1)
+        self.assertIn('"page":2', lines[0])
+        self.assertNotIn('PRIVATE', lines[0])
         self.assertNotIn('PRIVATE',json.dumps(first))
         with Inventory(self.root,read_only=True) as inventory:
             self.assertEqual([r['id'] for r in inventory.pending()],['83','84','85','86','81'])

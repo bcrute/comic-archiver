@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from comic_archive.archive import Store, verify
 from comic_archive.downloads import AssetDownload
-from comic_archive.errors import AccessDenied, RunLimit
+from comic_archive.errors import AccessDenied, AssetReadUnavailable, RunLimit
 from comic_archive.jobs import DownloadBudget
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.transport import ExpiredAsset
@@ -120,6 +120,13 @@ class DownloadWorkersTests(unittest.TestCase):
         # A serial build has byte-for-byte identical deterministic ZIP entries.
         self.store.archive(self.manifest, self.adapter, progress=lambda line: None)
         self.assertEqual(cbz.read_bytes(), original)
+
+    def test_parallel_image_failure_reports_its_own_page_number(self):
+        self.adapter.overlap = True
+        self.adapter.failures[1] = AssetReadUnavailable('Private response details')
+        with self.assertRaises(AssetReadUnavailable) as caught:
+            self.archive()
+        self.assertEqual((caught.exception.page_order, caught.exception.page_count), (1, 4))
 
     def test_failure_caches_other_inflight_page_and_does_not_start_next_wave(self):
         self.adapter.failures[1] = ArchiveError('Transfer failed')

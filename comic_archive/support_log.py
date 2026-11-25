@@ -7,6 +7,7 @@ library folder are written as ~ and <library>. Nothing here uses Qt: the phone a
 """
 import faulthandler
 import logging
+import json
 import os
 import platform
 import re
@@ -451,6 +452,51 @@ def _account_lists(session, record):
     return lines
 
 
+def _image_failures(library):
+    """Recover image failures from recent batch receipts, even after the worker log rotates."""
+    from .inventory import Inventory
+    from .transfer_metrics import NETWORK_FAILURE_CODES
+    if not (library / '.archive-state/inventory.sqlite3').is_file():
+        return []
+    lines = []
+    with Inventory(library, read_only=True) as inventory:
+        rows = inventory.db.execute("SELECT finished_at,summary FROM runs WHERE finished_at IS NOT NULL "
+                                    "ORDER BY rowid DESC LIMIT ?", (STEPS,))
+        for finished, raw in rows:
+            try:
+                batch = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(batch, dict) or not batch.get('deferred_asset_episode_ids'):
+                continue
+            metrics = batch.get('asset_metrics') or {}
+            counts = metrics.get('error_counts', {}) if isinstance(metrics, dict) else {}
+            reasons = [f'{key}={counts[key]}' for key in sorted(NETWORK_FAILURE_CODES)
+                       if isinstance(counts, dict) and type(counts.get(key)) is int and counts[key] > 0]
+            lines.append(f"{_plain(finished, MOMENT)} batch image errors: {', '.join(reasons) or 'unrecorded'}")
+            failures = batch.get('deferred_asset_failures')
+            if not isinstance(failures, list):
+                continue
+            for failure in failures[:5]:
+                if not isinstance(failure, dict) or failure.get('reason') not in ('read_timeout', 'read_error'):
+                    continue
+                episode = _plain(failure.get('episode'), NUMBER)
+                page = failure.get('page')
+                lines.append(f"  episode {episode}, page {page if type(page) is int else 'unknown'}: {failure['reason']}")
+                attempts = failure.get('attempts')
+                if not isinstance(attempts, list):
+                    continue
+                for attempt in attempts[:3]:
+                    if not isinstance(attempt, dict) or attempt.get('failure') not in (*NETWORK_FAILURE_CODES, 'http_error'):
+                        continue
+                    status = attempt.get('http_status')
+                    elapsed, size = attempt.get('elapsed_ms'), attempt.get('received_bytes')
+                    if type(elapsed) is int and type(size) is int:
+                        reply = f'HTTP {status}' if type(status) is int else 'no response headers'
+                        lines.append(f"    {attempt['failure']}, {reply}, {size} decoded bytes, {elapsed} ms")
+    return lines
+
+
 def _history_failure(library):
     from .inventory import Inventory
     from .purchase_history import support_diagnostic
@@ -487,6 +533,9 @@ def site_records(name, session, library):
                 '', f'=== {name}: the downloader’s log', _log_excerpt(excerpt, DOWNLOADER_BYTES)]
     if failures:
         sections.extend(['', f'=== {name}: EPUB failure details', *failures])
+    images = _part(_image_failures, library)
+    if images:
+        sections.extend(['', f'=== {name}: recent image failures, newest batch first', *images])
     discovery = _part(_account_lists, session, record)
     if name.casefold() == 'tapas':
         discovery.extend(_part(_history_failure, library))

@@ -18,7 +18,7 @@ from .transport import ExpiredAsset
 from .archive_paths import directory, leads_out, pinned_publication, staged_archive
 from .osdep import anchored, hide, linked, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
-from .errors import RunLimit
+from .errors import AssetReadUnavailable, RunLimit
 LIBRARY_REPORT_MAX_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 10_000
 MAX_MEMBER_BYTES = 100 * 1024 * 1024
@@ -324,7 +324,11 @@ class Store:
         data = self.cached_page(source, episode, page) if not refresh else None
         if data is not None:
             return data
-        data = adapter.retrieve(page)
+        try:
+            data = adapter.retrieve(page)
+        except AssetReadUnavailable as error:
+            error.page_order, error.page_count = page.order, len(episode.pages)
+            raise
         self.remember_page(source, episode, page, data)
         return data
 
@@ -439,6 +443,8 @@ class Store:
                                         self.remember_page(source, current, page, data)
                                         record(page, data)
                                     except BaseException as error:
+                                        if isinstance(error, AssetReadUnavailable):
+                                            error.page_order, error.page_count = page.order, len(current.pages)
                                         errors.append(error)
                                     finally:
                                         request.cancel()

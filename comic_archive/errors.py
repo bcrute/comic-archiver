@@ -64,6 +64,9 @@ class NetworkUnavailable(ArchiveError):
 
 class AssetReadUnavailable(NetworkUnavailable):
     """An original CDN asset exhausted retries without an HTTP refusal."""
+    attempts = ()
+    page_order = None
+    page_count = None
 
 
 class LibraryMoved(ArchiveError):

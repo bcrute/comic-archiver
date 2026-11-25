@@ -139,6 +139,22 @@ class SupportLogTests(unittest.TestCase):
         self.assertIn('episodes not saved', records)
         self.assertIn('last steps', records)
 
+    def test_image_failures_survive_rotation_and_only_export_known_fields(self):
+        workspace = self.site()
+        with Inventory(workspace.library) as inv:
+            batch = {'deferred_asset_episode_ids': ['81'], 'asset_metrics': {'error_counts': {
+                'read_timeout': 3, 'PRIVATE': 1}}}
+            inv.finish_run(inv.start_run(), 'limited', batch)
+            batch['deferred_asset_failures'] = [{'episode': '81', 'page': 2, 'reason': 'read_timeout',
+                'attempts': [{'failure': 'read_timeout', 'http_status': None, 'received_bytes': 0,
+                              'elapsed_ms': 10000, 'path': 'PRIVATE'}]}]
+            inv.finish_run(inv.start_run(), 'limited', batch)
+        text = support_log.site_records('Tapas', workspace.session, workspace.library)
+        self.assertEqual(text.count('batch image errors: read_timeout=3'), 2)
+        self.assertIn('episode 81, page 2: read_timeout', text)
+        self.assertIn('no response headers, 0 decoded bytes, 10000 ms', text)
+        self.assertNotIn('PRIVATE', text)
+
     def test_discovery_results_survive_log_rotation_and_duplicate_task_lines_are_omitted(self):
         from comic_archive import download_control, purchase_history
 

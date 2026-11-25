@@ -215,6 +215,7 @@ class Transport:
                     or not authorization.isprintable()):
                 raise ArchiveError(f"The {self.site.name} key may be sent only to {self.site.name} itself.")
             headers["Authorization"] = authorization
+        failed_attempts = []
         for attempt in range(3):
             self._pace(image)
             # A response can rotate/delete a cookie before its body fails. Rebuild the
@@ -244,7 +245,12 @@ class Transport:
             try:
                 return self._request(url, headers, max_bytes, attempt, take_cookies)
             except _RetryRequest as retry:
+                if retry.asset_attempt is not None:
+                    failed_attempts.append(retry.asset_attempt)
                 self._wait(retry.delay)
+            except AssetReadUnavailable as error:
+                error.attempts = [*failed_attempts, error.asset_attempt]
+                raise
 
     def _webtoon_session_cookie(self, *, check_budget=True):
         if self.site.key != 'webtoon':
@@ -465,6 +471,12 @@ class Transport:
                     unavailable.network_failure_code = failure
                     raise unavailable from None
                 raise _RetryRequest(2 ** (attempt + 1)) from None
+        except (_RetryRequest, AssetReadUnavailable) as error:
+            if measured:
+                # Per-request locals keep concurrent images apart. Never retain the URL or the exception text.
+                error.asset_attempt = {'failure': failure, 'http_status': status, 'received_bytes': len(data),
+                                       'elapsed_ms': round((time.monotonic() - started) * 1000)}
+            raise
         finally:
             if measured:
                 self.metrics.finish(started,time.monotonic(),status,len(data),failure)
@@ -474,5 +486,7 @@ class Transport:
 
 
 class _RetryRequest(Exception):
+    asset_attempt = None
+
     def __init__(self, delay):
         self.delay = delay

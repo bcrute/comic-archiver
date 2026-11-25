@@ -10894,5 +10894,21 @@
   "new": "episode_id=None",
   "test_file": "test_android_cards.py",
   "test": "test_choose_comics_updates_only_future_acquisitions_and_never_starts_a_worker"
+ },
+ {
+  "id": "asset-timeout-loses-response-status",
+  "source": "comic_archive/transport.py",
+  "old": "'http_status': status, 'received_bytes': len(data)",
+  "new": "'http_status': None, 'received_bytes': len(data)",
+  "test_file": "test_transport.py",
+  "test": "test_failed_image_attempts_distinguish_a_server_reply_from_a_partial_body"
+ },
+ {
+  "id": "parallel-image-failure-uses-first-page",
+  "source": "comic_archive/archive.py",
+  "old": "error.page_order, error.page_count = page.order, len(current.pages)",
+  "new": "error.page_order, error.page_count = 0, len(current.pages)",
+  "test_file": "test_download_workers.py",
+  "test": "test_parallel_image_failure_reports_its_own_page_number"
  }
 ]
