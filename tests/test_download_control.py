@@ -164,6 +164,43 @@ class Controller(unittest.TestCase):
         _, request = self.published()
         self.assertEqual(request['operation'], 'archive_discovered')
 
+    def check_android_list_mode(self, site, categories):
+        from comic_archive import android_download
+        (self.session / 'site').write_text(site + '\n')
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Fixture', [{'id': '81', 'title': 'One', 'order': 1,
+                               'access_state': site + '_free'}], 'fixture')
+            inventory.scan_candidates(all_series=True)
+        android_download.change_list(self.workspace, 'list')
+        android_download.start(self.workspace)
+        for category in categories:
+            _, request = self.published()
+            self.assertEqual(request['operation'], 'sync')
+            self.assertEqual(request['args']['categories'], [category])
+            self.assertTrue(request['args']['scan_only'])
+            self.ok(counted(refresh={'reading_lists': [{'category': category, 'complete': True,
+                                                        'observed_series_count': 1}]}))
+        _, request = self.published()
+        self.assertTrue(request['args']['scan_only'])
+        self.assertTrue(request['args']['all_series'])
+        with Inventory(self.library) as inventory:
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1, 'successful_series_checks': 1}))
+        self.tick()
+        self.assertTrue(account_ui.status(self.workspace)['episode_list_ready'])
+        self.assertEqual(self.requests(), [])
+        android_download.change_list(self.workspace, 'files')
+        self.assertEqual(self.requests(), [])
+        android_download.start(self.workspace)
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+
+    def test_tappytoon_phone_list_mode_finishes_without_downloading_until_file_mode_and_start(self):
+        self.check_android_list_mode('tappytoon', ['unlocked', 'subscribed', 'recent'])
+
+    def test_webtoon_phone_list_mode_finishes_without_downloading_until_file_mode_and_start(self):
+        self.check_android_list_mode('webtoon', ['subscribed', 'unlocked'])
+
     def test_schema_one_migration_preserves_download_progress_and_defaults_to_downloading(self):
         self.go()
         self.read_lists(lists=TAPAS_LISTS[:1])
