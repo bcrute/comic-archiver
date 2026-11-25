@@ -116,7 +116,7 @@ class DefaultAppController(
     /** As the desktop's Start all: every site that is signed in and not saving is started in turn.
      *  A site's sign-in lives with its own screen, so each is shown while it is started. */
     override fun goAll() {
-        if (allJob?.isActive == true || _state.value.siteBusy || _state.value.libraryBusy || !workspaceReady) return
+        if (allJob?.isActive == true || _state.value.siteBusy || _state.value.settingsBusy || _state.value.libraryBusy || !workspaceReady) return
         if (_state.value.signOutPending || screenHasActivity()) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
                 say("app.finish_sign_in_export_or_cloud")))
@@ -256,7 +256,16 @@ class DefaultAppController(
         val cards = try {
             val args = JSONObject().put("base_root", target.base.absolutePath).put("shown", target.key)
             if (signedIn != null) args.put("signed_in", signedIn)
-            SiteCard.parse(JSONObject(bridge.dispatch("site_cards", args.toString())))
+            val envelope = JSONObject(bridge.dispatch("site_cards", args.toString()))
+            if (envelope.optString("code") == "workspace_unavailable") {
+                withContext(Dispatchers.Main) {
+                    if (current(target, version)) {
+                        workspaceReady = false
+                        _state.value = _state.value.copy(workspaceReady = false, notice = workspaceNotice(envelope))
+                    }
+                }
+            }
+            SiteCard.parse(envelope)
         } catch (cancelled: CancellationException) { throw cancelled }
           catch (_: Exception) { null }
         withContext(Dispatchers.Main) {
@@ -742,7 +751,7 @@ class DefaultAppController(
     override fun go() {
         // UI disabling can lag a tap. Admission belongs to the controller, including
         // the interval before the host answers and while observations are stale.
-        if (admitted || _state.value.download is DownloadState.Planning ||
+        if (_state.value.settingsBusy || admitted || _state.value.download is DownloadState.Planning ||
             _state.value.download is DownloadState.Running) return
         if (_state.value.libraryBusy) {
             _state.value = _state.value.copy(notice = Notice(BetaCodes.JOB_FAILED,
@@ -1065,10 +1074,11 @@ class DefaultAppController(
             try { openOthers(target) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { }
-            while (isActive) {
+            while (isActive && workspaceReady) {
                 if (admitted || tick % 5 == 0) mapWorkerStatus(target, version)
                 // Right after a change, and while any site saves, the cards are read as often as the status.
                 if (tick < 3 || tick % 5 == 0 || admitted || away.isNotEmpty()) readSiteCards(target, version)
+                if (!workspaceReady) break
                 if (tick % 5 == 0) {
                     try { refreshLibrary(target, version) }
                     catch (cancelled: CancellationException) { throw cancelled }

@@ -2671,10 +2671,14 @@ class B2SettingsTests(PagesCase):
 
     def test_the_setup_pages_open_in_the_browser(self):
         self.open('settings/b2')
-        for button in self.settings.setup.findChildren(QtWidgets.QPushButton):
-            if button.text().startswith(('Create B2', 'Open Caps')):
-                button.click()
-        self.assertEqual(self.shell.calls, [('open_url', window_pages.B2_PAGES['signup']), ('open_url', window_pages.B2_PAGES['caps'])])
+        buttons = {btn.text().replace('&&', '&'): btn for btn in self.settings.setup.findChildren(QtWidgets.QPushButton)}
+        destinations = {'Create B2 account': 'signup', 'Sign in to Backblaze': 'signin', 'Open Billing': 'billing',
+                        'Open Caps & Alerts': 'caps', 'Open Buckets': 'buckets', 'Open Application Keys': 'keys'}
+        for label, key in destinations.items():
+            with self.subTest(label=label):
+                buttons[label].click()
+                self.assertEqual(self.shell.calls[-1], ('open_url', window_pages.B2_PAGES[key]))
+        self.assertEqual(len(self.shell.calls), len(destinations))
 
 
 class ConnectedB2Tests(PagesCase):

@@ -195,32 +195,32 @@ private fun SiteCardView(
                 modifier = Modifier.testTag("card-message-${card.site}").semantics { liveRegion = LiveRegionMode.Polite })
             var menu by remember(card.site) { mutableStateOf(false) }
             Box {
-            TextButton(onClick = { menu = true }, enabled = card.selectionEnabled,
-                colors = ButtonDefaults.textButtonColors(contentColor = c.text),
-                modifier = Modifier.testTag("card-types-${card.site}")
-                    .semantics { contentDescription = say("window.download_choices_for", "name" to card.name) }) {
-                Text(card.selection, fontWeight = FontWeight.Bold)
-            }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                for ((key, label) in listOf("files" to "Episode files", "list" to "Episode list only",
-                    "choose" to "Choose comics in Library", "clear" to "Clear episode list", "settings" to "Download settings…")) {
-                    val enabled = when (key) {
-                        "choose" -> card.hasEpisodes
-                        "clear" -> card.hasList && card.action != CardAction.PAUSE
-                        "settings" -> true
-                        else -> card.action != CardAction.PAUSE
-                    }
-                    DropdownMenuItem(text = { Column {
-                        Text(label)
-                        if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
-                            style = MaterialTheme.typography.bodySmall)
-                    } }, leadingIcon = if (key == (if (card.listOnly) "list" else "files")) ({ Text("✓") }) else null,
-                        enabled = enabled, onClick = {
-                            menu = false
-                            if (key == "settings") onDownloadChoices(card.site) else onListAction(card.site, key)
-                        })
+                TextButton(onClick = { menu = true }, enabled = card.selectionEnabled,
+                    colors = ButtonDefaults.textButtonColors(contentColor = c.text),
+                    modifier = Modifier.testTag("card-types-${card.site}")
+                        .semantics { contentDescription = say("window.download_choices_for", "name" to card.name) }) {
+                    Text(card.selection, fontWeight = FontWeight.Bold)
                 }
-            }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    for ((key, label) in listOf("files" to "Episode files", "list" to "Episode list only",
+                        "choose" to "Choose comics in Library", "clear" to "Clear episode list", "settings" to "Download settings…")) {
+                        val enabled = when (key) {
+                            "choose" -> card.hasEpisodes
+                            "clear" -> card.hasList && card.action != CardAction.PAUSE
+                            "settings" -> true
+                            else -> card.action != CardAction.PAUSE
+                        }
+                        DropdownMenuItem(text = { Column {
+                            Text(label)
+                            if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
+                                style = MaterialTheme.typography.bodySmall)
+                        } }, leadingIcon = if (key == (if (card.listOnly) "list" else "files")) ({ Text("✓") }) else null,
+                            enabled = enabled, onClick = {
+                                menu = false
+                                if (key == "settings") onDownloadChoices(card.site) else onListAction(card.site, key)
+                            })
+                    }
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(

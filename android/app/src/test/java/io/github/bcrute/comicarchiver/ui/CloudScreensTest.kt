@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -165,9 +166,18 @@ class CloudScreensTest {
             CloudScreen(cloudFixture(), false, null, true, true, {}, {}, pages::add)
         } }
         compose.onNodeWithText("Need a bucket or key? Setup guide").performScrollTo().performClick()
-        compose.onNodeWithText("Open Buckets").performScrollTo().performClick()
-        assertEquals(listOf(B2Page.BUCKETS), pages)
-        assertTrue(pages.single().url.startsWith("https://secure.backblaze.com/"))
+        compose.onNodeWithText("Backblaze cost details").performScrollTo().performClick()
+        for (page in B2Page.entries) {
+            val buttons = compose.onAllNodesWithText(page.label)
+            val count = buttons.fetchSemanticsNodes().size
+            assertTrue("Missing link to ${page.label}", count > 0)
+            repeat(count) { index ->
+                val before = pages.size
+                buttons[index].performScrollTo().performClick()
+                assertEquals(before + 1, pages.size)
+                assertEquals(page, pages.last())
+            }
+        }
     }
 
     @Test fun browserRefusalStaysBesideTheB2LinkAndCanRetryWithoutACloudAction() {

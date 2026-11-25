@@ -10870,5 +10870,29 @@
   "new": "value['repeated_rows_seen'] = False",
   "test_file": "test_purchase_history.py",
   "test": "test_persistent_repeated_rows_leave_coverage_partial_but_older_pages_are_read"
+ },
+ {
+  "id": "android-list-mode-fetches-files",
+  "source": "comic_archive/android_download.py",
+  "old": "account_ui.start(workspace, list_only=True)",
+  "new": "account_ui.start(workspace)",
+  "test_file": "test_android_cards.py",
+  "test": "test_list_mode_clear_and_completed_refresh_keep_saved_files_and_provider_scope"
+ },
+ {
+  "id": "android-restores-cleared-list-before-ready",
+  "source": "comic_archive/android_download.py",
+  "old": "account.get('episode_list_ready')",
+  "new": "not account.get('episode_list_ready')",
+  "test_file": "test_android_cards.py",
+  "test": "test_list_mode_clear_and_completed_refresh_keep_saved_files_and_provider_scope"
+ },
+ {
+  "id": "android-bridge-drops-episode-choice",
+  "source": "android/app/src/main/python/app_bridge.py",
+  "old": "episode_id=args.get('episode_id')",
+  "new": "episode_id=None",
+  "test_file": "test_android_cards.py",
+  "test": "test_choose_comics_updates_only_future_acquisitions_and_never_starts_a_worker"
  }
 ]

@@ -312,6 +312,8 @@ def _prepare_workspace(args):
             raise ArchiveError("Choose this site's own workspace.")
         with _workspace_lock:
             previous = _workspace["root"]
+            if root in _open:
+                _require_open_storage(root)
             if not show and root in _open:
                 return {"root": str(root), "library": str(root / "Library"), "session": str(session_path(root)),
                         "site_key": site.key, "held": False}
@@ -489,8 +491,15 @@ def _library_account(library):
     return check
 
 
+def _require_open_storage(root):
+    from comic_archive.state_paths import session_path
+    if root in _open and not ((root / "Library").is_dir() and session_path(root).is_dir()):
+        raise _BridgeError("workspace_unavailable", "Library files are unavailable. Restore the library or choose another working library.")
+
+
 def _active_root(root, ArchiveError):
     """Work is done only in a workspace this process has opened, whichever one is showing."""
+    _require_open_storage(root)
     if _workspace["root"] is not None and root != _workspace["root"] and root not in _open:
         raise ArchiveError("Open this site's workspace before starting work.")
 
@@ -1055,6 +1064,8 @@ def _site_cards(args):
         from comic_archive.android_cards import Cards
         with _workspace_lock:
             opened = sorted((kept["site_key"], root) for root, kept in _open.items() if base == kept["base"])
+        for _, root in opened:
+            _require_open_storage(root)
         cards = []
         with _cards_lock:
             if _cards["kept"] is None:
@@ -1153,6 +1164,7 @@ def _list_preference(args):
             roots = [root for root, kept in _open.items() if kept == {"base": base, "site_key": site}]
             if _workspace['base'] != base or len(roots) != 1:
                 raise ArchiveError("Choose the open working library.")
+            _require_open_storage(roots[0])
             android_download.change_list(Workspace(id="default", root=roots[0]), args["action"])
         return {}
     return _core(change)
@@ -1194,7 +1206,7 @@ def _episode_inventory(args):
         columns = words.series_columns if series is None else words.episode_columns
         items = []
         for row in value["items"]:
-            title, status, form, access = columns(row)
+            title, status, form, access = words.series_columns(row, saved_only=True) if hidden and series is None else columns(row)
             item = {"id": str(row["id"]), "title": title, "status": status, "format": form, "access": access}
             item['selected'] = row['selected']
             if row.get('mixed'):
@@ -1217,6 +1229,9 @@ def _choose_comics(args):
         with _workspace_lock:
             if _workspace['base'] != base:
                 raise ArchiveError('Choose the open working library.')
+            for root, kept in _open.items():
+                if kept["base"] == base and args.get('site') in (None, kept["site_key"]):
+                    _require_open_storage(root)
         applied = change_library_comics(base, args['chosen'], args.get('site'), args.get('series_id'),
                                        closing=_never_closing, interrupt=_interrupt_browser, episode_id=args.get('episode_id'))
         from comic_archive import comic_selection, sites

@@ -333,6 +333,61 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun tappytoonDownloadMenuSavesEveryValidTypeCombinationAndRejectsEmpty() {
+        val labels = listOf("bought" to "Paid / unlocked", "free" to "Free",
+            "limited" to "Limited unlocks", "unclassified" to "Unknown type")
+        controller.state.value = controller.state.value.copy(site = "tappytoon",
+            sites = listOf(SiteChoice("tappytoon", "Tappytoon", true)),
+            settings = controller.state.value.settings!!.copy(downloadTypes =
+                labels.map { (key, label) -> DownloadTypeChoice(key, label, "", true) }))
+        show()
+        var previous = labels.associate { it.first to true }
+        for (mask in 0..15) {
+            val choices = labels.mapIndexed { i, (key, _) -> key to ((mask and (1 shl i)) != 0) }.toMap()
+            compose.onNodeWithTag("card-types-tappytoon").performScrollTo().performClick()
+            compose.onNodeWithText("Download settings…").performClick()
+            labels.forEach { (key, label) ->
+                val checkbox = compose.onNodeWithContentDescription(label)
+                if (previous.getValue(key)) checkbox.assertIsOn() else checkbox.assertIsOff()
+                if (previous[key] != choices[key]) checkbox.performScrollTo().performClick()
+            }
+            if (mask == 0) {
+                compose.onNodeWithText("Save choices").assertIsNotEnabled()
+                compose.onNodeWithText("Cancel").performClick()
+                assertTrue(controller.typeChanges.isEmpty())
+            } else {
+                compose.onNodeWithText("Save choices").performScrollTo().performClick()
+                assertEquals(mask, controller.typeChanges.size)
+                assertEquals(choices, controller.typeChanges.last())
+                previous = choices
+            }
+        }
+        assertEquals(0, controller.goCalls)
+    }
+
+    @Test fun choosingListModeOnlyChangesTheProviderPreference() {
+        show()
+        compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
+        compose.onNodeWithText("Choose comics in Library").assertIsNotEnabled()
+        compose.onNodeWithText("Clear episode list").assertIsNotEnabled()
+        compose.onNodeWithText("Episode list only").performClick()
+        assertEquals(listOf("tapas" to "list"), controller.listChanges)
+        compose.onNodeWithTag("nav-saving").assertIsSelected()
+        assertEquals(0, controller.goCalls)
+        compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
+        compose.onNodeWithText("Episode files").performClick()
+        assertEquals("tapas" to "files", controller.listChanges.last())
+    }
+
+    @Test fun pendingListPreferenceDisablesBothWaysToStart() {
+        controller.state.value = controller.state.value.copy(settingsBusy = true)
+        show()
+        compose.onNodeWithTag("start-all").assertIsNotEnabled()
+        compose.onNodeWithTag("card-action-tapas").assertIsNotEnabled()
+        compose.onNodeWithTag("card-types-tapas").assertIsNotEnabled()
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun busyDashboardKeepsEveryCardAndStartAllDisabled() {
         controller.state.value = controller.state.value.copy(libraryBusy = true)
         show()
@@ -1480,6 +1535,8 @@ private class ScreenController : AppController {
         state.value = state.value.copy(settings = state.value.settings?.copy(speed = value))
     }
     val episodeLoads = mutableListOf<Pair<String, String?>>()
+    val listChanges = mutableListOf<Pair<String, String>>()
+    override fun listPreference(site: String, action: String) { listChanges.add(site to action) }
     val comicChanges = mutableListOf<Triple<Boolean, String?, String?>>()
     override fun chooseComics(chosen: Boolean, site: String?, seriesId: String?, episodeId: String?) {
         comicChanges.add(Triple(chosen, site, seriesId))

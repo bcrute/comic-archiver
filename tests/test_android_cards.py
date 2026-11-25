@@ -337,6 +337,20 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertFalse(failed['ok'])
         self.assertNotIn('PRIVATE', json.dumps(failed))
 
+    def test_missing_open_provider_storage_is_reported_and_cannot_be_recreated_by_an_action(self):
+        session = self.root / '.comic-session'
+        session.rename(self.root / 'restored-later')
+        for op, args in [('site_cards', dict(base_root=str(self.root))),
+                         ('prepare_workspace', dict(root=str(self.root))),
+                         ('list_preference', dict(base_root=str(self.root), site='tapas', action='list')),
+                         ('choose_comics', dict(base_root=str(self.root), chosen=False))]:
+            with self.subTest(operation=op):
+                refused = self.call(op, **args)
+                self.assertEqual(refused['code'], 'workspace_unavailable')
+                self.assertFalse(session.exists())
+        (self.root / 'restored-later').rename(session)
+        self.assertTrue(self.call('site_cards', base_root=str(self.root))['ok'])
+
     def test_list_mode_clear_and_completed_refresh_keep_saved_files_and_provider_scope(self):
         from comic_archive import android_download
         from comic_archive.workspace import Workspace
@@ -365,6 +379,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         answer = self.call('choose_comics', base_root=str(self.root), site='tapas', series_id='42', chosen=False)
         self.assertTrue(answer['ok'], answer)
         self.assertEqual(answer['result']['choices'], {'tapas': {'default': True, 'exceptions': ['42']}})
+        self.assertEqual(self.call('site_cards', base_root=str(self.root))['result']['cards'][0]['bulk'], 'mixed')
         rows = self.call('episode_inventory', base_root=str(self.root), site='tapas')['result']['items']
         self.assertEqual([row['selected'] for row in rows], [False, True])
         self.assertEqual(saved.read_bytes(), b'original comic')
@@ -377,6 +392,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertEqual([row['selected'] for row in episodes['result']['items']], [False, True, False])
         all_off = self.call('choose_comics', base_root=str(self.root), chosen=False)
         self.assertTrue(all_off['ok'], all_off)
+        self.assertEqual(self.call('site_cards', base_root=str(self.root))['result']['cards'][0]['bulk'], 'off')
         self.assertEqual(set(all_off['result']['choices']), {'tapas', 'webtoon', 'tappytoon'})
         self.assertTrue(all(not value['default'] and not value['exceptions']
                             for value in all_off['result']['choices'].values()))

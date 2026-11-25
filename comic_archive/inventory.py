@@ -1031,9 +1031,6 @@ class Inventory:
                 "series_count": self.db.execute("SELECT COUNT(*) FROM series").fetchone()[0],
                 'selected_series_count': self.db.execute('SELECT COUNT(*) FROM series s WHERE ' + series_selection).fetchone()[0],
                 'comic_selection': comics,
-                'has_episode_choices': bool(self.db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE name='comic_episode_choices' AND type='table'").fetchone()
-                    and self.db.execute('SELECT 1 FROM comic_episode_choices LIMIT 1').fetchone()),
                 "episode_count": sum(counts.values()), "episodes_by_status": counts,
                 'episode_types': types, 'unsupported_by_reason':unsupported,
                 'download_types': read(self.db), 'selected_episodes_by_status': selected_counts,

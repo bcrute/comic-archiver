@@ -61,7 +61,7 @@ fun AppState.toDownloadsScreenUi(): DownloadsScreenUi {
     return DownloadsScreenUi(
         savedEpisodes = allSites?.let { String.format(java.util.Locale.US, "%,d", it.episodes) },
         cards = cards,
-        startAllEnabled = controls,
+        startAllEnabled = controls && !settingsBusy,
         pauseAllVisible = startingAll || cards.any { it.action == CardAction.PAUSE },
         // A download the site signed out of says so on its card, not here as well.
         notice = notice?.toNoticeUi()
@@ -116,7 +116,7 @@ private fun AppState.siteCard(choice: SiteChoice, controls: Boolean): SiteCardUi
         actionEnabled = controls && when (action) {
             CardAction.SIGN_IN -> !checking && choice.signInAvailable
             CardAction.PAUSE -> true
-            CardAction.GO -> !checking && (card == null || card.action != "go" || card.actionEnabled)
+            CardAction.GO -> !checking && !settingsBusy && (card == null || card.action != "go" || card.actionEnabled)
         },
         signOut = if (shown) signIn is SignInState.SignedIn else card?.signOut == true,
         signOutEnabled = controls && !saving,

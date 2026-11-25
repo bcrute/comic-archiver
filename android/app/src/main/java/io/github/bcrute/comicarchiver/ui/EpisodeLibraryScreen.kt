@@ -2,8 +2,6 @@ package io.github.bcrute.comicarchiver.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,7 +40,6 @@ import io.github.bcrute.comicarchiver.words.say
  * only the library's own record is read: no saved file is opened or checked.
  */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList>,
                          onLoad: (String, String?) -> Unit, onRefresh: () -> Unit,
                          onChooseComics: (Boolean, String?, String?, String?) -> Unit = { _, _, _, _ -> },
@@ -104,7 +101,7 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
             val siteOpen = siteKey in opened
             item(key = siteKey) {
                 EpisodeLine(site.name, placeStatus(series, say("library.expand_to_view"), say("library.recorded_list")), null, 0, siteOpen,
-                    "episodes-$siteKey", onToggle = { toggle(site.key, null) })
+                    "episodes-$siteKey", enabled = !changing, onToggle = { toggle(site.key, null) })
             }
             if (!siteOpen || series == null) return@forEach
             series.rows.forEach { row ->
@@ -157,7 +154,7 @@ private fun EpisodeLine(title: String, status: String, detail: String?, depth: I
                         onToggle: (() -> Unit)?, selected: Boolean? = null, mixed: Boolean = false, enabled: Boolean = true,
                         onSelected: (Boolean) -> Unit = {}) {
     val place = if (onToggle == null) Modifier else Modifier
-        .clickable(role = Role.Button, onClick = onToggle)
+        .clickable(enabled = enabled, role = Role.Button, onClick = onToggle)
         .semantics { stateDescription = if (open == true) say("library.expanded") else say("library.collapsed") }
     Row(Modifier.fillMaxWidth().then(place).padding(start = (16 * depth).dp, top = 8.dp, bottom = 8.dp).testTag(tag),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {

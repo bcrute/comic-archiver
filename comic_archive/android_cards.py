@@ -43,6 +43,7 @@ class Cards:
         key = str(workspace.session)
         s = self._states.setdefault(key, State())
         s.sites = sites.choices(site)
+        bulk = ''
         try:
             reading = self._read(registry, workspace, s, key, signed_in, now)
         except (ArchiveError, OSError, sqlite3.Error):
@@ -51,14 +52,11 @@ class Cards:
             s.received_status(reading['status'], now, transfer=reading['account'].get('transfer'))
             s.received_account(reading['account'], now)
             s.network, s.network_at = reading['network'], now
+            bulk = reading['bulk']
             s.loaded = True
             s.refreshed(now)
         v = view(s, now)
         summary = card_summary(s, v)
-        status = s.status or {}
-        policy = status.get('comic_selection', {'default': True, 'exceptions': []})
-        bulk = ('mixed' if policy['exceptions'] or status.get('has_episode_choices') else
-                'on' if policy['default'] else 'off') if s.loaded else ''
         hidden = android_download.list_hidden(workspace, s.account)
         mode = android_download.list_only(workspace)
         return {'bulk': bulk, 'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
@@ -120,4 +118,13 @@ class Cards:
             network = registry.network_status(LOCAL_OWNER, identity)
         except (ArchiveError, OSError):
             network = None
-        return {'status': status, 'account': account, 'network': network}
+        bulk = 'on'
+        if (workspace.library / '.archive-state/inventory.sqlite3').is_file():
+            from . import comic_selection
+            from .inventory import Inventory
+            with Inventory(workspace.library, read_only=True) as inventory:
+                policy = comic_selection.read(inventory.db)
+                overrides = comic_selection._episode_table(inventory.db) and inventory.db.execute(
+                    'SELECT 1 FROM comic_episode_choices LIMIT 1').fetchone()
+                bulk = 'mixed' if policy['exceptions'] or overrides else 'on' if policy['default'] else 'off'
+        return {'status': status, 'account': account, 'network': network, 'bulk': bulk}
