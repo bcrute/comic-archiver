@@ -83,6 +83,7 @@ def state(inventory):
                 or not isinstance(value.get('binding'), str) or not re.fullmatch(r'[a-f0-9]{64}', value['binding'])
                 or any(type(value.get(key)) is not int or value[key] < 0 for key in ('pages', 'discovered', 'unresolved'))
                 or type(value.get('unresolved_rows', 0)) is not int or value.get('unresolved_rows', 0) < 0
+                or type(value.get('page_retry_exhausted', False)) is not bool
                 or value.get('terminal_status') not in {None, 'partial', 'checked'} or value.get('code') not in CODES):
             raise ValueError
         if value.get('cursor') is not None:
@@ -92,8 +93,22 @@ def state(inventory):
         raise MetadataError('The saved purchase-history checkpoint is invalid; it has been retained.') from None
 
 
+def _page_work_left(value):
+    return value.get('status') == 'pending' or (
+        value.get('status') == 'partial' and value.get('code') == 'history_rows_unverified'
+        and not value.get('page_retry_exhausted', False))
+
+
 def pending(inventory):
-    return state(inventory).get('status') == 'pending'
+    return _page_work_left(state(inventory))
+
+
+def _unverified_page(value, reason, error=None):
+    _record_failure(value, reason, error)
+    # Retry the same checkpoint once on a later step, including checkpoints
+    # written by older versions. A second unverified read ends this round.
+    value.update(page_retry_exhausted=value['status'] == 'partial',
+                 status='partial', code='history_rows_unverified')
 
 
 def summary(inventory):
@@ -140,7 +155,7 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
         value['discovered'] = inventory.db.execute('SELECT COUNT(*) FROM purchase_history_links WHERE binding=?',
                                                   (binding[0],)).fetchone()[0]
         save(inventory, value)
-    if value['status'] != 'pending':
+    if not _page_work_left(value):
         return summary(inventory) | {'pages_read': 0, 'series_added': 0}
     if not callable(getattr(adapter, 'purchase_history_page', None)):
         value.update(status='partial', code='history_reader_unavailable', checked_at=timestamp())
@@ -199,8 +214,7 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                 status = status if type(status) is int and 100 <= status <= 599 else None
                 LOG.info('purchase history: page_read=unverified page_index=%s reason=%s http=%s committed_pages=%s',
                          expected_index, reason, status, value['pages'])
-                _record_failure(value, reason, error)
-                value.update(status='partial', code='history_rows_unverified')
+                _unverified_page(value, reason, error)
                 break
             except ArchiveError as error:
                 reason = ('authentication_required' if isinstance(error, AuthenticationError)
@@ -209,8 +223,7 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                 save(inventory, value)
                 raise
             if not isinstance(page, dict):
-                _record_failure(value, 'unexpected_page_result')
-                value.update(status='partial', code='history_rows_unverified')
+                _unverified_page(value, 'unexpected_page_result')
                 break
             if page.get('authenticated') is not True:
                 _record_failure(value, 'authentication_required')
@@ -230,15 +243,13 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                          len(identifiers) if isinstance(identifiers, list) else -1,
                          len(found) if isinstance(found, list) else -1,
                          page.get('empty_verified') is True, value['pages'])
-                _record_failure(value, 'page_records_unverified')
-                value.update(status='partial', code='history_rows_unverified')
+                _unverified_page(value, 'page_records_unverified')
                 break
             page_identity = page.get('page_identity')
             if not isinstance(page_identity, str) or not re.fullmatch(r'index:(?:0|[1-9][0-9]{0,3})', page_identity):
                 LOG.info('purchase history: page_read=unverified reason=page_identity_unverified committed_pages=%s',
                          value['pages'])
-                _record_failure(value, 'page_identity_unverified')
-                value.update(status='partial', code='history_rows_unverified')
+                _unverified_page(value, 'page_identity_unverified')
                 break
             expected_index = 0 if value['cursor'] is None else value['cursor']['index']
             if page_identity != f'index:{expected_index}':
@@ -272,7 +283,8 @@ def reconcile(adapter, inventory, round_id, check, *, pages=2, links=20):
                                                 [(binding[0], url) for url in found]).rowcount
             if page.get('boundary_verified') is not True and cursor is None:
                 _record_failure(value, 'continuation_unverified')
-            value.update(cursor=cursor, pages=value['pages'] + 1)
+            value.update(status='pending', code=None, cursor=cursor, pages=value['pages'] + 1)
+            value.pop('page_retry_exhausted', None)
             value['unresolved_rows'] = value.get('unresolved_rows', 0) + missing
             pages_read += 1
             value['discovered'] += inserted

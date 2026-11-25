@@ -1001,7 +1001,8 @@ class TapasAdapter:
         try:
             return walk(start)
         except MetadataError as error:
-            if not start or getattr(error, 'source_http_status', None) != 400:
+            if not start or 400 not in (getattr(error, 'source_http_status', None),
+                                        getattr(error, 'history_response_code', None)):
                 raise
         return walk(0, replay=True)
 

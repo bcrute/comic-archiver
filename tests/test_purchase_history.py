@@ -208,6 +208,43 @@ class PurchaseHistoryTests(unittest.TestCase):
             purchase_history.reconcile(self.adapter, inventory, 'next-round', lambda: None)
             self.assertEqual(purchase_history.support_diagnostic(inventory), diagnostic)
 
+    def test_unverified_page_is_retried_from_the_saved_cursor_by_the_next_worker(self):
+        self.adapter.purchase_history_page.side_effect = [
+            self.page([self.first], ['a'], cursor=self.cursor),
+            MetadataError('Temporary response change'),
+            self.page([self.older], ['b'], boundary=True, index=1),
+        ]
+        with self.store() as inventory:
+            purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.assertEqual((result['status'], result['pages']), ('partial', 1))
+            # A checkpoint written before the retry field existed is also eligible.
+            previous = purchase_history.state(inventory)
+            previous.pop('page_retry_exhausted')
+            purchase_history.save(inventory, previous)
+        with self.store() as inventory:
+            self.assertTrue(purchase_history.pending(inventory))
+            self.assertEqual(download_control._inventory(self.root)['remaining'],
+                             inventory.status()['scan_remaining_series_count'] + 1)
+            result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.assertEqual((result['status'], result['pages'], result['series_added']), ('checked', 2, 1))
+            self.assertIsNone(result['code'])
+            self.assertFalse(purchase_history.pending(inventory))
+            self.assertEqual([row[0] for row in inventory.db.execute('SELECT id FROM series ORDER BY id')], ['1', '2'])
+        self.assertEqual([call.args[0] for call in self.adapter.purchase_history_page.call_args_list],
+                         [None, self.cursor, self.cursor])
+
+    def test_a_page_that_remains_unverified_is_set_aside_after_one_retry(self):
+        self.adapter.purchase_history_page.side_effect = MetadataError('Unverified rows')
+        with self.store() as inventory:
+            for _ in range(2):
+                result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+                self.assertEqual((result['status'], result['code']), ('partial', 'history_rows_unverified'))
+            self.assertFalse(purchase_history.pending(inventory))
+        with self.store() as inventory:
+            purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+        self.assertEqual(self.adapter.purchase_history_page.call_count, 2)
+
     def test_skipped_or_invalid_continuation_retains_candidates_without_following(self):
         for cursor in (self.cursor | {'index': 2}, self.cursor | {'index': 10000}, {'action': 'buy'}):
             with self.subTest(cursor=cursor), self.store() as inventory:
@@ -370,6 +407,19 @@ class PurchasePageTests(unittest.TestCase):
         self.assertEqual(asked, [17, *range(18)])
         self.assertEqual(caught.exception.history_request_page, 17)
         self.assertTrue(caught.exception.history_replayed)
+
+    def test_replay_also_recovers_when_pager_refusal_is_inside_json(self):
+        cursor = self.adapter.purchase_history_page()['next_cursor']
+        older = self.answer | {'data': {'body': self.body, 'pagination': {'index': 1, 'has_next': False}}}
+        self.http.transport.get.reset_mock()
+        self.http.transport.get.side_effect = [
+            b'{"code":400}', json.dumps(self.answer).encode(), json.dumps(older).encode(),
+        ]
+        result = self.adapter.purchase_history_page(cursor)
+        self.assertEqual(result['page_identity'], 'index:1')
+        self.assertTrue(result['boundary_verified'])
+        asked = [call.args[0].rsplit('=', 1)[1] for call in self.http.transport.get.call_args_list]
+        self.assertEqual(asked, ['1', '0', '1'])
 
     def test_non_pager_refusal_does_not_replay_from_the_first_page(self):
         cursor = self.adapter.purchase_history_page()['next_cursor']
