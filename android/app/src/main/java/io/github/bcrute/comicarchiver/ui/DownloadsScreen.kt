@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -213,12 +214,14 @@ private fun SiteCardView(
                             else -> card.action != CardAction.PAUSE
                         }
                         val mode = key == "list" || key == "files"
+                        val currentMode = card.listOnly == (key == "list")
                         if (key == "choose" || key == "settings") HorizontalDivider()
                         DropdownMenuItem(text = { Column {
                             Text(label)
                             if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
                                 style = MaterialTheme.typography.bodySmall)
-                        } }, leadingIcon = if (mode) ({ RadioButton(selected = card.listOnly == (key == "list"),
+                        } }, modifier = if (mode) Modifier.semantics { selected = currentMode } else Modifier,
+                            leadingIcon = if (mode) ({ RadioButton(selected = currentMode,
                             enabled = enabled, onClick = null) }) else null,
                             enabled = enabled, onClick = {
                                 menu = false

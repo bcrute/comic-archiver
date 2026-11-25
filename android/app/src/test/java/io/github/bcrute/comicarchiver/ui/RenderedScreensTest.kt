@@ -370,6 +370,7 @@ class RenderedScreensTest {
         compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
         compose.onNodeWithText("Choose comics in Library").assertIsNotEnabled()
         compose.onNodeWithText("Clear episode list").assertIsNotEnabled()
+        compose.onNodeWithText("Episode files").assertIsSelected()
         compose.onNodeWithText("Episode list only").performClick()
         assertEquals(listOf("tapas" to "list"), controller.listChanges)
         compose.onNodeWithTag("nav-saving").assertIsSelected()
