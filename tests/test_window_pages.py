@@ -987,6 +987,41 @@ class DashboardTests(PagesCase):
                          (dict(bought=True, free=False, limited=False, unclassified=False,
                                notes=True, music=True, stats=False, comments=False),))
 
+    def test_each_provider_extra_checkbox_maps_to_its_own_setting(self):
+        from comic_archive.extras import label, offered
+
+        self.shell.open = ['tapas', 'tappytoon', 'webtoon']
+        self.open()
+        for provider in self.shell.open:
+            keys = offered(provider)
+            actions = self.sites[provider]
+            for toggled in keys:
+                with self.subTest(provider=provider, extra=toggled):
+                    actions.account(download_types=dict.fromkeys(('bought', 'free', 'limited', 'unclassified'), True),
+                                    download_extras=dict.fromkeys(keys, False))
+                    self.pages.poll_site(provider)
+                    errors = []
+
+                    def choose():
+                        dialog = APP.activeModalWidget()
+                        try:
+                            checkboxes = {box.text(): box for box in dialog.findChildren(QtWidgets.QCheckBox)
+                                          if box.objectName().startswith('downloadExtra_')}
+                            self.assertEqual(set(checkboxes), {label(key) for key in keys})
+                            checkboxes[label(toggled)].click()
+                            dialog.findChild(QtWidgets.QDialogButtonBox).button(QtWidgets.QDialogButtonBox.StandardButton.Save).click()
+                        except Exception as error:
+                            errors.append(repr(error))
+                            dialog.reject()
+
+                    QtCore.QTimer.singleShot(0, self.window, choose)
+                    self.pages.open_download_choices(provider)
+                    settle()
+                    self.assertEqual(errors, [])
+                    values = actions.named('download_types')[-1][1][0]
+                    self.assertEqual({key: values[key] for key in keys}, {key: key == toggled for key in keys})
+                    self.assertTrue(all(values[key] for key in ('bought', 'free', 'limited', 'unclassified')))
+
     def test_download_choices_keep_wrapped_text_and_buttons_accessible_in_a_short_dialog(self):
         self.open()
         for dark in (False, True):

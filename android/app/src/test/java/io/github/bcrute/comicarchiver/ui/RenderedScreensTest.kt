@@ -401,6 +401,27 @@ class RenderedScreensTest {
         assertEquals(0, controller.goCalls)
     }
 
+    @Test fun providerExtrasCanEachBeIncludedAndRemovedWithoutChangingEpisodeTypes() {
+        val extras = listOf("notes" to "Creator's notes", "music" to "Music", "stats" to "Views and likes", "comments" to "Comments")
+        controller.state.value = controller.state.value.copy(settings = controller.state.value.settings!!.copy(
+            downloadExtras = extras.map { (key, label) -> DownloadTypeChoice(key, label, "", false) }))
+        show()
+        for ((key, label) in extras) {
+            for (wanted in listOf(true, false)) {
+                compose.onNodeWithTag("card-types-tapas").performScrollTo().performClick()
+                compose.onNodeWithText("Download settings…").performClick()
+                val checkbox = compose.onNodeWithContentDescription(label)
+                if (wanted) checkbox.assertIsOff() else checkbox.assertIsOn()
+                checkbox.performScrollTo().performClick()
+                compose.onNodeWithText("Save choices").performScrollTo().performClick()
+                val expected = extras.associate { it.first to (it.first == key && wanted) } +
+                    mapOf("bought" to true, "free" to false)
+                assertEquals(expected, controller.typeChanges.last())
+            }
+        }
+        assertEquals(0, controller.goCalls)
+    }
+
     @Test fun pendingListPreferenceDisablesBothWaysToStart() {
         controller.state.value = controller.state.value.copy(settingsBusy = true)
         show()
@@ -1585,7 +1606,8 @@ private class ScreenController : AppController {
     override fun setDownloadTypes(value: Map<String, Boolean>) {
         typeChanges.add(value)
         state.value = state.value.copy(settings = state.value.settings?.let { kept ->
-            kept.copy(downloadTypes = kept.downloadTypes.map { it.copy(chosen = value[it.key] == true) })
+            kept.copy(downloadTypes = kept.downloadTypes.map { it.copy(chosen = value[it.key] == true) },
+                downloadExtras = kept.downloadExtras.map { it.copy(chosen = value[it.key] == true) })
         })
     }
     override fun requestExport(folderUri: String) {}

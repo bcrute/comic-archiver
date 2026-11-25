@@ -134,7 +134,9 @@ series replaces its individual choices. The table header checkbox applies to
 every provider in this working library, including future discoveries. A dash
 shows a mix of checked and unchecked entries.
 
-On Android, open **Library → Episodes** to choose whole comics. Choices are kept
+On Android, select **Episode list only** from the provider’s Download menu in **Downloads** and tap **Start**.
+Open **Library → Episodes** to choose series and individual episodes. Switch back to **Episode files**
+before starting a file download. Choices are kept
 per provider and working library. Everything starts checked in a new library
 or when updating an installation without saved choices.
 

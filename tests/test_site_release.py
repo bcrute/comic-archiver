@@ -57,6 +57,10 @@ class SiteReleaseTests(unittest.TestCase):
             self.assertIn('href="choose-downloads.html"', self.page(page))
         guide = self.page('choose-downloads.html')
         self.assertIn('<h1>How to pick what to download</h1>', guide)
+        android = guide.split('id="android"', 1)[1].split('</section>', 1)[0]
+        for option in ('Episode list only', 'Choose comics in Library', 'individual episodes', 'Episode files', 'Clear episode list'):
+            self.assertIn(option, android)
+        self.assertNotIn('<b>Get episode lists</b>', guide)
         for section in ('desktop', 'android'):
             self.assertIn(f'href="#{section}"', guide)
             self.assertIn(f'id="{section}"', guide)

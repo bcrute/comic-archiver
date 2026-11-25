@@ -270,7 +270,10 @@ class DefaultAppController(
           catch (_: Exception) { null }
         withContext(Dispatchers.Main) {
             if (current(target, version) && cards != null) {
-                if (cards.any { card -> card.hasEpisodes && _state.value.siteCards.any { it.site == card.site && !it.hasEpisodes } }) refreshEpisodes()
+                if (cards.any { card -> _state.value.siteCards.any { before ->
+                    before.site == card.site && (card.hasEpisodes && !before.hasEpisodes ||
+                        before.listOnly && before.download == "running" && card.download == "stopped")
+                } }) refreshEpisodes()
                 _state.value = _state.value.copy(siteCards = cards)
             }
         }
