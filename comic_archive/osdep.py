@@ -29,6 +29,9 @@ PATH_LIMIT = 259 if WINDOWS else None
 LIBRARY_PATH_ROOM = 100
 # What is left of a name when its folder leaves no room: enough to tell one from another.
 SHORTEST_NAME = 8
+# The Windows file systems whose flush of a folder is taken to have reached the disk: both keep a journal of
+# renames. Another may accept the request without doing anything.
+JOURNALED_FILE_SYSTEMS = frozenset({'NTFS', 'REFS'})
 
 
 if WINDOWS:
@@ -135,6 +138,52 @@ def sync_directory(path):
     finally:
         os.close(descriptor)
     return True
+
+
+def flush_directory(path):
+    """Whether renames inside this folder have reached the disk, asked before the only other copy of a file is removed.
+
+    As sync_directory, and on Windows a real flush. That takes a handle that may write to the folder, so one
+    held open elsewhere without sharing that is not flushed. The flush is believed only on a drive of this
+    computer whose file system keeps a journal. Whatever is refused there, or not known, is False and never raised.
+    """
+    if not WINDOWS:
+        return sync_directory(path)
+    import ctypes
+    from ctypes import wintypes
+    generic_write, share_all, open_existing, backup_semantics = 0x40000000, 0x7, 3, 0x2000000
+    try:
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetDriveTypeW.restype = wintypes.UINT
+        kernel.GetDriveTypeW.argtypes = (wintypes.LPCWSTR,)
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+        kernel.GetVolumeInformationByHandleW.restype = wintypes.BOOL
+        kernel.GetVolumeInformationByHandleW.argtypes = (wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD,
+                                                         wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPDWORD,
+                                                         wintypes.LPWSTR, wintypes.DWORD)
+        kernel.FlushFileBuffers.restype = wintypes.BOOL
+        kernel.FlushFileBuffers.argtypes = (wintypes.HANDLE,)
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        folder = os.path.abspath(path)
+        # A shared folder gives the file system of the computer it is on, whose flush nothing here can vouch for.
+        if WINDOWS_DRIVES.get(kernel.GetDriveTypeW(PureWindowsPath(folder).anchor)) not in ('local', 'removable'):
+            return False
+        # A folder opens only with the flag backup programs use; asking with it takes no privilege.
+        handle = kernel.CreateFileW(str(extended_path(folder)), generic_write, share_all, None,
+                                    open_existing, backup_semantics, None)
+        if handle in (None, wintypes.HANDLE(-1).value):
+            return False
+        try:
+            system = ctypes.create_unicode_buffer(64)
+            if not kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, None, system, len(system)):
+                return False
+            return system.value.upper() in JOURNALED_FILE_SYSTEMS and bool(kernel.FlushFileBuffers(handle))
+        finally:
+            kernel.CloseHandle(handle)
+    except (AttributeError, OSError):
+        return False
 
 
 def shortened(name, library, before, after):

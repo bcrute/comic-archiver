@@ -485,6 +485,9 @@ class Store:
     def completed_episode(self, path, metadata):
         pass
 
+    def published_episode(self, sidecar, metadata):
+        """Told of a newly saved episode once its folder is no longer held in place; a held folder cannot be flushed on Windows."""
+
     def publishes_here(self):
         """Whether the next archive is saved on this computer, needing its room on disk."""
         return True
@@ -696,6 +699,7 @@ class Store:
             with pinned_publication(cbz.parent):
                 self.publish_comic(cbz, entries, metadata, check)
                 self.publish_metadata(sidecar, metadata)
+            self.published_episode(sidecar, metadata)
             progress(f"Episode {episode.id}: archive and JSON saved")
         self.write_series_metadata(series)
         return folder
@@ -757,6 +761,7 @@ class Store:
             sync_file(temporary)
             replace_file(temporary, path, pinned=True)
             self.publish_metadata(sidecar, metadata)
+        self.published_episode(sidecar, metadata)
         progress(f'Episode {episode.id}: EPUB and JSON saved')
 
 

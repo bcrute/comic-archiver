@@ -1,4 +1,4 @@
-from contextlib import closing
+from contextlib import closing, contextmanager
 import io
 import json
 from pathlib import Path
@@ -16,7 +16,6 @@ from comic_archive.publication import PublicationStore, import_metadata
 from comic_archive.purge import archive_page, evict_episode
 from comic_archive.storage import DEFAULTS, policy
 from comic_archive.image_profiles import compress_image
-from comic_archive.osdep import WINDOWS
 from test_archive import MemoryAdapter, png
 
 
@@ -55,12 +54,12 @@ class StorageTests(unittest.TestCase):
     def test_original_default_evicts_only_completed_media_and_reuses_archives_on_restart(self):
         archive = self.publish()
         before = archive.read_bytes(), sidecar_path(archive).read_bytes()
-        self.assertEqual((self.root / '.archive-cache' / digest(png(1))).exists(), WINDOWS)
+        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
         adapter = Mock()
         self.publish(adapter=adapter)
         adapter.retrieve.assert_not_called()
         self.assertEqual((archive.read_bytes(), sidecar_path(archive).read_bytes()), before)
-        self.assertEqual((self.root / '.archive-cache' / digest(png(1))).exists(), WINDOWS)
+        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
         self.assertEqual(verify(self.root), [])
 
     def test_quality_switch_affects_new_episodes_and_preserves_existing_full_quality_exports(self):
@@ -97,7 +96,7 @@ class StorageTests(unittest.TestCase):
         store = PublicationStore(self.root)
         try:
             store.remember_page('local', second, second.pages[0], png(1))
-            with patch('comic_archive.purge.sync_directory', return_value=True):
+            with patch('comic_archive.purge.flush_directory', return_value=True):
                 evict_episode(store, archive, import_metadata(sidecar_path(archive)))
         finally:
             store.close()
@@ -117,10 +116,47 @@ class StorageTests(unittest.TestCase):
             seen.append((folder, blob.exists()))
             return True
         with closing(PublicationStore(self.root)) as store, \
-                patch('comic_archive.purge.sync_directory', side_effect=synced):
+                patch('comic_archive.purge.flush_directory', side_effect=synced):
             evict_episode(store, archive, import_metadata(sidecar_path(archive)))
         self.assertEqual(seen, [(archive.parent, True), (self.root / '.archive-state/provenance', True)])
         self.assertFalse(blob.exists())
+
+    def held_when_evicted(self, manifest):
+        """What was saved and then had its cached pages removed, each with the folders held in place at that moment."""
+        held, seen = [], []
+        @contextmanager
+        def holding(folder):
+            held.append(folder)
+            try:
+                yield
+            finally:
+                held.pop()
+        def evicting(store, path, metadata):
+            seen.append((path.suffix, list(held)))
+            return evict_episode(store, path, metadata)
+        with patch('comic_archive.archive.pinned_publication', holding), \
+                patch('comic_archive.archive_paths.pinned_publication', holding), \
+                patch('comic_archive.publication.pinned_publication', holding), \
+                patch('comic_archive.purge.evict_episode', side_effect=evicting), \
+                closing(PublicationStore(self.root)) as store:
+            store.archive(manifest, MemoryAdapter(), progress=lambda _: None)
+        return seen
+
+    def test_a_newly_saved_comics_cached_pages_are_removed_only_once_its_folder_is_no_longer_held_in_place(self):
+        # Windows cannot flush a folder that is held in place, and nothing is removed before the flush.
+        self.assertEqual(self.held_when_evicted(self.manifest), [('.cbz', [])])
+        self.assertFalse((self.root / '.archive-cache' / digest(png(1))).exists())
+
+    def test_a_newly_saved_novel_is_cleared_of_cached_pages_only_once_its_folder_is_no_longer_held_in_place(self):
+        series = Series('424242', 'Series', ('Author',), platform_id='424242')
+        novel = Episode('818181', series.id, 'Chapter', 1, (), 'tapas_unlocked', content_type='novel', text_html='<p>Original text</p>')
+        self.assertEqual(self.held_when_evicted(Manifest(series, (novel,))), [('.epub', [])])
+
+    def test_an_episode_whose_saving_fails_while_its_folder_is_held_in_place_keeps_its_cached_pages(self):
+        with patch('comic_archive.cloud.queue_episode', side_effect=ArchiveError('held')):
+            with self.assertRaises(ArchiveError):
+                self.publish()
+        self.assertTrue((self.root / '.archive-cache' / digest(png(1))).is_file())
 
     def test_damaged_recovery_archive_cannot_return_corrupt_cached_bytes(self):
         archive = self.publish()
@@ -168,7 +204,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(meta['image_profile'], 'small')
         self.assertLess(meta['content_hashes'][0]['size'], len(data))
         self.assertEqual(meta['original_content_hashes'][0]['sha256'], digest(data))
-        self.assertEqual((self.root / '.archive-cache' / digest(data)).exists(), WINDOWS)
+        self.assertFalse((self.root / '.archive-cache' / digest(data)).exists())
         self.assertEqual(verify(self.root, decode_images=True), [])
 
     def test_original_animation_tiny_pages_and_colour_modes_remain_intact(self):

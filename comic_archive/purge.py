@@ -6,7 +6,7 @@ import zipfile
 
 from .archive import digest, sidecar_path, verify_episode
 from .models import ArchiveError
-from .osdep import anchored, disk_bytes, sync_directory
+from .osdep import anchored, disk_bytes, flush_directory
 
 HASH = re.compile(r'[a-f0-9]{64}')
 
@@ -64,7 +64,7 @@ def evict_episode(store, path, metadata):
     # The archive and its records were renamed into place. Until their folders reach the disk a power loss can
     # undo that, and the originals removed below would then be the only copy; for an expired rental, the last.
     for folder in dict.fromkeys((path.parent, getattr(store, 'provenance', None))):
-        if folder is not None and not sync_directory(folder):
+        if folder is not None and not flush_directory(folder):
             return 0
     hashes = {p['sha256'] for p in metadata['content_hashes']}
     raw = metadata.get('original_content_hashes', [])

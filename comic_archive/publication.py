@@ -685,6 +685,12 @@ class PublicationStore(Store):
         from .cloud import queue_episode
         queue_episode(self.root, path)
 
+    def published_episode(self, sidecar, metadata):
+        # One held in memory for the cloud has no archive saved here to stand in for its cached pages.
+        if self.storage_policy['purge_completed_cache'] and not (self._direct is not None and self._direct.data is not None):
+            from .purge import evict_episode
+            evict_episode(self, archive_from_sidecar(sidecar, metadata), metadata)
+
     def episode_is_offloaded(self, series, episode, path):
         from .cloud import offloaded
         if path.is_file() or not offloaded(self.root, path):return False
@@ -716,9 +722,6 @@ class PublicationStore(Store):
             # Held in memory, not saved here: it uploads once the series files are written.
             self._direct_ready.append((self._direct.archive, self._direct.data))
             return
-        if not series and self.storage_policy['purge_completed_cache']:
-            from .purge import evict_episode
-            evict_episode(self, archive_from_sidecar(path, metadata), metadata)
         if not series:
             self._cloud_pending.add(archive_from_sidecar(path, metadata))
             from .cloud import queue_episode

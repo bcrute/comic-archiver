@@ -1,3 +1,4 @@
+from ctypes import wintypes
 import os
 from pathlib import Path, PureWindowsPath
 import sys
@@ -174,6 +175,12 @@ class FileTests(unittest.TestCase):
         flushed.assert_called_once()
         self.assertEqual(path.read_bytes(), b'saved')
 
+    def test_a_folder_a_file_was_renamed_in_is_flushed_and_reported_so_on_this_system(self):
+        (self.folder / 'episode.cbz.tmp').write_bytes(b'saved')
+        os.replace(self.folder / 'episode.cbz.tmp', self.folder / 'episode.cbz')
+        self.assertIs(osdep.flush_directory(self.folder), True)  # The real call: Windows flushes through a handle of its own.
+        self.assertEqual((self.folder / 'episode.cbz').read_bytes(), b'saved')
+
     def test_two_processes_given_the_same_log_each_add_to_its_end(self):
         log = self.folder / 'background.log'
         first, second = osdep.open_log(log), osdep.open_log(log)
@@ -258,6 +265,72 @@ class WindowsMarkTests(unittest.TestCase):
         with patch.object(osdep, 'WINDOWS', False):
             osdep.keep_awake(True)
         kernel.SetThreadExecutionState.assert_not_called()
+
+    # A whole path as either system reads it. What kind of drive it is on is the stand-in's to say.
+    FOLDER = '//server/share/Library'
+
+    @staticmethod
+    def named(system, known=1):
+        """Windows' answer to which file system an open folder is on, or its refusal to say."""
+        def answer(handle, label, label_size, serial, longest, flags, name, size):
+            name.value = system
+            return known
+        return answer
+
+    def drive(self):
+        """A stand-in for a folder on a fixed disk formatted as NTFS, which opens as handle 7."""
+        kernel = self.kernel()
+        kernel.GetDriveTypeW.return_value = 3
+        kernel.CreateFileW.return_value = 7
+        kernel.GetVolumeInformationByHandleW.side_effect = self.named('NTFS')
+        return kernel
+
+    def test_on_windows_a_folder_that_cannot_be_opened_is_reported_as_not_flushed(self):
+        kernel = self.drive()
+        with patch.object(osdep, 'WINDOWS', True):
+            for refusal in (wintypes.HANDLE(-1).value, None):
+                kernel.CreateFileW.return_value = refusal
+                self.assertIs(osdep.flush_directory(self.FOLDER), False)
+            kernel.CreateFileW.side_effect = OSError('refused')
+            self.assertIs(osdep.flush_directory(self.FOLDER), False)
+        kernel.FlushFileBuffers.assert_not_called(); kernel.CloseHandle.assert_not_called()
+
+    def test_on_windows_a_folder_counts_as_flushed_only_when_the_flush_was_accepted_and_its_handle_is_given_back(self):
+        kernel = self.drive()
+        with patch.object(osdep, 'WINDOWS', True):
+            # Only the caller about to remove the other copy asks for this. The everyday request still does nothing there.
+            self.assertIs(osdep.sync_directory(self.FOLDER), False)
+            kernel.CreateFileW.assert_not_called()
+            for accepted, flushed in ((1, True), (0, False)):
+                kernel.FlushFileBuffers.return_value = accepted
+                self.assertIs(osdep.flush_directory(self.FOLDER), flushed)
+            kernel.FlushFileBuffers.side_effect = OSError('refused')
+            self.assertIs(osdep.flush_directory(self.FOLDER), False)
+        # Opened for writing, which the flush needs, under the name that may be longer than Windows otherwise takes.
+        for opened in kernel.CreateFileW.call_args_list:
+            self.assertEqual(opened.args[:2], ('\\\\?\\UNC\\server\\share\\Library', 0x40000000))
+        self.assertEqual([call.args for call in kernel.CloseHandle.call_args_list], [(7,)] * 3)
+
+    def test_on_windows_a_flush_is_believed_only_from_a_file_system_with_a_journal_on_a_drive_of_this_computer(self):
+        kernel = self.drive()
+        with patch.object(osdep, 'WINDOWS', True):
+            for system, believed in (('NTFS', True), ('ntfs', True), ('ReFS', True),
+                                     ('exFAT', False), ('FAT32', False), ('FAT', False), ('', False)):
+                with self.subTest(system=system):
+                    kernel.GetVolumeInformationByHandleW.side_effect = self.named(system)
+                    self.assertIs(osdep.flush_directory(self.FOLDER), believed)
+            # An answer Windows says it could not give is not read.
+            kernel.GetVolumeInformationByHandleW.side_effect = self.named('NTFS', known=0)
+            self.assertIs(osdep.flush_directory(self.FOLDER), False)
+            kernel.GetVolumeInformationByHandleW.side_effect = self.named('NTFS')
+            # A shared folder names the file system of the computer it is on; a disc, memory and no known drive follow.
+            for kind in (4, 5, 6, 1, 0):
+                with self.subTest(kind=kind):
+                    kernel.GetDriveTypeW.return_value = kind
+                    self.assertIs(osdep.flush_directory(self.FOLDER), False)
+            kernel.GetDriveTypeW.return_value = 2  # A disk that can be taken out, formatted as NTFS.
+            self.assertIs(osdep.flush_directory(self.FOLDER), True)
+        self.assertEqual(kernel.CloseHandle.call_count, kernel.CreateFileW.call_count)
 
 
 if __name__ == '__main__':

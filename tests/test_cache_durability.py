@@ -31,19 +31,26 @@ class CacheDurabilityTests(unittest.TestCase):
         self.store = SimpleNamespace(root=root, cache=cache, db=db, provenance=root / '.provenance')
         self.store.provenance.mkdir()
 
-    def test_windows_without_a_verified_directory_flush_keeps_the_cache(self):
-        with patch('comic_archive.osdep.WINDOWS', True):
+    def test_a_folder_whose_flush_is_refused_keeps_the_cache(self):
+        with patch('comic_archive.purge.flush_directory', return_value=False):
             self.assertEqual(evict_episode(self.store, self.archive, METADATA), 0)
         self.assertEqual(self.blob.read_bytes(), PAGE)
         with closing(self.store.db.execute('SELECT path FROM archived_pages')) as rows:
             self.assertEqual(rows.fetchone()[0], 'series/issue.cbz')
 
+    def test_a_saved_episode_frees_its_cached_originals_on_this_system_and_says_how_much(self):
+        # The real flush of real folders: Linux, macOS and Windows each go through their own. Only the room is
+        # stood in for, which some file systems count differently from one moment to the next.
+        with patch('comic_archive.purge.disk_bytes', return_value=4096):
+            self.assertEqual(evict_episode(self.store, self.archive, METADATA), 4096)
+        self.assertFalse(self.blob.exists())
+
     def test_every_required_directory_must_report_durable(self):
         for outcomes in ((True, False), (False, True)):
-            with self.subTest(outcomes=outcomes), patch('comic_archive.purge.sync_directory', side_effect=outcomes):
+            with self.subTest(outcomes=outcomes), patch('comic_archive.purge.flush_directory', side_effect=outcomes):
                 self.assertEqual(evict_episode(self.store, self.archive, METADATA), 0)
                 self.assertEqual(self.blob.read_bytes(), PAGE)
-        with patch('comic_archive.purge.sync_directory', return_value=True) as sync:
+        with patch('comic_archive.purge.flush_directory', return_value=True) as sync:
             evict_episode(self.store, self.archive, METADATA)
             self.assertEqual([call.args[0] for call in sync.call_args_list],
                              [self.archive.parent, self.store.provenance])
