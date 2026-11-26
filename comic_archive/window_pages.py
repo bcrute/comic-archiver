@@ -451,16 +451,16 @@ class SiteCard:
         menu.setObjectName('downloadMenu')
         menu.setToolTipsVisible(True)
         modes = kit.q.QtGui.QActionGroup(menu)
-        files = menu.addAction('Episode files', lambda: pages.set_episode_list_only(key, False))
-        list_only = menu.addAction('Episode list only', lambda: pages.set_episode_list_only(key, True))
+        files = menu.addAction(say('window.episode_files'), lambda: pages.set_episode_list_only(key, False))
+        list_only = menu.addAction(say('window.episode_list_only'), lambda: pages.set_episode_list_only(key, True))
         for mode in (files, list_only):
             mode.setCheckable(True)
             modes.addAction(mode)
         menu.addSeparator()
-        choose_comics = menu.addAction('Choose comics in Library', lambda: pages.open_download_library(key))
-        clear_list = menu.addAction('Clear episode list', lambda: pages.clear_episode_list(key))
+        choose_comics = menu.addAction(say('window.choose_comics_in_library'), lambda: pages.open_download_library(key))
+        clear_list = menu.addAction(say('window.clear_episode_list'), lambda: pages.clear_episode_list(key))
         menu.addSeparator()
-        menu.addAction('Download settings…', lambda: pages.open_download_choices(key))
+        menu.addAction(say('window.download_settings'), lambda: pages.open_download_choices(key))
 
         def update_download_menu():
             state = pages.of(key)
@@ -470,15 +470,15 @@ class SiteCard:
             list_only.setChecked(current is True)
             for mode in (files, list_only):
                 mode.setEnabled(bool(state.workspace_id and not state.busy and not running))
-                mode.setToolTip('Pause this provider before changing its download mode.' if running else '')
+                mode.setToolTip(say('window.pause_this_provider_before_changing_its') if running else '')
             status = state.status or {}
             has_episodes = (dashboard_model.number(status.get('episode_count')) > 0
                             and not pages.library.is_list_cleared(key))
             choose_comics.setEnabled(has_episodes)
-            choose_comics.setToolTip('' if has_episodes else 'Select Episode list only, then press Start.')
+            choose_comics.setToolTip('' if has_episodes else say('window.select_episode_list_only_then_press'))
             clear_list.setEnabled(pages.can_clear_episode_list(key))
-            clear_list.setToolTip('Pause this provider before clearing.' if running
-                                  else 'Remove the retrieved list from Library. Saved files and download choices are kept.')
+            clear_list.setToolTip(say('window.pause_this_provider_before_clearing') if running
+                                  else say('window.remove_the_retrieved_list_from_library'))
 
         menu.aboutToShow.connect(update_download_menu)
         self.selection.setMenu(menu)
@@ -653,7 +653,7 @@ class SiteCard:
         list_mode = self.pages.episode_list_only(self.key)
         set_visible(self.list_note, bool(list_mode))
         if list_mode:
-            text, tip = 'Download: Episode list only', 'Start fetches titles and availability for this provider.'
+            text, tip = say('window.download_value', value=say('window.episode_list_only')), say('window.start_fetches_titles_and_availability_for')
         self.selection.setText(text)
         self.selection.setToolTip(tip)
         set_enabled(self.selection, s is not None and not s.busy)
@@ -676,7 +676,7 @@ class SiteCard:
             return
         summary = dashboard_model.card_summary(s, v)
         if (s.account or {}).get('episode_list_ready') and self.pages.library.is_list_cleared(self.key):
-            next(row for row in summary['rows'] if row['name'] == say('dashboard.status'))['value'] = 'List cleared'
+            next(row for row in summary['rows'] if row['name'] == say('dashboard.status'))['value'] = say('library.list_cleared')
         self._appearance(summary['appearance'])
         self.pill.setText(dashboard_model.pill(summary['state']))
         tone(self.pill, 'tone', summary['tone'])
@@ -1794,7 +1794,7 @@ class Pages:
         s = self.of(key)
         mode = self.episode_list_only(key)
         if mode is None:
-            s.message = dashboard_model.Message('Could not read the download mode. Try again.', True)
+            s.message = dashboard_model.Message(say('window.could_not_read_the_download_mode'), True)
             self.render()
             return
         if mode:
@@ -1941,7 +1941,7 @@ class Pages:
             if self.shell.set_episode_list_only(state.workspace_id, key, enabled):
                 state.message = None
             else:
-                state.message = dashboard_model.Message('Could not save the download mode. Try again.', True)
+                state.message = dashboard_model.Message(say('window.could_not_save_the_download_mode'), True)
             self.render()
 
     def open_download_library(self, key):
@@ -1960,7 +1960,7 @@ class Pages:
             if self.library.clear_list(key):
                 self.open_download_library(key)
             else:
-                self.of(key).message = dashboard_model.Message('Could not clear the episode list. Try again.', True)
+                self.of(key).message = dashboard_model.Message(say('window.could_not_clear_the_episode_list'), True)
                 self.render()
 
     def open_download_choices(self, key):

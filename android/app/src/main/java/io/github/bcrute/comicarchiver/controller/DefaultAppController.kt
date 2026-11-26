@@ -350,7 +350,8 @@ class DefaultAppController(
                 withContext(Dispatchers.IO) { readSiteCards(target, version) }
             }
             if (current(target, version)) _state.value = _state.value.copy(settingsBusy = false,
-                notice = if (saved) null else Notice(BetaCodes.JOB_FAILED, "Could not change the episode list. Pause the provider and try again."))
+                notice = if (saved) null else Notice(BetaCodes.JOB_FAILED, if (action == "clear") say("window.could_not_clear_the_episode_list")
+                    else say("window.could_not_save_the_download_mode")))
         }
     }
 
@@ -359,7 +360,7 @@ class DefaultAppController(
         val target = location
         val version = siteVersion
         episodesVersion += 1
-        _state.value = _state.value.copy(settingsBusy = true, comicChoicesNotice = "Applying comic choices…")
+        _state.value = _state.value.copy(settingsBusy = true, comicChoicesNotice = say("library.applying_comic_choices"))
         scope.launch(Dispatchers.IO) {
             val result = try {
                 val args = JSONObject().put("base_root", target.base.absolutePath).put("chosen", chosen)
@@ -393,8 +394,8 @@ class DefaultAppController(
                     }
                 }
                 _state.value = _state.value.copy(settingsBusy = false, episodes = updated,
-                    comicChoicesNotice = if (result == null) "Could not apply every choice. Review the saved checkboxes and try again."
-                        else "Comic choices saved. Existing files are kept.")
+                    comicChoicesNotice = if (result == null) say("library.could_not_apply_every_choice_review")
+                        else say("library.comic_choices_saved_existing_files_are"))
                 withContext(Dispatchers.IO) { readSiteCards(target, version) }
             }
         }

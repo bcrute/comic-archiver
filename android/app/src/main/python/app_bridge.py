@@ -1186,6 +1186,7 @@ def _episode_inventory(args):
 
         from comic_archive import window_library as words
         from comic_archive.episode_index import page
+        from comic_archive.messages import say
         from comic_archive.workspace import Workspace
         with _workspace_lock:
             roots = [root for root, kept in _open.items() if kept == {"base": base, "site_key": site}]
@@ -1214,7 +1215,7 @@ def _episode_inventory(args):
             items.append(item)
         return {"items": items, "next_offset": value["next_offset"],
                 'comic_selection': value['comic_selection'],
-                "empty": "" if items or offset else ("List cleared" if hidden else words.empty_text(value))}
+                "empty": "" if items or offset else (say('library.list_cleared') if hidden else words.empty_text(value))}
 
     return _core(read)
 

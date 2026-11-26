@@ -448,7 +448,7 @@ class EpisodeLibraryTests(PagesCase):
         page.set_busy(True)
         self.actions.account(status='stopped', episode_list_ready=True, episode_list_partial=True)
         self.pages.poll_site('tapas')
-        self.assertIn('Tapas: Partial list', page.list_notice.text())
+        self.assertIn('Tapas: Partial episode list ready', page.list_notice.text())
         self.assertTrue(page.list_refresh_pending)
         page.set_busy(False)
         self.assertFalse(page.list_refresh_pending)

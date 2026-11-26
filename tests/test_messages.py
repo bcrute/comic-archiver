@@ -78,6 +78,19 @@ class MessageTests(unittest.TestCase):
         unsaid = sorted(code for code in messages.TEXT if code not in said and not code.startswith(families))
         self.assertEqual(unsaid, [])
 
+    def test_the_download_menu_and_the_library_choices_are_one_set_of_phrases_on_the_desktop_and_the_phone(self):
+        desktop = {code for file, code in core_calls() if file in ('window_library.py', 'window_pages.py')}
+        phone = {code for file, code, _ in phone_calls()
+                 if file in ('DefaultAppController.kt', 'DownloadsScreen.kt', 'EpisodeLibraryScreen.kt')}
+        for code in ('library.applying_comic_choices', 'library.check_a_series_or_episode_to', 'library.check_all',
+                     'library.comic_choices_saved_existing_files_are', 'library.could_not_apply_every_choice_review',
+                     'library.uncheck_all', 'window.choose_comics_in_library', 'window.clear_episode_list',
+                     'window.could_not_clear_the_episode_list', 'window.could_not_save_the_download_mode',
+                     'window.download_settings', 'window.episode_files', 'window.episode_list_only',
+                     'window.select_episode_list_only_then_press'):
+            self.assertIn(code, desktop, code)
+            self.assertIn(code, phone, code)
+
 
 if __name__ == '__main__':
     unittest.main()

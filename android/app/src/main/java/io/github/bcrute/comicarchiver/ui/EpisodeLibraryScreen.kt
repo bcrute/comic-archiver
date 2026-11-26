@@ -87,9 +87,9 @@ fun EpisodeLibraryScreen(sites: List<SiteChoice>, lists: Map<String, EpisodeList
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     TriStateCheckbox(state = bulk, onClick = null)
-                    Text(if (all) "Uncheck all" else "Check all")
+                    Text(if (all) say("library.uncheck_all") else say("library.check_all"))
                 }
-                Text("Choose which comics to download. Unchecking keeps saved files.", style = MaterialTheme.typography.bodySmall)
+                Text(say("library.check_a_series_or_episode_to"), style = MaterialTheme.typography.bodySmall)
                 if (notice != null) Text(notice, style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.testTag("comic-selection-notice"))
                 Text(say("library.recorded_episodes_expand_a_provider_and"), style = MaterialTheme.typography.bodySmall)
@@ -162,7 +162,7 @@ private fun EpisodeLine(title: String, status: String, detail: String?, depth: I
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (selected != null) TriStateCheckbox(state = if (mixed) ToggleableState.Indeterminate else ToggleableState(selected),
             onClick = { onSelected(mixed || !selected) }, enabled = enabled,
-            modifier = Modifier.testTag("select-$tag").semantics { contentDescription = "Download $title" })
+            modifier = Modifier.testTag("select-$tag").semantics { contentDescription = say("library.download_title", "title" to title) })
         if (open != null) Text(if (open) "▾" else "▸")
         Column(Modifier.weight(1f)) {
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis,

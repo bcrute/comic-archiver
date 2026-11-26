@@ -205,8 +205,9 @@ private fun SiteCardView(
                     Text(card.selection, fontWeight = FontWeight.Bold)
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    for ((key, label) in listOf("files" to "Episode files", "list" to "Episode list only",
-                        "choose" to "Choose comics in Library", "clear" to "Clear episode list", "settings" to "Download settings…")) {
+                    for ((key, label) in listOf("files" to say("window.episode_files"), "list" to say("window.episode_list_only"),
+                        "choose" to say("window.choose_comics_in_library"), "clear" to say("window.clear_episode_list"),
+                        "settings" to say("window.download_settings"))) {
                         val enabled = when (key) {
                             "choose" -> card.hasEpisodes
                             "clear" -> card.hasList && card.action != CardAction.PAUSE
@@ -218,7 +219,7 @@ private fun SiteCardView(
                         if (key == "choose" || key == "settings") HorizontalDivider()
                         DropdownMenuItem(text = { Column {
                             Text(label)
-                            if (key == "choose" && !card.hasEpisodes) Text("Select Episode list only, then press Start.",
+                            if (key == "choose" && !card.hasEpisodes) Text(say("window.select_episode_list_only_then_press"),
                                 style = MaterialTheme.typography.bodySmall)
                         } }, modifier = if (mode) Modifier.semantics { selected = currentMode } else Modifier,
                             leadingIcon = if (mode) ({ RadioButton(selected = currentMode,

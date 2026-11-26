@@ -29,9 +29,10 @@ def episode_type(mark):
 
 def series_columns(row, *, saved_only=False):
     """A recorded series as the Library lists it: title, saved of recorded, format, access."""
-    summary = f"{row['saved']:,} saved"
+    summary = say('library.n_saved', n=f"{row['saved']:,}")
     if not saved_only:
-        summary = f"{summary} · {row['episodes']:,} listed" if row['episodes'] else 'No episodes listed yet'
+        summary = (say('library.n_saved_n_listed', n=f"{row['saved']:,}", n2=f"{row['episodes']:,}") if row['episodes']
+                   else say('library.no_episodes_listed_yet'))
     return [' '.join(row['title'].splitlines()), summary,
             format_summary(row.get('formats', [])), access_summary(row.get('access_kinds', []))]
 
@@ -75,10 +76,10 @@ class EpisodeLibrary:
         box.setSpacing(8)
         self.refresh = kit.button(say('library.refresh'), self.refresh_view)
         self.refresh.setObjectName('toolbarAction')
-        header = kit.row(kit.label('Library', 'pageTitle', wrap=False), spacing=8)
+        header = kit.row(kit.label(say('app.library'), 'pageTitle', wrap=False), spacing=8)
         header.layout().addWidget(self.refresh)
         box.addWidget(header)
-        box.addWidget(kit.label('Check a series or episode to include it in downloads. Unchecking keeps saved files.', 'muted'))
+        box.addWidget(kit.label(say('library.check_a_series_or_episode_to'), 'muted'))
         self.list_notice = kit.label('', 'muted')
         self.list_notice.hide()
         box.addWidget(self.list_notice)
@@ -91,7 +92,7 @@ class EpisodeLibrary:
         self.tree.setColumnCount(4)
         self.tree.setHeaderLabels(['', say('dashboard.status'), say('library.format'), say('library.access')])
         self.tree.headerItem().setData(0, kit.q.QtCore.Qt.ItemDataRole.AccessibleTextRole,
-                                       'Provider / series / episode')
+                                       say('library.provider_series_episode'))
         self.tree.setUniformRowHeights(True)
         self.tree.setWordWrap(False)
         self.tree.setEditTriggers(w.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -122,7 +123,7 @@ class EpisodeLibrary:
 
             @core.Slot(qt.CheckState)
             def describe_next_click(self, state):
-                self.setText('Uncheck all' if state == qt.CheckState.Checked else 'Check all')
+                self.setText(say('library.uncheck_all') if state == qt.CheckState.Checked else say('library.check_all'))
                 self.align_to_header()
 
             @core.Slot()
@@ -135,9 +136,9 @@ class EpisodeLibrary:
                                  size.width(), size.height())
                 self.setVisible(left >= 0 and left + size.width() <= header.sectionSize(0) - header.offset())
 
-        checkbox = AllSeries('Check all', header.viewport())
+        checkbox = AllSeries(say('library.check_all'), header.viewport())
         checkbox.setObjectName('allSeries')
-        scope = 'Include or exclude all series across all providers. Saved files are kept.'
+        scope = say('library.include_or_exclude_all_series_across')
         checkbox.setAccessibleDescription(scope)
         checkbox.setToolTip(scope)
         checkbox.setTristate(True)
@@ -176,12 +177,12 @@ class EpisodeLibrary:
         reload_tree = loading(self.tree.invisibleRootItem())
         if reload_tree:
             self.generation += 1  # A pre-change index response cannot restore stale checks.
-        self.notice.setText('Applying comic choices…')
+        self.notice.setText(say('library.applying_comic_choices'))
         actions = self.pages.actions
 
         def done(value, error):
-            self.notice.setText('Could not apply every choice. Review the saved checkboxes and try again.' if error
-                                else 'Comic choices saved. Existing files are kept.')
+            self.notice.setText(say('library.could_not_apply_every_choice_review') if error
+                                else say('library.comic_choices_saved_existing_files_are'))
             if reload_tree:
                 self.reset(load_header=False)
             self.refresh_checks(lambda: self.set_busy(False))
@@ -258,7 +259,7 @@ class EpisodeLibrary:
             detail = ''
             if state is not None and self.requested_lists.get(site.key) is state:
                 if state.busy:
-                    detail = 'Starting episode list…'
+                    detail = say('library.starting_episode_list')
                 elif state.message and state.message.error:
                     detail = state.message.text
             if detail:
@@ -267,16 +268,16 @@ class EpisodeLibrary:
             # A fetch started after the clear speaks for itself: getting the list, paused, or stopped on a problem.
             fetching = account.get('list_only') and (account.get('status') == 'running' or self.is_list_awaited(site.key))
             if self.is_list_cleared(site.key) and not fetching:
-                detail = 'List cleared'
+                detail = say('library.list_cleared')
             elif account.get('list_only'):
                 if account.get('status') == 'running':
-                    detail = 'Getting episode list…'
+                    detail = say('dashboard.getting_episode_list')
                 elif account.get('episode_list_ready'):
-                    detail = 'Partial list' if account.get('episode_list_partial') else 'List ready'
+                    detail = say('dashboard.partial_episode_list') if account.get('episode_list_partial') else say('dashboard.episode_list_ready')
                 elif account.get('status') == 'held':
-                    detail = 'Stopped. See Dashboard.'
+                    detail = say('library.stopped_see_dashboard')
                 else:
-                    detail = 'Paused'
+                    detail = say('dashboard.paused')
             if detail:
                 messages.append(f'{site.name}: {detail}')
         text = '  ·  '.join(messages)
@@ -329,7 +330,7 @@ class EpisodeLibrary:
         actions = self.pages.actions
         saved_only = {key[0]: self.is_list_cleared(key[0]) for key in scopes}
         self.set_busy(True)
-        self.notice.setText('Refreshing the Library…')
+        self.notice.setText(say('library.refreshing_the_library'))
 
         def read():
             result = {}
@@ -355,7 +356,7 @@ class EpisodeLibrary:
                     self.show()
                 return
             if error:
-                self.notice.setText('Could not refresh the Library. Try Refresh again.')
+                self.notice.setText(say('library.could_not_refresh_the_library_try'))
                 self.set_busy(False)
                 return
             self.reset(load_header=False)
@@ -404,7 +405,7 @@ class EpisodeLibrary:
             if error:
                 # A stale checkmark must not masquerade as a successful write.
                 self.reset(load_header=False)
-                self.notice.setText('Choices could not be read. Choose Refresh to retry.')
+                self.notice.setText(say('library.choices_could_not_be_read_choose'))
                 if then:
                     then()
                 return
@@ -568,7 +569,7 @@ class EpisodeLibrary:
             parent.takeChild(parent.indexOfChild(item))
         else:
             if data['series_id'] is None and self.is_list_cleared(data['provider']):
-                text = 'Saved episodes only' if value['items'] else 'List cleared'
+                text = say('library.saved_episodes_only') if value['items'] else say('library.list_cleared')
             else:
                 text = data.get('summary', say('library.recorded_list')) if value['items'] else empty_text(value)
             item.setText(1, text)

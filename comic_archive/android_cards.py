@@ -10,6 +10,7 @@ import time
 from . import android_download, android_session, sites, worker_host
 from .dashboard_model import SPEED_NAMES, SPEEDS, State, card_summary, download_choice, pill, view
 from .local_library import LOCAL_OWNER
+from .messages import say
 from .models import ArchiveError
 
 
@@ -79,7 +80,7 @@ class Cards:
                 'speed': v['speed'] if v['speed_visible'] and s.account is not None else '',
                 'speed_enabled': bool(v['speed_visible'] and v['speed_enabled']),
                 'speeds': [{'key': key, 'label': SPEED_NAMES[key]} for key in SPEEDS],
-                'selection': ('Download: Episode list only' if mode
+                'selection': (say('window.download_value', value=say('window.episode_list_only')) if mode
                               else download_choice(s.account if s.loaded else None)[0]),
                 'list_only': mode,
                 'has_episodes': bool((s.status or {}).get('episode_count')) and not hidden,
