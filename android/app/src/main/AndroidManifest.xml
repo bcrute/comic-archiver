@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- DownloadHostService's partial wake lock: a foreground service alone does not keep the
+         processor awake, so an unplugged phone with its screen off could stall while saving. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".App"
@@ -21,8 +24,11 @@
              allowBackup covers cloud backup; dataExtractionRules also stops Android 12+
              device-to-device transfer, which allowBackup alone does not. -->
 
+        <!-- singleTop: a second launch (the download notification, for one) brings the open
+             screen forward and never puts another copy of it on top. -->
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>

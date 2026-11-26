@@ -71,6 +71,11 @@ data class SiteCard(val site: String, val name: String, val title: String, val s
                     val signOut: Boolean = false, val signOutEnabled: Boolean = false,
                     val speed: String = "", val speedEnabled: Boolean = false, val speeds: List<SpeedOption> = emptyList(),
                     val selection: String = "", val listOnly: Boolean = false, val hasEpisodes: Boolean = false, val hasList: Boolean = false, val bulk: String = "") {
+    /** Whether the Library's lists read while [before] was this site's card are out of date now: episodes or a
+     *  list have appeared (a cleared list shown again may bring only its series), or a list-only fetch has stopped. */
+    fun outdatesLists(before: SiteCard): Boolean = before.site == site && (hasEpisodes && !before.hasEpisodes ||
+        hasList && !before.hasList || before.listOnly && before.download == "running" && download == "stopped")
+
     companion object {
         /** The cards of a site_cards answer, or null when it is not one. A card missing a part is left out. */
         fun parse(envelope: org.json.JSONObject): List<SiteCard>? {

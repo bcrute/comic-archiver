@@ -11,6 +11,7 @@ import io.github.bcrute.comicarchiver.app
 import io.github.bcrute.comicarchiver.library.ArchiveViewer
 import io.github.bcrute.comicarchiver.library.ArchiveOpenResult
 import io.github.bcrute.comicarchiver.signin.SignInEngine
+import io.github.bcrute.comicarchiver.worker.ActiveDownloads
 import io.github.bcrute.comicarchiver.worker.DefaultDownloadHost
 import io.github.bcrute.comicarchiver.worker.DownloadHostService
 import io.github.bcrute.comicarchiver.runtime.SiteWorkspace
@@ -73,9 +74,31 @@ class DefaultAppController(
     /** Go was pressed and the host has not answered yet; the site stays shown until it does. */
     private val goPending = MutableStateFlow(false)
     /** Sites left saving while another is shown, as each desktop site saves beside the others. */
-    private class Away(val host: DefaultDownloadHost, val download: DownloadState,
+    private class Away(val target: SiteWorkspace, val host: DefaultDownloadHost, val download: DownloadState,
         val observations: DownloadObservations?, val admittedAtMillis: Long?, var watch: Job? = null)
     private val away = java.util.concurrent.ConcurrentHashMap<String, Away>()
+    /** Sites not shown whose download has ended while the service may still keep them alive. */
+    private val ending = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    /** Read a site that is not shown until nothing is running or in flight for it; the service then lets it go.
+     *  Showing the site again ends this: the shown site's own readings decide from then on. */
+    private fun letGoWhenOver(target: SiteWorkspace) {
+        ending.remove(target.identity)?.cancel()
+        ending[target.identity] = scope.launch(Dispatchers.IO) {
+            while (isActive && ActiveDownloads.contains(target.root.absolutePath)) {
+                val over = try {
+                    DownloadStatus.over(JSONObject(bridge.dispatch("download_status",
+                        JSONObject().put("root", target.root.absolutePath).toString())))
+                } catch (cancelled: CancellationException) { throw cancelled }
+                  catch (_: Exception) { false }
+                if (over) {
+                    withContext(Dispatchers.Main) { DownloadHostService.ended(target.root.absolutePath) }
+                    return@launch
+                }
+                delay(5000)
+            }
+        }
+    }
 
     /** Whether a site is saving now, shown or not. The reading browser asks this off the main thread. */
     fun isSaving(key: String): Boolean {
@@ -105,6 +128,7 @@ class DefaultAppController(
                 withContext(Dispatchers.Main) {
                     away.remove(target.identity)
                     _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
+                    letGoWhenOver(target)
                 }
                 return@launch
             }
@@ -197,6 +221,7 @@ class DefaultAppController(
         val kept = away.remove(context.app.workspaceFor(key).identity) ?: return
         kept.watch?.cancel()
         kept.host.pause()
+        letGoWhenOver(kept.target)
         _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
     }
 
@@ -207,7 +232,7 @@ class DefaultAppController(
     override fun pauseAll() {
         allJob?.cancel()
         if (_state.value.libraryBusy || _state.value.siteBusy || !workspaceReady) return
-        for (kept in away.values) { kept.watch?.cancel(); kept.host.pause() }
+        for (kept in away.values) { kept.watch?.cancel(); kept.host.pause(); letGoWhenOver(kept.target) }
         away.clear()
         _state.value = _state.value.copy(sites = withSaving(_state.value.sites))
         if (admitted || _state.value.download is DownloadState.Planning ||
@@ -270,10 +295,8 @@ class DefaultAppController(
           catch (_: Exception) { null }
         withContext(Dispatchers.Main) {
             if (current(target, version) && cards != null) {
-                if (cards.any { card -> _state.value.siteCards.any { before ->
-                    before.site == card.site && (card.hasEpisodes && !before.hasEpisodes ||
-                        before.listOnly && before.download == "running" && card.download == "stopped")
-                } }) refreshEpisodes()
+                if (cards.any { card -> _state.value.siteCards.any { before -> card.outdatesLists(before) } })
+                    refreshEpisodes()
                 _state.value = _state.value.copy(siteCards = cards)
             }
         }
@@ -576,10 +599,11 @@ class DefaultAppController(
                             context.app.selectWorkspace(target.key, target.libraryId)
                             runtimeChanged = true
                             if (commitLibrary) withContext(Dispatchers.IO) { context.app.libraryLocations.select(target.libraryId) }
-                            if (leftSaving) away[previous.identity] = Away(previousHost, before.download,
+                            if (leftSaving) away[previous.identity] = Away(previous, previousHost, before.download,
                                 before.observations, before.admittedAtMillis).also { it.watch = watch(previous) }
                             val returning = away.remove(target.identity)
                             returning?.watch?.cancel()
+                            ending.remove(target.identity)?.cancel()
                             location = target
                             downloads = returning?.host ?: downloadHost(target)
                             admitted = returning != null
@@ -1114,6 +1138,12 @@ class DefaultAppController(
             val observation = DownloadObservations.parse(envelope, SystemClock.elapsedRealtime())
             val observed = _state.value.copy(observations = observation ?: _state.value.observations,
                 statusReadFailed = observation == null)
+            // Nothing is running or in flight for the site, so the service need not keep it alive. Not
+            // while a Go is being answered, a setting change may carry the download on, or a cloud step
+            // is using the same downloader.
+            if (DownloadStatus.over(envelope) && !goPending.value && !changing && !_state.value.settingsBusy &&
+                changes == settingsChanges && !_state.value.cloudBusy && _state.value.cloud?.taskRunning != true &&
+                _state.value.cloud?.authStatus != "running") DownloadHostService.ended(target.root.absolutePath)
             // Reading a held plan never admits it. A failed observation also cannot
             // prove that a live task stopped: retain its Pause action and refuse Go.
             if (!admitted || observation == null) {

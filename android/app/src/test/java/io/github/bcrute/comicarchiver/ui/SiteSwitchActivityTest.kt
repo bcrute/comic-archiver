@@ -1,6 +1,7 @@
 package io.github.bcrute.comicarchiver.ui
 
 import android.content.Context
+import android.content.Intent
 import android.os.Looper
 import android.webkit.WebView
 import android.view.ViewGroup
@@ -27,11 +28,14 @@ import io.github.bcrute.comicarchiver.runtime.SiteWorkspace
 import io.github.bcrute.comicarchiver.signin.SiteAddress
 import io.github.bcrute.comicarchiver.signin.WebViewCookieStore
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
+import io.github.bcrute.comicarchiver.worker.ActiveDownloads
+import io.github.bcrute.comicarchiver.worker.DownloadHostService
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -123,6 +127,48 @@ class SiteSwitchActivityTest {
         compose.runOnIdle { app.controller.pause() }
         await { reached("pause", "root") == 1 }
         assertFalse(app.controller.isSaving("tapas"))
+    }
+
+    @Test fun theSavingNotificationLastsThroughARetryWaitAndWhileAnotherSiteSavesAndEndsWithTheLastDownload() {
+        ready()
+        ActiveDownloads.clear()
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get()
+        var starts = 0
+        // Android hands each Go's start to the service; no service runs here, so the test hands it over.
+        fun keptAlive(root: String) = service.onStartCommand(Intent(app, DownloadHostService::class.java)
+            .setAction(DownloadHostService.ACTION_START).putExtra(DownloadHostService.EXTRA_WORKSPACE, root), 0, ++starts)
+        fun reads() = app.wire.count("download_status")
+        try {
+            // Tapas waits to retry by itself: nothing is being fetched, and the download is not over.
+            app.wire.status["Tapas"] = """{"worker":{"running":true,"state":"ready"},
+                "account":{"status":"running","phase":"archive","retry":{"reason":"images","seconds":240}}}"""
+            val tapas = app.workspace.root.absolutePath
+            select("Go")
+            await { app.controller.state.value.download is DownloadState.Running }
+            keptAlive(tapas)
+            val read = reads()
+            await { reads() >= read + 2 }
+            assertFalse(shadowOf(service).isStoppedBySelf)
+            assertEquals(listOf(tapas), ActiveDownloads.all())
+            // Webtoon starts beside it, and Tapas is then paused with nothing left in flight.
+            select("Webtoon"); ready("webtoon")
+            val webtoon = app.workspace.root.absolutePath
+            select("Go")
+            await { app.controller.state.value.download is DownloadState.Running }
+            keptAlive(webtoon)
+            app.wire.status["Tapas"] = """{"worker":{"running":true,"state":"ready"},"account":{"status":"stopped"}}"""
+            compose.runOnIdle { app.controller.pauseSite("tapas") }
+            await { ActiveDownloads.all() == listOf(webtoon) }
+            assertFalse(shadowOf(service).isStoppedBySelf)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            // The last download finishes by itself: the service and its notification go with it.
+            app.wire.status["Webtoon"] = """{"worker":{"running":true,"state":"ready"},"account":{"status":"finished"}}"""
+            await { shadowOf(service).isStoppedBySelf }
+            assertTrue(ActiveDownloads.all().isEmpty())
+            assertTrue(shadowOf(service).isForegroundStopped)
+            assertTrue(app.controller.state.value.download is DownloadState.Finished)
+        } finally { ActiveDownloads.clear(); lifecycle.destroy() }
     }
 
     @Test fun aCardsButtonActsOnItsOwnSiteWithoutChoosingTheSiteFirst() {
@@ -468,6 +514,9 @@ class SwitchBridge : PythonBridge {
     @Volatile var loginRequired = false
     @Volatile var refuseForget = false
     @Volatile var holdWebtoonRestore: CountDownLatch? = null
+    @Volatile var holdWorkerStop: CountDownLatch? = null
+    /** What a site's download reports, by site name; a site not named reports the usual running download. */
+    val status = java.util.concurrent.ConcurrentHashMap<String, String>()
     val restoreEntered = CountDownLatch(1)
     fun count(op: String) = requests.count { it.first == op }
 
@@ -484,10 +533,11 @@ class SwitchBridge : PythonBridge {
             restoreEntered.countDown()
             holdWebtoonRestore?.await(5, TimeUnit.SECONDS)
         }
+        if (op == "worker_stop") holdWorkerStop?.await(5, TimeUnit.SECONDS)
         val result = when (op) {
             "download_status" -> if (loginRequired)
                 """{"worker":{"running":true},"account":{"status":"held","code":"login_required"}}"""
-                else return fallback.dispatch(op, argsJson)
+                else status[site] ?: return fallback.dispatch(op, argsJson)
             "worker_stop" -> """{"running":false,"stop_requested":false}"""
             "library_listing" -> """[{"seriesId":"fixture","title":"$site book","kind":"comics","episodeCount":1,"savedCount":1}]"""
             "settings", "configure_settings" -> {

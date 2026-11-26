@@ -85,4 +85,29 @@ class DownloadStatusTest {
         assertFalse(result.description!!.contains("PRIVATE"))
     }
 
+    private fun over(account: String, worker: String = """{"running":true,"state":"ready"}""") =
+        DownloadStatus.over(JSONObject("""{"ok":true,"result":{"worker":$worker,"account":$account}}"""))
+
+    @Test fun a_download_that_finished_failed_or_waits_for_the_person_is_over_once_the_downloader_is_idle() {
+        assertTrue(over("""{"status":"finished"}"""))
+        assertTrue(over("""{"status":"held","code":"login_required"}"""))
+        assertTrue(over("""{"status":"stopped"}"""))
+        // A downloader that is gone resumes nothing by itself, whatever the plan still says.
+        assertTrue(over("""{"status":"running"}""", """{"running":false}"""))
+    }
+
+    @Test fun a_wait_the_engine_ends_by_itself_is_never_over() {
+        assertFalse(over("""{"status":"running","phase":"archive","retry":{"reason":"images","seconds":240}}"""))
+        assertFalse(over("""{"status":"running","phase":"lists","retry":{"reason":"connection","seconds":60}}"""))
+        assertFalse(over("""{"status":"running","phase":"archive"}"""))
+    }
+
+    @Test fun a_step_still_finishing_a_drain_or_an_unreadable_status_is_not_over() {
+        assertFalse(over("""{"status":"stopped"}""", """{"running":true,"state":"busy"}"""))
+        assertFalse(over("""{"status":"stopped"}""", """{"running":true,"state":"ready","stop_requested":true}"""))
+        assertFalse(over("""{"status":"finished"}""", """{"running":true}"""))
+        for (body in listOf("{}", """{"ok":false}""", """{"ok":true,"result":{}}"""))
+            assertFalse(DownloadStatus.over(JSONObject(body)))
+    }
+
 }

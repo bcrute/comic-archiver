@@ -86,6 +86,24 @@ object DownloadStatus {
         envelope.takeIf { it.optBoolean("ok") }?.optJSONObject("result")?.optJSONObject("account")
             ?.takeIf { it.optString("status") == "stopped" }?.let { DownloadState.Paused("user") }
 
+    /**
+     * Whether the engine has nothing running or in flight for the site, so nothing needs the app
+     * kept alive or the phone kept awake: the download finished, failed or waits for the person,
+     * and the downloader is idle or gone. A wait the engine ends by itself (a retry, the
+     * connection) is reported as running and is never over; nor is a step still finishing after
+     * Pause, a drain under way, or anything a failed reading cannot prove.
+     */
+    fun over(envelope: JSONObject): Boolean {
+        val worker = envelope.takeIf { it.opt("ok") == true }?.optJSONObject("result")?.optJSONObject("worker")
+            ?: return false
+        val running = worker.opt("running")
+        val idle = running == false ||
+            running == true && !worker.optBoolean("stop_requested") && worker.optString("state") == "ready"
+        val download = fromEnvelope(envelope)
+        return idle && (download is DownloadState.Failed || download is DownloadState.Finished ||
+            download == DownloadState.Paused("user"))
+    }
+
     // Lists are pages in a shifting order: read in one go, a series cannot slip past unseen.
     val LIST_FIRST get() = say("downloads.saving_starts_once_every_list_is")
 

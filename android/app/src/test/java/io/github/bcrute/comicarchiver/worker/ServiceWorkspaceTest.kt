@@ -1,6 +1,8 @@
 package io.github.bcrute.comicarchiver.worker
 
 import android.content.Intent
+import android.os.Looper
+import io.github.bcrute.comicarchiver.MainActivity
 import io.github.bcrute.comicarchiver.ui.SwitchTestApp
 import org.junit.After
 import org.junit.Assert.*
@@ -14,6 +16,9 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import io.github.bcrute.comicarchiver.runtime.WorkingLibrarySource
 import io.github.bcrute.comicarchiver.runtime.WorkingLibraryStart
+import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 
 /** Real service/notification routing, with a synthetic core. Robolectric does not
  * enforce the OS foreground-service budget or exercise a real Python worker drain. */
@@ -23,6 +28,118 @@ class ServiceWorkspaceTest {
     private val app get() = RuntimeEnvironment.getApplication() as SwitchTestApp
 
     @Before @After fun nothingKeptAlive() = ActiveDownloads.clear()
+
+    /** Stands in for the phone's wake lock, which only a phone can show keeping the processor awake. */
+    private class FakeCpu : CpuHold {
+        @Volatile var held = false
+        val holds = CopyOnWriteArrayList<Long>()
+        override fun acquire(timeoutMillis: Long) { holds.add(timeoutMillis); held = true }
+        override fun release() { held = false }
+    }
+
+    private fun startIntent(root: String) = Intent(app, DownloadHostService::class.java)
+        .setAction(DownloadHostService.ACTION_START).putExtra(DownloadHostService.EXTRA_WORKSPACE, root)
+
+    @Test fun theServiceOutlastsASiteWhoseRunEndedWhileAnotherStillSavesAndEndsWithTheLast() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); val cpu = FakeCpu(); service.cpu = cpu
+        try {
+            val first = app.workspace.root.absolutePath
+            service.onStartCommand(startIntent(first), 0, 1)
+            app.selectWorkspace("webtoon")
+            val second = app.workspace.root.absolutePath
+            service.onStartCommand(startIntent(second), 0, 2)
+            DownloadHostService.ended(first)
+            assertEquals(listOf(second), ActiveDownloads.all())
+            assertFalse(shadowOf(service).isStoppedBySelf); assertFalse(shadowOf(service).isForegroundStopped)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            assertTrue(cpu.held)
+            // A site that is no longer kept alive ending once more changes nothing.
+            DownloadHostService.ended(first)
+            assertFalse(shadowOf(service).isStoppedBySelf)
+            DownloadHostService.ended(second)
+            assertTrue(ActiveDownloads.all().isEmpty())
+            assertTrue(shadowOf(service).isStoppedBySelf); assertTrue(shadowOf(service).isForegroundStopped)
+            assertFalse(cpu.held)
+            // Nothing was paused or drained: the runs had ended by themselves. Go starts the service as before.
+            assertEquals(0, app.wire.count("pause")); assertEquals(0, app.wire.count("worker_stop"))
+            service.onStartCommand(startIntent(second), 0, 3)
+            assertEquals(listOf(second), ActiveDownloads.all())
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            assertTrue(cpu.held)
+        } finally { lifecycle.destroy() }
+    }
+
+    @Test fun theProcessorIsHeldAwakeOnlyWhileASiteIsKeptAliveAndEveryHoldRunsOutByItself() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); val cpu = FakeCpu(); service.cpu = cpu
+        fun stopIntent(): Intent = shadowOf(shadowOf(service).lastForegroundNotification.actions.single().actionIntent).savedIntent
+        var destroyed = false
+        try {
+            val root = app.workspace.root.absolutePath
+            assertFalse(cpu.held)
+            service.onStartCommand(startIntent(root), 0, 1)
+            assertTrue(cpu.held)
+            // While the site is kept alive the hold is taken again before it runs out.
+            assertTrue(DownloadHostService.RENEW_MILLIS < DownloadHostService.HOLD_MILLIS)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(DownloadHostService.RENEW_MILLIS))
+            assertEquals(listOf(DownloadHostService.HOLD_MILLIS, DownloadHostService.HOLD_MILLIS), cpu.holds.toList())
+            // Stop lets go once its drain is over, and nothing takes the hold again afterwards.
+            service.onStartCommand(stopIntent(), 0, 2)
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (cpu.held && System.nanoTime() < deadline) Thread.sleep(10)
+            assertFalse(cpu.held)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(DownloadHostService.RENEW_MILLIS * 2))
+            assertEquals(2, cpu.holds.size); assertFalse(cpu.held)
+            // A service that goes away for any other reason lets go as well.
+            service.onStartCommand(startIntent(root), 0, 3)
+            assertTrue(cpu.held)
+            lifecycle.destroy(); destroyed = true
+            assertFalse(cpu.held)
+        } finally { if (!destroyed) lifecycle.destroy() }
+    }
+
+    @Test fun aTimeoutEndsTheServiceWithinItsBoundWhileADrainIsStillWaiting() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); val cpu = FakeCpu(); service.cpu = cpu
+        val release = CountDownLatch(1)
+        app.wire.holdWorkerStop = release
+        try {
+            service.onStartCommand(startIntent(app.workspace.root.absolutePath), 0, 1)
+            service.onTimeout(1, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (app.wire.count("worker_stop") == 0 && System.nanoTime() < deadline) Thread.sleep(10)
+            assertEquals(1, app.wire.count("worker_stop"))
+            // The drain is still waiting for its site, and the service with it.
+            assertFalse(shadowOf(service).isStoppedBySelf); assertTrue(cpu.held)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+            assertTrue(shadowOf(service).isStoppedBySelf); assertTrue(shadowOf(service).isForegroundStopped)
+            assertFalse(cpu.held)
+        } finally {
+            release.countDown()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (ActiveDownloads.all().isNotEmpty() && System.nanoTime() < deadline) Thread.sleep(10)
+            lifecycle.destroy()
+        }
+    }
+
+    @Test fun tappingTheNotificationAsksForTheOpenScreenAsTheLauncherDoesAndTheManifestKeepsOneCopyOfIt() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); service.cpu = FakeCpu()
+        try {
+            service.onStartCommand(startIntent(app.workspace.root.absolutePath), 0, 1)
+            val open = shadowOf(shadowOf(service).lastForegroundNotification.contentIntent).savedIntent
+            assertEquals(Intent.ACTION_MAIN, open.action)
+            assertEquals(setOf(Intent.CATEGORY_LAUNCHER), open.categories)
+            assertEquals(MainActivity::class.java.name, open.component?.className)
+            assertTrue((open.flags and Intent.FLAG_ACTIVITY_NEW_TASK) != 0)
+            val packages = app.packageManager
+            assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP, packages.getActivityInfo(
+                android.content.ComponentName(app, MainActivity::class.java), 0).launchMode)
+            assertTrue(android.Manifest.permission.WAKE_LOCK in packages.getPackageInfo(app.packageName,
+                android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty())
+        } finally { lifecycle.destroy() }
+    }
 
     @Test fun twoSitesAreKeptAliveUnderOneNotificationAndItsStopReachesBoth() {
         val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
