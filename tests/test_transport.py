@@ -195,7 +195,8 @@ class TransportLimitTests(unittest.TestCase):
                 raise httpx.ReadTimeout('fixture')
         token = single_asset_attempt.set(True)
         self.addCleanup(single_asset_attempt.reset, token)
-        for response, kind in ((Timeout(), AssetReadUnavailable), (Response(503, headers={'Retry-After': '180'}), NetworkUnavailable)):
+        for response, kind in ((Timeout(), AssetReadUnavailable), (Response(503, headers={'Retry-After': '180'}), NetworkUnavailable),
+                               (Response(500, headers={'Retry-After': '180'}), NetworkUnavailable)):
             client = Client([response, Response()])
             transport = Transport(client=client)
             with self.assertRaises(kind) as result:

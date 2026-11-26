@@ -846,6 +846,13 @@ class ControllerTests(Controller):
         self.ok(counted(status='limited', pending_episode_count=1, asset_retry_after_seconds=90))
         self.tick()
         self.assertEqual(self.status()['retry'], {'reason': 'images', 'seconds': 90})
+        from comic_archive.errors import AssetReadUnavailable
+        error = AssetReadUnavailable('fixture')
+        error.page_order = 1
+        error.last_page_left = True
+        with Inventory(self.library) as inventory:
+            inventory.mark('81', 'queued', 'asset_read_unavailable', asset_failure=error)
+        self.assertEqual(self.status()['retry'], {'reason': 'images', 'seconds': 90, 'pages_left': 1})
         self.later(90)
         self.published()
 

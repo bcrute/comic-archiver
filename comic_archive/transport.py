@@ -405,13 +405,13 @@ class Transport:
                         raise error
                     if 500 <= response.status_code < 600:
                         from .retry_after import retry_after_seconds, retain_retry_after
+                        delay = retry_after_seconds(response.headers.get('Retry-After'))
                         if attempt == 2 or (measured and single_asset_attempt.get()):
-                            if response.status_code in OUTAGE_STATUSES:
+                            if response.status_code in OUTAGE_STATUSES or delay is not None:
                                 error=NetworkUnavailable('Image server remains unavailable; resume later.')
                                 error.source_http_status=response.status_code
                                 raise retain_retry_after(error, response.headers.get('Retry-After'))
                             raise ArchiveError("Server remains unavailable; resume later.")
-                        delay = retry_after_seconds(response.headers.get('Retry-After'))
                         wait = max(2 ** (attempt + 1), delay or 0)
                         if wait > 60:
                             error = NetworkUnavailable('Image server requests a longer pause; cached pages are retained.')

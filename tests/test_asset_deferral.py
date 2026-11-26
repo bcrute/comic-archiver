@@ -80,12 +80,14 @@ class AssetDeferralTests(unittest.TestCase):
                 self.fail()
             return self.retrieve(page, max_bytes)
         self.adapter.retrieve = retrieve
+        self.root = self.root / 'single'
+        self.root.mkdir()
         with Inventory(self.root) as inventory:
-            for key in ('82', '83', '84', '85', '86'):
-                inventory.mark(key, 'archived')
+            inventory.observe('42', 'Series', [{'id': '81', 'title': 'One', 'order': 1,
+                              'access_state': 'tapas_unlocked'}], 'fixture')
         for delay in (30, 120, 300, 300):
             result = archive_discovered(self.adapter, self.root)
-            self.assertEqual(result['asset_retry_after_seconds'], delay)
+            self.assertEqual(result.get('asset_retry_after_seconds'), delay, result)
             with Inventory(self.root, read_only=True) as inventory:
                 self.assertTrue(inventory.only_one_page_waiting())
             self.now += timedelta(seconds=delay - 1)
