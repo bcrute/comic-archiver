@@ -83,7 +83,7 @@ class ConnectedServiceRefusalTests(unittest.IsolatedAsyncioTestCase):
         def refusal(raw):
             requests.append(raw)
             if len(requests) == 1:
-                return b"HTTP/1.1 503 Unavailable\r\nSet-Cookie: ink_session=untrusted-test-data; Path=/\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+                return b"HTTP/1.1 503 Unavailable\r\nSet-Cookie: reader_session=untrusted-test-data; Path=/\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
             return (
                 "HTTP/1.1 307 Temporary Redirect\r\nLocation: "
                 + target

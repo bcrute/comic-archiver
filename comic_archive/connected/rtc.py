@@ -69,9 +69,9 @@ class _IceRetirement:
         require(version("aioice") == "0.10.2", "unsupported_format")
         connection = transport._connection
         require(isinstance(connection, Connection))
-        require(getattr(connection, "_ink_retirement", None) is None)
+        require(getattr(connection, "_reader_retirement", None) is None)
         result = cls(_CREATE, connection)
-        connection._ink_retirement = result
+        connection._reader_retirement = result
         connection.close = result.close
         connection.check_start_task = result.start
         connection.check_incoming = result.incoming
@@ -161,10 +161,10 @@ class _SctpReceiveBounds:
             and isinstance(transport._inbound_streams, dict)
             and isinstance(transport._sack_misordered, set)
             and isinstance(transport._sack_duplicates, list)
-            and getattr(transport, "_ink_receive_bounds", None) is None
+            and getattr(transport, "_reader_receive_bounds", None) is None
         )
         result = cls(_CREATE, transport, deny)
-        transport._ink_receive_bounds = result
+        transport._reader_receive_bounds = result
         transport._receive_data_chunk = result.receive
         return result
 
