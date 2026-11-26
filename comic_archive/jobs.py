@@ -432,7 +432,11 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 if budget.max_pages is None or budget.pages + units < budget.max_pages:
                                     budget.check()
                                     adapter.prefetch_episode(adapter.episode_url(selected[selected_index + 1]['id']))
-                            with_store.archive(manifest, budget, progress=progress, download_workers=download_workers)
+                            retry = inventory.db.execute('SELECT failed_page FROM asset_deferrals WHERE episode_id=?',
+                                                         (key,)).fetchone()
+                            with_store.retry_page = retry[0] if retry else None
+                            with_store.archive(manifest, budget, progress=progress,
+                                               download_workers=1 if retry else download_workers)
                             path = with_store.episode_path(manifest.series, manifest.episodes[0])
                             if verify_episode(path) and not inventory.cloud_archive_matches(path, {'id':key, 'series_id':current['series_id']}):
                                 raise ArchiveError("Newly published archive failed verification; repair is required.")
@@ -451,7 +455,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             # metadata, HTTP refusals and rate limits remain holds.
                             if getattr(error,'network_failure_code',None) not in {'read_timeout','read_error'}:
                                 raise
-                            inventory.mark(key,'queued','asset_read_unavailable')
+                            inventory.mark(key,'queued','asset_read_unavailable', asset_failure=error)
                             summary['deferred_asset_episode_ids'].append(key)
                             consecutive_asset_failures += 1
                             failure = {'episode': key, 'page': error.page_order, 'page_count': error.page_count,
@@ -525,7 +529,8 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             if current is not None:
                 local_asset_failure=(isinstance(error,AssetReadUnavailable)
                                      and getattr(error,'network_failure_code',None) in {'read_timeout','read_error'})
-                inventory.mark(current['id'],'queued','asset_read_unavailable' if local_asset_failure else 'network_unavailable')
+                if not local_asset_failure or current['id'] not in summary['deferred_asset_episode_ids']:
+                    inventory.mark(current['id'],'queued','asset_read_unavailable' if local_asset_failure else 'network_unavailable')
             summary['pause_reason']='network_unavailable'
             from .retry_after import MAX_RETRY_AFTER
             delay = getattr(error, 'retry_after_seconds', None)

@@ -516,6 +516,7 @@ def card_summary(s=None, v=None):
         retry = account.get('retry')
         if isinstance(retry, dict):
             text = say('dashboard.waiting_for_wi_fi') if v['allow_visible'] else say('dashboard.waiting_to_retry_automatically')
+            text = v.get('image_retry') or text
             label, tone = say('dashboard.waiting'), 'working'
         elif v['live_waiting']:
             text, label = say('dashboard.waiting_for_an_update'), say('dashboard.waiting')
@@ -712,6 +713,10 @@ def view(s, now):
     between = account['between_steps_seconds'] + since if type(account.get('between_steps_seconds')) is int else None
     retry = account.get('retry') if running and isinstance(account.get('retry'), dict) and type(account['retry'].get('seconds')) is int else None
     retry_in = wait_text(max(0, retry['seconds'] - since) if retry else 0)
+    if retry and retry.get('reason') == 'images':
+        seconds = max(0, retry['seconds'] - since)
+        key = 'dashboard.last_page_retry' if retry.get('pages_left') == 1 else 'dashboard.image_retry'
+        v['image_retry'] = say(key, seconds=seconds) if seconds else say('dashboard.image_retry_due')
     activity_age = age if age is not None else between if between is not None else elapsed
     waiting = running and not retry and activity_age is not None and activity_age >= NO_PROGRESS_SECONDS
     verifying = running and account.get('phase') == 'verify'

@@ -1213,6 +1213,8 @@ def status(session, library=Path('Library')):
         from .purchase_history import summary
         try:
             with Inventory(library, read_only=True) as inventory:
+                if result.get('retry', {}).get('reason') == 'images' and inventory.only_one_page_waiting():
+                    result['retry']['pages_left'] = 1
                 purchase = summary(inventory)
                 if result.get('episode_list_ready') and inventory.scan_gaps(all_series=True):
                     result['episode_list_partial'] = True

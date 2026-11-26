@@ -10910,5 +10910,29 @@
   "new": "error.page_order, error.page_count = 0, len(current.pages)",
   "test_file": "test_download_workers.py",
   "test": "test_parallel_image_failure_reports_its_own_page_number"
+ },
+ {
+  "id": "image-recovery-skips-short-delay",
+  "source": "comic_archive/inventory.py",
+  "old": "(30, 120, ASSET_RETRY_COOLDOWN_SECONDS)",
+  "new": "(300, 120, ASSET_RETRY_COOLDOWN_SECONDS)",
+  "test_file": "test_asset_deferral.py",
+  "test": "test_single_page_recovery_backs_off_across_restarts_and_reuses_the_cache"
+ },
+ {
+  "id": "image-recovery-repeats-request",
+  "source": "comic_archive/archive.py",
+  "old": "single_asset_attempt.set(page.order == self.retry_page)",
+  "new": "single_asset_attempt.set(False)",
+  "test_file": "test_asset_deferral.py",
+  "test": "test_single_page_recovery_backs_off_across_restarts_and_reuses_the_cache"
+ },
+ {
+  "id": "image-recovery-freezes-countdown",
+  "source": "comic_archive/dashboard_model.py",
+  "old": "seconds = max(0, retry['seconds'] - since)",
+  "new": "seconds = retry['seconds']",
+  "test_file": "test_dashboard_model.py",
+  "test": "test_image_countdown_uses_elapsed_time_and_only_claims_a_known_last_page"
  }
 ]

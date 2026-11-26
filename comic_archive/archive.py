@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from .models import ArchiveError, canonical_url, identifier
-from .transport import ExpiredAsset
+from .transport import ExpiredAsset, single_asset_attempt
 from .archive_paths import directory, leads_out, pinned_publication, staged_archive
 from .osdep import anchored, hide, linked, open_exclusive, replace_file, sync_file
 from .locking import LibraryLock
@@ -133,6 +133,8 @@ def atomic_json(path, value, *, pinned=False):
 
 
 class Store:
+    retry_page = None
+
     def __init__(self, root, min_free_bytes=256 * 1024 * 1024, cache_journal=None):
         if cache_journal not in (None, 'wal'):
             raise ArchiveError('Use a supported cache journal.')
@@ -324,11 +326,14 @@ class Store:
         data = self.cached_page(source, episode, page) if not refresh else None
         if data is not None:
             return data
+        token = single_asset_attempt.set(page.order == self.retry_page)
         try:
             data = adapter.retrieve(page)
         except AssetReadUnavailable as error:
             error.page_order, error.page_count = page.order, len(episode.pages)
             raise
+        finally:
+            single_asset_attempt.reset(token)
         self.remember_page(source, episode, page, data)
         return data
 
@@ -453,7 +458,10 @@ class Store:
                         done.clear()
                         data = cached = future = None
                     if errors:
-                        raise next((e for e in errors if not isinstance(e, ExpiredAsset)), errors[0])
+                        failure = next((e for e in errors if not isinstance(e, ExpiredAsset)), errors[0])
+                        if isinstance(failure, AssetReadUnavailable):
+                            failure.last_page_left = len(ready) + 1 == len(originals)
+                        raise failure
                 except ExpiredAsset:
                     if refreshed:
                         raise ArchiveError('Refreshed reader assets still failed; resume after checking access.') from None
@@ -633,14 +641,21 @@ class Store:
                 if callable(check):check()
                 page = next(p for p in current.pages if p.order == original.order)
                 try:
-                    data = self.page(series.source, current, page, adapter, refresh)
-                except ExpiredAsset:
-                    if refreshed:
-                        raise ArchiveError("Refreshed reader assets still failed; resume after checking access.") from None
-                    current = adapter.refresh(current)
-                    refreshed = True
-                    page = next(p for p in current.pages if p.order == page.order)
-                    data = self.page(series.source, current, page, adapter, refresh)
+                    try:
+                        data = self.page(series.source, current, page, adapter, refresh)
+                    except ExpiredAsset:
+                        if refreshed:
+                            raise ArchiveError("Refreshed reader assets still failed; resume after checking access.") from None
+                        current = adapter.refresh(current)
+                        refreshed = True
+                        page = next(p for p in current.pages if p.order == page.order)
+                        data = self.page(series.source, current, page, adapter, refresh)
+                except AssetReadUnavailable as error:
+                    # Earlier pages have already been verified. A resumed parallel capture
+                    # can also have cached pages beyond the failed one.
+                    error.last_page_left = all(not refresh and self.cached_page(series.source, current, later) is not None
+                                               for later in current.pages if later.order > page.order)
+                    raise
                 width = max(4, len(str(len(episode.pages))))
                 data = self.transform_page(series.source, episode, page, data)
                 name = f"{page.order:0{width}d}{image_extension(data)}"

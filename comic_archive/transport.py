@@ -1,5 +1,6 @@
 """HTTPS retrieval with shared request spacing; never log URLs or secrets."""
 import re
+from contextvars import ContextVar
 import hashlib
 import time
 import logging
@@ -16,6 +17,7 @@ from .provider_http import provider_client
 from .transfer_metrics import TransferMetrics, network_failure_code
 from .webtoon_gateway import AGENT as WEBTOON_AGENT, gateway_route, session_cookie
 # How much of a refused request's answer is kept with its error.
+single_asset_attempt = ContextVar('single_asset_attempt', default=False)
 REFUSAL_BYTES = 4096
 MAX_PAGE_BYTES = 100 * 1024 * 1024
 DECODE_CHUNK = 64 * 1024
@@ -403,7 +405,7 @@ class Transport:
                         raise error
                     if 500 <= response.status_code < 600:
                         from .retry_after import retry_after_seconds, retain_retry_after
-                        if attempt == 2:
+                        if attempt == 2 or (measured and single_asset_attempt.get()):
                             if response.status_code in OUTAGE_STATUSES:
                                 error=NetworkUnavailable('Image server remains unavailable; resume later.')
                                 error.source_http_status=response.status_code
@@ -465,7 +467,7 @@ class Transport:
                     failure = 'unsupported_response'
                     raise ArchiveError('Page retrieval failed; this job has stopped.') from None
                 failure = network_failure_code(error)
-                if attempt == 2:
+                if attempt == 2 or (measured and single_asset_attempt.get()):
                     kind = AssetReadUnavailable if measured and failure in {'read_timeout','read_error'} else NetworkUnavailable
                     unavailable = kind("Page network request failed; resume later.")
                     unavailable.network_failure_code = failure

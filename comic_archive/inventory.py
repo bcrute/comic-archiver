@@ -139,10 +139,15 @@ class Inventory:
                     from .download_selection import remember_paid_series
                     remember_paid_series(self.db)
                     self.db.execute("INSERT INTO settings VALUES ('download_paid_series_seeded','1')")
+                columns = {row[1] for row in self.db.execute('PRAGMA table_info(asset_deferrals)')}
+                for column, definition in (('failures', 'INTEGER NOT NULL DEFAULT 1'),
+                                           ('failed_page', 'INTEGER'), ('last_page_left', 'INTEGER NOT NULL DEFAULT 0')):
+                    if column not in columns:
+                        self.db.execute(f'ALTER TABLE asset_deferrals ADD COLUMN {column} {definition}')
                 # Upgrade existing typed deferrals without restarting their wait.
                 for key, seen in self.db.execute("SELECT id,observed_at FROM episodes WHERE error_code='asset_read_unavailable'").fetchall():
                     after = observation_time(seen) + timedelta(seconds=ASSET_RETRY_COOLDOWN_SECONDS)
-                    self.db.execute('INSERT OR IGNORE INTO asset_deferrals VALUES (?,?)', (key, after.isoformat()))
+                    self.db.execute('INSERT OR IGNORE INTO asset_deferrals (episode_id,retry_after) VALUES (?,?)', (key, after.isoformat()))
                 self.db.execute("UPDATE episodes SET status='queued', error_code='interrupted' WHERE status='downloading'")
                 self.db.execute("UPDATE runs SET status='interrupted', finished_at=? WHERE finished_at IS NULL", (timestamp(),))
                 # Older footer heuristics rejected complete image streams. Old
@@ -423,16 +428,21 @@ class Inventory:
         except (ValueError, KeyError, TypeError, AttributeError):
             raise MetadataError("Discovery report has an unsupported schema.") from None
 
-    def mark(self, key, status, error=None, path=None, attempted=False, *, novel_failure=None):
+    def mark(self, key, status, error=None, path=None, attempted=False, *, novel_failure=None, asset_failure=None):
         relative = path.relative_to(self.root).as_posix() if path is not None else None
         signature = file_signature(path) if path is not None and path.is_file() and status == "archived" else None
         self.db.execute("""UPDATE episodes SET status=?, error_code=?,
             archive_path=COALESCE(?,archive_path), file_signature=COALESCE(?,file_signature),
             attempts=attempts+? WHERE id=?""", (status, error, relative, signature, int(attempted), key))
         if status == 'queued' and error == 'asset_read_unavailable':
-            after = observation_time(timestamp()) + timedelta(seconds=ASSET_RETRY_COOLDOWN_SECONDS)
-            self.db.execute('INSERT INTO asset_deferrals VALUES (?,?) ON CONFLICT(episode_id) DO UPDATE SET retry_after=excluded.retry_after',
-                            (key, after.isoformat()))
+            previous = self.db.execute('SELECT failures FROM asset_deferrals WHERE episode_id=?', (key,)).fetchone()
+            failures = min(previous[0] + 1, 3) if previous else 1
+            delay = (30, 120, ASSET_RETRY_COOLDOWN_SECONDS)[failures - 1]
+            after = observation_time(timestamp()) + timedelta(seconds=delay)
+            self.db.execute('INSERT OR REPLACE INTO asset_deferrals '
+                            '(episode_id,retry_after,failures,failed_page,last_page_left) VALUES (?,?,?,?,?)',
+                            (key, after.isoformat(), failures, getattr(asset_failure, 'page_order', None),
+                             int(getattr(asset_failure, 'last_page_left', False))))
         elif status not in {'queued','failed','downloading'}:
             self.db.execute('DELETE FROM asset_deferrals WHERE episode_id=?', (key,))
         if novel_failure is not None and status == 'unsupported' and error == 'novel_manifest_incomplete':
@@ -856,6 +866,16 @@ class Inventory:
         from .download_selection import clause
         return self.db.execute("SELECT 1 FROM episodes e WHERE status IN ('queued','failed') AND "
                                + clause(self.db) + ' LIMIT 1').fetchone() is not None
+
+    def only_one_page_waiting(self):
+        from .download_selection import clause
+        columns = {row[1] for row in self.db.execute('PRAGMA table_info(asset_deferrals)')}
+        if 'last_page_left' not in columns:
+            return False
+        rows = self.db.execute("SELECT d.last_page_left FROM episodes e LEFT JOIN asset_deferrals d "
+                               "ON e.id=d.episode_id WHERE e.status IN ('queued','failed') AND "
+                               + clause(self.db) + ' LIMIT 2').fetchall()
+        return len(rows) == 1 and rows[0][0] == 1
 
     def archive_selection(self, rows, limit=None):
         """Admit one cooled CDN retry before healthy work; keep cooling rows queued. With no healthy work left,

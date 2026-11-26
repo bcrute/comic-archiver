@@ -186,6 +186,26 @@ class TransportLimitTests(unittest.TestCase):
                 # Account reads stay out of the image figures.
                 self.assertEqual(transport.metrics.snapshot()['requests'], 3 if image else 0)
 
+    def test_recovery_issues_one_cdn_request_and_preserves_provider_delay(self):
+        import httpx
+        from comic_archive.errors import AssetReadUnavailable
+        from comic_archive.transport import single_asset_attempt
+        class Timeout(Response):
+            def iter_bytes(self):
+                raise httpx.ReadTimeout('fixture')
+        token = single_asset_attempt.set(True)
+        self.addCleanup(single_asset_attempt.reset, token)
+        for response, kind in ((Timeout(), AssetReadUnavailable), (Response(503, headers={'Retry-After': '180'}), NetworkUnavailable)):
+            client = Client([response, Response()])
+            transport = Transport(client=client)
+            with self.assertRaises(kind) as result:
+                transport.get('https://cdn.tapas.io/image')
+            self.assertEqual(len(client.calls), 1)
+            if kind is NetworkUnavailable:
+                self.assertEqual(result.exception.retry_after_seconds, 180)
+            else:
+                self.assertEqual(len(result.exception.attempts), 1)
+
     def test_failed_image_attempts_distinguish_a_server_reply_from_a_partial_body(self):
         import httpx
         from comic_archive.errors import AssetReadUnavailable

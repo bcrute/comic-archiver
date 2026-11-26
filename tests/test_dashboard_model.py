@@ -38,6 +38,12 @@ def fields(v):
 
 
 class WordingTests(unittest.TestCase):
+    def test_image_countdown_uses_elapsed_time_and_only_claims_a_known_last_page(self):
+        for detail, expected in (({}, 'Retrying images in 28s'), ({'pages_left': 1}, '1 page left · retrying in 28s')):
+            s = state(account=account(retry={'reason': 'images', 'seconds': 30} | detail), account_at=NOW)
+            self.assertEqual(fields(model.card_summary(s, model.view(s, NOW + 2)))['Status'][0], expected)
+            self.assertEqual(fields(model.card_summary(s, model.view(s, NOW + 31)))['Status'][0], 'Image retry due')
+
     def test_incomplete_listing_is_attention_without_a_damage_claim_or_estimate(self):
         for audit in ({'series_scan_gap_count': 1}, {}):
             with self.subTest(audit=audit):

@@ -71,6 +71,35 @@ class AssetDeferralTests(unittest.TestCase):
         self.assertEqual(second['downloaded_pages'],9)
         self.assertEqual(verify(self.root),[])
 
+    def test_single_page_recovery_backs_off_across_restarts_and_reuses_the_cache(self, output):
+        from comic_archive.transport import single_asset_attempt
+        attempts = []
+        def retrieve(page, max_bytes=None):
+            attempts.append((page.order, single_asset_attempt.get()))
+            if page.order == 2:
+                self.fail()
+            return self.retrieve(page, max_bytes)
+        self.adapter.retrieve = retrieve
+        with Inventory(self.root) as inventory:
+            for key in ('82', '83', '84', '85', '86'):
+                inventory.mark(key, 'archived')
+        for delay in (30, 120, 300, 300):
+            result = archive_discovered(self.adapter, self.root)
+            self.assertEqual(result['asset_retry_after_seconds'], delay)
+            with Inventory(self.root, read_only=True) as inventory:
+                self.assertTrue(inventory.only_one_page_waiting())
+            self.now += timedelta(seconds=delay - 1)
+            waiting = archive_discovered(self.adapter, self.root)
+            self.assertEqual(waiting['asset_retry_after_seconds'], 1)
+            self.now += timedelta(seconds=1)
+        self.assertEqual(attempts, [(1, False), (2, False)] + [(2, True)] * 3)
+        self.adapter.retrieve = self.retrieve
+        done = archive_discovered(self.adapter, self.root)
+        self.assertEqual(done['archived_episode_ids'], ['81'])
+        self.assertEqual(done['downloaded_pages'], 1)
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertFalse(inventory.only_one_page_waiting())
+
     def test_three_consecutive_asset_failures_pause_before_fourth_episode(self,output):
         self.adapter.retrieve = lambda *a,**k:self.fail()
         result = archive_discovered(self.adapter,self.root)
@@ -181,7 +210,7 @@ class AssetDeferralTests(unittest.TestCase):
         calls=len(self.adapter.calls)
         result=archive_discovered(self.adapter,self.root)
         self.assertEqual(result['status'],'limited')
-        self.assertEqual(result['asset_retry_after_seconds'],300)
+        self.assertEqual(result['asset_retry_after_seconds'],30)
         self.assertEqual(result['pending_episode_count'],6)
         self.assertEqual(result['downloaded_pages'],0)
         self.assertEqual(self.adapter.calls[calls:],['identity'])
