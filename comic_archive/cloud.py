@@ -1115,6 +1115,17 @@ This is historical evidence only, never a fresh cloud availability assertion.
     return None
 
 
+def _gone(path):
+    """Nothing is at this path any more. A link, or a file or folder that cannot be looked at, is not gone."""
+    try:
+        os.lstat(osdep.extended_path(path))
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
 def evict_uploaded(root):
     root = safe_root(root)
     report = {'local_archives_deleted':0, 'freed_bytes':0}
@@ -1131,6 +1142,10 @@ def evict_uploaded(root):
                     relative = record.get('archive')
                     if record.get('state') != 'verified' or not isinstance(relative,str) or relative in seen:continue
                     archive = safe_root(root / relative)
+                    if _gone(archive) and _gone(sidecar_path(archive)):
+                        # Its folder was deleted after it went to the cloud: nothing of it is left here to
+                        # remove or to keep, so its record is passed over instead of failing every pass.
+                        continue
                     providers = record.get('required_targets')
                     if not isinstance(providers,list) or not providers or set(providers)-set(PROVIDERS):
                         raise ArchiveError('Cloud deletion receipt is invalid; local archives retained.')
@@ -1153,8 +1168,10 @@ def evict_uploaded(root):
                     # cloud-only storage from accidental loss without downloading again.
                     for name, saved in zip(providers, receipts, strict=True):
                         from .cloud_history import retain
-                        saved = saved | {'eviction_requested':True}
-                        _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'), saved)
+                        # An episode already gone from here and recorded so is not written again on every pass.
+                        if archive.exists() or saved.get('eviction_requested') is not True:
+                            saved = saved | {'eviction_requested':True}
+                            _write(root / '.archive-state/cloud/outbox' / name / (saved['episode_id'] + '.json'), saved)
                         retain(root, name, saved)
                     if archive.exists():
                         _prepare_cache_for_offload(root, archive)

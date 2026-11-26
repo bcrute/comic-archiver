@@ -151,6 +151,43 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 1)
         self.assertFalse(archive.exists()); self.assertTrue(cloud.offloaded(self.root, archive))
 
+    def test_a_series_folder_deleted_after_its_episode_was_offloaded_does_not_hold_up_the_others(self):
+        self.publish(); self.ready(); gone, _ = self.publish('82')
+        self.assertFalse(gone.exists())
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json')); before = receipt.read_bytes()
+        other = Series('43', 'Another', source='tapas')
+        episode = Episode('91', '43', 'Chapter 91', 91, (Page(1, 'https://cdn.test/a', False),), 'tapas_free')
+        with patch.object(cloud, 'evict_uploaded', return_value={'local_archives_deleted':0, 'freed_bytes':0}):
+            with closing(PublicationStore(self.root)) as store:
+                folder = store.archive(Manifest(other, (episode,)), MemoryAdapter(), progress=lambda _: None)
+                kept = store.episode_path(other, episode, folder)
+        self.assertTrue(kept.exists()); self.assertNotEqual(kept.parent, gone.parent)
+        shutil.rmtree(gone.parent)  # Only small files were left in it, so it was tidied away.
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'], 1)
+        self.assertFalse(kept.exists()); self.assertTrue(cloud.offloaded(self.root, kept))
+        self.assertEqual(receipt.read_bytes(), before)
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'], 0)
+
+    def test_an_offloaded_episode_whose_sidecar_is_damaged_is_still_held(self):
+        self.publish(); self.ready(); archive, _ = self.publish('82')
+        self.assertFalse(archive.exists())
+        receipt = next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json')); before = receipt.read_bytes()
+        sidecar_path(archive).write_text('{')
+        for _ in range(2):
+            with self.assertRaises(ArchiveError): cloud.evict_uploaded(self.root)
+        self.assertEqual(receipt.read_bytes(), before)
+
+    def test_a_later_pass_over_an_episode_already_offloaded_writes_nothing(self):
+        self.publish(); self.ready(); archive, _ = self.publish('82')
+        self.assertFalse(archive.exists())
+        saved = [next((self.root / '.archive-state/cloud/outbox/b2').glob('*.json')),
+                 next((self.root / '.archive-state/cloud/history/b2').glob('*/*.json'))]
+        for path in saved: os.utime(path, ns=(10**18, 10**18))  # A rewrite would bring the time back to now.
+        before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in saved]
+        self.assertEqual(cloud.evict_uploaded(self.root), {'local_archives_deleted':0, 'freed_bytes':0})
+        self.assertEqual([(path.read_bytes(), path.stat().st_mtime_ns) for path in saved], before)
+        self.assertTrue(cloud.offloaded(self.root, archive))
+
     def test_cleanup_keeps_original_connection_after_account_or_client_changes(self):
         self.publish(); self.configured(); FakeTransfer.fail_delete = True
         with self.assertRaises(ArchiveError): cloud.smoke_test(self.root, 'b2', episodes=1)
