@@ -123,9 +123,20 @@ def _read_history_page(adapter, value):
         if (value['status'] != 'partial' or not callable(browser_page)
                 or getattr(error, 'history_reason', None) != 'pagination_index_mismatch'):
             raise
+        # The site's own pager can be read only where the browser hands over response contents.
+        if getattr(adapter, 'supports_history_browser_pager', True) is False:
+            error.history_browser_attempted = False
+            raise
         try:
             page = browser_page(value['cursor'])
         except MetadataError:
+            page = None
+        except ArchiveError:
+            # A stop, a time limit, a lost sign-in and a refusal by the site keep their own handling.
+            raise
+        except Exception as failure:
+            # Anything else the browser raises means no page was read. Its text can name an address.
+            LOG.info('purchase history: browser_pager=failed error=%s', type(failure).__name__)
             page = None
         if page is not None:
             return page

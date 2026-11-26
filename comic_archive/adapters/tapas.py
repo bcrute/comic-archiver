@@ -1009,6 +1009,11 @@ class TapasAdapter:
                 raise
         return walk(0, replay=True)
 
+    @property
+    def supports_history_browser_pager(self):
+        """The site's own pager is read from its responses' contents, which the built-in engine does not hand over."""
+        return getattr(getattr(self, 'page', None), 'navigation_bodies', True) is not False
+
     def purchase_history_browser_page(self, cursor):
         """Try the site's Older control when indexed reads return the wrong page twice."""
         from ..purchase_history import continuation_url
@@ -1017,6 +1022,9 @@ class TapasAdapter:
         if cursor is not None:
             continuation_url(cursor)
         index = cursor['index'] if cursor is not None else 0
+        # Nothing here could be read on an engine without response contents, so nothing is visited.
+        if not self.supports_history_browser_pager:
+            return None
         # Reserve most of a download step for list and series work. This path
         # starts at the visible history tab and must visit each preceding page.
         if index >= 10:

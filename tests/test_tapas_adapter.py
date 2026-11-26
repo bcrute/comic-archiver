@@ -743,6 +743,44 @@ class HistoryAnswerTests(AdapterBase):
         self.assertTrue(result['observed_boundary'])
         self.assertEqual((result['pages'][0]['source_types'], result['pages'][0]['server_pagination']), ([], {}))
 
+    def test_the_history_browser_pager_visits_nothing_on_an_engine_that_hands_over_no_response_contents(self):
+        from comic_archive import qt_engine
+        # Shaped like the built-in engine's page: it says it gives no contents, and it has no keyboard.
+        page = self.adapter.page = Mock(spec=['url', 'goto', 'on', 'remove_listener', 'locator', 'evaluate',
+                                              'wait_for_timeout', 'navigation_bodies'],
+                                        url='https://tapas.io/', navigation_bodies=qt_engine.Page.navigation_bodies)
+        self.adapter.automatic_adapter = Mock()
+        self.assertFalse(self.adapter.supports_history_browser_pager)
+        self.assertIsNone(self.adapter.purchase_history_browser_page({'contract': 'tapas-transactions-index-v1', 'index': 1}))
+        page.goto.assert_not_called()
+        page.on.assert_not_called()
+        page.locator.assert_not_called()
+
+    def test_the_history_browser_pager_returns_the_page_the_older_control_brings_up(self):
+        adapter = self.adapter
+        adapter.wait_normal = Mock()
+        adapter.remaining_timeout = Mock(return_value=30000)
+        body = '<div class="tr"><div>PRIVATE unlock episode</div><a href="/series/older?tracking=1">Title</a><a href="/episode/99">Episode</a></div>'
+
+        def answer(index):
+            # As the site's own pager answers: one page's rows, its index and whether an older page exists.
+            value = {'code': 200, 'data': {'body': body, 'pagination': {'index': index, 'has_next': index == 0}}}
+            adapter.page.on.call_args.args[1](SimpleNamespace(
+                url=f"https://tapas.io/profile/transactions?to_prev={'true' if index else 'false'}&index={index}",
+                status=200, request=SimpleNamespace(method='GET', resource_type='xhr'),
+                headers={'content-type': 'application/json'}, json=lambda: value))
+
+        def opened(**_):
+            answer(0)
+            return {'history_clicked': True}
+        adapter.inspect_account_navigation = Mock(side_effect=opened)
+        adapter.page.locator.return_value.click.side_effect = lambda **_: answer(1)
+        self.assertTrue(adapter.supports_history_browser_pager)
+        page = adapter.purchase_history_browser_page({'contract': 'tapas-transactions-index-v1', 'index': 1})
+        self.assertEqual((page['page_identity'], page['links'], page['next_cursor'], page['boundary_verified']),
+                         ('index:1', ['https://tapas.io/series/older'], None, True))
+        self.assertNotIn('PRIVATE', repr(page))
+
     def test_each_kind_of_history_link_finds_its_series_through_metadata(self):
         http = Mock()
         http.series_identity.side_effect = lambda key: {'source_series_id': key}

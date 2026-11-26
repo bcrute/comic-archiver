@@ -301,6 +301,56 @@ class PurchaseHistoryTests(unittest.TestCase):
             self.assertEqual((result['status'], result['pages'], result['series_added']), ('checked', 2, 1))
             self.adapter.purchase_history_browser_page.assert_called_once_with(self.cursor)
 
+    def wrong_page_twice(self, **browser_pager):
+        from comic_archive.adapters.tapas_history import invalid
+        mismatch = invalid('pagination_index_mismatch', 'Wrong page')
+        self.adapter.purchase_history_page.side_effect = [self.page([self.first], ['a'], cursor=self.cursor),
+                                                          mismatch, mismatch]
+        self.adapter.purchase_history_browser_page = Mock(**browser_pager)
+
+    def test_a_browser_pager_that_fails_unexpectedly_sets_the_page_aside_as_when_it_finds_nothing(self):
+        for number, browser_pager in enumerate(({'return_value': None},
+                                                {'side_effect': AttributeError('PRIVATE page detail')})):
+            self.root = self.root.parent / f'Library {number}'
+            self.wrong_page_twice(**browser_pager)
+            with self.subTest(browser_pager=number), self.store() as inventory:
+                for _ in range(2):
+                    purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+                with self.assertLogs('comic_archive.download', level='INFO') as captured:
+                    result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+                self.assertEqual((result['status'], result['code'], result['pages']),
+                                 ('partial', 'history_rows_unverified', 1))
+                self.assertFalse(purchase_history.pending(inventory))
+                diagnostic = purchase_history.support_diagnostic(inventory)
+                self.assertEqual((diagnostic['reason'], diagnostic['browser_pager_attempted']),
+                                 ('pagination_index_mismatch', True))
+                # Only the kind of failure is written down, and only when there was one.
+                self.assertNotIn('PRIVATE', '\n'.join(captured.output))
+                self.assertEqual('browser_pager=failed error=AttributeError' in '\n'.join(captured.output), bool(number))
+
+    def test_a_stop_requested_while_the_browser_pager_works_still_stops_the_step(self):
+        from comic_archive.cancellation import RunCancelled
+        self.wrong_page_twice(side_effect=RunCancelled('Synthetic stop'))
+        with self.store() as inventory:
+            for _ in range(2):
+                purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            with self.assertRaises(RunCancelled):
+                purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            # The stop does not use up the page's one retry.
+            self.assertTrue(purchase_history.pending(inventory))
+
+    def test_a_browser_that_hands_over_no_response_contents_is_never_asked_for_the_history_page(self):
+        self.wrong_page_twice(return_value=None)
+        self.adapter.supports_history_browser_pager = False
+        with self.store() as inventory:
+            for _ in range(3):
+                result = purchase_history.reconcile(self.adapter, inventory, 'round', lambda: None, pages=1)
+            self.assertEqual((result['status'], result['code'], result['pages']),
+                             ('partial', 'history_rows_unverified', 1))
+            self.assertFalse(purchase_history.pending(inventory))
+            self.assertIs(purchase_history.support_diagnostic(inventory)['browser_pager_attempted'], False)
+        self.adapter.purchase_history_browser_page.assert_not_called()
+
     def test_skipped_or_invalid_continuation_retains_candidates_without_following(self):
         for cursor in (self.cursor | {'index': 2}, self.cursor | {'index': 10000}, {'action': 'buy'}):
             with self.subTest(cursor=cursor), self.store() as inventory:
