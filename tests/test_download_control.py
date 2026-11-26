@@ -177,6 +177,138 @@ class Controller(unittest.TestCase):
         self.assertIsNotNone(self.lists()[TAPAS_LISTS[0]]['read_at'])
         self.assertIsNone(self.lists()[TAPAS_LISTS[1]]['read_at'])
 
+    def test_a_list_round_begun_over_a_check_that_found_episodes_missing_leaves_their_retry_to_the_next_go(self):
+        from comic_archive.inventory import MAX_FAILED_ATTEMPTS
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'S', [{'id': '81', 'title': 'E', 'order': 1, 'access_state': 'tapas_free'}], 'subscribed')
+            for _ in range(MAX_FAILED_ATTEMPTS):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+        self.go()
+        self.read_lists()
+        self.assertEqual(self.published()[1]['operation'], 'audit_account')
+        self.ok({'verified_inventory_episode_count': 0, 'missing_recorded_accessible_episode_count': 1,
+                 'inventory_index_problem_count': 0, 'unindexed_archive_count': 0, 'archive_integrity_passed': True})
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        dc.start(self.session, self.library, list_only=True)
+        self.read_lists(TAPAS_LISTS[:2])
+        dc.request_stop(self.session, self.library)  # Paused part of the way, and taken up again.
+        self.tick()
+        dc.start(self.session, self.library, list_only=True)
+        self.read_lists(TAPAS_LISTS[2:])
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates(all_series=True)], ['42'])
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1}))
+        self.tick()
+        self.assertTrue(account_ui.status(self.workspace)['episode_list_ready'])
+        self.assertEqual(self.requests(), [])
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual(inventory.pending(), [])  # The list round saved nothing and tried nothing again.
+        # Go does what it would have done with no list read in between: the missing episode is tried again at once.
+        self.go()
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+
+    def test_a_list_round_keeps_the_refused_episode_for_the_next_go_to_try_alone(self):
+        self.downloading()
+        self.error('source_refused', counted(status='paused', pause_reason='source_refused', source_http_status=403,
+                                             source_response_kind='html', source_retry_episode_id='81'))
+        self.tick()
+        self.assertEqual(self.state()['source_episode'], '81')
+        dc.request_stop(self.session, self.library)
+        dc.start(self.session, self.library, list_only=True)
+        self.published()
+        # The site refuses the list read as well. That wait is the list round's own: no episode is tried after it.
+        self.error('source_refused', counted(status='paused', pause_reason='source_refused', source_http_status=429))
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('waiting', 'source'))
+        self.assertIsNone(dc.source_recovery(self.session, self.library))
+        self.later(dc.REFUSAL_WAITS[0])
+        self.read_lists()
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates(all_series=True)], ['42'])
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1}))
+        self.tick()
+        self.assertTrue(account_ui.status(self.workspace)['episode_list_ready'])
+        self.assertEqual(self.requests(), [])
+        self.go()
+        self.assertEqual(self.published()[1]['args'].get('retry_episode_id'), '81')
+
+    def test_a_list_round_begun_over_a_paused_round_of_series_checks_reads_every_series_again(self):
+        with Inventory(self.library) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+            inventory.scan_candidates()  # The first list read starts the round of series checks.
+        self.go()
+        self.read_lists()
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        with Inventory(self.library) as inventory:
+            inventory.record_series_scan('42')
+            # That round began, and checked 42, some time ago.
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-02T00:00:00+00:00'")
+            inventory.db.execute("UPDATE settings SET value='2000-01-01T00:00:00+00:00' WHERE key='scan_cycle_started'")
+            inventory.db.commit()
+        self.ok(counted(status='limited', refresh={'series_checks_completed': 1}))
+        dc.request_stop(self.session, self.library)
+        self.tick()
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['43'])
+        dc.start(self.session, self.library, list_only=True)
+        self.read_lists()
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        with Inventory(self.library) as inventory:
+            inventory.record_series_scan('43')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(status='limited', refresh={'series_checks_completed': 1}))
+        dc.request_stop(self.session, self.library)
+        self.tick()
+        # 42 was last read before this list round began, so it is still to read. Paused here and taken up again,
+        # the round goes on to it without starting over, and only then is the list ready.
+        dc.start(self.session, self.library, list_only=True)
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        self.assertFalse(account_ui.status(self.workspace)['episode_list_ready'])
+        self.assertTrue(all(row['read_at'] is not None for row in self.lists().values()))
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates(all_series=True)], ['42'])
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1}))
+        self.tick()
+        self.assertTrue(account_ui.status(self.workspace)['episode_list_ready'])
+        self.assertEqual(self.requests(), [])
+
+    def test_the_list_and_series_steps_counted_since_go_start_from_none_at_each_go_and_last_through_a_start_of_the_app(self):
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Series', [], 'fixture')
+        dc.start(self.session, self.library, list_only=True)
+        self.assertEqual(account_ui.status(self.workspace)['lists']['since_start'], 0)
+        self.read_lists(TAPAS_LISTS[:2])
+        self.assertTrue(dc.reopen(self.session, self.library))  # A start of the app: what was counted is kept.
+        self.tick()
+        self.assertEqual(account_ui.status(self.workspace)['lists'],
+                         {'checked': 2, 'total': 5, 'since_start': 2, 'current': 'recent'})
+        dc.start(self.session, self.library, list_only=True)
+        self.assertEqual(account_ui.status(self.workspace)['lists']['since_start'], 0)
+        self.read_lists(TAPAS_LISTS[2:])
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        self.assertEqual(account_ui.status(self.workspace)['lists'], {'checked': 5, 'total': 5, 'since_start': 3})
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates(all_series=True)], ['42'])
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle(all_series=True)
+        self.ok(counted(refresh={'series_checks_completed': 1}))
+        self.tick()
+        self.assertEqual(account_ui.status(self.workspace)['lists']['since_start'], 4)
+        self.go()
+        self.assertEqual(account_ui.status(self.workspace)['lists']['since_start'], 0)
+
     def check_android_list_mode(self, site, categories):
         from comic_archive import android_download
         (self.session / 'site').write_text(site + '\n')
@@ -245,6 +377,22 @@ class Controller(unittest.TestCase):
         self.assertEqual(self.state()['list_only'], 0)
         self.assertIsNotNone(self.lists()[TAPAS_LISTS[0]]['read_at'])
         self.assertEqual(self.state()['status'], 'running')
+
+    def test_a_record_made_before_steps_were_counted_keeps_its_progress_and_counts_from_none(self):
+        self.go()
+        self.read_lists(lists=TAPAS_LISTS[:1])
+        self.tick()
+        with sqlite3.connect(self.queue / dc.STATE_FILE) as connection:
+            for column in ('retry_owed', 'steps_since_start'):
+                connection.execute(f'ALTER TABLE state DROP COLUMN {column}')
+            connection.execute('PRAGMA user_version = 2')
+        value = self.state()
+        self.assertEqual((value['status'], value['retry_owed'], value['steps_since_start']), ('running', 0, 0))
+        self.assertIsNotNone(self.lists()[TAPAS_LISTS[0]]['read_at'])
+        self.assertEqual(self.status()['lists'], {'checked': 1, 'total': 5, 'since_start': 0, 'current': 'updated'})
+        self.read_lists(lists=TAPAS_LISTS[1:2])
+        self.tick()
+        self.assertEqual(self.status()['lists']['since_start'], 1)
 
     def test_get_list_does_not_replace_an_active_download(self):
         task, _ = self.downloading()
@@ -577,7 +725,7 @@ class ControllerTests(Controller):
         self.go()
         self.read_lists()
         _, request = self.published()
-        self.assertEqual(self.status()['lists'], {'checked': 5, 'total': 5})
+        self.assertEqual(self.status()['lists'], {'checked': 5, 'total': 5, 'since_start': 5})
         self.assertEqual(request['args'], dc.SERIES_CHECK | {'metadata_speed': 'fast',
                                                            'history_round': self.state()['round_started_at']})
         self.assertEqual(self.state()['stage'], 'series')
@@ -608,6 +756,59 @@ class ControllerTests(Controller):
         self.go()
         self.assertTrue(all(row['read_at'] is None for row in self.lists().values()))
         self.assertEqual(self.published()[1]['args']['categories'], ['subscribed'])
+
+    def test_go_after_a_finished_round_checks_every_series_again_though_the_last_round_of_checks_was_left_open(self):
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Fixture', [], 'subscribed')
+            inventory.scan_candidates()
+            inventory.record_series_scan('42')
+            # Checked some time ago, in a round of checks that nothing came to close.
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-02T00:00:00+00:00'")
+            inventory.db.execute("UPDATE settings SET value='2000-01-01T00:00:00+00:00' WHERE key='scan_cycle_started'")
+            inventory.db.commit()
+        self.go()
+        self.read_lists()
+        self.assertEqual(self.published()[1]['operation'], 'audit_account')
+        self.ok({'completion_check_passed': True, 'recorded_archived_episode_count': 0,
+                 'missing_recorded_accessible_episode_count': 0,
+                 'unsupported_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0})
+        self.tick()
+        self.assertEqual(self.state()['status'], 'finished')
+        self.go()
+        self.read_lists()
+        self.assertIs(self.published()[1]['args'].get('refresh_lists'), False)
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
+
+    def test_go_after_a_finished_round_starts_while_something_else_writes_the_library_and_a_list_round_waits(self):
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Fixture', [], 'subscribed')
+            inventory.scan_candidates()
+            inventory.record_series_scan('42')
+        self.go()
+        self.read_lists()
+        self.assertEqual(self.published()[1]['operation'], 'audit_account')
+        self.ok({'completion_check_passed': True, 'recorded_archived_episode_count': 0,
+                 'missing_recorded_accessible_episode_count': 0,
+                 'unsupported_recorded_accessible_episode_count': 0, 'inventory_index_problem_count': 0})
+        self.tick()
+        self.assertEqual(self.state()['status'], 'finished')
+        real, waits = dc.wait_for_library, []
+
+        def uploading(root, seconds=0):
+            if Path(root).name == '.download-state':
+                return real(root, seconds)  # The record's own lock is free.
+            waits.append(seconds)
+            raise dc.LibraryBusy('Another job is writing this library; the pending queue is retained.')
+
+        with patch.object(dc, 'wait_for_library', uploading):
+            # A list round answers for its checks, so it is refused, and nothing of the finished round is touched.
+            with self.assertRaises(dc.LibraryBusy):
+                dc.start(self.session, self.library, list_only=True)
+            self.assertEqual((self.state()['status'], self.state()['list_only']), ('finished', 0))
+            self.go()
+        self.assertEqual(waits, [3, 0])  # Go does not make the person wait for the upload either.
+        self.assertEqual((self.state()['status'], self.state()['stage']), ('running', 'lists'))
 
     def test_lightweight_completion_finishes_without_claiming_a_fresh_integrity_audit(self):
         self.go()

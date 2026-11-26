@@ -191,6 +191,53 @@ class ComicSelectionTests(unittest.TestCase):
             self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
             self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42'])
 
+    def test_ticking_one_comic_has_only_that_comic_read_again_and_unticking_one_has_none_read(self):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43', '44'):
+                inventory.observe(key, 'Comic', [], 'fixture')
+            comics.change(inventory.db, False, '44')
+            inventory.scan_candidates()
+            for key in ('42', '43', '44'):  # A list round reads every comic, chosen or not.
+                inventory.record_series_scan(key)
+            # The round of checks began, and read all three, some time ago; it is still open.
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-02T00:00:00+00:00'")
+            inventory.db.execute("UPDATE settings SET value='2000-01-01T00:00:00+00:00' WHERE key='scan_cycle_started'")
+            inventory.db.commit()
+            self.assertEqual(inventory.scan_candidates(), [])
+            comics.change(inventory.db, True, '44')
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['44'])
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
+            inventory.record_series_scan('44')
+            comics.change(inventory.db, False, '43')
+            self.assertEqual(inventory.scan_candidates(), [])
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+            comics.change(inventory.db, True, '42')  # Already chosen: nothing was added.
+            self.assertEqual(inventory.scan_candidates(), [])
+            # Every comic chosen at once begins the round of checks again.
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-02T00:00:00+00:00'")
+            comics.change(inventory.db, True)
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['42', '43', '44'])
+
+    def test_ticking_a_comic_after_a_finished_round_of_checks_opens_it_again_for_that_comic_alone(self):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43', '44'):
+                inventory.observe(key, 'Comic', [], 'fixture')
+            comics.change(inventory.db, False, '44')
+            inventory.scan_candidates()
+            for key in ('42', '43'):
+                inventory.record_series_scan(key)
+            self.assertTrue(inventory.finish_scan_cycle())
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+            comics.change(inventory.db, False, '43')
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+            comics.change(inventory.db, True, '44')
+            # The finished round's word no longer stands, yet the comics it checked are not read again.
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 1)
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['44'])
+            inventory.record_series_scan('44')
+            self.assertTrue(inventory.finish_scan_cycle())
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 0)
+
     def test_access_filters_and_comic_choices_both_apply_for_all_providers(self):
         for site in sites.SITES:
             if not site.available:

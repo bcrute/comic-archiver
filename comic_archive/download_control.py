@@ -27,7 +27,7 @@ from .support_log import DOWNLOAD_LOG, describe
 LOG = logging.getLogger(DOWNLOAD_LOG)
 LOG.addHandler(logging.NullHandler())
 STATE_FILE = 'download.sqlite3'
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STATUSES = ('running', 'waiting', 'held', 'stopped', 'finished')
 STAGES = ('lists', 'series', 'archive', 'verify', 'finished')
 # A hold is something the person must fix; each has its reason on its site card (dashboard_model.held_reason).
@@ -62,6 +62,12 @@ AUDIT_ZEROES = (MISSING, 'inventory_index_problem_count', 'unindexed_archive_cou
 AUDIT_KEYS = ('verified_inventory_episode_count', 'recorded_archived_episode_count', *AUDIT_ZEROES, CANNOT_SAVE,
               'series_scan_gap_count')
 TASK = re.compile(r'job-[a-f0-9]{24}')
+# What later versions added to the record's state, for a record an earlier one made. retry_owed: a list round
+# began over a check that had found episodes missing, and the next Go still owes them their retry.
+# steps_since_start: the list reads and series checks that ended by themselves since the last Go.
+ADDED_STATE = (('list_only', 'INTEGER NOT NULL DEFAULT 0 CHECK (list_only IN (0, 1))'),
+               ('retry_owed', 'INTEGER NOT NULL DEFAULT 0 CHECK (retry_owed IN (0, 1))'),
+               ('steps_since_start', 'INTEGER NOT NULL DEFAULT 0 CHECK (steps_since_start >= 0)'))
 # The three records 0.2 kept, moved into this one at the first open after the update (each under its lock).
 OLD_FILES = ('account-export.json', 'completion.json', 'backlog.json')
 OLD_LOCKS = ('.account-export-state', '.completion-state', '.backlog-state')
@@ -87,6 +93,8 @@ CREATE TABLE state (
   episodes_waiting INTEGER NOT NULL DEFAULT 0 CHECK (episodes_waiting >= 0),
   audit TEXT,
   list_only INTEGER NOT NULL DEFAULT 0 CHECK (list_only IN (0, 1)),
+  retry_owed INTEGER NOT NULL DEFAULT 0 CHECK (retry_owed IN (0, 1)),
+  steps_since_start INTEGER NOT NULL DEFAULT 0 CHECK (steps_since_start >= 0),
   trimmed_at TEXT,
   updated_at TEXT NOT NULL,
   CHECK ((status = 'held') = (code IS NOT NULL AND code IN {tuple(sorted(HOLDS))}) OR status = 'waiting'),
@@ -193,12 +201,15 @@ def _connect(root, *, create=False):
         version = db.execute('PRAGMA user_version').fetchone()[0]
         if version == 0 and not db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
             db.executescript('BEGIN;' + SCHEMA + 'COMMIT;')
-        elif version not in (1, SCHEMA_VERSION) or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+        elif not 1 <= version <= SCHEMA_VERSION or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise Damaged()
-        elif version == 1:
+        elif version != SCHEMA_VERSION:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute('PRAGMA user_version').fetchone()[0] == 1:
-                db.execute('ALTER TABLE state ADD COLUMN list_only INTEGER NOT NULL DEFAULT 0 CHECK (list_only IN (0, 1))')
+            if db.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
+                columns = {row[1] for row in db.execute('PRAGMA table_info(state)')}
+                for column, definition in ADDED_STATE:
+                    if column not in columns:
+                        db.execute(f'ALTER TABLE state ADD COLUMN {column} {definition}')
                 db.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
             db.commit()
         return db
@@ -251,8 +262,8 @@ def _save(db, value, why=None):
                'stretch_started_at=:stretch_started_at, wait_until=:wait_until, go_after=:go_after, '
                'idle_waits=:idle_waits, network_waits=:network_waits, source_probes=:source_probes, '
                'source_delay=:source_delay, source_episode=:source_episode, failed_retries=:failed_retries, '
-               'episodes_waiting=:episodes_waiting, audit=:audit, list_only=:list_only, '
-               'trimmed_at=:trimmed_at, updated_at=:updated_at '
+               'episodes_waiting=:episodes_waiting, audit=:audit, list_only=:list_only, retry_owed=:retry_owed, '
+               'steps_since_start=:steps_since_start, trimmed_at=:trimmed_at, updated_at=:updated_at '
                'WHERE id=1', value)
 
 
@@ -504,6 +515,8 @@ def _settle(db, value, task, response, session):
         if not (result.get('reader_probe_episode_id') == episode and result.get('reader_probe_succeeded') is True):
             _hold(value, 'source_access_changed')
             return
+    if task['kind'] in ('list', 'series'):
+        value['steps_since_start'] += 1  # Only a read that ended by itself: one stopped or cut short returned above.
     if task['kind'] == 'list':
         refresh = result.get('refresh')
         checks = refresh.get('reading_lists') if isinstance(refresh, dict) else None
@@ -559,8 +572,9 @@ def _next(db, value, session, library):
             _reserve(db, 'series', 'sync', SERIES_CHECK | {'metadata_speed': speed} | discovery)
         else:
             # The next Go is separate and explicit. No reader or transfer job
-            # can be reserved by a discovery-only round.
-            value.update(status='stopped', stage='archive', code=None, source_episode=None)
+            # can be reserved by a discovery-only round, which leaves the refused
+            # episode that Go is to try alone as it found it.
+            value.update(status='stopped', stage='archive', code=None)
         return
     if value['source_episode'] is not None:
         _reserve(db, 'probe', 'archive_discovered', options | {'limit': 1, 'retry_episode_id': value['source_episode']})
@@ -797,7 +811,8 @@ def _move_old(session, library, root):
         value = {'status': 'stopped', 'code': None, 'stage': 'lists', 'round_started_at': now,
                  'stretch_started_at': now, 'wait_until': None, 'go_after': None, 'idle_waits': 0, 'network_waits': 0,
                  'source_probes': 0, 'source_delay': MIN_SOURCE_DELAY, 'source_episode': None, 'failed_retries': 0,
-                 'episodes_waiting': 0, 'audit': None, 'list_only': 0, 'trimmed_at': None}
+                 'episodes_waiting': 0, 'audit': None, 'list_only': 0, 'retry_owed': 0, 'steps_since_start': 0,
+                 'trimmed_at': None}
         try:
             if _instant(export['started_at']) <= _now():
                 value['round_started_at'] = export['started_at']
@@ -939,6 +954,25 @@ def _completion_retry(library):
         return inventory.prepare_completion_retry()
 
 
+def _restart_series_checks(library, must):
+    """A round that starts anew checks every series again, whatever an earlier round or a choice left open.
+
+    A list round must: it reports its list ready only on the strength of these checks, so it is refused while
+    something else (an upload, say) is writing the library. An ordinary Go is never refused for that: it starts
+    as before, and at worst goes by the checks a round left open."""
+    if not (Path(library) / '.archive-state/inventory.sqlite3').is_file():
+        return  # Nothing found yet: the first list read makes the record and starts its checks.
+    try:
+        with wait_for_library(library, 3 if must else 0):
+            with Inventory(library) as inventory:
+                inventory.restart_scan_cycle()
+    except sqlite3.DatabaseError:
+        pass  # A library record that cannot be opened is the first step's to report; this record is not at fault.
+    except LibraryBusy:
+        if must:
+            raise
+
+
 def start(session, library=Path('Library'), *, list_only=False):
     """Go: continue from wherever the download stopped, start a new round after a finished one, or begin."""
     def go(db, value, root):
@@ -950,6 +984,8 @@ def start(session, library=Path('Library'), *, list_only=False):
             db.execute('INSERT INTO state (id, status, stage, round_started_at, stretch_started_at, updated_at, list_only) '
                        "VALUES (1, 'running', 'lists', ?, ?, ?, ?)", (now, now, now, int(list_only)))
             db.executemany('INSERT INTO lists (category) VALUES (?)', [(c,) for c in lists(session)])
+            if list_only:
+                _restart_series_checks(library, True)
             LOG.info('download: begun (Go)')
             return
         db.executemany('INSERT OR IGNORE INTO lists (category) VALUES (?)', [(c,) for c in lists(session)])
@@ -957,10 +993,14 @@ def start(session, library=Path('Library'), *, list_only=False):
             LOG.info(f"download: Go while already {value['status']}")
             return
         resume_list = value['list_only'] and value['stage'] in ('lists', 'series')
+        # A list round saves nothing, so the retry a held check is owed waits for the Go after it.
+        owed = bool(value['retry_owed']) or value['code'] == 'archive_incomplete'
         if value['status'] == 'finished' or list_only and not resume_list:
             value.update(stage='lists', round_started_at=now, audit=None)
             db.execute('UPDATE lists SET read_at=NULL, complete=NULL, observed_series_count=NULL')
-        elif not list_only and value['code'] == 'archive_incomplete':
+            if outstanding is None:
+                _restart_series_checks(library, list_only)
+        elif not list_only and owed:
             value['audit'] = None  # Audited again from where it stopped; the last counts no longer stand.
             if _outstanding(db) is None:
                 gaps, episodes = _completion_retry(library)
@@ -969,7 +1009,7 @@ def start(session, library=Path('Library'), *, list_only=False):
                 elif episodes:
                     value['stage'] = 'archive'
         value.update(status='running', code=None, wait_until=None, stretch_started_at=now, idle_waits=0,
-                     list_only=int(list_only), source_episode=None if list_only else value['source_episode'],
+                     list_only=int(list_only), retry_owed=int(list_only and owed), steps_since_start=0,
                      network_waits=0, source_probes=0, failed_retries=0)
         if value['go_after'] and _now() < _instant(value['go_after']):
             # The site's own wait still runs; Go cannot cut it short, only start when it ends. It is kept, so a
@@ -1185,7 +1225,7 @@ def status(session, library=Path('Library')):
                        and not value['list_only'] else stage)
     if task is not None and task['kind'] in ('download', 'probe') and result['phase'] != 'existing_backlog':
         result['phase'] = 'archive'
-    result['lists'] = {'checked': len(read), 'total': len(categories)}
+    result['lists'] = {'checked': len(read), 'total': len(categories), 'since_start': value['steps_since_start']}
     if value['list_only']:
         result['list_only'] = True
         result['episode_list_ready'] = stage == 'archive' and value['status'] == 'stopped'
@@ -1265,7 +1305,8 @@ def source_recovery(session, library=Path('Library')):
         return None
     finally:
         db.close()
-    if not value or value['source_episode'] is None or value['code'] != 'source' or value['status'] != 'waiting':
-        return None
+    if (not value or value['source_episode'] is None or value['code'] != 'source' or value['status'] != 'waiting'
+            or value['list_only']):
+        return None  # A list round keeps the refused episode for the Go after it, and tries nothing itself.
     return {'episode_id': value['source_episode'], 'retry_at': value['wait_until'], 'attempts': value['source_probes'],
             'limit': SOURCE_PROBES, 'learned_delay_seconds': value['source_delay'], 'automatic': True}

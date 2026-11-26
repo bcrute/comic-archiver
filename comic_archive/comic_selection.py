@@ -74,12 +74,26 @@ def clause(db, alias='e'):
     return fallback
 
 
-def _invalidate_completion(db):
+def _invalidate_completion(db, added, series_id=None):
+    """Forget the retry of the last check's gaps, and have what the choice added read.
+
+    One added comic is marked unchecked by itself. The round of checks that is open keeps every other check it
+    has made; with none open, the last one is opened again from before its earliest check, so that only this
+    comic is left to read. Every comic added at once begins the round again. A comic taken out needs no read.
+    """
     from .inventory import timestamp
 
     db.execute("DELETE FROM settings WHERE key='completion_retry'")
-    db.execute("INSERT INTO settings VALUES ('scan_cycle_started',?) "
-               'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (timestamp(),))
+    if not added:
+        return
+    if series_id is None:
+        db.execute("INSERT INTO settings VALUES ('scan_cycle_started',?) "
+                   'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (timestamp(),))
+        return
+    db.execute('DELETE FROM series_scans WHERE series_id=?', (series_id,))
+    earliest = db.execute('SELECT MIN(observed_at) FROM (SELECT observed_at FROM series_scans '
+                          'UNION ALL SELECT observed_at FROM series_scan_gaps)').fetchone()[0]
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('scan_cycle_started',?)", (earliest or timestamp(),))
 
 
 def change_episode(db, chosen, series_id, episode_id):
@@ -107,10 +121,12 @@ def change(db, chosen, series_id=None):
         raise ArchiveError('Choose a recorded comic and an explicit download choice.')
     if series_id is None:
         value = {'default': chosen, 'exceptions': []}
+        added = chosen
     else:
         if db.execute('SELECT 1 FROM series WHERE id=?', (series_id,)).fetchone() is None:
             raise ArchiveError('This comic is no longer recorded in the library.')
         value = read(db)
+        added = chosen and not includes(value, series_id)
         exceptions = set(value['exceptions'])
         if chosen == value['default']:
             exceptions.discard(series_id)
@@ -128,6 +144,6 @@ def change(db, chosen, series_id=None):
                 db.execute('DELETE FROM comic_episode_choices WHERE episode_id IN '
                            '(SELECT id FROM episodes WHERE series_id=?)', (series_id,))
         # A newly included comic may have been skipped in this scan round.
-        # Retain actual scan timestamps and queues; only invalidate completion.
-        _invalidate_completion(db)
+        # Retain every other comic's scan timestamp and the queues.
+        _invalidate_completion(db, added, series_id)
     return value

@@ -408,7 +408,7 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         return len(rows), card['has_episodes'], card['has_list']
 
     def test_a_cleared_list_is_shown_again_once_its_fetch_is_paused_with_series_listed(self):
-        registry = self.recorded(status='running', phase='lists', lists={'checked': 1, 'total': 5})
+        registry = self.recorded(status='running', phase='lists', lists={'checked': 1, 'total': 5, 'since_start': 1})
         self.clear()
         self.assertEqual(self.shown(registry), (1, False, False))
         self.start()
@@ -418,13 +418,13 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         self.assertEqual(self.shown(registry), (3, True, True))
 
     def test_a_cleared_list_is_shown_again_once_its_fetch_stops_on_a_problem_with_series_listed(self):
-        registry = self.recorded(status='held', code='source_refused', phase='lists', lists={'checked': 2, 'total': 5})
+        registry = self.recorded(status='held', code='source_refused', phase='lists', lists={'checked': 2, 'total': 5, 'since_start': 2})
         self.clear()
         self.start()
         self.assertEqual(self.shown(registry), (3, True, True))
 
     def test_a_cleared_list_stays_hidden_when_its_fetch_stopped_before_listing_anything(self):
-        registry = self.recorded(status='stopped', phase='lists', lists={'checked': 0, 'total': 5})
+        registry = self.recorded(status='stopped', phase='lists', lists={'checked': 2, 'total': 5, 'since_start': 0})
         self.clear()
         self.start()
         self.assertEqual(self.shown(registry), (1, False, False))

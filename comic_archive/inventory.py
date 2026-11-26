@@ -811,6 +811,14 @@ class Inventory:
         self.db.commit()
         return True
 
+    def restart_scan_cycle(self):
+        """A round that starts anew checks every series again, whatever an earlier round or a choice left open:
+        one left open with nothing more to check would otherwise pass for the new round's own."""
+        with self.db:
+            self.db.execute("INSERT INTO settings VALUES ('scan_cycle_started',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(timestamp(),))
+            # Every series is read again, so a retry of only some of them has nothing left of its own.
+            self.db.execute("DELETE FROM settings WHERE key='completion_retry'")
+
     def pending(self, free_only=False):
         from .download_selection import clause
         if free_only:

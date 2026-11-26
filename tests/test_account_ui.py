@@ -534,7 +534,7 @@ class AccountUITests(unittest.TestCase):
         os.utime(path,(started+20,started+20))
         with patch('comic_archive.account_ui.time.time',return_value=started+90):
             result=self.registry.account_status(LOCAL_OWNER,self.workspace.id)
-        self.assertEqual(result['lists'],{'checked':1,'total':5,'current':'updated'})
+        self.assertEqual(result['lists'],{'checked':1,'total':5,'current':'updated','since_start':0})
         self.assertEqual(result['elapsed_seconds'],90)
         self.assertEqual(result['progress_age_seconds'],70)
         self.assertNotIn('PRIVATE',json.dumps(result))

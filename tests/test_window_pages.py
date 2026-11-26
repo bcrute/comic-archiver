@@ -918,7 +918,7 @@ class DashboardTests(PagesCase):
         # While the list is fetched it stays out of the Library.
         self.assertIn('Tapas: Getting episode list', page.list_notice.text())
         self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved', False))
-        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5})
+        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5, 'since_start': 1})
         self.pages.poll_site('tapas')
         self.assertFalse(page.is_list_cleared('tapas'))
         self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
@@ -927,7 +927,7 @@ class DashboardTests(PagesCase):
     def test_a_cleared_list_is_shown_again_when_its_fetch_stopped_on_a_problem_with_series_listed(self):
         page = self.clear_recorded_list(list_only=True, episode_list_ready=True)
         self.fetch_cleared_list()
-        self.actions.account(status='held', code='source_refused', lists={'checked': 2, 'total': 5})
+        self.actions.account(status='held', code='source_refused', lists={'checked': 2, 'total': 5, 'since_start': 2})
         self.pages.poll_site('tapas')
         self.assertFalse(page.is_list_cleared('tapas'))
         self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
@@ -939,7 +939,7 @@ class DashboardTests(PagesCase):
         for stopped, said in (({'status': 'stopped'}, 'Tapas: Paused'),
                               ({'status': 'held', 'code': 'source_refused'}, 'Tapas: Stopped. See Dashboard.')):
             with self.subTest(stopped=stopped):
-                self.actions.account(**stopped, lists={'checked': 0, 'total': 5})
+                self.actions.account(**stopped, lists={'checked': 2, 'total': 5, 'since_start': 0})
                 self.pages.poll_site('tapas')
                 self.assertTrue(page.is_list_cleared('tapas'))
                 self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved', False))
@@ -951,7 +951,7 @@ class DashboardTests(PagesCase):
         self.fetch_cleared_list()
         self.open('library')
         self.assertEqual(self.listed(), '1 saved')
-        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5})
+        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5, 'since_start': 1})
         self.pages.poll_site('tapas')
         self.assertFalse(page.is_list_cleared('tapas'))
         self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))

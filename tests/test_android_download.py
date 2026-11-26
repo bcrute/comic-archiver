@@ -137,6 +137,7 @@ class AndroidGoTests(unittest.TestCase):
         try:
             db.execute("UPDATE lists SET read_at='2026-10-02T00:00:00+00:00', complete=1, observed_series_count=2 "
                        "WHERE category='subscribed'")
+            db.execute('UPDATE state SET steps_since_start=1')  # As the record counts a list read that ended.
         finally:
             db.close()
         self.assertTrue(self.hidden())

@@ -146,6 +146,27 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual([tuple(r) for r in inventory.db.execute('SELECT * FROM reader_denials')], denials)
             self.assertEqual([r['source_series_id'] for r in inventory.scan_gaps()], ['92'])
 
+    def test_a_round_of_checks_started_anew_checks_every_series_again_and_drops_a_retry_of_only_some(self):
+        with Inventory(self.root) as inventory:
+            for key in ('42', '43'):
+                inventory.observe(key, 'Series', [], 'fixture')
+            inventory.scan_candidates()
+            inventory.record_series_scan('42')
+            inventory.record_scan_gap('43', 2, 3)
+            # The round began some time ago, and has nothing left to check.
+            inventory.db.execute("UPDATE series_scans SET observed_at='2000-01-02T00:00:00+00:00'")
+            inventory.db.execute("UPDATE series_scan_gaps SET observed_at='2000-01-02T00:00:00+00:00'")
+            inventory.db.execute("UPDATE settings SET value='2000-01-01T00:00:00+00:00' WHERE key='scan_cycle_started'")
+            inventory.db.commit()
+            self.assertEqual(inventory.scan_candidates(), [])
+            self.assertEqual(inventory.prepare_completion_retry(), (1, 0))
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['43'])
+            inventory.restart_scan_cycle()
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['43', '42'])
+            self.assertEqual(inventory.status()['scan_remaining_series_count'], 2)
+        with Inventory(self.root) as inventory:
+            self.assertEqual([row['id'] for row in inventory.scan_candidates()], ['43', '42'])
+
     def test_reader_denial_survives_refresh_and_restart_until_next_round_or_changed_hint(self):
         with Inventory(self.root) as inventory:
             inventory.observe('42', 'Series', [episode('81')], 'fixture')

@@ -52,9 +52,10 @@ def empty_text(value):
 
 def list_fetched(account):
     """Whether a fetch of a site's episode list has stopped with something listed: it finished, or it was paused or
-    held after at least one of the account's lists was read. The phone asks the same of its own download."""
+    held after at least one of the account's lists or series was read since this Start (what an earlier,
+    interrupted fetch had read does not count). The phone asks the same of its own download."""
     return bool(account.get('list_only') and account.get('status') in ('stopped', 'held')
-                and (account.get('episode_list_ready') or (account.get('lists') or {}).get('checked')))
+                and (account.get('episode_list_ready') or (account.get('lists') or {}).get('since_start')))
 
 
 class EpisodeLibrary:
