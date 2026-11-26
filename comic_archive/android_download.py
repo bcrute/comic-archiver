@@ -40,6 +40,9 @@ def start(workspace, *, browser_factory=None):
             hidden.replace(workspace.session / 'episode-list-refreshing')
     else:
         account_ui.start(workspace)
+        # An ordinary download reads the lists itself, so a list cleared before it is shown again.
+        for marker in ('episode-list-cleared', 'episode-list-refreshing'):
+            (workspace.session / marker).unlink(missing_ok=True)
 
 
 def list_only(workspace):
@@ -50,9 +53,19 @@ def list_only(workspace):
     return True
 
 
+def list_awaited(workspace):
+    """Whether a fetch of the episode list has been started since the list was cleared."""
+    return (workspace.session / 'episode-list-refreshing').is_file()
+
+
 def list_hidden(workspace, account=None):
+    """Whether the recorded list is hidden. account is the download as just read from its record, given only by a
+    caller that has such a reading: a cleared list is shown again once the fetch started after the clear has
+    stopped (finished, paused or held) with something listed. While it runs, and when it stopped with nothing,
+    the list stays hidden."""
+    from .window_library import list_fetched
     refreshing = workspace.session / 'episode-list-refreshing'
-    if refreshing.is_file() and account and account.get('episode_list_ready'):
+    if refreshing.is_file() and account and list_fetched(account):
         refreshing.unlink(missing_ok=True)
     return refreshing.is_file() or (workspace.session / 'episode-list-cleared').is_file()
 

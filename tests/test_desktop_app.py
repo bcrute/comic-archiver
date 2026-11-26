@@ -222,6 +222,22 @@ class DesktopAppTests(unittest.TestCase):
         self.assertTrue(reopened.set_episode_list_cleared('library-one', 'tapas', False))
         self.assertFalse(first.episode_list_cleared('library-one', 'tapas'))
 
+    def test_a_fetch_started_for_a_cleared_list_is_remembered_across_a_restart_for_its_library_and_provider(self):
+        self.state.mkdir(parents=True)
+        app = desktop_app.application(self.q)
+        first = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertTrue(first.set_episode_list_cleared('library-one', 'tapas', True))
+        self.assertFalse(first.episode_list_refreshing('library-one', 'tapas'))
+        self.assertTrue(first.set_episode_list_refreshing('library-one', 'tapas', True))
+        reopened = desktop_app.Shell(self.q, app, self.runtime)
+        self.assertTrue(reopened.episode_list_refreshing('library-one', 'tapas'))
+        self.assertTrue(reopened.episode_list_cleared('library-one', 'tapas'))
+        self.assertFalse(reopened.episode_list_refreshing('library-one', 'webtoon'))
+        self.assertFalse(reopened.episode_list_refreshing('library-two', 'tapas'))
+        self.assertTrue(reopened.set_episode_list_refreshing('library-one', 'tapas', False))
+        self.assertFalse(first.episode_list_refreshing('library-one', 'tapas'))
+        self.assertTrue(first.episode_list_cleared('library-one', 'tapas'))
+
     def test_episode_list_only_is_saved_independently_of_clearing_the_list(self):
         self.state.mkdir(parents=True)
         app = desktop_app.application(self.q)

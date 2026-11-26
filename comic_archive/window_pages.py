@@ -1638,6 +1638,8 @@ class Pages:
                 self.settings.forget_keys()
             if not list_was_ready and (s.account or {}).get('episode_list_ready'):
                 self.library.list_completed(key)
+            elif error is None:
+                self.library.list_read(key)  # Only what was just read may show a cleared list again.
             self.render()
             if error is None:
                 self.confirm_cloud(key)
@@ -1805,6 +1807,9 @@ class Pages:
             # A fast failure can arrive before Go returns, with no running refresh in between.
             s.download_started()
             s.offline = False
+            # An ordinary download reads the lists itself, so a list cleared before it is shown again.
+            if self.states.get(key) is s and self.library.restore_list(key):
+                self.library.list_completed()
         self.account_act(self.actions_for(key).go, started, key=key)
 
     def get_episode_list(self, key):
@@ -1812,8 +1817,10 @@ class Pages:
 
         def started(value):
             state.received_account(value, self.now())
-            if self.states.get(key) is state and (state.account or {}).get('episode_list_ready'):
-                self.library.list_completed(key)
+            if self.states.get(key) is state:
+                self.library.list_started(key)
+                if (state.account or {}).get('episode_list_ready'):
+                    self.library.list_completed(key)
             self.poll_soon(key)
 
         self.account_act(self.actions_for(key).get_episode_list, started, key=key)

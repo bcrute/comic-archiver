@@ -22,7 +22,7 @@ class Registry:
         self.account = {'configured': False, 'speed': 'medium'}
         self.counts = {'archived': 3}
         self.types, self.unsupported, self.progress = {}, {}, {'status': 'running'}
-        self.unreadable = False
+        self.unreadable, self.listed = False, {}
 
     def resolve(self, owner, workspace_id):
         return types.SimpleNamespace(session=self.session, library=self.library)
@@ -32,7 +32,7 @@ class Registry:
             raise ArchiveError('unreadable')
         return {'episodes_by_status': dict(self.counts), 'estimate': None, 'episode_types': dict(self.types),
                 'unsupported_by_reason': dict(self.unsupported),
-                'progress': self.progress, 'worker': {'reported_state': 'stale'}}
+                'progress': self.progress, 'worker': {'reported_state': 'stale'}, **self.listed}
 
     def account_status(self, owner, workspace_id):
         return dict(self.account)
@@ -368,11 +368,97 @@ class EpisodeInventoryBridgeTests(OpenedLibrary):
         with patch('comic_archive.account_ui.start') as start:
             android_download.start(workspace)
         start.assert_called_once_with(workspace, list_only=True)
-        self.assertTrue(android_download.list_hidden(workspace, {'episode_list_ready': False}))
-        self.assertFalse(android_download.list_hidden(workspace, {'episode_list_ready': True}))
+        fetch = {'list_only': True, 'status': 'running', 'episode_list_ready': False, 'lists': {'checked': 2, 'total': 5}}
+        self.assertTrue(android_download.list_hidden(workspace, fetch))
+        self.assertFalse(android_download.list_hidden(workspace, fetch | {'status': 'stopped', 'episode_list_ready': True}))
         self.assertEqual(len(self.call('episode_inventory', **args, series_id='42')['result']['items']), 3)
         self.assertTrue(self.call('list_preference', **args, action='files')['ok'])
         self.assertFalse(android_download.list_only(workspace))
+
+    def recorded(self, **account):
+        """The seeded library and a stand-in for its download's record, which its card is read from."""
+        root = next(iter(app_bridge._open))
+        self.seed(root / 'Library')
+        registry = Registry(root)
+        registry.listed = {'series_count': 2, 'episode_count': 3}
+        registry.account = {'configured': True, 'speed': 'medium', 'list_only': True, **account}
+        return registry
+
+    def clear(self, mode='list'):
+        for action in (mode, 'clear'):
+            self.assertTrue(self.call('list_preference', base_root=str(self.root), site='tapas', action=action)['ok'])
+
+    def start(self):
+        """Start is pressed and admitted, in the download mode chosen."""
+        from comic_archive import android_download
+        from comic_archive.workspace import Workspace
+        workspace = Workspace(id="default", root=self.root)
+        for folder in ('requests', 'responses'):
+            (workspace.session / 'worker' / folder).mkdir(parents=True, exist_ok=True)
+        with patch('comic_archive.account_ui.start'):
+            android_download.start(workspace)
+
+    def shown(self, registry):
+        """After one reading of the card: the episodes the Library lists under the series, whether comics can be
+        chosen, and whether there is a list to clear."""
+        with patch.dict(app_bridge._catalog_registries, {str(root): registry for root in app_bridge._open}), \
+                patch('comic_archive.worker_host.status', return_value={'running': False}):
+            card = self.call('site_cards', base_root=str(self.root))['result']['cards'][0]
+        rows = self.call('episode_inventory', base_root=str(self.root), site='tapas', series_id='42')['result']['items']
+        return len(rows), card['has_episodes'], card['has_list']
+
+    def test_a_cleared_list_is_shown_again_once_its_fetch_is_paused_with_series_listed(self):
+        registry = self.recorded(status='running', phase='lists', lists={'checked': 1, 'total': 5})
+        self.clear()
+        self.assertEqual(self.shown(registry), (1, False, False))
+        self.start()
+        # Its record still says running, so the list stays hidden: even on a card read before the downloader is up.
+        self.assertEqual(self.shown(registry), (1, False, False))
+        registry.account.update(status='stopped')
+        self.assertEqual(self.shown(registry), (3, True, True))
+
+    def test_a_cleared_list_is_shown_again_once_its_fetch_stops_on_a_problem_with_series_listed(self):
+        registry = self.recorded(status='held', code='source_refused', phase='lists', lists={'checked': 2, 'total': 5})
+        self.clear()
+        self.start()
+        self.assertEqual(self.shown(registry), (3, True, True))
+
+    def test_a_cleared_list_stays_hidden_when_its_fetch_stopped_before_listing_anything(self):
+        registry = self.recorded(status='stopped', phase='lists', lists={'checked': 0, 'total': 5})
+        self.clear()
+        self.start()
+        self.assertEqual(self.shown(registry), (1, False, False))
+        registry.account.update(status='held', code='source_refused')
+        self.assertEqual(self.shown(registry), (1, False, False))
+
+    def test_a_card_that_cannot_be_read_leaves_a_cleared_list_hidden(self):
+        registry = self.recorded(status='stopped', phase='archive', episode_list_ready=True, lists={'checked': 5, 'total': 5})
+        self.assertEqual(self.shown(registry), (3, True, True))
+        self.clear()
+        self.start()
+        registry.unreadable = True
+        # The card keeps its last good reading, of the list as it was before the clear: that says nothing of the new fetch.
+        self.assertEqual(self.shown(registry), (1, False, False))
+
+    def test_a_start_that_lands_while_a_card_is_read_does_not_show_the_cleared_list(self):
+        registry = self.recorded(status='stopped', phase='archive', episode_list_ready=True, lists={'checked': 5, 'total': 5})
+        self.clear()
+        read = registry.network_status
+
+        def network_status(owner, workspace_id):
+            self.start()  # Pressed after this card read the download, which still described the list before the clear.
+            return read(owner, workspace_id)
+        registry.network_status = network_status
+        self.assertEqual(self.shown(registry), (1, False, False))
+        from comic_archive import android_download
+        self.assertTrue(android_download.list_awaited(registry.resolve(None, None)))
+
+    def test_an_ordinary_start_after_clearing_the_list_shows_it_again(self):
+        registry = self.recorded(status='stopped', phase='archive', episode_list_ready=True, lists={'checked': 5, 'total': 5})
+        self.clear('files')
+        self.assertEqual(self.shown(registry), (1, False, False))
+        self.start()
+        self.assertEqual(self.shown(registry), (3, True, True))
 
     def test_choose_comics_updates_only_future_acquisitions_and_never_starts_a_worker(self):
         self.seed(self.root / 'Library')

@@ -119,6 +119,37 @@ class AndroidGoTests(unittest.TestCase):
         android_download.start(self.workspace)
         self.assertEqual(self.lists()['subscribed'], (True, 0, 0))
 
+    def hidden(self):
+        """Whether the recorded list is hidden after a reading of the download's own record."""
+        return android_download.list_hidden(self.workspace, account_ui.status(self.workspace))
+
+    def test_a_cleared_list_stays_hidden_until_its_fetch_has_stopped_with_one_of_the_lists_read(self):
+        android_download.change_list(self.workspace, 'list')
+        android_download.change_list(self.workspace, 'clear')
+        self.assertTrue(self.hidden())
+        android_download.start(self.workspace)
+        self.assertTrue(self.hidden())
+        account_ui.pause(self.workspace)
+        # Paused before any list was read: there is nothing new to show.
+        self.assertTrue(self.hidden())
+        android_download.start(self.workspace)
+        db = self.record()
+        try:
+            db.execute("UPDATE lists SET read_at='2026-10-02T00:00:00+00:00', complete=1, observed_series_count=2 "
+                       "WHERE category='subscribed'")
+        finally:
+            db.close()
+        self.assertTrue(self.hidden())
+        account_ui.pause(self.workspace)
+        self.assertFalse(self.hidden())
+        self.assertFalse(android_download.list_hidden(self.workspace))
+
+    def test_an_ordinary_start_after_clearing_the_list_shows_it_again(self):
+        android_download.change_list(self.workspace, 'clear')
+        self.assertTrue(android_download.list_hidden(self.workspace))
+        android_download.start(self.workspace)
+        self.assertFalse(android_download.list_hidden(self.workspace))
+
 
 class AndroidStatusTests(unittest.TestCase):
     def setUp(self):

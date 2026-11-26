@@ -49,6 +49,13 @@ def empty_text(value):
     return say('library.no_episodes_recorded') if value['initialized'] else say('library.not_indexed_yet')
 
 
+def list_fetched(account):
+    """Whether a fetch of a site's episode list has stopped with something listed: it finished, or it was paused or
+    held after at least one of the account's lists was read. The phone asks the same of its own download."""
+    return bool(account.get('list_only') and account.get('status') in ('stopped', 'held')
+                and (account.get('episode_list_ready') or (account.get('lists') or {}).get('checked')))
+
+
 class EpisodeLibrary:
     def __init__(self, kit, pages):
         self.kit, self.pages = kit, pages
@@ -195,13 +202,46 @@ class EpisodeLibrary:
         state = self.pages.states.get(provider)
         return bool(state and state.workspace_id and self.pages.shell.episode_list_cleared(state.workspace_id, provider))
 
+    def is_list_awaited(self, provider):
+        """Whether a fetch of the episode list has been started since the list was cleared."""
+        state = self.pages.states.get(provider)
+        return bool(state and state.workspace_id and self.pages.shell.episode_list_refreshing(state.workspace_id, provider))
+
     def clear_list(self, provider):
         state = self.pages.states[provider]
-        if not self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, True):
+        shell = self.pages.shell
+        # A fetch started before this clear says nothing about the list now cleared.
+        if not (shell.set_episode_list_refreshing(state.workspace_id, provider, False)
+                and shell.set_episode_list_cleared(state.workspace_id, provider, True)):
             return False
         self.requested_lists.pop(provider, None)
         self.list_completed()
         return True
+
+    def list_started(self, provider):
+        """A fetch of a cleared list was started. That is kept beside the clearing, not in the window, so the list is
+        shown again when the fetch stops even if the pages are rebuilt or the app is restarted meanwhile."""
+        state = self.pages.states.get(provider)
+        if state is not None and self.is_list_cleared(provider):
+            self.pages.shell.set_episode_list_refreshing(state.workspace_id, provider, True)
+
+    def restore_list(self, provider):
+        """Show a cleared list again; True when it was cleared."""
+        state = self.pages.states.get(provider)
+        if state is None or not self.is_list_cleared(provider):
+            return False
+        if not self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, False):
+            return False  # The fetch stays remembered, so the next reading tries again.
+        self.pages.shell.set_episode_list_refreshing(state.workspace_id, provider, False)
+        return True
+
+    def restore_fetched_list(self, provider):
+        """On a fresh reading of a site's download: a cleared list is shown again once the fetch started after the
+        clear has stopped (finished, paused or held) with something listed. While it runs, and when it stopped
+        with nothing, the list stays cleared."""
+        state = self.pages.states.get(provider)
+        return bool(state is not None and list_fetched(state.account or {}) and self.is_list_awaited(provider)
+                    and self.restore_list(provider))
 
     def request_episode_list(self, provider):
         state = self.pages.states[provider]
@@ -224,7 +264,9 @@ class EpisodeLibrary:
             if detail:
                 messages.append(f'{site.name}: {detail}')
                 continue
-            if self.is_list_cleared(site.key) and not (account.get('list_only') and account.get('status') == 'running'):
+            # A fetch started after the clear speaks for itself: getting the list, paused, or stopped on a problem.
+            fetching = account.get('list_only') and (account.get('status') == 'running' or self.is_list_awaited(site.key))
+            if self.is_list_cleared(site.key) and not fetching:
                 detail = 'List cleared'
             elif account.get('list_only'):
                 if account.get('status') == 'running':
@@ -246,11 +288,14 @@ class EpisodeLibrary:
             self.refresh_view()
 
     def list_completed(self, provider=None):
-        state = self.pages.states.get(provider)
-        if state is not None and self.requested_lists.get(provider) is state and self.is_list_cleared(provider):
-            self.pages.shell.set_episode_list_cleared(state.workspace_id, provider, False)
+        self.restore_fetched_list(provider)
         self.list_refresh_pending = True
         self.refresh_completed_lists()
+
+    def list_read(self, provider):
+        """A site's download was just read: its list may have stopped being cleared, without having been completed."""
+        if self.restore_fetched_list(provider):
+            self.list_completed()
 
     def rows(self):
         iterator = self.kit.w.QTreeWidgetItemIterator(self.tree)

@@ -724,6 +724,17 @@ class Shell:
     def set_episode_list_cleared(self, workspace, provider, cleared):
         return self._set_episode_list_marker(workspace, provider, 'cleared-episodes', cleared)
 
+    def episode_list_refreshing(self, workspace, provider):
+        """Whether a fetch of the list was started after it was cleared; kept on disk, as the clearing is, so a
+        restart of the app does not leave the list cleared when that fetch has stopped."""
+        try:
+            return self._episode_list_marker(workspace, provider, 'refreshing-episodes').is_file()
+        except (ArchiveError, OSError):
+            return False
+
+    def set_episode_list_refreshing(self, workspace, provider, refreshing):
+        return self._set_episode_list_marker(workspace, provider, 'refreshing-episodes', refreshing)
+
     def episode_list_only(self, workspace, provider):
         try:
             marker = self._episode_list_marker(workspace, provider, 'episode-list-only')

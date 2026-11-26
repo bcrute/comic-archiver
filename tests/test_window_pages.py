@@ -244,6 +244,7 @@ class Shell:
         self.calls, self.held, self.is_dark, self.answer = [], None, False, True
         self.open, self.chosen, self.opens = ['tapas'], 'tapas', False
         self.cleared_lists = {}
+        self.refreshing_lists = {}
         self.list_modes = {}
 
     def episode_list_only(self, workspace, provider):
@@ -258,6 +259,13 @@ class Shell:
 
     def set_episode_list_cleared(self, workspace, provider, cleared):
         self.cleared_lists[workspace, provider] = cleared
+        return True
+
+    def episode_list_refreshing(self, workspace, provider):
+        return self.refreshing_lists.get((workspace, provider), False)
+
+    def set_episode_list_refreshing(self, workspace, provider, refreshing):
+        self.refreshing_lists[workspace, provider] = refreshing
         return True
 
     def open_sites(self):
@@ -873,6 +881,90 @@ class DashboardTests(PagesCase):
         series = page.tree.topLevelItem(0).child(0)
         self.assertEqual(series.text(1), '1 saved · 2 listed')
         self.assertEqual(series.childCount(), 2)
+
+    def clear_recorded_list(self, **account):
+        """Tapas with a recorded list, cleared from its card; the Library page is left open on it."""
+        self.actions.reading['status'].update(episode_count=2, series_count=1)
+        self.actions.account(status='stopped', **account)
+        self.open()
+        settle()
+        self.pages.clear_episode_list('tapas')
+        self.assertTrue(self.pages.library.is_list_cleared('tapas'))
+        return self.pages.library
+
+    def fetch_cleared_list(self):
+        """Choose Episode list only and press Start, then look at the Library while the list is fetched."""
+        self.pages.go_to('dashboard')
+        self.card.selection.menu().actions()[1].trigger()
+        self.card.action.click()
+        settle()
+        self.assertEqual(len(self.actions.named('get_episode_list')), 1)
+        self.pages.go_to('library')
+
+    def listed(self):
+        """What the Library says of the sample series under Tapas."""
+        provider = self.pages.library.tree.topLevelItem(0)
+        provider.setExpanded(True)
+        return provider.child(0).text(1)
+
+    def can_choose_comics(self):
+        menu = self.card.selection.menu()
+        menu.aboutToShow.emit()
+        return next(item for item in menu.actions() if item.text() == 'Choose comics in Library').isEnabled()
+
+    def test_a_cleared_list_is_shown_again_when_its_fetch_is_paused_with_series_listed(self):
+        page = self.clear_recorded_list(list_only=True, episode_list_ready=True)
+        self.fetch_cleared_list()
+        # While the list is fetched it stays out of the Library.
+        self.assertIn('Tapas: Getting episode list', page.list_notice.text())
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved', False))
+        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5})
+        self.pages.poll_site('tapas')
+        self.assertFalse(page.is_list_cleared('tapas'))
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
+        self.assertEqual(page.list_notice.text(), 'Tapas: Paused')
+
+    def test_a_cleared_list_is_shown_again_when_its_fetch_stopped_on_a_problem_with_series_listed(self):
+        page = self.clear_recorded_list(list_only=True, episode_list_ready=True)
+        self.fetch_cleared_list()
+        self.actions.account(status='held', code='source_refused', lists={'checked': 2, 'total': 5})
+        self.pages.poll_site('tapas')
+        self.assertFalse(page.is_list_cleared('tapas'))
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
+        self.assertEqual(page.list_notice.text(), 'Tapas: Stopped. See Dashboard.')
+
+    def test_a_cleared_list_stays_cleared_when_its_fetch_stopped_before_listing_anything(self):
+        page = self.clear_recorded_list(list_only=True, episode_list_ready=True)
+        self.fetch_cleared_list()
+        for stopped, said in (({'status': 'stopped'}, 'Tapas: Paused'),
+                              ({'status': 'held', 'code': 'source_refused'}, 'Tapas: Stopped. See Dashboard.')):
+            with self.subTest(stopped=stopped):
+                self.actions.account(**stopped, lists={'checked': 0, 'total': 5})
+                self.pages.poll_site('tapas')
+                self.assertTrue(page.is_list_cleared('tapas'))
+                self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved', False))
+                # The fetch speaks for itself, as Start carries on from it: not "List cleared".
+                self.assertEqual(page.list_notice.text(), said)
+
+    def test_a_fetch_of_a_cleared_list_is_still_awaited_after_the_pages_are_rebuilt(self):
+        page = self.clear_recorded_list(list_only=True, episode_list_ready=True)
+        self.fetch_cleared_list()
+        self.open('library')
+        self.assertEqual(self.listed(), '1 saved')
+        self.actions.account(status='stopped', lists={'checked': 1, 'total': 5})
+        self.pages.poll_site('tapas')
+        self.assertFalse(page.is_list_cleared('tapas'))
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
+
+    def test_an_ordinary_start_after_clearing_the_list_shows_it_again(self):
+        page = self.clear_recorded_list()
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved', False))
+        self.pages.go_to('dashboard')
+        self.card.action.click()
+        self.assertEqual(len(self.actions.named('go')), 1)
+        self.assertFalse(page.is_list_cleared('tapas'))
+        self.pages.go_to('library')
+        self.assertEqual((self.listed(), self.can_choose_comics()), ('1 saved · 2 listed', True))
 
     def test_tappytoon_settings_round_trip_every_checkbox_combination(self):
         labels = {'bought': 'Paid / unlocked', 'free': 'Free', 'limited': 'Limited unlocks',

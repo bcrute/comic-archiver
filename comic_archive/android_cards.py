@@ -44,11 +44,15 @@ class Cards:
         s = self._states.setdefault(key, State())
         s.sites = sites.choices(site)
         bulk = ''
+        # A cleared list is shown again only on what this reading finds in the download's record, and only when
+        # the fetch was already under way before the reading began: a Start can land in the middle of one.
+        awaited, fresh = android_download.list_awaited(workspace), None
         try:
             reading = self._read(registry, workspace, s, key, signed_in, now)
         except (ArchiveError, OSError, sqlite3.Error):
             s.refresh_failed()
         else:
+            fresh = reading['recorded'] if awaited else None
             s.received_status(reading['status'], now, transfer=reading['account'].get('transfer'))
             s.received_account(reading['account'], now)
             s.network, s.network_at = reading['network'], now
@@ -57,7 +61,7 @@ class Cards:
             s.refreshed(now)
         v = view(s, now)
         summary = card_summary(s, v)
-        hidden = android_download.list_hidden(workspace, s.account)
+        hidden = android_download.list_hidden(workspace, fresh)
         mode = android_download.list_only(workspace)
         return {'bulk': bulk, 'site': site.key, 'name': site.name, 'title': v['title'], 'state': summary['state'],
                 'appearance': summary['appearance'], 'message': s.message.text if s.message else '',
@@ -89,7 +93,7 @@ class Cards:
     def _read(self, registry, workspace, s, key, signed_in, now):
         identity = registry.workspace_id
         status = registry.status(LOCAL_OWNER, identity)
-        account = registry.account_status(LOCAL_OWNER, identity)
+        account = download = registry.account_status(LOCAL_OWNER, identity)
         worker = worker_host.status(workspace.session)
         if worker['running'] is True:
             state = worker.get('state')
@@ -127,4 +131,5 @@ class Cards:
                 overrides = comic_selection._episode_table(inventory.db) and inventory.db.execute(
                     'SELECT 1 FROM comic_episode_choices LIMIT 1').fetchone()
                 bulk = 'mixed' if policy['exceptions'] or overrides else 'on' if policy['default'] else 'off'
-        return {'status': status, 'account': account, 'network': network, 'bulk': bulk}
+        # recorded is the download as its record has it: one whose downloader has yet to start still says running.
+        return {'status': status, 'account': account, 'recorded': download, 'network': network, 'bulk': bulk}
