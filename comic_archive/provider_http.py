@@ -10,6 +10,11 @@ class DestinationRefused(OSError):
     pass
 
 
+# A connect that is going to succeed takes well under a second; a slow link still gets all the time left on the last address.
+ATTEMPT_SECONDS = 2
+ATTEMPT_FLOOR = .25
+
+
 def _endpoint(family, sockaddr, port):
     try:
         host, actual_port = sockaddr[:2]
@@ -35,15 +40,19 @@ def _connect_public(host, port, timeout, socket_options):
     if not endpoints:
         raise DestinationRefused('Provider name has no public connection address.')
     last_error = None
-    for family, endpoint in endpoints:
+    for tried, (family, endpoint) in enumerate(endpoints):
         remaining = None if end is None else end - time.monotonic()
         if remaining is not None and remaining <= 0:
             raise TimeoutError('Provider connection timed out.')
+        # An address that never answers must leave time for the ones after it, with or without a deadline.
+        left = len(endpoints) - tried
+        attempt = remaining if left == 1 else ATTEMPT_SECONDS if remaining is None else min(
+            remaining, ATTEMPT_SECONDS, max(remaining / left, ATTEMPT_FLOOR))
         sock = None
         keep = False
         try:
             sock = socket.socket(family, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-            sock.settimeout(remaining)
+            sock.settimeout(attempt)
             for option in socket_options or ():
                 sock.setsockopt(*option)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)

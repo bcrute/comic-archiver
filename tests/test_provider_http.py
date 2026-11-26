@@ -42,6 +42,44 @@ class PublicSocketTests(unittest.TestCase):
         second.connect.assert_called_once_with(V4)
         second.close.assert_not_called()
 
+    def test_an_address_that_never_answers_leaves_time_to_connect_to_the_next_one(self):
+        clock = [100.0]
+        first, second = Mock(), Mock()
+
+        def never_answers(endpoint):
+            clock[0] += first.settimeout.call_args.args[0]
+            raise TimeoutError
+        first.connect.side_effect = never_answers
+        second.getpeername.return_value = V4
+        with patch('socket.getaddrinfo', return_value=PUBLIC_ANSWERS), \
+             patch('socket.socket', side_effect=[first, second]), \
+             patch('time.monotonic', side_effect=lambda: clock[0]):
+            self.assertIs(_connect_public('cdn.tapas.io', 443, 30, None), second)
+        waited = first.settimeout.call_args.args[0]
+        self.assertLess(waited, 30)
+        self.assertAlmostEqual(second.settimeout.call_args.args[0], 30 - waited)
+        first.close.assert_called_once_with()
+        second.close.assert_not_called()
+
+    def test_a_single_address_gets_the_whole_time_allowed(self):
+        sock = Mock()
+        sock.getpeername.return_value = V4
+        with patch('socket.getaddrinfo', return_value=PUBLIC_ANSWERS[1:]), \
+             patch('socket.socket', return_value=sock), \
+             patch('time.monotonic', return_value=100.0):
+            self.assertIs(_connect_public('cdn.tapas.io', 443, 30, None), sock)
+        self.assertEqual(sock.settimeout.call_args.args[0], 30)
+
+    def test_without_a_deadline_only_the_last_address_may_wait_indefinitely(self):
+        first, second = Mock(), Mock()
+        first.connect.side_effect = TimeoutError
+        second.getpeername.return_value = V4
+        with patch('socket.getaddrinfo', return_value=PUBLIC_ANSWERS), \
+             patch('socket.socket', side_effect=[first, second]):
+            self.assertIs(_connect_public('cdn.tapas.io', 443, None, None), second)
+        self.assertIsNotNone(first.settimeout.call_args.args[0])
+        self.assertIsNone(second.settimeout.call_args.args[0])
+
     def test_unexpected_peer_closes_the_socket(self):
         sock = Mock()
         sock.getpeername.return_value = ('8.8.8.8', 443)
