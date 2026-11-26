@@ -29,6 +29,15 @@ LIBRARY_WAIT_SECONDS = 30
 MAX_SERIES_SET_ASIDE_IN_A_ROW = 3
 
 
+def image_only(error, retry_page=None):
+    """Whether a typed image failure is that one image's own, so that its episode waits and the queue goes on:
+    a read that failed, or whatever failed on the single try of the page an earlier failure held back."""
+    from .transfer_metrics import NETWORK_FAILURE_CODES
+    code = getattr(error, 'network_failure_code', None)
+    return isinstance(error, AssetReadUnavailable) and (code in {'read_timeout', 'read_error'} or (
+        retry_page is not None and error.page_order == retry_page and code in NETWORK_FAILURE_CODES | {'http_error'}))
+
+
 def retain_partial_series(inventory,error):
     """Retain returned candidates while preserving an explicit count gap."""
     partial=getattr(error,'partial_inspection',None)
@@ -248,7 +257,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                    "unavailable_episode_ids": [], "unsupported_episode_ids": [],
                    "not_free_episode_ids": [],
                    'excluded_episode_ids': [], 'extras_episode_ids': [],
-                   'deferred_asset_episode_ids':[],
+                   'deferred_asset_episode_ids':[], 'set_aside_episode_ids': [],
                    'enriched_series_ids':[],'metadata_unavailable_series':[],
                    "downloaded_pages": 0, "downloaded_bytes": 0, "inventory_complete": False,
                    'scan_elapsed_seconds':0.0, 'download_workers':download_workers}
@@ -257,6 +266,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
         current = None
         metadata_seen=set()
         consecutive_asset_failures = 0
+        workers_used = 0
 
         def pending():
             return inventory.pending(free_only)
@@ -435,8 +445,12 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             retry = inventory.db.execute('SELECT failed_page FROM asset_deferrals WHERE episode_id=?',
                                                          (key,)).fetchone()
                             with_store.retry_page = retry[0] if retry else None
-                            with_store.archive(manifest, budget, progress=progress,
-                                               download_workers=1 if retry else download_workers)
+                            # Only a page to try on its own needs the episode's images one at a time. The summary
+                            # says the most workers an episode of this run had, not the number asked for.
+                            workers = 1 if with_store.retry_page is not None else download_workers
+                            workers_used = max(workers_used, workers)
+                            summary['download_workers'] = workers_used
+                            with_store.archive(manifest, budget, progress=progress, download_workers=workers)
                             path = with_store.episode_path(manifest.series, manifest.episodes[0])
                             if verify_episode(path) and not inventory.cloud_archive_matches(path, {'id':key, 'series_id':current['series_id']}):
                                 raise ArchiveError("Newly published archive failed verification; repair is required.")
@@ -453,9 +467,12 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                         except AssetReadUnavailable as error:
                             # Only a typed CDN read failure is episode-local. Auth,
                             # metadata, HTTP refusals and rate limits remain holds.
-                            if getattr(error,'network_failure_code',None) not in {'read_timeout','read_error'}:
+                            if not image_only(error, with_store.retry_page):
                                 raise
-                            inventory.mark(key,'queued','asset_read_unavailable', asset_failure=error)
+                            if inventory.mark(key,'queued','asset_read_unavailable', asset_failure=error):
+                                # Its last try: held as failed until a later Go, and the queue goes on.
+                                summary['set_aside_episode_ids'].append(key)
+                                print(f"Episode {key} of series {current['series_id']}: job_failed.", flush=True)
                             summary['deferred_asset_episode_ids'].append(key)
                             consecutive_asset_failures += 1
                             failure = {'episode': key, 'page': error.page_order, 'page_count': error.page_count,
@@ -527,8 +544,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
             raise
         except NetworkUnavailable as error:
             if current is not None:
-                local_asset_failure=(isinstance(error,AssetReadUnavailable)
-                                     and getattr(error,'network_failure_code',None) in {'read_timeout','read_error'})
+                local_asset_failure=image_only(error, with_store.retry_page)
                 if not local_asset_failure or current['id'] not in summary['deferred_asset_episode_ids']:
                     inventory.mark(current['id'],'queued','asset_read_unavailable' if local_asset_failure else 'network_unavailable')
             summary['pause_reason']='network_unavailable'

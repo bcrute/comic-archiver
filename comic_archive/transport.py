@@ -406,11 +406,19 @@ class Transport:
                     if 500 <= response.status_code < 600:
                         from .retry_after import retry_after_seconds, retain_retry_after
                         delay = retry_after_seconds(response.headers.get('Retry-After'))
-                        if attempt == 2 or (measured and single_asset_attempt.get()):
+                        single = measured and single_asset_attempt.get()
+                        if attempt == 2 or single:
                             if response.status_code in OUTAGE_STATUSES or delay is not None:
                                 error=NetworkUnavailable('Image server remains unavailable; resume later.')
                                 error.source_http_status=response.status_code
                                 raise retain_retry_after(error, response.headers.get('Retry-After'))
+                            if single:
+                                # The one try an image held back before gets: a plain server error is that
+                                # image's, so it waits again as after a failed read, and the episode is not failed.
+                                error = AssetReadUnavailable("Server remains unavailable; resume later.")
+                                error.network_failure_code = 'http_error'
+                                error.source_http_status = response.status_code
+                                raise error
                             raise ArchiveError("Server remains unavailable; resume later.")
                         wait = max(2 ** (attempt + 1), delay or 0)
                         if wait > 60:
@@ -467,8 +475,12 @@ class Transport:
                     failure = 'unsupported_response'
                     raise ArchiveError('Page retrieval failed; this job has stopped.') from None
                 failure = network_failure_code(error)
-                if attempt == 2 or (measured and single_asset_attempt.get()):
-                    kind = AssetReadUnavailable if measured and failure in {'read_timeout','read_error'} else NetworkUnavailable
+                single = measured and single_asset_attempt.get()
+                if attempt == 2 or single:
+                    # On the one try an image held back before gets, any request that failed is that image's:
+                    # it waits again, and one failure is not taken for a connection that is down.
+                    kind = (AssetReadUnavailable if single or (measured and failure in {'read_timeout','read_error'})
+                            else NetworkUnavailable)
                     unavailable = kind("Page network request failed; resume later.")
                     unavailable.network_failure_code = failure
                     raise unavailable from None

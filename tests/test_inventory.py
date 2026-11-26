@@ -4,10 +4,12 @@ import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from comic_archive.errors import AuthenticationError, LibraryBusy, MetadataError
-from comic_archive.inventory import MAX_FAILED_ATTEMPTS, Inventory
+from comic_archive.inventory import MAX_ASSET_READ_TRIES, MAX_FAILED_ATTEMPTS, Inventory
 from comic_archive.locking import LibraryLock
 from comic_archive.models import ArchiveError
 
@@ -419,6 +421,51 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual([row['id'] for row in inventory.pending()], ['82', '83'])
             inventory.observe('42', 'S', [episode('81', 1, 'tapas_unlocked')] + listed[1:], 'subscribed')
             self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83'])
+
+    def image_wait(self, inventory, key='81'):
+        """How long the episode's next try is away, as a step with nothing else to save reports it."""
+        return inventory.archive_selection([row for row in inventory.pending() if row['id'] == key])[1]
+
+    def test_an_episode_whose_image_is_never_read_gets_five_tries_across_restarts_then_is_held_as_failed(self):
+        now = datetime(2026, 11, 2, tzinfo=timezone.utc).isoformat()
+        listed = [episode('81', 1), episode('82', 2)]
+        self.assertEqual(MAX_ASSET_READ_TRIES, 5)
+        with patch('comic_archive.inventory.timestamp', return_value=now):
+            with Inventory(self.root) as inventory:
+                inventory.observe('42', 'S', listed, 'subscribed')
+            waits = []
+            for _ in range(MAX_ASSET_READ_TRIES - 1):
+                with Inventory(self.root) as inventory:  # Each try after a new start of the app: the count is kept.
+                    self.assertFalse(inventory.mark('81', 'queued', 'asset_read_unavailable'))
+                    waits.append(self.image_wait(inventory))
+            self.assertEqual(waits, [30, 120, 300, 300])
+            with Inventory(self.root) as inventory:
+                self.assertTrue(inventory.mark('81', 'queued', 'asset_read_unavailable'))
+                row = inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()
+                self.assertEqual(tuple(row), ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
+                # The queue goes on past it with nothing left to wait for, and a refresh does not bring it back.
+                self.assertEqual([row['id'] for row in inventory.pending()], ['82'])
+                self.assertIsNone(inventory.archive_selection(inventory.pending())[1])
+                inventory.observe('42', 'S', listed, 'subscribed')
+                self.assertEqual([row['id'] for row in inventory.pending()], ['82'])
+                self.assertEqual(inventory.unsaved_codes(), {'failed:job_failed': 1})
+
+    def test_go_after_an_episode_was_held_for_its_image_starts_its_tries_again_from_none(self):
+        now = datetime(2026, 11, 2, tzinfo=timezone.utc).isoformat()
+        with patch('comic_archive.inventory.timestamp', return_value=now), Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode('81', 1)], 'subscribed')
+            held = [inventory.mark('81', 'queued', 'asset_read_unavailable') for _ in range(MAX_ASSET_READ_TRIES)]
+            self.assertEqual(held, [False] * (MAX_ASSET_READ_TRIES - 1) + [True])
+            self.assertEqual(inventory.pending(), [])
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))  # What Go does after the check held.
+            row = inventory.db.execute("SELECT status,error_code,attempts FROM episodes WHERE id='81'").fetchone()
+            self.assertEqual(tuple(row), ('queued', None, 0))
+            self.assertIsNone(self.image_wait(inventory))  # Tried at once, not after an old wait.
+            waits = []
+            for _ in range(MAX_ASSET_READ_TRIES - 1):
+                self.assertFalse(inventory.mark('81', 'queued', 'asset_read_unavailable'))
+                waits.append(self.image_wait(inventory))
+            self.assertEqual(waits, [30, 120, 300, 300])
 
     def test_product_flag_recovery_is_once_and_only_resets_exhausted_accessible_webtoon_failures(self):
         with Inventory(self.root) as inventory:

@@ -478,7 +478,8 @@ def _image_failures(library):
             if not isinstance(failures, list):
                 continue
             for failure in failures[:5]:
-                if not isinstance(failure, dict) or failure.get('reason') not in ('read_timeout', 'read_error'):
+                # Every reason is one of the fixed codes; an image tried on its own can also fail to connect or get a server error.
+                if not isinstance(failure, dict) or failure.get('reason') not in NETWORK_FAILURE_CODES | {'http_error'}:
                     continue
                 episode = _plain(failure.get('episode'), NUMBER)
                 page = failure.get('page')

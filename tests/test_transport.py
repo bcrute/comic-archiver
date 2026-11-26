@@ -207,6 +207,43 @@ class TransportLimitTests(unittest.TestCase):
             else:
                 self.assertEqual(len(result.exception.attempts), 1)
 
+    def test_on_the_one_try_of_a_held_back_image_a_plain_server_error_or_a_failed_request_is_that_images_and_an_outage_is_not(self):
+        import httpx
+        from comic_archive.errors import AssetReadUnavailable
+        from comic_archive.transport import single_asset_attempt
+        token = single_asset_attempt.set(True)
+        self.addCleanup(single_asset_attempt.reset, token)
+
+        offline = Client([])
+
+        def refused(*args, **kwargs):
+            offline.calls.append(args)
+            raise httpx.ConnectError('Synthetic connection failure')
+        offline.stream = refused
+        for client, code, status in ((Client([Response(500), Response()]), 'http_error', 500), (offline, 'connect_error', None)):
+            with self.subTest(code=code):
+                with self.assertRaises(AssetReadUnavailable) as result:
+                    Transport(client=client).get('https://cdn.tapas.io/image')
+                self.assertEqual(result.exception.network_failure_code, code)
+                self.assertEqual(getattr(result.exception, 'source_http_status', None), status)
+                self.assertEqual([(a['failure'], a['http_status']) for a in result.exception.attempts], [(code, status)])
+                self.assertEqual(len(client.calls), 1)
+        # The server, or a gateway before it, saying it is down is still an outage, as is an answer that asks for a wait.
+        for response in (Response(503), Response(520), Response(500, headers={'Retry-After': '180'})):
+            with self.subTest(status=response.status_code, headers=response.headers):
+                client = Client([response, Response()])
+                with self.assertRaises(NetworkUnavailable) as result:
+                    Transport(client=client).get('https://cdn.tapas.io/image')
+                self.assertNotIsInstance(result.exception, AssetReadUnavailable)
+                self.assertEqual(result.exception.source_http_status, response.status_code)
+                self.assertEqual(len(client.calls), 1)
+        # A site's own page is never such a try: its server error is asked about three times and fails as before.
+        client = Client([Response(500), Response(500), Response(500), Response()])
+        with patch('comic_archive.transport.time.sleep'), self.assertRaises(ArchiveError) as result:
+            Transport(client=client).get('https://tapas.io/series/1')
+        self.assertNotIsInstance(result.exception, NetworkUnavailable)
+        self.assertEqual(len(client.calls), 3)
+
     def test_failed_image_attempts_distinguish_a_server_reply_from_a_partial_body(self):
         import httpx
         from comic_archive.errors import AssetReadUnavailable

@@ -360,7 +360,8 @@ def progressed(result):
                 or type(history_links) is int and history_links > 0
                 or type(checked) is int and checked > 0
                 or any(isinstance(result.get(key), list) and result[key]
-                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids', 'excluded_episode_ids')))
+                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids', 'excluded_episode_ids',
+                                   'set_aside_episode_ids')))
 
 
 def _retry_after(result):

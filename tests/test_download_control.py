@@ -856,6 +856,30 @@ class ControllerTests(Controller):
         self.later(90)
         self.published()
 
+    def test_an_episode_held_after_its_last_try_at_an_image_is_not_waited_for_and_the_round_ends_at_the_check_until_go(self):
+        from comic_archive.audit import check_completion
+        from comic_archive.inventory import MAX_ASSET_READ_TRIES
+        self.downloading()
+        with Inventory(self.library) as inventory:
+            held = [inventory.mark('81', 'queued', 'asset_read_unavailable') for _ in range(MAX_ASSET_READ_TRIES)]
+        self.assertEqual(held, [False] * (MAX_ASSET_READ_TRIES - 1) + [True])
+        # The step that made the last try saved nothing, yet it settled the episode: nothing is waited for.
+        self.ok(counted(deferred_asset_episode_ids=['81'], set_aside_episode_ids=['81']))
+        self.read_lists()
+        self.assertEqual(self.state()['idle_waits'], 0)
+        self.assertEqual(self.published()[1]['operation'], 'audit_account')
+        # The check counts it as missing, as it does any episode a job failed on, and the download holds for Go.
+        report = check_completion(self.library)
+        self.assertEqual(report['missing_recorded_accessible_episode_count'], 1)
+        self.ok(report)
+        self.tick()
+        self.assertEqual((self.state()['status'], self.state()['code']), ('held', 'archive_incomplete'))
+        self.go()
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        with Inventory(self.library) as inventory:
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
+            self.assertFalse(inventory.mark('81', 'queued', 'asset_read_unavailable'))  # Its tries start from none.
+
     def test_a_lost_connection_waits_longer_each_time_and_never_holds(self):
         self.downloading()
         for seconds in (*dc.CONNECTION_WAITS, 900, 900):

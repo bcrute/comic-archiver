@@ -147,11 +147,18 @@ class SupportLogTests(unittest.TestCase):
             inv.finish_run(inv.start_run(), 'limited', batch)
             batch['deferred_asset_failures'] = [{'episode': '81', 'page': 2, 'reason': 'read_timeout',
                 'attempts': [{'failure': 'read_timeout', 'http_status': None, 'received_bytes': 0,
-                              'elapsed_ms': 10000, 'path': 'PRIVATE'}]}]
+                              'elapsed_ms': 10000, 'path': 'PRIVATE'}]},
+                {'episode': '82', 'page': 5, 'reason': 'http_error', 'attempts': []},
+                {'episode': '83', 'page': 1, 'reason': 'connect_error', 'attempts': []},
+                {'episode': '84', 'page': 1, 'reason': 'PRIVATE reason', 'attempts': []}]
             inv.finish_run(inv.start_run(), 'limited', batch)
         text = support_log.site_records('Tapas', workspace.session, workspace.library)
         self.assertEqual(text.count('batch image errors: read_timeout=3'), 2)
         self.assertIn('episode 81, page 2: read_timeout', text)
+        # An image tried on its own can fail in other known ways; a reason that is not a known code is left out.
+        self.assertIn('episode 82, page 5: http_error', text)
+        self.assertIn('episode 83, page 1: connect_error', text)
+        self.assertNotIn('episode 84', text)
         self.assertIn('no response headers, 0 decoded bytes, 10000 ms', text)
         self.assertNotIn('PRIVATE', text)
 

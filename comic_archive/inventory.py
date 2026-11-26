@@ -20,6 +20,11 @@ from .locking import LibraryLock
 from .models import ArchiveError
 from .osdep import anchored
 ASSET_RETRY_COOLDOWN_SECONDS = 300
+# The wait after each try of an episode whose image could not be read; the last is used for every try after it.
+ASSET_RETRY_DELAYS = (30, 120, ASSET_RETRY_COOLDOWN_SECONDS)
+# An episode gets this many such tries (waits of 30, 120, 300 and 300 seconds between them), then is held as
+# failed: an image the server never serves again must not keep a download waiting and trying for ever.
+MAX_ASSET_READ_TRIES = 5
 # Raise when an update changes how a series check sorts its episodes: a round of
 # checks begun under older rules starts over, so series it already checked are
 # checked again and their earlier refusals are corrected (0.2.3's access_denied).
@@ -429,20 +434,30 @@ class Inventory:
             raise MetadataError("Discovery report has an unsupported schema.") from None
 
     def mark(self, key, status, error=None, path=None, attempted=False, *, novel_failure=None, asset_failure=None):
+        """Record an episode's state. True when an image failure was its last try and it was set aside instead."""
         relative = path.relative_to(self.root).as_posix() if path is not None else None
         signature = file_signature(path) if path is not None and path.is_file() and status == "archived" else None
         self.db.execute("""UPDATE episodes SET status=?, error_code=?,
             archive_path=COALESCE(?,archive_path), file_signature=COALESCE(?,file_signature),
             attempts=attempts+? WHERE id=?""", (status, error, relative, signature, int(attempted), key))
+        set_aside = False
         if status == 'queued' and error == 'asset_read_unavailable':
             previous = self.db.execute('SELECT failures FROM asset_deferrals WHERE episode_id=?', (key,)).fetchone()
-            failures = min(previous[0] + 1, 3) if previous else 1
-            delay = (30, 120, ASSET_RETRY_COOLDOWN_SECONDS)[failures - 1]
-            after = observation_time(timestamp()) + timedelta(seconds=delay)
-            self.db.execute('INSERT OR REPLACE INTO asset_deferrals '
-                            '(episode_id,retry_after,failures,failed_page,last_page_left) VALUES (?,?,?,?,?)',
-                            (key, after.isoformat(), failures, getattr(asset_failure, 'page_order', None),
-                             int(getattr(asset_failure, 'last_page_left', False))))
+            failures = previous[0] + 1 if previous else 1
+            set_aside = failures >= MAX_ASSET_READ_TRIES
+            if set_aside:
+                # Held as an episode a job failed on for the last time: the queue goes on past it, the check
+                # counts it as missing, and the Go that clears that starts its tries again from none.
+                self.db.execute("UPDATE episodes SET status='failed',error_code='job_failed',attempts=MAX(attempts,?) "
+                                'WHERE id=?', (MAX_FAILED_ATTEMPTS, key))
+                self.db.execute('DELETE FROM asset_deferrals WHERE episode_id=?', (key,))
+            else:
+                delay = ASSET_RETRY_DELAYS[min(failures, len(ASSET_RETRY_DELAYS)) - 1]
+                after = observation_time(timestamp()) + timedelta(seconds=delay)
+                self.db.execute('INSERT OR REPLACE INTO asset_deferrals '
+                                '(episode_id,retry_after,failures,failed_page,last_page_left) VALUES (?,?,?,?,?)',
+                                (key, after.isoformat(), failures, getattr(asset_failure, 'page_order', None),
+                                 int(getattr(asset_failure, 'last_page_left', False))))
         elif status not in {'queued','failed','downloading'}:
             self.db.execute('DELETE FROM asset_deferrals WHERE episode_id=?', (key,))
         if novel_failure is not None and status == 'unsupported' and error == 'novel_manifest_incomplete':
@@ -453,6 +468,7 @@ class Inventory:
         elif status == 'archived':
             self.db.execute('DELETE FROM novel_failures WHERE episode_id=?', (key,))
         self.db.commit()
+        return set_aside
 
     def portable_archive_path(self,relative):
         if not isinstance(relative,str) or '\0' in relative:

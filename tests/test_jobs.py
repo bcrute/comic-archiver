@@ -659,6 +659,147 @@ class JobTests(unittest.TestCase):
         self.adapter.capture_automatic=capture
         self.assertIn('82',archive_discovered(self.adapter,self.root,self.report)['archived_episode_ids'])
 
+    def moving_clock(self):
+        """The library's clock, moved by hand, so that a wait passes without any sleeping: [the time now]."""
+        from datetime import datetime, timezone
+        now = [datetime(2026, 11, 2, tzinfo=timezone.utc)]
+        clock = patch('comic_archive.inventory.timestamp', side_effect=lambda: now[0].isoformat())
+        clock.start()
+        self.addCleanup(clock.stop)
+        return now
+
+    def observed(self, key):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [{'id': key, 'title': 'E' + key, 'order': int(key) - 80,
+                                           'access_state': self.adapter.access[key]}], 'fixture')
+
+    def episode_row(self, key):
+        with Inventory(self.root, read_only=True) as inventory:
+            return tuple(inventory.db.execute('SELECT status,error_code,attempts FROM episodes WHERE id=?', (key,)).fetchone())
+
+    @patch('builtins.print')
+    def test_an_image_that_never_arrives_is_tried_five_times_then_its_episode_is_held_as_failed_and_the_rest_saved(self, output):
+        from datetime import timedelta
+        from comic_archive.errors import AssetReadUnavailable
+        from comic_archive.inventory import MAX_ASSET_READ_TRIES, MAX_FAILED_ATTEMPTS
+        now = self.moving_clock()
+        capture, retrieve, reading, tries = self.adapter.capture_automatic, self.adapter.retrieve, [], []
+
+        def captured(url):
+            reading.append(url.rsplit('/', 1)[1])
+            return capture(url)
+
+        def unread(page, max_bytes=None):
+            if reading[-1] == '82' and page.order == 2:
+                tries.append(page.order)
+                error = AssetReadUnavailable('The image was not read.')
+                error.network_failure_code = 'read_timeout'
+                raise error
+            return retrieve(page, max_bytes)
+        self.adapter.capture_automatic, self.adapter.retrieve = captured, unread
+        self.observed('82')
+        waits = []
+        for _ in range(MAX_ASSET_READ_TRIES - 1):
+            result = archive_discovered(self.adapter, self.root)  # Each try is a step of its own: the count is kept.
+            self.assertEqual((result['status'], result['deferred_asset_episode_ids'], result['set_aside_episode_ids']),
+                             ('limited', ['82'], []))
+            waits.append(result['asset_retry_after_seconds'])
+            now[0] += timedelta(seconds=waits[-1])
+        self.assertEqual(waits, [30, 120, 300, 300])
+        self.observed('81')
+        last = archive_discovered(self.adapter, self.root)
+        self.assertEqual(len(tries), MAX_ASSET_READ_TRIES)
+        # The episode is held as one a job failed on, the other is saved in the same step, and nothing waits.
+        self.assertEqual((last['status'], last['pending_episode_count']), ('finished', 0))
+        self.assertEqual((last['set_aside_episode_ids'], last['archived_episode_ids']), (['82'], ['81']))
+        self.assertNotIn('asset_retry_after_seconds', last)
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
+        printed = '\n'.join(' '.join(map(str, call.args)) for call in output.call_args_list)
+        self.assertIn('Episode 82 of series 42: job_failed.', printed)
+        self.adapter.calls.clear()
+        again = archive_discovered(self.adapter, self.root)
+        self.assertEqual((again['status'], again['pending_episode_count']), ('finished', 0))
+        self.assertNotIn(('capture', '82'), self.adapter.calls)
+        # A later Go, after the check counted it missing, tries it again, and its tries start from none.
+        with Inventory(self.root) as inventory:
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
+        fresh = archive_discovered(self.adapter, self.root)
+        self.assertEqual((fresh['deferred_asset_episode_ids'], fresh['set_aside_episode_ids'],
+                          fresh['asset_retry_after_seconds']), (['82'], [], 30))
+        self.adapter.retrieve = retrieve
+        now[0] += timedelta(seconds=30)
+        self.assertEqual(archive_discovered(self.adapter, self.root)['archived_episode_ids'], ['82'])
+
+    @patch('comic_archive.transport.time.sleep')
+    @patch('builtins.print')
+    def test_a_server_error_or_a_failed_request_on_the_one_try_of_a_held_back_image_waits_again_and_an_outage_still_pauses(self, output, sleep):
+        import httpx
+        from datetime import timedelta
+        from comic_archive.errors import AssetReadUnavailable
+        from comic_archive.transport import Transport
+        from test_transport_session import Client, Response
+        now = self.moving_clock()
+        retrieve = self.adapter.retrieve
+
+        def unread():
+            error = AssetReadUnavailable('The image was not read.')
+            error.network_failure_code = 'read_timeout'
+            raise error
+
+        def refused(*args, **kwargs):
+            raise httpx.ConnectError('Synthetic connection failure')
+        offline = Client([])
+        offline.stream = refused
+
+        def asked(client):
+            # The image server's own answer, through the real transport, under whatever the job set for this page.
+            return lambda: Transport(client=client).get('https://cdn.tapas.io/pc/2.jpg')
+        answers = [unread, asked(Client([Response(500)])), asked(offline), asked(Client([Response(503)]))]
+
+        def served(page, max_bytes=None):
+            return answers.pop(0)() if page.order == 2 and answers else retrieve(page, max_bytes)
+        self.adapter.retrieve = served
+        self.observed('82')
+        for wait, reason, status in ((30, 'read_timeout', None), (120, 'http_error', 500), (300, 'connect_error', None)):
+            with self.subTest(reason=reason):
+                result = archive_discovered(self.adapter, self.root)  # It returns: the step did not fail.
+                self.assertEqual((result['status'], result['deferred_asset_episode_ids'], result.get('pause_reason'),
+                                  result['asset_retry_after_seconds']), ('limited', ['82'], None, wait))
+                failure = result['deferred_asset_failures'][0]
+                self.assertEqual((failure['page'], failure['reason']), (2, reason))
+                if reason != 'read_timeout':
+                    self.assertEqual([(a['failure'], a['http_status']) for a in failure['attempts']], [(reason, status)])
+                self.assertEqual(self.episode_row('82'), ('queued', 'asset_read_unavailable', 0))
+                now[0] += timedelta(seconds=wait)
+        # The server saying it is down is not that image's: the step pauses as before, and uses up none of its tries.
+        outage = archive_discovered(self.adapter, self.root)
+        self.assertEqual((outage['status'], outage['pause_reason'], outage['source_http_status'],
+                          outage['deferred_asset_episode_ids']), ('paused', 'network_unavailable', 503, []))
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.db.execute("SELECT failures FROM asset_deferrals WHERE episode_id='82'").fetchone()[0], 3)
+        saved = archive_discovered(self.adapter, self.root)
+        self.assertEqual((saved['archived_episode_ids'], saved['downloaded_pages']), (['82'], 1))
+
+    @patch('builtins.print')
+    def test_only_an_episode_with_a_page_to_try_on_its_own_is_saved_one_image_at_a_time_and_the_summary_says_so(self, output):
+        from datetime import timedelta
+        from comic_archive.errors import AssetReadUnavailable
+        now = self.moving_clock()
+        self.observed('82')
+        with Inventory(self.root) as inventory:
+            inventory.mark('82', 'queued', 'asset_read_unavailable')  # As a wait kept from an earlier version: no page.
+        now[0] += timedelta(seconds=30)
+        whole = archive_discovered(self.adapter, self.root, download_workers=2)
+        self.assertEqual((whole['archived_episode_ids'], whole['download_workers']), (['82'], 2))
+        failure = AssetReadUnavailable('The image was not read.')
+        failure.page_order = 2
+        self.observed('81')
+        with Inventory(self.root) as inventory:
+            inventory.mark('81', 'queued', 'asset_read_unavailable', asset_failure=failure)
+        now[0] += timedelta(seconds=30)
+        alone = archive_discovered(self.adapter, self.root, download_workers=2)
+        self.assertEqual((alone['archived_episode_ids'], alone['download_workers']), (['81'], 1))
+
     @patch('builtins.print')
     def test_a_job_waits_for_a_short_library_writer_instead_of_failing_before_its_run(self,output):
         held=threading.Event();release=threading.Event()
