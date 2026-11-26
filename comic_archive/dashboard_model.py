@@ -709,8 +709,10 @@ def view(s, now):
     retry_in = wait_text(max(0, retry['seconds'] - since) if retry else 0)
     if retry and retry.get('reason') == 'images':
         seconds = max(0, retry['seconds'] - since)
-        key = 'dashboard.last_page_retry' if retry.get('pages_left') == 1 else 'dashboard.image_retry'
-        v['image_retry'] = say(key, seconds=seconds) if seconds else say('dashboard.image_retry_due')
+        # Each phrase is asked for by its own code where it is said, so the catalog check can find it.
+        words = (say('dashboard.last_page_retry', seconds=seconds) if retry.get('pages_left') == 1
+                 else say('dashboard.image_retry', seconds=seconds))
+        v['image_retry'] = words if seconds else say('dashboard.image_retry_due')
     activity_age = age if age is not None else between if between is not None else elapsed
     waiting = running and not retry and activity_age is not None and activity_age >= NO_PROGRESS_SECONDS
     verifying = running and account.get('phase') == 'verify'
