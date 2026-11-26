@@ -42,7 +42,7 @@ installer are tested on Windows 11.
 ### Install from this folder
 
 ```sh
-uv tool install --editable . --with 'PySide6>=6.11.2,<6.12' --with 'playwright==1.63.0' --with 'Pillow>=10'
+uv tool install --editable . --with 'PySide6>=6.11.2,<6.12' --with 'Pillow>=10'
 comic-archiver
 ```
 
@@ -204,12 +204,14 @@ the full validated commit SHA. Upload the evidence using the owner's release cre
 uploader and SHA-256, which the publisher checks against the downloaded evidence. Contents write permission
 is sufficient; no commit-status permission is needed.
 The evidence records the commit, version, successful gates, suite totals without skips, and each download's
-size and SHA-256. The draft may also hold `SHA256SUMS.txt` listing exactly the attested hashes; any other asset
-stops publication. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
+size and SHA-256. The draft also holds `SHA256SUMS.txt` listing exactly the attested hashes; any other asset
+stops publication. Every file the website's pages link to in the release must be in the draft: the verifier
+reads the pages and refuses a draft that lacks one, because the site is made only after the release is public. `scripts/verify_release.py` defines and checks this contract. Push the matching version tag
 to Gitea so its mirror retains it. GitHub's Release workflow verifies the owner upload and downloads, then publishes
 the draft. It performs no builds or suites.
 
-A release may include a separately qualified Mac download. Its `macos` evidence records
+A release the website shows for computers includes the separately qualified Mac download, since the download
+page links it; a prerelease may leave it out. Its `macos` evidence records
 the qualified architecture, actual signing/notarization status and successful
 native tests, engine, window, package smoke and bundle audit checks. The verifier
 then requires that exact additional ZIP and includes it in the checksum contract.
@@ -271,7 +273,9 @@ values use an em dash. Values and messages stay on one line, with long plain
 text elided visually and preserved in tooltips and accessible text. Empty
 messages and optional hints retain their layout space.
 
-The desktop has Dashboard and Settings pages. **Open library folder** opens the
+The desktop has Dashboard, Library and Settings pages. The Library page lists
+the saved series and their episodes and is where single series and episodes are
+chosen. **Open library folder** opens the
 chosen library root in the system file manager. Storage counts are informational;
 there is no in-app file browser or viewer. Settings retain folder selection,
 cloud configuration and the provider link. The shared archive/export APIs remain

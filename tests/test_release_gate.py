@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import android_release
+from scripts import site_release
 from scripts import verify_release as release
 
 
@@ -26,8 +27,11 @@ class ReleaseGateTests(unittest.TestCase):
         self.version = self.VERSION
         self.value = {'schema_version': 1, 'commit': self.commit, 'version': self.version,
                       'checks': dict.fromkeys(release.CHECKS, True),
-                      'tests': {'tests_run': 1800, 'failures': 0, 'errors': 0, 'skipped': []}, 'artifacts': {}}
-        for suffix in ('linux-x86_64.tar.gz', 'windows-x86_64.zip', 'windows-x86_64-setup.exe'):
+                      'tests': {'tests_run': 1800, 'failures': 0, 'errors': 0, 'skipped': []}, 'artifacts': {},
+                      'macos': {'architecture': 'x86_64', 'checks': dict.fromkeys(release.MAC_CHECKS, True),
+                                'signing': 'ad-hoc', 'notarized': False}}
+        # Every file the website links to in the release it shows: the site is made from the release afterwards.
+        for suffix in ('linux-x86_64.tar.gz', 'windows-x86_64.zip', 'windows-x86_64-setup.exe', 'macos-x86_64.zip'):
             path = self.folder / f'ComicArchiver-{self.version}-{suffix}'
             path.write_bytes(b'synthetic download ' + suffix.encode())
             self.value['artifacts'][path.name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
@@ -36,12 +40,14 @@ class ReleaseGateTests(unittest.TestCase):
     def save(self):
         path = self.folder / 'release-evidence.json'
         path.write_text(json.dumps(self.value), encoding='utf-8')
+        (self.folder / release.SUMS).write_text(''.join(
+            f"{record['sha256']}  {name}\n" for name, record in self.value['artifacts'].items()), encoding='utf-8')
         self.release = {'target_commitish': self.commit, 'tag_name': 'v' + self.version, 'draft': True,
                         'body': '| Platform | Download |\n| --- | --- |\n'
                                 '| Windows | [Installer](https://example.invalid/installer.exe) |\n',
                         'author': {'login': 'owner'}, 'assets': [{'name': path.name, 'state': 'uploaded',
                         'uploader': {'login': 'owner'}, 'size': path.stat().st_size,
-                        'digest': 'sha256:' + release.digest(path)}]}
+                        'digest': 'sha256:' + release.digest(path)}, self.asset(release.SUMS)]}
         for name in self.value['artifacts']:
             self.release['assets'].append(self.asset(name))
 
@@ -53,8 +59,12 @@ class ReleaseGateTests(unittest.TestCase):
     def write_sums(self, text):
         (self.folder / release.SUMS).write_text(text, encoding='utf-8')
         metadata = copy.deepcopy(self.release)
-        metadata['assets'].append(self.asset(release.SUMS))
+        metadata['assets'] = [self.asset(release.SUMS) if asset['name'] == release.SUMS else asset
+                              for asset in metadata['assets']]
         return metadata
+
+    def without(self, name):
+        return self.release | {'assets': [asset for asset in self.release['assets'] if asset['name'] != name]}
 
     def verify(self, metadata=None):
         return release.verify(self.folder, self.commit, self.release if metadata is None else metadata, 'owner', self.version)
@@ -150,6 +160,10 @@ class ReleaseGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify(metadata)
 
+    def test_a_release_without_the_checksum_list_the_website_links_to_is_refused_by_name(self):
+        with self.assertRaisesRegex(ValueError, 'website links to .*' + re.escape(release.SUMS)):
+            self.verify(self.without(release.SUMS))
+
     def test_refuses_missing_gates_skips_missing_downloads_and_wrong_version(self):
         original = copy.deepcopy(self.value)
         for field, value in (('commit', 'b' * 40), ('version', '0.1.4'), ('checks', {'validation': True}),
@@ -172,20 +186,40 @@ class ReleaseGateTests(unittest.TestCase):
 
 
 class Desktop040ReleaseGateTests(ReleaseGateTests):
-    """Qualify the current desktop release with only platforms ready to ship."""
+    """Qualify a desktop release that becomes the one the website shows."""
     VERSION = '0.4.0'
 
-    def test_linux_and_windows_can_ship_while_mac_is_pending(self):
-        self.assertNotIn('macos', self.value)
-        self.assertEqual(len(self.value['artifacts']), 3)
-        self.assertEqual(self.verify(), self.value)
+    def test_a_release_without_the_mac_download_the_website_links_to_is_refused_by_name(self):
         name = f'ComicArchiver-{self.version}-macos-x86_64.zip'
-        path = self.folder / name
-        path.write_bytes(b'unqualified Mac download')
-        self.value['artifacts'][name] = {'size': path.stat().st_size, 'sha256': release.digest(path)}
+        record = self.value['artifacts'].pop(name)
+        del self.value['macos']
+        self.save()
+        self.assertEqual(len(self.value['artifacts']), 3)
+        with self.assertRaisesRegex(ValueError, 'website links to .*' + re.escape(name)):
+            self.verify()
+        self.value['artifacts'][name] = record
         self.save()
         with self.assertRaisesRegex(ValueError, 'exactly the required platform downloads'):
             self.verify()
+
+
+class SiteDownloadsTests(unittest.TestCase):
+    def test_verification_requires_exactly_the_files_the_site_made_from_the_release_links_to(self):
+        newest = max(site_release.changes(), key=site_release.order)
+        beta = '99.0.0-beta1'
+        with tempfile.TemporaryDirectory() as temporary:
+            # One release for computers and phones, then a release for computers with a later Android beta.
+            for android, required in ((newest, {newest: release.site_downloads(newest, True, True)}),
+                                      (beta, {newest: release.site_downloads(newest, True, False),
+                                              beta: release.site_downloads(beta, False, True)})):
+                with self.subTest(android=android):
+                    # A link to a file outside the required ones stops the site here, as it would after publication.
+                    out = site_release.build(Path(temporary) / 'site', newest, '2026-11-20', android, required)
+                    linked = {}
+                    for page in out.glob('*.html'):
+                        for tag, name in site_release.DOWNLOAD.findall(page.read_text(encoding='utf-8')):
+                            linked.setdefault(tag, set()).add(name)
+                    self.assertEqual(linked, required)
 
 
 class AndroidReleaseGateTests(ReleaseGateTests):
@@ -264,6 +298,13 @@ class AndroidReleaseGateTests(ReleaseGateTests):
                 with self.assertRaises(ValueError):
                     self.verify()
                 self.value['checks'][name] = True
+
+    def test_a_beta_the_website_shows_only_for_android_needs_the_checksum_list_but_no_mac_download(self):
+        del self.value['artifacts'][f'ComicArchiver-{self.version}-macos-x86_64.zip'], self.value['macos']
+        self.save()
+        self.assertEqual(self.verify(), self.value)
+        with self.assertRaisesRegex(ValueError, 'website links to .*' + re.escape(release.SUMS)):
+            self.verify(self.without(release.SUMS))
 
     def test_publication_requires_matching_isolated_signing_and_advisory_provenance(self):
         proof = self.value['android'].pop('provenance')

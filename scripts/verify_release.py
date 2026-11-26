@@ -8,7 +8,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts import android_release, android_wheelhouse
+from scripts import android_release, android_wheelhouse, site_release
 
 CHECKS = {'validation', 'mutation', 'qt_engine', 'linux_build', 'windows_build', 'bundle_audits'}
 MAC_CHECKS = {'native_tests', 'qt_engine', 'native_window', 'package_smoke', 'bundle_audit'}
@@ -47,6 +47,19 @@ def check_sums(path, artifacts):
     sums = {line[2]: line[1] for line in lines if line}
     if None in lines or len(sums) != len(lines) or sums != {name: record['sha256'] for name, record in artifacts.items()}:
         raise ValueError('The checksum list must match the fleet evidence exactly.')
+
+
+def site_downloads(version, latest, android):
+    """The files the website links to in this release, read from the pages the site is made from. latest: the
+    release becomes the one the site shows for computers; android: it becomes the one the site shows for Android."""
+    names = set()
+    for page in site_release.SITE.glob('*.html'):
+        text = page.read_text(encoding='utf-8')
+        for token, shown in (('{version}', latest), ('{android_version}', android)):
+            if shown:
+                text = text.replace(token, version)
+        names.update(name for tag, name in site_release.DOWNLOAD.findall(text) if tag == version)
+    return names
 
 
 def read_evidence(folder):
@@ -131,6 +144,11 @@ def verify(folder, commit, release, owner, version, *, android_cert=None, androi
     required = expected | {evidence.name}
     if len(set(names)) != len(names) or not required <= set(names) <= required | {SUMS}:
         raise ValueError('The draft must hold only the required downloads, the evidence and an optional checksum list.')
+    # The site is made from the release only after it is public: a link to a file the release lacks would stop the
+    # site there, leaving it and the newest version it reports to the app at the previous release.
+    missing = site_downloads(version, release.get('prerelease') is not True, android_asset is not None) - set(names)
+    if missing:
+        raise ValueError('The website links to a download this release does not have: ' + ', '.join(sorted(missing)))
     for asset in assets:
         path = folder / asset['name']
         if (asset.get('state') != 'uploaded' or path.is_symlink() or not path.is_file()
