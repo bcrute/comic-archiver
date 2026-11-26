@@ -10,7 +10,6 @@ from support import PRIVATE_FILE, junction
 from comic_archive import sites
 from comic_archive.app_actions import Actions, Refused
 from comic_archive.inventory import Inventory
-from comic_archive.library_model import NO_OPENER
 from comic_archive.locking import LibraryLock
 from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry, NoSignIn, _private_key
 from comic_archive.models import ArchiveError
@@ -76,7 +75,7 @@ class LocalLibraryTests(unittest.TestCase):
             before=list(archive.parent.iterdir())
             # Opening a saved file does not wait for a download that holds the library.
             with LibraryLock(self.workspace.library):
-                result=self.actions.open_file(identifier)
+                result=self.registry.open_file_on_device(LOCAL_OWNER,self.workspace.id,identifier)
             self.assertEqual(result,{'status':'open_requested'})
             self.assertEqual(launch.call_args.args[0],['xdg-open',str(archive)])
             self.assertNotIn(str(archive),json.dumps(result))
@@ -90,7 +89,7 @@ class LocalLibraryTests(unittest.TestCase):
                 patch('comic_archive.local_library.sys.platform', 'darwin'), \
                 patch('comic_archive.local_library.subprocess.Popen') as launch:
             launch.return_value.wait.return_value = 0
-            self.assertEqual(self.actions.open_file(identifier), {'status': 'open_requested'})
+            self.assertEqual(self.registry.open_file_on_device(LOCAL_OWNER, self.workspace.id, identifier), {'status': 'open_requested'})
             self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', str(archive)])
             self.assertEqual(archive.read_bytes(), b'owned portable file')
             self.assertFalse(list(self.workspace.session.glob('worker/requests/*')))
@@ -110,16 +109,17 @@ class LocalLibraryTests(unittest.TestCase):
             launch.assert_not_called();self.assertEqual(private.read_text(),'PRIVATE_COOKIES')
 
     def test_missing_opener_or_default_app_is_told_in_fixed_words_and_allows_retry(self):
+        from comic_archive.errors import DeviceFileOpenUnavailable
         _,identifier=self.file_to_open()
         with patch('comic_archive.local_library.WINDOWS',False), patch('comic_archive.local_library.subprocess.Popen') as launch:
             launch.side_effect=FileNotFoundError('/PRIVATE_PATH RAW_HELPER_ERROR')
-            with self.assertRaises(Refused) as refused: self.actions.open_file(identifier)
-            self.assertEqual((refused.exception.code,str(refused.exception)),('device_file_open_unavailable',NO_OPENER))
+            with self.assertRaises(DeviceFileOpenUnavailable) as refused: self.registry.open_file_on_device(LOCAL_OWNER,self.workspace.id,identifier)
+            self.assertEqual(str(refused.exception),'Device file opener is unavailable.')
             launch.side_effect=None;launch.return_value.wait.return_value=3
-            with self.assertRaises(Refused) as again: self.actions.open_file(identifier)
-            self.assertEqual((again.exception.code,str(again.exception)),('device_file_open_unavailable',NO_OPENER))
+            with self.assertRaises(DeviceFileOpenUnavailable) as again: self.registry.open_file_on_device(LOCAL_OWNER,self.workspace.id,identifier)
+            self.assertEqual(str(again.exception),'Device file opener is unavailable.')
             launch.return_value.wait.return_value=0
-            self.assertEqual(self.actions.open_file(identifier),{'status':'open_requested'})
+            self.assertEqual(self.registry.open_file_on_device(LOCAL_OWNER,self.workspace.id,identifier),{'status':'open_requested'})
 
     def test_default_app_that_stays_attached_is_not_killed_or_kept_waiting(self):
         import subprocess

@@ -218,8 +218,3 @@ def inspect_image_structure(data):
             _invalid(data, 'webp', 4, 'invalid_riff_length')
         return '.webp', _webp_chunks(data, 12, end)
     _invalid(data, 'unknown', 0, 'unsupported_signature')
-
-
-def image_stream_extension(data):
-    """Identify a complete structure, independently of optional pixel decoding."""
-    return inspect_image_structure(data)[0]

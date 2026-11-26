@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from . import cloud_runtime, sites
 from .dashboard_model import LIBRARY_SECONDS, NETWORK_SECONDS, Message, error_text
 from .errors import DeviceFileOpenUnavailable, LibraryBusy, SpeedChangeError, DownloadSelectionChangeError
-from .library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
+from .library_model import NO_OPENER, UNAVAILABLE
 from .local_library import LOCAL_OWNER
 from .models import ArchiveError
 from .storage_model import task_text
@@ -22,7 +22,6 @@ from .messages import say
 LOG = logging.getLogger('comic_archive.desktop')
 STORAGE_MODES = ('shared', 'separate')
 TASK_ID = re.compile(r'job-[a-f0-9]{24}')
-EXPORT_ID = re.compile(r'[a-f0-9]{64}')
 
 
 class Refused(Exception):
@@ -262,11 +261,6 @@ class Actions:
         """Every saved file of this site, unpaged, for the list over every site."""
         return self._call('saved_snapshot', locked=False, failed=UNAVAILABLE, refresh=bool(refresh))
 
-    def open_file(self, export_id):
-        if not isinstance(export_id, str) or not EXPORT_ID.fullmatch(export_id):
-            raise Refused('request_unavailable', OPEN_FAILED)
-        return self._call('open_file_on_device', export_id, failed=OPEN_FAILED)
-
 
 def checked(options):
     """The saved-file list's options as the catalog takes them, or Refused."""
@@ -278,18 +272,6 @@ def checked(options):
         return parsed(urlencode(values))
     except ArchiveError:
         raise Refused('request_unavailable', error_text('request_unavailable')) from None
-
-
-def every_site_files(actions, **options):
-    """A page of the saved files of every open site at once: actions is {site name: that site's Actions}."""
-    from .saved_library import merge, page_snapshot
-    chosen = checked(options)
-    refresh = chosen.pop('refresh', False)
-    snapshots = {name: site.saved_snapshot(refresh) for name, site in actions.items()}
-    try:
-        return page_snapshot(merge(snapshots), **chosen)
-    except ArchiveError:
-        raise Refused('request_unavailable', UNAVAILABLE) from None
 
 
 def due(state, now):

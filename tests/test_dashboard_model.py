@@ -556,7 +556,6 @@ class StatusTests(unittest.TestCase):
                 rows = view(**options)['rows']
                 self.assertEqual(tuple(item['name'] for item in rows), model.CARD_FIELDS)
                 self.assertTrue(all('\n' not in item['value'] for item in rows))
-        self.assertEqual(tuple(item['name'] for item in model.unopened_rows()), model.CARD_FIELDS)
 
     def test_a_card_says_what_is_so_a_field_and_its_value_each_and_no_instructions(self):
         self.assertEqual(view(loaded=False)['rows'], model.card_rows({'Account': 'Checking…', 'Downloader': 'Checking…', 'Status': 'Opening…'}))
@@ -691,7 +690,6 @@ class StatusTests(unittest.TestCase):
         unread = fields(view(status=None))
         self.assertEqual(list(unread), list(model.CARD_FIELDS))
         self.assertEqual([unread[name] for name in ('Saved', 'Time left', 'Space', 'Speed', 'Download speed')], [('—', False)] * 5)
-        self.assertEqual([row['name'] for row in model.unopened_rows()], list(unread))
         self.assertEqual(fields(view(status={'episodes_by_status': {'archived': 1}}))['Saved'][0], '1 episode')
         self.assertEqual(fields(view(account={'status': 'finished'}, sites=[dict(TAPAS, name='Webtoon')]))['Note'][0], '—')
         planned = fields(view(status={'estimate': {'waiting_episodes': 3, 'seconds': 600, 'left_bytes': 1_000_000_000}}))

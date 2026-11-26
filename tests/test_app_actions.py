@@ -8,7 +8,7 @@ from comic_archive import app_actions, sites
 from comic_archive.app_actions import Actions, Refused, due, received
 from comic_archive.dashboard_model import LIBRARY_SECONDS, NETWORK_SECONDS, Message, State, error_text
 from comic_archive.errors import DeviceFileOpenUnavailable, DownloadSelectionChangeError, LibraryBusy
-from comic_archive.library_model import NO_OPENER, OPEN_FAILED, UNAVAILABLE
+from comic_archive.library_model import NO_OPENER, UNAVAILABLE
 from comic_archive.local_library import LOCAL_OWNER, LocalWorkspaceRegistry
 from comic_archive.models import ArchiveError
 
@@ -116,8 +116,8 @@ class ActionsTests(unittest.TestCase):
         self.assertIn('start_account: RuntimeError', logged.output[0])
         self.assertNotIn('PRIVATE', '\n'.join(logged.output))
         # A call with its own words for a failure says those instead.
-        self.registry.open_file_on_device.side_effect = ArchiveError('PRIVATE')
-        self.assertEqual(self.refused(self.actions.open_file, 'f' * 64), ('request_unavailable', OPEN_FAILED))
+        self.registry.saved_files.side_effect = ArchiveError('PRIVATE')
+        self.assertEqual(self.refused(self.actions.saved_files), ('request_unavailable', UNAVAILABLE))
         self.registry.saved_files.side_effect = OSError('PRIVATE')
         with self.assertLogs('comic_archive.desktop', 'ERROR'):
             self.assertEqual(self.refused(self.actions.saved_files), ('service_unavailable', UNAVAILABLE))
@@ -174,8 +174,6 @@ class ActionsTests(unittest.TestCase):
                     (self.actions.cloud_signin, 'b2', {'password': 'PRIVATE'}), (self.actions.cloud_signin, 'google', {}))
         for work, *args in refusals:
             self.assertEqual(self.refused(work, *args), ('request_unavailable', error_text('request_unavailable')), args)
-        for export in ('F' * 64, 'f' * 63, None, '../' + 'f' * 61):
-            self.assertEqual(self.refused(self.actions.open_file, export), ('request_unavailable', OPEN_FAILED))
         for options in ({'kind': 'everything'}, {'limit': 0}, {'path': '/PRIVATE'}, {'query': 'x' * 201}):
             self.assertEqual(self.refused(self.actions.saved_files, **options)[0], 'request_unavailable', options)
         self.assertEqual(self.registry.mock_calls, [])
@@ -185,8 +183,6 @@ class ActionsTests(unittest.TestCase):
         credentials = {'key_id': 'K' * 12, 'application_key': 'A' * 31}
         self.actions.cloud_signin('b2', credentials)
         self.registry.start_cloud_signin.assert_called_once_with(LOCAL_OWNER, LIBRARY, 'b2', credentials)
-        self.actions.open_file('f' * 64)
-        self.registry.open_file_on_device.assert_called_once_with(LOCAL_OWNER, LIBRARY, 'f' * 64)
 
     def test_saved_files_options_are_checked_as_the_catalog_takes_them(self):
         self.actions.saved_files(summary=True, refresh=False, query='long series', kind='episodes', sort='series',

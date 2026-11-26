@@ -12,7 +12,6 @@ from PIL import Image
 
 from comic_archive.archive import image_extension
 from comic_archive.archive import digest, sidecar_path, verify, verify_series_contents
-from comic_archive.image_formats import image_stream_extension
 from comic_archive.image_validation import decoded_image_checker
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.publication import PublicationStore, verify_compressed_comic, write_compressed_comic
@@ -113,14 +112,13 @@ class ImageFormatTests(unittest.TestCase):
         self.assertEqual(verify_series_contents(metadata | {'cover_file': 'cover.jpg'}, data), [])
 
     def accepted(self, data, extension, *, decode=True):
-        for detector in (image_extension, image_stream_extension, standalone_extension):
+        for detector in (image_extension, standalone_extension):
             self.assertEqual(detector(data), extension)
         if decode:
             decoded_image_checker()(data)
 
     def refused(self, data):
-        for detector, error in ((image_extension, ArchiveError), (image_stream_extension, ValueError),
-                                (standalone_extension, ValueError)):
+        for detector, error in ((image_extension, ArchiveError), (standalone_extension, ValueError)):
             with self.assertRaises(error):
                 if detector is image_extension:
                     with self.assertLogs('comic_archive.download'):

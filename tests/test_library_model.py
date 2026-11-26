@@ -30,8 +30,6 @@ class FormatTests(unittest.TestCase):
     def test_page_numbers_and_their_range_follow_the_catalogs_offset_and_limit(self):
         self.assertEqual(model.pages({'offset': 100, 'limit': 50, 'total': 250}), (3, 5))
         self.assertEqual(model.pages({}), (1, 1))
-        self.assertEqual(model.offset_for(3, 50), 100)
-        self.assertEqual(model.offset_for(0, 50), 0)
         self.assertEqual(model.range_text({'offset': 100, 'total': 250, 'files': [{}, {}]}), 'Showing 101–102 of 250 files.')
         self.assertEqual(model.range_text({'total': 0, 'file_count': 5}), 'No saved files match these filters.')
         self.assertEqual(model.range_text({}), '')

@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from comic_archive.adapters.tapas import BrowserReadTransport, TapasAdapter
 from comic_archive.models import ArchiveError
-from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError
+from comic_archive.errors import AuthenticationError, MetadataError
 
 
 class TapasTests(unittest.TestCase):
@@ -281,128 +281,6 @@ class TapasTests(unittest.TestCase):
         self.adapter.page.evaluate.return_value = {"scoped": True, "bottom": 0, "viewportBottom": 800}
         rows = json.loads((Path(__file__).parent / "fixtures/reader-snapshot.json").read_text())["loaded"]
         self.adapter.page.locator.return_value.evaluate_all.return_value = rows
-
-    def capture(self):
-        return self.adapter.capture("https://tapas.io/episode/81", "42", "Series", "Episode", 1, ".test-episode img")
-
-    @patch("comic_archive.adapters.tapas.Transport")
-    @patch("comic_archive.adapters.tapas.save_session")
-    @patch("builtins.input", return_value="y")
-    def test_capture_normalizes_dom_order(self, prompt, save, transport):
-        manifest = self.capture()
-        self.assertEqual([p.order for p in manifest.episodes[0].pages], [1, 2])
-        self.assertEqual(manifest.episodes[0].access, "tapas_free")
-        self.adapter.episode_access.assert_called_once_with('https://tapas.io/episode/81')
-        self.assertEqual(self.adapter.page.locator.call_args.args[0], ".test-episode img")
-        transport.return_value.get.assert_not_called()
-
-    @patch("comic_archive.adapters.tapas.Transport")
-    @patch("comic_archive.adapters.tapas.save_session")
-    @patch("builtins.input", return_value="y")
-    def test_capture_defaults_to_observed_episode_container(self, prompt, save, transport):
-        self.adapter.capture("https://tapas.io/episode/81", "42", "S", "E", 1)
-        self.assertEqual(self.adapter.page.locator.call_args.args[0], "#episode-81 img.content__img")
-
-    @patch("comic_archive.adapters.tapas.Transport")
-    @patch("comic_archive.adapters.tapas.save_session")
-    @patch("builtins.input", return_value=" Y ")
-    def test_yes_confirmation_tolerates_case_and_whitespace(self, prompt, save, transport):
-        self.assertEqual(self.capture().episodes[0].access, "tapas_free")
-
-    @patch('builtins.input', return_value='y')
-    def test_manual_confirmation_cannot_override_metadata_denial_or_session_failure(self, prompt):
-        for failure in (AccessDenied('locked'), AuthenticationError('login required'), MetadataError('unknown schema')):
-            with self.subTest(error=type(failure).__name__):
-                self.adapter.episode_access.side_effect=failure
-                with self.assertRaises(type(failure)):
-                    self.adapter.capture('https://tapas.io/episode/81','42','S','E',1,reader_confirmed=True)
-                self.adapter.page.goto.assert_not_called()
-                self.adapter.page.locator.assert_not_called()
-                prompt.assert_not_called()
-
-    @patch('comic_archive.adapters.tapas.Transport')
-    @patch('comic_archive.adapters.tapas.save_session')
-    @patch('builtins.input', return_value='y')
-    def test_manual_refresh_rechecks_access_before_loading_the_reader(self, prompt, save, transport):
-        episode=self.capture().episodes[0]
-        self.adapter.page.goto.reset_mock()
-        self.adapter.page.locator.reset_mock()
-        self.adapter.episode_access.side_effect=AccessDenied('access expired')
-        with self.assertRaises(AccessDenied):
-            self.adapter.refresh(episode)
-        self.assertEqual(self.adapter.episode_access.call_count,2)
-        self.adapter.page.goto.assert_not_called()
-        self.adapter.page.locator.assert_not_called()
-        transport.return_value.get.assert_not_called()
-
-    @patch("builtins.input", return_value="n")
-    def test_no_confirmation_cancels_without_page_capture(self, prompt):
-        with self.assertRaises(ArchiveError):
-            self.capture()
-        self.adapter.page.locator.return_value.evaluate_all.assert_not_called()
-        self.assertIsNone(self.adapter.transport)
-
-    @patch("builtins.input", return_value="")
-    def test_locked_preview_cancelled_before_selector_or_retrieval(self, prompt):
-        with self.assertRaises(ArchiveError):
-            self.capture()
-        self.adapter.page.locator.return_value.evaluate_all.assert_not_called()
-        self.assertIsNone(self.adapter.transport)
-
-    @patch("builtins.input", return_value="y")
-    def test_unloaded_duplicate_and_foreign_assets_rejected(self, prompt):
-        for rows in [[], [{"tag": "IMG", "url": "https://cdn.tapas.io/x", "loaded": False}],
-                     [{"tag": "IMG", "url": "https://elsewhere.test/x", "loaded": True}],
-                     [{"tag": "IMG", "url": "https://cdn.tapas.io/x", "loaded": True}] * 2]:
-            self.adapter.page.locator.return_value.evaluate_all.return_value = rows
-            with self.assertRaises(ArchiveError):
-                self.capture()
-
-    @patch("builtins.input", return_value="y")
-    def test_login_redirect_rejected(self, prompt):
-        self.adapter.page.url = "https://tapas.io/account/signin"
-        with self.assertRaises(ArchiveError):
-            self.capture()
-
-    def test_worker_scroll_stops_at_episode_boundary(self):
-        self.adapter.page.evaluate.return_value = {"scoped": True, "bottom": 1000, "viewportBottom": 1100}
-        self.adapter.scroll_episode("https://tapas.io/episode/81")
-        self.adapter.page.mouse.wheel.assert_not_called()
-
-    def test_worker_scroll_is_bounded_when_scope_unknown(self):
-        self.adapter.page.evaluate.return_value = {"scoped": False, "bottom": 0, "viewportBottom": 800}
-        self.adapter.scroll_episode("https://tapas.io/episode/81")
-        self.assertEqual(self.adapter.page.mouse.wheel.call_count, 8)
-
-    def test_worker_scroll_visits_each_image_in_nested_scroll_container(self):
-        images = self.adapter.page.locator.return_value
-        images.count.return_value = 3
-        self.adapter.scroll_episode("https://tapas.io/episode/81")
-        self.assertEqual(images.nth.call_count, 3)
-        self.adapter.page.mouse.wheel.assert_not_called()
-
-    @patch("comic_archive.adapters.tapas.Transport")
-    @patch("comic_archive.adapters.tapas.save_session")
-    @patch("builtins.input")
-    def test_prior_explicit_reader_confirmation_does_not_prompt_again(self, prompt, save, transport):
-        self.adapter.capture("https://tapas.io/episode/81", "42", "S", "E", 1,
-                             ".test-episode img", reader_confirmed=True)
-        prompt.assert_not_called()
-
-    @patch("comic_archive.adapters.tapas.Transport")
-    @patch("comic_archive.adapters.tapas.save_session")
-    @patch("builtins.input", return_value="y")
-    def test_lazy_sources_capture_without_scrolling_or_browser_image_loading(self, prompt, save, transport):
-        self.adapter.page.locator.return_value.evaluate_all.return_value = [
-            {"tag": "IMG", "url": "data:image/gif;base64,placeholder", "loaded": True,
-             "sources": {"data-src": f"https://us-a.tapas.io/pc/a/{i}.jpg?sig=TEST"}}
-            for i in range(3)]
-        with patch.object(self.adapter, "scroll_episode") as scroll:
-            manifest = self.capture()
-        scroll.assert_not_called()
-        self.assertEqual(len(manifest.episodes[0].pages), 3)
-        self.assertEqual(self.adapter.capture_mode, "reader_lazy_sources")
-        transport.return_value.get.assert_not_called()
 
     @patch("comic_archive.adapters.tapas.Transport")
     def test_browser_metadata_gets_use_same_origin_and_images_use_httpx(self, assets):

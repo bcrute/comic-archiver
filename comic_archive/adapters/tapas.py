@@ -6,12 +6,12 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urljoin
 from ..sites import DEFAULT
 from ..public_destination import browser_request_allowed
-from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
+from ..models import ArchiveError, canonical_url
 from ..session import browser_api, launch_browser, load_session, save_session
 from ..transport import Transport, asset_url
 from ..errors import AuthenticationError, MetadataError, NetworkUnavailable, RunLimit
 from .account_navigation import navigation_path
-from .reader import ReaderHTML, ReaderObservation, ordered_sources
+from .reader import ReaderHTML, ReaderObservation
 
 
 def finish_route(route, action):
@@ -1456,119 +1456,6 @@ class TapasAdapter:
         finally:
             self.page.remove_listener("response", observation.on_response)
 
-    def scroll_episode(self, url):
-        """Bounded normal scrolling, restricted to an episode container when found."""
-        episode_id = url.rsplit("/", 1)[1]
-        images = self.page.locator(f"#episode-{episode_id} img.content__img")
-        count = images.count()
-        if type(count) is int and 0 < count <= 500:
-            # Reader content can scroll inside an element rather than window.
-            # Let Playwright scroll each image's actual scroll ancestors.
-            for index in range(count):
-                images.nth(index).scroll_into_view_if_needed(timeout=5000)
-                self.page.wait_for_timeout(350)
-            self.page.wait_for_timeout(1500)
-            return
-        for step in range(180):
-            bounds = self.page.evaluate("""episodeId => {
-                const names = ['data-episode-id','data-id','data-episode','data-chapter-id','data-eid'];
-                let container = null;
-                for (const name of names) {
-                    const matches = Array.from(document.querySelectorAll(`[${name}="${episodeId}"]`));
-                    container = matches.find(e => e.querySelector('img'));
-                    if (container) break;
-                }
-                if (!container) container = Array.from(document.querySelectorAll('[id]')).find(e =>
-                    new RegExp('^(?:episode|chapter|content)[_-]?' + episodeId + '$').test(e.id) && e.querySelector('img'));
-                return {scoped:!!container,
-                    bottom:container ? container.getBoundingClientRect().bottom + window.scrollY : 0,
-                    viewportBottom:window.scrollY + window.innerHeight};
-            }""", episode_id)
-            if bounds["scoped"] and bounds["viewportBottom"] >= bounds["bottom"] - 10:
-                break
-            if not bounds["scoped"] and step >= 8:
-                break  # Need structure evidence before scrolling through adjacent episodes.
-            self.page.mouse.wheel(0, 900)
-            self.page.wait_for_timeout(350)
-        self.page.wait_for_timeout(1500)
-
-    def reader_rows(self, selector):
-        return self.page.locator(selector).evaluate_all("""els => els.map(e => ({
-            tag:e.tagName,url:e.currentSrc || e.src,loaded:e.complete && e.naturalWidth>0,
-            sources:{src:e.getAttribute('src') || '', 'data-src':e.getAttribute('data-src') || ''}
-        }))""")
-
-    def capture(self, url, series_id, series_title, title, order, selector=None, reader_confirmed=False):
-        url = canonical_url(url)
-        match = re.fullmatch(r"https://tapas\.io/episode/([0-9]+)", url or "")
-        if not match:
-            raise ArchiveError("Use an exact https://tapas.io/episode/<numeric-id> URL.")
-        self.series = Series(series_id, series_title)
-        self.selector = selector or f"#episode-{match[1]} img.content__img"
-        if type(reader_confirmed) is not bool:
-            raise ArchiveError("Reader confirmation must be an explicit boolean.")
-        if reader_confirmed:
-            # Local worker callers may carry forward the user's previous
-            # explicit full-reader confirmation for this exact episode URL.
-            self._reader_confirmed_url = url
-        self.requested = (match[1], title, order, url)
-        self._manifest = Manifest(self.series, (self._capture(),))
-        return self._manifest
-
-    def _capture(self):
-        episode_id, title, order, url = self.requested
-        # Confirm the requested identity and signed-in session before reading
-        # the full-reader view. Metadata flags are annotations, not a veto.
-        verified = self.episode_access(url)
-        if (verified.get('source_episode_id') != episode_id or
-                not isinstance(verified.get('access_state'), str)):
-            raise ArchiveError('Manual capture requires metadata for this exact episode.')
-        if self.transport:
-            self.transport.close()
-            self.transport = None
-        self.page.goto(url, wait_until="domcontentloaded")
-        if canonical_url(self.page.url) != url:
-            raise ArchiveError("Reader navigated away from the requested episode.")
-        if getattr(self, "_reader_confirmed_url", None) != url:
-            answer = input(
-                "Is the FULL episode readable on your account (not just a preview)? [y/N]: ")
-            if answer.strip().lower() not in {"y", "yes"}:
-                raise ArchiveError("Capture canceled: full reader access was not confirmed.")
-            self._reader_confirmed_url = url
-        else:
-            print("Reusing your previous full-reader confirmation for this episode.")
-        # The normal initial reader HTML already includes the original signed
-        # sources in data-src. Image decoding/scrolling is unnecessary when all
-        # scoped elements expose real comic URLs. These URLs are not access proof.
-        rows = self.reader_rows(self.selector)
-        urls = ordered_sources(rows)
-        if urls is not None:
-            print(f"Captured {len(urls)} ordered page URLs without scrolling.", flush=True)
-            self.capture_mode = "reader_lazy_sources"
-        else:
-            print("Reader sources incomplete; loading pages through normal scrolling...", flush=True)
-            self.scroll_episode(url)
-            rows = self.reader_rows(self.selector)
-            urls = ordered_sources(rows)
-            if urls is None:
-                if not rows or any(r["tag"] != "IMG" or not r["loaded"] for r in rows):
-                    raise ArchiveError("Selector must match only loaded episode IMG elements.")
-                urls = [asset_url(r["url"]) for r in rows]
-            self.capture_mode = "reader_scrolled_sources"
-        if canonical_url(self.page.url) != url:
-            raise ArchiveError("Reader navigated away from the requested episode.")
-        if len(set(urls)) != len(urls):
-            raise ArchiveError("Duplicate image elements; narrow the reader selector.")
-        save_session(self.context, self.session)
-        if self.transport:
-            self.transport.close()
-        self.transport = Transport(self.context.cookies(), interval=getattr(self, "interval", 1.0),
-                                   network_guard=getattr(self,'network_guard',None), agent=getattr(self.context, 'agent', None))
-        return Episode(episode_id, self.series.id, title, order,
-                       tuple(Page(i, u, False) for i, u in enumerate(urls, 1)),
-                       verified['access_state'] if verified['access_state'] in {'tapas_free','tapas_unlocked','tapas_limited'} else 'tapas_readable',
-                       url, access_expires_at=verified.get('access_expires_at'))
-
     def manifest(self):
         return self._manifest
 
@@ -1580,14 +1467,5 @@ class TapasAdapter:
         return TapasHTTPAdapter.asset_request(self, page, max_bytes=max_bytes)
 
     def refresh(self, episode):
-        if getattr(self, "capture_mode", None) == "authenticated_html_manifest":
-            return self._automatic.refresh(episode)
-        new = self._capture()
-        from urllib.parse import urlsplit
-        if len(new.pages) != len(episode.pages) or any(
-            urlsplit(a.location).path != urlsplit(b.location).path
-            for a, b in zip(new.pages, episode.pages, strict=True)
-        ):
-            raise ArchiveError("Reader page manifest changed; restart capture to preserve ordering.")
-        return new
+        return self._automatic.refresh(episode)
 

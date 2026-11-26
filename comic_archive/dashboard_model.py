@@ -588,12 +588,6 @@ def card_rows(values=None):
     return [dict(name=name, value=values.get(name, NONE), warning=False, tip='') for name in CARD_FIELDS]
 
 
-def unopened_rows():
-    """The same permanent fields, including before a site has been opened."""
-    return card_rows({say('dashboard.account'): say('dashboard.not_signed_in'), say('dashboard.downloader'): say('dashboard.starts_after_sign_in'),
-                      say('dashboard.status'): say('dashboard.sign_in_to_get_started')})
-
-
 def updating(s):
     """Only activity the person started needs automatic local status reads."""
     return ((s.account or {}).get('status') == 'running' or s.task is not None

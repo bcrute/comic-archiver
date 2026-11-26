@@ -18,7 +18,6 @@ COLUMNS = (say('library.view.series'), say('library.title'), say('library.filena
 NOTE = (say('library.times_are_in_your_computers_time'))
 LOADING = say('library.loading_saved_files')
 UNAVAILABLE = say('app.saved_files_could_not_be_loaded')
-OPEN_FAILED = say('app.this_file_could_not_be_opened')
 NO_OPENER = say('library.no_app_could_open_this_file')
 OPENING = say('library.opening_in_your_devices_default_app')
 OPENED = say('library.sent_to_your_devices_default_app')
@@ -117,8 +116,3 @@ def notice(value):
 def title(site):
     """The page's title: one site's library, or None for every site's."""
     return say('library.your_saved_library', site=site) if site else say('library.your_saved_library_all_sites')
-
-
-def offset_for(page, limit):
-    """Where a page asked for by number starts."""
-    return (max(1, page) - 1) * limit
