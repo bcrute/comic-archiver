@@ -235,6 +235,103 @@ class NativeB2Tests(unittest.TestCase):
         self.server.on_upload = lambda: setattr(self.transfer.guard, 'check', lambda: (_ for _ in ()).throw(NetworkPolicyHold('held')))
         with self.assertRaises(NetworkPolicyHold): self.transfer.upload_bytes(b'archive', self.path)
 
+    def answer_first(self, operation, *answers):
+        """The first calls of one operation get these answers, an exception being raised; later ones reach the provider.
+
+        Returns the calls made and the stand-in for the wait between tries, so no test waits for real.
+        """
+        handler, pending, seen = self.server.request, list(answers), []
+        def request(req):
+            if req.url.path.split('/')[3:4] == [operation]:
+                seen.append(req)
+                if pending:
+                    answer = pending.pop(0)
+                    if isinstance(answer, Exception):
+                        raise answer
+                    return answer
+            return handler(req)
+        self.mock = httpx.MockTransport(request)
+        return seen, patch.object(self.transfer.cancel, 'wait', return_value=False).start()
+
+    def test_an_upload_the_provider_was_too_busy_for_is_sent_again_and_succeeds(self):
+        seen, wait = self.answer_first('b2_upload_file', httpx.Response(503, json={'status': 503, 'code': 'service_unavailable'}))
+        self.transfer.upload_bytes(b'archive', self.path)
+        self.assertEqual(self.server.files[self.path][1], b'archive')
+        self.assertEqual(len(seen), 2)
+        self.assertEqual([call.args for call in wait.call_args_list], [(1,)])
+
+    def test_an_upload_to_a_provider_that_stays_busy_ends_as_a_connection_failure_after_four_tries(self):
+        seen, wait = self.answer_first('b2_upload_file', *(httpx.Response(503) for _ in range(4)))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.upload_bytes(b'archive', self.path)
+        self.assertIs(type(error.exception), CloudTransferError)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual(len(seen), 4)
+        self.assertEqual([call.args for call in wait.call_args_list], [(1,), (2,), (4,)])
+        self.assertNotIn(self.path, self.server.files)
+
+    def test_an_upload_the_provider_refuses_as_a_bad_request_is_not_sent_again(self):
+        seen, wait = self.answer_first('b2_upload_file', httpx.Response(400, json={'status': 400, 'code': 'bad_request'}))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.upload_bytes(b'archive', self.path)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual(len(seen), 1)
+        self.assertNotIn(self.path, self.server.files)
+
+    def test_a_failed_upload_goes_again_to_a_new_upload_address_with_the_whole_file(self):
+        data = b'synthetic completed archive ' * 8192
+        source = self.root / 'episode.cbz'; source.write_bytes(data)
+        handler, sent = self.server.request, []
+        def request(req):
+            if req.url.path.endswith('/b2_get_upload_url'):
+                self.server.endpoint = f'https://pod-fixture.backblaze.com/b2api/v4/b2_upload_file/address{len(sent)}'
+            elif '/b2_upload_file/' in req.url.path:
+                sent.append((req.url.path.rsplit('/', 1)[-1], req.read() == data))
+                if len(sent) == 1:
+                    return httpx.Response(503, json={'status': 503, 'code': 'service_unavailable'})
+            return handler(req)
+        self.mock = httpx.MockTransport(request)
+        patch.object(self.transfer.cancel, 'wait', return_value=False).start()
+        self.transfer.upload(source, self.path, hashlib.sha256(data).hexdigest())
+        self.assertEqual(sent, [('address0', True), ('address1', True)])
+        self.assertEqual(self.server.files[self.path][1], data)
+
+    def test_an_upload_whose_connection_drops_or_times_out_is_sent_again(self):
+        seen, wait = self.answer_first('b2_upload_file', httpx.ConnectError('dropped'), httpx.ReadTimeout('slow'))
+        self.transfer.upload_bytes(b'archive', self.path)
+        self.assertEqual(self.server.files[self.path][1], b'archive')
+        self.assertEqual(len(seen), 3)
+
+    def test_the_wait_before_another_try_is_the_one_the_provider_asks_for_up_to_twenty_seconds(self):
+        seen, wait = self.answer_first('b2_upload_file', httpx.Response(503, headers={'Retry-After': '5'}),
+            httpx.Response(503, headers={'Retry-After': '86400'}))
+        self.transfer.upload_bytes(b'archive', self.path)
+        self.assertEqual(self.server.files[self.path][1], b'archive')
+        self.assertEqual([call.args for call in wait.call_args_list], [(5,), (20,)])
+
+    def test_a_part_of_a_large_upload_the_provider_was_too_busy_for_is_sent_again(self):
+        data = b'x' * PART + b'last part'
+        seen, wait = self.answer_first('b2_upload_part', httpx.Response(503))
+        pipe = self.transfer.start_stream(self.path)
+        try:
+            pipe.write(data); pipe.finish()
+        finally: pipe.close()
+        self.assertEqual(self.server.files[self.path][1], data)
+        self.assertEqual(len(seen), 3)
+        self.assertFalse(self.server.canceled)
+
+    def test_a_readback_the_provider_was_too_busy_for_is_asked_again(self):
+        self.transfer.upload_bytes(b'archive', self.path)
+        seen, wait = self.answer_first('b2_download_file_by_id', httpx.Response(503), httpx.ReadError('dropped'))
+        self.transfer.verify(self.path, hashlib.sha256(b'archive').hexdigest())
+        self.assertEqual(len(seen), 3)
+
+    def test_stopping_the_transfer_during_the_wait_ends_it_without_another_try(self):
+        seen, wait = self.answer_first('b2_upload_file', httpx.Response(503))
+        wait.side_effect = lambda seconds: self.transfer.cancel.set()
+        with self.assertRaises(ArchiveError) as error: self.transfer.upload_bytes(b'archive', self.path)
+        self.assertNotIsInstance(error.exception, CloudTransferError)
+        self.assertEqual(len(seen), 1)
+        self.assertNotIn(self.path, self.server.files)
+
     def test_native_signin_uses_same_private_config_without_downloading_helper(self):
         patch.object(cloud_runtime, '_android', True).start()
         patch('httpx.Client', side_effect=self.client).start()

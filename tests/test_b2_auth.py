@@ -138,6 +138,71 @@ class B2ConnectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ArchiveError, 'stopped'):self.connect()
         self.cancel.wait.assert_called_once_with(20); self.assertEqual(len(self.requests), 1)
 
+    def first_answers(self, *answers):
+        """The first calls get these answers, an exception being raised; later ones get the usual answers.
+
+        Returns the stand-in for the wait between tries, so no test waits for real.
+        """
+        pending = list(answers)
+        def request(req):
+            self.requests.append(req)
+            answer = pending.pop(0) if pending else httpx.Response(200, json=self.account if req.url.path.endswith('b2_authorize_account') else self.listing)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        self.transport = httpx.MockTransport(request)
+        return patch('comic_archive.b2_auth._pause').start()
+
+    def test_a_service_that_fails_once_is_asked_again_and_the_connection_is_made(self):
+        pause = self.first_answers(httpx.Response(500, json={'status':500, 'code':'internal_error'}))
+        self.assertEqual(self.connect()['archive_bucket'], self.bucket['name'])
+        self.assertEqual([c.args[0] for c in pause.call_args_list], [1])
+        self.assertEqual(len(self.requests), 3)
+
+    def test_a_connection_that_drops_or_times_out_is_tried_again_and_the_connection_is_made(self):
+        pause = self.first_answers(httpx.ConnectError('dropped'), httpx.ReadTimeout('slow'))
+        self.assertEqual(self.connect()['archive_bucket'], self.bucket['name'])
+        self.assertEqual([c.args[0] for c in pause.call_args_list], [1, 2])
+        self.assertEqual(len(self.requests), 4)
+
+    def test_a_service_that_keeps_failing_ends_as_a_connection_failure_after_four_tries(self):
+        pause = self.first_answers(*(httpx.Response(502) for _ in range(5)))
+        with self.assertRaises(CloudTransferError) as error:self.connect()
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual([c.args[0] for c in pause.call_args_list], [1, 2, 4])
+        self.assertEqual(len(self.requests), 4)
+
+    def test_a_request_that_keeps_timing_out_at_the_service_is_a_connection_failure_not_a_refusal(self):
+        self.first_answers(*(httpx.Response(408, json={'status':408, 'code':'request_timeout'}) for _ in range(5)))
+        with self.assertRaises(CloudTransferError) as error:self.connect()
+        # Cleanup reads a refusal as a file that is already gone; a timeout says no such thing.
+        self.assertNotIsInstance(error.exception, b2_auth.Refused)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual(len(self.requests), 4)
+
+    def test_a_call_the_service_refuses_as_a_bad_request_is_not_made_again(self):
+        pause = self.first_answers(httpx.Response(400, json={'status':400, 'code':'bad_request'}))
+        with self.assertRaises(b2_auth.Refused) as error:self.connect()
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual(len(self.requests), 1); pause.assert_not_called()
+
+    def test_a_copy_that_may_have_been_made_is_not_asked_for_twice_though_a_listing_is_read_again(self):
+        def asked(operation, *answers):
+            self.first_answers(*answers); self.requests.clear()
+            with self.factory(transport=self.transport) as client:
+                try:
+                    b2_auth._request(client, 'POST', 'https://api001.backblazeb2.com/b2api/v4/' + operation, Mock(), self.cancel, json={})
+                except CloudTransferError as error:
+                    return len(self.requests), error.cloud_code
+            return len(self.requests), None
+        # A second copy would stay in the bucket as a second version of the file.
+        self.assertEqual(asked('b2_copy_file', httpx.ReadTimeout('slow')), (1, 'cloud_connection'))
+        self.assertEqual(asked('b2_copy_file', httpx.Response(504)), (1, 'cloud_connection'))
+        # Too busy to take the call: no copy was made, so it is asked for again.
+        self.assertEqual(asked('b2_copy_file', httpx.Response(503)), (2, None))
+        self.assertEqual(asked('b2_list_file_names', httpx.ReadTimeout('slow')), (2, None))
+        self.assertEqual(asked('b2_list_file_names', httpx.Response(504)), (2, None))
+
     def test_key_must_be_for_the_bucket_named_in_setup(self):
         # Backblaze keeps the name as typed at creation; a different case is the same bucket.
         self.credentials['bucket'] = 'COMIC-library-fixture'

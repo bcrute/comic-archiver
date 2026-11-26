@@ -16,6 +16,8 @@ class B2CleanupTests(unittest.TestCase):
     def setUp(self):
         work = tempfile.TemporaryDirectory(); self.addCleanup(work.cleanup)
         self.root = Path(work.name)
+        # A failing service is asked again after a wait; the tests do not sit through it.
+        pause = patch('comic_archive.b2_auth._pause'); pause.start(); self.addCleanup(pause.stop)
         self.path = 'Comic-Archive/00000000-0000-0000-0000-000000000001/tests/00000000-0000-0000-0000-000000000002/00000000-0000-0000-0000-000000000003/episode.cbz'
         self.config = self.root/'b2.conf'
         self.config.write_text('[b2]\ntype=b2\narchive_bucket=comic-library-fixture\naccount=fixtureKeyID12\nkey=PrivateFixtureKey123\n'); self.config.chmod(0o600)
@@ -168,6 +170,14 @@ class B2CleanupTests(unittest.TestCase):
         real = self.request
         self.transport = httpx.MockTransport(
             lambda req: httpx.Response(500, json={}) if req.url.path.endswith('b2_cancel_large_file') else real(req))
+        with self.assertRaises(CloudTransferError) as error: self.transfer.delete_test_file(self.path)
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertFalse(self.removed)
+
+    def test_a_removal_that_times_out_at_the_service_stops_the_cleanup_and_is_not_taken_as_already_gone(self):
+        real = self.request
+        self.transport = httpx.MockTransport(
+            lambda req: httpx.Response(408, json={}) if req.url.path.endswith('b2_cancel_large_file') else real(req))
         with self.assertRaises(CloudTransferError) as error: self.transfer.delete_test_file(self.path)
         self.assertEqual(error.exception.cloud_code, 'cloud_connection')
         self.assertFalse(self.removed)

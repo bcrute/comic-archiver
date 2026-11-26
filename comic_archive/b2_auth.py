@@ -47,15 +47,25 @@ class Refused(CloudTransferError):
     """B2 turned one call down for a reason that is not the key, a cap or how busy it is."""
 
 
+# Backblaze answers these when it did not take the call, and expects it to be made again after a wait.
+BUSY = (408, 429, 503)
+# After these, as after a connection that dropped or timed out, the call may or may not have been carried out.
+UNSURE = (500, 502, 504)
+# Asked twice, a copy is kept as two versions of the file, so it is only repeated when B2 says it made none.
+ONCE = ('b2_copy_file',)
+
+
 def _request(client, method, url, guard, cancel, **options):
-    """One B2 call; a busy service is asked again a few times, waiting as it says, up to half a minute."""
+    """One B2 call; a busy or failing service, or a dropped connection, is tried again: four tries in all,
+    1, 2 then 4 seconds apart, or as long as B2 asks up to half a minute each, before it ends as a failure."""
+    unsure = () if url.rsplit('/', 1)[-1] in ONCE else UNSURE
     for attempt in range(4):
         if cancel.is_set():
             raise ArchiveError('Cloud sign-in stopped.')
         guard.check()
         try:
             with client.stream(method, url, **options) as response:
-                if response.status_code in (429, 503) and attempt < 3:
+                if response.status_code in BUSY + unsure and attempt < 3:
                     wait = retry_after_seconds(response.headers.get('Retry-After'))
                     wait = min(30, 2 ** attempt if wait is None else wait)
                 elif response.status_code == 403:
@@ -70,12 +80,19 @@ def _request(client, method, url, guard, cancel, **options):
                     raise CloudTransferError('b2_key_permissions')
                 elif response.status_code == 429:
                     raise CloudTransferError('cloud_rate_limited')
+                elif response.status_code == 408:
+                    # A timeout says nothing about the file asked about, so it is never read as "already gone".
+                    raise CloudTransferError('cloud_connection')
                 elif 400 <= response.status_code < 500:
                     raise Refused('cloud_connection')
                 elif response.status_code != 200:
                     raise CloudTransferError('cloud_connection')
                 else:
                     return _body(response, guard, cancel)
+        except httpx.TransportError:
+            if attempt == 3 or not unsure:
+                raise CloudTransferError('cloud_connection') from None
+            wait = 2 ** attempt
         except (httpx.HTTPError, ValueError):
             raise CloudTransferError('cloud_connection') from None
         _pause(wait, cancel)

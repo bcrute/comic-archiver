@@ -19,6 +19,7 @@ from .cloud_errors import CloudTransferError
 from .models import ArchiveError
 from .network import NetworkGuard
 from .publication import valid_export_id
+from .retry_after import retry_after_seconds
 from .transport import protect_http_logs
 
 PART = 5 * 1024**2
@@ -27,10 +28,25 @@ MAX_BUFFER = 64 * 1024**2
 HEX1 = re.compile(r'[a-f0-9]{40}')
 HEX256 = re.compile(r'[a-f0-9]{64}')
 IDENTIFIER = re.compile(r'[A-Za-z0-9_-]{1,512}')
+# Backblaze answers a busy moment with these, and expects the call to be made again after a wait.
+BUSY = (408, 500, 502, 503, 504)
+ATTEMPTS = 4
 
 
 def _fail(code='cloud_verification'):
     raise CloudTransferError(code)
+
+
+class _Busy(CloudTransferError):
+    """One try that B2 may accept if asked again; wait is the pause it asked for, when it named one."""
+    def __init__(self, wait=None):
+        super().__init__('cloud_connection')
+        self.wait = wait
+
+
+def _lost(error):
+    # A dropped or timed-out connection may work when tried again; an answer that cannot be read will not.
+    return _Busy() if isinstance(error, httpx.TransportError) else CloudTransferError('cloud_connection')
 
 
 def _token(value):
@@ -197,8 +213,29 @@ class NativeB2Transfer(Transfer):
             with self._client() as client, client.stream('POST', url, headers=headers, content=content) as response:
                 self._status(response)
                 return b2_auth._body(response, self.guard, self.cancel)
-        except (httpx.HTTPError, ValueError):
-            raise CloudTransferError('cloud_connection') from None
+        except (httpx.HTTPError, ValueError) as error:
+            raise _lost(error) from None
+
+    def _again(self, action):
+        """A busy service or a dropped connection is tried again: four tries in all, 1, 2 then 4 seconds apart,
+        or as long as B2 asks up to 20 seconds each, so an outage still ends as a connection failure."""
+        for attempt in range(ATTEMPTS):
+            try:
+                return action()
+            except _Busy as error:
+                if attempt == ATTEMPTS - 1:
+                    raise CloudTransferError('cloud_connection') from None
+                wait = min(20, 2 ** attempt if error.wait is None else error.wait)
+            # Stopping the transfer ends the wait early; the next try then checks before it sends anything.
+            self.cancel.wait(wait)
+
+    def _upload(self, operation, values, body, size, digest, **which):
+        """Send one file or part. B2 retires an upload address once an upload to it fails, so every try asks
+        for a new one and sends the bytes from their start."""
+        def send():
+            body.seek(0)
+            return self._send(self._call(operation, values), self._chunks(body, size), size, digest, **which)
+        return self._again(send)
 
     def _status(self, response):
         if response.status_code == 200:
@@ -210,6 +247,8 @@ class NativeB2Transfer(Transfer):
             pass
         if isinstance(code, str) and code.endswith('cap_exceeded'):
             _fail('cloud_cap')
+        if response.status_code in BUSY:
+            raise _Busy(retry_after_seconds(response.headers.get('Retry-After')))
         _fail({401: 'cloud_login_required', 403: 'cloud_permission', 429: 'cloud_rate_limited'}.get(
             response.status_code, 'cloud_connection'))
 
@@ -231,6 +270,9 @@ class NativeB2Transfer(Transfer):
         return whole.hexdigest(), sha1.hexdigest(), length
 
     def _download(self, item):
+        return self._again(lambda: self._fetch(item))
+
+    def _fetch(self, item):
         account = self._account()
         url = account['apiInfo']['storageApi']['downloadUrl'] + '/b2api/v4/b2_download_file_by_id'
         whole, length = hashlib.sha256(), 0
@@ -247,8 +289,8 @@ class NativeB2Transfer(Transfer):
                     if length > item['contentLength'] or time.monotonic() > deadline:
                         _fail()
                     whole.update(block)
-        except httpx.HTTPError:
-            raise CloudTransferError('cloud_connection') from None
+        except httpx.HTTPError as error:
+            raise _lost(error) from None
         if length != item['contentLength']:
             _fail()
         return whole.hexdigest()
@@ -297,8 +339,7 @@ class NativeB2Transfer(Transfer):
                 finally:
                     pipe.close()
             else:
-                destination = self._call('b2_get_upload_url', {'bucketId': self.bucket_id})
-                item = self._file(self._send(destination, self._chunks(stream, length), length, sha1, path=remote_path))
+                item = self._file(self._upload('b2_get_upload_url', {'bucketId': self.bucket_id}, stream, length, sha1, path=remote_path))
                 if item['fileName'] != remote_path or item['contentLength'] != length or item['contentSha1'] != sha1:
                     _fail()
         self.verify(remote_path, expected, source=source)
@@ -318,8 +359,7 @@ class NativeB2Transfer(Transfer):
                 pipe.close()
         else:
             sha1 = hashlib.sha1(data, usedforsecurity=False).hexdigest()
-            destination = self._call('b2_get_upload_url', {'bucketId': self.bucket_id})
-            item = self._file(self._send(destination, self._chunks(io.BytesIO(data), len(data)), len(data), sha1, path=remote_path))
+            item = self._file(self._upload('b2_get_upload_url', {'bucketId': self.bucket_id}, io.BytesIO(data), len(data), sha1, path=remote_path))
             if item['fileName'] != remote_path or item['contentLength'] != len(data) or item['contentSha1'] != sha1:
                 _fail()
 
@@ -408,9 +448,8 @@ class NativeB2Stream:
             _fail('cloud_transfer_limit')
         data = bytes(self.buffer); self.buffer.clear()
         sha1 = hashlib.sha1(data, usedforsecurity=False).hexdigest()
-        destination = self.transfer._call('b2_get_upload_part_url', {'fileId': self.file_id})
         number = len(self.parts) + 1
-        answer = self.transfer._send(destination, self.transfer._chunks(io.BytesIO(data), len(data)),
+        answer = self.transfer._upload('b2_get_upload_part_url', {'fileId': self.file_id}, io.BytesIO(data),
             len(data), sha1, part=number, file_id=self.file_id)
         if (answer.get('fileId') != self.file_id or type(answer.get('partNumber')) is not int
                 or type(answer.get('contentLength')) is not int or answer.get('partNumber') != number
