@@ -4808,14 +4808,6 @@
   "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
  },
  {
-  "id": "dc-version-checked",
-  "source": "comic_archive/download_control.py",
-  "old": "elif version not in (1, SCHEMA_VERSION) or ",
-  "new": "elif ",
-  "test_file": "test_download_control.py",
-  "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
- },
- {
   "id": "dc-symlink-refused",
   "source": "comic_archive/download_control.py",
   "old": "if path.is_symlink() or root.is_symlink():",
@@ -9528,14 +9520,6 @@
   "test": "test_unopened_provider_metadata_is_read_only_and_invalid_requests_are_refused"
  },
  {
-  "id": "library-series-saved-count-swapped",
-  "source": "comic_archive/window_library.py",
-  "old": "f\"{summary} \u00b7 {row['episodes']:,} listed\"",
-  "new": "f\"{row['episodes']:,} saved \u00b7 {row['saved']:,} listed\"",
-  "test_file": "test_window_pages.py",
-  "test": "test_library_series_shows_saved_and_listed_counts_in_that_order"
- },
- {
   "id": "library-episode-number-dropped",
   "source": "comic_archive/window_library.py",
   "old": "label = f\"{number} \u00b7 {row['title']}\" if type(number) is int else row['title']",
@@ -10792,14 +10776,6 @@
   "test": "test_library_recovery_refuses_the_same_folder_while_provider_storage_is_missing"
  },
  {
-  "id": "tappytoon-download-settings-go-to-tapas",
-  "source": "comic_archive/window_pages.py",
-  "old": "menu.addAction('Download settings\u2026', lambda: pages.open_download_choices(key))",
-  "new": "menu.addAction('Download settings\u2026', lambda: pages.open_download_choices('tapas'))",
-  "test_file": "test_window_pages.py",
-  "test": "test_tappytoon_download_menu_saves_only_the_free_checkbox_change"
- },
- {
   "id": "tappytoon-keep-excluded-free-only-episodes",
   "source": "comic_archive/download_selection.py",
   "old": "if chosen['free']:\n        parts.append(free)",
@@ -11394,7 +11370,7 @@
  {
   "id": "android-cleared-list-shown-with-nothing-listed",
   "source": "comic_archive/window_library.py",
-  "old": "(account.get('lists') or {}).get('checked')",
+  "old": "(account.get('lists') or {}).get('since_start')",
   "new": "True",
   "test_file": "test_android_cards.py",
   "test": "test_a_cleared_list_stays_hidden_when_its_fetch_stopped_before_listing_anything"
@@ -11466,7 +11442,7 @@
  {
   "id": "desktop-cleared-list-shown-with-nothing-listed",
   "source": "comic_archive/window_library.py",
-  "old": "(account.get('lists') or {}).get('checked')",
+  "old": "(account.get('lists') or {}).get('since_start')",
   "new": "True",
   "test_file": "test_window_pages.py",
   "test": "test_a_cleared_list_stays_cleared_when_its_fetch_stopped_before_listing_anything"
@@ -11774,5 +11750,229 @@
   "new": "if not isinstance(failure, dict):",
   "test_file": "test_support_log.py",
   "test": "test_image_failures_survive_rotation_and_only_export_known_fields"
+ },
+ {
+  "id": "library-series-saved-count-swapped",
+  "source": "comic_archive/window_library.py",
+  "old": "say('library.n_saved_n_listed', n=f\"{row['saved']:,}\", n2=f\"{row['episodes']:,}\")",
+  "new": "say('library.n_saved_n_listed', n=f\"{row['episodes']:,}\", n2=f\"{row['saved']:,}\")",
+  "test_file": "test_window_pages.py",
+  "test": "test_library_series_shows_saved_and_listed_counts_in_that_order"
+ },
+ {
+  "id": "tappytoon-download-settings-go-to-tapas",
+  "source": "comic_archive/window_pages.py",
+  "old": "menu.addAction(say('window.download_settings'), lambda: pages.open_download_choices(key))",
+  "new": "menu.addAction(say('window.download_settings'), lambda: pages.open_download_choices('tapas'))",
+  "test_file": "test_window_pages.py",
+  "test": "test_tappytoon_download_menu_saves_only_the_free_checkbox_change"
+ },
+ {
+  "id": "library-notice-calls-a-partial-list-complete",
+  "source": "comic_archive/window_library.py",
+  "old": "say('dashboard.partial_episode_list') if account.get('episode_list_partial') else say('dashboard.episode_list_ready')",
+  "new": "say('dashboard.episode_list_ready')",
+  "test_file": "test_window_pages.py",
+  "test": "test_list_completion_refreshes_after_current_library_work"
+ },
+ {
+  "id": "desktop-download-menu-retypes-a-phrase-the-phone-reads",
+  "source": "comic_archive/window_pages.py",
+  "old": "menu.addAction(say('window.clear_episode_list'), lambda",
+  "new": "menu.addAction('Clear episode list', lambda",
+  "test_file": "test_messages.py",
+  "test": "test_the_download_menu_and_the_library_choices_are_one_set_of_phrases_on_the_desktop_and_the_phone"
+ },
+ {
+  "id": "list-round-forgets-the-retry-a-held-check-is-owed",
+  "source": "comic_archive/download_control.py",
+  "old": "retry_owed=int(list_only and owed), steps_since_start=0,",
+  "new": "retry_owed=0, steps_since_start=0,",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_begun_over_a_check_that_found_episodes_missing_leaves_their_retry_to_the_next_go"
+ },
+ {
+  "id": "go-ignores-the-retry-owed-since-a-list-round",
+  "source": "comic_archive/download_control.py",
+  "old": "owed = bool(value['retry_owed']) or value['code'] == 'archive_incomplete'",
+  "new": "owed = value['code'] == 'archive_incomplete'",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_begun_over_a_check_that_found_episodes_missing_leaves_their_retry_to_the_next_go"
+ },
+ {
+  "id": "list-start-forgets-the-refused-episode",
+  "source": "comic_archive/download_control.py",
+  "old": "list_only=int(list_only), retry_owed=int(list_only and owed), steps_since_start=0,",
+  "new": "list_only=int(list_only), source_episode=None if list_only else value['source_episode'], retry_owed=int(list_only and owed), steps_since_start=0,",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_keeps_the_refused_episode_for_the_next_go_to_try_alone"
+ },
+ {
+  "id": "list-end-forgets-the-refused-episode",
+  "source": "comic_archive/download_control.py",
+  "old": "value.update(status='stopped', stage='archive', code=None)",
+  "new": "value.update(status='stopped', stage='archive', code=None, source_episode=None)",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_keeps_the_refused_episode_for_the_next_go_to_try_alone"
+ },
+ {
+  "id": "list-round-says-an-episode-is-tried-after-its-wait",
+  "source": "comic_archive/download_control.py",
+  "old": "            or value['list_only']):",
+  "new": "            or False):",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_keeps_the_refused_episode_for_the_next_go_to_try_alone"
+ },
+ {
+  "id": "list-round-keeps-the-series-checks-of-a-paused-round",
+  "source": "comic_archive/download_control.py",
+  "old": "            if outstanding is None:\n                _restart_series_checks(library, list_only)\n",
+  "new": "",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_begun_over_a_paused_round_of_series_checks_reads_every_series_again"
+ },
+ {
+  "id": "resumed-list-round-starts-over",
+  "source": "comic_archive/download_control.py",
+  "old": "if value['status'] == 'finished' or list_only and not resume_list:",
+  "new": "if value['status'] == 'finished' or list_only:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_list_round_begun_over_a_paused_round_of_series_checks_reads_every_series_again"
+ },
+ {
+  "id": "round-after-a-finished-one-keeps-checks-left-open",
+  "source": "comic_archive/download_control.py",
+  "old": "            if outstanding is None:\n                _restart_series_checks(library, list_only)\n",
+  "new": "            if outstanding is None and list_only:\n                _restart_series_checks(library, list_only)\n",
+  "test_file": "test_download_control.py",
+  "test": "test_go_after_a_finished_round_checks_every_series_again_though_the_last_round_of_checks_was_left_open"
+ },
+ {
+  "id": "steps-since-go-not-counted-from-none",
+  "source": "comic_archive/download_control.py",
+  "old": "retry_owed=int(list_only and owed), steps_since_start=0,",
+  "new": "retry_owed=int(list_only and owed),",
+  "test_file": "test_download_control.py",
+  "test": "test_the_list_and_series_steps_counted_since_go_start_from_none_at_each_go_and_last_through_a_start_of_the_app"
+ },
+ {
+  "id": "series-checks-not-counted-since-go",
+  "source": "comic_archive/download_control.py",
+  "old": "    if task['kind'] in ('list', 'series'):\n        value['steps_since_start'] += 1",
+  "new": "    if task['kind'] == 'list':\n        value['steps_since_start'] += 1",
+  "test_file": "test_download_control.py",
+  "test": "test_the_list_and_series_steps_counted_since_go_start_from_none_at_each_go_and_last_through_a_start_of_the_app"
+ },
+ {
+  "id": "steps-since-go-not-shown",
+  "source": "comic_archive/download_control.py",
+  "old": "'since_start': value['steps_since_start']}",
+  "new": "'since_start': 0}",
+  "test_file": "test_download_control.py",
+  "test": "test_the_list_and_series_steps_counted_since_go_start_from_none_at_each_go_and_last_through_a_start_of_the_app"
+ },
+ {
+  "id": "record-from-before-the-step-count-not-brought-up",
+  "source": "comic_archive/download_control.py",
+  "old": "        elif version != SCHEMA_VERSION:",
+  "new": "        elif version == 1:",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_made_before_steps_were_counted_keeps_its_progress_and_counts_from_none"
+ },
+ {
+  "id": "dc-version-checked",
+  "source": "comic_archive/download_control.py",
+  "old": "elif not 1 <= version <= SCHEMA_VERSION or ",
+  "new": "elif ",
+  "test_file": "test_download_control.py",
+  "test": "test_a_record_from_another_version_or_damaged_holds_and_go_sets_it_aside_and_starts_again"
+ },
+ {
+  "id": "round-of-checks-started-anew-keeps-its-old-start",
+  "source": "comic_archive/inventory.py",
+  "old": "\"INSERT INTO settings VALUES ('scan_cycle_started',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value\",(timestamp(),))",
+  "new": "\"INSERT INTO settings VALUES ('scan_cycle_started',?) ON CONFLICT(key) DO NOTHING\",(timestamp(),))",
+  "test_file": "test_inventory.py",
+  "test": "test_a_round_of_checks_started_anew_checks_every_series_again_and_drops_a_retry_of_only_some"
+ },
+ {
+  "id": "round-of-checks-started-anew-keeps-a-retry-of-some",
+  "source": "comic_archive/inventory.py",
+  "old": "            # Every series is read again, so a retry of only some of them has nothing left of its own.\n            self.db.execute(\"DELETE FROM settings WHERE key='completion_retry'\")",
+  "new": "            # Every series is read again, so a retry of only some of them has nothing left of its own.\n            pass",
+  "test_file": "test_inventory.py",
+  "test": "test_a_round_of_checks_started_anew_checks_every_series_again_and_drops_a_retry_of_only_some"
+ },
+ {
+  "id": "one-comic-ticked-restarts-every-series-check",
+  "source": "comic_archive/comic_selection.py",
+  "old": "    db.execute('DELETE FROM series_scans WHERE series_id=?', (series_id,))",
+  "new": "    db.execute(\"INSERT INTO settings VALUES ('scan_cycle_started',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value\", (timestamp(),))",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_one_comic_has_only_that_comic_read_again_and_unticking_one_has_none_read"
+ },
+ {
+  "id": "one-comic-unticked-restarts-every-series-check",
+  "source": "comic_archive/comic_selection.py",
+  "old": "    if not added:\n        return\n",
+  "new": "    if not added:\n        series_id = None\n",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_one_comic_has_only_that_comic_read_again_and_unticking_one_has_none_read"
+ },
+ {
+  "id": "comic-already-chosen-is-read-again",
+  "source": "comic_archive/comic_selection.py",
+  "old": "added = chosen and not includes(value, series_id)",
+  "new": "added = chosen",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_one_comic_has_only_that_comic_read_again_and_unticking_one_has_none_read"
+ },
+ {
+  "id": "every-comic-ticked-does-not-restart-the-checks",
+  "source": "comic_archive/comic_selection.py",
+  "old": "        added = chosen\n",
+  "new": "        added = False\n",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_one_comic_has_only_that_comic_read_again_and_unticking_one_has_none_read"
+ },
+ {
+  "id": "comic-ticked-after-a-finished-round-is-not-read",
+  "source": "comic_archive/comic_selection.py",
+  "old": "    db.execute(\"INSERT OR IGNORE INTO settings VALUES ('scan_cycle_started',?)\", (earliest or timestamp(),))",
+  "new": "    pass",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_a_comic_after_a_finished_round_of_checks_opens_it_again_for_that_comic_alone"
+ },
+ {
+  "id": "comic-ticked-after-a-finished-round-restarts-every-check",
+  "source": "comic_archive/comic_selection.py",
+  "old": "(earliest or timestamp(),)",
+  "new": "(timestamp(),)",
+  "test_file": "test_comic_selection.py",
+  "test": "test_ticking_a_comic_after_a_finished_round_of_checks_opens_it_again_for_that_comic_alone"
+ },
+ {
+  "id": "go-after-a-finished-round-refused-while-the-library-is-written",
+  "source": "comic_archive/download_control.py",
+  "old": "    except LibraryBusy:\n        if must:\n            raise\n",
+  "new": "    except LibraryBusy:\n        raise\n",
+  "test_file": "test_download_control.py",
+  "test": "test_go_after_a_finished_round_starts_while_something_else_writes_the_library_and_a_list_round_waits"
+ },
+ {
+  "id": "list-round-starts-without-its-checks-while-the-library-is-written",
+  "source": "comic_archive/download_control.py",
+  "old": "    except LibraryBusy:\n        if must:\n            raise\n",
+  "new": "    except LibraryBusy:\n        pass\n",
+  "test_file": "test_download_control.py",
+  "test": "test_go_after_a_finished_round_starts_while_something_else_writes_the_library_and_a_list_round_waits"
+ },
+ {
+  "id": "go-waits-on-whatever-is-writing-the-library",
+  "source": "comic_archive/download_control.py",
+  "old": "wait_for_library(library, 3 if must else 0)",
+  "new": "wait_for_library(library, 3)",
+  "test_file": "test_download_control.py",
+  "test": "test_go_after_a_finished_round_starts_while_something_else_writes_the_library_and_a_list_round_waits"
  }
 ]
