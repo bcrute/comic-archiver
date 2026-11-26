@@ -340,6 +340,7 @@ class PublicationStore(Store):
             self.provenance = directory(self.root / '.archive-state/provenance', self.root)
             self.provenance.chmod(0o700)
             self._published_sidecars={}
+            self._saved_series_read=False
             self._recover_series_keys()
         except BaseException:
             self.close(); raise
@@ -364,9 +365,42 @@ class PublicationStore(Store):
                     raise ArchiveError('Multiple export identities exist for one series; existing files are retained.')
                 self.db.execute('INSERT OR IGNORE INTO export_series_keys VALUES (?,?,?)',(source,canonical,key))
 
+    def _adopt_saved_series(self):
+        """Give each series saved here that the index does not hold the key, id and folder its own record names.
+
+        The index is kept in the cache folder, which can be cleared, or left out of a backup, while the library
+        stays: a series given a new id then would get a second folder beside the one it has. Only a record its
+        private provenance vouches for is believed, so no series is given the folder of another with its name.
+        One listing of the library and the series record of each folder the index does not hold; no episode is read.
+        """
+        indexed={row[0] for row in self.db.execute('SELECT path FROM series_paths')}
+        for name in sorted(os.listdir(self.root)):
+            if name.startswith('.') or name in indexed: continue
+            try:
+                metadata,private=import_record(self.stored_path(name)/'series.json')
+                if private is None: continue  # An older record names no export id.
+                source,canonical,export_id=metadata.get('source'),metadata.get('source_series_id'),private.stem
+                key=metadata.get('library_series_id',canonical)
+                if (not name.endswith('['+export_id[:12]+']') or not all(isinstance(v,str) and v for v in (source,canonical,key))
+                        or self.db.execute('SELECT 1 FROM export_series_keys WHERE source=? AND (source_series_id=? OR series_id=?)',
+                                           (source,canonical,key)).fetchone()):
+                    continue  # Not a folder named here, or the index already has a folder for the series.
+                # The one that can be refused goes first, so nothing of a refused folder is left in the index.
+                self.db.execute('INSERT INTO export_ids VALUES (?,?,?,?)',(source,key,'',export_id))
+                self.db.execute('INSERT INTO export_series_keys VALUES (?,?,?)',(source,canonical,key))
+                self.db.execute('INSERT OR REPLACE INTO series_paths VALUES (?,?,?)',(source,key,name))
+            except (ArchiveError,OSError,ValueError,TypeError,sqlite3.IntegrityError): continue  # Unreadable: left as it is.
+        self.db.commit()
+        self._saved_series_read=True
+
     def series_export_key(self, source, series_id, platform_id=None):
         canonical=platform_id or series_id
-        row=self.db.execute('SELECT series_id FROM export_series_keys WHERE source=? AND source_series_id=?',(source,canonical)).fetchone()
+        known=lambda:self.db.execute('SELECT series_id FROM export_series_keys WHERE source=? AND source_series_id=?',(source,canonical)).fetchone()
+        row=known()
+        if not row and not self._saved_series_read:
+            # Once for each time the library is opened, and only for a series the index does not have.
+            self._adopt_saved_series()
+            row=known()
         if row: return row[0]
         # Two series can share a name (Webtoon Canvas series are named by their creators); the later one
         # takes its site number too, or both would share a folder. A key already given never changes.

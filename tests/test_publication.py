@@ -2,6 +2,7 @@ import io
 import json
 from pathlib import Path
 import random
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -141,6 +142,80 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(publish('222','818182'),(second,'same-name-222'))
         self.assertEqual(len(list(self.root.glob('*/*.cbz'))),2)
         self.assertEqual(verify(self.root),[])
+
+    def test_a_series_keeps_its_folder_and_id_when_the_cache_index_is_lost(self):
+        folder=self.publish();series_id=json.loads((folder/'series.json').read_text())['export_id']
+        shutil.rmtree(self.root/'.archive-cache')
+        self.episode=replace(self.episode,id='818182',title='Chapter two',order=2)
+        self.assertEqual(self.publish(),folder)
+        self.assertEqual([path.parent for path in self.root.glob('*/series.json')],[folder])
+        self.assertEqual(len(list(folder.glob('*.cbz'))),2)
+        self.assertEqual(json.loads((folder/'series.json').read_text())['export_id'],series_id)
+        store=PublicationStore(self.root)
+        try:
+            self.assertEqual(store.db.execute("SELECT series_id,id FROM export_ids WHERE source='tapas' AND episode_id=''").fetchall(),
+                             [('424242',series_id)])
+            self.assertEqual(store.db.execute('SELECT path FROM series_paths').fetchall(),[(folder.name,)])
+        finally:store.close()
+        self.assertEqual(verify(self.root),[])
+
+    def test_two_series_with_one_name_keep_their_own_folders_when_the_cache_index_is_lost(self):
+        def publish(number, episode):
+            series=replace(self.series,id='same-name',slug='same-name',platform_id=number,
+                           source_url=f'https://tapas.io/series/{number}/info')
+            store=PublicationStore(self.root)
+            try:
+                folder=store.archive(Manifest(series,(replace(self.episode,id=episode,series_id=series.id),)),
+                                     MemoryAdapter(),progress=lambda _:None)
+                return folder,store.series_export_key('tapas','same-name',number)
+            finally:store.close()
+        first=publish('111','818181');second=publish('222','818182')
+        self.assertNotEqual(first[0],second[0])
+        shutil.rmtree(self.root/'.archive-cache')
+        # The later one first: only its own record says it is not the series that has the plain name.
+        self.assertEqual(publish('222','818183'),second)
+        self.assertEqual(publish('111','818184'),first)
+        self.assertEqual(sorted(path.parent for path in self.root.glob('*/series.json')),sorted((first[0],second[0])))
+        self.assertEqual([len(list(folder.glob('*.cbz'))) for folder in (first[0],second[0])],[2,2])
+        self.assertEqual(verify(self.root),[])
+
+    def test_an_unreadable_series_record_is_passed_over_and_the_other_series_keep_their_folders_when_the_cache_index_is_lost(self):
+        folder=self.publish()
+        other=Series('999','Second',source_url='https://tapas.io/series/999/info',platform_id='999')
+        store=PublicationStore(self.root)
+        try:
+            damaged=store.archive(Manifest(other,(Episode('777','999','Other',1,self.episode.pages,'tapas_unlocked'),)),
+                                  MemoryAdapter(),progress=lambda _:None)
+        finally:store.close()
+        self.assertLess(damaged.name,folder.name)  # The damaged one is read first.
+        (damaged/'series.json').write_text('{')
+        shutil.rmtree(self.root/'.archive-cache')
+        self.episode=replace(self.episode,id='818182',title='Chapter two',order=2)
+        self.assertEqual(self.publish(),folder)
+        self.assertEqual(sorted(path.parent for path in self.root.glob('*/series.json')),sorted((folder,damaged)))
+        self.assertEqual(len(list(folder.glob('*.cbz'))),2)
+        self.assertEqual(((damaged/'series.json').read_text(),len(list(damaged.glob('*.cbz')))),('{',1))
+
+    def test_a_series_already_left_with_two_folders_keeps_to_the_first_of_them_when_the_cache_index_is_lost_again(self):
+        first=self.publish()
+        shutil.rmtree(self.root/'.archive-cache')
+        self.episode=replace(self.episode,id='818182',title='Chapter two',order=2)
+        with patch.object(PublicationStore,'_adopt_saved_series'):  # As it was before: a second folder for the series.
+            second=self.publish()
+        self.assertNotEqual(first,second)
+        shutil.rmtree(self.root/'.archive-cache')
+        self.episode=replace(self.episode,id='818183',title='Chapter three',order=3)
+        kept=min((first,second),key=lambda folder:folder.name)
+        self.assertEqual(self.publish(),kept)
+        self.assertEqual(sorted(path.parent for path in self.root.glob('*/series.json')),sorted((first,second)))
+        self.assertEqual(len(list(kept.glob('*.cbz'))),2)
+
+    def test_a_series_the_cache_index_knows_is_saved_without_listing_the_library(self):
+        folder=self.publish()
+        self.episode=replace(self.episode,id='818182',title='Chapter two',order=2)
+        with patch.object(PublicationStore,'_adopt_saved_series',side_effect=AssertionError('The library was listed.')):
+            self.assertEqual(self.publish(),folder)
+        self.assertEqual(len(list(folder.glob('*.cbz'))),2)
 
     def test_tar_terminator_crossing_a_record_boundary_survives_publication_and_offline_restore(self):
         # A complete PNG with a valid ancillary text chunk makes a 9,216-byte page.
