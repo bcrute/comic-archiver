@@ -50,6 +50,36 @@ class UpdateTests(unittest.TestCase):
             updates.check('0.5.4', self.path, True, now=102)
             self.assertEqual(fetch.call_count, 2)
 
+    def test_a_failed_check_keeps_the_newer_version_an_earlier_check_found(self):
+        updates.set_automatic(self.path, True)
+        with patch.object(updates, 'fetch', return_value='0.5.5'):
+            self.assertEqual(updates.check('0.5.4', self.path, now=100)['status'], 'available')
+        with patch.object(updates, 'fetch', side_effect=OSError('offline')) as fetch:
+            for now in (100 + updates.DAY, 101 + updates.DAY):
+                value = updates.check('0.5.4', self.path, now=now)
+                self.assertEqual((value['status'], value['latest']), ('available', '0.5.5'))
+                self.assertEqual(updates.preferences(self.path)['latest'], '0.5.5')
+            fetch.assert_called_once()
+
+    def test_a_failed_manual_check_says_it_failed_even_when_a_newer_version_is_known(self):
+        updates.set_automatic(self.path, True)
+        with patch.object(updates, 'fetch', return_value='0.5.5'):
+            self.assertEqual(updates.check('0.5.4', self.path, True, now=100)['status'], 'available')
+        with patch.object(updates, 'fetch', side_effect=OSError('offline')):
+            self.assertEqual(updates.check('0.5.4', self.path, True, now=101),
+                             {'status': 'unavailable', 'latest': None, 'url': updates.DOWNLOAD})
+            self.assertEqual(updates.check('0.5.4', self.path, now=102)['status'], 'available')
+
+    def test_a_failed_check_does_not_repeat_an_earlier_up_to_date_answer(self):
+        updates.set_automatic(self.path, True)
+        with patch.object(updates, 'fetch', return_value='0.5.4'):
+            self.assertEqual(updates.check('0.5.4', self.path, now=100)['status'], 'current')
+        with patch.object(updates, 'fetch', side_effect=OSError('offline')):
+            for now in (100 + updates.DAY, 101 + updates.DAY):
+                self.assertEqual(updates.check('0.5.4', self.path, now=now)['status'], 'unavailable')
+        with patch.object(updates, 'fetch', return_value='0.5.4'):
+            self.assertEqual(updates.check('0.5.4', self.path, now=100 + 2 * updates.DAY)['status'], 'current')
+
     def test_unknown_current_version_does_not_claim_up_to_date(self):
         with patch.object(updates, 'fetch', return_value='0.5.4'):
             self.assertEqual(updates.check('unknown', self.path, True)['status'], 'unavailable')

@@ -82,12 +82,14 @@ def check(current, cache_file, force=False, now=None, platform='desktop'):
             return {'status': 'disabled', 'latest': None, 'url': DOWNLOAD}
         checked = cached.get('checked')
         fresh = type(checked) in (int, float) and 0 <= now - checked < DAY
+        failed = False
         if force or not fresh:
             try:
                 latest = fetch(platform)
             except Exception:
-                latest = None
-            cached.update(checked=now, latest=latest)
+                # A newer release an earlier check found is still newer. The time still moves: no request on every launch.
+                latest, failed = cached.get('latest'), True
+            cached.update(checked=now, latest=latest, failed=failed)
             try:
                 save(cache_file, cached)
             except OSError:
@@ -97,6 +99,9 @@ def check(current, cache_file, force=False, now=None, platform='desktop'):
             if not isinstance(latest, str) or not re.fullmatch(r'\d+\.\d+\.\d+', latest):
                 raise ValueError('No valid release')
             available = version_key(latest) > version_key(current)
+            # A manual check that failed says so, and after any failed check "up to date" is no longer known.
+            if failed and force or cached.get('failed') is True and not available:
+                raise ValueError('Check failed')
         except (ValueError, TypeError):
             return {'status': 'unavailable', 'latest': None, 'url': DOWNLOAD}
         return {'status': 'available' if available else 'current', 'latest': latest, 'url': DOWNLOAD}
