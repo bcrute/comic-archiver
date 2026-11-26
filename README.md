@@ -17,8 +17,9 @@ goes into a folder called `Comic Archiver` in your user folder, one folder per s
 
 **Comic Archiver doesn't track you, and your login only ever goes to the comic site.**
 
-- **No tracking of any kind.** No analytics, no usage statistics, no crash reports, no ads. The app never contacts
-  me or any server of mine. There isn't one.
+- **No tracking of any kind.** No analytics, no usage statistics, no crash reports, no ads. The app sends me
+  nothing. The one thing it can fetch from my website is a small version file, and only when you press
+  **Check for updates** or turn on the daily check, which is off by default (see [Version checks](#version-checks)).
 - **Your password goes straight to the comic site.** When you sign in, you're typing into the comic site's
   own sign-in page, shown inside the app's window. Your password goes to the site, just as it would in your web
   browser. The app never reads it and never saves it.

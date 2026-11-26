@@ -51,7 +51,8 @@
     },
     {
       "name": "Choosing single series",
-      "text": "Save only the series you pick."
+      "text": "Save only the series you pick.",
+      "in": "0.5.5"
     },
     {
       "name": "Reading the saved extras",
