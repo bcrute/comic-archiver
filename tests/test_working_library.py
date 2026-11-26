@@ -16,7 +16,7 @@ from unittest.mock import patch
 import uuid
 import zipfile
 
-from comic_archive import cloud, cloud_history, sites
+from comic_archive import cloud, cloud_history, comic_selection, episode_index, sites
 from comic_archive.archive import Store, sidecar_path, verify
 from comic_archive.errors import AuthenticationError
 from comic_archive.inventory import Inventory
@@ -387,6 +387,88 @@ class WorkingLibraryTests(unittest.TestCase):
         self.assertFalse(result.sites[0].account_bound)
         with Inventory(self.output / 'Library') as inventory:
             self.assertEqual(inventory.account_binding_state('11'), 'unbound')
+
+    def test_comics_left_out_stay_left_out_in_the_adopted_copy_even_with_nothing_saved_from_them(self):
+        root, _, _, _ = self.publish()
+        waiting = {'id': '91', 'title': 'Waiting', 'order': 1, 'access_state': sites.DEFAULT.free}
+        with Inventory(root) as inventory:
+            inventory.observe('43', 'Unsaved series', [waiting], 'subscribed')
+            for key in ('42', '43'):
+                comic_selection.change(inventory.db, False, key)
+        prepare_snapshot(self.source, self.output)
+        target = self.output / 'Library'
+        self.assertEqual([item['selected'] for item in episode_index.page(target)['items']], [False])
+        with Inventory(target) as inventory:
+            self.assertEqual(comic_selection.read(inventory.db), {'default': True, 'exceptions': ['42', '43']})
+            # The account's next check finds their episodes again: none may be queued.
+            inventory.observe('42', 'Saved series', [waiting | {'id': '82', 'order': 2}], 'subscribed')
+            inventory.observe('43', 'Unsaved series', [waiting], 'subscribed')
+            self.assertEqual(inventory.pending(), [])
+
+    def test_an_episode_left_out_before_it_was_saved_is_still_left_out_when_the_adopted_copy_finds_it_again(self):
+        root, _, _, _ = self.publish()
+        waiting = {'id': '82', 'title': 'Waiting', 'order': 2, 'access_state': sites.DEFAULT.free}
+        with Inventory(root) as inventory:
+            inventory.observe('42', 'Saved series', [waiting], 'subscribed')
+            for key in ('81', '82'):
+                comic_selection.change_episode(inventory.db, False, '42', key)
+        prepare_snapshot(self.source, self.output)
+        target = self.output / 'Library'
+        self.assertEqual([item['selected'] for item in episode_index.page(target, '42')['items']], [False])
+        with Inventory(target) as inventory:
+            inventory.observe('42', 'Saved series', [waiting, waiting | {'id': '83', 'order': 3}], 'subscribed')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['83'])
+        self.assertEqual([item['selected'] for item in episode_index.page(target, '42')['items']], [False, False, True])
+
+    def test_choices_stay_behind_their_account_and_an_unclaimed_library_hands_none_to_another_account(self):
+        for bound in (True, False):
+            with self.subTest(bound=bound), tempfile.TemporaryDirectory(dir=self.base) as name:
+                self.source, self.output = Path(name) / 'source', Path(name) / 'output'
+                root, _, _, _ = self.publish(bind=bound)
+                with Inventory(root) as inventory:
+                    comic_selection.change(inventory.db, False, '42')
+                    comic_selection.change_episode(inventory.db, True, '42', '81')
+                prepare_snapshot(self.source, self.output)
+                with Inventory(self.output / 'Library') as inventory:
+                    if bound:
+                        with self.assertRaises(AuthenticationError):
+                            inventory.bind_account('different-account')
+                    else:
+                        inventory.bind_account('different-account')
+                    self.assertEqual(comic_selection.read(inventory.db)['exceptions'], ['42'] if bound else [])
+                    self.assertEqual(comic_selection.episode_choices(inventory.db), {'81': ('42', True)} if bound else {})
+
+    def test_a_library_from_before_comics_or_episodes_could_be_chosen_is_adopted_with_everything_chosen(self):
+        root, _, _, _ = self.publish()
+        absent = ("SELECT (SELECT COUNT(*) FROM settings WHERE key='comic_selection')"
+                  "+(SELECT COUNT(*) FROM sqlite_master WHERE name='comic_episode_choices')")
+        with Inventory(root) as inventory:
+            self.assertEqual(inventory.db.execute(absent).fetchone()[0], 0)
+        prepare_snapshot(self.source, self.output)
+        with Inventory(self.output / 'Library') as inventory:
+            self.assertEqual(inventory.db.execute(absent).fetchone()[0], 0)
+            inventory.observe('42', 'Saved series', [{'id': '82', 'title': 'Waiting', 'order': 2,
+                                                     'access_state': sites.DEFAULT.free}], 'subscribed')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['82'])
+
+    def test_damaged_comic_or_episode_choices_refuse_the_copy_instead_of_choosing_everything(self):
+        for kind, change in (
+                ('not-json', "INSERT INTO settings VALUES ('comic_selection','PRIVATE not json')"),
+                ('unknown-shape', """INSERT INTO settings VALUES ('comic_selection','{"default": true}')"""),
+                ('not-an-id', """INSERT INTO settings VALUES ('comic_selection','{"default": true, "exceptions": ["PRIVATE"]}')"""),
+                ('episode-view', "CREATE VIEW comic_episode_choices AS SELECT '81' AS episode_id, 0 AS chosen"),
+                ('episode-not-an-id', "INSERT INTO comic_episode_choices VALUES ('PRIVATE',0)"),
+                ('episode-unknown-value', "INSERT INTO comic_episode_choices VALUES ('81',2)"),
+                ('episode-twice', "INSERT INTO comic_episode_choices VALUES ('81',0),('81',1)")):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir=self.base) as name:
+                self.source, self.output = Path(name) / 'source', Path(name) / 'output'
+                root, _, _, _ = self.publish()
+                with closing(sqlite3.connect(root / '.archive-state/inventory.sqlite3')) as db:
+                    if kind.startswith('episode-') and kind != 'episode-view':
+                        # Made without the app's own constraints, as a damaged or crafted file could be.
+                        db.execute('CREATE TABLE comic_episode_choices (episode_id TEXT, chosen INTEGER)')
+                    db.executescript(change)
+                self.assert_refused()
 
     def test_empty_location_creates_an_empty_held_inventory(self):
         (self.source / 'Library').mkdir(parents=True)

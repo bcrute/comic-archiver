@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from urllib.parse import quote
 import uuid
 
-from . import cloud, cloud_history, sites
+from . import cloud, cloud_history, comic_selection, sites
 from .archive import (MAX_PACKED_ARCHIVE_BYTES, archive_from_sidecar, atomic_json, directory,
                       sidecar_path, verify_episode_contents, verify_series)
 from .discovery import observed_id
@@ -212,7 +212,7 @@ def _account(root, scratch, check):
     if not source.exists():
         if any(Path(str(source) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
             raise LibraryImportError('incomplete')
-        return {}, []
+        return {}, [], None, []
     local = scratch / 'inventory.sqlite3'
     for suffix in ('', '-wal', '-shm', '-journal'):
         path = Path(str(source) + suffix)
@@ -241,13 +241,17 @@ def _account(root, scratch, check):
         db.set_progress_handler(budget, 1000)
         if db.execute('PRAGMA quick_check(1)').fetchone() != ('ok',):
             raise LibraryImportError()
-        tables = dict(db.execute("SELECT name,type FROM sqlite_master WHERE name IN ('settings','episodes')"))
-        if tables != {'settings': 'table', 'episodes': 'table'}:
+        tables = dict(db.execute(
+            "SELECT name,type FROM sqlite_master WHERE name IN ('settings','episodes','comic_episode_choices')"))
+        # A library from before single episodes could be chosen has no table of them.
+        episode_table = tables.pop('comic_episode_choices', None)
+        if tables != {'settings': 'table', 'episodes': 'table'} or episode_table not in (None, 'table'):
             raise LibraryImportError()
 
         def authorize(action, table, column, database, origin):
             allowed = action == sqlite3.SQLITE_SELECT or (
-                action == sqlite3.SQLITE_READ and table in {'settings', 'episodes'} and database == 'main' and origin is None)
+                action == sqlite3.SQLITE_READ and table in {'settings', 'episodes', 'comic_episode_choices'}
+                and database == 'main' and origin is None)
             return sqlite3.SQLITE_OK if allowed else sqlite3.SQLITE_DENY
 
         db.set_authorizer(authorize)
@@ -258,11 +262,29 @@ def _account(root, scratch, check):
                 or not re.fullmatch(r'[a-fA-F0-9]{64}', binding['account_salt'])
                 or not isinstance(binding.get('account_binding'), str) or not HASH.fullmatch(binding['account_binding'])):
             raise LibraryImportError()
+        # Of every other setting only the comic and episode choices are adopted, each in its known shape.
+        # Damaged choices refuse the copy: read as everything chosen, the next download would fetch what was left out.
+        rows = db.execute('SELECT value FROM settings WHERE key=?', (comic_selection.KEY,)).fetchmany(2)
+        selection = None
+        if rows:
+            try:
+                if len(rows) > 1 or not isinstance(rows[0][0], str) or len(rows[0][0]) > MAX_JSON:
+                    raise ValueError
+                selection = comic_selection.validate(json.loads(rows[0][0]))
+            except (ValueError, TypeError, RecursionError, ArchiveError):
+                raise LibraryImportError() from None
+        episode_choices = []
+        if episode_table:
+            episode_choices = db.execute('SELECT episode_id,chosen FROM comic_episode_choices').fetchmany(MAX_FILES + 1)
+            if (len(episode_choices) > MAX_FILES or len(dict(episode_choices)) != len(episode_choices)
+                    or any(not observed_id(key) or type(chosen) is not int or chosen not in (0, 1)
+                           for key, chosen in episode_choices)):
+                raise LibraryImportError()
         archived = db.execute("SELECT id,series_id,archive_path FROM episodes WHERE status='archived'").fetchmany(MAX_FILES + 1)
         if len(archived) > MAX_FILES:
             raise LibraryImportError()
         _poll(check)
-        return binding, archived
+        return binding, archived, selection, episode_choices
 
 
 def _copy(source, target, check, maximum=None):
@@ -429,7 +451,7 @@ def _publish_metadata(root, target, source, original, value, export_id, check, *
 
 
 def _site(source, target, site, inputs, scratch, check):
-    binding, archived = _account(source, scratch, check)
+    binding, archived, selection, episode_choices = _account(source, scratch, check)
     relative_inputs = {Path(k).relative_to(source).as_posix(): v for k, v in inputs.items()
                        if Path(k).is_relative_to(source)}
     own = source / '.archive-state/cloud/targets.json'
@@ -449,6 +471,17 @@ def _site(source, target, site, inputs, scratch, check):
     with closing(PublicationStore(target)) as store, Inventory(target) as inventory:
         with inventory.db:
             inventory.db.executemany('INSERT INTO settings VALUES (?,?)', sorted(binding.items()))
+            # Choices travel only with the account binding they were made under: a library no account has
+            # claimed would hand them to whichever account signs in next. Ids with nothing saved here are kept,
+            # since a comic or episode left out usually has no saved file and a choice applies once its comic or
+            # episode is recorded again. This new inventory has no scan round or completed check to invalidate.
+            if binding and selection is not None:
+                inventory.db.execute('INSERT INTO settings VALUES (?,?)',
+                                     (comic_selection.KEY, json.dumps(selection, sort_keys=True)))
+            if binding and episode_choices:
+                inventory.db.execute('CREATE TABLE IF NOT EXISTS comic_episode_choices '
+                                     '(episode_id TEXT PRIMARY KEY, chosen INTEGER NOT NULL CHECK (chosen IN (0, 1)))')
+                inventory.db.executemany('INSERT INTO comic_episode_choices VALUES (?,?)', episode_choices)
         for folder in _children(source):
             if folder.name.startswith('.'):
                 continue
