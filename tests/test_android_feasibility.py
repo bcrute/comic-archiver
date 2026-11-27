@@ -262,6 +262,22 @@ class JvmFailureTests(unittest.TestCase):
                 {'test': 'b.Failing.throws', 'message': 'NullPointerException'}])
             self.assertEqual(feasibility.jvm_failures(results / 'missing'), [])
 
+    def test_the_unit_test_phase_fails_when_gradle_passes_without_running_a_test_and_counts_those_that_ran(self):
+        with tempfile.TemporaryDirectory() as folder:
+            results = pathlib.Path(folder)
+            done = {'returncode': 0, 'tail': '', 'minutes': 0.1}
+            with patch.object(feasibility, 'JVM_RESULTS', results), \
+                    patch.object(feasibility, '_gradle_invocation', return_value=({}, ['gradle'], [], None)), \
+                    patch.object(feasibility, 'run_tool', return_value=done):
+                self.assertFalse(feasibility.phase_jvm_tests({'gradle': 'gradle'}, object()))
+                self.assertEqual(feasibility.report['phases']['jvm_tests']['classification'], 'no_tests_ran')
+                (results / 'TEST-a.xml').write_text('<testsuite tests="3" failures="0" errors="0" skipped="1"/>')
+                (results / 'TEST-b.xml').write_text('<testsuite tests="2" failures="1" errors="0" skipped="0"/>')
+                (results / 'TEST-c.xml').write_text('<testsuite')
+                self.assertTrue(feasibility.phase_jvm_tests({'gradle': 'gradle'}, object()))
+                self.assertEqual(feasibility.report['phases']['jvm_tests']['counts'],
+                                 {'tests': 5, 'failures': 1, 'errors': 0, 'skipped': 1})
+
 
 class EmulatorPortTests(unittest.TestCase):
     def test_console_and_adb_pair_must_both_be_free_in_androids_range(self):

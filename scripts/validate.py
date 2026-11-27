@@ -37,6 +37,10 @@ class LiveResult(unittest.TextTestResult):
             self.stream.flush()
 
 
+# The Python the phone app runs beside the shared package: checked by the same rules.
+PHONE_PYTHON = 'android/app/src/main/python'
+
+
 def command(args, *, cwd=ROOT, env=None):
     print('Validation stage: ' + ' '.join(str(a) for a in args), flush=True)
     subprocess.run([str(a) for a in args], cwd=cwd, env=env, check=True, timeout=300)
@@ -86,7 +90,7 @@ def suites(prepare=False):
 
 def static_checks():
     """Lint and security rules over the code, then known vulnerabilities in the installed dependencies."""
-    command([sys.executable, '-m', 'ruff', 'check', '--no-cache', 'comic_archive', 'scripts', 'tests'])
+    command([sys.executable, '-m', 'ruff', 'check', '--no-cache', 'comic_archive', 'scripts', 'tests', PHONE_PYTHON])
     # Every distribution this interpreter can import, wherever it is installed: a list made from the
     # environment's own folder is empty when the packages come from the system's.
     requirements = OUT / 'audit-requirements.txt'
@@ -138,7 +142,7 @@ def main():
         shutil.rmtree(OUT / 'dist')
     static_checks()
     summary = suites(args.prepare)
-    command([sys.executable, '-m', 'compileall', '-q', 'comic_archive'])
+    command([sys.executable, '-m', 'compileall', '-q', 'comic_archive', PHONE_PYTHON])
     command([sys.executable, 'scripts/reading_filter_smoke.py'])
     command([sys.executable, 'scripts/cloud_tools_smoke.py'])
     installed_package()

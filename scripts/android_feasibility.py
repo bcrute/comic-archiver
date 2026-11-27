@@ -1418,12 +1418,29 @@ def phase_jvm_tests(paths, wheels):
     result = run_tool(argv, timeout=1800, env_extra=env, keep_bytes=8000)
     tail = result["tail"]
     failed_tasks = re.findall(r"> Task :(\S+) FAILED", tail)
+    counts = jvm_counts(JVM_RESULTS)
+    # Gradle also exits 0 when the task ran nothing; a pass means tests were run and counted.
+    ok = result["returncode"] == 0 and counts["tests"] > 0
     classification = f"task_failed:{failed_tasks[-1]}" if failed_tasks else (
-        "tests_failed" if result["returncode"] != 0 else None)
-    record("jvm_tests", "passed" if result["returncode"] == 0 else "failed",
-           minutes=result["minutes"], classification=classification,
+        "tests_failed" if result["returncode"] != 0 else None if ok else "no_tests_ran")
+    record("jvm_tests", "passed" if ok else "failed",
+           minutes=result["minutes"], classification=classification, counts=counts,
            failures=jvm_failures(JVM_RESULTS), tail=tail)
-    return result["returncode"] == 0
+    return ok
+
+
+def jvm_counts(results):
+    """How many tests Gradle's JUnit reports say ran, failed, errored and were skipped."""
+    counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    for report in sorted(results.glob("TEST-*.xml")) if results.is_dir() else ():
+        try:
+            suite = ET.parse(report).getroot()  # noqa: S314 - this job's own Gradle output
+        except ET.ParseError:
+            continue
+        for name in counts:
+            value = suite.get(name) or ""
+            counts[name] += int(value) if value.isdigit() else 0
+    return counts
 
 
 def jvm_failures(results, limit=20):
