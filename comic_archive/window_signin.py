@@ -239,14 +239,27 @@ class WindowSignIn:
         NetworkGuard(workspace.library).check()
         state = storage_state(cookies, local_storage, self.site)
 
+        saved = []
+
         def stopped():
             return cancel.is_set() or self._closing.is_set()
+
+        def save():
+            store_session(state, workspace.session, self.site)
+            saved.append(True)
         # The runtime's start-up launch and its stop() hold the same lock.
         with self._launch:
-            if stopped() or not tapas_auth.complete(workspace, key, self.browser,
-                                                    lambda: store_session(state, workspace.session, self.site), stopped,
-                                                    DESKTOP_REQUEST_INTERVAL):
-                return cancelled
+            try:
+                if stopped() or not tapas_auth.complete(workspace, key, self.browser, save, stopped, DESKTOP_REQUEST_INTERVAL):
+                    return cancelled
+            except Exception as error:
+                if not saved:
+                    raise
+                # The sign-in is saved and stays: only its downloader did not start, and the dashboard says that of the downloader.
+                LOG.warning('the sign-in was saved, but its downloader did not start: %s', describe(error))
+                connected = {'status': 'connected', 'worker': 'offline'}
+            else:
+                connected = {'status': 'connected'}
             if self._closing.is_set():
                 # The window closed while the downloader was starting, after stop() gave up waiting for us.
                 try:
@@ -254,4 +267,4 @@ class WindowSignIn:
                 except (ArchiveError, OSError) as error:
                     LOG.warning('downloader did not accept the stop request: %s', describe(error))
                 return cancelled
-        return {'status': 'connected'}
+        return connected

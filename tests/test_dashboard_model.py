@@ -221,6 +221,22 @@ class StateTests(unittest.TestCase):
         never = state(status={'worker': {'reported_state': 'offline'}}, site_auth={'status': 'connected'})
         self.assertFalse(model.start_overdue(never, NOW))  # No sign-in was kept in this window.
 
+    def test_a_saved_sign_in_whose_downloader_did_not_start_stays_signed_in_and_says_at_once_that_the_downloader_is_offline(self):
+        offline = {'session_configured': True, 'worker': {'reported_state': 'offline'}}
+        s = state(status=offline, site_auth={'status': 'connected', 'worker': 'offline'}, connected_at=NOW)
+        v = model.view(s, NOW + 1)
+        self.assertEqual((v['session_word'], v['worker_word']), ('Connected', 'Offline'))
+        self.assertEqual(v['signin_status'], 'You are signed in to Tapas, but the downloader did not start. Close Comic Archiver and open it again.')
+        self.assertTrue(v['signin_status_error'])
+        self.assertEqual(action(v), ('signin', 'Sign in', True))
+        # A downloader that is heard from after all leaves nothing to say.
+        s.status = {'session_configured': True, 'worker': {'reported_state': 'ready'}}
+        v = model.view(s, NOW + 1)
+        self.assertEqual((v['worker_word'], v['signin_status'], v['signin_status_error']), ('Ready', '', False))
+        # A sign-in whose downloader was started is given its time to say so, with nothing called wrong.
+        started = model.view(state(status=offline, site_auth={'status': 'connected'}, connected_at=NOW), NOW + 1)
+        self.assertEqual((started['worker_word'], started['signin_status'], started['signin_status_error']), ('Starting', '', False))
+
     def test_new_episodes_are_said_to_go_to_the_chosen_cloud_or_the_folder(self):
         b2 = {'targets': [{'provider': 'b2', 'connected': True, 'enabled': True}]}
         other = {'targets': [{'provider': 'other', 'connected': True, 'enabled': True}]}
@@ -711,6 +727,23 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(fields(view(status={'estimate': estimate}, account={'status': 'stopped'}))['Space'], ('—', False))
         self.assertEqual((model.time_row(None), model.space_row(None)), ('', ('', False)))
         self.assertEqual(model.time_row({'waiting_episodes': 0, 'unchecked_series': 0, 'seconds': 60}), '')
+
+    def test_a_disk_smaller_than_what_is_left_is_not_called_too_small_when_new_episodes_go_to_cloud_storage(self):
+        estimate = {'waiting_episodes': 1, 'left_bytes': 1_000_000_000, 'free_bytes': 10}
+        b2 = {'targets': [{'provider': 'b2', 'connected': True, 'enabled': True}]}
+        self.assertEqual(fields(view(status={'estimate': estimate}))['Space'], ('1.0 GB to go | 1 MB free, not enough', True))
+        self.assertEqual(fields(view(status={'estimate': estimate}, cloud=b2))['Space'], ('1.0 GB to go | 1 MB free', False))
+        rough = dict(estimate, unchecked_series=2)
+        self.assertEqual(fields(view(status={'estimate': rough}, cloud=b2))['Space'], ('~1.0 GB estimated | 1 MB free', False))
+        # Only storage that takes new episodes counts: one turned off, not connected or not offered leaves the warning.
+        for cloud, offered in (({'targets': [{'provider': 'b2', 'connected': True, 'enabled': False}]}, True),
+                               ({'targets': [{'provider': 'b2', 'connected': False, 'enabled': True}]}, True),
+                               (b2, False)):
+            with self.subTest(cloud=cloud, offered=offered):
+                shown = fields(view(status={'estimate': estimate}, cloud=cloud, cloud_offered=offered))
+                self.assertEqual(shown['Space'], ('1.0 GB to go | 1 MB free, not enough', True))
+        self.assertTrue(model.space_needed(estimate).endswith('This disk has only 1 MB free, which is not enough for the rest.'))
+        self.assertTrue(model.space_needed(estimate, True).endswith('This disk has 1 MB free.'))
 
     def test_series_waiting_for_a_download_batch_are_named_as_waiting(self):
         shown = view(account=account(phase='archive'), status={

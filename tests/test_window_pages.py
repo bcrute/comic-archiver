@@ -1930,6 +1930,25 @@ class DashboardTests(PagesCase):
         self.assertEqual(len(self.actions.named('poll')), 2)
         self.assertTrue(self.card.action.isEnabled())
 
+    def test_the_saved_files_are_counted_once_more_when_a_paused_download_has_stopped_saving(self):
+        self.open()
+        self.card.action.click()
+        self.card.action.click()
+        settle()
+        self.assertEqual((len(self.actions.named('go')), len(self.actions.named('pause'))), (1, 1))
+        counts = len(self.actions.named('saved_files'))
+        # The downloader was still saving when Pause was pressed: its files are counted when it has stopped.
+        self.actions.reading['status']['worker']['reported_state'] = 'ready'
+        self.clock[0] += 2
+        self.pages.tick()
+        self.assertEqual(self.actions.named('saved_files')[counts:], [('saved_files', (), {'summary': True, 'refresh': True})])
+        # Once: the paused site is then left alone, and the disk is not read again.
+        for _ in range(3):
+            self.clock[0] += dashboard_model.POLL_SECONDS
+            self.pages.tick()
+            self.pages.poll(automatic=True)
+        self.assertEqual(len(self.actions.named('saved_files')), counts + 1)
+
     def test_progress_reads_between_hourly_recounts_do_not_scan_saved_files(self):
         self.open()
         initial = len(self.actions.named('saved_files'))
@@ -2592,28 +2611,58 @@ class DownloadSettingsTests(PagesCase):
         self.assertIn('Sign in to Tapas', speed.toolTip())
         self.assertTrue(speed.isVisible())
 
-    def test_the_connection_policy_can_still_be_changed_without_a_settings_field(self):
+    def test_saving_on_any_connection_can_be_turned_on_in_settings_and_off_again(self):
         self.open('settings/downloads')
-        self.assertFalse(hasattr(self.settings, 'network'))
-        self.pages.wifi_choice(True)
+        box = self.settings.network
+        self.assertTrue(self.settings.connections.isVisible() and box.isEnabled())
+        self.assertEqual((box.text(), box.isChecked()), ('Also save on metered and mobile connections', False))
+        self.assertIn('waits on a metered or mobile connection', self.settings.network_help.text())
+        box.click()
         self.assertEqual(self.actions.named('wifi_only')[0][1], (False,))
         self.assertFalse(self.pages.state.network['wifi_only'])
         self.assertFalse(self.pages.state.network_saving)
+        self.assertTrue(box.isChecked() and box.isEnabled())
+        self.assertTrue(self.settings.network_help.text().startswith('Saving uses any connection'))
+        # Off again: saving waits for Wi-Fi or a wired connection, as it did before.
+        box.click()
+        self.assertEqual([call[1] for call in self.actions.named('wifi_only')], [(False,), (True,)])
+        self.assertTrue(self.pages.state.network['wifi_only'])
+        self.assertFalse(box.isChecked())
+        self.assertIn('waits on a metered or mobile connection', self.settings.network_help.text())
+
+    def test_a_connection_choice_in_settings_is_read_once_more_by_every_other_open_site(self):
+        self.shell.open = ['tapas', 'webtoon']
+        self.open('settings/downloads')
+        settle()
+        webtoon = self.sites['webtoon']
+        self.assertTrue(self.pages.states['webtoon'].network['wifi_only'])
+        # The rule is kept once for the library folder: every site reads the same one.
+        webtoon.reading['network'] = {'wifi_only': False, 'allowed': True}
+        webtoon.calls.clear()
+        self.settings.network.click()
+        settle()
+        self.assertEqual(len(webtoon.named('poll')), 1)
+        self.assertFalse(self.pages.states['webtoon'].network['wifi_only'])
 
     def test_a_connection_choice_made_while_another_action_runs_is_put_back(self):
         self.open('settings/downloads')
         self.shell.held = []
         self.pages.go()
+        self.assertFalse(self.settings.network.isEnabled())
+        self.settings.network.setChecked(True)  # A click that was already on its way.
         self.pages.wifi_choice(True)
         self.assertTrue(self.pages.state.network['wifi_only'])
         self.assertEqual(self.actions.named('wifi_only'), [])
         self.assertFalse(self.pages.state.network_saving)
+        self.assertFalse(self.settings.network.isChecked())
 
     def test_a_refused_connection_choice_shows_the_saved_one_again(self):
         self.open('settings/downloads')
         self.actions.refused['wifi_only'] = 'This action is unavailable. Check the connection and selected library.'
-        self.pages.wifi_choice(True)
+        self.settings.network.click()
+        self.assertEqual(len(self.actions.named('wifi_only')), 1)
         self.assertTrue(self.pages.state.network['wifi_only'])
+        self.assertFalse(self.settings.network.isChecked())
         self.assertEqual(self.settings.provider_cards['tapas'].choice_status.text(),
                          'This action is unavailable. Check the connection and selected library.')
 

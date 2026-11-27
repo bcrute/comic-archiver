@@ -237,17 +237,22 @@ class WindowSignInTests(unittest.TestCase):
         self.untouched()
         self.assertNotIn('PRIVATE', ''.join(logs.output)); self.assertIn('OSError', logs.output[0])
 
-    def test_downloader_that_is_deferred_or_does_not_start_is_a_failed_sign_in_with_no_private_text(self):
+    def test_a_sign_in_saved_before_its_downloader_did_not_start_is_kept_and_reported_as_saved_with_no_private_text(self):
+        saved = {'status': 'connected', 'worker': 'offline'}  # Signed in; what is not there is the downloader.
         for result in ({'running': True, 'start_deferred': True, 'reason': 'worker_draining'}, {'running': False, 'start_failed': True},
                        {'running': None, 'startup_pending': True}, ArchiveError('PRIVATE_COOKIE'), RuntimeError('PRIVATE_COOKIE')):
+            self.state.write_text('OLD_PRIVATE_SESSION')
             self.start.side_effect = [result]
             self.signin.start()
             with self.assertLogs('comic_archive.desktop', 'WARNING') as logs:
-                self.assertEqual(self.finish(), FAILED)
-            self.assertEqual(self.signin.status(), FAILED)
+                self.assertEqual(self.finish(), saved)
+            self.assertEqual(self.signin.status(), saved)
+            self.assertEqual(load_session(self.session)['cookies'][0]['value'], 'PRIVATE_COOKIE')
             self.assertNotIn('PRIVATE', ''.join(logs.output))
             self.assertFalse(self.launch.locked())
         self.assertEqual(self.start.call_count, 5)
+        # A new sign-in can follow, which starts the downloader again.
+        self.assertEqual(self.signin.start(), RUNNING); self.assertTrue(self.signin.take())
 
     def test_a_downloader_still_starting_after_the_wait_keeps_the_saved_sign_in_and_reports_no_failure(self):
         # The first start after installing, while Windows checks the new files: the process lives but is not up yet.

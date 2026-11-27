@@ -268,6 +268,13 @@ class AndroidCloudTests(unittest.TestCase):
         self.assertEqual(value['time_estimate'], dashboard_model.time_left(estimate, background=True))
         self.assertEqual(value['space_estimate'], dashboard_model.space_needed(estimate))
         self.assertIn('not enough', value['space_estimate'])
+        # Episodes that go to cloud storage do not stay on the phone: its free room is never called too little.
+        with patch.object(controller.registry, 'status', side_effect=status), \
+                patch('comic_archive.android_cloud.to_cloud', return_value=True), \
+                patch.object(controller.registry, 'account_status', return_value={'configured': True, 'status': 'stopped'}):
+            sent = self.call('cloud_status')['result']
+        self.assertEqual(sent['space_estimate'], dashboard_model.space_needed(estimate, True))
+        self.assertNotIn('not enough', sent['space_estimate'])
         with patch.object(controller.registry, 'status', side_effect=status), \
                 patch.object(controller.registry, 'account_status', return_value={'configured': True, 'status': 'finished'}):
             finished = self.call('cloud_status')['result']

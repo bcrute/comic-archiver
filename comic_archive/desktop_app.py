@@ -59,6 +59,9 @@ CLOSE_WAIT_SECONDS = 120  # How long the setup waits for the open window to stop
 # How often the window looks for a request from the system to end, since Qt holds Python's signal handlers back.
 END_CHECK_MS = 500
 SIGNIN_PROBE_MS = 500
+# How often a window left open asks whether to look for a new version. The check itself asks the website at most
+# once a day, so a clock of a whole day would find the last answer a moment short of a day old and wait a second day.
+UPDATE_CHECK_MS = 6 * 60 * 60 * 1000
 SIGNIN_OPEN_SECONDS = 20
 SIGNIN_BACK = say('desktop.cancel_sign_in')
 # {site} is filled in by site_text, so the window learns the site's name from sites.py alone.
@@ -134,6 +137,8 @@ LIBRARY_GONE = (say('desktop.comic_archiver_cannot_find_its_library'))
 LIBRARY_GONE_START = (say('desktop.comic_archiver_cannot_find_its_library_2'))
 LIBRARY_GONE_NOTICE = (say('desktop.comic_archiver_cannot_find_its_library_3'))
 NOT_A_LIBRARY = say('desktop.that_folder_holds_no_comic_archiver')
+STILL_MISSING = say('desktop.that_is_the_library_folder_but')
+CLOSE_WAITS = say('desktop.comic_archiver_cannot_close_while_it')
 CLOSE_DOWNLOAD = (say('desktop.comic_archiver_is_still_saving_your'))
 CLOSE_SIGNIN = say('desktop.signing_in_to_is_not_finished')
 ALREADY_RUNNING = (say('desktop.comic_archiver_is_already_open_or'))
@@ -306,7 +311,8 @@ def find_library(q, parent, folder, text, *, still_missing=None):
         # Anything else would be a second, empty library, saving everything again.
         if app_runtime.is_library(root) and (root != folder or still_missing is None or not still_missing()):
             return root
-        box.information(parent, APP_NAME, NOT_A_LIBRARY)
+        # The library's own folder with part of its storage still away is not called something else.
+        box.information(parent, APP_NAME, STILL_MISSING if app_runtime.is_library(root) else NOT_A_LIBRARY)
 
 
 def away_text(folders):
@@ -585,6 +591,7 @@ class Shell:
         self.busy_seen = self.checker = None  # What the last look at the runtime found, and the thread looking.
         self.vanished_seen = False
         self.ended = False
+        self.close_wanted = False  # The window was asked to close while a folder or site was being opened.
         self.window = self.channel = self.home = None
         # None, or what the sign-in panel shows: 'page', 'offline' or 'finishing'.
         self.signin_stage = self.signin_panel = self.cookie_check = None
@@ -693,7 +700,7 @@ class Shell:
         self.end_clock.timeout.connect(self.end_check)
         self.end_clock.start()
         self.update_clock = q.QtCore.QTimer(self.window)
-        self.update_clock.setInterval(24 * 60 * 60 * 1000)
+        self.update_clock.setInterval(UPDATE_CHECK_MS)
         self.update_clock.timeout.connect(self.pages.check_updates)
         if not self.probe:
             self.update_clock.start()
@@ -1273,6 +1280,12 @@ class Shell:
             return
         # The window stays until the runtime has stopped, so it never just freezes or vanishes.
         event.ignore()
+        if self.phase == 'moving':
+            # Never ignored without a word: the window says why it stays, and end_check closes it once it can.
+            self.close_wanted = True
+            self.notice.setText(CLOSE_WAITS)
+            self.show(self.notice)
+            return
         # The system may have ended the app while the question was open.
         if action == 'finish' or (action == 'confirm' and self.confirm(kind) and self.phase in {'starting', 'open'}):
             self.finish()
@@ -1310,6 +1323,12 @@ class Shell:
         if self.ended and self.phase in {'starting', 'open', 'failed'}:
             LOG.info('the system asked the app to end')
             self.finish()
+        elif self.close_wanted and self.phase in {'starting', 'open', 'failed'}:
+            # What was being opened is open: the close asked for meanwhile goes on as any other does, over the pages.
+            self.close_wanted = False
+            if self.phase == 'open':
+                self.show(self.pages.widget)
+            self.window.close()
 
     def choose_location(self):
         """Pick another shared library folder in the computer's own folder dialog."""

@@ -291,6 +291,29 @@ class ReceivedTests(unittest.TestCase):
         received(state, self.reading(account={'status': 'finished'}), 20)
         self.assertFalse(state.library_refresh)
 
+    def test_a_download_that_was_paused_or_held_has_its_files_counted_again_once_the_downloader_has_stopped_saving(self):
+        busy, ready = {'worker': {'reported_state': 'busy'}}, {'worker': {'reported_state': 'ready'}}
+        for ended in ('stopped', 'held'):
+            with self.subTest(ended=ended):
+                state = State()
+                received(state, self.reading(status=busy, account={'status': 'running'}), 10)
+                self.assertFalse(state.library_refresh)
+                # Paused, with the image it was saving still on its way to the disk.
+                received(state, self.reading(status=busy, account={'status': ended}), 20)
+                self.assertFalse(state.library_refresh)
+                received(state, self.reading(status=ready, account={'status': ended}), 30)
+                self.assertTrue(state.library_refresh)
+                # Once only: nothing more is saved until the next Go.
+                state.library_refresh = False
+                received(state, self.reading(status=ready, account={'status': ended}), 40)
+                self.assertFalse(state.library_refresh)
+        # A library opened with its download paused, and a run that only got the episode list, saved nothing.
+        state = State()
+        received(state, self.reading(status=ready), 10)
+        received(state, self.reading(status=busy, account={'status': 'running', 'list_only': True}), 20)
+        received(state, self.reading(status=ready), 30)
+        self.assertFalse(state.library_refresh)
+
     def test_a_cloud_key_that_has_just_connected_empties_the_key_fields_once(self):
         state = State(cloud_auth={'status': 'running'}, bucket_draft='my-bucket')
         self.assertTrue(received(state, self.reading(cloud_auth={'status': 'connected'}), 10))

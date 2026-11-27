@@ -160,7 +160,7 @@ def time_left(estimate, *, background=False):
     return say('dashboard.about_of_downloading_left_at_the', value=span(estimate['seconds']), left=left, continuation=continuation)
 
 
-def space_needed(estimate):
+def space_needed(estimate, to_cloud=False):
     unchecked = max(number((estimate or {}).get('unchecked_series')), number((estimate or {}).get('checking_series')))
     if not estimate:
         return ''
@@ -177,7 +177,7 @@ def space_needed(estimate):
     parts = say('dashboard.is_saved_and_about_is_still', value=room(saved), value2=room(left)) if saved else ''
     rough = say('dashboard.this_is_a_rough_guess_until') if unchecked else ''
     disk = ('' if type(free) is not int else say('dashboard.this_disk_has_only_free_which', value=room(free))
-            if free < left else say('dashboard.this_disk_has_free_2', value=room(free)))
+            if free < left and not to_cloud else say('dashboard.this_disk_has_free_2', value=room(free)))
     return say('dashboard.your_whole_library_should_take_about', value=room(saved + left), parts=parts, rough=rough, disk=disk)
 
 
@@ -275,8 +275,11 @@ def time_row(estimate):
     return span(estimate['seconds'])
 
 
-def space_row(estimate):
-    """The card's Space: what is still to come and the disk's free room; and whether that room is too little."""
+def space_row(estimate, to_cloud=False):
+    """The card's Space: what is still to come and the disk's free room; and whether that room is too little.
+
+    Episodes sent to cloud storage do not stay on this disk, so its room is never too little for them.
+    """
     waiting, unchecked = number((estimate or {}).get('waiting_episodes')), number((estimate or {}).get('unchecked_series'))
     unchecked = max(unchecked, number((estimate or {}).get('checking_series')))
     if not estimate:
@@ -289,7 +292,7 @@ def space_row(estimate):
     if type(estimate.get('left_bytes')) is not int:
         return '', False
     left, free = estimate['left_bytes'], estimate.get('free_bytes')
-    short = type(free) is int and free < left
+    short = type(free) is int and free < left and not to_cloud
     text = f'~{room(left)} estimated' if unchecked else say('dashboard.to_go', value=room(left))
     if type(free) is int:
         text += f' | {room(free)} free'
@@ -361,6 +364,7 @@ class State:
     loaded: bool = False  # Whether the library was read at least once.
     summary: object = None  # The saved files' counts: None until read, False when they could not be.
     library_refresh: bool = False  # Something changed the saved files: the next refresh counts them again.
+    saving: bool = False  # A download has run since the saved files were counted: once it has stopped they are counted again.
     cloud_message: Message = None  # Said beside the cloud buttons: what a cloud action is doing or did.
     choice_message: str = ''  # Said beside the storage choice when it could not be changed.
     bucket_draft: str = None  # The bucket name typed for B2, until a connection saves it.
@@ -381,6 +385,8 @@ class State:
         self.account, self.account_at, self.refreshed_at = value, now, now
         if (value or {}).get('status') == 'running':
             self.download_started()
+            if not value.get('list_only'):
+                self.saving = True  # Getting only the episode list saves no files.
 
     def download_started(self):
         self.signin_used = True
@@ -456,7 +462,8 @@ def worker_state(s, now):
     """The downloader as the dashboard speaks of it. Right after a sign-in is kept, the downloader can take a minute
     to say it is there: it is starting, not offline."""
     reported = ((s.status or {}).get('worker') or {}).get('reported_state')
-    if (reported not in WORKING and (s.site_auth or {}).get('status') == 'connected'
+    # A sign-in whose downloader is known not to have started is not waited for.
+    if (reported not in WORKING and (s.site_auth or {}).get('status') == 'connected' and (s.site_auth or {}).get('worker') != 'offline'
             and now - s.connected_at < STARTING_SECONDS):
         return 'starting'
     return reported
@@ -468,6 +475,11 @@ def start_overdue(s, now):
     reported = ((s.status or {}).get('worker') or {}).get('reported_state')
     return bool(reported not in WORKING and (s.site_auth or {}).get('status') == 'connected' and s.connected_at
                 and now - s.connected_at >= STARTING_SECONDS and s.start_read != s.connected_at)
+
+
+def to_cloud(s):
+    """Whether new episodes go to cloud storage instead of staying on this disk."""
+    return bool(s.cloud_offered and any(t.get('connected') and t.get('enabled') for t in s.cloud_targets()))
 
 
 def save_place(s):
@@ -679,7 +691,12 @@ def view(s, now):
                           if site_auth.get('status') == 'error' else '')
     if not v['signin_status'] and account_status == 'stopped' and worker == 'busy':
         v['signin_status'] = say('dashboard.finishing_the_current_step')
-    v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error')
+    # The sign-in was saved and is kept; what did not start is the downloader, until it is heard from.
+    unstarted = (not v['signin_status'] and s.status is not None and site_auth.get('status') == 'connected'
+                 and site_auth.get('worker') == 'offline' and worker not in WORKING)
+    if unstarted:
+        v['signin_status'] = say('signin.saved_but_the_downloader_did_not_start', site=site)
+    v['signin_status_error'] = bool((s.message and s.message.error) or site_auth.get('status') == 'error' or unstarted)
     v['settings_status'] = s.message.text if s.message else ''
     v['settings_status_error'] = bool(s.message and s.message.error)
     finished = account_status == 'finished' or (account_status == 'held' and account.get('code') == 'archive_incomplete')
@@ -801,7 +818,7 @@ def view(s, now):
         estimate = dict(estimate, checking_lists=list_phase)
     time = time_row(estimate) if not finished else ''
     row(say('dashboard.time_left'), time or NONE, tip=estimate_tip(estimate) if time and time != ESTIMATING else '')
-    space, short = space_row({'free_bytes': estimate.get('free_bytes')} if finished and estimate else estimate)
+    space, short = space_row({'free_bytes': estimate.get('free_bytes')} if finished and estimate else estimate, to_cloud(s))
     estimated_space = estimate and (number(estimate.get('waiting_episodes')) or number(estimate.get('unchecked_series'))
                                     or unconfirmed_downloads(estimate))
     row(say('dashboard.space'), space or NONE, short, estimate_tip(estimate) if space and estimated_space and not finished else '')

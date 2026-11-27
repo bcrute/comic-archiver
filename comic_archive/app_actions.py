@@ -308,6 +308,10 @@ def received(state, reading, now, task=None):
         state.library_refresh = True
     if previous_account is not None and previous_account != 'finished' and state.account.get('status') == 'finished':
         state.library_refresh = True
+    if (state.saving and state.account.get('status') != 'running'
+            and ((state.status or {}).get('worker') or {}).get('reported_state') != 'busy'):
+        # Paused or held as well as finished, and the downloader has put down what it was saving: counted once more.
+        state.saving, state.library_refresh = False, True
     connected = previous_auth != 'connected' and (state.cloud_auth or {}).get('status') == 'connected'
     if connected:
         state.bucket_draft, state.library_refresh = None, True

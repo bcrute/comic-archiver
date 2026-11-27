@@ -460,6 +460,56 @@ class DesktopAppTests(unittest.TestCase):
                     self.assertEqual((shell.phase, shell.choosing, shell.runtime), (phase, False, self.runtime))
         self.box.question.side_effect = None
 
+    def test_closing_while_another_folder_is_being_opened_says_why_the_window_stays_and_closes_it_once_the_folder_is_open(self):
+        shell = self.opened(); shell.load()
+        other = Mock(site=sites.DEFAULT); other.vanished.return_value = False; other.busy.return_value = None
+        other.runtimes = {'tapas': other.runtime('tapas')}
+        with patch('comic_archive.desktop_app.app_runtime.move', return_value=(other, None)):
+            shell.relocate(self.home / 'Other')
+            event = Mock()
+            shell.close_requested(event)
+            event.ignore.assert_called_once_with(); event.accept.assert_not_called()
+            shell.notice.setText.assert_called_with('Comic Archiver cannot close while it is opening a folder or a site.\n\n'
+                                                    'It closes as soon as that is done.')
+            shell.stack.setCurrentWidget.assert_called_with(shell.notice)
+            emit(shell.end_clock.timeout)
+            shell.window.close.assert_not_called(); self.runtime.stop.assert_not_called()  # Not half-way.
+            emit(self.core.QTimer.made[-1].timeout)
+        self.assertEqual((shell.runtime, shell.phase), (other, 'open'))
+        emit(shell.end_clock.timeout)
+        shell.window.close.assert_called_once_with()
+        # Qt then asks the window to close, as for any other close; the close is asked for once only.
+        shell.close_requested(Mock())
+        other.stop.assert_called_once_with()
+        emit(shell.end_clock.timeout)
+        shell.window.close.assert_called_once_with()
+
+    def test_closing_while_a_site_is_being_opened_asks_as_usual_once_it_is_open_and_no_leaves_the_dashboard_showing(self):
+        example = replace(sites.DEFAULT, key='example', name='Example', available=True)
+        shell = self.opened(); shell.load()
+
+        def changed(site):
+            self.runtime.runtimes.setdefault(site.key, self.runtime)
+            self.runtime.site = site
+        self.runtime.change_site.side_effect = changed
+        with patch('comic_archive.sites.SITES', (sites.DEFAULT, example)):
+            shell.choose_site('example')
+            self.assertEqual(shell.phase, 'moving')
+            shell.close_requested(Mock())
+            shell.stack.setCurrentWidget.assert_called_with(shell.notice)
+            emit(self.core.QTimer.made[-1].timeout)
+            self.assertEqual(shell.phase, 'open')
+            # Another site is still saving: closing asks first, and No leaves the window open on its pages.
+            self.runtime.busy.return_value = 'download'
+            self.box.question.return_value = self.box.StandardButton.No
+            emit(shell.end_clock.timeout)
+            shell.stack.setCurrentWidget.assert_called_with(shell.pages.widget)
+            shell.window.close.assert_called_once_with()
+            shell.close_requested(Mock())
+        self.box.question.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.CLOSE_DOWNLOAD, 3, self.box.StandardButton.No)
+        self.runtime.stop.assert_not_called()
+        self.assertEqual(shell.phase, 'open')
+
     def test_a_library_folder_renamed_while_open_stops_the_window_and_asks_where_it_is_now(self):
         shell = self.opened(); shell.load()
         root = self.runtime.root = self.home / 'Comic Archiver'
@@ -513,7 +563,10 @@ class DesktopAppTests(unittest.TestCase):
             shell.library_gone()
         move.assert_not_called()
         self.assertEqual(shell.phase, 'failed')
-        self.box.information.assert_called_once_with(shell.window, 'Comic Archiver', desktop_app.NOT_A_LIBRARY)
+        # It is the library, and is not said to hold none: what is missing is inside it.
+        self.box.information.assert_called_once_with(
+            shell.window, 'Comic Archiver', 'That is the library folder, but some of the folders inside it are still missing. '
+            'Put them back and choose it again, or choose the folder where the library is now.')
 
     def test_a_library_folder_renamed_while_the_app_was_closed_is_found_again_and_never_made_in_its_old_place(self):
         standard, renamed = self.home / 'Comic Archiver', self.home / 'Renamed'
@@ -1757,6 +1810,16 @@ class DesktopAppTests(unittest.TestCase):
         hint = shell.hint.setText.call_args.args[0]
         self.assertIn('Sign in to Example below', hint); self.assertIn('add a password to your Example account', hint)
         self.assertNotIn('Tapas', hint)
+
+    def test_a_window_left_open_asks_about_a_new_version_often_enough_that_a_day_old_answer_is_not_kept_a_second_day(self):
+        from comic_archive import updates
+        shell = self.opened()
+        waits = shell.update_clock.setInterval.call_args.args[0] / 1000
+        shell.update_clock.start.assert_called_once_with()
+        # The answer is kept for a day. The clock's turn after that day must come well inside the next one.
+        self.assertLessEqual(waits, updates.DAY / 4)
+        self.assertGreaterEqual(waits, 60 * 60)  # And never so often that the saved answer is read all the time.
+        self.assertEqual(shell.update_clock.timeout.connect.call_args.args[0], shell.pages.check_updates)
 
     def test_the_computer_stays_awake_only_while_a_download_runs_and_may_sleep_once_it_ends_or_the_window_closes(self):
         with patch('comic_archive.desktop_app.osdep.keep_awake') as awake:

@@ -1134,6 +1134,15 @@ class Settings:
         self.provider_box = kit.w.QVBoxLayout(self.providers)
         self.provider_box.setContentsMargins(0, 0, 0, 0)
         self.provider_box.setSpacing(16)
+        # The connection rule is every site's, so it has one card above theirs; the box turns it both ways.
+        self.connections, box = kit.frame('card', margins=(24, 24, 24, 24), spacing=12)
+        box.addWidget(kit.label(say('settings.connections'), 'sectionTitle'))
+        self.network = kit.w.QCheckBox(say('settings.also_save_on_metered_and_mobile'))
+        self.network.clicked.connect(pages.wifi_choice)
+        self.network_help = kit.label('', 'muted')
+        box.addWidget(self.network)
+        box.addWidget(self.network_help)
+        self.provider_box.addWidget(self.connections)
         self.provider_cards = {}
         return self.providers
 
@@ -1351,6 +1360,11 @@ class Settings:
             panel.setVisible(key == tab)
         show(self.status, v['settings_status'] if tab != 'downloads' else '', v['settings_status_error'])
         self._providers(sites, views)
+        set_visible(self.connections, v['network_visible'])
+        if not s.network_saving:
+            self.network.setChecked(v['network_checked'])  # While a choice is being kept, the box shows that choice.
+        set_enabled(self.network, v['network_enabled'])
+        self.network_help.setText(v['network_help'])
         if [self.site.itemData(i) for i in range(self.site.count())] != [item['key'] for item in sites]:
             blocked = self.site.blockSignals(True)
             self.site.clear()
@@ -2091,8 +2105,10 @@ class Pages:
             return self.actions.poll(network=True, cloud=False)['network']
 
         def kept(value):
-            for other in self.states.values():
+            for key, other in self.states.items():
                 other.network_at = 0  # The rule is every site's.
+                if other is not s and key in self.open_keys():
+                    self.poll_soon(key)  # Its card says what the rule holds back: read once more, now.
             s.network, s.network_at = value, self.now()
 
         def settled():

@@ -7,7 +7,7 @@ import re
 import threading
 
 from . import android_session, app_actions, background, sites, storage_model, worker_host
-from .dashboard_model import State, space_needed, time_left
+from .dashboard_model import State, space_needed, time_left, to_cloud
 from .local_library import LOCAL_OWNER
 from .locking import LibraryLock
 from .models import ArchiveError
@@ -115,7 +115,7 @@ class AndroidCloud:
                     'destination_help': choice['help'], 'destination_lock': choice['lock'],
                     'device_stored': place['device_stored'], 'b2_stored': place['b2_stored'],
                     'cost': view['cost'], 'overview': overview,
-                    'time_estimate': time_left(estimate, background=True), 'space_estimate': space_needed(estimate),
+                    'time_estimate': time_left(estimate, background=True), 'space_estimate': space_needed(estimate, to_cloud(state)),
                     'message': self._message, 'task_running': self._task is not None,
                     'task_held': bool(self._task and not worker_host.status(self.workspace.session)['running']),
                     'auth_status': (state.cloud_auth or {}).get('status', 'idle')}
