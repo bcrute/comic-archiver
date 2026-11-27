@@ -28,9 +28,12 @@ goes into a folder called `Comic Archiver` in your user folder, one folder per s
   and only ever sends it back to that same site. Signing out in **Settings → Downloads** removes it from your
   computer, and uninstalling removes every one. That signs out only the app: your account on the site, and
   anywhere else you're signed in, aren't affected.
-- **Who the app talks to.** The comic site you picked, and the servers it keeps its images on. That's it. If you
-  choose to back up to your own Backblaze B2 cloud storage, the app also talks to Backblaze, using the key you give
-  it, and downloads a small helper program (rclone) from its official page once, checking that it's the genuine file.
+- **Who the app talks to.** The comic site you picked, and the servers it keeps its images on. That's it, unless
+  you turn on more. If you choose to back up to your own Backblaze B2 cloud storage, the app also talks to
+  Backblaze, using the key you give it, and downloads a small helper program (rclone) from its official page once,
+  checking that it's the genuine file. Update checks are off by default; if you choose **Check for updates** or
+  turn on automatic checks, the app reads a small version file from this project's website, sending no sign-in,
+  library or account information.
 
 The sign-in page is the comic site's real page, so it behaves the way that site normally does in your browser.
 
