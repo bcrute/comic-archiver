@@ -171,6 +171,62 @@ class SiteSwitchActivityTest {
         } finally { ActiveDownloads.clear(); lifecycle.destroy() }
     }
 
+    @Test fun aSiteThatFinishesByItselfWhileAnotherIsShownIsLetGoAndTheServiceStaysForTheOther() {
+        ready()
+        ActiveDownloads.clear()
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get()
+        var starts = 0
+        // Android hands each Go's start to the service; no service runs here, so the test hands it over.
+        fun keptAlive(root: String) = service.onStartCommand(Intent(app, DownloadHostService::class.java)
+            .setAction(DownloadHostService.ACTION_START).putExtra(DownloadHostService.EXTRA_WORKSPACE, root), 0, ++starts)
+        try {
+            val tapas = app.workspace.root.absolutePath
+            select("Go")
+            await { app.controller.state.value.download is DownloadState.Running }
+            keptAlive(tapas)
+            select("Webtoon"); ready("webtoon")
+            val webtoon = app.workspace.root.absolutePath
+            select("Go")
+            await { app.controller.state.value.download is DownloadState.Running }
+            keptAlive(webtoon)
+            assertTrue(app.controller.isSaving("tapas"))
+            // Nobody is looking at Tapas when its download finishes.
+            app.wire.status["Tapas"] = """{"worker":{"running":true,"state":"ready"},"account":{"status":"finished"}}"""
+            await { ActiveDownloads.all() == listOf(webtoon) }
+            assertFalse(app.controller.isSaving("tapas"))
+            assertFalse(shadowOf(service).isStoppedBySelf)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            assertEquals(0, app.wire.count("pause"))
+        } finally { ActiveDownloads.clear(); lifecycle.destroy() }
+    }
+
+    @Test fun pauseAllLetsTheServiceGoOnceTheSitesThatWereNotShownHaveNothingLeftInFlight() {
+        ready()
+        ActiveDownloads.clear()
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get()
+        val stopped = """{"worker":{"running":true,"state":"ready"},"account":{"status":"stopped"}}"""
+        try {
+            compose.onNodeWithText("Start all").performScrollTo().performClick()
+            await { app.wire.count("go") == 3 && !app.controller.state.value.startingAll }
+            ready()
+            // Android hands each Go's start to the service; no service runs here, so the test hands them over.
+            val roots = listOf("tapas", "webtoon", "tappytoon").map { app.workspaceFor(it).root.absolutePath }
+            roots.forEachIndexed { index, root -> service.onStartCommand(Intent(app, DownloadHostService::class.java)
+                .setAction(DownloadHostService.ACTION_START).putExtra(DownloadHostService.EXTRA_WORKSPACE, root), 0, index + 1) }
+            assertEquals(roots, ActiveDownloads.all())
+            app.wire.status["Tapas"] = stopped
+            compose.runOnIdle { app.controller.pauseAll() }
+            // The two sites that are not shown stop a moment after they were asked to.
+            app.wire.status["Webtoon"] = stopped; app.wire.status["Tappytoon"] = stopped
+            await { shadowOf(service).isStoppedBySelf }
+            assertTrue(ActiveDownloads.all().isEmpty())
+            assertTrue(shadowOf(service).isForegroundStopped)
+            assertEquals(0, app.wire.count("worker_stop"))
+        } finally { ActiveDownloads.clear(); lifecycle.destroy() }
+    }
+
     @Test fun aCardsButtonActsOnItsOwnSiteWithoutChoosingTheSiteFirst() {
         ready()
         fun roots(op: String) = app.wire.requests.filter { it.first == op }.map { File(it.second.getString("root")).name }

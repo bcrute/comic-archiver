@@ -229,6 +229,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                         item.name == "provenance" -> {
                             folder(path, item)
                             for (record in children(item)) {
+                                if (stray(record.name)) continue
                                 if (!record.name.endsWith(".json") || !UUID.matches(record.name.removeSuffix(".json")))
                                     fail(if (record.name.endsWith(".tmp")) LibraryCaptureFailure.CHANGED else LibraryCaptureFailure.INCOMPLETE)
                                 file("$path/${record.name}", record, MAX_JSON)
@@ -237,7 +238,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                         item.name == "reading" -> {
                             folder(path, item)
                             for (record in children(item)) {
-                                if (record.name == "writer.lock" || record.name.endsWith(".json.tmp")) continue
+                                if (stray(record.name) || record.name == "writer.lock" || record.name.endsWith(".json.tmp")) continue
                                 if (!record.name.matches(Regex("[a-f0-9]{64}\\.json")))
                                     fail(LibraryCaptureFailure.INCOMPLETE)
                                 file("$path/${record.name}", record, 64L * 1024)
@@ -253,6 +254,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                                 val providerPath = "$path/$category/b2"
                                 folder(providerPath, provider)
                                 for (entry in children(provider)) {
+                                    if (stray(entry.name)) continue
                                     if (category == "outbox") {
                                         if (!entry.name.endsWith(".json") || !UUID.matches(entry.name.removeSuffix(".json")))
                                             fail(LibraryCaptureFailure.INCOMPLETE)
@@ -261,6 +263,7 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                                         if (!UUID.matches(entry.name)) fail(LibraryCaptureFailure.INCOMPLETE)
                                         folder("$providerPath/${entry.name}", entry)
                                         for (record in children(entry)) {
+                                            if (stray(record.name)) continue
                                             if (!record.name.endsWith(".json")) fail(LibraryCaptureFailure.INCOMPLETE)
                                             file("$providerPath/${entry.name}/${record.name}", record, MAX_CLOUD_JSON)
                                         }
@@ -275,11 +278,13 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
                 folder(prefix, library)
                 for (series in children(library)) {
                     if (series.name == ".archive-state") { privateState(prefix, series); continue }
-                    if (series.name.startsWith('.')) continue
+                    // Beside the series folders only a file can be a stray: a folder there is a series, whatever it is called.
+                    if (series.name.startsWith('.') || !series.directory && stray(series.name)) continue
                     valid(series, true)
                     val seriesPath = "$prefix/${series.name}"
                     folder(seriesPath, series)
                     for (entry in children(series)) {
+                        if (stray(entry.name)) continue
                         val maximum = when {
                             entry.name.endsWith(".json") -> MAX_JSON
                             entry.name in COVERS -> 10L * 1024 * 1024
@@ -695,6 +700,10 @@ internal class WorkingLibraryCapture(private val documents: WorkingLibraryDocume
         private val COVERS = setOf("cover.jpg", "cover.png", "cover.gif", "cover.webp")
         private val UUID = Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")
         private val HASH = Regex("[a-f0-9]{64}")
+        // What an operating system or a file manager leaves in a folder it has shown, beside every hidden name: never
+        // one of the app's own files, so never copied and never a reason to refuse. The shared verifier passes over the same.
+        private val STRAYS = setOf("thumbs.db", "ehthumbs.db", "desktop.ini")
+        private fun stray(name: String) = name.startsWith('.') || name.lowercase() in STRAYS
         private fun portableArchive(name: String) = name.endsWith(".cbz") || name.endsWith(".epub") || name.endsWith(".tar.zst")
         fun source(tree: Uri): WorkingLibrarySource = try {
             if (tree.scheme != "content" || tree.authority?.matches(Regex("[A-Za-z0-9._-]+")) != true ||

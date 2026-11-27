@@ -234,6 +234,24 @@ class AndroidStatusTests(unittest.TestCase):
         self.assertEqual(self.snapshot()['progress'], {})
         self.assertEqual(self.snapshot()['counts']['saved_episodes'], 1)
 
+    def test_only_a_wait_for_a_connection_the_phone_may_not_use_is_marked_as_one_the_phone_can_sleep_through(self):
+        from unittest.mock import patch
+
+        def retry(*, allowed=False, busy=False, reason='connection', failure=None):
+            account = {'configured': True, 'status': 'running', 'phase': 'archive',
+                       'retry': {'reason': reason, 'seconds': 200}}
+            with patch.object(account_ui, 'status', return_value=account), \
+                    patch('comic_archive.network.status', return_value={'allowed': allowed}, side_effect=failure):
+                return self.snapshot(busy=busy)['account']['retry']
+
+        self.assertEqual(retry(), {'reason': 'connection', 'seconds': 200, 'connection_unusable': True})
+        # The site could not be reached over a connection that may be used: that wait ends by the clock.
+        self.assertNotIn('connection_unusable', retry(allowed=True))
+        # A step still running, another kind of wait and a rule that cannot be read keep the phone awake.
+        self.assertNotIn('connection_unusable', retry(busy=True))
+        self.assertNotIn('connection_unusable', retry(reason='source'))
+        self.assertNotIn('connection_unusable', retry(failure=ArchiveError('unreadable')))
+
     def test_paused_plan_does_not_reuse_a_running_progress_file(self):
         self.seed()
         account_ui.pause(self.workspace)

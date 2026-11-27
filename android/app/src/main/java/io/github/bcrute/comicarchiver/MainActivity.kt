@@ -284,10 +284,11 @@ class MainActivity : ComponentActivity() {
         // signOut: the cookie store keeps the owner's cookies, and a completed sign-in is
         // not an attempt — nothing here ends it. Guarded for a start that failed before
         // the controller existed.
-        // The activity-owned sign-in surface goes with the activity — including on
-        // rotation, where the cookie store (the app's cookie authority) is deliberately
-        // untouched: no signout, no cookie clearing. Detach from any Compose-view parent
-        // BEFORE destroy(); destroying a still-attached WebView throws.
+        // The activity-owned sign-in surface goes with the activity. Turning or folding the
+        // phone does not end the activity (see configChanges in the manifest), so a page being
+        // filled in stays; where the activity does end, the cookie store (the app's cookie
+        // authority) is deliberately untouched: no signout, no cookie clearing. Detach from any
+        // Compose-view parent BEFORE destroy(); destroying a still-attached WebView throws.
         if (this::controller.isInitialized) (controller as DefaultAppController).detachSurfaceFactory(this)
         releaseSignInSurface()
         super.onDestroy()

@@ -46,6 +46,7 @@ _workspace = {"root": None, "base": None, "site_key": "tapas"}
 _open = {}
 _site_seams = {}
 _workspace_lock = threading.RLock()
+_site_turns = {}
 _signin_lock = threading.RLock()
 _signin_attempts = {}
 _seams = {"store": None, "cookie_source": None, "cookie_sink": None, "site_key": None}
@@ -89,6 +90,16 @@ def set_browser_seam(factory):
         if _browser['factory'] is not factory:
             _close_browser()
         _browser['factory'] = factory
+
+
+def _site_turn(root):
+    """One site's own lock, for an action that may wait a while for its saving download to stop.
+
+    Pause, Go and the changes of one site take turns here, so a Pause pressed during a change is applied after
+    it instead of being lost, while every other site goes on answering. Always taken before _workspace_lock and
+    never inside it.
+    """
+    return _site_turns.setdefault(str(root), threading.RLock())
 
 
 def _site_of(root):
@@ -406,7 +417,7 @@ def _account_ui_op(name):
             if name == "start":
                 from comic_archive import android_download
                 from comic_archive.locking import LibraryLock
-                with _workspace_lock:
+                with _site_turn(root), _workspace_lock:
                     _active_root(root, ArchiveError)
                     with LibraryLock(workspace.session / ".account-ui"):
                         cloud = _cloud_controllers.get(str(root))
@@ -419,7 +430,7 @@ def _account_ui_op(name):
                 from comic_archive import android_download
                 return android_download.status(workspace)
             if name == 'pause':
-                with _workspace_lock:
+                with _site_turn(root), _workspace_lock:
                     _active_root(root, ArchiveError)
                     account_ui.pause(workspace, on_stop_requested=_interrupt_browser if _uses_browser(root) else None)
                 return {}
@@ -1226,6 +1237,8 @@ def _choose_comics(args):
         raise _BridgeError('bad_request', 'Choose a recorded comic and an explicit download choice.')
 
     def change(ArchiveError):
+        from contextlib import ExitStack
+        from comic_archive import sites as known
         from comic_archive.account_ui import change_library_comics
         with _workspace_lock:
             if _workspace['base'] != base:
@@ -1233,8 +1246,14 @@ def _choose_comics(args):
             for root, kept in _open.items():
                 if kept["base"] == base and args.get('site') in (None, kept["site_key"]):
                     _require_open_storage(root)
-        applied = change_library_comics(base, args['chosen'], args.get('site'), args.get('series_id'),
-                                       closing=_never_closing, interrupt=_interrupt_browser, episode_id=args.get('episode_id'))
+        one = known.find(args['site']) if isinstance(args.get('site'), str) else None
+        # Each site the choice reaches is paused for it in turn: their Pause and Go wait here, in one order.
+        with ExitStack() as turns:
+            for root in sorted(known.folder(base, site) for site in ([one] if one is not None else known.SITES)):
+                turns.enter_context(_site_turn(root))
+            applied = change_library_comics(base, args['chosen'], args.get('site'), args.get('series_id'),
+                                           closing=_never_closing, interrupt=_interrupt_browser,
+                                           episode_id=args.get('episode_id'))
         from comic_archive import comic_selection, sites
         from comic_archive.inventory import Inventory
         choices = {}
@@ -1249,13 +1268,19 @@ def _choose_comics(args):
 
 
 def _in_active_workspace(handler):
-    """Serialize context-sensitive policy actions before controller/account locks."""
+    """Serialize one site's policy actions before its controller/account locks.
+
+    A change can wait a while for a saving download to stop. It holds only its own site's turn for that: the
+    lock every operation shares is let go once the site is known to be open, so the other sites, their Pause
+    and Go, a sign-in and the cards go on answering.
+    """
     def call(args):
         root = _path_arg(args, "root")
 
         def active(ArchiveError):
-            with _workspace_lock:
-                _active_root(root, ArchiveError)
+            with _site_turn(root):
+                with _workspace_lock:
+                    _active_root(root, ArchiveError)
                 return handler(args)
 
         return _core(active)

@@ -110,4 +110,19 @@ class DownloadStatusTest {
             assertFalse(DownloadStatus.over(JSONObject(body)))
     }
 
+    @Test fun only_a_wait_for_a_connection_the_phone_may_not_use_lets_the_phone_sleep_and_it_is_still_not_over() {
+        fun waits(account: String) =
+            DownloadStatus.awaitsConnection(JSONObject("""{"ok":true,"result":{"worker":{"running":true,"state":"ready"},"account":$account}}"""))
+        val held = """{"status":"running","phase":"archive","retry":{"reason":"connection","seconds":200,"connection_unusable":true}}"""
+        assertTrue(waits(held))
+        assertFalse(over(held))
+        // The site could not be reached, or it asked for a pause: those waits end by the clock.
+        assertFalse(waits("""{"status":"running","phase":"archive","retry":{"reason":"connection","seconds":60}}"""))
+        assertFalse(waits("""{"status":"running","phase":"archive","retry":{"reason":"images","seconds":240}}"""))
+        assertFalse(waits("""{"status":"running","phase":"archive"}"""))
+        assertFalse(waits("""{"status":"stopped","retry":{"reason":"connection","connection_unusable":true}}"""))
+        for (body in listOf("{}", """{"ok":false}""", """{"ok":true,"result":{}}"""))
+            assertFalse(DownloadStatus.awaitsConnection(JSONObject(body)))
+    }
+
 }

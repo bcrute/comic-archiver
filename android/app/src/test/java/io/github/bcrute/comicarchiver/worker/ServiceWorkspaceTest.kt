@@ -99,6 +99,74 @@ class ServiceWorkspaceTest {
         } finally { if (!destroyed) lifecycle.destroy() }
     }
 
+    @Test fun theProcessorIsLetGoWhileEverySiteOnlyWaitsForAConnectionAndTheNotificationStays() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); val cpu = FakeCpu(); val grace = FakeCpu(); service.cpu = cpu; service.grace = grace
+        try {
+            val first = app.workspace.root.absolutePath
+            service.onStartCommand(startIntent(first), 0, 1)
+            app.selectWorkspace("webtoon")
+            val second = app.workspace.root.absolutePath
+            service.onStartCommand(startIntent(second), 0, 2)
+            // One site still working keeps the phone awake for both.
+            DownloadHostService.waiting(first, true)
+            assertTrue(cpu.held); assertTrue(grace.holds.isEmpty())
+            DownloadHostService.waiting(second, true)
+            assertFalse(cpu.held)
+            // The next readings still arrive: the phone is given a moment before it may sleep.
+            assertEquals(listOf(DownloadHostService.GRACE_MILLIS), grace.holds.toList())
+            assertEquals(listOf(first, second), ActiveDownloads.all())
+            assertFalse(shadowOf(service).isStoppedBySelf); assertFalse(shadowOf(service).isForegroundStopped)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            // Nothing takes the hold again while they wait, however long that is.
+            val held = cpu.holds.size
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(DownloadHostService.RENEW_MILLIS * 3))
+            assertEquals(held, cpu.holds.size); assertFalse(cpu.held)
+            // The same reading again changes nothing; a site that works again is held awake at once.
+            DownloadHostService.waiting(second, true)
+            assertFalse(cpu.held); assertEquals(1, grace.holds.size)
+            DownloadHostService.waiting(second, false)
+            assertTrue(cpu.held)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(DownloadHostService.RENEW_MILLIS * 2))
+            assertTrue(cpu.holds.size > held + 1)
+            // A site that ends while the other waits leaves nothing to stay awake for.
+            DownloadHostService.ended(second)
+            assertFalse(cpu.held); assertEquals(listOf(first), ActiveDownloads.all())
+            assertFalse(shadowOf(service).isStoppedBySelf)
+            // Go on a waiting site holds the phone awake until it is read as waiting again.
+            service.onStartCommand(startIntent(first), 0, 3)
+            assertTrue(cpu.held)
+        } finally { lifecycle.destroy() }
+    }
+
+    @Test fun aChangeOfConnectionHoldsThePhoneAwakeUntilTheWaitingSitesAreReadAgain() {
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get(); val cpu = FakeCpu(); val grace = FakeCpu(); service.cpu = cpu; service.grace = grace
+        var destroyed = false
+        try {
+            // With nothing kept alive a change of connection holds nothing.
+            DownloadHostService.connectionChanged()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(cpu.held); assertTrue(grace.holds.isEmpty())
+            val root = app.workspace.root.absolutePath
+            service.onStartCommand(startIntent(root), 0, 1)
+            DownloadHostService.waiting(root, true)
+            assertFalse(cpu.held)
+            val before = grace.holds.size
+            // Told from the platform's own thread: the short hold is taken there, the rest on the main thread.
+            val told = Thread { DownloadHostService.connectionChanged() }
+            told.start(); told.join(5_000)
+            assertEquals(before + 1, grace.holds.size)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(cpu.held)
+            // Still no connection it may use: the next reading lets the phone sleep again.
+            DownloadHostService.waiting(root, true)
+            assertFalse(cpu.held)
+            lifecycle.destroy(); destroyed = true
+            assertFalse(grace.held)
+        } finally { if (!destroyed) lifecycle.destroy() }
+    }
+
     @Test fun aTimeoutEndsTheServiceWithinItsBoundWhileADrainIsStillWaiting() {
         val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
         val service = lifecycle.get(); val cpu = FakeCpu(); service.cpu = cpu

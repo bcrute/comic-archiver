@@ -134,4 +134,15 @@ def status(workspace):
         # A fresh library or a short-lived index lock must not hide plan state.
         # Missing observations stay missing; no counters or heartbeat are made up.
         pass
+    retry = account.get('retry')
+    if (isinstance(retry, dict) and retry.get('reason') == 'connection' and worker.get('running') is True
+            and worker.get('state') == 'ready' and not worker.get('stop_requested')):
+        # Nothing can happen until the phone's connection changes, so the app need not keep the phone awake for
+        # this wait. A wait on a connection that may be used (the site could not be reached) ends by the clock.
+        from . import network
+        try:
+            if network.status(workspace.library)['allowed'] is False:
+                retry['connection_unusable'] = True
+        except (ArchiveError, OSError):
+            pass
     return {'account': account, 'worker': worker, 'counts': counts, 'progress': progress}

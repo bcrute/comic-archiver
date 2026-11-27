@@ -104,6 +104,19 @@ object DownloadStatus {
             download == DownloadState.Paused("user"))
     }
 
+    /**
+     * Whether the download only waits for a connection the phone may not use now (none, or a metered
+     * one while only Wi-Fi is allowed) with the downloader idle. Nothing can happen until the phone's
+     * connection changes, so the phone need not be kept awake for it; the site is still kept alive.
+     * Any other wait ends by the clock and is never one of these, nor is a failed reading.
+     */
+    fun awaitsConnection(envelope: JSONObject): Boolean {
+        val account = envelope.takeIf { it.opt("ok") == true }?.optJSONObject("result")?.optJSONObject("account")
+            ?: return false
+        return account.optString("status") == "running" &&
+            account.optJSONObject("retry")?.opt("connection_unusable") == true
+    }
+
     // Lists are pages in a shifting order: read in one go, a series cannot slip past unseen.
     val LIST_FIRST get() = say("downloads.saving_starts_once_every_list_is")
 

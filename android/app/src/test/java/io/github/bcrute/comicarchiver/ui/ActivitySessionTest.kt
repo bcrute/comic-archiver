@@ -5,6 +5,7 @@ import io.github.bcrute.comicarchiver.controller.SupportNote
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.os.Looper
@@ -33,6 +34,8 @@ import io.github.bcrute.comicarchiver.controller.DownloadState
 import io.github.bcrute.comicarchiver.controller.SignInState
 import io.github.bcrute.comicarchiver.runtime.PythonBridge
 import io.github.bcrute.comicarchiver.signin.WebViewSignInEngine
+import io.github.bcrute.comicarchiver.worker.ActiveDownloads
+import io.github.bcrute.comicarchiver.worker.DownloadHostService
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -43,6 +46,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentHashMap
@@ -199,6 +203,17 @@ class ActivitySessionTest {
         assertEquals(1, app.fake.count("prepare_workspace"))
         assertEquals(1, app.fake.count("go"))
         assertEquals(1, app.fake.count("signin_restore"))
+    }
+
+    @Test fun turningOrFoldingThePhoneDoesNotEndTheScreenAndTheSignInPageBeingFilledIn() {
+        val activity = compose.activity
+        val kept = activity.packageManager.getActivityInfo(activity.componentName, 0).configChanges
+        // The sign-in page lives and ends with the activity: none of these may start it again.
+        for (change in listOf(android.content.pm.ActivityInfo.CONFIG_ORIENTATION, android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE,
+            android.content.pm.ActivityInfo.CONFIG_SCREEN_LAYOUT, android.content.pm.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE,
+            android.content.pm.ActivityInfo.CONFIG_KEYBOARD, android.content.pm.ActivityInfo.CONFIG_KEYBOARD_HIDDEN,
+            android.content.pm.ActivityInfo.CONFIG_NAVIGATION, android.content.pm.ActivityInfo.CONFIG_UI_MODE))
+            assertEquals(change, kept and change)
     }
 
     @Test fun settingsUseTheControllerBridgeAndSurviveRecreationWithoutGo() {
@@ -441,6 +456,70 @@ class ActivitySessionTest {
         assertTrue(app.controller.state.value.download is DownloadState.Paused)
         assertEquals(1, app.fake.count("go"))
         compose.onNodeWithTag("card-action-tapas").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun aDownloadPausedOnlyWhileASettingIsChangedIsStillKeptAliveAndIsLetGoWhenItReallyEnds() {
+        ready()
+        val running = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
+        val stopped = """{"worker":{"running":true,"state":"ready"},"account":{"status":"stopped"}}"""
+        app.fake.statusPayload = running
+        val controller = app.controller
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        ActiveDownloads.clear()
+        val lifecycle = Robolectric.buildService(DownloadHostService::class.java).create()
+        val service = lifecycle.get()
+        try {
+            compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
+            awaitState { controller.state.value.download is DownloadState.Running }
+            val root = app.workspace.root.absolutePath
+            // Android hands Go's start to the service; no service runs here, so the test hands it over.
+            service.onStartCommand(Intent(app, DownloadHostService::class.java).setAction(DownloadHostService.ACTION_START)
+                .putExtra(DownloadHostService.EXTRA_WORKSPACE, root), 0, 1)
+            assertEquals(listOf(root), ActiveDownloads.all())
+            // The change pauses the download while it is applied, with nothing in flight for a moment.
+            app.fake.settingsGate = entered to release
+            compose.runOnIdle { controller.setDownloadTypes(mapOf("bought" to true, "free" to false)) }
+            awaitState { entered.count == 0L }
+            app.fake.statusPayload = stopped
+            val read = app.fake.count("download_status")
+            awaitState { app.fake.count("download_status") >= read + 2 }
+            // It carries on after the change: the service must still be there for it.
+            assertEquals(listOf(root), ActiveDownloads.all())
+            assertTrue(!shadowOf(service).isStoppedBySelf)
+            app.fake.statusPayload = running
+            release.countDown()
+            awaitState { !controller.state.value.settingsBusy }
+            assertEquals(listOf(root), ActiveDownloads.all())
+            // The download's own end lets it go.
+            app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},"account":{"status":"finished"}}"""
+            awaitState { shadowOf(service).isStoppedBySelf }
+            assertTrue(ActiveDownloads.all().isEmpty())
+        } finally {
+            release.countDown(); ActiveDownloads.clear(); lifecycle.destroy()
+            compose.runOnIdle { controller.pause() }
+        }
+    }
+
+    @Test fun theSavedLibraryIsNotReadAgainEveryFewSecondsWhileSavingAndIsReadOnceWhenTheDownloadEnds() {
+        ready()
+        app.fake.statusPayload = """{"worker":{"running":true,"state":"busy"},"account":{"status":"running","phase":"archive"}}"""
+        compose.onNodeWithTag("card-action-tapas").performScrollTo().performClick()
+        awaitState { app.controller.state.value.download is DownloadState.Running }
+        fun looks(more: Int) {
+            val from = app.fake.count("download_status")
+            awaitState { app.fake.count("download_status") >= from + more }
+        }
+        // Go reads the library once. The download is then looked at every two seconds, for longer
+        // here than the ten seconds after which every episode's record used to be read again.
+        looks(2)
+        val listed = app.fake.count("library_listing")
+        looks(3); looks(3)
+        assertEquals(listed, app.fake.count("library_listing"))
+        // The end of a download is the app's own doing: what it saved is shown without waiting a minute.
+        app.fake.statusPayload = """{"worker":{"running":true,"state":"ready"},"account":{"status":"finished"}}"""
+        awaitState { app.controller.state.value.download is DownloadState.Finished }
+        awaitState { app.fake.count("library_listing") > listed }
+        assertEquals(listed + 1, app.fake.count("library_listing"))
     }
 
     @Test fun aLateRunningObservationCannotReplaceTheNewerPausedAdmission() {

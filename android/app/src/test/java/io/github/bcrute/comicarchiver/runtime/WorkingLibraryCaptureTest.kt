@@ -246,6 +246,58 @@ class WorkingLibraryCaptureTest {
         assertFalse(stable(root))
     }
 
+    @Test fun hiddenAndSystemFilesAreLeftWhereTheyAreAndNeverRefuseOrEnterTheCopy() {
+        val f = fixture()
+        // What a Mac or Windows computer leaves behind, some of it named like a comic or its record.
+        val strays = listOf(".DS_Store", "Thumbs.db", "desktop.ini", "._b.cbz", "._a.json", ".trashed-1700000000-old.cbz")
+            .map { f.documents.file(f.series, it, "PRIVATE not a comic".toByteArray()) }.toMutableList()
+        strays += f.documents.file(f.library, "Thumbs.db", "PRIVATE".toByteArray())
+        strays += f.documents.file(f.library, ".DS_Store", "PRIVATE".toByteArray())
+        val state = f.documents.folder(f.library, ".archive-state")
+        val reading = f.documents.folder(state, "reading")
+        val record = "a".repeat(64) + ".json"
+        f.documents.file(reading, record)
+        strays += f.documents.file(reading, ".DS_Store", "PRIVATE".toByteArray())
+        strays += f.documents.file(reading, "._$record", "PRIVATE".toByteArray())
+        val provenanceFolder = f.documents.folder(state, "provenance")
+        f.documents.file(provenanceFolder, "$provenance.json")
+        strays += f.documents.file(provenanceFolder, "._$provenance.json", "PRIVATE".toByteArray())
+        val history = f.documents.folder(f.documents.folder(f.documents.folder(state, "cloud"), "history"), "b2")
+        strays += f.documents.file(history, ".DS_Store", "PRIVATE".toByteArray())
+        val receipts = f.documents.folder(history, provenance)
+        f.documents.file(receipts, "$targetId-${"a".repeat(64)}.json")
+        strays += f.documents.file(receipts, "._receipt.json", "PRIVATE".toByteArray())
+        val capture = capturer(f.documents)
+        val plan = capture.scan(tree, "tapas")
+        assertEquals(setOf("Library/Series/a.json", "Library/Series/b.cbz", "Library/.archive-state/reading/$record",
+            "Library/.archive-state/provenance/$provenance.json",
+            "Library/.archive-state/cloud/history/b2/$provenance/$targetId-${"a".repeat(64)}.json"), plan.files.map { it.path }.toSet())
+        // One more left behind while the copy runs is not a changed library either.
+        f.documents.onOpen = { id, count -> if (id == f.archive && count == 2) {
+            f.documents.file(f.series, "ehthumbs.db")
+        } }
+        val result = capture.capture(plan, root())
+        assertArrayEquals(f.documents.bytes.getValue(f.archive), result.workspace.resolve("Library/Series/b.cbz").readBytes())
+        for (id in strays) assertFalse(f.documents.opens.containsKey(id))
+        assertFalse(result.workspace.resolve("Library/Series/ehthumbs.db").exists())
+        assertFalse(result.workspace.walkTopDown().any { it.isFile && it.readText().contains("PRIVATE") })
+    }
+
+    @Test fun aFileThatIsNeitherAComicNorLeftByTheSystemStillRefusesTheFolder() {
+        for (name in listOf("notes.txt", "Thumbs.db.cbz.exe", "thumbs.database")) {
+            val f = fixture()
+            f.documents.file(f.series, name)
+            failure(LibraryCaptureFailure.INCOMPLETE) { capturer(f.documents).scan(tree, "tapas") }
+            val beside = fixture()
+            beside.documents.file(beside.library, name)
+            failure(LibraryCaptureFailure.INCOMPLETE) { capturer(beside.documents).scan(tree, "tapas") }
+        }
+        // A folder beside the series is a series, whatever it is called.
+        val f = fixture()
+        f.documents.file(f.documents.folder(f.library, "Thumbs.db"), "notes.txt")
+        failure(LibraryCaptureFailure.INCOMPLETE) { capturer(f.documents).scan(tree, "tapas") }
+    }
+
     @Test fun aStalePreviewOrLostGrantRefusesBeforeReadingSourceFiles() {
         val f = fixture(); val capture = capturer(f.documents)
         val plan = capture.scan(tree, "tapas")

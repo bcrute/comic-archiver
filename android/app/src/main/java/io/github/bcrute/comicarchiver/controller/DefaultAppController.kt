@@ -39,6 +39,9 @@ import io.github.bcrute.comicarchiver.words.say
 /** The desktop's words for a sign-in held by the connection rule, with the phone's switch in place of its button. */
 val SIGN_IN_CONNECTION_HELD get() = say("app.connect_to_wi_fi_or_a")
 
+/** How many two-second looks of the poll pass between two reads of the whole saved library: one minute. */
+private const val LIBRARY_TICKS = 30
+
 /**
  * Runtime AppController (native line) against the frozen contract. Every download action
  * crosses the Python bridge, so Go-only admission, holds and the drain protocol behave
@@ -120,6 +123,8 @@ class DefaultAppController(
                     JSONObject().put("root", target.root.absolutePath).toString()))
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
+            val waits = envelope != null && DownloadStatus.awaitsConnection(envelope)
+            withContext(Dispatchers.Main) { DownloadHostService.waiting(target.root.absolutePath, waits) }
             // A failed read cannot prove that a live task stopped, and a wait for the
             // connection ends by itself: only an ended download loses its mark.
             val download = envelope?.takeIf { it.optBoolean("ok") }?.let(DownloadStatus::fromEnvelope)
@@ -1093,12 +1098,18 @@ class DefaultAppController(
         }
     }
 
+    /** Whether the shown site is doing something that changes what is saved: a download, or a cloud step. */
+    private fun changingLibrary() = admitted || _state.value.download is DownloadState.Planning ||
+        _state.value.download is DownloadState.Running || _state.value.cloud?.taskRunning == true
+
     private fun startPolling() {
         poll?.cancel()
         val target = location; val version = siteVersion
         // The poll's bridge calls block on Python: keep them off the main thread.
         poll = scope.launch(Dispatchers.IO) {
             var tick = 0
+            var wasChanging = changingLibrary()
+            var listed = false
             try { openOthers(target) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { }
@@ -1107,10 +1118,18 @@ class DefaultAppController(
                 // Right after a change, and while any site saves, the cards are read as often as the status.
                 if (tick < 3 || tick % 5 == 0 || admitted || away.isNotEmpty()) readSiteCards(target, version)
                 if (!workspaceReady) break
-                if (tick % 5 == 0) {
-                    try { refreshLibrary(target, version) }
+                // Every saved episode's record is read for the library, so it is read once a minute, as on the
+                // desktop, and once more when a download or a cloud step ends. Go, Pause and a change of
+                // site start this poll again, which reads it at once. A read that failed is tried again sooner.
+                val changing = changingLibrary()
+                val ended = wasChanging && !changing
+                wasChanging = changing
+                if (tick % LIBRARY_TICKS == 0 || ended || !listed && tick % 5 == 0) {
+                    listed = try { refreshLibrary(target, version) }
                     catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* A library read failure must not stop live status/Pause updates. */ }
+                    catch (_: Exception) { false /* A library read failure must not stop live status/Pause updates. */ }
+                }
+                if (tick % 5 == 0) {
                     readSettings(target, version, wait = false)
                     readCloud(target, version)
                     readAllSites(target, version)
@@ -1142,9 +1161,12 @@ class DefaultAppController(
             // Nothing is running or in flight for the site, so the service need not keep it alive. Not
             // while a Go is being answered, a setting change may carry the download on, or a cloud step
             // is using the same downloader.
-            if (DownloadStatus.over(envelope) && !goPending.value && !changing && !_state.value.settingsBusy &&
+            val settled = !goPending.value && !changing && !_state.value.settingsBusy &&
                 changes == settingsChanges && !_state.value.cloudBusy && _state.value.cloud?.taskRunning != true &&
-                _state.value.cloud?.authStatus != "running") DownloadHostService.ended(target.root.absolutePath)
+                _state.value.cloud?.authStatus != "running"
+            if (DownloadStatus.over(envelope) && settled) DownloadHostService.ended(target.root.absolutePath)
+            // While it only waits for a connection the phone may not use, the phone is not kept awake for it.
+            DownloadHostService.waiting(target.root.absolutePath, settled && DownloadStatus.awaitsConnection(envelope))
             // Reading a held plan never admits it. A failed observation also cannot
             // prove that a live task stopped: retain its Pause action and refuse Go.
             if (!admitted || observation == null) {
@@ -1172,11 +1194,12 @@ class DefaultAppController(
         }
     }
 
-    private suspend fun refreshLibrary(target: SiteWorkspace, version: Long) {
+    /** False when the library could not be read. */
+    private suspend fun refreshLibrary(target: SiteWorkspace, version: Long): Boolean {
         val envelope = JSONObject(bridge.dispatch(
             "library_listing", JSONObject().put("root", target.root.absolutePath).toString()))
-        if (!envelope.optBoolean("ok")) return
-        val entries = envelope.optJSONArray("result") ?: return
+        if (!envelope.optBoolean("ok")) return false
+        val entries = envelope.optJSONArray("result") ?: return false
         val library = (0 until entries.length()).mapNotNull { index ->
             val item = entries.optJSONObject(index) ?: return@mapNotNull null
             LibraryEntry(
@@ -1192,5 +1215,6 @@ class DefaultAppController(
             if (!current(target, version)) return@withContext
             _state.value = _state.value.copy(library = library)
         }
+        return true
     }
 }

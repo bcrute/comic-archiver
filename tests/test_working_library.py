@@ -519,6 +519,63 @@ class WorkingLibraryTests(unittest.TestCase):
                     path.write_text('PRIVATE')
                 self.assert_refused()
 
+    def test_hidden_and_system_files_in_a_series_folder_are_passed_over_and_never_copied(self):
+        root, archive, _, _ = self.publish()
+        # What a Mac or Windows computer leaves behind, some of it named like a comic or its record.
+        strays = [archive.parent / name for name in ('.DS_Store', 'Thumbs.db', 'desktop.ini', '._' + archive.name,
+                                                     '._series.json', '.trashed-1700000000-old.cbz')]
+        for path in strays:
+            path.write_bytes(b'\x00\x05\x16\x07 PRIVATE not a comic')
+        before = self.hashes(self.source)
+        result = prepare_snapshot(self.source, self.output)
+        self.assertEqual((result.sites[0].series, result.sites[0].episodes), (1, 1))
+        saved = next((self.output / 'Library').glob('*/*.cbz'))
+        self.assertEqual(saved.read_bytes(), archive.read_bytes())
+        copied = {p.name for p in self.output.rglob('*')}
+        self.assertFalse(copied & {p.name for p in strays})
+        self.assertTrue({saved.name, sidecar_path(saved).name, 'series.json'} <= copied)
+        self.assertEqual(self.hashes(self.source), before)
+        self.assertEqual(verify(self.output / 'Library'), [])
+
+    def test_system_files_beside_the_series_folders_do_not_refuse_the_library(self):
+        root, archive, _, _ = self.publish()
+        for name in ('Thumbs.db', 'desktop.ini', 'ehthumbs.db'):
+            (root / name).write_bytes(b'PRIVATE not a series')
+        result = prepare_snapshot(self.source, self.output)
+        self.assertEqual((result.sites[0].series, result.sites[0].episodes), (1, 1))
+        self.assertTrue(next((self.output / 'Library').glob('*/*.cbz')).is_file())
+        self.assertFalse({p.name for p in self.output.rglob('*')} & {'Thumbs.db', 'desktop.ini', 'ehthumbs.db'})
+        # Any other file there is still not a library the app made.
+        (root / 'notes.txt').write_text('PRIVATE')
+        shutil.rmtree(self.output)
+        self.assert_refused()
+
+    def test_hidden_files_among_reading_records_are_passed_over(self):
+        root, _, _, _ = self.publish()
+        reading = root / '.archive-state/reading'
+        reading.mkdir()
+        record = b'{"v":99,"future":"retained"}'
+        (reading / ('f' * 64 + '.json')).write_bytes(record)
+        for name in ('.DS_Store', '._' + 'f' * 64 + '.json', 'Thumbs.db'):
+            (reading / name).write_bytes(b'\x00\x05\x16\x07 PRIVATE')
+        prepare_snapshot(self.source, self.output)
+        copied = self.output / 'Library/.archive-state/reading'
+        self.assertEqual((copied / ('f' * 64 + '.json')).read_bytes(), record)
+        for name in ('.DS_Store', '._' + 'f' * 64 + '.json', 'Thumbs.db'):
+            self.assertFalse((copied / name).exists())
+
+    def test_a_hidden_file_among_an_episodes_cloud_records_is_not_read_as_one(self):
+        root, archive, _, _ = self.publish()
+        record = self.cloud_receipt(root, archive)
+        history = root / '.archive-state/cloud/history/b2' / record['episode_id']
+        (history / '._receipt.json').write_bytes(b'\x00\x05\x16\x07 PRIVATE')
+        (root / '.archive-state/cloud/history/b2/.DS_Store').write_bytes(b'\x00\x05\x16\x07 PRIVATE')
+        result = prepare_snapshot(self.source, self.output)
+        self.assertEqual(result.sites[0].cloud_only, 1)
+        kept = [p for p in (self.output / 'Library/.archive-state/cloud/history/b2').rglob('*') if p.is_file()]
+        self.assertTrue(kept)
+        self.assertFalse({p.name for p in kept} & {'._receipt.json', '.DS_Store'})
+
     def test_relevant_symlinks_are_refused_and_their_targets_are_untouched(self):
         _, archive, _, _ = self.publish()
         outside = self.base / 'outside.cbz'; archive.rename(outside)

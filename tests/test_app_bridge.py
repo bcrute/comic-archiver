@@ -517,6 +517,81 @@ class BridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(account_ui.speed(workspace), "slow")
         self.assertTrue(self.call("pause", {"root": str(self.root)})["ok"])
 
+    def _change_that_waits_for_its_download(self):
+        """A speed change on the first site, held where it waits for the saving step to stop."""
+        import threading
+        from unittest.mock import patch
+        from comic_archive import account_ui
+        self.call("prepare_workspace", {"root": str(self.root)})
+        queue = self.root / ".comic-session/worker"
+        (queue / "requests").mkdir(parents=True)
+        (queue / "responses").mkdir()
+        self.assertTrue(self.call("go", {"root": str(self.root)})["ok"])
+        waiting, release, answers = threading.Event(), threading.Event(), {}
+        real = account_ui.change_speed
+
+        def slow(*args, **kwargs):
+            waiting.set()
+            release.wait(60)
+            return real(*args, **kwargs)
+
+        def ask(name, op, args):
+            answers[name] = self.call(op, args)
+
+        def asking(name, op, args):
+            thread = threading.Thread(target=ask, args=(name, op, args), daemon=True)
+            thread.start()
+            return thread
+
+        patched = patch.object(account_ui, "change_speed", slow)
+        patched.start()
+        change = asking("change", "configure_settings", {"root": str(self.root), "speed": "slow"})
+
+        def finish():
+            release.set()
+            change.join(60)
+            patched.stop()
+
+        self.addCleanup(finish)
+        self.assertTrue(waiting.wait(30))
+        return release, change, answers, asking
+
+    def test_a_setting_change_waiting_for_its_download_leaves_another_site_and_a_sign_in_answering(self):
+        import threading
+        from unittest.mock import patch
+        other = self.root / "Webtoon"
+        release, change, answers, asking = self._change_that_waits_for_its_download()
+        seams = threading.Thread(target=app_bridge.set_cookie_seams,
+                                 args=(lambda url: "", lambda url, values: True, "webtoon"), daemon=True)
+        seams.start()
+        seams.join(20)
+        self.assertFalse(seams.is_alive())
+        with patch("comic_archive.account_ui.reopen", return_value=False):
+            opened = asking("open", "open_site", {"root": str(other), "base_root": str(self.root), "site_key": "webtoon"})
+            opened.join(20)
+        self.assertTrue(answers.get("open", {}).get("ok"), answers)
+        for name, op in (("settings", "settings"), ("pause", "pause")):
+            asking(name, op, {"root": str(other)}).join(20)
+            self.assertTrue(answers.get(name, {}).get("ok"), answers)
+        self.assertTrue(change.is_alive())
+        release.set()
+        change.join(60)
+        self.assertEqual(answers["change"]["result"]["speed"], "slow")
+
+    def test_a_pause_pressed_during_a_setting_change_waits_for_it_and_is_then_applied(self):
+        release, change, answers, asking = self._change_that_waits_for_its_download()
+        pause = asking("pause", "pause", {"root": str(self.root)})
+        pause.join(1)
+        # Not lost and not answered early: the change would start the download again behind it.
+        self.assertTrue(pause.is_alive())
+        release.set()
+        change.join(60)
+        pause.join(60)
+        self.assertTrue(answers["change"]["ok"], answers)
+        self.assertTrue(answers["pause"]["ok"], answers)
+        status = self.call("download_status", {"root": str(self.root)})
+        self.assertEqual(status["result"]["account"]["status"], "stopped")
+
     def test_episode_types_are_listed_as_on_the_desktop_and_a_choice_is_kept(self):
         from comic_archive import account_ui, download_selection
         from comic_archive.workspace import Workspace

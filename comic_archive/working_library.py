@@ -37,6 +37,9 @@ MAX_DATABASE = 128 * 1024**2
 RECEIPT = '.working-import.json'
 LOCATION_MARKER = '.working-library.json'
 HASH = re.compile(r'[a-f0-9]{64}')
+# What an operating system or a file manager leaves in a folder it has shown, beside every hidden name: never one
+# of the app's own files, so never copied, never read as a comic or a record, and never a reason to refuse a library.
+STRAYS = frozenset({'thumbs.db', 'ehthumbs.db', 'desktop.ini'})
 MESSAGES = {
     'invalid': 'This library snapshot could not be verified. The previous library is retained.',
     'incomplete': 'Some saved records are missing their files or provenance. The previous library is retained.',
@@ -90,6 +93,20 @@ def _children(path):
     if len(values) > MAX_FILES:
         raise LibraryImportError()
     return sorted(values)
+
+
+def stray(name):
+    return name.startswith('.') or name.lower() in STRAYS
+
+
+def _stray_file(path):
+    """Beside the series folders only a file can be one: a folder there is a series, whatever it is called."""
+    return path.name.lower() in STRAYS and not path.is_dir()
+
+
+def _records(path):
+    """The entries of a folder of private records or of one series, without what is not the app's."""
+    return [entry for entry in _children(path) if not stray(entry.name)]
 
 
 def _json(path, maximum=MAX_JSON):
@@ -146,7 +163,7 @@ def _inputs(snapshot, check):
         found = True
         result[root.relative_to(snapshot).as_posix()] = {'directory': True}
         for folder in _children(root):
-            if folder.name.startswith('.'):
+            if folder.name.startswith('.') or _stray_file(folder):
                 continue
             _safe(folder)
             if not folder.is_dir():
@@ -154,7 +171,7 @@ def _inputs(snapshot, check):
             if len(result) >= MAX_FILES:
                 raise LibraryImportError()
             result[folder.relative_to(snapshot).as_posix()] = {'directory': True}
-            for path in _children(folder):
+            for path in _records(folder):
                 if path.name.endswith(('.cbz', '.epub', '.tar.zst')):
                     add(path, MAX_PACKED_ARCHIVE_BYTES)
                 elif path.suffix == '.json':
@@ -170,13 +187,13 @@ def _inputs(snapshot, check):
                 add(path, MAX_DATABASE)
         provenance = _safe(state / 'provenance')
         if provenance.exists():
-            for path in _children(provenance):
+            for path in _records(provenance):
                 if path.suffix != '.json' or not valid_export_id(path.stem):
                     raise LibraryImportError()
                 add(path, MAX_JSON)
         reading = _safe(state / 'reading')
         if reading.exists():
-            for path in _children(reading):
+            for path in _records(reading):
                 if path.name == 'writer.lock' or path.name.endswith('.json.tmp'):
                     continue
                 if not re.fullmatch(r'[a-f0-9]{64}\.json', path.name):
@@ -188,16 +205,16 @@ def _inputs(snapshot, check):
         for provider in cloud.PROVIDERS:
             outbox = _safe(state / 'cloud/outbox' / provider)
             if outbox.exists():
-                for path in _children(outbox):
+                for path in _records(outbox):
                     if path.suffix != '.json' or not valid_export_id(path.stem):
                         raise LibraryImportError()
                     add(path, 1024**2)
             history = _safe(state / 'cloud/history' / provider)
             if history.exists():
-                for folder in _children(history):
+                for folder in _records(history):
                     if not valid_export_id(folder.name):
                         raise LibraryImportError()
-                    for path in _children(folder):
+                    for path in _records(folder):
                         if path.suffix != '.json':
                             raise LibraryImportError()
                         add(path, 1024**2)
@@ -402,7 +419,8 @@ def _receipt_records(root, inputs, public, archive, library_id, check):
     episode_id = public['export_id']
     for provider in cloud.PROVIDERS:
         paths = [root / '.archive-state/cloud/outbox' / provider / (episode_id + '.json')]
-        paths += sorted((root / '.archive-state/cloud/history' / provider / episode_id).glob('*.json'))
+        paths += sorted(path for path in (root / '.archive-state/cloud/history' / provider / episode_id).glob('*.json')
+                        if not stray(path.name))
         for path in paths:
             _poll(check)
             if not path.exists():
@@ -483,7 +501,7 @@ def _site(source, target, site, inputs, scratch, check):
                                      '(episode_id TEXT PRIMARY KEY, chosen INTEGER NOT NULL CHECK (chosen IN (0, 1)))')
                 inventory.db.executemany('INSERT INTO comic_episode_choices VALUES (?,?)', episode_choices)
         for folder in _children(source):
-            if folder.name.startswith('.'):
+            if folder.name.startswith('.') or _stray_file(folder):
                 continue
             _poll(check)
             if verify_series(folder / 'series.json'):
@@ -503,7 +521,7 @@ def _site(source, target, site, inputs, scratch, check):
             if metadata.get('cover_file'):
                 _copy(folder / metadata['cover_file'], output / metadata['cover_file'], check)
             expected = {'series.json', metadata.get('cover_file')}
-            for sidecar in _children(folder):
+            for sidecar in _records(folder):
                 if sidecar.name == 'series.json' or sidecar.suffix != '.json':
                     continue
                 public, metadata, export_id = _metadata(sidecar, site)
@@ -542,7 +560,7 @@ def _site(source, target, site, inputs, scratch, check):
                     'order': episode.order, 'access_state': 'unavailable_or_unverified'}], 'snapshot_import')
                 inventory.mark(episode.id, 'archived', path=destination)
                 completed[archive.relative_to(source).as_posix()] = (episode.id, canonical)
-            for path in _children(folder):
+            for path in _records(folder):
                 if path.name not in expected:
                     raise LibraryImportError('incomplete')
             if verify_series(output / 'series.json'):
