@@ -74,6 +74,10 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(model.auth_text({'status': 'running'}), 'Checking your B2 key and private library bucket…')
         self.assertEqual(model.auth_text({'status': 'connected'}), 'Signed in. Next, click Test cloud connection.')
         self.assertEqual(model.auth_text({'status': 'cancelled'}), 'Sign-in canceled. Your saved files are safe.')
+        # The key is saved and stays; what could not be done is said, with what to do about it.
+        self.assertEqual(model.auth_text({'status': 'error', 'code': 'signin_unfinished'}),
+                         'Your key was saved, but the sign-in could not be finished on this computer. '
+                         'Sign in again to finish it.')
         held = model.auth_text({'status': 'error', 'code': 'signin_network_held'})
         self.assertIn('press Allow this connection on the Dashboard', held)  # Where the computer's window has it.
         self.assertNotIn('tick', held)

@@ -231,6 +231,28 @@ class CloudSignInTests(unittest.TestCase):
         self.assertFalse(first.exists())  # The file it replaced is deleted as after any other sign-in.
         self.assertEqual(list((self.root/'.archive-state/cloud').glob('connection-*')), [second])
 
+    def test_a_sign_in_whose_saved_key_could_not_be_noted_on_this_computer_says_so_and_keeps_the_key(self):
+        def sign_in(trust, trusted=True):
+            with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
+                    patch('comic_archive.cloud.Transfer'), patch('comic_archive.cloud_runtime.trust', side_effect=trust) as noted, \
+                    patch('comic_archive.cloud_runtime.trusted', return_value=trusted):
+                self.signin.start('b2', self.credentials)
+                status = self.finish()
+            return status, Path(cloud.settings(self.root)['targets']['b2']['config']), noted.call_count
+        # The key is saved, then noting the connection as set up here fails, and fails again: never "connected".
+        status, first, tries = sign_in(ArchiveError('PRIVATE_DETAIL'))
+        self.assertEqual((status['status'], status['code'], tries), ('error', 'signin_unfinished', 2))
+        self.assertNotIn('PRIVATE', json.dumps(status))
+        self.assertIn('PRIVATE_KEY', first.read_text())  # The file the settings name stays.
+        # Noted at the second try, the sign-in is whole.
+        status, second, tries = sign_in([ArchiveError('PRIVATE_DETAIL'), None])
+        self.assertEqual((status['status'], tries), ('connected', 2))
+        self.assertFalse(first.exists())
+        # A second try that went through without the connection being known here is not whole either.
+        status, third, _ = sign_in([ArchiveError('PRIVATE_DETAIL'), None], trusted=False)
+        self.assertEqual((status['status'], status['code']), ('error', 'signin_unfinished'))
+        self.assertEqual(list((self.root/'.archive-state/cloud').glob('connection-*')), [third])
+
     def test_auth_payloads_are_fixed_and_bounded(self):
         # Google Drive, Dropbox and Proton Drive were offered by earlier versions; only Backblaze B2 signs in now.
         for provider, credentials in [('google', {}), ('dropbox', {}), ('proton', {'username':'u', 'password':'p'}),

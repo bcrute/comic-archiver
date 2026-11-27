@@ -96,6 +96,17 @@ def clear(root, folder):
         pass
 
 
+def _finished(root, provider):
+    """Whether the saved connection is noted as set up on this computer, noting it now when that is what failed."""
+    from .cloud_runtime import trust, trusted
+    try:
+        target = cloud.settings(root)['targets'][provider]
+        trust(target)
+        return trusted(target) is True
+    except (ArchiveError, OSError, KeyError, TypeError):
+        return False
+
+
 def _named(root, provider, config):
     """Whether the library's saved settings use this connection file. Unreadable settings name nothing."""
     try:
@@ -174,7 +185,7 @@ class SignIn:
                     if self._cancel.is_set():
                         raise ArchiveError('Cloud sign-in stopped.')
                     os.replace(config, destination); destination.chmod(0o600)
-                    previous = None
+                    previous, unfinished = None, False
                     try:
                         value = cloud.settings(root)
                         previous = value and value['targets'].get(provider)
@@ -187,13 +198,19 @@ class SignIn:
                             raise
                         if not isinstance(error, Exception):
                             raise
+                        # What failed came after the save. All that is left to do is noting the connection as
+                        # set up on this computer: done now, or the sign-in says it could not be finished.
+                        unfinished = not _finished(root, provider)
                     if previous:
                         try:
                             retire(root, folder, Path(previous['config']))
                         except (ArchiveError, OSError):
                             pass  # The old file stays; the new connection is saved either way.
                     clear(root, folder)
-                    self._update(status='connected')
+                    if unfinished:
+                        self._update(status='error', code='signin_unfinished')
+                    else:
+                        self._update(status='connected')
         except Exception as error:
             from .network import NetworkPolicyHold
             code = ('signin_network_held' if isinstance(error, NetworkPolicyHold)

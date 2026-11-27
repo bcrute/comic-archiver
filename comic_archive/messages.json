@@ -877,6 +877,7 @@
  "storage.uploads_need_attention": "Uploads need attention",
  "storage.your_bucket": "your bucket {bucket}",
  "storage.your_bucket_2": "your bucket",
+ "storage.your_key_was_saved_but_the": "Your key was saved, but the sign-in could not be finished on this computer. Sign in again to finish it.",
  "storage.your_library_should_take_about_once": "Your library should take about {value}. Once all of it is stored, Backblaze would charge {value2} a day, {value3} a month.{rough}",
  "storage.your_library_should_take_about_which": "Your library should take about {value}, which fits in Backblaze’s free 10 GB.{rough}",
  "storage.your_own_backblaze_account": "Your own Backblaze account{value}.",

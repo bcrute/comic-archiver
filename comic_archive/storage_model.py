@@ -105,6 +105,8 @@ def auth_text(auth):
         if _phone():
             return (say('storage.mobile_data_is_off_connect_to'))
         return (say('storage.this_connection_is_metered_or_cannot'))
+    if auth.get('code') == 'signin_unfinished':
+        return say('storage.your_key_was_saved_but_the')
     if auth.get('status') == 'error':
         return CLOUD_HINTS.get(auth.get('code'), say('storage.sign_in_did_not_finish_check'))
     return ''
