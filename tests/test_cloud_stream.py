@@ -197,15 +197,21 @@ class CloudStreamTests(unittest.TestCase):
             folder = store.series_folder(self.series)
             stream = StreamingEpisode.create(store,self.series,self.episode,store.episode_path(self.series,self.episode,folder))
             stream.close()
-            receipt = json.loads(stream.receipt.read_text()); receipt['remote_path'] = 'unrelated/keep'
+            written = json.loads(stream.receipt.read_text()); receipt = written | {'remote_path': 'unrelated/keep'}
             stream.receipt.write_text(json.dumps(receipt))
-            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'b2')
+            StreamingTransfer.files[('b2','unrelated/keep')] = b'keep'
+            # A record that names anything but its own staging file is set aside unused: the episode has none.
+            self.assertIsNone(_stage(self.root,receipt['episode_id'],'b2')[1])
+            self.assertFalse(stream.receipt.exists()); self.assertEqual(len(list(self.streams.glob('*.damaged-*'))),1)
+            cleanup_stage(self.root,StreamingTransfer('b2',{}),receipt['episode_id'])
             # A record must name the provider it was staged with, and only B2 stages.
-            receipt = json.loads(stream.receipt.read_text()); self.assertEqual(receipt.pop('provider'),'b2')
+            receipt = dict(written); self.assertEqual(receipt.pop('provider'),'b2')
             stream.receipt.write_text(json.dumps(receipt))
-            with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'b2')
+            self.assertIsNone(_stage(self.root,receipt['episode_id'],'b2')[1])
+            self.assertFalse(stream.receipt.exists()); self.assertEqual(len(list(self.streams.glob('*.damaged-*'))),2)
             with self.assertRaises(ArchiveError): _stage(self.root,receipt['episode_id'],'google')
         self.assertEqual(stream.receipt.parent,self.streams)
+        self.assertEqual(StreamingTransfer.files[('b2','unrelated/keep')],b'keep')
         with self.assertRaises(ArchiveError): _stage(self.root,'../../keep','b2')
 
     def test_real_bounded_pipe_child_receives_exact_bytes_and_uses_small_buffers(self):
@@ -318,6 +324,17 @@ class CloudStreamTests(unittest.TestCase):
             with patch('comic_archive.cloud_stream.time',Mock(monotonic=lambda: next(clock,1000))):
                 with self.assertRaises(CloudTransferError) as caught: pipe.write(b'x'*(1<<20))
             self.assertEqual(safe_code(caught.exception),'cloud_connection')
+        finally: pipe.close()
+
+    def test_an_upload_that_runs_out_of_time_fails_with_a_connection_code_and_its_child_is_stopped(self):
+        transfer = self.fixture('rclone-unfinished','import sys,time\nsys.stdin.buffer.read()\ntime.sleep(60)\n')
+        pipe = PipeUpload(transfer,'own/episode.cbz')
+        try:
+            pipe.write(b'episode bytes')
+            with patch('comic_archive.cloud.transfer_timeout',return_value=0):
+                with self.assertRaises(CloudTransferError) as caught: pipe.finish()
+            self.assertEqual(safe_code(caught.exception),'cloud_connection')
+            self.assertIsNotNone(pipe.process.poll())
         finally: pipe.close()
 
     def stream_for(self, store, episode):
@@ -688,6 +705,38 @@ class B2DirectTests(unittest.TestCase):
         self.assertEqual(len(episode_archives(folder)), 1)
         self.assertEqual(self.target()['verified'], 1)
         self.assertFalse(self.intents())
+
+    def test_an_upload_that_ends_in_an_unforeseen_error_still_keeps_the_episode_here_for_the_retry_button(self):
+        # A timeout the transfer did not turn into its own error: the episode is in memory only, so it is saved first.
+        with patch.object(StreamingTransfer, 'upload_bytes', side_effect=subprocess.TimeoutExpired('cloud transfer', 900)):
+            with self.assertRaises(CloudTransferError) as caught: self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual(safe_code(caught.exception), 'cloud_unknown')
+        folder = next(self.root.glob('Synthetic*'))
+        self.assertEqual(len(episode_archives(folder)), 2)
+        self.assertEqual(self.target()['failed'], 1)
+        cloud.upload_pending(self.root)
+        self.assertEqual(len(episode_archives(folder)), 1)
+        self.assertEqual(self.target()['verified'], 1)
+
+    def test_a_stream_record_an_earlier_version_left_is_set_aside_and_the_episode_still_goes_to_b2(self):
+        value = cloud.settings(self.root); run = str(uuid.uuid4())
+        with closing(PublicationStore(self.root)) as store:
+            key = store.series_export_key(self.series.source, self.series.id, self.series.platform_id)
+            episode_id = store.export_id(self.series.source, key, self.episode.id)
+        streams = self.root/'.archive-state/cloud/streams/b2'; streams.mkdir(parents=True, exist_ok=True)
+        staged = f"Comic-Archive/{value['library_id']}/.staging/{run}/episode.cbz"
+        # Written before a record named its provider: this version cannot act on it.
+        (streams/(episode_id + '.json')).write_text(json.dumps({
+            'schema_version':1, 'library_id':value['library_id'], 'target_id':value['targets']['b2']['target_id'],
+            'episode_id':episode_id, 'run_id':run, 'remote_path':staged, 'archive':'Synthetic/episode.cbz',
+            'state':'streaming', 'sha256':None}))
+        StreamingTransfer.files[('b2', staged)] = b'left by the earlier version'
+        self.publish((self.episode,), MemoryAdapter())
+        self.assertEqual((self.target()['verified'], self.target()['failed']), (1, 0))
+        self.assertEqual(len(episode_archives(next(self.root.glob('Synthetic*')))), 1)  # Only the seed is saved here.
+        self.assertFalse((streams/(episode_id + '.json')).exists())
+        self.assertEqual(len(list(streams.glob('*.damaged-*'))), 1)
+        self.assertEqual(StreamingTransfer.files[('b2', staged)], b'left by the earlier version')  # B2 is not changed on its word.
 
     def test_a_stopping_download_stops_a_stalled_upload_and_keeps_the_episode_waiting_here(self):
         following = Episode('82', '42', 'Next', 3, (Page(1, 'https://cdn.test/next', False),), 'tapas_free')

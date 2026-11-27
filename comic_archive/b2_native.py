@@ -84,6 +84,7 @@ class NativeB2Transfer(Transfer):
         self._factory = client_factory or httpx.Client
         self._authorization = None
         self._authorized_at = 0
+        self._unanswered = None
         self._lock = threading.RLock()
         try:
             section = read_connection(target, own)
@@ -205,14 +206,23 @@ class NativeB2Transfer(Transfer):
         if identity != (file_id if part is not None else self.bucket_id):
             _fail()
         url, token = self._upload_destination(destination, operation)
+        if path is not None and path == self._unanswered:
+            # The try before this one ended without B2's answer, and B2 may have kept the file all the same:
+            # sent again it would be kept twice. One found there with this size and SHA-1 is that file.
+            found = self._find(path)
+            if found is not None and found['contentLength'] == size and found['contentSha1'] == digest:
+                return found
         headers = {'Authorization': token, 'Content-Length': str(size), 'X-Bz-Content-Sha1': digest}
         headers.update({'X-Bz-Part-Number': str(part)} if part is not None else
                        {'X-Bz-File-Name': quote(_path(path), safe=''), 'Content-Type': 'b2/x-auto'})
         self._check()
+        self._unanswered = path
         try:
             with self._client() as client, client.stream('POST', url, headers=headers, content=content) as response:
                 self._status(response)
-                return b2_auth._body(response, self.guard, self.cancel)
+                answer = b2_auth._body(response, self.guard, self.cancel)
+                self._unanswered = None
+                return answer
         except (httpx.HTTPError, ValueError) as error:
             raise _lost(error) from None
 
@@ -382,8 +392,19 @@ class NativeB2Transfer(Transfer):
 
     def _copy(self, original, destination):
         if original['contentLength'] <= 5_000_000_000:
-            copied = self._file(self._call('b2_copy_file', {'sourceFileId': original['fileId'],
-                'fileName': destination, 'destinationBucketId': self.bucket_id, 'metadataDirective': 'COPY'}))
+            try:
+                copied = self._file(self._call('b2_copy_file', {'sourceFileId': original['fileId'],
+                    'fileName': destination, 'destinationBucketId': self.bucket_id, 'metadataDirective': 'COPY'}))
+            except b2_auth.Refused:
+                raise
+            except CloudTransferError as error:
+                if error.cloud_code not in ('cloud_connection', 'cloud_verification'):
+                    raise
+                # Without an answer that can be read, B2 may have made the copy all the same, and asked again it
+                # would keep two. The copy is looked for instead; the caller reads it back before it counts.
+                copied = self._find(destination)
+                if copied is None:
+                    raise error from None
             if copied['fileName'] != destination or copied['contentLength'] != original['contentLength']:
                 _fail()
         else:

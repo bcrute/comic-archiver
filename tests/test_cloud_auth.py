@@ -100,6 +100,57 @@ class CloudSignInTests(unittest.TestCase):
         sign_in()
         self.assertFalse(third.exists())
 
+    def sign_in(self):
+        with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
+                patch('comic_archive.cloud.Transfer'):
+            self.signin.start('b2', self.credentials)
+            self.assertEqual(self.finish()['status'], 'connected')
+        return Path(cloud.settings(self.root)['targets']['b2']['config'])
+
+    def pending_test(self, target):
+        """A cloud test that still has to delete its files with the connection it was run with."""
+        test_id = str(uuid.uuid4())
+        cloud._write(self.root/'.archive-state/cloud/tests'/(test_id + '.json'), {
+            'schema_version': 1, 'provider': 'b2', 'state': 'cleanup_pending', 'files': [], 'verified_episodes': 0,
+            'prefix': f"Comic-Archive/{cloud.settings(self.root)['library_id']}/tests/{test_id}",
+            'connection': {k: target[k] for k in ('remote', 'config', 'target_id')}})
+        return test_id
+
+    def test_a_replaced_key_file_a_test_cleanup_needed_is_deleted_once_the_test_is_cleaned_up(self):
+        first = self.sign_in()
+        waiting = self.pending_test(cloud.settings(self.root)['targets']['b2'])
+        second = self.sign_in()
+        self.assertTrue(first.is_file())  # The test still has to clean up with it.
+        current = self.pending_test(cloud.settings(self.root)['targets']['b2'])
+        with patch('comic_archive.cloud.Transfer'):
+            self.assertEqual(cloud.cleanup_test(self.root, waiting), {'test_files_deleted': True})
+            self.assertFalse(first.exists())
+            self.assertEqual(cloud.cleanup_test(self.root, current), {'test_files_deleted': True})
+        self.assertTrue(second.is_file())  # The connection in use keeps its file.
+
+    def test_a_new_sign_in_deletes_the_key_files_nothing_names_any_more_and_keeps_every_one_still_named(self):
+        import time
+        from comic_archive import cloud_auth
+        first = self.sign_in(); folder = first.parent
+        unused, recent, waiting, earlier = (folder/('connection-' + uuid.uuid4().hex + '.conf') for _ in range(4))
+        for path in (unused, recent, waiting, earlier):
+            path.write_text('[b2]\nkey = PRIVATE_KEY\n'); path.chmod(0o600)
+        target = {'remote': 'b2', 'enabled': False, 'tested': False, 'target_id': str(uuid.uuid4())}
+        self.pending_test(target | {'config': str(waiting)})
+        record = folder/'targets.json'; saved = json.loads(record.read_text())
+        # A provider an earlier version offered: its connection stays in the record, and so does its file.
+        saved['targets']['google'] = target | {'remote': 'google', 'config': str(earlier)}
+        cloud._write(record, saved)
+        old = time.time() - cloud_auth.STALE_SECONDS - 60
+        for path in (unused, waiting, earlier):
+            os.utime(path, (old, old))
+        second = self.sign_in()
+        self.assertFalse(unused.exists())  # Left by a sign-in that was ended at the wrong moment.
+        # One that may be a sign-in still going on, one a test still needs, and one the record names all stay.
+        self.assertEqual([path.is_file() for path in (recent, waiting, earlier)], [True, True, True])
+        self.assertFalse(first.exists()); self.assertTrue(second.is_file())
+        self.assertEqual(Path(json.loads(record.read_text())['targets']['google']['config']), earlier)
+
     def test_a_new_sign_in_with_shared_storage_deletes_the_shared_file_it_replaces_unless_another_site_needs_it(self):
         store = self.root.parent/'.comic-shared'
         shared.link(self.root, store)
@@ -163,6 +214,22 @@ class CloudSignInTests(unittest.TestCase):
                 self.assertEqual((status['status'], status['code']), ('error', code))
                 self.assertNotIn('PRIVATE', json.dumps(status))
                 self.assertFalse(list(folder.glob('connection-*'))); self.assertFalse(list(folder.glob('signin-*')))
+
+    def test_a_sign_in_that_fails_after_its_connection_was_saved_keeps_the_key_file_the_settings_name(self):
+        def sign_in(**failing):
+            with patch('comic_archive.cloud_tools.ensure'), patch('comic_archive.b2_auth.connection', return_value=dict(self.section)), \
+                    patch('comic_archive.cloud.Transfer'), patch('comic_archive.cloud.status', **failing):
+                self.signin.start('b2', self.credentials)
+                status = self.finish()
+            return status, Path(cloud.settings(self.root)['targets']['b2']['config'])
+        _, first = sign_in()
+        # The settings are saved, then reading how things stand fails: the connection is the new one all the same.
+        status, second = sign_in(side_effect=ArchiveError('PRIVATE_DETAIL'))
+        self.assertNotEqual(first, second)
+        self.assertIn('PRIVATE_KEY', second.read_text())
+        self.assertEqual(status['status'], 'connected')
+        self.assertFalse(first.exists())  # The file it replaced is deleted as after any other sign-in.
+        self.assertEqual(list((self.root/'.archive-state/cloud').glob('connection-*')), [second])
 
     def test_auth_payloads_are_fixed_and_bounded(self):
         # Google Drive, Dropbox and Proton Drive were offered by earlier versions; only Backblaze B2 signs in now.

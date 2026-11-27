@@ -300,6 +300,21 @@ class NativeB2Tests(unittest.TestCase):
         self.assertEqual(self.server.files[self.path][1], b'archive')
         self.assertEqual(len(seen), 3)
 
+    def test_an_upload_the_provider_kept_though_its_answer_was_lost_is_not_sent_a_second_time(self):
+        handler, lost = self.server.request, [httpx.ReadError('dropped')]
+        def request(req):
+            answer = handler(req)
+            if '/b2_upload_file/' in req.url.path and lost:
+                raise lost.pop()  # The file is in the bucket; only the answer never arrived.
+            return answer
+        self.mock = httpx.MockTransport(request)
+        patch.object(self.transfer.cancel, 'wait', return_value=False).start()
+        source = self.root / 'episode.cbz'; source.write_bytes(b'archive')
+        self.transfer.upload(source, self.path, hashlib.sha256(b'archive').hexdigest())
+        self.assertEqual(self.server.files[self.path][1], b'archive')
+        self.assertEqual(self.server.uploads, 1)  # A second one would be kept, and billed, as another version.
+        self.assertFalse(lost)
+
     def test_the_wait_before_another_try_is_the_one_the_provider_asks_for_up_to_twenty_seconds(self):
         seen, wait = self.answer_first('b2_upload_file', httpx.Response(503, headers={'Retry-After': '5'}),
             httpx.Response(503, headers={'Retry-After': '86400'}))
@@ -395,6 +410,49 @@ class NativeB2Tests(unittest.TestCase):
         self.assertEqual(self.server.files[self.path][1], b'staging')
         operations = [v[0] for v in self.server.operations]
         self.assertLess(operations.index('b2_copy_file'), operations.index('b2_delete_file_version'))
+
+    def test_a_stage_copy_the_provider_made_though_its_answer_was_lost_is_found_and_never_asked_for_twice(self):
+        stage = f'Comic-Archive/{self.library_id}/.staging/{uuid.uuid4()}/episode.cbz'
+        self.transfer.upload_bytes(b'staging', stage)
+        handler, copies, made = self.server.request, [], [False, True]
+        def request(req):
+            if not req.url.path.endswith('/b2_copy_file'):
+                return handler(req)
+            copies.append(req)
+            if made.pop():
+                handler(req)  # The copy is in the bucket; only the answer never arrived.
+            raise httpx.ReadError('dropped')
+        self.mock = httpx.MockTransport(request)
+        patch('httpx.Client', side_effect=self.client).start()
+        self.transfer.run('moveto', self.transfer.remote(stage), self.transfer.remote(self.path), '--immutable')
+        self.assertEqual(len(copies), 1)
+        self.assertEqual(self.server.files[self.path][1], b'staging')
+        self.assertNotIn(stage, self.server.files)
+        # A copy that was not made is not taken for one: the staging file stays for the next try.
+        again = f'Comic-Archive/{self.library_id}/.staging/{uuid.uuid4()}/episode.cbz'
+        self.transfer.upload_bytes(b'another', again)
+        other = self.path.replace('a' * 64, 'b' * 64)
+        with self.assertRaises(CloudTransferError) as error:
+            self.transfer.run('moveto', self.transfer.remote(again), self.transfer.remote(other), '--immutable')
+        self.assertEqual(error.exception.cloud_code, 'cloud_connection')
+        self.assertEqual(len(copies), 2)
+        self.assertIn(again, self.server.files); self.assertNotIn(other, self.server.files)
+
+    def test_a_stage_copy_whose_answer_does_not_read_as_an_upload_is_judged_by_the_file_in_the_bucket(self):
+        stage = f'Comic-Archive/{self.library_id}/.staging/{uuid.uuid4()}/episode.cbz'
+        self.transfer.upload_bytes(b'staging', stage)
+        handler = self.server.request
+        def request(req):
+            answer = handler(req)
+            if req.url.path.endswith('/b2_copy_file'):
+                return httpx.Response(200, json=json.loads(answer.content) | {'action': 'copy'})
+            return answer
+        self.mock = httpx.MockTransport(request)
+        patch('httpx.Client', side_effect=self.client).start()
+        self.transfer.run('moveto', self.transfer.remote(stage), self.transfer.remote(self.path), '--immutable')
+        self.assertEqual(self.server.files[self.path][1], b'staging')
+        self.assertNotIn(stage, self.server.files)
+        self.assertEqual([v[0] for v in self.server.operations].count('b2_copy_file'), 1)
 
     def test_fixed_remote_facade_refuses_other_remote_and_general_commands(self):
         for args in [('purge', self.transfer.remote(self.path)), ('lsf', 'other:bucket/path', '--files-only')]:

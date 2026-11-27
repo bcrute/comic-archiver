@@ -117,7 +117,12 @@ class PipeUpload:
             if self.error is not None: raise self.error
             from .cloud import transfer_timeout
             # Given its size, rclone sends the whole file only now: a large one gets longer to finish.
-            code = wait_process(self.process, self.transfer.guard, transfer_timeout(self.size))
+            try:
+                code = wait_process(self.process, self.transfer.guard, transfer_timeout(self.size))
+            except subprocess.TimeoutExpired:
+                # Out of time is a connection that failed, like any other: the episode is kept and sent again.
+                from .cloud_errors import CloudTransferError
+                raise CloudTransferError('cloud_connection') from None
             if code:
                 from .cloud_errors import transfer_failure
                 raise transfer_failure(self.logs[1], code)
@@ -134,7 +139,12 @@ class PipeUpload:
 
 
 def _stage(root, episode_id, provider):
-    from .cloud import _json
+    """An episode's staging record, or None without one. Called with the library locked.
+
+    A record that cannot be acted on, as one an earlier version or a fault left, is set aside the way other
+    damaged records are and nothing in B2 is changed: the episode is then uploaded as if it had none.
+    """
+    from .cloud import _directory_sync, _receipt
     from .publication import valid_export_id
     from .storage import safe_root
     from .cloud import STREAM_PROVIDERS, CLOUD_ROOT
@@ -143,7 +153,8 @@ def _stage(root, episode_id, provider):
     folder = Path(root) / '.archive-state/cloud/streams' / provider
     path = safe_root(folder / (episode_id + '.json'))
     if not path.exists(): return path, None
-    record = _json(path)
+    record = _receipt(path, aside=True)
+    if record is None: return path, None
     required = {'schema_version', 'library_id', 'target_id', 'episode_id', 'run_id',
                 'remote_path', 'archive', 'state', 'sha256'}
     if (set(record) not in (required, required | {'provider'})
@@ -157,7 +168,9 @@ def _stage(root, episode_id, provider):
             or Path(record['archive']).parts[0].startswith('.')
             or (record['sha256'] is not None and (not isinstance(record['sha256'], str)
                 or len(record['sha256']) != 64 or any(c not in '0123456789abcdef' for c in record['sha256'])))):
-        raise ArchiveError('Streaming recovery state is invalid; no cloud files were changed.')
+        os.replace(path, path.with_suffix('.damaged-' + uuid.uuid4().hex))
+        _directory_sync(folder)
+        return path, None
     return path, record
 
 

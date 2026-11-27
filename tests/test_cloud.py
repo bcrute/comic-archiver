@@ -177,6 +177,30 @@ class CloudTests(unittest.TestCase):
             with self.assertRaises(ArchiveError): cloud.evict_uploaded(self.root)
         self.assertEqual(receipt.read_bytes(), before)
 
+    def test_an_uploaded_episode_whose_json_was_deleted_stays_here_and_does_not_hold_up_the_others(self):
+        self.publish(); self.ready()
+        with patch.object(cloud, 'evict_uploaded', return_value={'local_archives_deleted':0, 'freed_bytes':0}):
+            kept, _ = self.publish('82'); other, _ = self.publish('83')
+        self.assertTrue(kept.exists()); self.assertTrue(other.exists())
+        sidecar_path(kept).unlink()
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'], 1)
+        self.assertEqual(cloud.evict_uploaded(self.root)['local_archives_deleted'], 0)
+        self.assertTrue(kept.exists())  # Nothing says which upload it matches any more: it is never removed.
+        self.assertFalse(other.exists()); self.assertTrue(cloud.offloaded(self.root, other))
+
+    def test_a_series_folder_deleted_after_its_episode_went_to_an_earlier_connection_is_not_a_failed_upload(self):
+        self.publish(); self.ready(); gone, _ = self.publish('82')
+        self.assertFalse(gone.exists())
+        receipt = next(path for path in (self.root / '.archive-state/cloud/outbox/b2').glob('*.json')
+                       if json.loads(path.read_text())['archive'] == gone.relative_to(self.root).as_posix())
+        before = receipt.read_bytes()
+        self.ready()  # Signed in again: the episode's record is for the connection before this one.
+        shutil.rmtree(gone.parent)
+        for _ in range(2):
+            self.assertEqual(cloud.upload_pending(self.root)['uploaded_episodes'], 0)
+            self.assertEqual(receipt.read_bytes(), before)
+        self.assertEqual(cloud.status(self.root)['targets'][0]['failed'], 0)
+
     def test_a_later_pass_over_an_episode_already_offloaded_writes_nothing(self):
         self.publish(); self.ready(); archive, _ = self.publish('82')
         self.assertFalse(archive.exists())
@@ -669,6 +693,20 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text())['state'],'verified')
         self.assertFalse(junk.exists())
         self.assertEqual(len(list(path.parent.glob('0-junk.damaged-*'))),1)
+
+    def test_a_test_record_file_that_holds_no_record_stops_neither_the_storage_page_nor_a_new_sign_in(self):
+        self.publish();self.configured();FakeTransfer.fail_delete = True
+        with self.assertRaises(ArchiveError):cloud.smoke_test(self.root,'b2',episodes=1)
+        tests = self.root/'.archive-state/cloud/tests';waiting = next(tests.glob('*.json'))
+        junk = tests/(str(uuid.uuid4())+'.json');junk.write_text('{')
+        # The storage page still opens and lists the test that waits to be cleaned up; it only looks.
+        self.assertEqual([t['test_id'] for t in cloud.status(self.root)['pending_test_cleanup']],[waiting.stem])
+        self.assertTrue(junk.exists())
+        self.configured()  # Signing in again is not refused on its account.
+        self.assertFalse(junk.exists());self.assertEqual(len(list(tests.glob('*.damaged-*'))),1)
+        self.assertEqual([t['test_id'] for t in cloud.status(self.root)['pending_test_cleanup']],[waiting.stem])
+        FakeTransfer.fail_delete = False
+        self.assertEqual(cloud.cleanup_test(self.root,waiting.stem),{'test_files_deleted':True})
 
     def test_one_episode_held_here_does_not_keep_the_others_from_being_removed(self):
         self.publish();self.ready()

@@ -76,6 +76,35 @@ def _retire(config, libraries):
     config.unlink(missing_ok=True)
 
 
+def clear(root, folder):
+    """Delete the connection files, each holding a key, that nothing names any more.
+
+    A sign-in ended at the wrong moment leaves one, as does a file that could not be deleted when it was
+    replaced. One just written, as by a sign-in still going on for another site that shares this folder, is
+    recent and is left alone. So is one a connection from an earlier version still names. If anything cannot
+    be read, nothing is deleted.
+    """
+    try:
+        targets = list((cloud._own(root) or {'targets': {}})['targets'].values())
+        if folder != root / '.archive-state/cloud':
+            targets += cloud._shared(folder).values()
+        named = {Path(target['config']).name for target in targets}
+        for config in sorted(folder.glob('connection-*.conf')):
+            if config.name not in named and time.time() - config.lstat().st_mtime > STALE_SECONDS:
+                retire(root, folder, config)
+    except (ArchiveError, OSError):
+        pass
+
+
+def _named(root, provider, config):
+    """Whether the library's saved settings use this connection file. Unreadable settings name nothing."""
+    try:
+        target = (cloud.settings(root) or {'targets': {}})['targets'].get(provider)
+    except (ArchiveError, OSError):
+        return False
+    return bool(target) and Path(target['config']).name == config.name
+
+
 class SignIn:
     def __init__(self, root):
         self.root = Path(root)
@@ -145,18 +174,25 @@ class SignIn:
                     if self._cancel.is_set():
                         raise ArchiveError('Cloud sign-in stopped.')
                     os.replace(config, destination); destination.chmod(0o600)
+                    previous = None
                     try:
                         value = cloud.settings(root)
                         previous = value and value['targets'].get(provider)
                         cloud.configure_target(root, provider, config=destination)
-                    except BaseException:
-                        destination.unlink(missing_ok=True)
-                        raise
+                    except BaseException as error:
+                        # A file the library's settings already name is the connection now: deleting it would
+                        # leave them naming nothing. Only one that was never saved is deleted.
+                        if not _named(root, provider, destination):
+                            destination.unlink(missing_ok=True)
+                            raise
+                        if not isinstance(error, Exception):
+                            raise
                     if previous:
                         try:
                             retire(root, folder, Path(previous['config']))
                         except (ArchiveError, OSError):
                             pass  # The old file stays; the new connection is saved either way.
+                    clear(root, folder)
                     self._update(status='connected')
         except Exception as error:
             from .network import NetworkPolicyHold

@@ -233,6 +233,9 @@ def _binary():
 
 
 LOCAL_SECONDS = 30
+# rclone sends a file of this size or more to B2 in parts. Interrupted, the parts stay in the bucket as an
+# unfinished file, which is billed like any other.
+PARTED_BYTES = 200 * 1024**2
 
 
 def transfer_timeout(size):
@@ -350,6 +353,14 @@ class Transfer:
         destination = self.remote(remote_path)
         self.run('copyto', str(source), destination, '--immutable', size=_size(source))
         self.verify(remote_path, expected, source=source)
+        if self.provider == 'b2' and _size(source) >= PARTED_BYTES:
+            # The whole file is there and checked, so what an earlier, interrupted try left unfinished at this
+            # path is removed. Failing to changes nothing else: the upload stands.
+            from .b2_cleanup import cleanup_file
+            try:
+                cleanup_file(self, remote_path, upload=True, unfinished_only=True)
+            except (ArchiveError, OSError):
+                pass
 
     def verify(self, remote_path, expected, *, source=None):
         destination = self.remote(remote_path)
@@ -449,7 +460,8 @@ def configure_target(root, provider, *, remote=None, config=None):
             # replaces the target, so cleanup cannot silently check a different
             # account/client and falsely claim that old copies were deleted.
             for receipt in (root / '.archive-state/cloud/tests').glob('*.json'):
-                record = _json(receipt)
+                # A file that holds no record names no test to pin: it is set aside, never a reason to refuse.
+                record = _receipt(receipt, aside=True) or {}
                 if (record.get('provider') == provider and record.get('state') != 'cleaned'
                         and 'connection' not in record and valid_export_id(receipt.stem)
                         and record.get('prefix') in test_prefixes(value['library_id'], receipt.stem)):
@@ -549,7 +561,7 @@ def status(root):
     cleanup = []
     folder = safe_root(root / '.archive-state/cloud/tests')
     for path in folder.glob('*.json'):
-        record = _json(path)
+        record = _receipt(path) or {'state':'cleaned'}  # A file that holds no record names no test to clean up.
         if record.get('state') != 'cleaned' and valid_export_id(path.stem) and record.get('provider') in PROVIDERS:
             code = record.get('error_code')
             code = code if isinstance(code, str) and code in MESSAGES else None
@@ -687,6 +699,9 @@ def upload_pending(root, *, limit=None, provider=None):
                         raise ArchiveError('Cloud retry state is invalid.')
                     archive = safe_root(root / record['archive'])
                     if record.get('state') == 'verified':
+                        if all(_gone(p) for p in (archive, sidecar_path(archive))):
+                            # Its folder was deleted after it went to an earlier connection: nothing is left to send.
+                            continue
                         from .cloud_history import retain
                         historical = _receipt_for(root, archive, name)
                         if historical is not None:
@@ -911,7 +926,7 @@ class DirectUpload:
                 self.stopped.set()
                 self.thread.join()
         error, self.files = self.error, None
-        if error is not None and not isinstance(error, (ArchiveError, OSError, ValueError, KeyError, TypeError)):
+        if error is not None and not isinstance(error, Exception):
             raise error
         if error is not None:
             # An upload stopped here did not fail: the episode waits to upload, with nothing to retry by hand.
@@ -1084,6 +1099,13 @@ def cleanup_test(root, test_id, *, transfer=None):
             raise CloudCleanupError(code) from None
         record.pop('error_code', None)
         record['state'] = 'cleaned';_write(path, record)
+        if connection is not None:
+            # The test may have been all that kept the key file of a connection signed in to again since.
+            from .cloud_auth import retire
+            try:
+                retire(root, connection_folder(root), Path(connection['config']))
+            except (ArchiveError, OSError):
+                pass  # The file waits for the next sign-in to clear it; the test is cleaned up either way.
         return {'test_files_deleted':True}
 
 
@@ -1145,6 +1167,10 @@ def evict_uploaded(root):
                     if _gone(archive) and _gone(sidecar_path(archive)):
                         # Its folder was deleted after it went to the cloud: nothing of it is left here to
                         # remove or to keep, so its record is passed over instead of failing every pass.
+                        continue
+                    if archive.exists() and _gone(sidecar_path(archive)):
+                        # Its .json was deleted while the episode is still here: nothing says which upload it
+                        # matches, so the episode stays and its record is passed over instead of failing every pass.
                         continue
                     providers = record.get('required_targets')
                     if not isinstance(providers,list) or not providers or set(providers)-set(PROVIDERS):

@@ -90,6 +90,26 @@ class B2CleanupTests(unittest.TestCase):
         with self.assertRaises(ArchiveError): self.transfer.delete_test_file(self.path)
         self.assertEqual(len(self.requests), asked)
 
+    def test_a_large_upload_once_verified_clears_the_unfinished_parts_an_interrupted_try_left_and_no_finished_file(self):
+        tests = self.path
+        self.path = ('Comic-Archive/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000004/'
+                     '00000000-0000-0000-0000-000000000003/' + 'a'*64 + '/episode.cbz')
+        for item in self.files:
+            item['fileName'] = item['fileName'].replace(tests, self.path)
+        source = self.root/'episode.cbz'; source.write_bytes(b'episode')
+        self.transfer.run = Mock(return_value=b''); self.transfer.verify = Mock()
+        self.transfer.upload(source, self.path, 'a'*64)
+        self.assertFalse(self.requests)  # A file sent whole leaves no parts behind: nothing is asked.
+        with patch('comic_archive.cloud.PARTED_BYTES', len(b'episode')):
+            self.transfer.upload(source, self.path, 'a'*64)
+            self.assertEqual(self.removed, ['partial1'])
+            self.assertEqual([item['fileId'] for item in self.files], ['older1', 'current1', 'hidden1', 'unrelated'])
+            # The upload is verified either way: a cleanup that fails is not its failure.
+            self.account = {}
+            self.transfer.cleanup_authorization = None
+            self.transfer.upload(source, self.path, 'a'*64)
+        self.assertEqual(self.transfer.verify.call_count, 3)
+
     def test_invalid_or_general_archive_paths_are_rejected_before_network(self):
         for path in ('', 'Comic-Archive', 'unrelated/episode.cbz', self.path.replace('/tests/','/archives/'),
                      self.path.replace('episode.cbz','../../elsewhere'), self.path.replace('episode.cbz','other.cbz')):

@@ -36,8 +36,11 @@ def _authorization(transfer, client, cancel):
     return transfer.cleanup_authorization
 
 
-def cleanup_file(transfer, path, *, upload=False):
-    """upload: a file an interrupted direct upload recorded at its library path, not a test or staging file."""
+def cleanup_file(transfer, path, *, upload=False, unfinished_only=False):
+    """upload: a file an interrupted direct upload recorded at its library path, not a test or staging file.
+
+    unfinished_only: only the parts of uploads that never finished are removed; every finished file stays.
+    """
     from .cloud import CLOUD_ROOT
     parts = path.split('/') if isinstance(path, str) else []
     names = {'episode.cbz','episode.epub','episode.tar.zst','episode.json','series.json',
@@ -64,7 +67,7 @@ def cleanup_file(transfer, path, *, upload=False):
                     call(operation, values)
                 except Refused:
                     pass  # Already gone, most likely; the listing afterwards says whether the file is left.
-            for unfinished in (True, False):
+            for unfinished in ((True,) if unfinished_only else (True, False)):
                 operation = 'b2_list_unfinished_large_files' if unfinished else 'b2_list_file_versions'
                 prefix_key = 'namePrefix' if unfinished else 'prefix'
                 cursor = {}
