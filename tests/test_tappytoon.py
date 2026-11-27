@@ -204,6 +204,40 @@ class TappytoonTests(unittest.TestCase):
                 adapter.inspect_series('67')
             self.assertFalse(any('/chapters/9' in url or url.startswith(CDN) for url, _ in client.calls))
 
+    def test_a_chapter_list_that_ends_short_of_the_series_own_count_is_not_taken_for_the_whole_series(self, sleep):
+        from comic_archive.adapters.pagination import EpisodeCountMismatch
+        # The first page arrives without the link to the next, while the series' details count four chapters.
+        counted = {API + '/comics/67?locale=en': COMIC | {'totalChaptersCount': 4}}
+        adapter, client = reader(series_answers() | counted | {CHAPTERS: [chapter(0), chapter(1)]})
+        with self.assertRaises(EpisodeCountMismatch) as raised:
+            adapter.inspect_series('67')
+        self.assertEqual((raised.exception.series_id, raised.exception.observed_count, raised.exception.reported_count), ('67', 2, 4))
+        self.assertIn('Tappytoon', str(raised.exception))
+        kept = raised.exception.partial_inspection
+        self.assertEqual((kept['complete'], kept['episode_count'], [episode['id'] for episode in kept['episodes']]),
+                         (False, 2, ['900', '901']))
+        # The next check reads the count afresh; a list that reaches it is the whole series.
+        client.answers.update(series_answers() | counted)
+        listing = adapter.inspect_series('67')
+        self.assertEqual((listing['complete'], listing['episode_count']), (True, 4))
+        self.assertEqual([url for url, _ in client.calls].count(API + '/comics/67?locale=en'), 2)
+        # A count below what was listed is only a number: nothing listed is dropped for it.
+        adapter, _ = reader(series_answers() | {API + '/comics/67?locale=en': COMIC | {'totalChaptersCount': 3}})
+        self.assertEqual(adapter.inspect_series('67')['episode_count'], 4)
+
+    @patch('builtins.print')
+    def test_go_saves_the_listed_chapters_of_a_series_whose_list_ended_short_and_holds_it_to_be_checked_again(self, output, sleep):
+        from comic_archive.inventory import Inventory
+        answers = series_answers() | {KEY_PAGE: page_data(account=5), LIST['unlocked']: [{'bookId': 67, 'title': 'Sample Series'}],
+                                      API + '/comics/67?locale=en': COMIC | {'totalChaptersCount': 4},
+                                      CHAPTERS: [chapter(0), chapter(1)]}
+        adapter, _ = reader(answers)
+        with adapter:
+            result = sync(adapter, self.root, categories=['unlocked'])
+        self.assertEqual(sorted(result['archived_episode_ids']), ['900', '901'])
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual([gap['source_series_id'] for gap in inventory.scan_gaps()], ['67'])
+
     def test_reader_refusals_and_invalid_manifests_prevent_saving(self, sleep):
         base = series_answers()
         url = 'https://www.tappytoon.com/en/chapters/900'

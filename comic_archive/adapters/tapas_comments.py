@@ -92,8 +92,9 @@ def episode_comments(json_get, key, limit, check=None):
             break
         if len(comments) >= limit:
             break
-        following = pagination.get('page')
         since = pagination.get('since') if type(pagination.get('since')) is int else since
-        page = following + 1 if type(following) is int and following >= page else page + 1
+        # Pages are asked for one after another. The answer's own page number is not used: whether it names
+        # the page just read or the one that follows, adding to it could pass over a page.
+        page += 1
     # The total counts replies too, so the list is complete when Tapas says there is no next page.
     return {'comments': comments, 'total': total, 'complete': complete}

@@ -194,6 +194,17 @@ class AndroidTapasAdapter:
         self._http = TapasHTTPAdapter(transport=transport, expected_account_id=expected_account_id)
 
     @property
+    def deadline(self):
+        return self._deadline
+
+    @deadline.setter
+    def deadline(self, value):
+        # Each job begins by setting this; a rate limit an earlier job met stopped only that job. This reader
+        # and its transport live as long as the worker, so nothing else would let the next job ask again.
+        self.transport.clear_rate_limit()
+        self._deadline = value
+
+    @property
     def interval(self):
         """The worker's per-job pacing belongs to the transport doing every request."""
         return self.transport.interval

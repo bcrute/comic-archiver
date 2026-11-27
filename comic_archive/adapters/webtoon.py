@@ -19,9 +19,10 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from .. import sites
 from ..errors import AccessDenied, AuthenticationError, MetadataError
+from ..extras import MUSIC_BYTES
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
-from ..transport import ExpiredAsset, Transport, asset_url, metadata_bytes
+from ..transport import ExpiredAsset, Transport, asset_url, capped_bytes, metadata_bytes
 from ..webtoon_gateway import MobileAPI, PAGE_SIZE as MOBILE_PAGE_SIZE
 from .site_reader import SiteReader
 
@@ -221,6 +222,14 @@ class WebtoonAdapter(SiteReader):
             self._pending_mobile = None
             self._mobile_titles_snapshot = None
             raise AuthenticationError('The Webtoon session changed; resume after signing in again.')
+
+    @SiteReader.deadline.setter
+    def deadline(self, value):
+        SiteReader.deadline.fset(self, value)
+        # Each job begins by setting this. A session that changed stops the job whose pages were read under the
+        # old one; the next job reads its own under the session there is then. Kept on a reader that lives on,
+        # the old tie would refuse every later job, even after signing in again.
+        self._mobile_capture_marker = self._pending_mobile = None
 
     def check(self):
         self.check_session_binding()
@@ -429,7 +438,7 @@ class WebtoonAdapter(SiteReader):
         return self.__dict__.get('_extras', {}).pop(key, None)
 
     def retrieve_extra(self, url, max_bytes):
-        return self.transport.get(asset_url(url, SITE), max_bytes=max_bytes)
+        return capped_bytes(self.transport, asset_url(url, SITE), MUSIC_BYTES, max_bytes)
 
     def account_identity(self):
         """The signed-in account, as Webtoon's own pages name it. Once one is seen, it must stay the same: a
@@ -475,7 +484,18 @@ class WebtoonAdapter(SiteReader):
             return result
         page = parsed(metadata_bytes(self.transport, HOME + SUBSCRIPTIONS, MAX_DOCUMENT))
         if page.subscriptions is None:
-            raise MetadataError('Webtoon gave a subscriptions page without its list.')
+            # A page with no list on it: an account that subscribes to nothing, a page that has changed, or a
+            # sign-in lost on the way, which is asked about again. The page does not say which of the first two, so
+            # the list is neither refused, which would stop the account's other lists and series for it, nor called
+            # complete: it is read again next time.
+            self.account_identity()
+            logging.getLogger('comic_archive.download').warning(
+                'webtoon discovery: list=%s result=unconfirmed reason=page_without_list', category)
+            result = {'authenticated': True, 'membership_verified': True, 'scope': category, 'complete': False,
+                      'boundary_observed': False, 'series': []}
+            if callable(on_page):
+                on_page(result)
+            return result
         found = {}
         for link, text in page.subscriptions:
             parts, title = urlsplit(link), ' '.join(' '.join(text).split())

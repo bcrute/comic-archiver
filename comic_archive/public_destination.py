@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 _NUMERIC = re.compile(r'[0-9]+|0x[0-9a-f]*')
 _PUBLIC_V6 = ipaddress.IPv6Network('2000::/3')
 _SPECIAL_V4 = ipaddress.IPv4Network('192.0.0.0/24')
+# Where a network that carries only IPv6 puts the IPv4 hosts it reaches for its devices (RFC 6052).
+_TRANSLATED_V4 = ipaddress.IPv6Network('64:ff9b::/96')
 
 
 def private_destination(host):
@@ -27,6 +29,10 @@ def private_destination(host):
         # Also refuse single-label DNS searches and non-standard numeric literals.
         return ':' in name or '.' not in name or bool(_NUMERIC.fullmatch(name.rsplit('.', 1)[-1]))
     address = getattr(address, 'ipv4_mapped', None) or address
+    if address.version == 6 and address in _TRANSLATED_V4:
+        # Judged as the IPv4 address it carries: on such a network every name resolves to these, and refusing
+        # them all would leave no site reachable, while one that carries a local address is still refused.
+        address = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     if address.version == 6 and (address not in _PUBLIC_V6 or address.sixtofour is not None):
         return True
     return not address.is_global or address.is_multicast or address in _SPECIAL_V4

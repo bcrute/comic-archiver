@@ -20,6 +20,16 @@ class PublicDestinationTests(unittest.TestCase):
             with self.subTest(host=host):
                 self.assertFalse(private_destination(host))
 
+    def test_an_address_translated_for_an_ipv6_only_network_is_judged_by_the_ipv4_address_it_carries(self):
+        for host in ('64:ff9b::808:808', '[64:ff9b::8.8.8.8]', '64:ff9b::6812:1a2b'):
+            with self.subTest(host=host):
+                self.assertFalse(private_destination(host))
+        # A local or special address is no more reachable through the translation than directly.
+        for host in ('64:ff9b::a0a:7', '64:ff9b::7f00:1', '64:ff9b::c0a8:101', '64:ff9b::6440:1', '64:ff9b::c000:1',
+                     '64:ff9b::e000:1', '64:ff9b:1::808:808', '64:ff9a::808:808'):
+            with self.subTest(host=host):
+                self.assertTrue(private_destination(host))
+
     @patch('comic_archive.adapters.tapas.Transport')
     def test_local_destinations_are_refused_by_every_provider_browser_route(self, _):
         adapter = TapasAdapter(Path('session'))

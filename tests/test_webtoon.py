@@ -272,6 +272,30 @@ class WebtoonTests(unittest.TestCase):
         with self.assertRaisesRegex(ArchiveError, 'no such list'):
             adapter.inspect_library(category='recent')
 
+    def test_a_subscriptions_page_with_no_list_on_it_is_neither_refused_nor_taken_for_a_complete_list(self, sleep):
+        # An account that subscribes to nothing, or a page that has changed: the page does not say which.
+        adapter, client = reader({USER_INFO: who('reader'), SUBSCRIPTIONS: subscriptions_page(listed=False)})
+        reported = []
+        unconfirmed = {'authenticated': True, 'membership_verified': True, 'scope': 'subscribed', 'complete': False,
+                       'boundary_observed': False, 'series': []}
+        with self.assertLogs('comic_archive.download', level='WARNING') as captured:
+            self.assertEqual(adapter.inspect_library(on_page=reported.append), unconfirmed)
+        self.assertEqual(reported, [unconfirmed])
+        self.assertIn('reason=page_without_list', '\n'.join(captured.output))
+        self.assertEqual([url for url, _ in client.calls], [USER_INFO, SUBSCRIPTIONS, USER_INFO])
+
+        class Lapsing(Site):
+            # The sign-in is lost once Webtoon has said who is signed in.
+            def stream(self, method, url, headers):
+                answer = super().stream(method, url, headers)
+                if url == USER_INFO:
+                    self.pages[USER_INFO] = who()
+                return answer
+        client = Lapsing({USER_INFO: who('reader'), SUBSCRIPTIONS: subscriptions_page(listed=False)})
+        adapter = WebtoonAdapter(transport=Transport(client=client, site=sites.named('webtoon')))
+        with self.assertRaisesRegex(AuthenticationError, 'Sign in to Webtoon again'):
+            adapter.inspect_library()
+
     def test_a_subscriptions_list_that_is_missing_or_wrong_is_refused_and_a_visitor_gets_none(self, sleep):
         adapter, client = reader({USER_INFO: who()})
         with self.assertRaisesRegex(AuthenticationError, 'Sign in to Webtoon again'):
@@ -279,7 +303,6 @@ class WebtoonTests(unittest.TestCase):
         self.assertEqual([url for url, _ in client.calls], [USER_INFO])
         good = subscription(f'{HOME}/en/fantasy/sample-series/list?title_no=7', 'Sample Series')
         for name, page, error in (
-                ('no list', subscriptions_page(listed=False), 'without its list'),
                 ('another site', subscriptions_page(good, subscription('https://example.com/en/fantasy/x/list?title_no=3', 'X')), 'unexpected shape'),
                 ('plain http', subscriptions_page(subscription('http://www.webtoons.com/en/fantasy/x/list?title_no=3', 'X')), 'unexpected shape'),
                 ('not a series', subscriptions_page(subscription(f'{HOME}/en/originals', 'X')), 'unexpected shape'),

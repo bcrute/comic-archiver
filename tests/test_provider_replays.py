@@ -121,6 +121,16 @@ class ProviderReplayTests(unittest.TestCase):
         self.assertEqual(len({row['id'] for row in result['episodes']}), 120)
         self.assertEqual([url for url, _ in client.calls if '/chapters?' in url], [CHAPTERS, following])
 
+    def test_the_observed_first_tappytoon_page_without_its_next_link_is_a_mismatch_not_a_complete_list(self):
+        reader, client, _ = self.tappytoon()
+        client.answers[CHAPTERS] = payload('tappytoon-chapters-page-1.json')  # Constructed fault: the captured link is left out.
+        with self.assertRaises(EpisodeCountMismatch) as raised:
+            reader.inspect_series('67')
+        first = observations()['tappytoon-chapters-page-1.json']
+        self.assertEqual((raised.exception.observed_count, raised.exception.reported_count),
+                         (first['episode_count'], payload('tappytoon-comic.json')['totalChaptersCount']))
+        self.assertEqual(len(raised.exception.partial_inspection['episodes']), first['episode_count'])
+
     def test_changed_tappytoon_comic_identity_is_rejected(self):
         first = payload('tappytoon-chapters-page-1.json')
         first[0]['comicId'] = 999  # Constructed identity fault.

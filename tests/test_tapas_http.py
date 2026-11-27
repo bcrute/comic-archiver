@@ -468,6 +468,31 @@ class TapasHTTPTests(unittest.TestCase):
         with self.assertRaises(UnsupportedContent):
             self.adapter.capture('https://tapas.io/episode/81')
 
+    def test_a_locked_novel_reader_with_no_text_sets_the_chapter_aside_only_while_the_sign_in_holds(self):
+        chapter = self.info | {'book': True}
+        locked = chapter | {'free': False, 'unlocked': False, 'must_pay': True}
+        for name, empty in (('no text container', b'<script>var seriesId = 42;</script><div id="episode-81"><article></article></div>'),
+                            ('empty text container', b'<div id="episode-81"><div id="epub-81" class="ep-epub-content"> </div></div>')):
+            with self.subTest(name):
+                self.responses(info=locked, html=empty)
+                with self.assertLogs('comic_archive.download', level='INFO') as captured, self.assertRaises(AccessDenied):
+                    self.adapter.capture('https://tapas.io/episode/81')
+                self.assertIn('reason=novel_reader_locked', '\n'.join(captured.output))
+                self.assertEqual(self.requested()[-1], 'https://tapas.io/who-am-i')
+                # A sign-in that lapsed looks the same from the reader: the step stops for it, the chapter is not blamed.
+                self.responses(info=locked, html=empty, user={})
+                with self.assertRaises(AuthenticationError):
+                    self.adapter.capture('https://tapas.io/episode/81')
+                # A chapter the account may read whose reader has no text is still a reader that changed.
+                self.responses(info=chapter, html=empty)
+                with self.assertRaises(UnsupportedContent) as caught:
+                    self.adapter.capture('https://tapas.io/episode/81')
+                self.assertEqual(caught.exception.code, 'novel_manifest_incomplete')
+        # Text the reader does show but the app cannot keep whole is never taken for a locked chapter.
+        self.responses(info=locked, html=b'<div id="episode-81"><div id="epub-81" class="ep-epub-content"><p>Half a chapter.</div></div>')
+        with self.assertRaises(UnsupportedContent):
+            self.adapter.capture('https://tapas.io/episode/81')
+
     def test_bulk_hints_require_positive_booleans_without_claiming_denial(self):
         self.assertEqual(access_state(self.info | {'free': False, 'unlocked': True}), 'tapas_unlocked')
         self.assertEqual(access_state(self.info | {'free': False, 'unlocked': 'true'}), 'unavailable_or_unverified')
@@ -798,6 +823,22 @@ class TapasHTTPTests(unittest.TestCase):
         for requested, sent in ((None, 10 * 1024 * 1024), (50 * 1024 * 1024, 10 * 1024 * 1024), (100, 100)):
             self.assertEqual(self.adapter.retrieve_cover(series, max_bytes=requested), b'cover')
             self.transport.get.assert_called_with('https://us-a.tapas.io/sa/cover.jpg', max_bytes=sent)
+
+    def test_a_cover_or_music_file_over_its_own_size_cap_is_that_files_failure_and_does_not_stop_the_job_as_limited(self):
+        from comic_archive.errors import ResponseLimit, RunLimit
+        series = Series('s', 'S', cover_url='https://us-a.tapas.io/sa/cover.jpg')
+        self.transport.get.side_effect = ResponseLimit('over the size asked for')
+        reads = {'cover': lambda budget: self.adapter.retrieve_cover(series, max_bytes=budget),
+                 'music': lambda budget: self.adapter.retrieve_extra('https://us-a.tapas.io/ma/track.mp3', budget)}
+        for name, read in reads.items():
+            with self.subTest(name):
+                # The whole cap was allowed, so the file is larger than the app keeps: only it is lost.
+                with self.assertRaisesRegex(ArchiveError, 'supported size') as caught:
+                    read(None if name == 'cover' else 30 * 1024 * 1024)
+                self.assertNotIsInstance(caught.exception, RunLimit)
+                # Less than the cap was left of the job's budget: the budget is what ran out.
+                with self.assertRaises(RunLimit):
+                    read(100)
 
     def test_episode_url_is_built_only_from_a_plain_numeric_identity(self):
         self.assertEqual(self.adapter.episode_url('81'), 'https://tapas.io/episode/81')

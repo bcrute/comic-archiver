@@ -61,6 +61,21 @@ class PublicSocketTests(unittest.TestCase):
         first.close.assert_called_once_with()
         second.close.assert_not_called()
 
+    def test_a_site_reached_through_the_address_translation_of_an_ipv6_only_network_is_connected_to(self):
+        translated = ('64:ff9b::6812:1a2b', 443, 0, 0)
+        sock = Mock()
+        sock.getpeername.return_value = translated
+        with patch('socket.getaddrinfo', return_value=[dns_answer(socket.AF_INET6, translated)]), \
+             patch('socket.socket', return_value=sock):
+            self.assertIs(_connect_public('cdn.tapas.io', 443, 30, None), sock)
+        sock.connect.assert_called_once_with(translated)
+        # A translated address that carries a local one is refused like the local address itself.
+        local = dns_answer(socket.AF_INET6, ('64:ff9b::a0a:7', 443, 0, 0))
+        with patch('socket.getaddrinfo', return_value=[*PUBLIC_ANSWERS, local]), patch('socket.socket') as create:
+            with self.assertRaises(DestinationRefused):
+                _connect_public('cdn.tapas.io', 443, 30, None)
+            create.assert_not_called()
+
     def test_a_single_address_gets_the_whole_time_allowed(self):
         sock = Mock()
         sock.getpeername.return_value = V4

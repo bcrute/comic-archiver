@@ -126,6 +126,23 @@ class TransportLimitTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
 
     @patch('comic_archive.transport.time.sleep')
+    def test_a_file_over_its_own_size_cap_is_refused_as_that_file_and_not_as_the_byte_budget_running_out(self, sleep):
+        from comic_archive.transport import capped_bytes
+
+        def read(size, budget):
+            # A file of that many bytes, read under a cap of 10 with that much of the job's budget left.
+            return capped_bytes(Transport(client=Client([Response(data=b'x' * size)])), 'https://cdn.tapas.io/a', 10, budget)
+        # No budget, or one with room to spare: the file is too large whenever it is asked for.
+        for budget in (None, 50):
+            with self.subTest(budget=budget), self.assertRaisesRegex(ArchiveError, 'supported size') as error:
+                read(11, budget)
+            self.assertNotIsInstance(error.exception, RunLimit)
+        # Less of the budget left than the cap allows: the budget is what stopped the read.
+        with self.assertRaises(ResponseLimit):
+            read(11, 4)
+        self.assertEqual((read(10, None), read(4, 4)), (b'x' * 10, b'x' * 4))
+
+    @patch('comic_archive.transport.time.sleep')
     def test_a_server_error_that_never_clears_is_a_plain_failure_after_three_attempts(self, sleep):
         client = Client([Response(500), Response(500), Response(500), Response()])
         with self.assertRaises(ArchiveError) as error:

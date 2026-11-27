@@ -396,6 +396,20 @@ class BrowserAdapterTests(unittest.TestCase):
         context.check()
         self.assertIsNotNone(adapter.automatic_adapter())
 
+    def test_a_slow_down_order_met_during_the_last_task_does_not_stop_the_images_of_the_next_one(self):
+        adapter = AndroidTapasBrowserAdapter(self.session, self.factory, network_guard=self.guard)
+        self.addCleanup(adapter.close)
+        adapter.__enter__()
+        adapter.automatic_adapter()
+        images = adapter.transport.assets
+        refused = ArchiveError('Tapas rate limit reached; this job has stopped.')
+        images._rate_limit_error = refused
+        images._rate_limited.set()
+        adapter.begin_task()
+        self.assertIs(adapter.transport.assets, images)  # The same reader goes on to the next task.
+        self.assertFalse(images._rate_limited.is_set())
+        self.assertIsNone(images._rate_limit_error)
+
     def test_cached_worker_is_removed_then_its_entire_document_is_replaced(self):
         old = self.factory.native
         old.workers = {'registered': 2, 'controlled': True, 'cleared': True}

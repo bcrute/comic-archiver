@@ -21,6 +21,7 @@ from ..expiry import observed_expiration
 from ..models import ArchiveError, Episode, Manifest, Page, Series
 from ..session import load_session
 from ..transport import ExpiredAsset, Transport, asset_url, metadata_bytes
+from .pagination import EpisodeCountMismatch
 from .site_reader import SiteReader
 
 SITE = sites.named('tappytoon')
@@ -261,6 +262,15 @@ class TappytoonAdapter(SiteReader):
             'tappytoon discovery: series=%s chapters=%s candidates=%s unverified=%s', key, len(listed),
             sum(episode['access_state'] in sites.ACCESS for episode in listed),
             sum(episode['access_state'] not in sites.ACCESS for episode in listed))
+        total = comic.get('totalChaptersCount')
+        if type(total) is int and len(listed) < total:
+            # The list ended short of the series' own chapter count. What was listed is kept, and the series is
+            # checked again against a freshly read count, instead of taking the short list for all of it.
+            self._comics.pop(key, None)
+            short = EpisodeCountMismatch(key, len(listed), total, 'Tappytoon')
+            short.partial_inspection = {'complete': False, 'authenticated': True, 'source_series_id': key,
+                                        'title': comic['title'].strip(), 'episode_count': len(listed), 'episodes': listed}
+            raise short
         return {'complete': True, 'authenticated': True, 'source_series_id': key, 'title': comic['title'].strip(),
                 'episode_count': len(listed), 'ordering_verified': True,
                 'accessible_episode_count': sum(episode['access_state'] in sites.ACCESS for episode in listed),

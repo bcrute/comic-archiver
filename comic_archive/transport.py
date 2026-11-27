@@ -38,6 +38,21 @@ def metadata_bytes(transport, url, limit, **options):
     return data
 
 
+def capped_bytes(transport, url, cap, max_bytes=None):
+    """Read a file that has a size cap of its own, within what is left of the job's byte budget.
+
+    Only a file the budget stopped is the budget's. One over its own cap is refused as that file: called a spent
+    budget, it would stop the job at the same file on every run.
+    """
+    limit = cap if max_bytes is None else min(max_bytes, cap)
+    try:
+        return transport.get(url, max_bytes=limit)
+    except ResponseLimit:
+        if limit < cap:
+            raise
+        raise ArchiveError('The file exceeds the supported size.') from None
+
+
 class _NoClientCookies(DefaultCookiePolicy):
     """Transport or WebView owns cookies; the HTTP client's implicit jar owns none."""
 

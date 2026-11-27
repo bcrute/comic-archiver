@@ -390,6 +390,16 @@ class AndroidTapasAdapterConstructionTests(unittest.TestCase):
                     "request_interval": 0.25}}, upload_first=False)
         self.assertEqual(transport.interval, 1.0)
 
+    def test_a_rate_limit_met_in_one_job_does_not_stop_the_next_job_on_the_same_reader(self):
+        transport = SyntheticTransport({WHO_AM_I: SIGNED_IN})
+        adapter = AndroidTapasAdapter(transport=transport)
+        transport._rate_limited.set()  # What a "slow down" answer leaves for the rest of its job.
+        with self.assertRaisesRegex(ArchiveError, 'rate limit'):
+            adapter.account_identity()
+        self.assertEqual(transport.fetched, [])
+        adapter.deadline = None  # As the downloader begins each job.
+        self.assertEqual(adapter.account_identity(), '4242')
+
     def test_entry_verifies_the_account_and_exit_closes_the_live_transport(self):
         transport = library_transport()
         with AndroidTapasAdapter(transport=transport) as adapter:

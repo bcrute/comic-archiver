@@ -372,6 +372,16 @@ class PaidWebtoonTests(unittest.TestCase):
                 operation()
         self.assertEqual(site.asset_calls(), [])
 
+    def test_a_session_that_changed_during_one_job_does_not_refuse_the_next_job_on_the_same_reader(self):
+        reader, site = adapter()
+        reader.capture_automatic(reader.episode_url('7000009'))
+        reader.transport.cookies = (('.webtoons.com', 'NEO_SES=SESSION_B'),)
+        with self.assertRaises(AuthenticationError):
+            DownloadBudget(reader).check()
+        reader.deadline = None  # As the downloader begins each job.
+        DownloadBudget(reader).check()
+        reader.check()
+
     def test_prefetched_manifest_is_single_use_and_short_lived(self):
         reader, site = adapter()
         with patch('comic_archive.adapters.webtoon.time.monotonic', return_value=10):

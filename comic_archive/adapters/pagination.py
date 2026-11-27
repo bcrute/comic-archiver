@@ -5,8 +5,8 @@ from ..errors import MetadataError
 class EpisodeCountMismatch(MetadataError):
     code='pagination_count_mismatch'
 
-    def __init__(self,series_id,observed_count,reported_count):
-        super().__init__('Tapas pagination stopped before the reported episode count.')
+    def __init__(self,series_id,observed_count,reported_count,site='Tapas'):
+        super().__init__(f'{site} pagination stopped before the reported episode count.')
         self.series_id=str(series_id)
         self.observed_count=observed_count
         self.reported_count=reported_count

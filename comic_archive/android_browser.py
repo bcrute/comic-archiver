@@ -486,6 +486,10 @@ class AndroidTapasBrowserAdapter(TapasAdapter):
             # stop this one at once without the connection being asked again.
             with context.rules_lock:
                 context.problem = None
+        if self.transport is not None:
+            # A rate limit stopped the task that met it. The image reader lives on with this reader, so kept, it
+            # would stop every later task at its first image without the site being asked again.
+            self.transport.assets.clear_rate_limit()
         self.deadline = self.cancel_check = self.expected_account_id = self.asset_metrics = None
 
     def capture_automatic(self, url, series_id=None, series_title=None, title=None, order=None):

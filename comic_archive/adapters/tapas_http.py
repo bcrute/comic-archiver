@@ -8,10 +8,11 @@ from urllib.parse import urlencode, urlsplit
 from ..sites import DEFAULT
 from ..models import ArchiveError, Episode, Manifest, Page, Series, canonical_url
 from ..session import load_session
-from ..transport import Transport, asset_url, metadata_bytes
+from ..transport import Transport, asset_url, capped_bytes, metadata_bytes
 from .reader import ReaderHTML, ordered_sources, safe_primitives, json_shape
 from ..errors import AccessDenied, AuthenticationError, MetadataError, UnsupportedContent
 from ..expiry import observed_expiration
+from ..extras import MUSIC_BYTES
 from .pagination import EpisodeCountMismatch
 
 MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -229,7 +230,7 @@ class TapasHTTPAdapter:
     def retrieve_cover(self,series,max_bytes=None):
         if not series.cover_url:
             return None
-        return self.transport.get(asset_url(series.cover_url),max_bytes=min(max_bytes,10*1024*1024) if max_bytes is not None else 10*1024*1024)
+        return capped_bytes(self.transport,asset_url(series.cover_url),10*1024*1024,max_bytes)
 
     def episode_url(self,key):
         if not isinstance(key,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',key):
@@ -447,7 +448,18 @@ class TapasHTTPAdapter:
             from ..novels import NovelHTML
             novel = NovelHTML(match[1])
             novel.feed(html)
-            text = novel.text()
+            try:
+                text = novel.text()
+            except UnsupportedContent:
+                if access != 'unavailable_or_unverified' or novel.illustrations or ''.join(novel.parts).strip():
+                    raise
+                # As for a comic below: a reader without any of the chapter's text, for a chapter the account is
+                # not shown to have, is Tapas's answer about this chapter while the sign-in still holds.
+                self.check_session()
+                logging.getLogger('comic_archive.download').info(
+                    'reader access: provider=tapas episode=%s result=unavailable stage=reader '
+                    'reason=novel_reader_locked retry=next_scan_round_or_changed_hint', match[1])
+                raise AccessDenied('Tapas shows this chapter without its text; other episodes can continue.') from None
             illustrations = tuple(novel.illustrations)
             urls = ()
         else:
@@ -525,7 +537,7 @@ class TapasHTTPAdapter:
 
     def retrieve_extra(self, url, max_bytes):
         self.stage = 'extra_asset'
-        return self.transport.get(asset_url(url), max_bytes=max_bytes)
+        return capped_bytes(self.transport, asset_url(url), MUSIC_BYTES, max_bytes)
 
     def episode_comments(self, key, limit, check=None):
         from .tapas_comments import episode_comments

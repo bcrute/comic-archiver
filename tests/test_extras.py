@@ -253,6 +253,20 @@ class TapasCommentTests(unittest.TestCase):
         self.assertEqual(asked, ['/comment/81?page=1&sort=NEWEST', '/comment/81?page=2&sort=NEWEST&since=99'])
         self.assertEqual(check.call_count, 2)
 
+    def test_no_comment_page_is_passed_over_when_tapas_names_the_following_page_in_its_answer(self):
+        # The episode list's answers name the page that follows; the comments' answers may do the same.
+        pages = {1: (['1', '2'], {'page': 2, 'has_next': True}), 2: (['3', '4'], {'page': 3, 'has_next': True}),
+                 3: (['5'], {'page': 4, 'has_next': False})}
+        asked = []
+        def json_get(path):
+            page = int(path.split('page=')[1].split('&')[0])
+            asked.append(page)
+            keys, pagination = pages[page]
+            return {'html': ''.join(comment_row(k, 'N', 'D', 'T', 0, 0) for k in keys), 'pagination': pagination}
+        listed = episode_comments(json_get, '81', 300)
+        self.assertEqual([row['id'] for row in listed['comments']], ['1', '2', '3', '4', '5'])
+        self.assertEqual((asked, listed['complete']), ([1, 2, 3], True))
+
     def test_comments_stop_at_the_limit_or_an_answer_without_pages_and_say_so(self):
         def endless(path):
             page = int(path.split('page=')[1].split('&')[0])
@@ -302,6 +316,24 @@ class SiteCaptureTests(unittest.TestCase):
         for bad in ('https://example.com/one.mp3', 'http://webtoon-phinf.pstatic.net/one.mp3'):
             with self.subTest(bad=bad), self.assertRaises(ArchiveError):
                 adapter.retrieve_extra(bad, 5)
+
+    def test_a_webtoon_cover_or_track_over_its_own_size_cap_is_that_files_failure_and_does_not_stop_the_job_as_limited(self):
+        from comic_archive.adapters.webtoon import WebtoonAdapter
+        from comic_archive.errors import ResponseLimit
+        adapter = WebtoonAdapter.__new__(WebtoonAdapter)
+        adapter.transport = Mock()
+        adapter.transport.get.side_effect = ResponseLimit('over the size asked for')
+        series = Series('s', 'S', cover_url='https://webtoon-phinf.pstatic.net/cover.jpg')
+        reads = {'cover': lambda budget: adapter.retrieve_cover(series, max_bytes=budget),
+                 'music': lambda budget: adapter.retrieve_extra('https://webtoon-phinf.pstatic.net/bgm/one.mp3', budget)}
+        for name, read in reads.items():
+            with self.subTest(name):
+                with self.assertRaisesRegex(ArchiveError, 'supported size') as caught:
+                    read(None if name == 'cover' else extras.MUSIC_BYTES)
+                self.assertNotIsInstance(caught.exception, RunLimit)
+                # Less than the cap was left of the job's budget: the budget is what ran out.
+                with self.assertRaises(RunLimit):
+                    read(5)
 
     def test_tapas_music_is_read_only_from_tapas(self):
         from comic_archive.adapters.tapas_http import TapasHTTPAdapter

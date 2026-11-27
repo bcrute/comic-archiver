@@ -1,7 +1,7 @@
 """What the readers of sites other than Tapas share: they read over HTTPS with one downloader, which keeps to
 the job's pace, time limit and stop check."""
 from ..models import ArchiveError
-from ..transport import asset_url
+from ..transport import asset_url, capped_bytes
 
 COVER_LIMIT = 10 * 1024 * 1024
 # Fast: up to 8 images at once, at most 32 a second, from the sites' image servers. The site's own pages, which are
@@ -83,8 +83,7 @@ class SiteReader:
     def retrieve_cover(self, series, max_bytes=None):
         if not series.cover_url:
             return None
-        limit = min(max_bytes, COVER_LIMIT) if max_bytes is not None else COVER_LIMIT
-        return self.transport.get(asset_url(series.cover_url, self.site), max_bytes=limit)
+        return capped_bytes(self.transport, asset_url(series.cover_url, self.site), COVER_LIMIT, max_bytes)
 
     def refresh(self, episode):
         new = self.capture_automatic(episode.source_url).episodes[0]
