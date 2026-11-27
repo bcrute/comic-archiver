@@ -756,6 +756,29 @@ class JobTests(unittest.TestCase):
         self.assertEqual(archive_discovered(self.adapter, self.root, self.report)['archived_episode_ids'], ['82'])
 
     @patch('builtins.print')
+    def test_a_step_told_to_leave_failed_episodes_for_later_saves_the_rest_and_does_not_try_them(self, output):
+        capture = self.adapter.capture_automatic
+        asked = []
+        def broken(url):
+            asked.append(url)
+            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            return capture(url)
+        self.adapter.capture_automatic = broken
+        archive_discovered(self.adapter, self.root, self.report, limit=1)
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 1))
+        self.assertTrue(asked[-1].endswith('/82'))
+        asked.clear()
+        # Lists or series are still to be read: the step saves what is left and leaves the failed episode alone.
+        step = archive_discovered(self.adapter, self.root, self.report, failed_wait=True)
+        self.assertEqual((step['status'], step['archived_episode_ids'], step['failed_episode_ids'],
+                          step['pending_episode_count']), ('limited', ['81'], [], 1))
+        self.assertFalse([url for url in asked if url.endswith('/82')])
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 1))
+        # With nothing else left to do, a step without that word tries it again.
+        self.assertEqual(archive_discovered(self.adapter, self.root, self.report)['failed_episode_ids'], ['82'])
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 2))
+
+    @patch('builtins.print')
     def test_the_same_failure_in_three_series_in_a_row_stops_the_step_as_a_wider_fault(self, output):
         episodes = {'42': ['81', '82'], '43': ['91'], '44': ['95'], '45': ['97']}
         self.several_series(episodes, {key: 'The reader gave no pages.' for keys in episodes.values() for key in keys})

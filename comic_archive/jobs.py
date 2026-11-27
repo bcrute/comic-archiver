@@ -14,7 +14,7 @@ from .publication import PublicationStore as Store
 from .archive import atomic_json, verify_episode
 from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, LibraryBusy, LibraryMoved, MetadataError,
                      NetworkUnavailable, RunLimit, UnsupportedContent)
-from .inventory import Inventory, MAX_FAILED_ATTEMPTS, UNSUPPORTED_REASONS
+from .inventory import Inventory, MAX_FAILED_ATTEMPTS, UNSUPPORTED_REASONS, failing
 from .models import ArchiveError
 from .cancellation import RunCancellation, RunCancelled
 from .support_log import describe
@@ -213,7 +213,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                        max_pages=None, max_bytes=None, max_seconds=None, free_only=False,
                        min_free_bytes=256 * 1024 * 1024, _refresh=None,
                        download_workers=1, _pipeline=False, _scan_only=False,
-                       retry_episode_id=None):
+                       retry_episode_id=None, failed_wait=False):
     from .downloads import adapter_profile, validate_download_workers
     from .network import NetworkPolicyHold, bind_adapter
     bind_adapter(adapter, output)
@@ -352,6 +352,10 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                     checkpoint('limited' if refresh_result.get('state') == 'limited' else 'finished')
                     return summary
                 candidates = pending()
+                if failed_wait:
+                    # Lists or series are still to be read: an episode that failed is tried again after them, at
+                    # the end of everything, never between this step and what has not been looked at yet.
+                    candidates = [row for row in candidates if not failing(row)]
                 if free_only:
                     summary['priority_policy']='recent_free'
                     summary['recent_free_candidate_count']=sum(row.get('recent_free_candidate')==1 for row in candidates)

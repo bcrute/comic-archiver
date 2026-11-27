@@ -468,6 +468,21 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
             self.assertEqual(inventory.failing_series(), set())
 
+    def test_an_episode_a_job_failed_on_never_calls_a_series_check_off_early(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode('81', 1), episode('82', 2)], 'subscribed')
+            self.assertTrue(inventory.has_selected_pending())
+            inventory.mark('82', 'archived')
+            self.assertTrue(inventory.has_selected_pending())
+            # It is tried after everything else, so the check of the remaining series goes on.
+            inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            self.assertFalse(inventory.has_selected_pending())
+            # Any other reason an episode waits is ordinary work a check gives way to.
+            inventory.mark('81', 'failed', 'source_refused')
+            self.assertTrue(inventory.has_selected_pending())
+            inventory.mark('81', 'queued')
+            self.assertTrue(inventory.has_selected_pending())
+
     def image_wait(self, inventory, key='81'):
         """How long the episode's next try is away, as a step with nothing else to save reports it."""
         return inventory.archive_selection([row for row in inventory.pending() if row['id'] == key])[1]

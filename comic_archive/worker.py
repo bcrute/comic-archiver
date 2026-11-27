@@ -118,6 +118,9 @@ def _execute(adapter, request, *, fast_session=None, upload_first=True, audit_pr
         allowed = {"limit", "max_pages", "max_bytes", "max_seconds", "free_only",'request_interval', 'download_workers'}
         if operation == 'archive_discovered':
             allowed.add('retry_episode_id')
+            allowed.add('failed_wait')
+            if type(args.get('failed_wait', False)) is not bool:
+                raise ArchiveError('Leaving failed episodes for later is a yes or a no.')
             retry_id = args.get('retry_episode_id')
             if retry_id is not None and (not isinstance(retry_id, str)
                     or not re.fullmatch(r'[1-9][0-9]{0,19}', retry_id) or args.get('limit') != 1):

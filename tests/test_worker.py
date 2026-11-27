@@ -334,7 +334,8 @@ class WorkerTests(unittest.TestCase):
         cases=[('archive_discovered',{'url':url}),('archive_discovered',{'free_only':'yes'}),
             ('archive_discovered',{'retry_episode_id':'0','limit':1}),('archive_discovered',{'retry_episode_id':'81'}),
             ('archive_discovered',{'retry_episode_id':81,'limit':1}),('archive_discovered',{'retry_episode_id':'81','limit':2}),
-            ('sync',{'speed':'fast'})]
+            ('archive_discovered',{'failed_wait':'yes'}),('archive_discovered',{'failed_wait':1}),
+            ('sync',{'failed_wait':True}),('sync',{'speed':'fast'})]
         for operation,args in cases:
             with self.subTest(operation=operation,args=args):
                 adapter=Mock(interval=1.0)
@@ -360,6 +361,15 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(Path('Library/.archive-state/account-audit.json').exists())
         self.assertEqual(updates, [])
         self.assertEqual(adapter.mock_calls, [])
+
+    def test_a_download_step_passes_on_the_word_to_leave_failed_episodes_for_later(self):
+        self.work_in_temporary_directory()
+        adapter=Mock(interval=1.0)
+        with patch('comic_archive.cloud.upload_pending'), \
+                patch('comic_archive.jobs.archive_discovered',return_value={'status':'limited'}) as archive:
+            self.assertEqual(execute(adapter,{'operation':'archive_discovered','args':{'failed_wait':True,'limit':1}}),
+                             {'status':'limited'})
+        self.assertIs(archive.call_args.kwargs['failed_wait'],True)
 
     def test_fast_imports_use_the_fast_adapter_with_filled_limits_and_leave_the_browser_adapter_alone(self):
         self.work_in_temporary_directory()

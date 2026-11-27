@@ -872,8 +872,47 @@ class ControllerTests(Controller):
     def test_episodes_already_waiting_are_saved_before_the_lists_are_read(self):
         self.pending_episode()
         self.go()
-        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+        _, request = self.published()
+        self.assertEqual(request['operation'], 'archive_discovered')
+        self.assertNotIn('failed_wait', request['args'])  # Nothing failed: there is nothing to leave for later.
         self.assertEqual(self.status()['phase'], 'existing_backlog')
+
+    def test_an_episode_that_failed_is_tried_again_only_after_the_lists_and_series_are_read(self):
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Fixture', [{'id': '81', 'title': 'One', 'order': 1, 'access_state': 'tapas_free'}],
+                              'subscribed')
+            inventory.scan_candidates()
+            inventory.mark('81', 'failed', 'job_failed', attempted=True)
+        self.assertEqual(dc._inventory(self.library)['retries'], 1)
+        self.go()
+        # It is all that waits, and it waits on: every list is read, then the series are checked.
+        self.read_lists()
+        _, request = self.published()
+        self.assertEqual((request['operation'], self.state()['stage']), ('sync', 'series'))
+        with Inventory(self.library) as inventory:
+            inventory.record_series_scan('42')
+            inventory.finish_scan_cycle()
+        self.ok(counted(refresh={'series_checks_completed': 1}))
+        # Nothing is left to read: now it is tried again, by an ordinary step.
+        _, request = self.published()
+        self.assertEqual((request['operation'], self.state()['stage']), ('archive_discovered', 'archive'))
+        self.assertNotIn('failed_wait', request['args'])
+
+    def test_while_lists_are_still_to_be_read_a_download_step_leaves_a_failed_episode_for_later(self):
+        self.pending_episode()
+        with Inventory(self.library) as inventory:
+            inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            inventory.observe('43', 'Other', [{'id': '91', 'title': 'One', 'order': 1, 'access_state': 'tapas_free'}],
+                              'fixture')
+        self.go()
+        _, request = self.published()
+        self.assertEqual((request['operation'], request['args'].get('failed_wait')), ('archive_discovered', True))
+        with Inventory(self.library) as inventory:
+            inventory.mark('91', 'archived')
+        self.ok(counted(status='limited', pending_episode_count=1, archived_episode_ids=['91'], downloaded_pages=1,
+                        downloaded_bytes=10))
+        # Only the failed episode is left, and the lists come before its next try.
+        self.assertEqual(self.published()[1]['args']['categories'], ['subscribed'])
 
     def test_a_list_read_that_could_not_be_confirmed_still_counts_so_the_round_moves_on(self):
         self.go()

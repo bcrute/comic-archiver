@@ -122,6 +122,17 @@ class QueueClientTests(unittest.TestCase):
             task=submit_job(root,'archive_discovered',{'retry_episode_id':'81','limit':1})['task_id']
             self.assertEqual(json.loads((requests/f'{task}.json').read_text())['args'],{'retry_episode_id':'81','limit':1})
 
+    def test_leaving_failed_episodes_for_later_is_a_yes_or_no_of_a_download_step_only(self):
+        with tempfile.TemporaryDirectory() as work:
+            root=Path(work);requests=root/'worker/requests';requests.mkdir(parents=True)
+            for value in ('yes',1,None):
+                with self.subTest(value=value),self.assertRaises(ArchiveError):
+                    submit_job(root,'archive_discovered',{'failed_wait':value})
+            with self.assertRaises(ArchiveError):submit_job(root,'sync',{'failed_wait':True})
+            self.assertEqual(list(requests.iterdir()),[])
+            task=submit_job(root,'archive_discovered',{'failed_wait':True})['task_id']
+            self.assertEqual(json.loads((requests/f'{task}.json').read_text())['args'],{'failed_wait':True})
+
     def test_sync_fast_metadata_needs_scan_only_and_history_pages_are_bounded(self):
         with tempfile.TemporaryDirectory() as work:
             root=Path(work);requests=root/'worker/requests';requests.mkdir(parents=True)

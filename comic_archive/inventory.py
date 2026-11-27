@@ -898,7 +898,9 @@ class Inventory:
     def has_selected_pending(self):
         """A cheap queue-admission check using only the fixed selection predicate."""
         from .download_selection import clause
-        return self.db.execute("SELECT 1 FROM episodes e WHERE status IN ('queued','failed') AND "
+        # An episode a job failed on is tried after everything else: it never calls a series check off early.
+        return self.db.execute("SELECT 1 FROM episodes e WHERE status IN ('queued','failed') "
+                               "AND NOT (status='failed' AND error_code IS 'job_failed') AND "
                                + clause(self.db) + ' LIMIT 1').fetchone() is not None
 
     def only_one_page_waiting(self):

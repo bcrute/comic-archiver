@@ -21,6 +21,9 @@ def submit_job(session, operation, options=None,*,_task_id=None):
     allowed = {"limit", "max_pages", "max_bytes", "max_seconds", "free_only",'request_interval', 'download_workers'}
     if operation == 'archive_discovered':
         allowed.add('retry_episode_id')
+        allowed.add('failed_wait')
+        if type(options.get('failed_wait', False)) is not bool:
+            raise ArchiveError('Leaving failed episodes for later is a yes or a no.')
         retry_id = options.get('retry_episode_id')
         if retry_id is not None and (not isinstance(retry_id, str)
                 or not re.fullmatch(r'[1-9][0-9]{0,19}', retry_id) or options.get('limit') != 1):

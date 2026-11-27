@@ -18,7 +18,7 @@ import sqlite3
 
 from . import osdep, sites
 from .errors import LibraryBusy
-from .inventory import ASSET_RETRY_COOLDOWN_SECONDS, Inventory
+from .inventory import ASSET_RETRY_COOLDOWN_SECONDS, Inventory, failing
 from .locking import LibraryLock, wait_for_library
 from .models import ArchiveError
 from .queue_client import submit_job, task_status
@@ -293,7 +293,8 @@ def _inventory(library, *, all_series=False):
         from .comic_selection import read
         scope = read(inventory.db)
         none_selected = not scope['default'] and not scope['exceptions']
-        return {'pending': len(inventory.pending()),
+        rows = inventory.pending()
+        return {'pending': len(rows), 'retries': sum(failing(row) for row in rows),
                 'remaining': status['scan_remaining_series_count'] + int((all_series or not none_selected) and pending(inventory)),
                 'none_selected': none_selected}
 
@@ -564,6 +565,7 @@ def _next(db, value, session, library):
     if value['stage'] == 'archive' and not waiting['pending']:
         value['stage'] = 'verify'
     options, speed = _pace(session)
+    reading = value['stage'] in ('lists', 'series')
     discovery = ({'history_round': value['round_started_at']}
                  if sites.of_session(Path(session)).key == 'tapas' and (list_only or not waiting.get('none_selected')) else {})
     if list_only:
@@ -580,8 +582,10 @@ def _next(db, value, session, library):
         return
     if value['source_episode'] is not None:
         _reserve(db, 'probe', 'archive_discovered', options | {'limit': 1, 'retry_episode_id': value['source_episode']})
-    elif waiting['pending']:
-        _reserve(db, 'download', 'archive_discovered', options)
+    elif waiting['pending'] > waiting.get('retries', 0) or waiting['pending'] and not reading:
+        # An episode that failed is tried again at the end of everything: while lists or series are still to be
+        # read, a download step leaves it alone, and with only such episodes waiting the reading goes first.
+        _reserve(db, 'download', 'archive_discovered', options | ({'failed_wait': True} if reading and waiting.get('retries') else {}))
     elif value['stage'] == 'lists':
         _reserve(db, 'list', 'sync', LIST_READ | {'categories': [unread[0]]} | discovery)
     elif value['stage'] == 'series':
