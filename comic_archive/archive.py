@@ -154,6 +154,7 @@ class Store:
             if any(path.is_symlink() for path in (db, *(Path(str(db) + suffix)
                                                        for suffix in ('-wal', '-shm', '-journal')))):
                 raise ArchiveError("Refusing a symlink in archive cache.")
+            self._set_damaged_index_aside(db)
             self.db = sqlite3.connect(db)
             self.db.execute("CREATE TABLE IF NOT EXISTS pages (key TEXT PRIMARY KEY, hash TEXT NOT NULL)")
             self.db.execute("CREATE TABLE IF NOT EXISTS series_paths (source TEXT, series_id TEXT, path TEXT, PRIMARY KEY(source,series_id))")
@@ -189,6 +190,35 @@ class Store:
         except BaseException:
             self.close()
             raise
+
+    @staticmethod
+    def _set_damaged_index_aside(db):
+        """An index that was cut short, or is not a database at all, is kept under another name and a new one started.
+
+        Left in place it would stop every download at its first step. It holds nothing the library cannot do
+        without, as when the cache folder is cleared: a series is found again from its own record, and a page
+        that was cached is downloaded again. Trouble of any other kind is left for the open that follows to report.
+        """
+        probe = sqlite3.connect(db)
+        try:
+            probe.execute('SELECT 1 FROM sqlite_master').fetchone()
+            return
+        except sqlite3.DatabaseError as error:
+            code = getattr(error, 'sqlite_errorcode', None)
+            damaged = (code & 0xff in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB) if code is not None
+                       else any(sign in str(error).lower() for sign in ('malformed', 'not a database')))
+            if not damaged:
+                return  # Busy, or not to be opened just now: the index itself may be whole.
+        finally:
+            probe.close()
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')  # To the microsecond: none kept before is replaced.
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            path = Path(str(db) + suffix)
+            if path.exists():
+                # A journal left beside a new index would be taken for that index's own.
+                replace_file(path, db.with_name(f'{db.name}.damaged-{stamp}{suffix}'))
+        from .support_log import DOWNLOAD_LOG
+        logging.getLogger(DOWNLOAD_LOG).warning('cache index recovery: reason=unreadable kept_aside=true saved_files_changed=false')
 
     def close(self):
         try:

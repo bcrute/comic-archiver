@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import random
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -217,6 +218,31 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(self.publish(),folder)
         self.assertEqual(len(list(folder.glob('*.cbz'))),2)
 
+    def test_a_cache_index_cut_short_or_overwritten_is_kept_aside_and_the_next_episode_is_saved_in_the_same_folder(self):
+        folder=self.publish();index=self.root/'.archive-cache/index.sqlite3';good=index.read_bytes()
+        PublicationStore(self.root).close()
+        self.assertEqual(list(index.parent.glob('index.sqlite3.damaged-*')),[])  # A whole one stays where it is.
+        for number,damaged in enumerate((good[:-4096],b'not a database '*100),2):
+            index.write_bytes(damaged)
+            self.episode=replace(self.episode,id=f'81818{number}',title=f'Chapter {number}',order=number)
+            with self.assertLogs('comic_archive.download','WARNING') as logged:
+                self.assertEqual(self.publish(),folder)
+            self.assertTrue(any('cache index recovery' in line for line in logged.output))
+            self.assertEqual(len(list(folder.glob('*.cbz'))),number)
+            self.assertIn(damaged,[path.read_bytes() for path in index.parent.glob('index.sqlite3.damaged-*')])
+        self.assertEqual([path.parent for path in self.root.glob('*/series.json')],[folder])
+        self.assertEqual(verify(self.root),[])
+
+    def test_a_cache_index_that_is_only_busy_is_left_where_it_is(self):
+        self.publish();index=self.root/'.archive-cache/index.sqlite3';good=index.read_bytes()
+        class Busy:
+            def execute(self,*args): raise sqlite3.OperationalError('database is locked')
+            def close(self): pass
+        with patch('comic_archive.archive.sqlite3.connect',lambda path:Busy()),self.assertRaises(sqlite3.OperationalError):
+            PublicationStore(self.root)
+        self.assertEqual((list(index.parent.glob('index.sqlite3.damaged-*')),index.read_bytes()),([],good))
+        self.assertTrue(self.library_is_free_for_other_threads())
+
     def test_tar_terminator_crossing_a_record_boundary_survives_publication_and_offline_restore(self):
         # A complete PNG with a valid ancillary text chunk makes a 9,216-byte page.
         # Header + page fill 9,728 bytes; the two TAR end blocks need another record.
@@ -289,10 +315,50 @@ class PublicationTests(unittest.TestCase):
             self.assertGreaterEqual(inventory.reconcile(full=True),1)
             self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
 
+    def test_a_series_folder_or_an_episode_renamed_by_hand_stays_saved_and_nothing_is_downloaded_again(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42','Series',[{'id':'81','title':'E','order':1,'access_state':'tapas_free'}],'fixture')
+        with patch('builtins.print'):
+            archive_discovered(AccountAdapter(),self.root)
+        archive=next(self.root.glob('*/*.cbz'));renamed=archive.parent.with_name('Renamed by hand')
+        archive.parent.rename(renamed)
+        adapter=AccountAdapter()
+        with patch('builtins.print'):
+            again=archive_discovered(adapter,self.root)
+        self.assertEqual((again['archived_episode_ids'],adapter.downloads),([],[]))
+        self.assertEqual(list(self.root.glob('*/*.cbz')),[renamed/archive.name])
+        with Inventory(self.root) as inventory:
+            self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
+            self.assertEqual(inventory.db.execute("SELECT archive_path FROM episodes WHERE id='81'").fetchone()[0],
+                             'Renamed by hand/'+archive.name)
+            episode=renamed/'Chapter one.cbz'  # Then the episode's two files, inside the folder.
+            (renamed/archive.name).rename(episode);sidecar_path(renamed/archive.name).rename(sidecar_path(episode))
+            inventory.reconcile()
+            self.assertEqual(inventory.status()['episodes_by_status'],{'archived':1})
+            self.assertEqual(inventory.db.execute("SELECT archive_path FROM episodes WHERE id='81'").fetchone()[0],
+                             'Renamed by hand/Chapter one.cbz')
+        self.assertEqual((list(self.root.glob('*/*.cbz')),verify_episode(episode)),([episode],[]))
+
+    def test_a_copy_of_a_series_folder_is_not_taken_for_the_series_while_the_one_it_was_copied_from_is_there(self):
+        folder=self.publish();copy=self.root/'Copy';shutil.copytree(folder,copy)
+        sidecar=sidecar_path(next(copy.glob('*.cbz')))
+        for path in (sidecar,copy/'series.json'):
+            with self.assertRaisesRegex(ValueError,'provenance mismatch'): import_metadata(path)
+        shutil.rmtree(folder)  # Only the copy is left: it is the series now.
+        self.assertEqual(import_metadata(sidecar)['source_episode_id'],'818181')
+        self.assertEqual(import_metadata(copy/'series.json')['source_series_id'],'424242')
+        # A record is believed about a place only one folder inside the library, where a saved file can have been.
+        private=self.private_record(sidecar);record=json.loads(private.read_text())
+        for place in ('../Episode.json',str(self.root.parent/'Outside'/'Episode.json'),'Episode.json','A/B/Episode.json',
+                      '.hidden/Episode.json','',7,None):
+            private.write_text(json.dumps(record|{'sidecar':place}))
+            with self.subTest(place=place),self.assertRaisesRegex(ValueError,'provenance mismatch'): import_metadata(sidecar)
+
     def test_private_provenance_is_required_for_source_identity_and_cannot_be_swapped(self):
         folder=self.publish();archive=next(folder.glob('*.cbz'));sidecar=sidecar_path(archive)
         meta=json.loads(sidecar.read_text());private=self.root/'.archive-state/provenance'/(meta['export_id']+'.json')
         record=json.loads(private.read_text());record['sidecar']='Other/Episode.json';private.write_text(json.dumps(record))
+        (self.root/'Other').mkdir();shutil.copy2(sidecar,self.root/'Other'/'Episode.json')  # The record is another file's.
         with self.assertRaises(ValueError): import_metadata(sidecar)
         self.assertEqual(verify_episode(archive),[])  # Portable content remains independently verifiable.
         private.unlink()
@@ -313,6 +379,19 @@ class PublicationTests(unittest.TestCase):
             with patch('comic_archive.cloud.offloaded',return_value=True):
                 self.assertFalse(store.episode_is_offloaded(self.series,self.episode,archive))
         finally: store.close()
+
+    def test_an_episode_whose_record_names_an_image_quality_this_version_does_not_know_does_not_stop_its_series_and_is_saved_again(self):
+        folder=self.publish();sidecar=sidecar_path(next(folder.glob('*.cbz')));first=self.episode
+        sidecar.write_text(json.dumps(json.loads(sidecar.read_text())|{'images_recompressed':False,'image_profile':'huge'}))
+        with self.assertRaises(ValueError): import_metadata(sidecar)
+        self.episode=replace(first,id='818182',title='Chapter two',order=2)
+        self.assertEqual(self.publish(),folder)  # The other episodes of its series are still saved.
+        self.assertEqual(len(list(folder.glob('*.cbz'))),2)
+        self.episode=first
+        self.assertEqual(self.publish(),folder)
+        self.assertEqual(import_metadata(sidecar)['source_episode_id'],'818181')
+        self.assertEqual(len(list(folder.glob('*.cbz'))),2)
+        self.assertEqual(verify(self.root),[])
 
     def test_novel_uuid_replaces_platform_identifier_inside_epub(self):
         novel=Episode('818181',self.series.id,'Chapter',1,(),'tapas_unlocked',content_type='novel',text_html='<p>Original text</p>')
@@ -515,6 +594,21 @@ class PublicationTests(unittest.TestCase):
             self.assertTrue(self.library_is_free_for_other_threads())
         private.write_text(good)
         PublicationStore(self.root).close()
+
+    def test_reopening_a_library_passes_over_a_series_record_that_cannot_be_read_and_the_series_keeps_its_folder(self):
+        folder = self.publish()
+        store = PublicationStore(self.root)
+        try: store.db.execute('DELETE FROM export_series_keys'); store.db.commit()
+        finally: store.close()
+        (folder / 'series.json').write_text('{')
+        PublicationStore(self.root).close()
+        self.assertTrue(self.library_is_free_for_other_threads())
+        self.episode = replace(self.episode, id='818182', title='Chapter two', order=2)
+        self.assertEqual(self.publish(), folder)
+        self.assertEqual([path.parent for path in self.root.glob('*/series.json')], [folder])
+        self.assertEqual(len(list(folder.glob('*.cbz'))), 2)
+        self.assertEqual(import_metadata(folder / 'series.json')['source_series_id'], '424242')
+        self.assertEqual(verify(self.root), [])
 
     def test_resume_keeps_cached_pages_when_cache_cleanup_is_disabled(self):
         set_policy(self.root, purge_completed_cache=False)

@@ -16,7 +16,7 @@ from .archive import Store, atomic_json, digest, image_extension, image_context,
 from .archive import expanded_archive_bytes
 from .archive_paths import directory, pinned_publication, staged_archive
 from .models import ArchiveError
-from .osdep import replace_file, shortened, units
+from .osdep import anchored, extended_path, replace_file, shortened, units
 
 # What follows a title in a name: ' [' with twelve characters of the export id and ']', then the longest
 # ending a file gets while it is written ('.tar.zst.tmp').
@@ -77,6 +77,25 @@ def import_metadata(sidecar):
     return import_record(sidecar)[0]
 
 
+def _moved_from(root, recorded):
+    """Whether the place a private record names for its file, one folder inside the library, holds nothing any more.
+
+    A series folder or an episode's files renamed by hand keep their records, which name the places they had. A
+    record is believed for a file found elsewhere only then: with something still at the place it names, the file
+    found is a copy. A link there, or a place that cannot be looked at, is not an empty one.
+    """
+    place = Path(recorded) if isinstance(recorded, str) and '\0' not in recorded else None
+    if place is None or anchored(place) or len(place.parts) != 2 or any(part.startswith('.') for part in place.parts):
+        return False
+    try:
+        os.lstat(extended_path((root / place).absolute()))
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
 def import_record(sidecar):
     """import_metadata's answer, and the private provenance file it was read from (None for an older record)."""
     sidecar = Path(sidecar)
@@ -85,7 +104,12 @@ def import_record(sidecar):
     value = json.loads(sidecar.read_text())
     if not isinstance(value, dict): raise ValueError('Invalid metadata')
     if value.get('schema_version') != 2: return value, None
-    validate_public_metadata(value,series=sidecar.name=='series.json')
+    try:
+        validate_public_metadata(value,series=sidecar.name=='series.json')
+    except ArchiveError as error:
+        # Every caller passes over a record it cannot read by the errors a damaged file raises; an image quality
+        # this version does not know is one more of those, and must not stop the series the record is in.
+        raise ValueError(str(error)) from None
     export_id = value.get('export_id')
     if not valid_export_id(export_id): raise ValueError('Invalid export identity')
     root = sidecar.parent.parent
@@ -93,7 +117,8 @@ def import_record(sidecar):
     if any(p.is_symlink() for p in (private, *private.parents)) or private.stat().st_size > 16*1024*1024:
         raise ValueError('Unsafe private provenance')
     record = json.loads(private.read_text())
-    if not isinstance(record, dict) or record.get('sidecar') != sidecar.relative_to(root).as_posix():
+    if not isinstance(record, dict) or (record.get('sidecar') != sidecar.relative_to(root).as_posix()
+                                        and not _moved_from(root, record.get('sidecar'))):
         raise ValueError('Export provenance mismatch')
     if record.get('public_hash') != metadata_hash(value) and isinstance(record.get('previous'), dict):
         # Stopped between the private and public writes: the public file is still the one before.
@@ -355,11 +380,14 @@ class PublicationStore(Store):
             for source,key,folder in rows:
                 path=self.stored_path(folder)/'series.json'
                 if not path.is_file(): continue  # A reserved export is not published yet.
-                metadata=import_metadata(path)
+                try:
+                    metadata=import_metadata(path)
+                    canonical=metadata['source_series_id']
+                except (OSError,ValueError,TypeError,KeyError):
+                    continue  # One record that cannot be read must not close the library: its series is keyed when next saved.
                 if (metadata.get('source')!=source or
                         metadata.get('library_series_id',metadata.get('source_series_id'))!=key):
                     raise ArchiveError('Stored series export identity differs from its private metadata.')
-                canonical=metadata['source_series_id']
                 previous=self.db.execute('SELECT series_id FROM export_series_keys WHERE source=? AND source_series_id=?',(source,canonical)).fetchone()
                 if previous and previous[0]!=key:
                     raise ArchiveError('Multiple export identities exist for one series; existing files are retained.')
