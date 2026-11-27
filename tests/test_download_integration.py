@@ -251,6 +251,132 @@ class DownloadIntegrationTests(unittest.TestCase):
         # There is no timed account-wide retry or failed task for a missing reader.
         self.assertFalse(any(item['outcome'] == 'error' for item in self.controller_tasks()))
 
+    def unreadable(self, keys=None):
+        """The site answers for these episodes (all of them when none are named) with data the reader cannot use:
+        nothing about the account or the connection. Returns the call that puts the site right again."""
+        transport = self.adapter.transport
+        normal = transport.get
+
+        def get(url, **options):
+            parts = urlsplit(url).path.strip('/').split('/')
+            if len(parts) == 3 and parts[0] == 'episode' and parts[2] == 'info' and (keys is None or parts[1] in keys):
+                transport.calls.append((urlsplit(url).hostname, urlsplit(url).path))
+                return envelope(transport.info(parts[1]) | {'book': None})
+            return normal(url, **options)
+        transport.get = get
+
+        def repaired():
+            transport.get = normal
+        return repaired
+
+    def moving_clock(self):
+        """The controller's clock, moved past each wait it shows, so that no test sleeps: (the stop to drive
+        with, the reasons of the waits it passed)."""
+        from datetime import datetime, timedelta, timezone
+        now = [datetime.now(timezone.utc)]
+        clock = patch('comic_archive.download_control._now', side_effect=lambda: now[0])
+        clock.start()
+        self.addCleanup(clock.stop)
+        waits = []
+
+        def waited(state):
+            if 'retry' in state:
+                waits.append(state['retry']['reason'])
+                now[0] += timedelta(seconds=state['retry']['seconds'] + 1)
+            return False
+        return waited, waits
+
+    def episode_rows(self, *keys):
+        with Inventory(self.library, read_only=True) as inventory:
+            return [tuple(inventory.db.execute('SELECT status,error_code,attempts FROM episodes WHERE id=?', (key,)).fetchone())
+                    for key in keys]
+
+    def test_a_series_whose_episodes_all_fail_never_stops_the_other_series_and_the_end_says_how_many_were_not_saved(self):
+        repaired = self.unreadable(('81', '82'))
+        waited, waits = self.moving_clock()
+        self.start()
+        state = self.drive(stop=waited)
+        # The other series is saved in the same run: no other Go, no failed step, and nothing waited for.
+        self.assertEqual({path.suffix for path in library_archives(self.library)}, {'.epub'})
+        self.assertFalse(any(item['outcome'] == 'error' for item in self.controller_tasks()))
+        self.assertEqual(waits, [])
+        # The run ends held, counting what it could not save; each such episode had its tries and is held as failed.
+        self.assertEqual((state['status'], state['code']), ('held', 'archive_incomplete'), self.last_response)
+        self.assertEqual((state['audit']['recorded_archived_episode_count'],
+                          state['audit']['missing_recorded_accessible_episode_count']), (1, 2))
+        self.assertEqual(self.episode_rows('81', '82'), [('failed', 'job_failed', 3)] * 2)
+        with Inventory(self.library, read_only=True) as inventory:
+            self.assertEqual(inventory.unsaved_codes(), {'failed:job_failed': 2})
+        self.assertEqual(verify(self.library, decode_images=True), [])
+        # Once the site answers properly, Go saves them.
+        repaired()
+        self.start()
+        state = self.drive(stop=waited)
+        self.assertEqual(state['status'], 'finished', self.last_response)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 3)
+        self.assertEqual(verify(self.library, decode_images=True), [])
+
+    def test_the_same_failure_in_series_after_series_of_a_waiting_queue_stops_and_holds_and_sets_no_episode_aside(self):
+        # Four more series with one free episode each, so that episodes of six series wait, as after a download
+        # that was interrupted; then the site answers for every episode with data the reader cannot use.
+        others = {'44': '84', '45': '85', '46': '86', '47': '87'}
+        transport = self.adapter.transport
+        transport.episodes.update({key: {'id': int(key), 'scene': 1, 'title': 'Other comic', 'book': False, 'free': True}
+                                   for key in others.values()})
+        normal, normal_list = transport.get, self.adapter.inspect_library
+
+        def get(url, **options):
+            parts = urlsplit(url).path.strip('/').split('/')
+            if len(parts) >= 2 and parts[0] == 'series' and parts[1] in others:
+                transport.calls.append((urlsplit(url).hostname, urlsplit(url).path))
+                if len(parts) == 2:
+                    return envelope({'id': int(parts[1]), 'title': 'Comic ' + parts[1], 'url': 'comic-' + parts[1],
+                                     'comic': True, 'book': False})
+                return envelope({'episodes': [transport.info(others[parts[1]])],
+                                 'pagination': {'page': 1, 'total': 1, 'has_next': False}})
+            if len(parts) == 2 and parts[0] == 'episode' and parts[1] in others.values():
+                transport.calls.append((urlsplit(url).hostname, urlsplit(url).path))
+                series = next(series for series, key in others.items() if key == parts[1])
+                return (f'<script>var seriesId={series};</script><div id="episode-{parts[1]}">'
+                        f'<img class="content__img" src="https://us-a.tapas.io/pc/{parts[1]}-1.png">'
+                        f'<img class="content__img" src="https://us-a.tapas.io/pc/{parts[1]}-2.png">'
+                        '</div>').encode()
+            return normal(url, **options)
+
+        def library(category):
+            result = normal_list(category)
+            result['series'] += [{'source_series_id': key, 'title': 'Comic ' + key} for key in others]
+            return result
+        transport.get, self.adapter.inspect_library = get, library
+        with Inventory(self.library) as inventory:
+            inventory.observe('42', 'Comic', [{'id': '81', 'title': 'Free comic', 'order': 1, 'access_state': 'tapas_free'},
+                                              {'id': '82', 'title': 'Unlocked comic', 'order': 2,
+                                               'access_state': 'tapas_unlocked'}], 'subscribed')
+            inventory.observe('43', 'Novel', [{'id': '91', 'title': 'Illustrated novel', 'order': 1,
+                                               'access_state': 'tapas_free'}], 'subscribed')
+            for series, key in others.items():
+                inventory.observe(series, 'Comic ' + series, [{'id': key, 'title': 'Other comic', 'order': 1,
+                                                               'access_state': 'tapas_free'}], 'subscribed')
+        repaired = self.unreadable()
+        waited, waits = self.moving_clock()
+        self.start()
+        state = self.drive(stop=waited)
+        # One episode of each of three series failed the same way and the step stopped; so did the one try it was
+        # given after a wait. The download holds for the person instead of going through every episode's tries.
+        self.assertEqual((state['status'], state['code']), ('held', 'task_failed'), self.last_response)
+        self.assertEqual([item['outcome'] for item in self.controller_tasks()], ['error', 'error'])
+        self.assertEqual(waits, ['idle'])
+        self.assertEqual(self.episode_rows('82', '91', '84', '85', '86', '87'), [('failed', 'job_failed', 1)] * 6)
+        self.assertEqual(self.episode_rows('81'), [('queued', None, 0)])
+        self.assertEqual(library_archives(self.library), [])
+        # Nothing was set aside, so once the site answers properly Go saves everything.
+        repaired()
+        self.start()
+        state = self.drive(stop=waited)
+        self.assertEqual(state['status'], 'finished', self.last_response)
+        self.assertEqual(state['audit']['recorded_archived_episode_count'], 7)
+        self.assertEqual(verify(self.library, decode_images=True), [])
+
     def controller_tasks(self):
         import sqlite3
         with sqlite3.connect((self.root / 'download.sqlite3').as_uri() + '?mode=ro', uri=True) as db:

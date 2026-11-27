@@ -870,11 +870,21 @@ class Inventory:
         rows=[row for row in rows if not failing(row) or row['attempts']<MAX_FAILED_ATTEMPTS
               or (image_recheck and row['access_state'] in sites.ACCESS)
               or (product_recheck and row['access_state'] in ('webtoon_free', 'webtoon_unlocked'))]
-        # Stable: retain fair retries and recent-free order within each tier, with failing episodes last.
+        # Stable: retain fair retries and recent-free order within each tier, with failing episodes last. The
+        # rest of a series an episode failed in comes just before them, after every other series', so one
+        # broken series is never between a step and the others; an episode about to expire keeps its place.
+        troubled = self.failing_series()
+        def back(row):
+            return failing(row) or row['series_id'] in troubled and not rank(row)[1]
         from .extras_backfill import pending as pending_extras
         # A later extras choice must not wait for an entire unfinished comic backlog.
         return pending_extras(self, free_only) + sorted(
-            rows, key=lambda row: (failing(row), row['attempts'] if failing(row) else 0, rank(row)))
+            rows, key=lambda row: (back(row), row['attempts'] if failing(row) else 0, rank(row)))
+
+    def failing_series(self):
+        """The series with an episode a job failed on, tried again or held."""
+        return {row[0] for row in self.db.execute(
+            "SELECT DISTINCT series_id FROM episodes WHERE status='failed' AND error_code='job_failed'")}
 
     def watched_series(self):
         return [dict(row) for row in self.db.execute("SELECT id,title FROM series ORDER BY id")]

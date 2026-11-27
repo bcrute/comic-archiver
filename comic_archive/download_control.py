@@ -371,7 +371,9 @@ def progressed(result):
                 or type(history_links) is int and history_links > 0
                 or type(checked) is int and checked > 0
                 or any(isinstance(result.get(key), list) and result[key]
-                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids', 'excluded_episode_ids',
+                       for key in ('unavailable_episode_ids', 'unsupported_episode_ids', 'not_free_episode_ids',
+                                   # One of an episode's few tries used up: the next follows without a wait.
+                                   'failed_episode_ids', 'excluded_episode_ids',
                                    'set_aside_episode_ids')))
 
 
@@ -1123,12 +1125,18 @@ def _sent(db, root, session, task):
 
 def request_stop(session, library=Path('Library')):
     """Pause: nothing more is asked for until Go. The task already out is cancelled by the caller."""
+    def forget_unsent(db, root, task):
+        if task is not None and task['published_at'] is None:
+            _sent(db, root, session, task)
+
     def stop(db, value, root):
         if value is None or value['status'] not in ('running', 'waiting'):
             return
         task = _outstanding(db)
-        if task is not None and task['published_at'] is None:
-            _sent(db, root, session, task)
+        try:
+            forget_unsent(db, root, task)
+        except LibraryBusy:
+            pass  # A downloader is taking a task up just now: paused all the same, and the next look settles the step.
         value.update(status='stopped', code=None, wait_until=None)
         _save(db, value, 'Pause')
     try:
@@ -1151,8 +1159,11 @@ def reopen(session, library=Path('Library'), *, idle=True):
             value.update(status='stopped', code=None, wait_until=None)
             _save(db, value, 'the app started')
         task = _outstanding(db)
-        if idle and task is not None and (task['published_at'] is not None or _sent(db, root, session, task)):
-            end_unstarted(session, library, task['task_id'])
+        try:
+            if idle and task is not None and (task['published_at'] is not None or _sent(db, root, session, task)):
+                end_unstarted(session, library, task['task_id'])
+        except LibraryBusy:
+            pass  # Something holds the queue just now: it waits for Go all the same, and the next look stops the step.
         return going
     try:
         return _transaction(session, library, stopped, require_queue=False)

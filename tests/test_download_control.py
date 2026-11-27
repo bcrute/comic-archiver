@@ -1081,6 +1081,15 @@ class ControllerTests(Controller):
             self.assertEqual([row['id'] for row in inventory.pending()], ['81'])
             self.assertFalse(inventory.mark('81', 'queued', 'asset_read_unavailable'))  # Its tries start from none.
 
+    def test_a_step_that_only_used_up_tries_of_failing_episodes_is_followed_at_once_by_the_next(self):
+        self.downloading()
+        # Nothing saved, but each failing episode has one try fewer left: there is nothing to wait for.
+        self.ok(counted(status='limited', pending_episode_count=1, failed_episode_ids=['81']))
+        self.tick()
+        self.assertNotIn('retry', self.status())
+        self.assertEqual((self.state()['status'], self.state()['idle_waits']), ('running', 0))
+        self.assertEqual(self.published()[1]['operation'], 'archive_discovered')
+
     def test_a_lost_connection_waits_longer_each_time_and_never_holds(self):
         self.downloading()
         for seconds in (*dc.CONNECTION_WAITS, 900, 900):
@@ -1416,6 +1425,54 @@ class ControllerTests(Controller):
         self.assertTrue(dc.reopen(self.session, self.library, idle=False))
         self.assertFalse((self.queue / 'responses' / (task + '.json')).exists())
         self.assertEqual(self.requests(), [task])
+
+    def unsent_step(self):
+        """Go, with the step reserved but not yet sent: another writer had the library at that look."""
+        self.go()
+        release = self.held(self.library)
+        self.tick()
+        self.tick()
+        release()
+        task, = self.tasks()
+        self.assertIsNone(task['published_at'])
+        self.assertFalse(self.requests())
+
+    def test_pause_while_a_downloader_holds_the_queue_still_pauses_and_the_unsent_step_is_dropped_at_the_next_look(self):
+        self.unsent_step()
+        release = self.held(self.queue / '.admission')  # As a downloader holds it while it takes a task up.
+        try:
+            dc.request_stop(self.session, self.library)
+        finally:
+            release()
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.tick()
+        self.assertEqual((self.tasks(), self.requests(), self.state()['status']), ([], [], 'stopped'))
+        self.go()
+        self.assertEqual(self.published()[1]['operation'], 'sync')
+
+    def test_a_start_of_the_app_while_something_holds_the_queue_still_leaves_the_download_waiting_for_go(self):
+        self.unsent_step()
+        release = self.held(self.queue / '.admission')
+        try:
+            self.assertTrue(dc.reopen(self.session, self.library))
+        finally:
+            release()
+        self.assertEqual(self.state()['status'], 'stopped')
+        self.tick()
+        self.assertEqual((self.tasks(), self.requests(), self.state()['status']), ([], [], 'stopped'))
+
+    def test_a_start_of_the_app_that_cannot_end_its_queued_step_just_now_still_waits_for_go_and_ends_it_at_the_next_start(self):
+        task, _ = self.downloading()
+        release = self.held(self.queue / '.admission')
+        try:
+            self.assertTrue(dc.reopen(self.session, self.library))
+        finally:
+            release()
+        self.assertEqual((self.state()['status'], self.requests()), ('stopped', [task]))
+        self.assertFalse((self.queue / 'responses' / (task + '.json')).exists())
+        self.assertFalse(dc.reopen(self.session, self.library))
+        receipt = json.loads((self.queue / 'responses' / (task + '.json')).read_text())
+        self.assertEqual((receipt['status'], receipt['result']['status']), ('ok', 'cancelled'))
 
     # The record stays small and private.
 

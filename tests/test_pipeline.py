@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from comic_archive.cancellation import RunCancelled
-from comic_archive.errors import AccessDenied, AuthenticationError, RunLimit, UnsupportedContent
+from comic_archive.errors import AccessDenied, AuthenticationError, MetadataError, NetworkUnavailable, RunLimit, UnsupportedContent
 from comic_archive.models import ArchiveError, Episode, Manifest, Page, Series
 from comic_archive.pipeline import MetadataPipeline
 
@@ -200,9 +200,12 @@ class PipelineTests(unittest.TestCase):
             ('access refusal', AccessDenied('Locked'), None, None, True),
             ('limit', RunLimit('Page limit'), None, None, True),
             ('unsupported content', UnsupportedContent('Novel'), None, None, True),
-            ('other failure, clean batch', ArchiveError('Late'), None, ArchiveError, False),
-            ('other failure after a limit', ArchiveError('Late'), RunLimit('Page limit'), ArchiveError, False),
-            ('other failure after another failure', ArchiveError('Late'), AuthenticationError('Earlier'), None, False),
+            # A failure of the prepared episode's own data is never the batch's: its turn had not come.
+            ('its own data, clean batch', ArchiveError('Late'), None, None, False),
+            ('its own data after a limit', MetadataError('Late'), RunLimit('Page limit'), None, False),
+            ('connection lost, clean batch', NetworkUnavailable('Late'), None, NetworkUnavailable, False),
+            ('reader broken after a limit', RuntimeError('Late'), RunLimit('Page limit'), RuntimeError, False),
+            ('other failure after another failure', NetworkUnavailable('Late'), AuthenticationError('Earlier'), None, False),
         )
         for label, late, problem, raised, reusable in cases:
             with self.subTest(label), self.pipeline() as pipeline:
@@ -219,7 +222,8 @@ class PipelineTests(unittest.TestCase):
 
     def test_failure_of_the_prepared_episode_stops_new_images_unless_it_is_only_an_access_refusal(self):
         page = Page(1, 'https://us-a.tapas.io/pc/1.png', False)
-        for label, late, stops in (('network failure', ArchiveError('Gateway'), True),
+        for label, late, stops in (('connection lost', NetworkUnavailable('Gateway'), True),
+                                   ('reader broken', RuntimeError('Crashed'), True),
                                    ('login expired', AuthenticationError('Login'), True),
                                    ('locked', AccessDenied('Locked'), False),
                                    ('novel', UnsupportedContent('Novel'), False)):
@@ -235,10 +239,29 @@ class PipelineTests(unittest.TestCase):
                     with self.assertRaises(type(late)):
                         pipeline.finish_batch()
                     self.assertFalse(pipeline.reusable)
+                    # Marked as the next episode's, so the job does not count it against the one being saved.
+                    self.assertIs(late.prepared_episode_failure, True)
                 else:
                     self.assertEqual(pipeline.retrieve(page), b'asset')
                     pipeline.finish_batch()
                     self.assertTrue(pipeline.reusable)
+
+    def test_a_prepared_episode_whose_own_data_fails_is_reported_at_its_turn_and_never_during_the_episode_before(self):
+        page = Page(1, 'https://us-a.tapas.io/pc/1.png', False)
+        with self.pipeline() as pipeline:
+            late = self.browsers[-1].failures[URL] = MetadataError('Unreadable')
+            pipeline.prefetch_episode(URL)
+            self.settle(pipeline)
+            # The episode being saved meanwhile still gets its images.
+            self.assertEqual(pipeline.retrieve(page), b'asset')
+            with self.assertRaises(MetadataError) as caught:
+                pipeline.capture_automatic(URL)
+            self.assertIs(caught.exception, late)
+            self.assertFalse(hasattr(late, 'prepared_episode_failure'))
+            # The batch may go on to other episodes; the browser that failed is not kept for the next batch.
+            self.assertEqual(pipeline.capture_automatic(OTHER).episodes[0].id, '82')
+            pipeline.finish_batch()
+            self.assertFalse(pipeline.reusable)
 
     def test_refresh_returns_new_addresses_but_refuses_a_changed_page_manifest(self):
         old = reader(URL, (Page(1, 'https://us-a.tapas.io/pc/1.png?signature=OLD', False),

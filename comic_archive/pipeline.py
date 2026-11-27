@@ -9,6 +9,17 @@ from .models import ArchiveError
 from .sites import DEFAULT
 
 
+def _ends_the_batch(error):
+    """Whether a failure of the episode being prepared is about the account, the connection or the step, and so
+    ends the batch at once. Any other is that episode's own: it is raised when its turn comes, never against the
+    episode being saved meanwhile."""
+    from .jobs import stops_the_step
+    if not stops_the_step(error):
+        return False
+    error.prepared_episode_failure = True
+    return True
+
+
 class MetadataPipeline:
     site = DEFAULT
     supports_series_seed = False
@@ -77,9 +88,9 @@ class MetadataPipeline:
                 raise
         except (AccessDenied, RunLimit, UnsupportedContent):
             pass
-        except BaseException:
+        except BaseException as error:
             self.reusable = False
-            if problem is None or limited:
+            if (problem is None or limited) and _ends_the_batch(error):
                 raise
 
     @property
@@ -111,12 +122,19 @@ class MetadataPipeline:
 
     def capture_automatic(self, url):
         with self.profile.phase('capture_wait') if self.profile is not None else nullcontext():
-            if self._pending is None:
-                return self._submit('capture_automatic', url).result()
-            pending, self._pending = self._pending, None
-            if pending[0] != url:
-                raise ArchiveError('Prepared metadata does not match the next selected episode.')
-            return pending[1].result()
+            try:
+                if self._pending is None:
+                    return self._submit('capture_automatic', url).result()
+                pending, self._pending = self._pending, None
+                if pending[0] != url:
+                    raise ArchiveError('Prepared metadata does not match the next selected episode.')
+                return pending[1].result()
+            except (AccessDenied, RunLimit, UnsupportedContent):
+                raise
+            except BaseException:
+                # The batch may go on past this episode; the browser it failed in is not kept for another batch.
+                self.reusable = False
+                raise
 
     def asset_request(self, page, max_bytes=None):
         self._check_prepared_failure()
@@ -126,7 +144,7 @@ class MetadataPipeline:
     def _check_prepared_failure(self):
         if self._pending is not None and self._pending[1].done():
             error = self._pending[1].exception()
-            if error is not None and not isinstance(error, (AccessDenied, UnsupportedContent)):
+            if error is not None and not isinstance(error, (AccessDenied, UnsupportedContent)) and _ends_the_batch(error):
                 raise error
 
     def retrieve(self, page, max_bytes=None):

@@ -584,21 +584,22 @@ class JobTests(unittest.TestCase):
 
     @patch('builtins.print')
     def test_an_episode_that_keeps_failing_is_tried_after_the_others_and_then_held(self,output):
+        # A failure nothing expected, not one of the episode's own data: it stops the step each time.
         capture=self.adapter.capture_automatic
         def broken(url):
-            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            if url.endswith('/82'):raise RuntimeError('The reader page is broken.')
             return capture(url)
         self.adapter.capture_automatic=broken
-        with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report,limit=1)
+        with self.assertRaises(RuntimeError):archive_discovered(self.adapter,self.root,self.report,limit=1)
         # The log says which episode, and where it failed, never the words of the failure.
         printed='\n'.join(' '.join(map(str,call.args)) for call in output.call_args_list)
         self.assertIn('Episode 82 of series 42: job_failed.',printed)
-        self.assertRegex(printed,r'This step stopped: MetadataError at test_jobs\.py:[0-9]+')
+        self.assertRegex(printed,r'This step stopped: RuntimeError at test_jobs\.py:[0-9]+')
         self.assertNotIn('broken',printed)
         # The next run goes past it instead of failing on it again first.
         self.assertEqual(archive_discovered(self.adapter,self.root,self.report,limit=1)['archived_episode_ids'],['81'])
         for _ in range(2):
-            with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report)
+            with self.assertRaises(RuntimeError):archive_discovered(self.adapter,self.root,self.report)
         self.adapter.calls.clear()
         held=archive_discovered(self.adapter,self.root,self.report)
         self.assertEqual((held['status'],held['pending_episode_count']),('finished',0))
@@ -652,7 +653,7 @@ class JobTests(unittest.TestCase):
             if url.endswith('/82'):raise MetadataError('The reader page is broken.')
             return capture(url)
         self.adapter.capture_automatic=broken
-        with self.assertRaises(MetadataError):archive_discovered(self.adapter,self.root,self.report)
+        archive_discovered(self.adapter,self.root,self.report)
         self.assertEqual(row(),('failed','job_failed',1))
         with Inventory(self.root,read_only=True) as inventory:
             self.assertIn('82',[item['id'] for item in inventory.pending()])
@@ -676,6 +677,209 @@ class JobTests(unittest.TestCase):
     def episode_row(self, key):
         with Inventory(self.root, read_only=True) as inventory:
             return tuple(inventory.db.execute('SELECT status,error_code,attempts FROM episodes WHERE id=?', (key,)).fetchone())
+
+    def several_series(self, episodes, unreadable=()):
+        """Queue free episodes of several series, {series: episode keys}, and have the reader answer for each;
+        an episode in unreadable, {key: words}, fails with those words as data the reader could not use."""
+        owner = {key: series for series, keys in episodes.items() for key in keys}
+        with Inventory(self.root) as inventory:
+            for series, keys in episodes.items():
+                inventory.observe(series, 'S' + series, [{'id': key, 'title': 'E' + key, 'order': order,
+                                                          'access_state': 'tapas_free'}
+                                                         for order, key in enumerate(keys, 1)], 'fixture')
+
+        def capture(url):
+            key = url.rsplit('/', 1)[1]
+            self.adapter.calls.append(('capture', key))
+            if key in unreadable:
+                raise MetadataError(unreadable[key])
+            series = Series('s' + owner[key], 'S' + owner[key], platform_id=owner[key])
+            return Manifest(series, (Episode(key, series.id, 'E' + key, episodes[owner[key]].index(key) + 1,
+                                             (Page(1, 'https://us-a.tapas.io/pc/1.jpg', False),), 'tapas_free', url),))
+        self.adapter.capture_automatic = capture
+
+    def captured(self):
+        return [call[1] for call in self.adapter.calls if isinstance(call, tuple) and call[0] == 'capture']
+
+    @patch('builtins.print')
+    def test_a_series_whose_episodes_all_fail_is_passed_over_and_every_other_series_is_saved_in_the_same_step(self, output):
+        from comic_archive.inventory import MAX_FAILED_ATTEMPTS
+        broken = {key: 'The episode has no readable pages.' for key in ('81', '82', '83')}
+        self.several_series({'42': ['81', '82', '83'], '43': ['91', '92'], '44': ['95']}, broken)
+        first = archive_discovered(self.adapter, self.root)
+        # One try shows the series is in trouble; its other episodes wait until every other series is saved.
+        self.assertEqual(self.captured(), ['81', '91', '92', '95', '82', '83'])
+        self.assertEqual((first['status'], first['archived_episode_ids'], first['set_aside_episode_ids']),
+                         ('limited', ['91', '92', '95'], []))
+        self.assertEqual(len(list(self.root.rglob('*.cbz'))), 3)
+        for key in broken:
+            self.assertEqual(self.episode_row(key), ('failed', 'job_failed', 1))
+        # They are tried again without stopping anything, and after their last try they are held, not saved.
+        again = archive_discovered(self.adapter, self.root)
+        self.assertEqual((again['status'], again['set_aside_episode_ids']), ('limited', []))
+        last = archive_discovered(self.adapter, self.root)
+        self.assertEqual((last['status'], last['pending_episode_count'], last['set_aside_episode_ids']),
+                         ('finished', 0, ['81', '82', '83']))
+        for key in broken:
+            self.assertEqual(self.episode_row(key), ('failed', 'job_failed', MAX_FAILED_ATTEMPTS))
+        self.adapter.calls.clear()
+        self.assertEqual(archive_discovered(self.adapter, self.root)['status'], 'finished')
+        self.assertEqual(self.captured(), [])
+        with Inventory(self.root, read_only=True) as inventory:
+            self.assertEqual(inventory.status()['episodes_by_status'], {'archived': 3, 'failed': 3})
+
+    @patch('builtins.print')
+    def test_an_episode_whose_own_data_cannot_be_read_is_held_as_failed_while_the_step_goes_on(self, output):
+        capture = self.adapter.capture_automatic
+        def broken(url):
+            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            return capture(url)
+        self.adapter.capture_automatic = broken
+        first = archive_discovered(self.adapter, self.root, self.report, limit=1)
+        self.assertEqual((first['status'], first['archived_episode_ids'], first['set_aside_episode_ids']), ('limited', [], []))
+        # The log says which episode, and where it failed, never the words of the failure; the step did not stop.
+        printed = '\n'.join(' '.join(map(str, call.args)) for call in output.call_args_list)
+        self.assertRegex(printed, r'Episode 82 of series 42: not saved, job_failed \(MetadataError at test_jobs\.py:[0-9]+( < [a-z_]+\.py:[0-9]+)*\)\.')
+        self.assertNotIn('This step stopped', printed)
+        self.assertNotIn('broken', printed)
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 1))
+        self.assertEqual(archive_discovered(self.adapter, self.root, self.report, limit=1)['archived_episode_ids'], ['81'])
+        # Its third try is its last: the step says it was set aside, and nothing waits any more.
+        self.assertEqual(archive_discovered(self.adapter, self.root, self.report)['set_aside_episode_ids'], [])
+        last = archive_discovered(self.adapter, self.root, self.report)
+        self.assertEqual((last['status'], last['pending_episode_count'], last['set_aside_episode_ids']), ('finished', 0, ['82']))
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 3))
+        # A later Go, after the check counted it missing, tries it again; repaired, it is saved.
+        with Inventory(self.root) as inventory:
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
+        self.adapter.capture_automatic = capture
+        self.assertEqual(archive_discovered(self.adapter, self.root, self.report)['archived_episode_ids'], ['82'])
+
+    @patch('builtins.print')
+    def test_the_same_failure_in_three_series_in_a_row_stops_the_step_as_a_wider_fault(self, output):
+        episodes = {'42': ['81', '82'], '43': ['91'], '44': ['95'], '45': ['97']}
+        self.several_series(episodes, {key: 'The reader gave no pages.' for keys in episodes.values() for key in keys})
+        with self.assertLogs('comic_archive.download', 'INFO') as logged, self.assertRaises(MetadataError):
+            archive_discovered(self.adapter, self.root)
+        # One episode of each of three series, and then no more: the fourth series is not even asked.
+        self.assertEqual(self.captured(), ['81', '91', '95'])
+        self.assertIn('reason=same_failure_in_a_row count=3', '\n'.join(logged.output))
+        self.assertEqual([self.episode_row(key) for key in ('81', '91', '95')], [('failed', 'job_failed', 1)] * 3)
+        self.assertEqual([self.episode_row(key) for key in ('82', '97')], [('queued', None, 0)] * 2)
+        self.assertEqual(json.loads((self.root / '.archive-state/last-run.json').read_text())['status'], 'paused')
+        printed = '\n'.join(' '.join(map(str, call.args)) for call in output.call_args_list)
+        self.assertRegex(printed, r'This step stopped: MetadataError at test_jobs\.py:[0-9]+')
+
+    @patch('builtins.print')
+    def test_failures_with_a_saved_episode_between_them_never_add_up_to_a_wider_fault(self, output):
+        words = 'The reader gave no pages.'
+        self.several_series({'42': ['81'], '43': ['91'], '44': ['95'], '45': ['97'], '46': ['99']},
+                            {'81': words, '91': words, '97': words, '99': words})
+        result = archive_discovered(self.adapter, self.root)
+        self.assertEqual((result['status'], result['archived_episode_ids']), ('limited', ['95']))
+        self.assertEqual(self.captured(), ['81', '91', '95', '97', '99'])
+        self.assertEqual([self.episode_row(key) for key in ('81', '91', '97', '99')], [('failed', 'job_failed', 1)] * 4)
+
+    @patch('builtins.print')
+    def test_failures_of_different_kinds_in_a_row_never_add_up_to_a_wider_fault(self, output):
+        one, other = 'The reader gave no pages.', 'The episode belongs to another series.'
+        self.several_series({'42': ['81'], '43': ['91'], '44': ['95'], '45': ['97'], '46': ['99']},
+                            {'81': one, '91': one, '95': other, '97': one, '99': one})
+        result = archive_discovered(self.adapter, self.root)
+        self.assertEqual((result['status'], result['archived_episode_ids']), ('limited', []))
+        self.assertEqual(self.captured(), ['81', '91', '95', '97', '99'])
+
+    @patch('builtins.print')
+    def test_the_one_episode_of_a_reader_check_that_fails_still_stops_its_step(self, output):
+        capture = self.adapter.capture_automatic
+        def broken(url):
+            if url.endswith('/82'):raise MetadataError('The reader page is broken.')
+            return capture(url)
+        self.adapter.capture_automatic = broken
+        with self.assertRaises(MetadataError):
+            archive_discovered(self.adapter, self.root, self.report, limit=1, retry_episode_id='82')
+        self.assertEqual(self.episode_row('82'), ('failed', 'job_failed', 1))
+        saved = json.loads((self.root / '.archive-state/last-run.json').read_text())
+        self.assertEqual((saved['status'], saved['reader_probe_succeeded']), ('paused', False))
+
+    @patch('builtins.print')
+    def test_an_episode_failure_that_is_the_site_refusing_or_failing_still_stops_the_step(self, output):
+        from comic_archive.jobs import stops_the_step
+        def answered(status):
+            error = ArchiveError('The site answered.')
+            error.source_http_status = status
+            return error
+        self.assertEqual([status for status in (400, 401, 403, 404, 407, 408, 410, 429, 500, 503)
+                          if stops_the_step(answered(status))], [401, 403, 407, 408, 429, 500, 503])
+        capture = self.adapter.capture_automatic
+        def failing(url):
+            if url.endswith('/82'):raise answered(500)
+            return capture(url)
+        self.adapter.capture_automatic = failing
+        with self.assertRaises(ArchiveError):
+            archive_discovered(self.adapter, self.root, self.report)
+        # Nothing after it was asked for: the next episode would only meet the same site.
+        self.assertNotIn(('capture', '81'), self.adapter.calls)
+        self.assertEqual(json.loads((self.root / '.archive-state/last-run.json').read_text())['status'], 'paused')
+
+    def reader_with_lookahead(self, unreadable):
+        """The account's reader as the one-episode lookahead owns it, whose episode 81 fails with the error given
+        while it is prepared: (the reader, the lookahead to enter)."""
+        from types import SimpleNamespace
+        from comic_archive.pipeline import MetadataPipeline
+
+        class Reader(AccountAdapter):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *arguments):
+                pass
+
+            def image(self, location, max_bytes=None):
+                return self.retrieve(Page(int(location.rsplit('/', 1)[1].split('.')[0]), location, False), max_bytes)
+
+        reader = Reader()
+        reader.transport = SimpleNamespace(assets=SimpleNamespace(get=reader.image))
+        capture = reader.capture_automatic
+
+        def captured(url):
+            if url.endswith('/81') and unreadable:
+                raise unreadable[0]
+            return capture(url)
+        reader.capture_automatic = captured
+        pipeline = MetadataPipeline(lambda: reader, None)
+        pipeline.supports_novels = pipeline.supports_series_metadata = False
+        prefetch = pipeline.prefetch_episode
+
+        def prepared(url):
+            prefetch(url)
+            pipeline.account_identity()  # The one reader thread works in order: the prepared episode has answered.
+        pipeline.prefetch_episode = prepared
+        return reader, pipeline
+
+    @patch('builtins.print')
+    def test_with_the_lookahead_a_broken_next_episode_is_held_as_failed_itself_and_the_episode_being_saved_is_saved(self, output):
+        # Episode 82, bought, is saved first; 81 is prepared meanwhile and its data cannot be used.
+        reader, lookahead = self.reader_with_lookahead([MetadataError('The reader page is broken.')])
+        with lookahead as pipeline:
+            result = archive_discovered(pipeline, self.root, self.report, _pipeline=True)
+        self.assertEqual((result['status'], result['archived_episode_ids']), ('limited', ['82']))
+        self.assertEqual(self.episode_row('82')[0], 'archived')
+        self.assertEqual(self.episode_row('81'), ('failed', 'job_failed', 1))
+        self.assertEqual(reader.downloads, [1, 2])
+        self.assertEqual(verify(self.root), [])
+
+    @patch('builtins.print')
+    def test_with_the_lookahead_a_next_episode_that_breaks_the_reader_stops_the_step_without_blaming_the_episode_being_saved(self, output):
+        unreadable = [RuntimeError('The reader stopped answering.')]
+        reader, lookahead = self.reader_with_lookahead(unreadable)
+        with lookahead as pipeline, self.assertRaises(RuntimeError):
+            archive_discovered(pipeline, self.root, self.report, _pipeline=True)
+        # The episode being saved meanwhile only waits: it is not counted as failed, and neither is the next.
+        self.assertEqual(self.episode_row('82'), ('queued', 'interrupted', 0))
+        self.assertEqual(self.episode_row('81'), ('queued', None, 0))
+        unreadable.clear()
+        self.assertEqual(sorted(archive_discovered(reader, self.root, self.report)['archived_episode_ids']), ['81', '82'])
 
     @patch('builtins.print')
     def test_an_image_that_never_arrives_is_tried_five_times_then_its_episode_is_held_as_failed_and_the_rest_saved(self, output):
@@ -1242,14 +1446,14 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.adapter.downloads, [1, 2])
 
     @patch("builtins.print")
-    def test_changed_source_identity_stops_and_saves_safe_failure(self, output):
+    def test_an_episode_read_under_another_series_identity_is_never_saved_and_is_held_as_failed(self, output):
         self.adapter.series = replace(self.adapter.series, platform_id="99")
-        with self.assertRaises(MetadataError):
-            archive_discovered(self.adapter, self.root, self.report)
+        result = archive_discovered(self.adapter, self.root, self.report)
+        self.assertEqual((result["status"], result["archived_episode_ids"]), ("limited", []))
         self.assertEqual(self.adapter.downloads, [])
+        self.assertEqual(list(self.root.rglob("*.cbz")), [])
         saved = json.loads((self.root / ".archive-state/last-run.json").read_text())
-        self.assertEqual(saved["status"], "paused")
-        self.assertEqual(saved["inventory"]["episodes_by_status"], {"failed": 1, "queued": 1})
+        self.assertEqual(saved["inventory"]["episodes_by_status"], {"failed": 2})
 
     @patch("builtins.print")
     def test_corrupt_archive_is_repaired_using_cached_original_bytes(self, output):
@@ -1365,10 +1569,10 @@ class JobTests(unittest.TestCase):
     @patch('builtins.print')
     def test_archive_that_fails_verification_after_publishing_is_marked_failed_and_repaired_later(self,output):
         with patch('comic_archive.jobs.verify_episode',return_value=['Page hash does not match']):
-            with self.assertRaises(ArchiveError):archive_discovered(self.adapter,self.root,self.report,limit=1)
+            self.assertEqual(archive_discovered(self.adapter,self.root,self.report,limit=1)['archived_episode_ids'],[])
         with Inventory(self.root,read_only=True) as inventory:
             self.assertEqual(inventory.status()['episodes_by_status'],{'failed':1,'queued':1})
-            self.assertEqual(inventory.status()['last_run']['status'],'paused')
+            self.assertEqual(inventory.status()['last_run']['status'],'limited')
         result=archive_discovered(self.adapter,self.root,self.report)
         self.assertIn('81',result['archived_episode_ids'])
         self.assertEqual(result['inventory']['episodes_by_status'],{'archived':2});self.assertEqual(verify(self.root),[])

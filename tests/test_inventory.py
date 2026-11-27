@@ -443,6 +443,31 @@ class InventoryTests(unittest.TestCase):
             inventory.observe('42', 'S', [episode('81', 1, 'tapas_unlocked')] + listed[1:], 'subscribed')
             self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83'])
 
+    def test_the_rest_of_a_series_an_episode_failed_in_waits_behind_every_other_series(self):
+        with Inventory(self.root) as inventory:
+            inventory.observe('42', 'S', [episode('81', 1), episode('82', 2), episode('83', 3)], 'subscribed')
+            inventory.observe('43', 'T', [episode('91', 1), episode('92', 2)], 'subscribed')
+            self.assertEqual([row['id'] for row in inventory.pending()], ['81', '82', '83', '91', '92'])
+            self.assertEqual(inventory.failing_series(), set())
+            inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            # The other series first, then the rest of the broken one, and the failed episode last of all.
+            self.assertEqual(inventory.failing_series(), {'42'})
+            self.assertEqual([row['id'] for row in inventory.pending()], ['91', '92', '82', '83', '81'])
+            # Held after its last try, it still marks its series: a series that may be broken is never first.
+            for _ in range(MAX_FAILED_ATTEMPTS - 1):
+                inventory.mark('81', 'failed', 'job_failed', attempted=True)
+            self.assertEqual([row['id'] for row in inventory.pending()], ['91', '92', '82', '83'])
+            # An episode whose access is about to end keeps its place: waiting could lose it.
+            inventory.observe('42', 'S', [episode('83', 3, 'tapas_unlocked') | {'access_expires_at': '2999-01-01T00:00:00+00:00'}],
+                              'subscribed')
+            self.assertEqual([row['id'] for row in inventory.pending()][0], '83')
+            # Any other reason an episode waits says nothing against its series.
+            inventory.mark('91', 'failed', 'source_refused')
+            self.assertEqual(inventory.failing_series(), {'42'})
+            # A Go that gives the held episode new tries clears the mark with it.
+            self.assertEqual(inventory.prepare_completion_retry(), (0, 1))
+            self.assertEqual(inventory.failing_series(), set())
+
     def image_wait(self, inventory, key='81'):
         """How long the episode's next try is away, as a step with nothing else to save reports it."""
         return inventory.archive_selection([row for row in inventory.pending() if row['id'] == key])[1]

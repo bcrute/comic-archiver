@@ -14,7 +14,7 @@ from .publication import PublicationStore as Store
 from .archive import atomic_json, verify_episode
 from .errors import (AccessDenied, AssetReadUnavailable, AuthenticationError, LibraryBusy, LibraryMoved, MetadataError,
                      NetworkUnavailable, RunLimit, UnsupportedContent)
-from .inventory import Inventory, UNSUPPORTED_REASONS
+from .inventory import Inventory, MAX_FAILED_ATTEMPTS, UNSUPPORTED_REASONS
 from .models import ArchiveError
 from .cancellation import RunCancellation, RunCancelled
 from .support_log import describe
@@ -27,6 +27,8 @@ MAX_DEFERRED_ASSET_FAILURES = 5
 LIBRARY_WAIT_SECONDS = 30
 # This many series in a row failing the same way is one wider fault (a site change), not that many odd series.
 MAX_SERIES_SET_ASIDE_IN_A_ROW = 3
+# The same for episodes: this many in a row, each of another series, failing the same way.
+MAX_EPISODE_FAILURES_IN_A_ROW = 3
 
 
 def image_only(error, retry_page=None):
@@ -54,7 +56,7 @@ def retain_partial_series(inventory,error):
 
 def stops_the_step(error):
     """An error about the account, the connection, the site refusing, the library or the step itself; any other
-    error in one series' check is about that series' data, which never holds up the rest."""
+    error in one series' check, or in saving one episode, is about that one's data, which never holds up the rest."""
     from .network import NetworkPolicyHold
     from .cloud_errors import CloudTransferError
     if isinstance(error, (AuthenticationError, AccessDenied, RunLimit, NetworkUnavailable, NetworkPolicyHold,
@@ -257,7 +259,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                    "unavailable_episode_ids": [], "unsupported_episode_ids": [],
                    "not_free_episode_ids": [],
                    'excluded_episode_ids': [], 'extras_episode_ids': [],
-                   'deferred_asset_episode_ids':[], 'set_aside_episode_ids': [],
+                   'deferred_asset_episode_ids':[], 'set_aside_episode_ids': [], 'failed_episode_ids': [],
                    'enriched_series_ids':[],'metadata_unavailable_series':[],
                    "downloaded_pages": 0, "downloaded_bytes": 0, "inventory_complete": False,
                    'scan_elapsed_seconds':0.0, 'download_workers':download_workers}
@@ -356,6 +358,9 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 else:
                     summary['priority_policy']='unlocked_first'
                 selected, _ = inventory.archive_selection(candidates, limit)
+                # Series an episode failed in, before this step or in it, whose other episodes come after every
+                # other series'; and this step's failures in a row that look the same.
+                failed_series, failure_streak = inventory.failing_series(), []
                 if retry_episode_id is not None:
                     # Recheck the exact refused episode, without inventing an
                     # identity or letting healthy work masquerade as recovery.
@@ -386,6 +391,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             summary['extras_episode_ids'].append(key)
                             continue
                         archived_series=None
+                        prepared = False
                         inventory.mark(key, "downloading")
                         print(f"Archiving episode {key}; {len(summary['archived_episode_ids'])} episodes completed in this run.", flush=True)
                         try:
@@ -442,6 +448,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 if budget.max_pages is None or budget.pages + units < budget.max_pages:
                                     budget.check()
                                     adapter.prefetch_episode(adapter.episode_url(selected[selected_index + 1]['id']))
+                                    prepared = True
                             retry = inventory.db.execute('SELECT failed_page FROM asset_deferrals WHERE episode_id=?',
                                                          (key,)).fetchone()
                             with_store.retry_page = retry[0] if retry else None
@@ -464,6 +471,7 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                                 raise
                             archived_series=manifest.series
                             consecutive_asset_failures = 0
+                            failure_streak.clear()
                         except AssetReadUnavailable as error:
                             # Only a typed CDN read failure is episode-local. Auth,
                             # metadata, HTTP refusals and rate limits remain holds.
@@ -505,6 +513,46 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                             if code=='reader_manifest_incomplete':
                                 current=None
                                 raise MetadataError('Reader manifest is unavailable; this run paused for authorized browser inspection.') from None
+                        except ArchiveError as error:
+                            # Its own data could not be read or saved: only this episode waits, held as failed, and
+                            # the queue goes on. Whatever is about the account, the connection, the site refusing,
+                            # the library or the step still stops the step, as does the one episode of a probe.
+                            if current is None or retry_episode_id is not None or stops_the_step(error) or not output.is_dir():
+                                raise
+                            log = logging.getLogger('comic_archive.download')
+                            series_key = current['series_id']
+                            first = series_key not in failed_series
+                            if first:
+                                # Only the first failure of a series counts: the rest of a broken series is one
+                                # fault, not a run of them.
+                                failure = (type(error).__name__, str(error))
+                                if failure_streak and failure_streak[-1] != failure:
+                                    failure_streak.clear()
+                                failure_streak.append(failure)
+                                if len(failure_streak) >= MAX_EPISODE_FAILURES_IN_A_ROW:
+                                    # The same failure series after series is the site, not the episodes: the
+                                    # step stops on it as before, instead of setting episodes aside one by one.
+                                    log.info('episode saving stopped: episode=%s series=%s error=%s reason=same_failure_in_a_row count=%s',
+                                             key, series_key, type(error).__name__, len(failure_streak))
+                                    raise
+                            inventory.mark(key, 'failed', 'job_failed', attempted=True)
+                            # A try used up is something the step did: its few tries are not waited between.
+                            summary['failed_episode_ids'].append(key)
+                            if current['attempts'] + 1 >= MAX_FAILED_ATTEMPTS:
+                                # Its last try: held as failed until a later Go.
+                                summary['set_aside_episode_ids'] += [key]
+                            print(f"Episode {key} of series {series_key}: not saved, job_failed ({describe(error)}).", flush=True)
+                            log.warning('episode not saved: episode=%s series=%s error=%s reason=episode_data_unreadable '
+                                        'tries=%s tried_again=after_the_rest', key, series_key, type(error).__name__,
+                                        current['attempts'] + 1)
+                            if first:
+                                failed_series.add(series_key)
+                                # The episode already being prepared stays next; the reader holds only that one.
+                                start = selected_index + (2 if prepared else 1)
+                                rest = [row for row in selected[start:]
+                                        if not row.get('extras_only') and row['series_id'] == series_key]
+                                selected[start:] = [row for row in selected[start:]
+                                                    if row.get('extras_only') or row['series_id'] != series_key] + rest
                         current = None
                         if archived_series is not None and getattr(adapter,'supports_series_metadata',False) is True:
                             series_key=archived_series.platform_id or archived_series.id
@@ -598,9 +646,12 @@ def archive_discovered(adapter, output=Path("Library"), report=None, limit=None,
                 for frame in traceback.extract_tb(error.__traceback__)
                 if Path(frame.filename).suffix == ".py"]}
             if current is not None:
-                # A refusal is the site's, not the episode's: it is not counted towards parking the episode.
+                # A refusal is the site's, not the episode's: it is not counted towards parking the episode. Nor is
+                # the failure of the next episode, which the reader had begun, counted against this one.
                 code = ("interrupted" if isinstance(error, KeyboardInterrupt)
-                        else "source_refused" if summary.get('pause_reason') == 'source_refused' else "job_failed")
+                        else "source_refused" if summary.get('pause_reason') == 'source_refused'
+                        else "interrupted" if getattr(error, 'prepared_episode_failure', False) is True
+                        else "job_failed")
                 # Only a failure of the episode's own counts: a start that Pause, a limit, an outage or a refusal
                 # cut short says nothing against the episode.
                 inventory.mark(current["id"], "queued" if code == "interrupted" else "failed", code,

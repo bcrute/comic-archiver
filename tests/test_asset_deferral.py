@@ -149,7 +149,7 @@ class AssetDeferralTests(unittest.TestCase):
 
     def test_http_refusal_is_not_deferred(self,output):
         def retrieve(*args,**kwargs):
-            raise ArchiveError('Tapas rate limit reached; this job has stopped.')
+            error=ArchiveError('Tapas rate limit reached; this job has stopped.');error.source_http_status=429;raise error
         self.adapter.retrieve = retrieve
         with self.assertRaises(ArchiveError):
             archive_discovered(self.adapter,self.root)
